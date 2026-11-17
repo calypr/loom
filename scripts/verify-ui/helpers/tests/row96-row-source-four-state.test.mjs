@@ -63,9 +63,6 @@ test('row96 matrix wire proof binds the applying commands echo with load-time bo
     assert.ok(source.includes(probe), `matrix wire-proof wiring missing: ${probe}`);
   }
   assert.ok(!source.includes('const matrixRowSets ='), 'the retired proposals-based proof must not silently return');
-  // Pin the extractor's behavior inside its own definition: textual probes
-  // elsewhere (assert messages, listener registration) survive a body stub,
-  // so the proof surfaces are asserted on the brace-matched definition body.
   const cmdDefAt = source.indexOf('const commandRowSets =');
   assert.ok(cmdDefAt >= 0, 'commandRowSets definition missing');
   const cmdDefOpen = source.indexOf('{', cmdDefAt);
@@ -90,9 +87,6 @@ test('row96 matrix wire proof binds the applying commands echo with load-time bo
   ]) {
     assert.ok(commandRowSetsBody.includes(probe), `commandRowSets definition lost a proof surface: ${probe}`);
   }
-  // Each leg's server-multiset proof must read only captures from after its own
-  // leg-start watermark (project binding blocks the cross-project class; this
-  // blocks the cross-leg class).
   assert.match(source, /const cmdBeforeExclude = matrixCmdWire\.length;[\s\S]*commandRowSets\(cmdBeforeExclude\)/, 'EXCLUDE proof is not leg-watermarked on the commands echo');
   assert.match(source, /const cmdBeforePreserve = matrixCmdWire\.length;[\s\S]*commandRowSets\(cmdBeforePreserve\)/, 'PRESERVE proof is not leg-watermarked on the commands echo');
 });

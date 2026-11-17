@@ -95,7 +95,7 @@ func TestGraphQLTransportStatusMatrix(t *testing.T) {
 		name   string
 		write  func(w http.ResponseWriter, body string)
 		json   bool
-		expect int // wire status
+		expect int
 	}{
 		{"405", func(w http.ResponseWriter, b string) { w.WriteHeader(405); _, _ = w.Write([]byte(b)) }, true, 500},
 		{"415", func(w http.ResponseWriter, b string) { w.WriteHeader(415); _, _ = w.Write([]byte(b)) }, true, 500},

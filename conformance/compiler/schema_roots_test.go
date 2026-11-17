@@ -32,8 +32,8 @@ func TestPublicCompilerRejectsSchemaBackboneAndAbstractRoots(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "not represented by the active generated FHIR schema") {
 				t.Fatalf("compile recipe root %q error = %v, want generated-schema rejection", resourceType, err)
 			}
-			if compiled.Query != "" {
-				t.Fatalf("compile recipe root %q rendered AQL for a rejected root:\n%s", resourceType, compiled.Query)
+			if compiled.Command.Backend() != "" {
+				t.Fatalf("compile recipe root %q rendered AQL for a rejected root: backend %s", resourceType, compiled.Command.Backend())
 			}
 		})
 	}

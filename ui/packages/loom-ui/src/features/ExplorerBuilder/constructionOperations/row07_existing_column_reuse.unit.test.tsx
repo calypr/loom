@@ -26,7 +26,6 @@ const projection = (columnId: string, fieldPath: string): NonNullable<Constructi
   label: fieldPath,
 });
 
-// --- COE harness (filter + derive lanes) ---
 
 const sourceStage = (cols: ConstructionStageDescriptor['columns']): ConstructionStageDescriptor => ({
   id: 'source_projection',
@@ -131,7 +130,6 @@ const operandColumn = (label: string): HTMLSelectElement =>
 const stringCol = (id: string, label: string) => ({ id, name: id, label, type: 'string' });
 const intCol = (id: string, label: string) => ({ id, name: id, label, type: 'integer' });
 
-// --- Reshape harness (unpivot lane) ---
 
 const unpivotColumns: ConstructionReshapeEditorProps['capabilities']['selectedStage']['columns'] = [
   { id: 'opaque-a', name: 'col_opaque_a', label: 'Patient reference', type: 'string', cardinality: 'required_one' },

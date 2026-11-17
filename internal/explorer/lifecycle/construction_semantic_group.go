@@ -22,8 +22,6 @@ const (
 	constructionSemanticGroupChoicePageLimit = 5
 )
 
-// ConstructionSemanticGroupChoice is an ephemeral, exact family choice for
-// the selected Group stage. The durable operation stores a resolved binding.
 type ConstructionSemanticGroupChoice struct {
 	ChoiceID     string `json:"choiceId"`
 	BindingID    string `json:"bindingId"`

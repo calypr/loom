@@ -1,12 +1,6 @@
 --------------------------- MODULE ApplySettlementRace ---------------------------
 EXTENDS Naturals, FiniteSets, TLC
 
-(* Source: constructionApplyOwnership.beginConstructionApply and its finish. *)
-(* SetCurrentOwner/ChangeContext are synchronous inputs to the live-identity    *)
-(* reader, not a model of proposal HTTP/React scheduling. Full hook tests     *)
-(* separately exercise that integration boundary. One outstanding per owner.    *)
-(* A pending applyCommandsWithResult promise outlives cancel's ref reset.      *)
-(* Owner A/B means two Apply attempts, not receipt IDs or workspace identities.   *)
 Owners == {"A", "B"}
 None == "none"
 VARIABLES currentContext, ownerContext, currentOwner, applyingOwner, usedOwners, pendingApplies,
@@ -58,7 +52,6 @@ ApplyReturns(owner, applied) ==
   /\ inputOwner' = owner
   /\ responseOwner' = owner
   /\ lastApplied' = applied
-  (* The returned completion handle identifies its initiating Apply attempt. *)
   /\ priorApplyingOwner' = applyingOwner
   /\ priorCurrentOwner' = currentOwner
   /\ settledOwner' = IF applyingOwner = owner /\ currentOwner = owner /\ ownerContext[owner] = currentContext THEN owner ELSE None

@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"strings"
 	"testing"
 
@@ -29,8 +30,15 @@ func newRunTestFixture(t *testing.T) (*Engine, *runOutputRegistry) {
 	t.Helper()
 	registry := &runOutputRegistry{}
 	engine, err := New(Config{
-		Registry: registry,
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      registry,
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return errors.New("query executor must not be consulted")
 		},
 	})

@@ -79,9 +79,6 @@ func TestResolveTerminalScalarMetadataRejectsUnknownPath(t *testing.T) {
 	if got, ok := ResolveTerminalScalarMetadata("NotAResource", "id"); ok {
 		t.Fatalf("unexpected metadata for unknown resource: %#v", got)
 	}
-	// The active generated Observation definition does not advertise
-	// valueDecimal, so the semantic API must not infer it from another FHIR
-	// version or an external model.
 	if got, ok := ResolveTerminalScalarMetadata("Observation", "valueDecimal"); ok {
 		t.Fatalf("unexpected metadata for unadvertised Observation.valueDecimal: %#v", got)
 	}

@@ -485,7 +485,6 @@ func TestPrepareArtifactAbortsAfterExactReaderFailure(t *testing.T) {
 		t.Fatalf("err=%v, want pin-loss code", err)
 	}
 	request := ArtifactRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, RevisionID: "revision-a", OutputID: "patients", IdempotencyKey: "download-failure"}
-	// The failed record remains durable for deterministic retry behavior.
 	identity := explorer.ArtifactRecord{Project: receipt.Project, ExplorerID: receipt.ExplorerID, RevisionID: request.RevisionID, OutputID: request.OutputID, ReceiptID: receipt.ID, ExecutionID: "execution-a", DatasetGeneration: receipt.SourceGeneration, SchemaDigest: "schema-a", AuthorizationScopeDigest: receipt.AuthorizationScopeDigest, IdempotencyKey: request.IdempotencyKey}
 	id, _ := explorer.ArtifactID(identity)
 	record, getErr := artifacts.Get(context.Background(), id)
@@ -513,8 +512,6 @@ func TestOpenArtifactReauthorizesCurrentToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Build a complete record directly to isolate the download authorization
-	// gate from preparation.
 	record := explorer.ArtifactRecord{Project: receipt.Project, ExplorerID: receipt.ExplorerID, RevisionID: "revision-a", OutputID: "patients", ReceiptID: receipt.ID, ExecutionID: "execution-a", DatasetGeneration: receipt.SourceGeneration, SchemaDigest: "schema-a", AuthorizationScopeDigest: receipt.AuthorizationScopeDigest, SnapshotToken: snapshot.Token, IdempotencyKey: "open", State: explorer.ArtifactComplete, ExpiresAt: time.Now().Add(time.Hour), CreatedAt: time.Now()}
 	record.ID, _ = explorer.ArtifactID(record)
 	artifacts.records[record.ID] = record

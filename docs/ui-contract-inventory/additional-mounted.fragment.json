@@ -20,15 +20,15 @@
         "variant": "derive and save reusable revision from a configured column"
       },
       "evidence": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4839",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4845",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4827",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4833",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx:101",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx:145",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx:153",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx:241",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx:245",
-        "ui/packages/loom-ui/src/api.ts:1766",
-        "ui/packages/loom-ui/src/api.ts:1768"
+        "ui/packages/loom-ui/src/api.ts:1755",
+        "ui/packages/loom-ui/src/api.ts:1757"
       ],
       "request": {
         "constructor": "InterpretationPanel.createRevision -> LoomClient.createInterpretationRevisionFromColumn",
@@ -36,8 +36,8 @@
         "apply": "The library revision is saved by this request; it does not mutate the configured feature. A later review/apply is a separate operation.",
         "endpointEvidence": [
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx:153",
-          "ui/packages/loom-ui/src/api.ts:1766",
-          "ui/packages/loom-ui/src/api.ts:1779"
+          "ui/packages/loom-ui/src/api.ts:1755",
+          "ui/packages/loom-ui/src/api.ts:1768"
         ]
       },
       "gates": [
@@ -192,15 +192,15 @@
         "variant": "preview an exact applicable revision for one column, then apply its candidate receipt"
       },
       "evidence": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4844",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4857",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4832",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4845",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx:122",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx:126",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx:138",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx:177",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx:180",
-        "ui/packages/loom-ui/src/api.ts:1781",
-        "ui/packages/loom-ui/src/api.ts:1457"
+        "ui/packages/loom-ui/src/api.ts:1770",
+        "ui/packages/loom-ui/src/api.ts:1446"
       ],
       "request": {
         "previewConstructor": "InterpretationPanel.reviewRevision -> LoomClient.previewInterpretationCandidate",
@@ -211,9 +211,9 @@
         "endpointEvidence": [
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx:122",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx:126",
-          "ui/packages/loom-ui/src/api.ts:1781",
+          "ui/packages/loom-ui/src/api.ts:1770",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx:179",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1450"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1449"
         ]
       },
       "gates": [
@@ -345,15 +345,15 @@
         "variant": "attach a selection revision to the current output through one compiler-returned route choice, or replace its attached revision"
       },
       "evidence": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4318",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4331",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4306",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4319",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx:81",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx:83",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx:188",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx:248",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx:270",
-        "ui/packages/loom-ui/src/api.ts:1599",
-        "ui/packages/loom-ui/src/api.ts:1457"
+        "ui/packages/loom-ui/src/api.ts:1588",
+        "ui/packages/loom-ui/src/api.ts:1446"
       ],
       "request": {
         "routeSearchConstructor": "PopulationPanel routeQuery -> LoomClient.searchPopulationRoutes",
@@ -363,9 +363,9 @@
         "applyEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "endpointEvidence": [
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx:83",
-          "ui/packages/loom-ui/src/api.ts:1599",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4331",
-          "ui/packages/loom-ui/src/api.ts:1457"
+          "ui/packages/loom-ui/src/api.ts:1588",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4319",
+          "ui/packages/loom-ui/src/api.ts:1446"
         ]
       },
       "gates": [
@@ -499,16 +499,16 @@
       },
       "evidence": [
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx:236",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4337",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4343",
-        "ui/packages/loom-ui/src/api.ts:1457"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4325",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4331",
+        "ui/packages/loom-ui/src/api.ts:1446"
       ],
       "request": {
         "constructor": "PopulationPanel.onClear -> BuilderWorkspace.applyCommands([CLEAR_TABLE_POPULATION])",
         "endpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "endpointEvidence": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4343",
-          "ui/packages/loom-ui/src/api.ts:1457"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4331",
+          "ui/packages/loom-ui/src/api.ts:1446"
         ]
       },
       "gates": [
@@ -538,7 +538,7 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4344"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4332"
           ]
         }
       ],
@@ -580,7 +580,7 @@
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx:167",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx:173",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx:176",
-        "ui/packages/loom-ui/src/api.ts:1699"
+        "ui/packages/loom-ui/src/api.ts:1688"
       ],
       "request": {
         "constructor": "PopulationPanel.checkCoverage -> usePopulationMappingMutation -> LoomClient.populationMapping",
@@ -588,7 +588,7 @@
         "requestLimit": 100,
         "endpointEvidence": [
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx:167",
-          "ui/packages/loom-ui/src/api.ts:1699"
+          "ui/packages/loom-ui/src/api.ts:1688"
         ]
       },
       "gates": [
@@ -672,13 +672,13 @@
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx:298",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx:303",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx:305",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1936",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1948",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1954",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1961",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1980",
-        "ui/packages/loom-ui/src/api.ts:1806",
-        "ui/packages/loom-ui/src/api.ts:1599"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1935",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1947",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1953",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1960",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1979",
+        "ui/packages/loom-ui/src/api.ts:1795",
+        "ui/packages/loom-ui/src/api.ts:1588"
       ],
       "request": {
         "selectionVariantConstructor": "BuilderWorkspace.excludePopulationMember -> LoomClient.createSelection",
@@ -688,12 +688,12 @@
         "applyConstructor": "BuilderWorkspace.excludePopulationMember -> applyCommands([SET_TABLE_POPULATION])",
         "applyEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "endpointEvidence": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1948",
-          "ui/packages/loom-ui/src/api.ts:1806",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1961",
-          "ui/packages/loom-ui/src/api.ts:1599",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1980",
-          "ui/packages/loom-ui/src/api.ts:1457"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1947",
+          "ui/packages/loom-ui/src/api.ts:1795",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1960",
+          "ui/packages/loom-ui/src/api.ts:1588",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1979",
+          "ui/packages/loom-ui/src/api.ts:1446"
         ]
       },
       "gates": [
@@ -728,7 +728,7 @@
           },
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx:303",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1937"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1936"
           ]
         },
         {
@@ -746,7 +746,7 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1954"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1953"
           ]
         }
       ],
@@ -755,9 +755,9 @@
           "status": "observed-ui",
           "statement": "After creating the exclusion variant, the client searches until it finds the same route; it reports failure rather than attaching if no matching route is returned.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1958",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1975",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1978"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1957",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1974",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1977"
           ]
         }
       ],
@@ -766,9 +766,9 @@
           "status": "observed-ui",
           "statement": "The source selection is immutable: exclusion creates a new revision from the attached selection with the chosen member excluded, then attaches that new revision.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1948",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1954",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1980"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1947",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1953",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1979"
           ]
         }
       ],
@@ -806,8 +806,8 @@
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.tsx:217",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.tsx:229",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.tsx:313",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4349",
-        "ui/packages/loom-ui/src/api.ts:1823"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4337",
+        "ui/packages/loom-ui/src/api.ts:1812"
       ],
       "request": {
         "memberConstructor": "PopulationMemberRemoval.memberQuery -> LoomClient.getSelection",
@@ -821,9 +821,9 @@
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.tsx:162",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.tsx:183",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.tsx:193",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4349",
-          "ui/packages/loom-ui/src/api.ts:1823",
-          "ui/packages/loom-ui/src/api.ts:1457"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4337",
+          "ui/packages/loom-ui/src/api.ts:1812",
+          "ui/packages/loom-ui/src/api.ts:1446"
         ]
       },
       "gates": [
@@ -952,11 +952,11 @@
         ]
       },
       "evidence": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3746",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3749",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3755",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3759",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3762",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3734",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3737",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3743",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3747",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3750",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:302",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:328",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:337",
@@ -975,11 +975,11 @@
         "applyEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "endpointEvidence": [
           "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:269",
-          "ui/packages/loom-ui/src/api.ts:1540",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3759",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3762",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3766",
-          "ui/packages/loom-ui/src/api.ts:1457"
+          "ui/packages/loom-ui/src/api.ts:1529",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3747",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3750",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3754",
+          "ui/packages/loom-ui/src/api.ts:1446"
         ]
       },
       "gates": [
@@ -988,8 +988,8 @@
           "when": "table has frames and Add Columns is in coded view",
           "effect": "The panel mounts to manage saved coded sources.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3746",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3747"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3734",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3735"
           ]
         },
         {
@@ -1020,7 +1020,7 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3753",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3741",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:394"
           ]
         },
@@ -1091,8 +1091,8 @@
           "status": "observed-ui",
           "statement": "Creation of a new frame source is not reachable from this mounted instance: BuilderWorkspace passes allowNewSource=false, while this instance is mounted only when saved frames exist. The onSet callback is supplied but no current-panel control invokes it.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3746",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3755",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3734",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3743",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:386",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:302"
           ]
@@ -1104,8 +1104,8 @@
           "statement": "The active replacement route is bound to the currently edited frame ID; this Builder mount does not expose the new-source SET_FRAME_SOURCE path.",
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:328",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3755",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3759"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3743",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3747"
           ]
         }
       ],
@@ -1137,14 +1137,14 @@
         ]
       },
       "evidence": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4464",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4733",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4452",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4721",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:145",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:43",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:516",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:649",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:667",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:485",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:513",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:646",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:664",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:482",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:234",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:276",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:343",
@@ -1154,10 +1154,10 @@
         "constructor": "PreviewTable/ColumnSelector presentation callbacks -> BuilderWorkspace.applyPresentationChanges -> previewPresentationCommand",
         "endpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "endpointEvidence": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2967",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2969",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2971",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:145",
-          "ui/packages/loom-ui/src/api.ts:1457"
+          "ui/packages/loom-ui/src/api.ts:1446"
         ]
       },
       "gates": [
@@ -1190,8 +1190,8 @@
             "trimBeforeSubmit": true
           },
           "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:668",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:671",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:674",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:98",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:100"
           ]
@@ -1212,7 +1212,7 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:649",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:646",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:276"
           ]
         },
@@ -1254,8 +1254,8 @@
             "maximum": null
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:485",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:500",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:482",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:497",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:739",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:754"
           ]
@@ -1266,8 +1266,8 @@
           "status": "observed-ui",
           "statement": "Column names are trimmed and empty names are rejected by restoring the prior label; table visibility/order applies to authored columns and constructed outputs through distinct UPDATE commands.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:671",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:675",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:668",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:672",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:145",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:157"
           ]
@@ -1316,18 +1316,18 @@
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx:207",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx:222",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx:231",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4721",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4725",
-        "ui/packages/loom-ui/src/api.ts:1457"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4709",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4713",
+        "ui/packages/loom-ui/src/api.ts:1446"
       ],
       "request": {
         "constructor": "RelatedFeatureCreator.onAdd -> ColumnSelector.onAddSource -> BuilderWorkspace.applyCommands([ADD_COLUMN_SOURCE])",
         "endpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "endpointEvidence": [
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx:223",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4721",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4725",
-          "ui/packages/loom-ui/src/api.ts:1457"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4709",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4713",
+          "ui/packages/loom-ui/src/api.ts:1446"
         ]
       },
       "gates": [
@@ -1390,7 +1390,7 @@
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx:223",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx:237",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4721"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4709"
           ]
         }
       ],
@@ -1420,21 +1420,21 @@
         "variant": "change output value cardinality policy for an explicit-group row value binding"
       },
       "evidence": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:583",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:590",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:580",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:587",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:697",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:700",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:703",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:715",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4478",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4481"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:712",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4466",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4469"
       ],
       "request": {
         "constructor": "PreviewTable.onRowValuePolicyChange -> BuilderWorkspace.applyCommands([UPDATE_COLUMN_ROW_VALUE_POLICY])",
         "endpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "endpointEvidence": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4478",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4481",
-          "ui/packages/loom-ui/src/api.ts:1457"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4466",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4469",
+          "ui/packages/loom-ui/src/api.ts:1446"
         ]
       },
       "gates": [
@@ -1443,10 +1443,10 @@
           "when": "column has a columnId, is a base-occurrence field, supports the current transformation and is bound in GROUPS with EXPLICIT row source",
           "effect": "Only then does PreviewTable render the cohort member policy control.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:578",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:583",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:587",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:590"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:575",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:580",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:584",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:587"
           ]
         }
       ],
@@ -1467,9 +1467,9 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:703",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:715",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:716"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:700",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:712",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:713"
           ]
         }
       ],
@@ -1478,9 +1478,9 @@
           "status": "observed-ui",
           "statement": "This output-side setting is separate from ADD_COLUMNS construction-choice rowValuePolicy; it edits one existing explicit-group row-value binding by authored physical column.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:583",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:590",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4481"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:580",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:587",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4469"
           ]
         }
       ],
@@ -1515,10 +1515,10 @@
         ]
       },
       "evidence": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4767",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4771",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4778",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4795",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4755",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4759",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4766",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4783",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:363",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx:1090",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx:1117",
@@ -1526,15 +1526,15 @@
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx:1304",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx:1385",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx:1414",
-        "ui/packages/loom-ui/src/api.ts:1457"
+        "ui/packages/loom-ui/src/api.ts:1446"
       ],
       "request": {
         "constructor": "ColumnSelector FeaturePolicyEditor callbacks -> BuilderWorkspace.applyCommands",
         "endpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "endpointEvidence": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4767",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4795",
-          "ui/packages/loom-ui/src/api.ts:1457"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4755",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4783",
+          "ui/packages/loom-ui/src/api.ts:1446"
         ]
       },
       "gates": [
@@ -1767,8 +1767,8 @@
           "status": "observed-ui",
           "statement": "Source and policy edits submit through explicit Builder commands and are scoped to the selected output and authored column; client capability filtering is not a backend conformance promise.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4767",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4795"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4755",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4783"
           ]
         }
       ],
@@ -1799,9 +1799,9 @@
       "evidence": [
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:268",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:588",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4749",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4750",
-        "ui/packages/loom-ui/src/api.ts:1549",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4737",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4738",
+        "ui/packages/loom-ui/src/api.ts:1538",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSourceInspector.tsx:25",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSourceInspector.tsx:46"
       ],
@@ -1809,9 +1809,9 @@
         "constructor": "ColumnSelector.inspectColumn -> BuilderWorkspace.onInspectSource -> LoomClient.inspectColumnSource",
         "endpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-source",
         "endpointEvidence": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4749",
-          "ui/packages/loom-ui/src/api.ts:1549",
-          "ui/packages/loom-ui/src/api.ts:1550"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4737",
+          "ui/packages/loom-ui/src/api.ts:1538",
+          "ui/packages/loom-ui/src/api.ts:1539"
         ]
       },
       "gates": [
@@ -1843,7 +1843,7 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4755",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4743",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:593"
           ]
         }
@@ -1855,8 +1855,8 @@
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:595",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:596",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4760",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4762"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4748",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4750"
           ]
         }
       ],
@@ -1889,27 +1889,27 @@
         ]
       },
       "evidence": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4489",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4490",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4497",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:889",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:895",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:903",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:934",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:939",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1001",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1027",
-        "ui/packages/loom-ui/src/api.ts:1710"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4477",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4478",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4485",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:886",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:892",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:900",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:931",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:936",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:998",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1024",
+        "ui/packages/loom-ui/src/api.ts:1699"
       ],
       "request": {
         "constructor": "PreviewTable.loadRowLineage -> BuilderWorkspace.onRowLineage -> LoomClient.rowLineage",
         "endpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-lineage",
         "requestLimit": 25,
         "endpointEvidence": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4489",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4497",
-          "ui/packages/loom-ui/src/api.ts:1710",
-          "ui/packages/loom-ui/src/api.ts:1711"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4477",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4485",
+          "ui/packages/loom-ui/src/api.ts:1699",
+          "ui/packages/loom-ui/src/api.ts:1700"
         ]
       },
       "gates": [
@@ -1918,9 +1918,9 @@
           "when": "preview row has COMPOSITE source and preview.rowLineageCapability.status=AVAILABLE",
           "effect": "Opening its identity panel starts contributor lookup; later pages use returned nextOffset.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:903",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1001",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1027"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:900",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:998",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1024"
           ]
         }
       ],
@@ -1940,9 +1940,9 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:871",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:889",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:895"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:868",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:886",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:892"
           ]
         },
         {
@@ -1966,8 +1966,8 @@
             "maximum": null
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1027",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1029"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1024",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1026"
           ]
         },
         {
@@ -1985,7 +1985,7 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4497"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4485"
           ]
         }
       ],
@@ -1994,9 +1994,9 @@
           "status": "observed-ui",
           "statement": "A row without a nonempty identity has no identity-inspection button; unsupported or incomplete lineage is reported as unavailable/incomplete rather than complete.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:889",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:911",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1005"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:886",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:908",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1002"
           ]
         }
       ],
@@ -2005,11 +2005,11 @@
           "status": "observed-ui",
           "statement": "Lineage requests are receipt/output/row bound and fetch 25 contributors per page; owner-record cell inspection reads the preview value locally without a separate lineage request.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4490",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4495",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4497",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:933",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:939"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4478",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4483",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4485",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:930",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:936"
           ]
         }
       ],
@@ -2038,27 +2038,27 @@
         "variant": "summarize saved row/column definitions, compile shapes, reductions, preview evidence and diagnostic issues; navigate to responsible setting or close"
       },
       "evidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4111",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4123",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4135",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4136",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3151",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3155",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4124",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3149",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3153",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DatasetReviewPanel.tsx:24",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DatasetReviewPanel.tsx:334",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DatasetReviewPanel.tsx:496",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DatasetReviewPanel.tsx:557",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DatasetReviewPanel.tsx:623",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1271"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1270"
       ],
       "request": {
         "panelRequest": "DatasetReviewPanel itself makes no API or authoring command request. Opening Review may call lifecycle-owned reconcileCurrent when a current receipt is missing or reconciliation is unresolved.",
         "navigationConstructor": "DatasetReviewPanel.onFocus -> BuilderWorkspace.focusDatasetReviewTarget",
         "navigationRequest": "None; local review visibility, feature mode, selected table/occurrence and focus state changes.",
         "endpointEvidence": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3151",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3155",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3149",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3153",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DatasetReviewPanel.tsx:557",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1271"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1270"
         ]
       },
       "gates": [
@@ -2067,9 +2067,9 @@
           "when": "reviewOpen is true",
           "effect": "The panel is mounted. Receipt and preview are passed only when the receipt includes every current output ID.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4123",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4127",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4130"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4111",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4115",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4118"
           ]
         }
       ],
@@ -2184,9 +2184,9 @@
           "statement": "Focus actions route the user into the responsible table, row setup, or column editor without issuing an authoring write from the review panel itself.",
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DatasetReviewPanel.tsx:553",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1271",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1279",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1282"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1270",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1278",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1281"
           ]
         }
       ],
@@ -2219,17 +2219,17 @@
         ]
       },
       "evidence": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4591",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4579",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:85",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:395",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:481",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:485",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:496",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:500",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:529",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:537",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:405",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:440"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:393",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:479",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:483",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:494",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:498",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:527",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:535",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:403",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:438"
       ],
       "request": {
         "viewState": "showOrphans and isExpanded are local React state; ReactFlow node/edge inspection updates local inspection and may dispatch selectOccurrence. Route/root writes are mapped separately to existing canonical contracts.",
@@ -2237,8 +2237,8 @@
         "endpointEvidence": [
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:85",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:86",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:529",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:544"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:527",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:542"
         ]
       },
       "gates": [
@@ -2247,10 +2247,10 @@
           "when": "BuilderWorkspace selects GuidedGraphWorkspace and disabled is false",
           "effect": "Graph node/edge inspection is enabled; route-edit buttons are separately restricted by legal route helpers and lifecycle state.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4591",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4595",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:405",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:440"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4579",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4583",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:403",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:438"
           ]
         }
       ],
@@ -2270,8 +2270,8 @@
           },
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:86",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:481",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:485"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:479",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:483"
           ]
         },
         {
@@ -2289,8 +2289,8 @@
           },
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:85",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:496",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:500"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:494",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:498"
           ]
         },
         {
@@ -2309,8 +2309,8 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:405",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:440"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:403",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:438"
           ]
         }
       ],
@@ -2319,10 +2319,10 @@
           "status": "observed-ui",
           "statement": "The graph is non-draggable and non-connectable; actual route edits are invoked only through explicit callbacks and legal edge filters.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:512",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:515",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:510",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:513",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:219",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:453"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:451"
           ]
         }
       ],
@@ -2353,19 +2353,19 @@
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:353",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:355",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:359",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:740",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:745",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4739",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4742",
-        "ui/packages/loom-ui/src/api.ts:1457"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:737",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:742",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4727",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4730",
+        "ui/packages/loom-ui/src/api.ts:1446"
       ],
       "request": {
         "constructor": "ColumnSelector.onRemove or PreviewTable.onRemoveColumn -> BuilderWorkspace.applyCommands([REMOVE_COLUMN])",
         "endpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "endpointEvidence": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4739",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4742",
-          "ui/packages/loom-ui/src/api.ts:1457"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4727",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4730",
+          "ui/packages/loom-ui/src/api.ts:1446"
         ]
       },
       "gates": [
@@ -2398,7 +2398,7 @@
           },
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:355",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4745"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4733"
           ]
         }
       ],
@@ -2409,7 +2409,7 @@
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:353",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:359",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4739"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4727"
           ]
         }
       ],
@@ -2519,8 +2519,8 @@
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:437",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:457",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:832",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4693",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4707"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4681",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4695"
       ],
       "request": {
         "constructor": "ColumnSelector.onAdd/onAddAll -> BuilderWorkspace.applyCommands([ADD_COLUMN...])",
@@ -2633,8 +2633,8 @@
         "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:95",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:121",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:209",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3765",
-        "ui/packages/loom-ui/src/api.ts:1495"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3753",
+        "ui/packages/loom-ui/src/api.ts:1484"
       ],
       "request": {
         "browseConstructor": "CategoryPicker.categoryQuery -> LoomClient.browseSemanticInventory",
@@ -2692,11 +2692,11 @@
         "chooseReshapeRows('expand',[columnId])"
       ],
       "evidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:549",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:552",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:555",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:726",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:729",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:732",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4467"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4455"
       ],
       "request": {
         "constructor": "PreviewTable.onExpandColumn -> BuilderWorkspace.chooseReshapeRows('expand',[columnId])",
@@ -2718,8 +2718,8 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:552",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:555"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:549",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:552"
           ]
         }
       ],
@@ -2734,14 +2734,14 @@
         "open dataset review; reconcile if current receipt/reconciliation is unresolved"
       ],
       "evidence": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:760",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:768",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:772",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4461",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2831",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2849",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3151",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3155"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:757",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:765",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:769",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4449",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2830",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2848",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3149",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3153"
       ],
       "request": {
         "detail": "Preview limit updates the identity consumed by useAutomaticPreview; no independent submit button. Dataset review's conditional reconciliation is lifecycle-owned."
@@ -2764,9 +2764,9 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:763",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:772",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:776"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:760",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:769",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:773"
           ]
         }
       ],
@@ -2784,29 +2784,29 @@
         "REMOVE_ROUTE"
       ],
       "evidence": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4601",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4615",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4621",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4630",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4641",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4652",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4666",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:604",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:622",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:650",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:686",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts:9",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts:35"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4589",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4603",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4609",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4618",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4629",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4640",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4654",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:602",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:620",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:648",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:684",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts:4",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts:30"
       ],
       "request": {
         "constructor": "GuidedGraphWorkspace callbacks -> BuilderWorkspace.applyCommands",
         "endpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "routeBounds": "Only edges returned by legalOutgoingEdges or replaceableIncomingEdges are selectable; parent routeActions source owns exact bounds.",
         "endpointEvidence": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4621",
-          "ui/packages/loom-ui/src/api.ts:1457",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts:9",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts:35"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4609",
+          "ui/packages/loom-ui/src/api.ts:1446",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts:4",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts:30"
         ]
       },
       "dimensions": [
@@ -2826,9 +2826,9 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4641",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4645",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:652"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4629",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4633",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:650"
           ]
         }
       ],
@@ -2842,9 +2842,9 @@
         "select replacement root node and enter row-change assessment/preview path"
       ],
       "evidence": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:448",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:453",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4614"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:446",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:451",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4602"
       ],
       "request": {
         "constructor": "GuidedGraphWorkspace.onChangeBase -> BuilderWorkspace.selectRootChoice({kind:'catalog-node',nodeId})",
@@ -2867,7 +2867,7 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4614"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4602"
           ]
         }
       ],

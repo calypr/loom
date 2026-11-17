@@ -1,4 +1,3 @@
-// Integration with the pinned upstream API, not a copy of its CLI or compiler.
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';

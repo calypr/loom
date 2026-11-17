@@ -5,7 +5,6 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 
-// Public recipe regression. Builder does not currently author field fallbacks.
 const { values } = parseArgs({ options: {
   'api-origin': { type: 'string', default: 'http://127.0.0.1:8188' },
   project: { type: 'string', default: 'loom_dev_cda_fhir' },
@@ -57,8 +56,6 @@ try {
   }
   assert(witnesses.length, 'No bounded nested coding witness with distinct component values');
   report.oracle = { project: values.project, generation: values.generation, scanned: scanned.length, witnesses };
-  // Persist exact source membership rather than scanning the full CDA population
-  // through a post-projection recipe filter.
   const explorer = `cda-mixed-scope-${Date.now()}-${randomUUID().slice(0, 8)}`;
   const root = `/api/v1/projects/${encodeURIComponent(values.project)}/explorers`;
   const rest = async (path, body) => {
@@ -111,8 +108,6 @@ try {
   const normalize = rows => rows.map(({ observation_id, coding_code, mixed_values, mixed_first, mixed_distinct }) => {
     assert(Array.isArray(mixed_distinct), 'DISTINCT must return an array');
     assert.equal(new Set(mixed_distinct).size, mixed_distinct.length, 'DISTINCT must not repeat values');
-    // Arango sorts strings with its own collation. Compare distinct membership
-    // independently of that ordering; ALL and FIRST retain exact order checks.
     return { observation_id, coding_code, mixed_values, mixed_first, mixed_distinct: [...mixed_distinct].sort() };
   }).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
   for (const phase of ['initial', 'persisted-revision-repeat']) {

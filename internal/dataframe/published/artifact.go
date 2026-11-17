@@ -35,15 +35,10 @@ const (
 )
 
 var (
-	// ErrArtifactRowLimit means the row stream exceeded the caller's bound.
-	ErrArtifactRowLimit = errors.New("artifact row limit exceeded")
-	// ErrArtifactByteLimit means the archive exceeded the caller's byte bound.
+	ErrArtifactRowLimit  = errors.New("artifact row limit exceeded")
 	ErrArtifactByteLimit = errors.New("artifact byte limit exceeded")
 )
 
-// ArtifactIdentity is the immutable publication identity copied into the
-// artifact manifest. All fields are required; a selector or current pointer
-// is not a substitute for an execution identity.
 type ArtifactIdentity struct {
 	Project              string `json:"project"`
 	DatasetGeneration    string `json:"datasetGeneration"`
@@ -55,8 +50,6 @@ type ArtifactIdentity struct {
 	OutputContractDigest string `json:"outputContractDigest"`
 }
 
-// ArtifactColumn supplies the stable exported feature order and its declared
-// shape. The encoder does not infer a second schema from row values.
 type ArtifactColumn struct {
 	Name               string             `json:"name"`
 	OutputKey          string             `json:"outputKey,omitempty"`
@@ -109,9 +102,6 @@ type ArtifactInterpretationIdentity struct {
 	RuleID        string `json:"ruleId"`
 }
 
-// ArtifactRequest contains the data and metadata members supplied by the
-// lifecycle owner. Raw metadata must be valid JSON; it is compacted into a
-// deterministic representation before writing.
 type ArtifactRequest struct {
 	Identity               ArtifactIdentity
 	Descriptor             ArtifactDescriptor
@@ -128,25 +118,16 @@ type ArtifactRequest struct {
 	MaxBytes               int64
 }
 
-// ArtifactRowVisitor consumes one row without requiring the encoder to
-// retain the dataset.
 type ArtifactRowVisitor func(map[string]any) error
 
-// ArtifactRowStream supplies rows to the artifact encoder. It should invoke
-// the visitor once for each row and stop when the visitor returns an error.
 type ArtifactRowStream func(ArtifactRowVisitor) error
 
-// ArtifactMember records an uncompressed member's digest and byte size. The
-// manifest contains every member except manifest.json itself.
 type ArtifactMember struct {
 	Name   string `json:"name"`
 	SHA256 string `json:"sha256"`
 	Bytes  int64  `json:"bytes"`
 }
 
-// ArtifactResult is complete only when every member and the ZIP central
-// directory were written successfully. On any error WriteArtifact returns a
-// zero result, even though an io.Writer may contain an unusable prefix.
 type ArtifactResult struct {
 	Complete      bool
 	ArchiveSHA256 string
@@ -177,10 +158,6 @@ type artifactSchema struct {
 	ArrayEncoding string           `json:"arrayEncoding"`
 }
 
-// WriteArtifact writes the fixed, safe artifact members to out in a stable
-// order. It uses ZIP Store entries so member bytes and the resulting archive
-// digest are deterministic for the same input. The manifest is emitted last,
-// after all other member checksums are final.
 func WriteArtifact(ctx context.Context, out io.Writer, request ArtifactRequest, stream ArtifactRowStream) (ArtifactResult, error) {
 	if ctx == nil {
 		return ArtifactResult{}, fmt.Errorf("artifact context is required")

@@ -45,9 +45,6 @@ type FieldObservation struct {
 	ConceptCandidates     []ConceptCandidate
 }
 
-// Evidence is the complete catalog evidence set used to build a capability
-// snapshot. Availability is explicit because an empty result is valid evidence
-// for some generations, while an unavailable source must fail closed.
 type Evidence struct {
 	Resources             []ResourceObservation
 	Relationships         []RelationshipObservation
@@ -86,9 +83,6 @@ type CandidateProof struct {
 	Reason              string
 }
 
-// CompilerCallbacks are the compiler's proof boundary. A Builder advertises an
-// operation only after the corresponding callback succeeds. In particular, a
-// field is not trusted merely because the observation source reported it.
 type CompilerCallbacks struct {
 	Node      func(context.Context, Node) (NodeProof, error)
 	Edge      func(context.Context, Edge) (EdgeProof, error)
@@ -96,10 +90,7 @@ type CompilerCallbacks struct {
 }
 
 type Builder struct {
-	Identity SnapshotIdentity
-	// EntityIdentity is the pre-availability semantic identity used only to
-	// mint stable node, edge, and candidate IDs. Cache-only metadata belongs
-	// in Identity so it can invalidate snapshots without rewriting authored IDs.
+	Identity       SnapshotIdentity
 	EntityIdentity SnapshotIdentity
 	Policy         Policy
 	Complete       bool
@@ -115,8 +106,6 @@ func NewBuilder(identity SnapshotIdentity, evidence Evidence, compiler CompilerC
 	return Builder{Identity: identity, Evidence: evidence, Compiler: compiler, Complete: true, Policy: Policy{Route: RoutePolicy{AllowsRepeatedEdges: true, AllowsSelfLoops: true}, Projection: ProjectionPolicy{SuggestionLimit: DefaultSuggestionLimit}}}
 }
 
-// Build is pure: evidence is copied before it is sorted or used, and no
-// caller-owned evidence or compiler state is modified.
 func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	identity := b.Identity
 	identity.Project = strings.TrimSpace(identity.Project)
@@ -125,15 +114,11 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 		return b.failed(identity, "INVALID_SNAPSHOT_IDENTITY", "project and generation are required"), fmt.Errorf("project and generation are required")
 	}
 	if b.Complete == false && !b.Truncated {
-		// Explicitly incomplete discovery is a BUILDING snapshot, not an empty
-		// READY graph. The caller may publish it after a later complete build.
 	}
 	diags := []Diagnostic{}
 	if !b.Evidence.ResourcesAvailable || !b.Evidence.RelationshipsAvailable || !b.Evidence.FieldsAvailable || b.Compiler.Node == nil || b.Compiler.Edge == nil || b.Compiler.Candidate == nil {
 		return b.failedWith(identity, diags, "MISSING_CAPABILITY_DEPENDENCY", "resource, relationship, field, and compiler callbacks are required"), fmt.Errorf("capability dependencies are incomplete")
 	}
-	// Copy before sorting or truncating so callers retain ownership of their
-	// evidence and nested suggestion slices.
 	resources := append([]ResourceObservation(nil), b.Evidence.Resources...)
 	relationships := append([]RelationshipObservation(nil), b.Evidence.Relationships...)
 	fields := append([]FieldObservation(nil), b.Evidence.Fields...)
@@ -168,8 +153,6 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	if policy.Route.MaxHops < 0 {
 		return b.failedWith(identity, diags, "INVALID_ROUTE_POLICY", "route MaxHops cannot be negative"), fmt.Errorf("route MaxHops cannot be negative")
 	}
-	// Zero means unlimited. Defaults explicitly advertise the two traversal
-	// forms that the policy permits rather than relying on omitted JSON fields.
 	if !policy.Route.AllowsRepeatedEdges && !policy.Route.AllowsSelfLoops {
 		policy.Route.AllowsRepeatedEdges, policy.Route.AllowsSelfLoops = true, true
 	}
@@ -185,9 +168,6 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	}
 	idSeed := identityDigest(entityIdentity)
 
-	// A resource type is a concrete generated FHIR type, not a collection or
-	// arbitrary path. Deduplicate only exact resource observations; their
-	// populatedness remains an annotation of the single capability.
 	resourceMap := map[string]ResourceObservation{}
 	for _, raw := range resources {
 		t := strings.TrimSpace(raw.ResourceType)
@@ -245,8 +225,6 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 		nodeByType[t] = n
 	}
 
-	// Sort relationships by their complete identity before assigning ordinals;
-	// this makes repeated edges deterministic and preserves self-loops.
 	sort.SliceStable(relationships, func(i, j int) bool {
 		return relationshipSortKey(relationships[i]) < relationshipSortKey(relationships[j])
 	})
@@ -282,8 +260,6 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 		edges = append(edges, e)
 	}
 
-	// Candidate IDs are local to this snapshot and occurrence-stable even when
-	// evidence repeats the same path. Paths are validated before any probe.
 	sort.SliceStable(fields, func(i, j int) bool { return fieldSortKey(fields[i]) < fieldSortKey(fields[j]) })
 	candidates := []Candidate{}
 	auditCandidates := []Candidate{}

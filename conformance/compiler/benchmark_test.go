@@ -25,10 +25,6 @@ var (
 	benchmarkErr      error
 )
 
-// BenchmarkCompilerOracle measures pure lowering and AQL rendering for the
-// checked-in oracle requests and every root advertised by generated metadata.
-// Unsupported oracle cases are intentionally included: deterministic rejection
-// is part of compiler cost and conformance behavior.
 func BenchmarkCompilerOracle(b *testing.B) {
 	cases := loadCompilerBenchmarkCases(b)
 	for _, testCase := range cases {
@@ -117,8 +113,6 @@ func benchmarkCaseNames(cases []compilerBenchmarkCase) []string {
 func rootRecipe(resourceType string) recipe.Bundle {
 	grain, ok := spec.InferRowGrain(resourceType)
 	if !ok {
-		// Keep malformed/abstract roots structurally valid long enough for the
-		// schema-backed compiler to emit the intended root rejection.
 		grain = spec.RowGrain("resource")
 	}
 	return recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "generated_" + resourceType, TranslationVersion: "benchmark", Outputs: []recipe.Output{{Name: "root", RootResourceType: resourceType, RowGrain: string(grain)}}}

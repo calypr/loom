@@ -20,9 +20,6 @@ type ExplorerMetadata struct {
 	Description string `json:"description,omitempty"`
 }
 
-// RouteNode is one semantic occurrence in a document route tree. Relationship
-// is empty only for the root; every child names the relationship from its
-// parent. Resource identities are stable FHIR resource types, not catalog IDs.
 type RouteNode struct {
 	OccurrenceID  string         `json:"occurrenceId"`
 	ResourceType  string         `json:"resourceType"`
@@ -32,8 +29,6 @@ type RouteNode struct {
 	Children      []RouteNode    `json:"children,omitempty"`
 }
 
-// RouteMatchMode distinguishes row-defining relationships from feature-only
-// relationships. Empty is the legacy OPTIONAL default.
 type RouteMatchMode string
 
 const (
@@ -60,17 +55,11 @@ type ColumnSource struct {
 	OwnerRecords *OwnerRecordsSource `json:"ownerRecords,omitempty"`
 }
 
-// OwnerRecordsSource preserves one repeated FHIR owner as one structured
-// record in a list-valued cell. Binding and Key are server-resolved semantic
-// identity; clients never supply arbitrary selectors for this source.
 type OwnerRecordsSource struct {
 	Binding fhirschema.CorrelatedBinding `json:"binding"`
 	Key     fhirschema.CorrelatedKey     `json:"key"`
 }
 
-// UnitNormalizationPolicy is intentionally a nontechnical preset reference.
-// The compiler owns target identity, dimensions, conversion rules, and FHIR
-// Quantity sibling selectors.
 type UnitNormalizationPolicy struct {
 	PolicyID string `json:"policyId"`
 	Version  string `json:"version"`
@@ -117,9 +106,6 @@ func (p UnitNormalizationPolicy) Validate() error {
 	return unit.ValidateUnitPolicyReference(p.PolicyID, p.Version)
 }
 
-// FieldSource is the closed payload for a direct field projection. The
-// related-selection annotation is intentionally nested in the field variant.
-// It cannot accidentally be attached to a project, lookup, or aggregate.
 type FieldSource struct {
 	Path             string            `json:"path"`
 	ProjectionMode   string            `json:"projectionMode,omitempty"`
@@ -130,9 +116,6 @@ type AggregateSource struct {
 	Operation         string                   `json:"operation"`
 	Path              string                   `json:"path,omitempty"`
 	UnitNormalization *UnitNormalizationPolicy `json:"unitNormalization,omitempty"`
-	// Where is retained only for decoding immutable/pre-v3 in-memory recipes.
-	// It is deliberately omitted from the current authoring JSON contract;
-	// writable contributor intent lives on Column.Contributor instead.
 	Where             *SourceWhere             `json:"-"`
 	RequiredValues    []string                 `json:"requiredValues,omitempty"`
 	ContributorWindow *ContributorWindowSource `json:"contributorWindow,omitempty"`
@@ -160,10 +143,6 @@ type SourceWhere struct {
 	Equals string `json:"equals"`
 }
 
-// UnmarshalJSON keeps the current aggregate source shape closed. Persisted
-// legacy sources are decoded by decodePersistedSource, which is the only
-// compatibility boundary allowed to interpret wherePath/whereEquals or a
-// nested where object.
 func (s *AggregateSource) UnmarshalJSON(raw []byte) error {
 	type wire struct {
 		Operation         string                   `json:"operation"`
@@ -186,23 +165,13 @@ func (s *AggregateSource) UnmarshalJSON(raw []byte) error {
 }
 
 type LookupSource struct {
-	Match          string `json:"match,omitempty"`
-	Path           string `json:"path,omitempty"`
-	ProjectionMode string `json:"projectionMode,omitempty"`
-	// Identifier is the checked namespace/value alternative for
-	// identifierBySystem. It is mutually exclusive with legacy Match/Path and
-	// the coding or extension binding alternatives.
-	Identifier *fhirschema.IdentifierBinding `json:"identifier,omitempty"`
-	// Binding is the validated correlated FHIR shape used by codedValue.
-	// It is a closed alternative to legacy Match/Path, never a precedence rule
-	// between two writable lookup meanings.
-	Binding *fhirschema.CorrelatedBinding `json:"binding,omitempty"`
-	// Key is required with Binding and carries the selected system/code
-	// identity.
-	Key *fhirschema.CorrelatedKey `json:"key,omitempty"`
-	// Extension is the ancestor-aware closed alternative for extensionByUrl.
-	// It cannot coexist with legacy Match/Path or the terminology Binding/Key.
-	Extension *fhirschema.ExtensionBinding `json:"extension,omitempty"`
+	Match          string                        `json:"match,omitempty"`
+	Path           string                        `json:"path,omitempty"`
+	ProjectionMode string                        `json:"projectionMode,omitempty"`
+	Identifier     *fhirschema.IdentifierBinding `json:"identifier,omitempty"`
+	Binding        *fhirschema.CorrelatedBinding `json:"binding,omitempty"`
+	Key            *fhirschema.CorrelatedKey     `json:"key,omitempty"`
+	Extension      *fhirschema.ExtensionBinding  `json:"extension,omitempty"`
 }
 
 type RelatedSelection struct {
@@ -210,8 +179,6 @@ type RelatedSelection struct {
 	Acknowledged bool   `json:"acknowledged"`
 }
 
-// UnmarshalJSON keeps the writable source contract closed. Legacy flat source
-// payloads are decoded only by DecodeWorkspace's persisted-draft migration.
 func (s *ColumnSource) UnmarshalJSON(raw []byte) error {
 	var wire struct {
 		Kind         string              `json:"kind"`
@@ -397,8 +364,6 @@ const (
 )
 
 type Column struct {
-	// ColumnID is the stable identity used by staged construction steps. Column
-	// remains the public physical name and Label remains presentation text.
 	ColumnID            string                               `json:"columnId,omitempty"`
 	FrameID             string                               `json:"frameId,omitempty"`
 	Column              string                               `json:"column"`
@@ -408,17 +373,12 @@ type Column struct {
 	Source              ColumnSource                         `json:"source"`
 	ValueTransformation *columntransform.ValueTransformation `json:"valueTransformation,omitempty"`
 	Contributor         *ContributorPredicate                `json:"contributor,omitempty"`
-	// Interpretation is nil for the existing inline meaning. A non-nil value
-	// is a closed authoring reference: PINNED names one immutable revision and
-	// never follows a mutable library head.
-	Interpretation *FeatureInterpretation `json:"interpretation,omitempty"`
-	Table          *TablePresentation     `json:"table,omitempty"`
-	Filter         *FilterPresentation    `json:"filter,omitempty"`
-	Chart          *ChartPresentation     `json:"chart,omitempty"`
+	Interpretation      *FeatureInterpretation               `json:"interpretation,omitempty"`
+	Table               *TablePresentation                   `json:"table,omitempty"`
+	Filter              *FilterPresentation                  `json:"filter,omitempty"`
+	Chart               *ChartPresentation                   `json:"chart,omitempty"`
 }
 
-// FeatureInterpretationKind is deliberately closed so a pinned column cannot
-// smuggle a second interpretation language into the workspace.
 type FeatureInterpretationKind string
 
 const (
@@ -446,9 +406,6 @@ func (i FeatureInterpretation) Validate() error {
 	return nil
 }
 
-// ContributorPredicate is catalog intent scoped to one aggregate feature.
-// CandidateID is resolved against the occurrence's pinned catalog at compile
-// time; callers never provide a selector or AQL expression.
 type ContributorPredicate struct {
 	CandidateID string                `json:"candidateId"`
 	Operator    ContributorOperator   `json:"operator"`

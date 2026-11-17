@@ -36,8 +36,6 @@ const runtime: ExplorerRuntimeV1 = {
   fileActions: { extensions: { txt: ['file_download'] }, actions: { file_download: new URLSearchParams(location.search).get('downloadBase') === 'query' ? '/download?source=viewer&redirect=false#details' : '/download' } },
 };
 function App() {
-  // This is a test-owned caller for production components, not BuilderWorkspace
-  // or a claim about the real command/store path.
   const [authored, setAuthored] = useState<ExplorerBuilderColumn[]>(() => {
     const saved = sessionStorage.getItem('browser-fixture-columns');
     return saved ? JSON.parse(saved) : columns;

@@ -4,9 +4,8 @@ import (
 	"reflect"
 	"testing"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func TestBootstrapSpecAddsRootPreviewIndexesForEveryFHIRCollection(t *testing.T) {
@@ -116,7 +115,7 @@ func TestBootstrapSpecAddsGenerationScopedIndexesWithoutTraversalSpeculation(t *
 
 func TestBootstrapSpecDoesNotCreateOptionalSemanticCoverageCollection(t *testing.T) {
 	spec := bootstrapSpecWithReporter([]string{"Patient"}, true, nil)
-	if _, found := bootstrapCollection(spec, catalogarango.SemanticCoverageCollection); found {
+	if _, found := bootstrapCollection(spec, arangofactory.CatalogSemanticCoverageCollection); found {
 		t.Fatal("normal generation bootstrap created the optional per-source semantic coverage collection")
 	}
 }
@@ -131,13 +130,13 @@ func TestLifecycleBootstrapNeverTruncatesMetadata(t *testing.T) {
 	}
 }
 
-func bootstrapCollection(spec arangostore.BootstrapSpec, name string) (arangostore.CollectionSpec, bool) {
+func bootstrapCollection(spec arangofactory.BootstrapSpec, name string) (arangofactory.CollectionSpec, bool) {
 	for _, collection := range spec.Collections {
 		if collection.Name == name {
 			return collection, true
 		}
 	}
-	return arangostore.CollectionSpec{}, false
+	return arangofactory.CollectionSpec{}, false
 }
 
 func containsIndex(indexes [][]string, want []string) bool {

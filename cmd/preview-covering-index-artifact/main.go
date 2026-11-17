@@ -1,6 +1,3 @@
-// Command preview-covering-index-artifact recreates one captured Builder
-// proposal with Loom's production authoring and dataframe compilers. It only
-// writes the requested JSON artifact and never contacts Loom or ArangoDB.
 package main
 
 import (
@@ -381,7 +378,7 @@ func run(reportPath, queryPath, outPath, compiledQueryOutPath, sourceManifestPat
 	if !ok || limitValue < 0 || limitValue != float64(int(limitValue)) {
 		return errors.New("captured query limit bind is missing or invalid")
 	}
-	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, int(limitValue), ir.DefaultPhysicalOptimizationPolicy())
+	queries, err := compiler.CompileResolvedRecipePlan(compiler.ArangoTarget(), resolved, int(limitValue), ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return fmt.Errorf("compile production physical query: %w", err)
 	}
@@ -391,6 +388,10 @@ func run(reportPath, queryPath, outPath, compiledQueryOutPath, sourceManifestPat
 	actual := queries[0]
 	if actual.PreviewCoveringIndex == nil {
 		return errors.New("current production recompile has no PreviewCoveringIndexSpec")
+	}
+	actualQuery, actualBindVars, dispatchErr := actual.Command.AQLParameters()
+	if dispatchErr != nil {
+		return fmt.Errorf("dispatch current production recompile to AQL comparison: %w", dispatchErr)
 	}
 	baseReceiptID := baseReceipt.ReceiptID
 	if baseReceiptID == "" || baseReceipt.RecipeDigest == "" {
@@ -404,16 +405,16 @@ func run(reportPath, queryPath, outPath, compiledQueryOutPath, sourceManifestPat
 		return fmt.Errorf("current compiler index spec: %w", err)
 	}
 	queryComparison := queryComparison{
-		ExactAQLMatch: actual.Query == expected.Query, ExactBindVarsMatch: sameJSONValue(actual.BindVars, expected.BindVars),
-		CapturedAQLSHA256: digest([]byte(expected.Query)), RecompiledAQLSHA256: digest([]byte(actual.Query)),
-		CapturedBindsSHA256: digestJSON(expected.BindVars), RecompiledBindsSHA256: digestJSON(actual.BindVars),
-		FirstDifference:     firstQueryDifference(expected.Query, actual.Query),
-		FirstBindDifference: bindDifference(expected.BindVars, actual.BindVars),
+		ExactAQLMatch: actualQuery == expected.Query, ExactBindVarsMatch: sameJSONValue(actualBindVars, expected.BindVars),
+		CapturedAQLSHA256: digest([]byte(expected.Query)), RecompiledAQLSHA256: digest([]byte(actualQuery)),
+		CapturedBindsSHA256: digestJSON(expected.BindVars), RecompiledBindsSHA256: digestJSON(actualBindVars),
+		FirstDifference:     firstQueryDifference(expected.Query, actualQuery),
+		FirstBindDifference: bindDifference(expected.BindVars, actualBindVars),
 	}
 	var recompiledQueryBytes []byte
 	recompiledQuerySHA256 := ""
 	if compiledQueryOutPath != "" {
-		recompiledQueryBytes, err = encodeRecompiledQueryArtifact(actual.Query, actual.BindVars)
+		recompiledQueryBytes, err = encodeRecompiledQueryArtifact(actualQuery, actualBindVars)
 		if err != nil {
 			return fmt.Errorf("encode current recompiled query artifact: %w", err)
 		}
@@ -431,7 +432,7 @@ func run(reportPath, queryPath, outPath, compiledQueryOutPath, sourceManifestPat
 			Algorithm: "sha256", Mode: "verified-go-run-source-closure-current-production-recompile-from-captured-base-and-candidate-request",
 			CapturedQueryFile: queryPath, CapturedQueryFileSHA256: digest(queryBytes),
 			CapturedAQLSHA256: digest([]byte(expected.Query)), CapturedBindVarsSHA256: digestJSON(expected.BindVars),
-			RecompiledAQLSHA256: digest([]byte(actual.Query)), RecompiledBindVarsSHA256: digestJSON(actual.BindVars),
+			RecompiledAQLSHA256: digest([]byte(actualQuery)), RecompiledBindVarsSHA256: digestJSON(actualBindVars),
 			RecompiledQueryFile: compiledQueryOutPath, RecompiledQueryFileSHA256: recompiledQuerySHA256,
 			CapturedBaseReceiptID: baseReceiptID, CapturedBaseRecipeDigest: baseReceipt.ResolvedRecipeDigest,
 			CandidateRequestSHA256: digest(proposalBody), CandidateIsRequestOnly: true,
@@ -577,9 +578,9 @@ func fingerprintProductionSources(moduleRoot, packagePattern string) (production
 	if err != nil {
 		return productionSourceFingerprint{}, fmt.Errorf("make module root absolute: %w", err)
 	}
-	command := exec.Command("go", "list", "-deps", "-json", packagePattern)
-	command.Dir = root
-	listOutput, err := command.Output()
+	compiledCommand := exec.Command("go", "list", "-deps", "-json", packagePattern)
+	compiledCommand.Dir = root
+	listOutput, err := compiledCommand.Output()
 	if err != nil {
 		return productionSourceFingerprint{}, fmt.Errorf("go list production source closure: %w: %s", err, strings.TrimSpace(string(listOutput)))
 	}
@@ -946,11 +947,6 @@ func validateCapturedScope(report capturedReport, captured capturedQuery, reconc
 	return nil
 }
 
-// The captured catalog includes signed ConstructionChoice values whose Go
-// domain representation is an interface. They are not needed to recreate a
-// compile: CompileWorkspace issues fresh compiler choices from the mapped
-// capability snapshot. Strip only that opaque field before decoding the
-// public catalog facts.
 func withoutCapturedChoiceInterfaces(raw json.RawMessage) ([]byte, error) {
 	var response map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &response); err != nil {
@@ -1184,7 +1180,11 @@ func proveCandidateCorrespondence(base authoringv2.Workspace, proposal proposalR
 	if len(finalSchema) != len(publicSchema)+1 {
 		return candidateProof{}, fmt.Errorf("final output schema has %d columns including internal identity, want %d", len(finalSchema), len(publicSchema)+1)
 	}
-	if strings.Count(compiled.Query, "FOR root IN @@root_collection") != 1 || strings.Contains(compiled.Query, "FOR related") {
+	compiledQueryText, _, compiledDispatchErr := compiled.Command.AQLParameters()
+	if compiledDispatchErr != nil {
+		return candidateProof{}, fmt.Errorf("dispatch current Pivot recompile to AQL shape check: %w", compiledDispatchErr)
+	}
+	if strings.Count(compiledQueryText, "FOR root IN @@root_collection") != 1 || strings.Contains(compiledQueryText, "FOR related") {
 		return candidateProof{}, errors.New("current Pivot query is not a single root scan without related-row expansion")
 	}
 	return candidateProof{

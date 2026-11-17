@@ -17,14 +17,10 @@ import (
 )
 
 var (
-	// ErrGraphSchemaPathRequired reports a missing configured graph-schema path.
 	ErrGraphSchemaPathRequired = errors.New("graph schema path is required")
-	// ErrMalformedGraphSchema reports JSON that cannot safely provide schema
-	// identity metadata.
-	ErrMalformedGraphSchema = errors.New("malformed graph schema")
+	ErrMalformedGraphSchema    = errors.New("malformed graph schema")
 )
 
-// loadSchemaSnapshot records exact source bytes and generated FHIR roots.
 func loadSchemaSnapshot(path string) (publication.SchemaSnapshot, error) {
 	if strings.TrimSpace(path) == "" {
 		return publication.SchemaSnapshot{}, ErrGraphSchemaPathRequired

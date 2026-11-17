@@ -315,9 +315,6 @@ func compileTraceReceipt(ctx context.Context, request CompileReceiptRequest, sna
 }
 
 func traceReceiptStages(compiled lower.CompiledRecipe) map[string][]explorer.ReceiptConstructionStage {
-	// Mirrors production receiptConstructionStages (explorer_receipt_contract.go:605): outputs
-	// with no compiled stages are absent, and an all-stage-less compilation returns nil, not an
-	// empty map (nil-vs-non-nil diverges under reflect.DeepEqual against harness-built receipts).
 	var stages map[string][]explorer.ReceiptConstructionStage
 	for _, output := range compiled.Outputs {
 		if len(output.Stages) == 0 {

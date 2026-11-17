@@ -184,8 +184,6 @@ const downloadAndInspect = async ({ page, action, check, target, testInfo, oracl
       hash: downloadURL.hash, downloadName: opened.downloadName });
   const artifactID = decodeURIComponent(downloadURL.pathname.split('/').at(-1));
   const artifactRequestStart = networkObserver.requests.length;
-  // The Viewer prepares the artifact when the modal opens; a response captured before this helper
-  // starts must still be considered, so also consult the already-owned request ledger.
   const priorPreparation = networkObserver.requests.slice(0, artifactRequestStart).find(entry =>
     entry.method === 'POST' && entry.path === `${runtimePath(target.fixtureProject, 'default')}/authoring/v2/artifacts` &&
     entry.response?.id === artifactID,

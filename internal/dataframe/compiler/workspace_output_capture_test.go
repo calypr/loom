@@ -22,10 +22,10 @@ func TestWorkspaceOutputExecutionRemainsExplicitlyUnsupportedUntilCapture(t *tes
 		WorkspaceOutputSources: []lower.WorkspaceOutputSource{{InputIndex: 0, OutputID: "base", Schema: []lower.CompiledOutputColumn{{ID: "value", Kind: "string"}}}},
 	}
 	bindings := recipe.RuntimeBindings{Project: "project-a"}
-	if _, err := CompileRecipeOutputWithPolicy(output, bindings, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "server-owned workspace capture is not available") {
+	if _, err := CompileRecipeOutput(ArangoTarget(), output, bindings, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "server-owned workspace capture is not available") {
 		t.Fatalf("query compile error = %v", err)
 	}
-	if _, err := CompileRecipeOutputPageWithPolicy(output, bindings, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "server-owned workspace capture is not available") {
+	if _, err := CompileRecipeOutputPage(ArangoTarget(), output, bindings, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "server-owned workspace capture is not available") {
 		t.Fatalf("page compile error = %v", err)
 	}
 }
@@ -49,7 +49,7 @@ func TestCompiledQueryRetainsFinalizedPlanThatRendersExecutedQuery(t *testing.T)
 	if err != nil {
 		t.Fatalf("ResolveRecipePlan: %v", err)
 	}
-	queries, err := CompileResolvedRecipePlanWithPolicy(resolved, 7, ir.DefaultPhysicalOptimizationPolicy())
+	queries, err := CompileResolvedRecipePlan(ArangoTarget(), resolved, 7, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("CompileResolvedRecipePlanWithPolicy: %v", err)
 	}
@@ -60,10 +60,10 @@ func TestCompiledQueryRetainsFinalizedPlanThatRendersExecutedQuery(t *testing.T)
 	if err != nil {
 		t.Fatalf("render retained plan: %v", err)
 	}
-	if rendered.Query != queries[0].Query || !reflect.DeepEqual(rendered.BindVars, queries[0].BindVars) {
-		t.Fatalf("retained plan differs from executed query/binds: queryMatch=%t bindMatch=%t", rendered.Query == queries[0].Query, reflect.DeepEqual(rendered.BindVars, queries[0].BindVars))
+	if rendered.Query != testAQLText(t, queries[0].Command) || !reflect.DeepEqual(rendered.BindVars, testAQLBinds(t, queries[0].Command)) {
+		t.Fatalf("retained plan differs from executed query/binds: queryMatch=%t bindMatch=%t", rendered.Query == testAQLText(t, queries[0].Command), reflect.DeepEqual(rendered.BindVars, testAQLBinds(t, queries[0].Command)))
 	}
-	if got := queries[0].BindVars["limit"]; got != 7 {
+	if got := testAQLBinds(t, queries[0].Command)["limit"]; got != 7 {
 		t.Fatalf("retained execution plan lost its final preview window, limit bind=%#v", got)
 	}
 }

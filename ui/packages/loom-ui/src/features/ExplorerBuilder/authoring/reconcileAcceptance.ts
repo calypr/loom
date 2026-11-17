@@ -8,9 +8,6 @@ import {
 
 export type ReconcileAcceptance = 'obsolete' | 'mismatch' | 'diagnostics' | 'accepted';
 
-/** One synchronous classification after the awaited response and cancellation check.
- * The caller still owns repair/compiled dispatch and must not preview rejected data.
- */
 export const reconcileAcceptance = (
   value: ExplorerBuilderCompileResult,
   identity: ReconcileResultIdentity,

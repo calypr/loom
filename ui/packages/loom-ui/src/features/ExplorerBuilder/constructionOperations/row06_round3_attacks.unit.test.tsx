@@ -179,22 +179,19 @@ describe('REV4 adversarial probes (derive pickerEmptinessHost)', () => {
       },
     });
     snap('f0 initial');
-    setKind('Second value', 'column'); // binds choice-a via kind shortcut, right draft derive-input_a
+    setKind('Second value', 'column');
     snap('f1 right bound to choice-a (kind shortcut)');
-    setKind('First value', 'column'); // firstNumeric = the materialized binding column -> left draft SHARES right's binding
+    setKind('First value', 'column');
     const f2 = snap('f2 left shares derive-input_a');
     expect(f2.explainCount).toBe(0);
     fireEvent.change(operandColumn('Second value'), { target: { value: 'source:choice-b' } });
     const f3 = snap('f3 right switched to choice-b (kept-filter clobber)');
 
-    // Invariant 3: never two explanation elements.
     expect(f3.explainCount).toBeLessThanOrEqual(1);
-    // Invariant 2: a listable populated dataset field must not coexist with the all-bound banner.
     const optgroupSize = Math.max(f3.left.optgroup.length, f3.right.optgroup.length);
     if (f3.explainClass === 'all-bound' && optgroupSize > 0) {
       boom(`FALSE BANNER: class=all-bound while optgroup lists ${optgroupSize} field(s); left.optgroup=${JSON.stringify(f3.left.optgroup)} right.optgroup=${JSON.stringify(f3.right.optgroup)} candidate=${f3.candidate}`);
     }
-    // Wire integrity: the still-column-kind left operand must keep its signed binding.
     if (f3.candidate !== 'none' && !f3.candidate.includes('choice-a')) {
       boom(`BINDING LOST: left operand still kind=column columnId=derive-input_a but candidate deriveSources=${f3.candidate}`);
     }
@@ -211,13 +208,12 @@ describe('REV4 adversarial probes (derive pickerEmptinessHost)', () => {
         choices: [numericChoice('choice-a', 'shared-col'), numericChoice('choice-a2', 'shared-col'), numericChoice('choice-b', 'derive-input_b')],
       },
     });
-    setKind('First value', 'column'); // binds choice-a @ shared-col
-    setKind('Second value', 'column'); // kind shortcut adopts materialized shared-col numeric column
+    setKind('First value', 'column');
+    setKind('Second value', 'column');
     snap('g1 both drafts shared-col, binding choice-a');
     fireEvent.change(operandColumn('Second value'), { target: { value: 'source:choice-a2' } });
     const g2 = snap('g2 right re-picks choice-a2 (same columnId)');
     expect(g2.explainCount).toBeLessThanOrEqual(1);
-    // left operand references shared-col; binding for choice-a was dropped by kept filter.
     const leftListsA = g2.left.optgroup.includes('source:choice-a');
     if (g2.explainClass === 'all-bound' && leftListsA) {
       boom(`FALSE BANNER (shared columnId): all-bound while left lists ${JSON.stringify(g2.left.optgroup)} candidate=${g2.candidate}`);
@@ -239,14 +235,11 @@ describe('REV4 adversarial probes (derive pickerEmptinessHost)', () => {
       selectedStage: sourceStage(stringCols),
       deriveSourceInput: input,
     });
-    setKind('First value', 'column'); // binds choice-note @ clash-col; string-typed materialization -> banner expected
+    setKind('First value', 'column');
     const h1 = snap('h1 sole string-typed binding, zero dataset fields');
     expect(h1.explainCount).toBe(1);
     expect(h1.explainClass).toBe('all-bound');
 
-    // Same capabilities identity (snapshotToken/draftVersion/draftDigest/outputId/stageId unchanged, so
-    // contextKey is unchanged and the form is NOT reset), but the stage now carries a foreign numeric
-    // column that reuses the binding columnId.
     const laterStage = sourceStage([
       ...stringCols,
       { id: 'clash-col', name: 'clash', label: 'Clash', type: 'integer' },
@@ -295,9 +288,9 @@ describe('REV4 adversarial probes (derive pickerEmptinessHost)', () => {
         choices: [numericChoice('choice-note', 'derive-input_note', 'string')],
       },
     });
-    setKind('Second value', 'column'); // firstNumeric n1, no binding; picker lists note
+    setKind('Second value', 'column');
     fireEvent.change(operandColumn('Second value'), { target: { value: 'source:choice-note' } });
-    setKind('Second value', 'literal'); // release: binding must prune to []
+    setKind('Second value', 'literal');
     const m1 = snap('m1 right released to literal, left still column n1');
     if (m1.explainCount !== 0
       || (m1.candidate !== 'none' && m1.candidate !== 'null' && m1.candidate.includes('choice-note'))) {
@@ -317,7 +310,7 @@ describe('REV4 adversarial probes (derive pickerEmptinessHost)', () => {
       },
     });
     setKind('First value', 'literal');
-    setKind('Second value', 'column'); // firstNumeric n1 -> no binding yet, picker lists note
+    setKind('Second value', 'column');
     const k0 = snap('k1 right drafts n1, note listable, no banner');
     expect(k0.explainCount).toBe(0);
     fireEvent.change(operandColumn('Second value'), { target: { value: 'source:choice-note' } });
@@ -326,15 +319,14 @@ describe('REV4 adversarial probes (derive pickerEmptinessHost)', () => {
     expect(k1.explainSlots).toEqual(['Second value']);
     expect(k1.explainClass).toBe('all-bound');
 
-    setKind('First value', 'column'); // left becomes column (n1) -> host must migrate to left, never two
+    setKind('First value', 'column');
     const k2 = snap('k3 left switched to column n1');
     expect(k2.explainCount).toBe(1);
     if (k2.explainSlots.length !== 1) boom('two hosts');
-    // left hosts now: its own picker must also be explained (zero dataset fields on left too)
     if (k2.left.optgroup.length === 0 && !k2.explainSlots.includes('First value') && !k2.explainSlots.includes('Second value')) {
       boom('banner lost in migration');
     }
-    setKind('First value', 'literal'); // back -> banner returns to right
+    setKind('First value', 'literal');
     const k3 = snap('k4 left literal again');
     expect(k3.explainCount).toBe(1);
     expect(k3.explainSlots).toEqual(['Second value']);

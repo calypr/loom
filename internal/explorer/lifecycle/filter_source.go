@@ -12,9 +12,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// ConstructionFilterSourceCapability advertises the authorized populated root
-// scalar fields a FILTER step can consume through a signed source choice,
-// beside the existing Pivot and Group source inputs.
 type ConstructionFilterSourceCapability struct {
 	Supported  bool                             `json:"supported"`
 	StageID    string                           `json:"stageId"`
@@ -23,12 +20,6 @@ type ConstructionFilterSourceCapability struct {
 	Choices    []ConstructionFilterSourceChoice `json:"choices"`
 }
 
-// ConstructionFilterSourceChoice is pinned to exactly six wire fields. The
-// UI capabilities schema is strict, so pivot-style extras (occurrenceId,
-// fhirType, valueType, isIdentifier, isReference) must never be added.
-// ColumnID is the signed materialized column id from durable server-derived
-// state, mirroring pivot's choice.columnId, so the UI can restore a saved
-// source-backed filter; it is "" while no live materialization exists.
 type ConstructionFilterSourceChoice struct {
 	ChoiceID    string `json:"choiceId"`
 	FieldPath   string `json:"fieldPath"`
@@ -38,8 +29,6 @@ type ConstructionFilterSourceChoice struct {
 	ColumnID    string `json:"columnId"`
 }
 
-// ConstructionFilterSourceSelection binds one server-signed root scalar field
-// choice to the exact columnId the edited FILTER step will consume.
 type ConstructionFilterSourceSelection struct {
 	ChoiceID string `json:"choiceId"`
 	ColumnID string `json:"columnId"`
@@ -189,11 +178,6 @@ func (s *Service) resolveConstructionFilterSource(
 	}, nil
 }
 
-// constructionCandidateWithFilterSources resolves the signed field choices,
-// derives the durable server-owned projection facts for the edited FILTER
-// step, and carries those slots through the row-preserving prefix. It mirrors
-// the Pivot source contract: the selection set is authoritative only when the
-// changed step is the FILTER that consumes it.
 func (s *Service) constructionCandidateWithFilterSources(
 	ctx context.Context,
 	base constructionBase,
@@ -361,14 +345,6 @@ func clearConstructionFilterOwnedSources(base, candidate authoringv2.Constructio
 	return candidate, nil
 }
 
-// constructionOwnedFilterSourceColumnID returns the durable server-derived
-// materialized column for a root field at one exact stage, mirroring
-// constructionOwnedRootProjectionColumnID. It only trusts state that is
-// pinned to the current CAS draft and snapshot-bound receipt (enforced by
-// loadConstructionBase): the projection must be owned by a FILTER step that
-// consumes this exact stage and still filters on this exact column. A
-// vanished, re-pointed, or foreign-owned materialization returns "", so the
-// UI never renders a restore into a column the server can no longer sign.
 func constructionOwnedFilterSourceColumnID(construction authoringv2.Construction, stageID, path string) string {
 	for _, projection := range construction.SourceProjections {
 		if projection.OwnerStepID == "" || canonicalRowPath(projection.FieldPath) != canonicalRowPath(path) {
@@ -388,12 +364,6 @@ func constructionOwnedFilterSourceColumnID(construction authoringv2.Construction
 	return ""
 }
 
-// ConstructionFilterSourceFacts derives the server-owned projection facts
-// for one root field from the authorized snapshot plus generated FHIR
-// metadata. Apply reauthorization and receipt reconcile share this single
-// derivation so a persisted filter-owned claim can never drift from the
-// facts the server would have signed it from. Column and owner identities
-// stay claim-sourced, exactly as the Apply-side DeepEquals expects them.
 func ConstructionFilterSourceFacts(snapshot capability.Snapshot, rootResourceType, fieldPath string) (authoringv2.ConstructionSourceProjection, bool) {
 	path := canonicalRowPath(fieldPath)
 	if strings.TrimSpace(rootResourceType) == "" || path == "" {
@@ -450,9 +420,6 @@ func isFilterOwnedSourceProjection(construction authoringv2.Construction, projec
 		step.Operation.Filter.ColumnID == projection.ColumnID
 }
 
-// reauthorizeConstructionFilterSources re-derives the server-owned facts for
-// every filter-owned projection from the live authorized snapshot so an Apply
-// cannot stage a filter whose field stopped qualifying after the proposal.
 func (s *Service) reauthorizeConstructionFilterSources(ctx context.Context, base constructionBase, outputID string, construction authoringv2.Construction) error {
 	if s.config.RowChoicePlanner == nil {
 		return unavailable("commands", "ROW_CHOICE_UNAVAILABLE", "authorized filter source choice planning is not configured", nil)

@@ -14,9 +14,6 @@ const (
 	graphLookaheadBindKey         = "graph_limit"
 )
 
-// BuildGraphPhysicalPlan lowers an explicit graph frontend onto the same
-// scoped root/traversal lowering used by dataframe recipes. Each route gets
-// its own path set, so sibling branches form independent unions.
 func BuildGraphPhysicalPlan(output semantic.OutputPlan, context semantic.ExecutionContext, limit int, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
 	if limit < 1 || limit > 10000 {
 		return ir.PhysicalPlan{}, fmt.Errorf("graph limit must be between 1 and 10000")
@@ -24,11 +21,12 @@ func BuildGraphPhysicalPlan(output semantic.OutputPlan, context semantic.Executi
 	if strings.TrimSpace(context.Project) == "" {
 		return ir.PhysicalPlan{}, fmt.Errorf("semantic plan project is required")
 	}
-	output.Root = normalizeGraphMatchModes(output.Root)
+	normalizedRoot, requiredPrefixView, traversalCount, hasRequiredPrefix := prepareGraphPlanViews(output.Root)
+	output.Root = normalizedRoot
 	if err := semantic.ValidateSemanticGraph(output.Root); err != nil {
 		return ir.PhysicalPlan{}, err
 	}
-	if countGraphTraversals(output.Root) > maxGraphTraversalDeclarations {
+	if traversalCount > maxGraphTraversalDeclarations {
 		return ir.PhysicalPlan{}, fmt.Errorf("graph traversal declaration count exceeds %d", maxGraphTraversalDeclarations)
 	}
 	if err := validateGraphNode(output.Root, true); err != nil {
@@ -60,7 +58,7 @@ func BuildGraphPhysicalPlan(output semantic.OutputPlan, context semantic.Executi
 	if err := appendRootPhysicalFilters(&physical, output.Root); err != nil {
 		return ir.PhysicalPlan{}, err
 	}
-	if err := appendRequiredTraversalMatchFilters(&physical, graphRequiredSemiJoinRoot(output.Root)); err != nil {
+	if err := appendRequiredTraversalMatchFilters(&physical, requiredPrefixView); err != nil {
 		return ir.PhysicalPlan{}, err
 	}
 
@@ -73,13 +71,8 @@ func BuildGraphPhysicalPlan(output semantic.OutputPlan, context semantic.Executi
 		}},
 	})
 
-	// A root-only path is useful when the request has only OPTIONAL branches:
-	// an optional miss leaves the root eligible and contributes no synthetic
-	// child. Once any REQUIRED route is declared, however, returning the root
-	// itself would leak a path the caller did not ask for; required semi-joins
-	// below still gate root membership.
-	pathSets := make([]string, 0, countGraphTraversals(output.Root)+1)
-	if !graphHasRequiredTraversal(output.Root) {
+	pathSets := make([]string, 0, traversalCount+1)
+	if !hasRequiredPrefix {
 		pathSets = append(pathSets, "path_root")
 	}
 	routeOrder := 1
@@ -105,10 +98,6 @@ func BuildGraphPhysicalPlan(output semantic.OutputPlan, context semantic.Executi
 			traversal := traversalResult.Traversal
 			traversal.SourceVariable = sourceVariable
 			setVariable := fmt.Sprintf("path_%d", index)
-			matchMode := child.MatchMode
-			if strings.TrimSpace(string(matchMode)) == "" {
-				matchMode = spec.TraversalMatchRequired
-			}
 			pathSets = append(pathSets, setVariable)
 			scope := make([]ir.PhysicalOperation, 0, 8+len(child.Filters))
 			scope = appendProjectScope(scope, []string{edgeVariable, targetVariable}, child.EdgeLabel, child)
@@ -124,7 +113,7 @@ func BuildGraphPhysicalPlan(output semantic.OutputPlan, context semantic.Executi
 					Variable: setVariable, SourceVariable: sourcePathSet, SourcePath: nil, Traversal: traversal,
 					Node:         ir.PhysicalPathNode{Alias: graphAlias(child, child.Alias), ResourceType: child.ResourceType, Value: ir.PhysicalValue{Variable: targetVariable}},
 					Relationship: ir.PhysicalPathRelationship{Alias: child.Alias, LabelBindKey: traversal.EdgeLabelBindKey, FromResourceType: parent.ResourceType, ToResourceType: child.ResourceType},
-					MatchMode:    string(matchMode), RouteOrder: index, Scope: scope,
+					MatchMode:    string(child.MatchMode), RouteOrder: index, Scope: scope,
 				},
 			})
 			if err := walk(child, setVariable); err != nil {
@@ -143,49 +132,50 @@ func BuildGraphPhysicalPlan(output semantic.OutputPlan, context semantic.Executi
 	return physical, nil
 }
 
-func normalizeGraphMatchModes(node semantic.SemanticNode) semantic.SemanticNode {
-	copy := node
-	copy.Children = make([]semantic.SemanticNode, len(node.Children))
-	for index, child := range node.Children {
-		childCopy := normalizeGraphMatchModes(child)
-		if strings.TrimSpace(string(childCopy.MatchMode)) == "" {
-			childCopy.MatchMode = spec.TraversalMatchRequired
-		}
-		copy.Children[index] = childCopy
+func prepareGraphPlanViews(root semantic.SemanticNode) (semantic.SemanticNode, semantic.SemanticNode, int, bool) {
+	normalized := root
+	requiredPrefixView := root
+	normalized.Children = make([]semantic.SemanticNode, len(root.Children))
+	requiredPrefixView.Children = make([]semantic.SemanticNode, len(root.Children))
+	traversalCount := len(root.Children)
+	hasRequiredPrefix := false
+	for index, child := range root.Children {
+		childNormalized, childRequiredPrefixView, childCount, childHasRequiredPrefix := prepareGraphView(child, true)
+		normalized.Children[index] = childNormalized
+		requiredPrefixView.Children[index] = childRequiredPrefixView
+		traversalCount += childCount
+		hasRequiredPrefix = hasRequiredPrefix || childHasRequiredPrefix
 	}
-	return copy
+	return normalized, requiredPrefixView, traversalCount, hasRequiredPrefix
 }
 
-// graphRequiredSemiJoinRoot keeps REQUIRED membership proofs for routes that
-// are reachable from the root through required ancestors. A required child
-// below an OPTIONAL branch cannot disqualify the root when that branch is
-// absent; its path set simply contributes no rows.
-func graphRequiredSemiJoinRoot(node semantic.SemanticNode) semantic.SemanticNode {
-	copy := node
-	copy.Children = make([]semantic.SemanticNode, len(node.Children))
-	for index, child := range node.Children {
-		copy.Children[index] = graphRequiredSemiJoinNode(child, true)
+func prepareGraphView(node semantic.SemanticNode, ancestorsRequired bool) (semantic.SemanticNode, semantic.SemanticNode, int, bool) {
+	matchMode := node.MatchMode
+	if strings.TrimSpace(string(matchMode)) == "" {
+		matchMode = spec.TraversalMatchRequired
 	}
-	return copy
-}
-
-func graphRequiredSemiJoinNode(node semantic.SemanticNode, ancestorsRequired bool) semantic.SemanticNode {
-	copy := node
+	childAncestorsRequired := ancestorsRequired && matchMode == spec.TraversalMatchRequired
+	normalized := node
+	normalized.MatchMode = matchMode
+	requiredPrefixView := node
+	requiredPrefixView.MatchMode = matchMode
 	if !ancestorsRequired {
-		copy.MatchMode = spec.TraversalMatchOptional
+		requiredPrefixView.MatchMode = spec.TraversalMatchOptional
 	}
-	childAncestorsRequired := ancestorsRequired && node.MatchMode.Required()
-	copy.Children = make([]semantic.SemanticNode, len(node.Children))
+	normalized.Children = make([]semantic.SemanticNode, len(node.Children))
+	requiredPrefixView.Children = make([]semantic.SemanticNode, len(node.Children))
+	traversalCount := len(node.Children)
+	hasRequiredPrefix := childAncestorsRequired
 	for index, child := range node.Children {
-		copy.Children[index] = graphRequiredSemiJoinNode(child, childAncestorsRequired)
+		childNormalized, childRequiredPrefixView, childCount, childHasRequiredPrefix := prepareGraphView(child, childAncestorsRequired)
+		normalized.Children[index] = childNormalized
+		requiredPrefixView.Children[index] = childRequiredPrefixView
+		traversalCount += childCount
+		hasRequiredPrefix = hasRequiredPrefix || childHasRequiredPrefix
 	}
-	return copy
+	return normalized, requiredPrefixView, traversalCount, hasRequiredPrefix
 }
 
-// CompileResolvedGraphPlan selects the single graph output from the resolved
-// recipe boundary and lowers it to graph/path IR. The graph frontend creates
-// one output deliberately; accepting multiple outputs here would make path
-// union and lookahead-limit semantics ambiguous.
 func CompileResolvedGraphPlan(resolved semantic.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
 	if len(resolved.SemanticPlan.Outputs) != 1 {
 		return ir.PhysicalPlan{}, fmt.Errorf("graph query requires exactly one output, got %d", len(resolved.SemanticPlan.Outputs))
@@ -205,35 +195,6 @@ func graphAlias(node semantic.SemanticNode, fallback string) string {
 		return node.Alias
 	}
 	return fallback
-}
-
-func countGraphTraversals(node semantic.SemanticNode) int {
-	count := len(node.Children)
-	for _, child := range node.Children {
-		count += countGraphTraversals(child)
-	}
-	return count
-}
-
-func graphHasRequiredTraversal(node semantic.SemanticNode) bool {
-	var walk func(semantic.SemanticNode, bool) bool
-	walk = func(parent semantic.SemanticNode, requiredPrefix bool) bool {
-		for _, child := range parent.Children {
-			mode := child.MatchMode
-			if strings.TrimSpace(string(mode)) == "" {
-				mode = spec.TraversalMatchRequired
-			}
-			childRequired := mode == spec.TraversalMatchRequired
-			if requiredPrefix && childRequired {
-				return true
-			}
-			if walk(child, requiredPrefix && childRequired) {
-				return true
-			}
-		}
-		return false
-	}
-	return walk(node, true)
 }
 
 func validateGraphNode(node semantic.SemanticNode, root bool) error {

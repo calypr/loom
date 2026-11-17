@@ -1,6 +1,3 @@
-// Package recipe defines the persistence-neutral recipe document used by the
-// dataframe compiler. A recipe describes semantic row shaping only; it never
-// carries database collection, table, AQL, or SQL details.
 package recipe
 
 import (
@@ -15,10 +12,6 @@ func (b Bundle) Validate() error {
 	return b.validate(nil)
 }
 
-// ValidateWithWorkspaceOutputs validates a one-output compiler fragment while
-// allowing WORKSPACE_OUTPUT references to sibling outputs supplied by the
-// enclosing authoring workspace. The completed workspace bundle must still
-// pass Validate, which resolves every edge and rejects cycles.
 func (b Bundle) ValidateWithWorkspaceOutputs(allowed []string) error {
 	external := make(map[string]struct{}, len(allowed))
 	for _, outputID := range allowed {
@@ -287,11 +280,6 @@ func validateTraversals(items []Traversal, path string, depth int) error {
 		if err := validateOccurrenceID(t.OccurrenceID, p+".occurrenceId"); err != nil {
 			return err
 		}
-		// The relationship label is not an output namespace: two routes may
-		// legitimately use the same edge label while targeting different FHIR
-		// resources (for example Patient -> Condition and Patient -> Specimen).
-		// Alias is the lexical identity when supplied; otherwise the edge name
-		// remains the backwards-compatible uniqueness key.
 		traversalKey := t.Alias
 		if traversalKey == "" {
 			traversalKey = t.Name
@@ -466,5 +454,3 @@ func validateLiteral(raw json.RawMessage, path string) error {
 		return validationError("invalid_literal", path, "literal must be a scalar or bounded scalar array")
 	}
 }
-
-// CanonicalJSON returns stable compact JSON for a validated document.

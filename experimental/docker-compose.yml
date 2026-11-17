@@ -17,3 +17,24 @@ services:
       - "9000:9000"
     volumes:
       - ./clickhouse-data:/var/lib/clickhouse
+
+  postgres18-test:
+    profiles: ["postgres-test"]
+    image: postgres:18
+    container_name: loom-postgres18-test
+    environment:
+      POSTGRES_DB: loom_test
+      POSTGRES_USER: loom_test
+      POSTGRES_PASSWORD: loom-test-only
+    ports:
+      - "55432:5432"
+    volumes:
+      - loom-pg18-test-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U loom_test -d loom_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  loom-pg18-test-data:

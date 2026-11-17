@@ -145,15 +145,11 @@ func emptyFilterCollection(value any) bool {
 }
 
 type pageCursor struct {
-	Version   int    `json:"version,omitempty"`
-	Binding   string `json:"binding,omitempty"`
-	RowID     string `json:"rowId"`
-	SortValue any    `json:"sortValue,omitempty"`
-	// SortValueNull marks a cursor parked inside the NULL bucket of a sorted
-	// page (F-B24): SortValue is then meaningless and ordering continues by
-	// row identity. Version 2 cursors carry this flag; Version 1 could never
-	// encode a NULL sort value.
-	SortValueNull bool `json:"sortValueNull,omitempty"`
+	Version       int    `json:"version,omitempty"`
+	Binding       string `json:"binding,omitempty"`
+	RowID         string `json:"rowId"`
+	SortValue     any    `json:"sortValue,omitempty"`
+	SortValueNull bool   `json:"sortValueNull,omitempty"`
 }
 
 func encodeCursor(rowID string, sortValue any) string {

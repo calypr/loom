@@ -2,7 +2,9 @@ package execution
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"strings"
 	"sync"
 	"time"
@@ -54,9 +56,9 @@ func (e *Engine) ScanCategories(ctx context.Context, resolved Resolved, request 
 		var compiled compiler.CompiledCategoryScanQuery
 		var err error
 		if request.StageID != "" {
-			compiled, err = compiler.CompileCategoryScanStageWithPolicy(output, request.StageID, request.ColumnID, request.ValueColumnID, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
+			compiled, err = compiler.CompileCategoryScanStage(e.compileTarget, output, request.StageID, request.ColumnID, request.ValueColumnID, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
 		} else {
-			compiled, err = compiler.CompileCategoryScanOutputWithPolicy(output, request.Column, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
+			compiled, err = compiler.CompileCategoryScanOutput(e.compileTarget, output, request.Column, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
 		}
 		if err != nil {
 			return CategoryScanResult{}, err
@@ -66,8 +68,15 @@ func (e *Engine) ScanCategories(ctx context.Context, resolved Resolved, request 
 	return CategoryScanResult{}, fmt.Errorf("category scan output %q was not found", request.Output)
 }
 
+func (e *Engine) previewRowsPort() SourceRows {
+	if e.previewSourceRows != nil {
+		return e.previewSourceRows
+	}
+	return e.sourceRows
+}
+
 func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.CompiledCategoryScanQuery) (CategoryScanResult, error) {
-	if e == nil || e.queryRows == nil {
+	if e == nil || e.sourceRows == nil {
 		return CategoryScanResult{}, fmt.Errorf("category scan query executor is required")
 	}
 	if compiled.PresentColumn == "" || compiled.ValueColumn == "" || compiled.Proof.MaxValues < 1 {
@@ -75,6 +84,14 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 	}
 	if err := ctx.Err(); err != nil {
 		return CategoryScanResult{}, err
+	}
+	switch compiled.Command.Backend() {
+	case command.CompiledBackendPostgreSQL:
+		return e.scanCategoriesPostgreSQL(ctx, compiled)
+	case command.CompiledBackendAQL:
+	default:
+		return CategoryScanResult{}, fmt.Errorf("%w: category scan command backend %q is not registered",
+			command.ErrCompiledCommandBackendNotRegistered, compiled.Command.Backend())
 	}
 	if compiled.CategoryIndex != nil && e.preparePreviewIndex != nil {
 		_ = e.preparePreviewIndex(ctx, *compiled.CategoryIndex)
@@ -85,16 +102,10 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 	if compiled.PreviewCoveringIndex != nil {
 		schedulePreviewIndexPrewarm(ctx, e, *compiled.PreviewCoveringIndex)
 	}
-	values := make([]CategoryValue, 0, compiled.Proof.MaxValues)
-	overflow := false
-	queryRows := e.queryRows
-	if e.previewQueryRows != nil {
-		queryRows = e.previewQueryRows
-	}
 	if compiled.OverflowWitness != nil {
 		witnessCount := 0
 		missing := false
-		err := queryRows(ctx, compiled.OverflowWitness.Query, e.batchSize, compiled.OverflowWitness.BindVars, func(row map[string]any) error {
+		err := e.previewRowsPort()(ctx, RowsRequest{Command: compiled.OverflowWitness.Command, BatchSize: e.batchSize}, func(row map[string]any) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -122,7 +133,22 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 			return CategoryScanResult{ConclusiveMissing: true, Proof: compiled.Proof}, nil
 		}
 	}
-	err := queryRows(ctx, compiled.Query, e.batchSize, compiled.BindVars, func(row map[string]any) error {
+	return e.collectCategoryResultPage(ctx, compiled, nil, identityCategoryValue)
+}
+
+func (e *Engine) collectCategoryResultPage(
+	ctx context.Context,
+	compiled compiler.CompiledCategoryScanQuery,
+	declaredColumns []string,
+	decodeValue func(any) (any, error),
+) (CategoryScanResult, error) {
+	values := make([]CategoryValue, 0, compiled.Proof.MaxValues)
+	overflow := false
+	err := e.previewRowsPort()(ctx, RowsRequest{
+		Command:         compiled.Command,
+		DeclaredColumns: declaredColumns,
+		BatchSize:       e.batchSize,
+	}, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -130,9 +156,13 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 		if !ok {
 			return fmt.Errorf("category scan row has invalid presence marker")
 		}
-		value, exists := row[compiled.ValueColumn]
+		raw, exists := row[compiled.ValueColumn]
 		if !exists {
 			return fmt.Errorf("category scan row is missing value")
+		}
+		value, err := decodeValue(raw)
+		if err != nil {
+			return err
 		}
 		if len(values) == compiled.Proof.MaxValues {
 			overflow = true
@@ -148,6 +178,35 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 		return CategoryScanResult{}, err
 	}
 	return CategoryScanResult{Values: values, Complete: !overflow, Overflow: overflow, Proof: compiled.Proof}, nil
+}
+
+func identityCategoryValue(raw any) (any, error) {
+	return raw, nil
+}
+
+func (e *Engine) scanCategoriesPostgreSQL(ctx context.Context, compiled compiler.CompiledCategoryScanQuery) (CategoryScanResult, error) {
+	if compiled.OverflowWitness != nil {
+		return CategoryScanResult{}, fmt.Errorf("category scan: a PostgreSQL command must not carry an overflow witness; the bounded maxValues+1 page owns truncation detection")
+	}
+	return e.collectCategoryResultPage(ctx, compiled, []string{compiled.PresentColumn, compiled.ValueColumn}, decodePostgreSQLCategoryValue)
+}
+
+func decodePostgreSQLCategoryValue(raw any) (any, error) {
+	switch typed := raw.(type) {
+	case nil:
+		return nil, nil
+	case json.RawMessage:
+		if len(typed) == 0 || !json.Valid(typed) {
+			return nil, fmt.Errorf("category scan row has invalid JSONB value")
+		}
+		var decoded any
+		if err := json.Unmarshal(typed, &decoded); err != nil {
+			return nil, fmt.Errorf("category scan row has invalid JSONB value: %w", err)
+		}
+		return decoded, nil
+	default:
+		return nil, fmt.Errorf("category scan PostgreSQL row carries %T in the value column; the PostgreSQL adapter delivers JSON values only as raw JSON bytes", raw)
+	}
 }
 
 func schedulePreviewIndexPrewarm(ctx context.Context, engine *Engine, spec compiler.PreviewCoveringIndexSpec) {

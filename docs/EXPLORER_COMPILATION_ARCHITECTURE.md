@@ -248,7 +248,7 @@ execution contract.
 | Compiler-proven immutable capability | `internal/explorer/capability` and `internal/server/explorer_capability.go` |
 | Native V2 translation | `internal/explorer/compilation` |
 | Versioned receipt domain and integrity | `internal/explorer/compilation_receipt.go` |
-| Memory and Arango receipt persistence | `internal/explorer/memory_store.go`, `internal/explorer/arango/store.go` |
+| Memory and Arango receipt persistence | `internal/explorer/memory_store.go`, `internal/backends/arango/internal/explorer/store.go` |
 | Explorer list/create/authoring/receipt/preview/publication workflows | `internal/explorer/lifecycle` |
 | Resolved-recipe execution boundary | `internal/dataframe/execution/engine.go` |
 | Generated HTTP request/response adapters | `internal/server/openapi_explorer_routes.go` |

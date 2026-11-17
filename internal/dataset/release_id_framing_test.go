@@ -12,31 +12,6 @@ import (
 	"time"
 )
 
-// Controls for the releaseID content-addressed framing (release.go). Two kinds
-// live here:
-//
-//  1. The R2 field-scope premise: the pre-widening encode hashed only Project,
-//     Generation and each publication's (Selector.Key(), ExecutionID), so a
-//     required->optional reclassification of the SAME selector under the SAME
-//     execution produced one digest for two genuinely different immutable
-//     snapshots. historicalReleaseIDFrame pins that collapse; production
-//     releaseID must separate the pair.
-//  2. Injectivity hardening (defense-in-depth, NOT a defect repair): the fold
-//     classes below are proven-unreachable through the public surface today.
-//     Project and Generation reject control bytes at ref.go:26-30
-//     (validateOpaqueIdentifier), selector components are confined to the
-//     injective DataframeSelector.Key() encoding (dataframe_selector.go:34),
-//     and ExecutionID arrives from the publication store as an opaque id a
-//     caller of ReleaseService.Create cannot forge on this path. The controls
-//     replay the archived fold classes against the historical framing (they
-//     still fold there) and prove the shipped framing is injective by
-//     construction, so the property does not depend on those upstream
-//     validators staying in place.
-
-// historicalReleaseIDFrame replays the pre-widening framing EXACTLY as shipped:
-// project and generation joined by a bare "\x00", then one "\x00"-joined
-// (Selector.Key(), ExecutionID) group per publication. It is the fault premise:
-// the pairs below must COLLAPSE here while production releaseID separates them.
 func historicalReleaseIDFrame(release ProjectRelease) string {
 	var b strings.Builder
 	b.WriteString(release.Project)
@@ -51,8 +26,6 @@ func historicalReleaseIDFrame(release ProjectRelease) string {
 	return b.String()
 }
 
-// legacyReleaseID is the identity the pre-widening binary derived from the same
-// content, so the upgrade-boundary controls below can seed an OLD stored id.
 func legacyReleaseID(release ProjectRelease) string {
 	digest := sha256.Sum256([]byte(historicalReleaseIDFrame(release)))
 	return "release_" + hex.EncodeToString(digest[:])
@@ -82,14 +55,8 @@ var (
 	ridLater     = ridInstant.Add(time.Second)
 )
 
-// ridTimePool is the timestamp space the probes draw from: the zero instant, one
-// UTC instant, the SAME instant expressed in a fixed non-UTC zone (canonical
-// equivalence) and a genuinely later instant.
 var ridTimePool = []time.Time{{}, ridInstant, ridOtherZone, ridLater}
 
-// ridTimeLabel renders a timestamp the way the framing canonicalizes it, without
-// calling production code, so the decode-inverse comparison stays independent of
-// the encoder under test.
 func ridTimeLabel(value time.Time) string {
 	if value.IsZero() {
 		return ""
@@ -97,10 +64,6 @@ func ridTimeLabel(value time.Time) string {
 	return value.UTC().Format(time.RFC3339Nano)
 }
 
-// ridContentLabel is an unambiguous, order-insensitive canonicalization of every
-// field releaseID hashes. Two releases sharing a digest but differing in label
-// is the injectivity failure these controls hunt; %q keeps the label itself
-// separator-safe.
 func ridContentLabel(release ProjectRelease) string {
 	pubLabels := make([]string, 0, len(release.Publications))
 	for _, publication := range release.Publications {
@@ -131,8 +94,6 @@ func ridVerificationLabel(verification ContractVerification) string {
 		boolDigit(verification.Queryable), ridTimeLabel(verification.VerifiedAt), verification.ErrorCode)
 }
 
-// ridClone deep-copies the repeated sections so a mutation probe cannot write
-// through the shared backing array of the release it was derived from.
 func ridClone(release ProjectRelease) ProjectRelease {
 	clone := release
 	if release.Publications != nil {
@@ -151,8 +112,6 @@ func boolDigit(value bool) int {
 	return 0
 }
 
-// decodedRelease carries a release reconstructed from the exact bytes
-// releaseIDFraming emits, keeping timestamps in their canonical string form.
 type decodedRelease struct {
 	project       string
 	generation    string
@@ -197,11 +156,6 @@ func (d decodedRelease) label() string {
 		strings.Join(pubLabels, ","), strings.Join(verLabels, ","))
 }
 
-// decodeReleaseIDFrame reconstructs the hashed content from the exact bytes
-// releaseIDFraming emits. Its existence is the constructive injectivity proof: a
-// total left-inverse means two distinct contents can never share a framing
-// string. readLen rejects a spoofed length prefix (non-digit or leading-zero
-// digits) instead of silently accepting it.
 func decodeReleaseIDFrame(frame []byte) (decodedRelease, bool) {
 	rest := string(frame)
 	if !strings.HasPrefix(rest, releaseIDDomain) {
@@ -310,14 +264,7 @@ func readLen(s string) (string, string, bool) {
 	return s[colon+1 : colon+1+n], s[colon+1+n:], true
 }
 
-// TestReleaseIDHistoricalFramingFoldWitnessesPinnedByFix replays the archived
-// fold classes plus the R2 field-scope fold. Every pair COLLAPSEs under
-// historicalReleaseIDFrame (the premise) and SEPARATES under releaseID +
-// releaseIDFraming (the repair).
 func TestReleaseIDHistoricalFramingFoldWitnessesPinnedByFix(t *testing.T) {
-	// Class A: a NUL smuggled across the Project/Generation bare-join edge.
-	// (Public Create rejects control bytes in project/generation, so this is
-	// the defense-in-depth / upstream-weakening surface, kept honest.)
 	classAA := ridRelease("p\x00q", "g")
 	classAB := ridRelease("p", "q\x00g")
 	if historicalReleaseIDFrame(classAA) != historicalReleaseIDFrame(classAB) {
@@ -327,9 +274,6 @@ func TestReleaseIDHistoricalFramingFoldWitnessesPinnedByFix(t *testing.T) {
 		t.Fatalf("REGRESSION: length-prefixed framing folds the Project/Generation NUL pair (frame %q)", string(releaseIDFraming(classAA)))
 	}
 
-	// Class B: the release-specific class — an un-delimited ExecutionID lets one
-	// publication's bytes impersonate the next (Key(), ExecutionID) group
-	// (forgeable on this layer, the closest thing to a live surface).
 	leftover := "a\x00" + ridPub("r", "t", "o", "").Selector.Key() + "\x00"
 	classBA := ridRelease("p", "g", ridPub("R", "T", "O", leftover))
 	classBB := ridRelease("p", "g", ridPub("R", "T", "O", "a"), ridPub("r", "t", "o", ""))
@@ -346,11 +290,6 @@ func TestReleaseIDHistoricalFramingFoldWitnessesPinnedByFix(t *testing.T) {
 		t.Fatalf("decode round-trip failed for class B: ok=%v got=%s", ok, got.label())
 	}
 
-	// Class C: the R2 production fold — a required->optional reclassification of
-	// the same selector under the same execution. Every historically hashed field
-	// is unchanged, so the pre-widening digest could not tell the two immutable
-	// candidates apart and SaveRelease rejected the new one with "release already
-	// exists with different content".
 	selector := ridSelector("core", "v1", "Patient")
 	classCA := ridRelease("p", "g", ReleasePublication{Selector: selector, ExecutionID: "execution-a", Generation: "g", Required: true})
 	classCB := ridRelease("p", "g", ReleasePublication{Selector: selector, ExecutionID: "execution-a", Generation: "g", Required: false})
@@ -361,8 +300,6 @@ func TestReleaseIDHistoricalFramingFoldWitnessesPinnedByFix(t *testing.T) {
 		t.Fatalf("REGRESSION: releaseID folds the required/optional policy pair that SaveRelease compares as different content")
 	}
 
-	// Class D: the same narrow-fold shape on the verification side — a contract
-	// verdict that changed state while selector/execution stayed put.
 	classDA := ridProbeRelease("p", "g", nil, []ContractVerification{{Selector: selector, ExecutionID: "execution-a", Generation: "g", State: "PUBLISHED", Queryable: true}})
 	classDB := ridProbeRelease("p", "g", nil, []ContractVerification{{Selector: selector, ExecutionID: "execution-a", Generation: "g", State: "STALE", Queryable: true}})
 	if releaseID(classDA) == releaseID(classDB) {
@@ -371,9 +308,6 @@ func TestReleaseIDHistoricalFramingFoldWitnessesPinnedByFix(t *testing.T) {
 	t.Logf("VERDICT=REPAIRED archived fold classes plus the R2 required/optional fold collapse under the historical framing and are separated by releaseID")
 }
 
-// TestReleaseIDIncludesEveryImmutableField asserts acceptance criterion: every
-// persisted immutable field CATEGORY moves the id, so two snapshots the store
-// compares as different content can never share an immutable document key.
 func TestReleaseIDIncludesEveryImmutableField(t *testing.T) {
 	const project, generation = "project-a", "commit-a"
 	base := func() ProjectRelease {
@@ -456,9 +390,6 @@ func assertDistinctID(t *testing.T, left, right ProjectRelease, field string) {
 	}
 }
 
-// TestReleaseIDIgnoresCreatedAt asserts that only the creation timestamp differs
-// yet the identity is unchanged, while a per-binding VerifiedAt change (immutable
-// evidence inside the document) still moves it.
 func TestReleaseIDIgnoresCreatedAt(t *testing.T) {
 	base := ridProbeRelease("project-a", "commit-a",
 		[]ReleasePublication{{Selector: ridSelector("core", "v1", "Patient"), ExecutionID: "execution-a", Generation: "commit-a", Required: true, VerifiedAt: ridInstant}},
@@ -476,8 +407,6 @@ func TestReleaseIDIgnoresCreatedAt(t *testing.T) {
 	if first.CreatedAt.Equal(second.CreatedAt) || first.CreatedAt.Equal(third.CreatedAt) {
 		t.Fatalf("witness precondition broken: the CreatedAt probes must be different instants")
 	}
-	// The excluded timestamp is the release-level one only: VerifiedAt is persisted
-	// immutable evidence and must still distinguish.
 	moved := ridClone(first)
 	moved.Publications[0].VerifiedAt = ridLater
 	if releaseID(moved) == releaseID(first) {
@@ -491,9 +420,6 @@ func TestReleaseIDIgnoresCreatedAt(t *testing.T) {
 	t.Logf("VERDICT=PASS CreatedAt alone (three distinct instants) keeps one id; per-binding VerifiedAt still distinguishes")
 }
 
-// TestReleaseIDCanonicalEquivalence asserts the canonical forms: equivalent
-// submission order, equivalent instants in other representations, and the
-// nil/empty service form all keep the service identity deterministic.
 func TestReleaseIDCanonicalEquivalence(t *testing.T) {
 	first := ReleasePublication{Selector: ridSelector("core", "v1", "Patient"), ExecutionID: "execution-a", Generation: "commit-a", Required: true, VerifiedAt: ridInstant}
 	second := ReleasePublication{Selector: ridSelector("core", "v1", "Observation"), ExecutionID: "execution-b", Generation: "commit-a", Required: false, Stale: true, VerifiedAt: ridLater}
@@ -506,8 +432,6 @@ func TestReleaseIDCanonicalEquivalence(t *testing.T) {
 		t.Fatalf("REGRESSION: submission order leaked into releaseID: %s vs %s", releaseID(ordered), releaseID(reversed))
 	}
 
-	// The same instants expressed in another zone, and stripped of a monotonic
-	// reading, are the same immutable content.
 	elsewhere := ridProbeRelease("project-a", "commit-a",
 		[]ReleasePublication{{Selector: first.Selector, ExecutionID: first.ExecutionID, Generation: first.Generation, Required: true, VerifiedAt: ridOtherZone}},
 		[]ContractVerification{{Selector: firstVer.Selector, ExecutionID: firstVer.ExecutionID, Generation: firstVer.Generation, State: "PUBLISHED", Queryable: true, VerifiedAt: ridOtherZone}},
@@ -535,14 +459,12 @@ func TestReleaseIDCanonicalEquivalence(t *testing.T) {
 	if releaseID(monotonic) != releaseID(stripped) {
 		t.Fatalf("REGRESSION: a monotonic reading leaked into releaseID: %s vs %s", releaseID(monotonic), releaseID(stripped))
 	}
-	// A genuinely different instant still separates.
 	later := ridClone(utcForm)
 	later.Publications[0].VerifiedAt = ridLater
 	if releaseID(later) == releaseID(utcForm) {
 		t.Fatalf("REGRESSION: a different VerifiedAt instant failed to move releaseID")
 	}
 
-	// nil and empty repeated sections are one service form.
 	withEmpties := ridProbeRelease("project-a", "commit-a", []ReleasePublication{first}, nil)
 	withEmpties.RequiredVerifications = []ContractVerification{}
 	if releaseID(withEmpties) != releaseID(ridProbeRelease("project-a", "commit-a", []ReleasePublication{first}, nil)) {
@@ -554,20 +476,8 @@ func TestReleaseIDCanonicalEquivalence(t *testing.T) {
 	t.Logf("VERDICT=PASS order, zone, monotonic and nil/empty canonicalization keep releaseID deterministic; distinct instants still separate")
 }
 
-// TestReleaseIDFramingIsInjectiveSmallAlphabet EXHAUSTIVELY enumerates
-// Project/Generation against 0/1-publication releases over the breach alphabet
-// {a, ':', NUL, digit}, then exhaustively enumerates 2-publication releases
-// (fixed Project/Generation) over that publication space, and 2-publication
-// releases over a Project/Generation cross with a capped publication set. Every
-// distinct content must map to a distinct framing string, a distinct releaseID,
-// and round-trip through the decoder.
 func TestReleaseIDFramingIsInjectiveSmallAlphabet(t *testing.T) {
 	components := ridBuildComponents([]string{"a", ":", "\x00", "1"}, 1)
-	// pgSet drives Project/Generation, all written by writeLengthPrefixed. The
-	// multibyte tokens (CJK/emoji/accented — LEGAL under validateOpaqueIdentifier,
-	// which only requires valid-UTF8 + no-control, ref.go:26-30 / validation.go:31-44)
-	// kill the length-vs-rune-count mutant class: a RuneCountInString encoder
-	// mis-sizes these prefixes and the decode-inverse check below rejects it.
 	pgSet := ridBuildComponents([]string{"a", ":", "\x00", "0", "あ", "🎯", "é"}, 2)
 
 	type probePub struct {
@@ -575,9 +485,6 @@ func TestReleaseIDFramingIsInjectiveSmallAlphabet(t *testing.T) {
 		required, stale                      bool
 		at                                   time.Time
 	}
-	// The breach alphabet stays on the four historically framed fields; the fields
-	// added by the widening are derived from the enumeration index so they sweep
-	// their whole value domain across the space without multiplying it.
 	var pubSpace []probePub
 	for index, r := range components {
 		for _, tv := range components {
@@ -629,8 +536,6 @@ func TestReleaseIDFramingIsInjectiveSmallAlphabet(t *testing.T) {
 		checked++
 	}
 
-	// P/G cross over 0/1 publication releases: exercises the Project/Generation
-	// boundary and single-publication framing at every delimiter value.
 	for _, project := range pgSet {
 		for _, generation := range pgSet {
 			add(project, generation, nil)
@@ -639,13 +544,11 @@ func TestReleaseIDFramingIsInjectiveSmallAlphabet(t *testing.T) {
 			}
 		}
 	}
-	// Exhaustive 2-publication fold space at a representative Project/Generation.
 	for _, one := range pubSpace {
 		for _, two := range pubSpace {
 			add("p\x00q", "g", []probePub{one, two})
 		}
 	}
-	// 2-publication releases that also vary Project/Generation over a small set.
 	pairSet := pubSpace[:min(len(pubSpace), 20)]
 	for _, project := range []string{"p", "\x00", "a:b"} {
 		for _, generation := range []string{"g", "\x00", ":"} {
@@ -659,8 +562,6 @@ func TestReleaseIDFramingIsInjectiveSmallAlphabet(t *testing.T) {
 	t.Logf("VERDICT=HARDENED | exhaustive small-alphabet injectivity: %d distinct-content releases, zero framing/digest folds, all decoded", checked)
 }
 
-// ridBuildComponents returns all strings formed from the alphabet with length
-// 0..maxLen, deterministic ordering.
 func ridBuildComponents(alphabet []string, maxLen int) []string {
 	out := []string{""}
 	level := []string{""}
@@ -677,14 +578,6 @@ func ridBuildComponents(alphabet []string, maxLen int) []string {
 	return out
 }
 
-// TestReleaseIDFramingInjectiveKeySpace enumerates selector triples over a
-// delimiter-heavy alphabet down to depth 3, embeds each in a fully populated
-// release (publication AND contract verification), and decodes the framing back.
-// Because decodeReleaseIDFrame is a total left-inverse, decode(encode(x))==x over
-// the ENTIRE enumerated domain proves the framing is injective on it without
-// materialising a 64M-entry map. The alphabet depth is bounded to protect the
-// gate budget while still driving NUL, ':', and digit bytes through the
-// self-delimiting Key().
 func TestReleaseIDFramingInjectiveKeySpace(t *testing.T) {
 	components := ridBuildComponents([]string{"a", "1", ":", "\x00", "-"}, 3)
 	count := 0
@@ -707,9 +600,6 @@ func TestReleaseIDFramingInjectiveKeySpace(t *testing.T) {
 	t.Logf("VERDICT=HARDENED | exhaustive Key-space probe: %d selector triples over a delimiter-heavy alphabet (incl NUL/':'), decode-inverse injected", count)
 }
 
-// TestReleaseIDFramingInjectiveVerificationSpace sweeps the contract-verification
-// section (added by the widening) through per-field probes, the nil/empty
-// equivalence, and order equivalence, each checked against the decoder.
 func TestReleaseIDFramingInjectiveVerificationSpace(t *testing.T) {
 	base := func() ProjectRelease {
 		return ridProbeRelease("proj", "gen", []ReleasePublication{ridPub("core", "v1", "Patient", "exec-a")}, []ContractVerification{
@@ -750,19 +640,8 @@ func TestReleaseIDFramingInjectiveVerificationSpace(t *testing.T) {
 	t.Logf("VERDICT=HARDENED | verification-section sweep: 6 field probes, nil/empty and order equivalence, all decoded")
 }
 
-// TestReleaseIDFramingInjectiveRandomProbe is the bounded random probe over the
-// full v2 field set: randomized delimiter-laden releases must stay injective. The
-// decode-inverse check is the correctness proof; the collision map is a cheap
-// direct fold-hunt kept for the report count. Sample size is capped to protect
-// the gate budget.
 func TestReleaseIDFramingInjectiveRandomProbe(t *testing.T) {
 	const samples = 300_000
-	// Multibyte tokens (CJK/emoji/accented) plus digit-colon traps: the former
-	// exercise the writeLengthPrefixed length-vs-rune-count class on Project,
-	// Generation, GitCommit AND the opaque ExecutionID; the latter ('2:ab',
-	// '4:a\x00b', the '00:x' leading-zero decoy) stress the readLen
-	// ':'/canonical-digit parse at every field position. All multibyte bytes are
-	// legal under validateOpaqueIdentifier (valid-UTF8 + no-control only).
 	pool := []string{"", "a", "b", ":", "\x00", "1", "2", "a\x00b", "\x00:", "::", "0", "-",
 		"あ", "🎯", "é", "Ω", "2:ab", "4:a\x00b", "00:x"}
 	randomString := func(r *rand.Rand) string {

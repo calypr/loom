@@ -49,8 +49,6 @@ type ColumnOutput struct {
 	Label  string `json:"label"`
 }
 
-// ValidateTableShapeOutput applies the authoring document's exact output-name
-// and label contract to one server-resolved construction descriptor.
 func ValidateTableShapeOutput(output ColumnOutput) error {
 	if !physicalColumnPattern.MatchString(output.Column) {
 		return fmt.Errorf("output column %q is not a valid public column name", output.Column)

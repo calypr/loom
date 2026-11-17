@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -22,9 +23,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// The repository and materializer are explicit test boundaries. Production
-// compiler, lifecycle policy, strict HTTP routes and Viewer projection execute;
-// this is not a database-restart, real materialization, or browser-row proof.
 type agreementPublicationStore struct {
 	*testExplorerStore
 	publishCalls    int
@@ -97,8 +95,6 @@ func TestPublicationHTTPReceiptRevisionAndViewerAgreeAfterFreshRead(t *testing.T
 	if persisted.ID != result.RevisionID || persisted.CompilationReceiptID != receipt.ID || persisted.IntentDigest != receipt.IntentDigest || persisted.RecipeDigest != receipt.RecipeDigest || persisted.ResolvedSchemaDigest != receipt.ResolvedSchemaDigest || !reflect.DeepEqual(persisted.PublicOutputContract, receipt.PublicOutputContract) {
 		t.Fatalf("persisted publication identity diverged from receipt: revision=%#v receipt=%#v", persisted, receipt)
 	}
-	// Deliberately change the live draft after publication. A new GET must
-	// continue projecting the immutable published receipt, not this draft.
 	unpublished, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
 	if err != nil {
 		t.Fatal(err)
@@ -211,7 +207,15 @@ func publicationAgreementFixture(t *testing.T) (*fiber.App, *agreementPublicatio
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }})
+	engine, err := dataframeexecution.New(dataframeexecution.Config{
+		CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}

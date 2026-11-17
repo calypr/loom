@@ -75,7 +75,6 @@ const graphEntryFor = (observer, { fromIndex, project, outputId, filters, facetN
     const input = inputFor(entry);
     if (entry.method !== 'POST' || entry.path !== graphPath || input?.projectId !== project ||
       input?.selector?.output !== outputId || !Array.isArray(input.columns) || !input.columns.includes(sharedColumn)) return false;
-    // Exact recipe and translation version are checked against the runtime after it loads.
     if (input.selector?.output !== outputId) return false;
     if (filters && JSON.stringify(normalizedFilters(input)) !== JSON.stringify(filters)) return false;
     if (facetName) {
@@ -207,8 +206,6 @@ export const viewerSharedFilterWorkflow = async ({ page, report, action, check, 
   const project = canonicalProjectID(target.fixtureProject);
   const graphProject = target.fixtureProject;
   const generation = target.fixtureGeneration;
-  // Repository-owned configuration is published to the repository's `default`
-  // Explorer; the fixture's interactive bootstrap Explorer is a separate ID.
   const explorer = repositoryConfigExplorerId;
   const fixtureIsExact = fixture.allIDs.join('\u0000') === 'dev-patient-001\u0000dev-patient-002' &&
     fixture.selectedID === 'dev-patient-001' && fixture.secondIDs.join('\u0000') === 'dev-patient-002';

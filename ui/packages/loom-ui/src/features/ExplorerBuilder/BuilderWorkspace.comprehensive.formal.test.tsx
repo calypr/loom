@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-/// <reference types="node" />
 import React from 'react';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -249,8 +248,6 @@ export const mergeBuilderContractAdapterRegistries = (
   return Object.freeze(merged);
 };
 
-// Inventory IDs never manufacture adapter rows; only callable mounted drivers
-// appear in these registries.
 const centralContractAdapters: Readonly<Record<string, ContractAdapter>> = Object.freeze({});
 export const BUILDER_CONTRACT_ADAPTERS = mergeBuilderContractAdapterRegistries(
   centralContractAdapters,

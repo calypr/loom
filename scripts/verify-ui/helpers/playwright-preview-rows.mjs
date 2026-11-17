@@ -8,7 +8,6 @@ export function previewHeaderIndex(headers, label) {
   return matches[0];
 }
 
-/** Read every rendered preview row while scrolling with Playwright's native wheel input. */
 export async function collectPreviewRows(page, {
   containerSelector = '[data-testid="preview-table-scroll"]',
   tableSelector = '[role="table"]',

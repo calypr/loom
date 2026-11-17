@@ -63,7 +63,6 @@ class UIWorkflowContractTest(unittest.TestCase):
         self.assertIn("if: always()", proof_job)
         self.assertIn("name: formal-source-proofs-${{ matrix.shard }}", proof_job)
         self.assertIn("path: /tmp/loom-source-proofs-${{ matrix.shard }}", proof_job)
-        # This is the CLI's selectShard predicate, applied to the actual registry.
         assignments = [[proof["index"] for proof in self.proofs
                         if proof["index"] % count == shard - 1] for shard in shards]
         self.assertTrue(self.proofs)
@@ -101,7 +100,6 @@ class UIWorkflowContractTest(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         formal = FORMAL_WORKFLOW.read_text(encoding="utf-8")
 
-        # Complete coverage may span disjoint formal source-proof shards.
         for source in (workflow, formal):
             jobs = re.findall(r"^  [a-z][\w-]*:\n(.*?)(?=^  [a-z][\w-]*:\n|\Z)", source.split("jobs:\n", 1)[1], re.M | re.S)
             self.assertTrue(jobs)

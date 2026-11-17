@@ -131,13 +131,13 @@ async function main() {
       encoding: 'utf8', timeout: 120000, maxBuffer: 8 * 1024 * 1024,
     });
     if (result.error) throw result.error;
-    try { helperReport = JSON.parse(result.stdout); } catch { /* include process output in the failure report below */ }
+    try { helperReport = JSON.parse(result.stdout); } catch { }
     if (result.status !== 0) throw new Error(`Go migration helper failed (${result.status}): ${result.stderr || result.stdout}`);
     if (!helperReport) throw new Error(`Go migration helper returned invalid JSON: ${result.stdout}`);
   } catch (error) {
     scriptError = error;
   } finally {
-    try { execFileSync('docker', ['exec', expected.apiContainer, 'rm', '-rf', remote], { encoding: 'utf8', timeout: 10000 }); } catch { /* the report retains the primary operation result */ }
+    try { execFileSync('docker', ['exec', expected.apiContainer, 'rm', '-rf', remote], { encoding: 'utf8', timeout: 10000 }); } catch { }
     await rm(work, { recursive: true, force: true });
   }
 

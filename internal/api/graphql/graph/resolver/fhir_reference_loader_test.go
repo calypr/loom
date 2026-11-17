@@ -2,6 +2,7 @@ package resolver
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"strings"
 	"sync"
 	"testing"
@@ -226,10 +227,6 @@ func TestResolveFHIRReferenceMissingTargetIsNotResolved(t *testing.T) {
 	}
 }
 
-// TestFHIRReferenceBatchKeepsVersionedAndUnversionedLookupsApart drives the
-// batch path with one versioned and one unversioned lookup for the same
-// logical id: both must be answered from a single query and neither may
-// receive the other resource version.
 func TestFHIRReferenceBatchKeepsVersionedAndUnversionedLookupsApart(t *testing.T) {
 	harness := newFHIRReferenceTestHarness(t, []fhirReferenceTestRow{
 		{id: "123", version: "4", gender: "female"},
@@ -269,9 +266,6 @@ func TestFHIRReferenceBatchKeepsVersionedAndUnversionedLookupsApart(t *testing.T
 	}
 }
 
-// TestResolveFHIRReferenceSiblingVersionsResolveIndependently mirrors sibling
-// field resolvers in one operation asking for two versions of one logical
-// resource plus an absent version; each must get its own outcome.
 func TestResolveFHIRReferenceSiblingVersionsResolveIndependently(t *testing.T) {
 	harness := newFHIRReferenceTestHarness(t, []fhirReferenceTestRow{
 		{id: "123", version: "4", gender: "female"},
@@ -337,9 +331,12 @@ type fhirReferenceTestProbe struct {
 	rows  []fhirReferenceTestRow
 }
 
-// queryRows emulates the compiled id-IN reference query against one pinned
-// dataset generation, including the authorization filter and row limit.
-func (p *fhirReferenceTestProbe) queryRows(_ context.Context, _ string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
+func (p *fhirReferenceTestProbe) queryRows(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+	_, bindVars, deriveErr := request.Command.AQLParameters()
+	if deriveErr != nil {
+		return deriveErr
+	}
+
 	generation, _ := bindVars["dataset_generation"].(string)
 	ids := fhirReferenceTestBindStrings(bindVars["root_filter_1_value"])
 	unrestricted, _ := bindVars["auth_resource_paths_unrestricted"].(bool)
@@ -423,13 +420,10 @@ func newFHIRReferenceTestHarness(t *testing.T, rows []fhirReferenceTestRow) *fhi
 	return newFHIRReferenceTestHarnessWithScope(t, rows, nil)
 }
 
-// newFHIRReferenceTestHarnessWithScope serves rows from one fake storage
-// generation and registers roots under the given authorized read scope, so
-// reference lookups exercise the real generation and scope pinning.
 func newFHIRReferenceTestHarnessWithScope(t *testing.T, rows []fhirReferenceTestRow, scope *authscope.ReadScope) *fhirReferenceTestHarness {
 	t.Helper()
 	probe := &fhirReferenceTestProbe{rows: rows}
-	service := queryapi.NewService(queryapi.Config{
+	service := queryapi.NewService(queryapi.Config{CompileTarget: compiler.ArangoTarget(),
 		ScopeResolver: authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 			ResourceAccess: fhirReferenceTestResourceAccess{},
 			ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
@@ -442,7 +436,7 @@ func newFHIRReferenceTestHarnessWithScope(t *testing.T, rows []fhirReferenceTest
 			}}, nil
 		},
 		Dataframes: dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-			QueryRows: probe.queryRows,
+			SourceRows: probe.queryRows,
 		}),
 	})
 	return &fhirReferenceTestHarness{
@@ -456,8 +450,6 @@ func (h *fhirReferenceTestHarness) context() context.Context {
 	return withFHIRReferenceLoader(context.Background(), h.resolver)
 }
 
-// subject registers a root document carrying one subject reference under a
-// fresh operation-local loader, the way the typed root resolver does.
 func (h *fhirReferenceTestHarness) subject(ref string) (context.Context, *fhir.Reference) {
 	reference := ref
 	root := &fhir.DocumentReference{Subject: &fhir.Reference{Reference: &reference}}

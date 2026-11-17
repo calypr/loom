@@ -113,7 +113,7 @@ const watchdog = setTimeout(() => {
   report.status = 'failed';
   report.error = { message: `Whole-run budget of ${options.budgetMs}ms exceeded` };
   report.timingMs = { total: nowMs(), budget: options.budgetMs };
-  try { writeFileSync(join(out, 'browser.json'), JSON.stringify(report, null, 2)); } catch { /* best effort */ }
+  try { writeFileSync(join(out, 'browser.json'), JSON.stringify(report, null, 2)); } catch { }
   console.log(JSON.stringify({ ...finishSummary(), watchdog: true }));
   process.exit(1);
 }, options.budgetMs);
@@ -633,8 +633,6 @@ try {
   passed('witness-A-receipt-re-executable-by-id-over-real-wire', { receiptId: aReconcile.receiptId, rowCount: replayA.rowCount, columns: (replayA.columns ?? []).map(column => column.label), rowsContainFixtureIDs: oracle.ids.every(id => JSON.stringify(replayA.rows).includes(id)) });
 
   report.witnessB = { role: 'second save persists while the first compile stays wire-held', columns: [{ column: 'id', from: labelAlpha, to: labelBeta }, { column: 'name[].family', from: labelFor('name[].family'), to: labelGamma }] };
-  // Arm before the commit lands: the client fires the A-prime reconcile as soon as the command wave is acknowledged,
-  // which can precede our out-of-band persistence poll.
   holdArmed = true;
   holdExpectedDraftVersion = Number(aHead.draftVersion) + 1;
   report.witnessB.aPrimePersisted = await renameColumn('id', labelAlpha, labelBeta);
@@ -745,21 +743,6 @@ try {
     await click('[data-testid="preview-table-header-controls"] button');
     await until(async () => !(await columnsOpen()), 'column settings panel closed');
   }
-  // ---- Witness C: a genuinely late-delivered real response for an obsolete owning context ----
-  // Trace (why this is the only un-aborted in-flight core-protocol request at detach):
-  //   ui/packages/loom-ui/src/react.tsx:151-171 - mutation triggers own their AbortController and abort
-  //     only through the returned abort(); nothing in unmount reaches them.
-  //   ui/packages/loom-ui/src/react.tsx:104-114 - query resources abort their controller when the last
-  //     subscriber leaves, so the automatic-preview compile (a useKeyedQuery) is transport-aborted at
-  //     unmount through BuilderWorkspace.tsx:2999 -> :2982-2996 (execution.compileRequest?.abort()).
-  //   ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3310 - the Review dataset
-  //     affordance fires the ownerless whole-workspace compile: void reconcileCurrent().
-  //   BuilderWorkspace.tsx:2593-2644 - reconcileCurrent stores that request in activeCompile and adopts
-  //     it only while requestIsCurrent() (workspaceAttached + generation + intent fingerprint) holds.
-  //   BuilderWorkspace.tsx:461-464,4269 - unmount calls the workspace host ref with null, so
-  //     workspaceAttached flips false; the abort call sites (:758 selectExplorer, :819 new command wave,
-  //     :2583 delete Explorer) are none of them reachable from the Viewer context switch
-  //     (ui/apps/demo/src/main.tsx:44-52,74-75 - setState + history.replaceState, no document navigation).
   report.witnessC = {
     role: 'real response for a released-but-obsolete whole-workspace compile is admitted nowhere',
     affordance: {
@@ -990,13 +973,6 @@ try {
     receiptBeforeDetach: panelJustBeforeDetach.previewReceiptId,
   });
 
-  // ---- Witness D: the production Go handler already answered, only the response delivery is held
-  // (Fetch Response stage keeps the bytes at the fetch layer; unlike the Witness B request-stage hold,
-  // the compile genuinely ran — its receipt exists server-side). A second, competing real save then
-  // persists underneath the withheld response; the stale compile must not own the display when it lands.
-  // Trace: ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2593-2644 adopts a
-  //   compile result only while requestIsCurrent() holds; a result whose receipt belongs to a replaced
-  //   head is an obsolete attempt for this column context and must be discarded without re-issue.
   const witnessD = { role: 'server-answered compile withheld at the fetch layer while a competing save persists underneath' };
   report.witnessD = witnessD;
   if ((await selectedTableOutputId()) !== outputId) {
@@ -1035,10 +1011,6 @@ try {
   assert.ok(Number(eHead.draftVersion) > Number(dHead.draftVersion), 'the competing save did not advance the head past the held compile');
   assert.notEqual(eHead.draftDigest, dHead.draftDigest);
   const fixtureRowCheck = (snapshot, label) => {
-    // Gender source-value oracle leg intentionally suspended here: witness D renamed the Gender column
-    // (assertPatientRows' gender check is label-bound), while the baseline and witness A/B/C oracle
-    // checks keep the full gender-value discipline under the untouched 'Gender' header. Rows identity
-    // + cardinality discipline (assertPatientRows with null gender map) still runs here.
     assert.ok(snapshot.rows && snapshot.rows.length >= 3, `${label}: preview table rendered without the two fixture rows`);
     return assertPatientRows(snapshot.rows.slice(1), oracle.ids, null, snapshot.rows[0]);
   };
@@ -1099,12 +1071,6 @@ try {
   });
   await screenshot('witness-d-post-release.png');
 
-  // ---- Witness E: the mirror image. An in-flight real preview response for the CURRENT attempt is
-  // withheld at the fetch layer, then released; unlike the stale witness D response, this one must be
-  // adopted behind its own receipt — proving the client discards by obsolete context, not by transport
-  // delay, over the joined production stack.
-  // Trace: BuilderWorkspace preview binding requires the delivered preview receipt to equal the bound
-  //   compile receipt of the current head before rows render (same path Witness B asserted for B's head).
   const witnessE = { role: 'settled current-attempt preview withheld at the fetch layer, adopted on release' };
   report.witnessE = witnessE;
   const familyBeforeE = await persistedState('name[].family');
@@ -1154,10 +1120,6 @@ try {
   });
   await screenshot('witness-e.png');
 
-  // ---- M5 real-app lifecycle legs on this same joined page (launch/doctor ran out-of-band:
-  // make dev-doctor -> DEV_DOCTOR_PASSED, evidence/m5/doctor-run1.log). A document reload must
-  // re-hydrate the display from persisted truth, and the real Delete-table / Undo controls must
-  // delete and restore through the production commands channel.
   const m5 = { reload: null, deletions: [], restore: null };
   report.m5 = m5;
   const m5Truth = async observation => {
@@ -1307,12 +1269,12 @@ try {
       const image = await withTimeout(client.send('Page.captureScreenshot', { format: 'png' }), 5000, 'failure screenshot');
       await writeFile(join(out, 'failure.png'), Buffer.from(image.data, 'base64'));
       report.screenshots.push('failure.png');
-    } catch { /* evidence best effort */ }
+    } catch { }
   }
   process.exitCode = 1;
 } finally {
   clearTimeout(watchdog);
-  try { client?.close(); } catch { /* already gone */ }
+  try { client?.close(); } catch { }
   if (chrome && chrome.exitCode === null && chrome.signalCode === null) {
     chrome.kill('SIGTERM');
     await Promise.race([new Promise(resolveExit => chrome.once('exit', resolveExit)), wait(1000)]);

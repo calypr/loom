@@ -15,9 +15,6 @@ import (
 	dataset "github.com/calypr/loom/internal/dataset"
 )
 
-// RecipeControl is the transport-neutral semantic control plane used by the
-// recipe GraphQL fields. It intentionally returns logical plans only; no
-// AQL, SQL, table names, or credentials cross this boundary.
 type RecipeControl interface {
 	Validate(context.Context, string, recipe.RuntimeBindings) (dataframeexecution.Validation, error)
 	Explain(context.Context, string, recipe.RuntimeBindings) (semantic.RecipePlanExplanation, error)
@@ -27,9 +24,6 @@ type RecipeControl interface {
 	Run(context.Context, string, recipe.RuntimeBindings) (dataframeexecution.Preview, error)
 }
 
-// RecipeExecution is the stable logical execution record exposed by GraphQL.
-// Implementations may persist additional physical metadata, but adapters must
-// not return it here.
 type RecipeExecution struct {
 	ID                   string
 	Name                 string
@@ -60,9 +54,6 @@ type RecipeExecutionOutput struct {
 
 type RecipeExecutionReader func(context.Context, string) (*RecipeExecution, error)
 
-// RecipeAuthorizer resolves request bindings against the caller's project
-// grants. GraphQL operation type is intentionally irrelevant: preview/run are
-// reads even though they are mutations, while publication is a write.
 type RecipeAuthorizer interface {
 	AuthorizeRead(context.Context, recipe.RuntimeBindings) (recipe.RuntimeBindings, error)
 	AuthorizeWrite(context.Context, recipe.RuntimeBindings) (recipe.RuntimeBindings, error)

@@ -55,13 +55,13 @@
           "ui/apps/demo/src/main.tsx:8",
           "ui/apps/demo/src/main.tsx:37",
           "ui/apps/demo/src/main.tsx:74",
-          "ui/apps/demo/src/demo-route.mjs:11",
+          "ui/apps/demo/src/demo-route.mjs:2",
           "ui/packages/loom-ui/src/Builder.tsx:34",
-          "ui/packages/loom-ui/src/Builder.tsx:54",
+          "ui/packages/loom-ui/src/Builder.tsx:51",
           "ui/apps/demo/src/main.tsx:69",
           "ui/apps/demo/src/main.tsx:75",
-          "ui/packages/loom-ui/src/Builder.tsx:85",
-          "ui/packages/loom-ui/src/api.ts:1813"
+          "ui/packages/loom-ui/src/Builder.tsx:82",
+          "ui/packages/loom-ui/src/api.ts:1802"
         ],
         "constraints": [
           {
@@ -161,7 +161,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/selections/{selectionRevision}?limit=1[&auth_resource_path=...]",
           "actionId": "selectionRevisionId.present",
           "payloadShape": "no body; query {limit:1,auth_resource_path?}",
-          "constructor": "ui/packages/loom-ui/src/Builder.tsx:85 ownedClient.getSelection; ui/packages/loom-ui/src/api.ts:1813",
+          "constructor": "ui/packages/loom-ui/src/Builder.tsx:82 ownedClient.getSelection; ui/packages/loom-ui/src/api.ts:1802",
           "condition": "selectionRevisionId is present"
         }
       ]
@@ -209,13 +209,13 @@
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:426",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:447",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:453",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:722",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:739",
-          "ui/packages/loom-ui/src/api.ts:1367",
-          "ui/packages/loom-ui/src/api.ts:1390",
-          "ui/packages/loom-ui/src/api.ts:1410",
-          "ui/packages/loom-ui/src/api.ts:1418",
-          "ui/packages/loom-ui/src/Builder.tsx:119",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:721",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:738",
+          "ui/packages/loom-ui/src/api.ts:1356",
+          "ui/packages/loom-ui/src/api.ts:1379",
+          "ui/packages/loom-ui/src/api.ts:1399",
+          "ui/packages/loom-ui/src/api.ts:1407",
+          "ui/packages/loom-ui/src/Builder.tsx:116",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:427",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:455"
         ],
@@ -285,7 +285,7 @@
           }
         ],
         "entryPath": [
-          "ui/packages/loom-ui/src/Builder.tsx:119",
+          "ui/packages/loom-ui/src/Builder.tsx:116",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:398"
         ]
       },
@@ -326,7 +326,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers",
           "actionId": "workspace.mount",
           "payloadShape": "no body",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:427 explorers query; ui/packages/loom-ui/src/api.ts:1390 listExplorers",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:427 explorers query; ui/packages/loom-ui/src/api.ts:1379 listExplorers",
           "condition": "runs with initial workspace queries",
           "variant": "initial-hydration"
         },
@@ -338,7 +338,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/builder",
           "actionId": "workspace.mount_or_explorer_change",
           "payloadShape": "no body",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:447 useGetExplorerBuilderStateV2Query; ui/packages/loom-ui/src/api.ts:1410 getBuilder",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:447 useGetExplorerBuilderStateV2Query; ui/packages/loom-ui/src/api.ts:1399 getBuilder",
           "condition": "effectiveExplorerId is non-empty",
           "variant": "initial-hydration"
         },
@@ -350,7 +350,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/capability",
           "actionId": "workspace.mount_or_explorer_change",
           "payloadShape": "no body",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:455 useGetExplorerAuthoringCapabilityV2Query; ui/packages/loom-ui/src/api.ts:1418 getCapability",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:455 useGetExplorerAuthoringCapabilityV2Query; ui/packages/loom-ui/src/api.ts:1407 getCapability",
           "condition": "effectiveExplorerId is non-empty",
           "variant": "initial-hydration"
         }
@@ -397,18 +397,18 @@
         },
         "availability": "capability_conditional",
         "source": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2443",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2461",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2475",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2482",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3128",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3136",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2442",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2460",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2474",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2481",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3126",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3134",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx:37",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx:349",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx:354",
-          "ui/packages/loom-ui/src/api.ts:1801",
-          "ui/packages/loom-ui/src/api.ts:1842",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3099"
+          "ui/packages/loom-ui/src/api.ts:1790",
+          "ui/packages/loom-ui/src/api.ts:1831",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3097"
         ],
         "constraints": [
           {
@@ -476,8 +476,8 @@
           }
         ],
         "entryPath": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3099",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3128",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3097",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3126",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx:349"
         ]
       },
@@ -519,7 +519,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers[?auth_resource_path=...]",
           "actionId": "create_explorer",
           "payloadShape": "{name:string,title?:string,sourceExplorerId?:string}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2443 createCustomExplorer; ui/packages/loom-ui/src/api.ts:1801 createExplorer",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2442 createCustomExplorer; ui/packages/loom-ui/src/api.ts:1790 createExplorer",
           "condition": "trimmed name non-empty; busy=false",
           "variant": "create"
         },
@@ -531,7 +531,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}",
           "actionId": "delete_explorer",
           "payloadShape": "no body; optional X-Request-ID header",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2461 deleteCurrentExplorer; ui/packages/loom-ui/src/api.ts:1842 deleteExplorer",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2460 deleteCurrentExplorer; ui/packages/loom-ui/src/api.ts:1831 deleteExplorer",
           "condition": "delete capability true; fallback exists; user confirms",
           "variant": "delete"
         }
@@ -588,35 +588,35 @@
         },
         "availability": "reachable",
         "source": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2729",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2745",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2773",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2808",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4077",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4084",
-          "ui/packages/loom-ui/src/api.ts:1450",
-          "ui/packages/loom-ui/src/api.ts:1486",
-          "ui/packages/loom-ui/src/api.ts:1697",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2728",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2744",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2772",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2807",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4065",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4072",
+          "ui/packages/loom-ui/src/api.ts:1439",
+          "ui/packages/loom-ui/src/api.ts:1475",
+          "ui/packages/loom-ui/src/api.ts:1686",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx:14",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx:17",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx:51",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts:15",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts:32",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts:66",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4046",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4034",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx:4",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4079",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4067",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts:43",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts:59",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts:84",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts:93",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:369",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2737",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2827",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4087",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2911",
-          "ui/packages/loom-ui/src/api.ts:1479",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2621"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2736",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2826",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4075",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2909",
+          "ui/packages/loom-ui/src/api.ts:1468",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2620"
         ],
         "constraints": [
           {
@@ -711,8 +711,8 @@
           }
         ],
         "entryPath": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4046",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4077",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4034",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4065",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx:4"
         ]
       },
@@ -760,7 +760,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/suggestions",
           "actionId": "choose_first_table_root",
           "payloadShape": "{snapshotToken:string,nodeId:string}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2745 getSuggestions; ui/packages/loom-ui/src/api.ts:1486 suggestions",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2744 getSuggestions; ui/packages/loom-ui/src/api.ts:1475 suggestions",
           "condition": "root and catalog snapshot exist; failure falls back to root-only",
           "variant": "first-table"
         },
@@ -772,7 +772,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
           "actionId": "create_first_table",
           "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:CREATE_TABLE,title:string,rootNodeId:string}]}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2773 applyCommandsWithResult; ui/packages/loom-ui/src/api.ts:1450 applyCommands",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2772 applyCommandsWithResult; ui/packages/loom-ui/src/api.ts:1439 applyCommands",
           "condition": "planInitialTable returns root-only or with-identity",
           "variant": "first-table"
         },
@@ -784,7 +784,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
           "actionId": "add_first_table_identity_column",
           "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:ADD_COLUMN,outputId:string,occurrenceId:string,candidateId:string,projectionMode:VALUE,initialPresentation:TABLE,title:string}]}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2808 applyCommandsWithResult; ui/packages/loom-ui/src/api.ts:1450 applyCommands",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2807 applyCommandsWithResult; ui/packages/loom-ui/src/api.ts:1439 applyCommands",
           "condition": "plan kind is with-identity and CREATE_TABLE returned outputId and occurrenceId",
           "variant": "first-table"
         },
@@ -796,7 +796,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/reconcile[?auth_resource_path=...]",
           "actionId": "automatic_preview_reconcile",
           "payloadShape": "{snapshotToken:string,draftVersion:number,draftDigest:string,outputId:string}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2911 reconcileCurrent; ui/packages/loom-ui/src/api.ts:1479 reconcile",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2909 reconcileCurrent; ui/packages/loom-ui/src/api.ts:1468 reconcile",
           "condition": "rooted table has a visible output and no valid reusable receipt",
           "variant": "automatic-preview"
         },
@@ -808,7 +808,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/preview",
           "actionId": "automatic_preview_load",
           "payloadShape": "{receiptId:string,outputId:string,limit:25|50|100|500|1000}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2621 executePreview; ui/packages/loom-ui/src/api.ts:1697 preview",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2620 executePreview; ui/packages/loom-ui/src/api.ts:1686 preview",
           "condition": "reconcile returns a matching receipt",
           "variant": "automatic-preview"
         }
@@ -855,20 +855,20 @@
         },
         "availability": "reachable",
         "source": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:660",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4591",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4601",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4615",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4630",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4641",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4652",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts:9",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:659",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4579",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4589",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4603",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4618",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4629",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4640",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts:4",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.ts:206",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.ts:217",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:220",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2274",
-          "ui/packages/loom-ui/src/api.ts:1486",
-          "ui/packages/loom-ui/src/api.ts:1450"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2273",
+          "ui/packages/loom-ui/src/api.ts:1475",
+          "ui/packages/loom-ui/src/api.ts:1439"
         ],
         "constraints": [
           {
@@ -946,7 +946,7 @@
         ],
         "entryPath": [
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:220",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4591"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4579"
         ]
       },
       "prose": {
@@ -989,7 +989,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/suggestions",
           "actionId": "select_route_occurrence",
           "payloadShape": "{snapshotToken:string,nodeId:string}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2274 ensureSuggestions; ui/packages/loom-ui/src/api.ts:1486 suggestions",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2273 ensureSuggestions; ui/packages/loom-ui/src/api.ts:1475 suggestions",
           "condition": "current occurrence has no cached candidates",
           "variant": "candidate-load"
         },
@@ -1001,7 +1001,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
           "actionId": "edit_table_route",
           "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[ADD_ROUTE|UPDATE_ROUTE_EDGE|SET_ROUTE_MATCH_MODE|REMOVE_ROUTE]}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4615 GuidedGraphWorkspace callbacks; ui/packages/loom-ui/src/api.ts:1450 applyCommands",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4603 GuidedGraphWorkspace callbacks; ui/packages/loom-ui/src/api.ts:1439 applyCommands",
           "condition": "edge is legal from selected occurrence; local table/occurrence selection itself sends no request",
           "variant": "each-route-edit"
         }
@@ -1043,32 +1043,32 @@
         },
         "availability": "capability_conditional",
         "source": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1409",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1427",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1446",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1509",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3637",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3715",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3746",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1838",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1876",
-          "ui/packages/loom-ui/src/api.ts:1495",
-          "ui/packages/loom-ui/src/api.ts:1540",
-          "ui/packages/loom-ui/src/api.ts:1555",
-          "ui/packages/loom-ui/src/api.ts:1691",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1408",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1426",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1445",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1508",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3625",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3703",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3734",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1837",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1875",
+          "ui/packages/loom-ui/src/api.ts:1484",
+          "ui/packages/loom-ui/src/api.ts:1529",
+          "ui/packages/loom-ui/src/api.ts:1544",
+          "ui/packages/loom-ui/src/api.ts:1680",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1049",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:92",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:270",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3667",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3751",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3756",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3655",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3739",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3744",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1045",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1544",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1543",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:233",
-          "ui/packages/loom-ui/src/api.ts:1685",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1906",
-          "ui/packages/loom-ui/src/api.ts:1450",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1800"
+          "ui/packages/loom-ui/src/api.ts:1674",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1905",
+          "ui/packages/loom-ui/src/api.ts:1439",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1799"
         ],
         "constraints": [
           {
@@ -1154,9 +1154,9 @@
           }
         ],
         "entryPath": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3637",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3667",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3746"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3625",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3655",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3734"
         ]
       },
       "prose": {
@@ -1199,7 +1199,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/semantic-inventory",
           "actionId": "browse_add_columns_catalog",
           "payloadShape": "{snapshotToken:string,rowRoot:string,selectionMode?,frameId?,sourceChoiceId?,outputId?,resourceType?,query?,cursor?,limit?,fieldPresentation?}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1045 calls browseSemanticInventory; ui/packages/loom-ui/src/api.ts:1495",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1045 calls browseSemanticInventory; ui/packages/loom-ui/src/api.ts:1484",
           "condition": "catalog view is active",
           "variant": "catalog-browse"
         },
@@ -1211,7 +1211,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/frame-source-options",
           "actionId": "manage_saved_frame_source",
           "payloadShape": "{snapshotToken:string,outputId:string,resourceType?,query?,cursor?,limit?}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:270; ui/packages/loom-ui/src/api.ts:1540",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:270; ui/packages/loom-ui/src/api.ts:1529",
           "condition": "saved coded-value frame panel is open; allowNewSource=false",
           "variant": "saved-frame"
         },
@@ -1223,7 +1223,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/semantic-inventory",
           "actionId": "choose_coded_values_for_frame",
           "payloadShape": "{snapshotToken:string,outputId:string,rowRoot:string,frameId:string,query:string,cursor?,limit:50}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:92; ui/packages/loom-ui/src/api.ts:1495",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:92; ui/packages/loom-ui/src/api.ts:1484",
           "condition": "an existing frame is selected",
           "variant": "saved-frame"
         },
@@ -1235,7 +1235,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/construction-choice-proposals[?auth_resource_path=...]",
           "actionId": "add_selected_catalog_features",
           "payloadShape": "{commandId:string,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string,constructionChoices:array,limit:PreviewLimit}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1876; ui/packages/loom-ui/src/api.ts:1691",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1875; ui/packages/loom-ui/src/api.ts:1680",
           "condition": "ordinary selected choices are current and match selected output/draft/limit",
           "variant": "ordinary-choice"
         },
@@ -1247,7 +1247,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/construction-proposals[?auth_resource_path=...]",
           "actionId": "add_related_source_fields",
           "payloadShape": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string,candidateConstruction:Construction,changedStepId:string,limit:PreviewLimit}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1544 and :1861; ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:233; ui/packages/loom-ui/src/api.ts:1685",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1543 and :1861; ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:233; ui/packages/loom-ui/src/api.ts:1674",
           "condition": "all selected related fields share the same exact route; append-stage capability supports RELATED_SOURCE",
           "variant": "related-source"
         },
@@ -1259,7 +1259,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
           "actionId": "save_selected_catalog_features",
           "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:APPLY_CONSTRUCTION_CHOICE,...}]}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1906; ui/packages/loom-ui/src/api.ts:1450",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1905; ui/packages/loom-ui/src/api.ts:1439",
           "condition": "ordinary proposal preview matches current owner, snapshot, draft, output, and limit",
           "variant": "ordinary-choice"
         },
@@ -1271,7 +1271,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
           "actionId": "save_related_source_fields",
           "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:APPLY_CONSTRUCTION_PROPOSAL,outputId,proposalId}]}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1800; ui/packages/loom-ui/src/api.ts:1450",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1799; ui/packages/loom-ui/src/api.ts:1439",
           "condition": "proposal is ready and its preview matches current identity",
           "variant": "related-source"
         }
@@ -1336,13 +1336,13 @@
         "availability": "capability_conditional",
         "source": [
           "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/operationFamilies.ts:1",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1017",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1036",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3312",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3320",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3584",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4262",
-          "ui/packages/loom-ui/src/api.ts:1652",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1016",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1035",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3310",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3318",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3572",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4250",
+          "ui/packages/loom-ui/src/api.ts:1641",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:118",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:173"
         ],
@@ -1412,9 +1412,9 @@
           }
         ],
         "entryPath": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3312",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3584",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4262"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3310",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3572",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4250"
         ]
       },
       "prose": {
@@ -1456,7 +1456,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/construction-capabilities[?auth_resource_path=...]",
           "actionId": "select_operation_or_saved_step",
           "payloadShape": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string,stageId:string,groupStepId?:string}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1017 builds request; ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:173; ui/packages/loom-ui/src/api.ts:1652",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1016 builds request; ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:173; ui/packages/loom-ui/src/api.ts:1641",
           "condition": "rooted table, snapshot and draft identity ready; no unsupported saved source columns; response matches request",
           "variant": "capability-load"
         }
@@ -1535,22 +1535,22 @@
         },
         "availability": "reachable",
         "source": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2032",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2050",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2102",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2145",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2248",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2258",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4247",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2031",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2049",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2101",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2144",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2247",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2257",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4235",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowChangePreviewPanel.tsx:5",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts:9",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts:81",
-          "ui/packages/loom-ui/src/api.ts:1468",
-          "ui/packages/loom-ui/src/api.ts:1697",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4284",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4298",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4396",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4406",
+          "ui/packages/loom-ui/src/api.ts:1457",
+          "ui/packages/loom-ui/src/api.ts:1686",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4272",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4286",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4384",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4394",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:616",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:630",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:655",
@@ -1561,7 +1561,7 @@
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx:267",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx:289",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx:383",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4591",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4579",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:635",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:644",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:660",
@@ -1569,7 +1569,7 @@
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:670",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:1227",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:1231",
-          "ui/packages/loom-ui/src/api.ts:1450",
+          "ui/packages/loom-ui/src/api.ts:1439",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:649"
         ],
         "constraints": [
@@ -1665,9 +1665,9 @@
           }
         ],
         "entryPath": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4284",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4396",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4591",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4272",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4384",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4579",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:616"
         ]
       },
@@ -1715,7 +1715,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/row-change",
           "actionId": "change_connected_row_root",
           "payloadShape": "{snapshotToken:string,draftVersion:number,draftDigest:string,outputId:string,rootNodeId:string,rootOccurrenceId?,routeRebase?}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2032; ui/packages/loom-ui/src/api.ts:1468",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2031; ui/packages/loom-ui/src/api.ts:1457",
           "condition": "connected/authored/catalog/compiler route choice; current identity matches",
           "variant": "connected-rebase"
         },
@@ -1727,7 +1727,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/preview",
           "actionId": "review_connected_row_root",
           "payloadShape": "{receiptId:string,outputId:string,limit:PreviewLimit}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2102; ui/packages/loom-ui/src/api.ts:1697",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2101; ui/packages/loom-ui/src/api.ts:1686",
           "condition": "assessment returns matching candidate receipt and proposal",
           "variant": "connected-rebase"
         },
@@ -1739,7 +1739,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
           "actionId": "apply_connected_row_root",
           "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:APPLY_TABLE_ROOT_REBASE,outputId,rowChange}]}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2258; ui/packages/loom-ui/src/api.ts:1450",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2257; ui/packages/loom-ui/src/api.ts:1439",
           "condition": "ready preview and unchanged root-change identity",
           "variant": "connected-rebase"
         },
@@ -1751,7 +1751,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/row-change",
           "actionId": "replace_table_root",
           "payloadShape": "{mode:REPLACE,snapshotToken:string,draftVersion:number,draftDigest:string,outputId:string,rootNodeId:string}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:616; ui/packages/loom-ui/src/api.ts:1468",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:616; ui/packages/loom-ui/src/api.ts:1457",
           "condition": "replacement-only root choice; client supports assessRowChange and preview",
           "variant": "replace"
         },
@@ -1763,7 +1763,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/preview",
           "actionId": "review_root_replacement",
           "payloadShape": "{receiptId:string,outputId:string}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:649; ui/packages/loom-ui/src/api.ts:1697",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:649; ui/packages/loom-ui/src/api.ts:1686",
           "condition": "assessment is READY, current and contains candidate receipt",
           "variant": "replace"
         },
@@ -1775,7 +1775,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
           "actionId": "apply_root_replacement",
           "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:APPLY_TABLE_ROOT_REBASE,outputId,rowChange}]}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:691; ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4406; ui/packages/loom-ui/src/api.ts:1450",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:691; ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4394; ui/packages/loom-ui/src/api.ts:1439",
           "condition": "replacement state ready and assessment still current",
           "variant": "replace"
         }
@@ -1831,15 +1831,15 @@
           "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:325",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:340",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:444",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1800",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1818",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3962",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1799",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1817",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3950",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx:11",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx:317",
-          "ui/packages/loom-ui/src/api.ts:1685",
-          "ui/packages/loom-ui/src/api.ts:1697",
+          "ui/packages/loom-ui/src/api.ts:1674",
+          "ui/packages/loom-ui/src/api.ts:1686",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:266",
-          "ui/packages/loom-ui/src/api.ts:1450"
+          "ui/packages/loom-ui/src/api.ts:1439"
         ],
         "constraints": [
           {
@@ -1925,7 +1925,7 @@
           }
         ],
         "entryPath": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3962",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3950",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx:317"
         ]
       },
@@ -1969,7 +1969,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/construction-proposals[?auth_resource_path=...]",
           "actionId": "edit_or_remove_construction_step",
           "payloadShape": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string,candidateConstruction:Construction,changedStepId?,removeStepIds?,limit:PreviewLimit}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:233; ui/packages/loom-ui/src/api.ts:1685",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:233; ui/packages/loom-ui/src/api.ts:1674",
           "condition": "candidate changes and capability request is current; request waits 300 ms",
           "variant": "initial-or-retry"
         },
@@ -1981,7 +1981,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/preview",
           "actionId": "review_construction_change",
           "payloadShape": "{receiptId:proposalId,outputId,limit:PreviewLimit}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:266 and :271; ui/packages/loom-ui/src/api.ts:1697",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:266 and :271; ui/packages/loom-ui/src/api.ts:1686",
           "condition": "proposal response lacks a matching rows preview",
           "variant": "initial-or-retry"
         },
@@ -1993,7 +1993,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
           "actionId": "accept_construction_proposal",
           "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:APPLY_CONSTRUCTION_PROPOSAL,outputId,proposalId}]}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1800; ui/packages/loom-ui/src/api.ts:1450",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1799; ui/packages/loom-ui/src/api.ts:1439",
           "condition": "ready proposal, matching preview identity, no pending commands, no active publication, reconciliation not pending",
           "variant": "apply"
         },
@@ -2063,23 +2063,23 @@
         },
         "availability": "reachable",
         "source": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:778",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:793",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:800",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:812",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:845",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:862",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2500",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2522",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2561",
-          "ui/packages/loom-ui/src/api.ts:1450",
-          "ui/packages/loom-ui/src/api.ts:1479",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts:247",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts:319",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3151",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:777",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:792",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:799",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:811",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:844",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:861",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2499",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2521",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2560",
+          "ui/packages/loom-ui/src/api.ts:1439",
+          "ui/packages/loom-ui/src/api.ts:1468",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts:245",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts:317",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3149",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3153",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3155",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3157",
-          "ui/packages/loom-ui/src/api.ts:1410"
+          "ui/packages/loom-ui/src/api.ts:1399"
         ],
         "constraints": [
           {
@@ -2165,8 +2165,8 @@
           }
         ],
         "entryPath": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:778",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3151"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:777",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3149"
         ]
       },
       "prose": {
@@ -2207,7 +2207,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
           "actionId": "save_builder_draft_change",
           "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:ExplorerBuilderCommand[]}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:778; ui/packages/loom-ui/src/api.ts:1450",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:777; ui/packages/loom-ui/src/api.ts:1439",
           "condition": "current server draft identity; serialized command queue",
           "variant": "save"
         },
@@ -2219,7 +2219,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/reconcile[?auth_resource_path=...]",
           "actionId": "compile_current_builder_draft",
           "payloadShape": "{snapshotToken:string,draftVersion:number,draftDigest:string,outputId?:string}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2500; ui/packages/loom-ui/src/api.ts:1479",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2499; ui/packages/loom-ui/src/api.ts:1468",
           "condition": "catalog snapshot exists; all tables rooted; Review/preview needs receipt or unresolved state",
           "variant": "reconcile"
         },
@@ -2231,7 +2231,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/builder",
           "actionId": "refresh_after_stale_or_desynchronized_draft",
           "payloadShape": "no body",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2561 and :866; ui/packages/loom-ui/src/api.ts:1410",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2560 and :866; ui/packages/loom-ui/src/api.ts:1399",
           "condition": "command or reconcile reports stale snapshot or draft desynchronization",
           "variant": "refresh"
         }
@@ -2287,32 +2287,32 @@
         },
         "availability": "reachable",
         "source": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:565",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2347",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2500",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2608",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2831",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2853",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2888",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2911",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4218",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4222",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4456",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:760",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:794",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:564",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2346",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2499",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2607",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2830",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2852",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2886",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2909",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4206",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4210",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4444",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:757",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:791",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts:23",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts:3",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts:32",
-          "ui/packages/loom-ui/src/api.ts:1697",
-          "ui/packages/loom-ui/src/api.ts:1479",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2645",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2662",
+          "ui/packages/loom-ui/src/api.ts:1686",
+          "ui/packages/loom-ui/src/api.ts:1468",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2644",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2661",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts:10",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2668",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2675",
-          "ui/packages/loom-ui/src/api.ts:1410",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2684",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2689"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2667",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2674",
+          "ui/packages/loom-ui/src/api.ts:1399",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2683",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2688"
         ],
         "constraints": [
           {
@@ -2398,9 +2398,9 @@
           }
         ],
         "entryPath": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2831",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4456",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:760"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2830",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4444",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:757"
         ]
       },
       "prose": {
@@ -2444,7 +2444,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/reconcile[?auth_resource_path=...]",
           "actionId": "preview_selected_output",
           "payloadShape": "{snapshotToken:string,draftVersion:number,draftDigest:string,outputId:string}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2911 and :2500; ui/packages/loom-ui/src/api.ts:1479",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2909 and :2500; ui/packages/loom-ui/src/api.ts:1468",
           "condition": "no reusable receipt matches output/snapshot; or explicit reload",
           "variant": "normal-or-recompile"
         },
@@ -2456,7 +2456,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/preview",
           "actionId": "preview_selected_output",
           "payloadShape": "{receiptId:string,outputId:string,limit:25|50|100|500|1000}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2608 and :2831; ui/packages/loom-ui/src/api.ts:1697",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2607 and :2831; ui/packages/loom-ui/src/api.ts:1686",
           "condition": "selected rooted table has visible output, valid draft identity, no blocking diagnostic/proposal/command",
           "variant": "normal"
         },
@@ -2478,7 +2478,7 @@
               1000
             ]
           },
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2645; ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts:32",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2644; ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts:32",
           "condition": "error.retryable and transientRetries is zero",
           "variant": "retryable-error"
         },
@@ -2490,7 +2490,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/reconcile[?auth_resource_path=...]",
           "actionId": "rebuild_stale_preview_receipt",
           "payloadShape": "{snapshotToken:string,draftVersion:number,draftDigest:string,outputId:string}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2662 and :2500; ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts:10",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2661 and :2500; ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts:10",
           "condition": "receipt-recompile error and receiptRefreshes is zero",
           "variant": "stale-receipt"
         },
@@ -2502,7 +2502,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/preview",
           "actionId": "refresh_preview_after_recompile",
           "payloadShape": "{receiptId:string,outputId:string,limit:PreviewLimit}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2668 and :2621",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2667 and :2621",
           "condition": "recompile returned current receipt",
           "variant": "stale-receipt"
         },
@@ -2514,7 +2514,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/builder",
           "actionId": "refresh_preview_catalog",
           "payloadShape": "no body",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2675; ui/packages/loom-ui/src/api.ts:1410",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2674; ui/packages/loom-ui/src/api.ts:1399",
           "condition": "catalog/receipt stale code and receiptRefreshes is zero",
           "variant": "stale-catalog"
         },
@@ -2526,7 +2526,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/reconcile[?auth_resource_path=...]",
           "actionId": "rebuild_preview_after_catalog_refresh",
           "payloadShape": "{snapshotToken:string,draftVersion:number,draftDigest:string,outputId:string}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2684 and :2500; ui/packages/loom-ui/src/api.ts:1479",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2683 and :2500; ui/packages/loom-ui/src/api.ts:1468",
           "condition": "Builder refresh returned data and current identity still matches",
           "variant": "stale-catalog"
         },
@@ -2538,7 +2538,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/preview",
           "actionId": "fetch_preview_after_catalog_refresh",
           "payloadShape": "{receiptId:string,outputId:string,limit:PreviewLimit}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2689 and :2621",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2688 and :2621",
           "condition": "reconciliation returned current receipt",
           "variant": "stale-catalog"
         }
@@ -2574,17 +2574,17 @@
         "availability": "reachable",
         "source": [
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:483",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3384",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4051",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4053",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3382",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4039",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4041",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx:73",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx:79",
-          "ui/packages/loom-ui/src/api.ts:1450",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3385",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3386",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3392",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3395",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4055",
+          "ui/packages/loom-ui/src/api.ts:1439",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3383",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3384",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3390",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3393",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4043",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx:81"
         ],
         "constraints": [
@@ -2653,8 +2653,8 @@
           }
         ],
         "entryPath": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4051",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4053"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4039",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4041"
         ]
       },
       "prose": {
@@ -2695,7 +2695,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
           "actionId": "undo_last_saved_draft_change",
           "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:RESTORE_DRAFT_REVISION,draftRevisionId:string}]}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3384; ui/packages/loom-ui/src/api.ts:1450",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3382; ui/packages/loom-ui/src/api.ts:1439",
           "condition": "tables empty and previousDraftRevisionId exists",
           "variant": "undo"
         }
@@ -2731,8 +2731,8 @@
           "unit": "visible Delete explorer control"
         },
         "source": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3136",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3137",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3134",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3135",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx:354",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx:358",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx:361"
@@ -2864,8 +2864,8 @@
           "unit": "active row-definition proposal for selected table"
         },
         "source": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4284",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4403",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4272",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4391",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:520",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:527",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:581",
@@ -2875,12 +2875,12 @@
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:737",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:916",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:1120",
-          "ui/packages/loom-ui/src/api.ts:1607",
-          "ui/packages/loom-ui/src/api.ts:1612",
-          "ui/packages/loom-ui/src/types.ts:721"
+          "ui/packages/loom-ui/src/api.ts:1596",
+          "ui/packages/loom-ui/src/api.ts:1601",
+          "ui/packages/loom-ui/src/types.ts:720"
         ],
         "entryPath": [
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4284",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4272",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:916"
         ],
         "constraints": [
@@ -2943,7 +2943,7 @@
           "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/row-definition-choices?outputId={outputId}&snapshotToken={snapshotToken}",
           "actionId": "open_row_definition_settings",
           "payloadShape": "no body; query {outputId,snapshotToken}",
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:520; ui/packages/loom-ui/src/api.ts:1607",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:520; ui/packages/loom-ui/src/api.ts:1596",
           "condition": "settings opened for selected table"
         },
         {
@@ -2961,7 +2961,7 @@
             "selection": "RowDefinitionSelection",
             "limit?": "number"
           },
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:581; ui/packages/loom-ui/src/api.ts:1612",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:581; ui/packages/loom-ui/src/api.ts:1601",
           "condition": "selection change waits 300 ms; current settings are loaded",
           "variant": "row-shape-change"
         },
@@ -2986,7 +2986,7 @@
               }
             ]
           },
-          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:718; ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4403; ui/packages/loom-ui/src/api.ts:1450",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:718; ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4391; ui/packages/loom-ui/src/api.ts:1439",
           "condition": "proposal fresh/current, comparison AVAILABLE, proposalId present, actions enabled",
           "variant": "apply"
         }

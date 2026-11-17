@@ -9,9 +9,6 @@ import (
 	"strings"
 )
 
-// Fragment is a versioned, expression-only recipe macro. Parameters are
-// substituted hygienically in selector placeholders `$name` or `${name}`.
-// Fragments contain no storage or output-specific behavior.
 type Fragment struct {
 	Name    string     `json:"name"`
 	Version string     `json:"version"`
@@ -63,8 +60,6 @@ func (l FragmentLibrary) Digest() (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// ExpandExpression resolves fragment calls and returns a normal expression
-// tree that contains only built-in recipe operators.
 func (l FragmentLibrary) ExpandExpression(input Expression) (Expression, error) {
 	if err := l.Validate(); err != nil {
 		return Expression{}, err
@@ -72,9 +67,6 @@ func (l FragmentLibrary) ExpandExpression(input Expression) (Expression, error) 
 	return l.expand(input, nil, 0)
 }
 
-// ExpandBundle returns a validated bundle with every fragment invocation
-// replaced by built-in recipe expressions. The returned canonical document is
-// therefore safe to digest and persist as the resolved translation source.
 func (l FragmentLibrary) ExpandBundle(bundle Bundle) (Bundle, error) {
 	if err := bundle.Validate(); err != nil {
 		return Bundle{}, err
@@ -371,7 +363,6 @@ func substitute(input Expression, bindings map[string]Expression) Expression {
 	return input
 }
 
-// SortedNames makes explanation and registration output deterministic.
 func (l FragmentLibrary) SortedNames() []string {
 	names := make([]string, 0, len(l.Fragments))
 	for name := range l.Fragments {

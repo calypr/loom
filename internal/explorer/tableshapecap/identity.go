@@ -108,9 +108,6 @@ func NewCategoryScanReceipt(binding Binding, parentCatalogID, categoryColumnChoi
 	return receipt, nil
 }
 
-// NewPivotDerivedOperandChoiceID creates an opaque choice scoped to the exact
-// post-pivot output mapping. The pivot's own ID is intentionally excluded to
-// avoid a content-addressing cycle; every other semantic pivot field is bound.
 func NewPivotDerivedOperandChoiceID(parentCatalogID string, pivot PivotResolution, output NamedOutput, fact TypeFact) (string, error) {
 	pivot.DerivedOperands = nil
 	payload, err := canonical(struct {
@@ -940,9 +937,6 @@ func categoryValuesDigest(values []Scalar) (string, error) {
 	return digest(payload), nil
 }
 
-// CategoryValuesDigest computes the canonical ordered-membership digest used
-// in compiler scan proofs. The caller supplies the authoritative scan facts;
-// this helper only proves the frozen values match that proof.
 func CategoryValuesDigest(values []Scalar) (string, error) {
 	for _, value := range values {
 		if err := value.Validate(); err != nil {

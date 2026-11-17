@@ -35,10 +35,7 @@ func (r *mutationResolver) RunFhirDataframe(ctx context.Context, input model.Fhi
 	}, nil
 }
 
-// RunDataframeRecipe executes a registered recipe completely and returns all
-// selected rows. This is intentionally separate from preview and from the
-// streaming publication mutation; callers should use materialization for
-// large production exports.
+// RunDataframeRecipe is the resolver for the runDataframeRecipe field.
 func (r *mutationResolver) RunDataframeRecipe(ctx context.Context, input model.RunDataframeRecipeInput) (*model.DataframeRecipeResult, error) {
 	bindings, err := graphqlRecipeBindings(input.Bindings)
 	if err != nil {

@@ -38,11 +38,6 @@ const assertNoAuthResourcePath = resources => {
   }
 };
 
-/**
- * Read the literal SCOPE-001 restricted-auth FHIR fixture and derive its visible rows.
- * Both Observations are loaded from NDJSON; the blocked witness is denied only by
- * its post-load target-document authorization path, while its subject edge remains allowed.
- */
 export const readScope001RestrictedAuthOracle = fixtureDir => {
   const patients = parseNDJSON(join(fixtureDir, 'Patient.ndjson'));
   const observations = parseNDJSON(join(fixtureDir, 'Observation.ndjson'));
@@ -120,7 +115,6 @@ export const assertScope001RestrictedAuthVisibleRows = (actualRows, fixtureDir) 
   return oracle;
 };
 
-/** Verify the fixture-only post-load path split before the Builder assertion. */
 const assertScope001LoadedAuthorizationShape = ({
   project,
   generation,

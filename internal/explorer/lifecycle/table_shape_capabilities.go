@@ -250,10 +250,6 @@ func (s *Service) compileTableShapeBase(ctx context.Context, request TableShapeC
 	if !ok {
 		return tableShapeBase{}, unprocessable("table-shape-capabilities", "OUTPUT_NOT_FOUND", "outputId is not in the compiler output contract", nil)
 	}
-	// A saved reshape is a derived view of a compiler-owned base relation. Build
-	// editor choices from that relation, not from the reshaped final schema,
-	// while retaining the actual draft/document digests as the capability's
-	// binding. This is what makes reload able to restore removed base columns.
 	baseWorkspace := workspace
 	baseWorkspace.Documents = append([]authoringv2.Document(nil), workspace.Documents...)
 	for index := range baseWorkspace.Documents {

@@ -314,7 +314,7 @@ The low-cardinality full-population query and the proposed semantic relation hav
 
 ### Source anchors
 
-- [Semantic observation contract](../internal/catalog/types.go), [inventory identity and storage types](../internal/catalog/semantic_inventory.go), and [entry materialization](../internal/catalog/arango/semantic_inventory.go).
+- [Semantic observation contract](../internal/catalog/types.go), [inventory identity and storage types](../internal/catalog/semantic_inventory.go), and [entry materialization](../internal/backends/arango/internal/catalog/semantic_inventory.go).
 - [Generated semantic extraction](../internal/catalog/semantic_schema.go), [correlated binding validation](../internal/fhir/schema/correlated.go), and [Quantity identity paths](../internal/fhir/schema/quantity.go).
 - [Construction recipe and stable column references](../internal/dataframe/recipe/construction.go), [stage inference](../internal/dataframe/compiler/lower/recipe_construction.go), and [compilation receipt stages](../internal/explorer/compilation_receipt.go).
 - [Coded Group lowering](../internal/dataframe/compiler/lower/recipe_construction_coded_group.go), [Coded Pivot authorization](../internal/explorer/lifecycle/construction_coded_pivot.go), and [owner-correlated Pivot rendering](../internal/dataframe/compiler/render/aql/table_reshape.go).

@@ -8,9 +8,6 @@ import (
 	"strings"
 )
 
-// PageRequest describes a bounded keyset page over one published table.
-// AuthResourcePaths is the already-resolved effective read scope. An
-// unrestricted request deliberately omits the auth_resource_path predicate.
 type PageRequest struct {
 	Columns           []string
 	Filters           []Filter
@@ -21,7 +18,6 @@ type PageRequest struct {
 	Unrestricted      bool
 }
 
-// StreamRequest describes a bounded-memory scan over one published table.
 type StreamRequest struct {
 	Columns            []string
 	Filters            []Filter
@@ -31,8 +27,6 @@ type StreamRequest struct {
 	IncludeRowIdentity bool
 }
 
-// Page reads one active/queryable materialization. It never constructs a
-// cross-project UNION and therefore carries only one table's cursor state.
 func (r *Reader) Page(ctx context.Context, materialization Materialization, req PageRequest) (Page, error) {
 	if r == nil || r.ClickHouse == nil {
 		return Page{}, backendUnavailable()
@@ -106,9 +100,6 @@ func (r *Reader) Page(ctx context.Context, materialization Materialization, req 
 		if req.Sort.Desc {
 			direction = "DESC"
 		}
-		// F-B24: NULLS LAST is pinned explicitly in BOTH directions so the
-		// engine default can never disagree with pageCursorPredicate's
-		// NULL-bucket ordering, and ordered pages stay total.
 		query += fmt.Sprintf(" ORDER BY `%s` %s NULLS LAST, `__loom_row_id` ASC", req.Sort.Column, direction)
 	} else {
 		query += " ORDER BY `__loom_row_id` ASC"
@@ -146,9 +137,6 @@ func (r *Reader) Page(ctx context.Context, materialization Materialization, req 
 		sortValueNull := false
 		if req.Sort != nil {
 			sortValue = last[req.Sort.Column]
-			// F-B24: a NULL last row parks the cursor inside the NULL bucket
-			// instead of failing the whole page (formerly invalidCursor, the
-			// latent second defect of the same root cause).
 			sortValueNull = sortValue == nil
 		}
 		if binding == "" {
@@ -177,7 +165,6 @@ func (r *Reader) Page(ctx context.Context, materialization Materialization, req 
 	return Page{Materialization: materialization, Columns: columns, Rows: rows, RowIDs: rowIDs, TotalCount: total, HasNext: hasNext, NextCursor: next}, nil
 }
 
-// Stream scans one published table without retaining all rows in memory.
 func (r *Reader) Stream(ctx context.Context, materialization Materialization, req StreamRequest, visit func(map[string]any) error) error {
 	if r == nil || r.ClickHouse == nil {
 		return backendUnavailable()
@@ -219,9 +206,6 @@ func (r *Reader) Stream(ctx context.Context, materialization Materialization, re
 		if req.Sort.Desc {
 			direction = "DESC"
 		}
-		// F-B24: NULLS LAST is pinned explicitly in BOTH directions so the
-		// engine default can never disagree with pageCursorPredicate's
-		// NULL-bucket ordering, and ordered pages stay total.
 		query += fmt.Sprintf(" ORDER BY `%s` %s NULLS LAST, `__loom_row_id` ASC", req.Sort.Column, direction)
 	} else {
 		query += " ORDER BY `__loom_row_id` ASC"
@@ -245,9 +229,6 @@ func (r *Reader) Stream(ctx context.Context, materialization Materialization, re
 	return nil
 }
 
-// decodeJSONTextObjectColumns decodes only logical objects stored in the new
-// JSON-text physical representation. Legacy JSON columns still arrive from
-// ClickHouse as maps and deliberately bypass this path.
 func decodeJSONTextObjectColumns(row map[string]any, columns []Column) error {
 	for _, column := range columns {
 		if strings.ToLower(strings.TrimSpace(column.LogicalType)) != "object" {
@@ -399,9 +380,6 @@ func pageCursorPredicate(cursor *pageCursor, sortBy *Sort) (string, []any, error
 		return "`__loom_row_id` > ?", []any{cursor.RowID}, nil
 	}
 	if cursor.SortValueNull {
-		// Cursor parked in the NULL bucket: everything after it is NULL rows
-		// ordered by row identity, in either direction (NULLs sort last and
-		// the tiebreak is always row-id ASC).
 		return fmt.Sprintf("(`%s` IS NULL AND `__loom_row_id` > ?)", sortBy.Column), []any{cursor.RowID}, nil
 	}
 	if cursor.SortValue == nil {
@@ -411,10 +389,6 @@ func pageCursorPredicate(cursor *pageCursor, sortBy *Sort) (string, []any, error
 	if sortBy.Desc {
 		op = "<"
 	}
-	// F-B24: NULL rows sit after every non-NULL row in this order (NULLS
-	// LAST, pinned in the ORDER BY), so they always satisfy "after a
-	// non-NULL cursor" and must be included; without this arm they were
-	// unreachable in both directions while TotalCount advertised them.
 	return fmt.Sprintf("(`%s` IS NULL OR `%s` %s ? OR (`%s` = ? AND `__loom_row_id` > ?))", sortBy.Column, sortBy.Column, op, sortBy.Column), []any{cursor.SortValue, cursor.SortValue, cursor.RowID}, nil
 }
 

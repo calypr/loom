@@ -1,0 +1,62 @@
+-- pg-store-03: dataset generation manifests and the active-generation pointer.
+--
+-- One row per dataset generation (project, generation) holds the lifecycle
+-- state and the schema identity document that participates in
+-- compare-and-swap equality. The active-generation pointer is one row per
+-- project: a missing row means no active generation (there is no placeholder
+-- row and no SQL NULL standing in for "absent"). Presence of the pointer row
+-- is the compare value for activation CAS; the store never moves it outside
+-- its transactional compare-and-swap.
+--
+-- State values are the public dataset manifest state names, byte-for-byte:
+-- LOADING, STAGED, READY (legacy spelling of STAGED), FAILED. schema_identity
+-- stores the manifest's schemaIdentity JSON document; SQL NULL is not
+-- admitted for any column here -- missing data is a constraint violation,
+-- never a silent NULL.
+--
+-- DDL is retryable (IF NOT EXISTS) per the pg-store-02 runner contract: a
+-- crash between a migration's commit and its ledger record must converge on
+-- re-application.
+--
+-- Version window: 000002_fhir_resource (pg-store-04) landed on the
+-- integration branch alongside this 000003, so the embedded history is the
+-- complete {1, 2, 3} chain and the runner's out-of-order policy cannot trap
+-- a schema (no commit state ever exposes 000003 without 000002). Per-test
+-- fixtures always start from an empty ledger. The runner's pinned-checksum
+-- gate in migrate_test.go refuses any edit to this file's bytes without an
+-- explicit entry update.
+CREATE TABLE IF NOT EXISTS dataset_generation_manifest (
+    project         text        NOT NULL,
+    generation      text        NOT NULL,
+    state           text        NOT NULL,
+    schema_identity jsonb       NOT NULL,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT dataset_generation_manifest_pkey
+        PRIMARY KEY (project, generation),
+    CONSTRAINT dataset_generation_manifest_project_nonempty
+        CHECK (project <> ''),
+    CONSTRAINT dataset_generation_manifest_generation_nonempty
+        CHECK (generation <> ''),
+    CONSTRAINT dataset_generation_manifest_state_public_names
+        CHECK (state IN ('LOADING', 'STAGED', 'READY', 'FAILED')),
+    CONSTRAINT dataset_generation_manifest_identity_is_object
+        CHECK (jsonb_typeof(schema_identity) = 'object')
+);
+
+CREATE TABLE IF NOT EXISTS dataset_active_generation (
+    project    text NOT NULL,
+    generation text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT dataset_active_generation_pkey
+        PRIMARY KEY (project),
+    CONSTRAINT dataset_active_generation_project_nonempty
+        CHECK (project <> ''),
+    CONSTRAINT dataset_active_generation_generation_nonempty
+        CHECK (generation <> ''),
+    CONSTRAINT dataset_active_generation_manifest_fkey
+        FOREIGN KEY (project, generation)
+        REFERENCES dataset_generation_manifest (project, generation)
+        ON DELETE RESTRICT
+);

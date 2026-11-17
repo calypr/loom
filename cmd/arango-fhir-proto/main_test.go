@@ -276,8 +276,6 @@ func TestParseDiscoveryCommandsPassExplicitDatasetGeneration(t *testing.T) {
 	}
 }
 
-// U1 (F-CLI2+M2): the documented `load` command must be dispatched to a mutable
-// loader rather than falling through to usage()+exit(2).
 func TestCommandRoutesDispatchesMutableLoad(t *testing.T) {
 	routes := commandRoutes()
 	handler, ok := routes["load"]
@@ -311,15 +309,12 @@ func TestParseLoadMutableWiresFlagsWithoutGeneration(t *testing.T) {
 		config.Options.AuthResourcePath != "EllrottLab-GDC_Data" {
 		t.Fatalf("mutable load parsed options = %+v, want the QUICKSTART flags wired", config.Options)
 	}
-	// --generation belongs to the immutable loader only.
 	if _, err := parseLoadMutableCommand([]string{"--generation", "generation-a"}, flag.ContinueOnError); err == nil ||
 		!strings.Contains(err.Error(), "flag provided but not defined") {
 		t.Fatalf("parseLoadMutableCommand accepted --generation; the mutable load must not expose it")
 	}
 }
 
-// U3 (F-CLI3(i)): manifest-mutating commands must run under shared signal
-// cancellation; read/mutable-data commands must not.
 func TestManifestMutatingCommandsUseSignalCancellation(t *testing.T) {
 	guarded := signalGuardedCommands()
 	routes := commandRoutes()
@@ -338,9 +333,6 @@ func TestManifestMutatingCommandsUseSignalCancellation(t *testing.T) {
 	}
 }
 
-// U4 (F-CLI1): the CLI must refuse to create a missing database instead of
-// silently auto-creating it. Emulates the go-driver DatabaseExists request
-// (GET /_db/{db}/_api/database/current) with httptest; no real Arango is used.
 func TestRequireDatabaseExistsRefusesMissingDatabase(t *testing.T) {
 	var seen []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -364,7 +356,6 @@ func TestRequireDatabaseExistsRefusesMissingDatabase(t *testing.T) {
 	if !strings.Contains(err.Error(), "refusing to create missing database") || !strings.Contains(err.Error(), "ghost_db") {
 		t.Fatalf("requireDatabaseExists error = %v, want a refusal naming the missing database", err)
 	}
-	// Verify empirically which request the driver issued for DatabaseExists.
 	if !containsSeen(seen, "/_db/ghost_db/_api/database/current") {
 		t.Fatalf("DatabaseExists did not issue the expected current-database request; saw %v", seen)
 	}

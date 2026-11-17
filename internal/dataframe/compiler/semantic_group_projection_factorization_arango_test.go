@@ -16,15 +16,16 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -52,8 +53,6 @@ func TestSemanticGroupProjectionFactorizationMatchesExactArangoOutputs(t *testin
 					})},
 			))
 		}
-		// This otherwise matching projection must be removed by the source scope
-		// before either the assessment sample or the weighted Group is evaluated.
 		payloads = append(payloads, semanticGroupProjectionRow(
 			"blocked_entropy", "/blocked",
 			[]any{semanticGroupProjectionComponent(targetSystem, targetVersion,
@@ -85,7 +84,6 @@ func TestSemanticGroupProjectionFactorizationMatchesExactArangoOutputs(t *testin
 				{code: "low-common", display: "Z Common"},
 				{code: "low-common", display: "A Common"},
 				{code: "low-common", display: "A Common"},
-				// Different tuple identities intentionally share one display.
 				{code: "low-label-one", display: "Shared label"},
 				{code: "low-label-two", display: "Shared label"},
 			},
@@ -106,17 +104,12 @@ func TestSemanticGroupProjectionFactorizationMatchesExactArangoOutputs(t *testin
 					})},
 			))
 		}
-		// Both source rows are in scope but have no matching Coding tuple. GROUP
-		// preserves them as one missing-category group; EXCLUDE drops them and
-		// ERROR rejects the query.
 		payloads = append(payloads,
 			semanticGroupProjectionRow("zz_empty_coding", "/included", []any{}),
 			semanticGroupProjectionRow("zz_no_matching_coding", "/included",
 				[]any{semanticGroupProjectionComponent("urn:loom:other-system", targetVersion,
 					[]semanticGroupProjectionCoding{{code: "unmatched", display: "Unmatched"}})}),
 		)
-		// This matching projection sorts before the repeated prefix but is outside
-		// the allowed source scope and must not affect the bounded assessment.
 		payloads = append(payloads, semanticGroupProjectionRow(
 			"000_blocked", "/blocked", []any{sharedProjection},
 		))
@@ -128,8 +121,6 @@ func TestSemanticGroupProjectionFactorizationMatchesExactArangoOutputs(t *testin
 		result := compileRunAndCaptureSemanticGroupProjectionPreview(t, ctx, client, bindings, groupOutput, 600)
 		assertSemanticGroupProjectionRowsEqual(t, result.ordinaryRows, result.factoredRows)
 		assertSemanticGroupProjectionRowsEqual(t, result.ordinaryRows, result.previewRows)
-		// The sample is bounded and unordered. The exact preview must still
-		// include every unique projection after its 512-row assessment window.
 		assertSemanticGroupProjectionAssessment(t, result.assessmentRows, 512, 1, 512)
 		if uniqueTailCount <= 512 {
 			t.Fatal("low-diversity fixture must place more unique projections after the bounded sample than the sample can contain")
@@ -151,7 +142,7 @@ func TestSemanticGroupProjectionFactorizationMatchesExactArangoOutputs(t *testin
 		errorQuery := compileSemanticGroupProjectionPolicy(t, ctx, result.engine, bindings,
 			semanticGroupProjectionOutput(t, recipe.ConstructionGroupMissingKeyError,
 				bindingID, familyID, ruleVersion, targetSystem, targetVersion, codingPath), 600)
-		if err := client.QueryRowsWithMaxRuntime(ctx, errorQuery.Query, 2000, errorQuery.BindVars, 8*time.Second, func(map[string]any) error { return nil }); err == nil {
+		if err := client.QueryRowsWithMaxRuntime(ctx, testAQLText(t, errorQuery.Command), 2000, testAQLBinds(t, errorQuery.Command), 8*time.Second, func(map[string]any) error { return nil }); err == nil {
 			t.Fatal("ERROR semantic Group accepted in-scope empty and nonmatching Coding arrays")
 		}
 	})
@@ -181,8 +172,6 @@ func TestSemanticGroupProjectionFactorizationSelectsReadOnlyIndexForScopedFixtur
 	rows = append(rows, semanticGroupProjectionDirectCodingRow("blocked", "/blocked", codings))
 	insertSemanticGroupProjectionRowsForResource(t, ctx, client, resourceType, project, generation, rows)
 
-	// The selector is read-only: explicitly provision its prerequisite in this
-	// test-owned fixture instead of relying on an index from a developer's CDA DB.
 	const fixtureIndex = "loom_pivot_preview_semantic_projection_fixture"
 	indexesBeforeSetup := semanticProjectionIndexSnapshot(t, ctx, resourceType)
 	if err := client.EnsurePreviewCoveringIndex(ctx, resourceType, fixtureIndex,
@@ -228,7 +217,6 @@ func TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOn
 	if os.Getenv("LOOM_TEST_FULL_CDA_READONLY") != "1" {
 		t.Skip("requires explicit LOOM_TEST_FULL_CDA_READONLY=1 and a preseeded full CDA database with its existing covering index; the bounded scoped fixture runs separately")
 	}
-	// Do not let arangostore.Open create an empty DB for this read-only probe.
 	semanticProjectionIndexRequest(t, context.Background(), http.MethodGet, "/_api/database/current")
 	ctx, client := openSemanticGroupProjectionArango(t)
 	const resourceType, project, generation, codingPath = "Specimen", "loom_dev_cda_fhir", "cda-fhir-v1", "type.coding[]"
@@ -303,12 +291,12 @@ func TestSemanticGroupProjectionFactorizationProjectsSimpleCodingArrayWhole(t *t
 	if err != nil {
 		t.Fatalf("lower simple-path semantic Group plan: %v", err)
 	}
-	query, err := compiler.CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 32, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := compiler.CompileRecipeOutput(compiler.ArangoTarget(), compiled.Outputs[0], bindings, 32, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile simple-path semantic Group preview: %v", err)
 	}
 	if query.PreviewGroupProjection == nil {
-		t.Fatalf("simple repeated Coding path did not qualify for projection factoring:\n%s", query.Query)
+		t.Fatalf("simple repeated Coding path did not qualify for projection factoring:\n%s", testAQLText(t, query.Command))
 	}
 	rootVariable := ""
 	for _, operation := range query.PhysicalPlan.Operations {
@@ -323,18 +311,18 @@ func TestSemanticGroupProjectionFactorizationProjectsSimpleCodingArrayWhole(t *t
 	arrayPath := fmt.Sprintf("%s.payload[%q][%q]", rootVariable, "code", "coding")
 	wantArray := fmt.Sprintf("(IS_ARRAY(%s) ? %s : [])", arrayPath, arrayPath)
 	assertSimpleSemanticGroupProjectionArray(t, "assessment", func() string {
-		text, _, err := compiler.RenderPreviewGroupProjectionAssessment(query.PhysicalPlan, "", true)
+		assessmentCommand, err := compiler.RenderPreviewGroupProjectionAssessment(query.PhysicalPlan, "", true)
 		if err != nil {
 			t.Fatalf("render simple-path assessment: %v", err)
 		}
-		return text
+		return testAQLText(t, assessmentCommand)
 	}(), wantArray)
 	assertSimpleSemanticGroupProjectionArray(t, "factored query", func() string {
-		text, _, err := compiler.RenderPreviewGroupProjectionFactorization(query.PhysicalPlan, "", true)
+		factorCommand, err := compiler.RenderPreviewGroupProjectionFactorization(query.PhysicalPlan, "", true)
 		if err != nil {
 			t.Fatalf("render simple-path factored query: %v", err)
 		}
-		return text
+		return testAQLText(t, factorCommand)
 	}(), wantArray)
 }
 
@@ -370,13 +358,13 @@ type semanticGroupProjectionCallbackCounts struct {
 
 type semanticGroupProjectionExplainResult struct {
 	query  string
-	result arangostore.ExplainResult
+	result arangofactory.ExplainResult
 }
 
 func compileRunAndCaptureSemanticGroupProjectionPreview(
 	t *testing.T,
 	ctx context.Context,
-	client *arangostore.Client,
+	client *arangofactory.Client,
 	bindings recipe.RuntimeBindings,
 	output recipe.Output,
 	limit int,
@@ -385,19 +373,19 @@ func compileRunAndCaptureSemanticGroupProjectionPreview(
 	engine, resolved, ordinaryQuery, callbacks := prepareSemanticGroupProjectionPreview(t, ctx, client, bindings, output, limit)
 	ordinaryRows := querySemanticGroupProjectionRows(t, ctx, client, ordinaryQuery, 2000)
 
-	factoredText, factoredBindVars, err := compiler.RenderPreviewGroupProjectionFactorization(ordinaryQuery.PhysicalPlan, "", false)
+	factoredCommand, err := compiler.RenderPreviewGroupProjectionFactorization(ordinaryQuery.PhysicalPlan, "", false)
 	if err != nil {
 		t.Fatalf("render exact factored semantic Group projection query: %v", err)
 	}
 	factoredRows := querySemanticGroupProjectionRows(t, ctx, client,
-		compiler.CompiledQuery{Query: factoredText, BindVars: factoredBindVars}, 2000)
+		compiler.CompiledQuery{Command: factoredCommand}, 2000)
 
-	assessmentText, assessmentBindVars, err := compiler.RenderPreviewGroupProjectionAssessment(ordinaryQuery.PhysicalPlan, "", false)
+	assessmentCommand, err := compiler.RenderPreviewGroupProjectionAssessment(ordinaryQuery.PhysicalPlan, "", false)
 	if err != nil {
 		t.Fatalf("render bounded semantic Group projection assessment: %v", err)
 	}
 	assessmentRows := querySemanticGroupProjectionRows(t, ctx, client,
-		compiler.CompiledQuery{Query: assessmentText, BindVars: assessmentBindVars}, 10)
+		compiler.CompiledQuery{Command: assessmentCommand}, 10)
 
 	var previewRows []map[string]any
 	summary, err := engine.PreviewOutput(ctx, resolved,
@@ -423,7 +411,7 @@ func compileRunAndCaptureSemanticGroupProjectionPreview(
 func prepareSemanticGroupProjectionPreview(
 	t *testing.T,
 	ctx context.Context,
-	client *arangostore.Client,
+	client *arangofactory.Client,
 	bindings recipe.RuntimeBindings,
 	output recipe.Output,
 	limit int,
@@ -432,14 +420,27 @@ func prepareSemanticGroupProjectionPreview(
 	bundle := semanticGroupProjectionBundle(output)
 	callbacks := &semanticGroupProjectionCallbackCounts{}
 	engine, err := execution.New(execution.Config{
-		Registry: semanticGroupProjectionRegistry{bundle: bundle},
-		QueryRows: func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
-			return client.QueryRows(ctx, query, batchSize, bindVars, visit)
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      semanticGroupProjectionRegistry{bundle: bundle},
+		SourceRows: func(ctx context.Context, request execution.RowsRequest, visit execution.RowVisitor) error {
+			command := request.Command
+			batchSize := request.BatchSize
+			query, bindVars, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return client.QueryRows(ctx, query, batchSize, bindVars, arangofactory.RowVisitor(visit))
 		},
-		PreviewQueryRows: func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+		PreviewSourceRows: func(ctx context.Context, request execution.RowsRequest, visit execution.RowVisitor) error {
+			command := request.Command
+			batchSize := request.BatchSize
+			query, bindVars, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
 			callbacks.previewQueries = append(callbacks.previewQueries, query)
 			started := time.Now()
-			err := client.QueryRowsWithMaxRuntime(ctx, query, batchSize, bindVars, 8*time.Second, visit)
+			err := client.QueryRowsWithMaxRuntime(ctx, query, batchSize, bindVars, 8*time.Second, arangofactory.RowVisitor(visit))
 			callbacks.previewQueryDurations = append(callbacks.previewQueryDurations, time.Since(started))
 			return err
 		},
@@ -447,19 +448,33 @@ func prepareSemanticGroupProjectionPreview(
 			callbacks.revisions++
 			return client.CollectionRevision(ctx, collection)
 		},
-		PreviewExplainQuery: func(ctx context.Context, query string, bindVars map[string]any) (arangostore.ExplainResult, error) {
+		PreviewCollectionScans: func(ctx context.Context, command command.CompiledCommand, collection string) (execution.PreviewCollectionScanEvidence, error) {
 			callbacks.explains++
-			result, err := client.Explain(ctx, arangostore.ExplainRequest{Query: query, BindVars: bindVars})
+			query, bindVars, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return execution.PreviewCollectionScanEvidence{}, dispatchErr
+			}
+			result, err := client.Explain(ctx, arangofactory.ExplainRequest{Query: query, BindVars: bindVars})
 			callbacks.explainResults = append(callbacks.explainResults, semanticGroupProjectionExplainResult{query: query, result: result})
-			return result, err
+			if err != nil {
+				return execution.PreviewCollectionScanEvidence{}, err
+			}
+			return semanticGroupProjectionScanEvidence(result, collection), nil
 		},
-		PreviewCoveringIndexes: func(ctx context.Context, collection string) ([]arangostore.PreviewCoveringIndex, error) {
+		PreviewCoveringIndexes: func(ctx context.Context, collection string) ([]execution.PreviewCollectionIndex, error) {
 			callbacks.indexLists++
 			indexes, err := client.ListPreviewCoveringIndexes(ctx, collection)
+			converted := make([]execution.PreviewCollectionIndex, 0, len(indexes))
 			for _, index := range indexes {
 				callbacks.listedIndexNames = append(callbacks.listedIndexNames, index.Name)
+				converted = append(converted, execution.PreviewCollectionIndex{
+					Collection:   index.Collection,
+					Name:         index.Name,
+					Fields:       index.Fields,
+					StoredValues: index.StoredValues,
+				})
 			}
-			return indexes, err
+			return converted, err
 		},
 		PreviewCollectionCount: func(ctx context.Context, collection string) (int64, error) {
 			callbacks.collectionCount++
@@ -473,14 +488,14 @@ func prepareSemanticGroupProjectionPreview(
 	if err != nil {
 		t.Fatalf("resolve semantic Group projection fixture: %v", err)
 	}
-	ordinaryQuery, err := compiler.CompileRecipeOutputWithPolicy(
+	ordinaryQuery, err := compiler.CompileRecipeOutput(compiler.ArangoTarget(),
 		resolved.Compiled.Outputs[0], bindings, limit, ir.DefaultPhysicalOptimizationPolicy(),
 	)
 	if err != nil {
 		t.Fatalf("compile ordinary semantic Group projection query: %v", err)
 	}
 	if ordinaryQuery.PreviewGroupProjection == nil {
-		t.Fatalf("direct semantic Group has no exact source-scope projection evidence:\n%s", ordinaryQuery.Query)
+		t.Fatalf("direct semantic Group has no exact source-scope projection evidence:\n%s", testAQLText(t, ordinaryQuery.Command))
 	}
 	return engine, resolved, ordinaryQuery, callbacks
 }
@@ -498,7 +513,7 @@ func compileSemanticGroupProjectionPolicy(
 	if err != nil {
 		t.Fatalf("resolve semantic Group %s policy: %v", output.Construction.Steps[0].Operation.Group.MissingKeyPolicy, err)
 	}
-	query, err := compiler.CompileRecipeOutputWithPolicy(resolved.Compiled.Outputs[0], bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := compiler.CompileRecipeOutput(compiler.ArangoTarget(), resolved.Compiled.Outputs[0], bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile semantic Group %s policy: %v", output.Construction.Steps[0].Operation.Group.MissingKeyPolicy, err)
 	}
@@ -630,8 +645,6 @@ func semanticGroupProjectionDirectCodingRow(id, authResourcePath string, codings
 	}
 }
 
-// Only stable index definition fields are compared; read queries may update
-// planner estimates, which are not schema mutations.
 type semanticProjectionIndexDefinition struct {
 	ID           string   `json:"id"`
 	Name         string   `json:"name"`
@@ -701,7 +714,7 @@ func semanticGroupProjectionCodingValue(system, version, code, display string) m
 	return coding
 }
 
-func openSemanticGroupProjectionArango(t *testing.T) (context.Context, *arangostore.Client) {
+func openSemanticGroupProjectionArango(t *testing.T) (context.Context, *arangofactory.Client) {
 	t.Helper()
 	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
 	if url == "" || database == "" {
@@ -709,10 +722,11 @@ func openSemanticGroupProjectionArango(t *testing.T) (context.Context, *arangost
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
-	client, err := arangostore.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	t.Cleanup(func() { _ = client.Close(context.Background()) })
 	return ctx, client
 }
@@ -720,7 +734,7 @@ func openSemanticGroupProjectionArango(t *testing.T) (context.Context, *arangost
 func insertSemanticGroupProjectionRows(
 	t *testing.T,
 	ctx context.Context,
-	client *arangostore.Client,
+	client *arangofactory.Client,
 	project, generation string,
 	payloads []map[string]any,
 ) {
@@ -731,7 +745,7 @@ func insertSemanticGroupProjectionRows(
 func insertSemanticGroupProjectionRowsForResource(
 	t *testing.T,
 	ctx context.Context,
-	client *arangostore.Client,
+	client *arangofactory.Client,
 	resourceType, project, generation string,
 	payloads []map[string]any,
 ) {
@@ -760,12 +774,12 @@ func insertSemanticGroupProjectionRowsForResource(
 	}
 }
 
-func registerSemanticGroupProjectionCleanup(t *testing.T, client *arangostore.Client, project, generation string) {
+func registerSemanticGroupProjectionCleanup(t *testing.T, client *arangofactory.Client, project, generation string) {
 	t.Helper()
 	registerSemanticGroupProjectionCleanupForResource(t, client, "Observation", project, generation)
 }
 
-func registerSemanticGroupProjectionCleanupForResource(t *testing.T, client *arangostore.Client, resourceType, project, generation string) {
+func registerSemanticGroupProjectionCleanupForResource(t *testing.T, client *arangofactory.Client, resourceType, project, generation string) {
 	t.Helper()
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -782,17 +796,17 @@ func registerSemanticGroupProjectionCleanupForResource(t *testing.T, client *ara
 func querySemanticGroupProjectionRows(
 	t *testing.T,
 	ctx context.Context,
-	client *arangostore.Client,
+	client *arangofactory.Client,
 	query compiler.CompiledQuery,
 	maxRows int,
 ) []map[string]any {
 	t.Helper()
 	rows := make([]map[string]any, 0)
-	if err := client.QueryRowsWithMaxRuntime(ctx, query.Query, maxRows, query.BindVars, 8*time.Second, func(row map[string]any) error {
+	if err := client.QueryRowsWithMaxRuntime(ctx, testAQLText(t, query.Command), maxRows, testAQLBinds(t, query.Command), 8*time.Second, func(row map[string]any) error {
 		rows = append(rows, row)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute semantic Group projection query: %v\n%s", err, query.Query)
+		t.Fatalf("execute semantic Group projection query: %v\n%s", err, testAQLText(t, query.Command))
 	}
 	return rows
 }
@@ -864,7 +878,7 @@ func assertSemanticGroupProjectionIndexDescriptor(t *testing.T, query compiler.C
 func assertSemanticGroupProjectionScopeCount(
 	t *testing.T,
 	ctx context.Context,
-	client *arangostore.Client,
+	client *arangofactory.Client,
 	query compiler.CompiledQuery,
 	want int,
 ) {
@@ -872,10 +886,7 @@ func assertSemanticGroupProjectionScopeCount(
 	if query.PreviewGroupProjection == nil {
 		t.Fatal("semantic Group query lost its source-scope count evidence")
 	}
-	countQuery := compiler.CompiledQuery{
-		Query:    query.PreviewGroupProjection.ScopeCountQuery,
-		BindVars: query.PreviewGroupProjection.ScopeCountBindVars,
-	}
+	countQuery := compiler.CompiledQuery{Command: query.PreviewGroupProjection.ScopeCount}
 	rows := querySemanticGroupProjectionRows(t, ctx, client, countQuery, 10)
 	if len(rows) != 1 || !semanticGroupProjectionNumberEqual(rows[0]["count"], float64(want)) {
 		t.Fatalf("exact source-scope count = %#v, want %d scoped rows", rows, want)
@@ -903,7 +914,7 @@ func assertProjectionSelectionCallbacks(
 		}
 	}
 	for _, query := range callbacks.previewQueries {
-		if query == ordinaryQuery.PreviewGroupProjection.ScopeCountQuery {
+		if query == testAQLText(t, ordinaryQuery.PreviewGroupProjection.ScopeCount) {
 			scopeCountSeen = true
 		}
 		if strings.Contains(query, "distinctProjections") && strings.Contains(query, "sampleRows") {
@@ -938,7 +949,7 @@ func assertProjectionSelectionCallbacks(
 		for index, query := range callbacks.previewQueries {
 			role := "final preview"
 			switch {
-			case query == ordinaryQuery.PreviewGroupProjection.ScopeCountQuery:
+			case query == testAQLText(t, ordinaryQuery.PreviewGroupProjection.ScopeCount):
 				role = "exact scope count"
 			case strings.Contains(query, "distinctProjections") && strings.Contains(query, "sampleRows"):
 				role = "projection assessment"
@@ -966,7 +977,7 @@ func hasCoveringFactoredIndexExplain(records []semanticGroupProjectionExplainRes
 		if !strings.Contains(record.query, semanticGroupProjectionFactoredRawAlias) || !strings.Contains(record.query, indexName) {
 			continue
 		}
-		plans := append([]arangostore.ExplainPlan(nil), record.result.Plans...)
+		plans := append([]arangofactory.ExplainPlan(nil), record.result.Plans...)
 		if record.result.Plan != nil {
 			plans = append(plans, *record.result.Plan)
 		}
@@ -986,6 +997,45 @@ func hasCoveringFactoredIndexExplain(records []semanticGroupProjectionExplainRes
 		}
 	}
 	return false
+}
+
+func semanticGroupProjectionScanEvidence(result arangofactory.ExplainResult, collection string) execution.PreviewCollectionScanEvidence {
+	var plan *arangofactory.ExplainPlan
+	switch {
+	case result.Plan != nil && len(result.Plans) == 0:
+		plan = result.Plan
+	case result.Plan == nil && len(result.Plans) == 1:
+		plan = &result.Plans[0]
+	default:
+		return execution.PreviewCollectionScanEvidence{}
+	}
+	evidence := execution.PreviewCollectionScanEvidence{}
+	for _, node := range plan.Nodes {
+		if node.Collection != collection {
+			continue
+		}
+		switch node.Type {
+		case "EnumerateCollectionNode":
+			evidence.FullCollectionEnumeration = true
+		case "IndexNode":
+			nodeEvidence := execution.PreviewIndexNodeEvidence{Coverage: execution.PreviewIndexCoverageUnknown}
+			if node.IndexCoversProjections != nil && node.IndexCoversOutProjections != nil {
+				switch {
+				case *node.IndexCoversProjections && *node.IndexCoversOutProjections:
+					nodeEvidence.Coverage = execution.PreviewIndexCoverageCovering
+				case !*node.IndexCoversProjections && !*node.IndexCoversOutProjections:
+					nodeEvidence.Coverage = execution.PreviewIndexCoverageNotCovering
+				}
+			}
+			for _, index := range node.Indexes {
+				if index.Collection == "" || index.Collection == collection {
+					nodeEvidence.IndexNames = append(nodeEvidence.IndexNames, index.Name)
+				}
+			}
+			evidence.IndexNodes = append(evidence.IndexNodes, nodeEvidence)
+		}
+	}
+	return evidence
 }
 
 func assertSemanticGroupProjectionExpectedDisplayCounts(t *testing.T, rows []map[string]any, want map[string][]float64) {

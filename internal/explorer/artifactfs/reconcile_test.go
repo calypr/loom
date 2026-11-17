@@ -14,15 +14,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-// Durable coverage for the filesystem artifact expiry promise: read paths
-// (Get/Open) already refused expired records, but nothing bounded on-disk
-// retention, so every export's archive+metadata pair survived its advertised
-// TTL forever on the artifact directory (default /tmp/loom-artifacts, cleared
-// only where deployment clears it). Reconcile is the store enforcing the same
-// ExpiresAt it validates in Begin/Open; the server runs it on a ticker beside
-// the ClickHouse artifact reconciler. Discovery pass 2026-11-04m; archived
-// pre-fix growth witnesses under verification/publication-bundle/evidence/.
-
 func reconcileClock(base time.Time) *time.Time {
 	clock := base
 	return &clock
@@ -192,11 +183,6 @@ func TestReconcileLeavesUnprovableFilesAlone(t *testing.T) {
 	}
 }
 
-// Durable regressions for the confirmed panel findings (repair-28 review):
-// R1 executed repros proved fail-open on the under-lock re-read, a
-// non-convergent removal order (record deleted while archive removal failed),
-// and Begin permanently wedged by crash-residue staging without a record.
-
 func TestReconcileRetainsSetWhenRecordBecomesUnreadableUnderLock(t *testing.T) {
 	root := t.TempDir()
 	store, err := New(root)
@@ -358,14 +344,6 @@ func TestBeginReclaimsCrashResidueStagingWithoutRecord(t *testing.T) {
 	_ = reader.Close()
 }
 
-// Panel finding (repair-28 R3/M7 + parent rerun): two independent boundaries
-// keep foreign files in the artifact directory out of the sweep, each pinned
-// by its own planting: (1) the filename queue gate (safeID on the derived id),
-// killed by dropping that condition while the self-named foreign pair stays
-// otherwise valid; (2) read()'s record-ID-equals-filename rule, killed by
-// deleting that mismatch check while the aliased pair stays valid. Both
-// pairings carry genuinely decodable expired records, so an implementation
-// lacking either boundary deletes user data.
 func TestReconcileNeverRemovesFilesWhoseRecordDisownsTheirName(t *testing.T) {
 	root := t.TempDir()
 	store, err := New(root)
@@ -427,10 +405,6 @@ func TestReconcileNeverRemovesFilesWhoseRecordDisownsTheirName(t *testing.T) {
 	}
 }
 
-// Panel finding (repair-28 R3/M9): the per-set cancellation check inside the
-// removal loop was unobservable — existing canceled-context coverage only
-// exercised the entry check after everything was already deleted. The
-// deterministic hook below forces the mid-sweep branch.
 func TestReconcileStopsMidSweepOnCancellation(t *testing.T) {
 	root := t.TempDir()
 	store, err := New(root)

@@ -54,10 +54,6 @@ func validatePhysicalExpressionProjections(projections []PhysicalExpressionProje
 }
 
 func validatePhysicalPredicateExpression(predicate PhysicalPredicateExpression, defined map[string]bool, bindVars map[string]any) error {
-	// Filter predicates can contain EXISTS subplans without being wrapped in a
-	// PhysicalExpression. Run the shared pointer-cycle preflight here as well as
-	// from validatePhysicalExpression so malformed in-memory plans are rejected
-	// before recursive structural validation.
 	if err := validatePhysicalExpressionObjectCycles(PhysicalExpression{
 		Aggregate: &PhysicalAggregate{Predicate: &predicate},
 	}); err != nil {

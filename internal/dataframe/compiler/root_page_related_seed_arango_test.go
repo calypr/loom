@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -23,12 +23,12 @@ func TestRootPageRelatedSeedConstructionFilterPlacement(t *testing.T) {
 	const project, generation, targetID = "root-page-related-seed-project", "root-page-related-seed-generation", "patient-match"
 	bindings := rootPageRelatedSeedBindings(project, generation)
 	compiled := compileRootPageRelatedSeedOutput(t, rootPageRelatedSeedOutput(targetID), bindings)
-	page, err := CompileRecipeOutputPageWithPolicy(compiled, bindings, 1, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled, bindings, 1, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile related root page: %v", err)
 	}
 
-	query := page.RootKeysQuery
+	query := testAQLText(t, page.RootKeys)
 	unique := strings.Index(query, "LET child_set_1 = UNIQUE((")
 	childSort := strings.Index(query, "SORT child_set_1_node._key")
 	first := strings.Index(query, "FIRST(FLATTEN(child_set_1[*].__loom_projection_0))")
@@ -43,26 +43,26 @@ func TestRootPageRelatedSeedConstructionFilterPlacement(t *testing.T) {
 		unique > childSort || childSort > first || first > filter || filter > filterBind || filterBind > rootSort || rootSort > limit {
 		t.Fatalf("related construction filter must follow UNIQUE, sorted child FIRST, and precede the root-key LIMIT: UNIQUE=%d child-sort=%d FIRST=%d FILTER=%d bind=%d root-sort=%d LIMIT=%d\n%s", unique, childSort, first, filter, filterBind, rootSort, limit, query)
 	}
-	if got := page.RootKeysBindVars["construction_filter_value"]; got != targetID {
+	if got := testAQLBinds(t, page.RootKeys)["construction_filter_value"]; got != targetID {
 		t.Fatalf("related root-key construction filter bind = %#v, want %q", got, targetID)
 	}
-	if got := page.RootKeysBindVars["project"]; got != project {
+	if got := testAQLBinds(t, page.RootKeys)["project"]; got != project {
 		t.Fatalf("related root-key project bind = %#v, want %q", got, project)
 	}
-	if got := page.RootKeysBindVars["dataset_generation"]; got != generation {
+	if got := testAQLBinds(t, page.RootKeys)["dataset_generation"]; got != generation {
 		t.Fatalf("related root-key generation bind = %#v, want %q", got, generation)
 	}
-	if got := page.RootKeysBindVars["auth_resource_paths_unrestricted"]; got != false {
+	if got := testAQLBinds(t, page.RootKeys)["auth_resource_paths_unrestricted"]; got != false {
 		t.Fatalf("related root-key auth bypass bind = %#v, want false", got)
 	}
-	if paths, ok := page.RootKeysBindVars["auth_resource_paths"].([]string); !ok || !reflect.DeepEqual(paths, []string{"/allowed"}) {
-		t.Fatalf("related root-key auth paths = %#v, want [/allowed]", page.RootKeysBindVars["auth_resource_paths"])
+	if paths, ok := testAQLBinds(t, page.RootKeys)["auth_resource_paths"].([]string); !ok || !reflect.DeepEqual(paths, []string{"/allowed"}) {
+		t.Fatalf("related root-key auth paths = %#v, want [/allowed]", testAQLBinds(t, page.RootKeys)["auth_resource_paths"])
 	}
 }
 
 func TestRootPageRelatedSeedFalsePositiveDoesNotConsumePageAgainstArango(t *testing.T) {
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Observation"}, {Name: "Patient"}, {Name: "fhir_edge", Edge: true},
 	}}); err != nil {
 		t.Fatalf("bootstrap related root-page fixture collections: %v", err)
@@ -145,8 +145,6 @@ func TestRootPageRelatedSeedFalsePositiveDoesNotConsumePageAgainstArango(t *test
 	staleTargetRoot := addObservation("027_stale_target", "stale-target", project, generation, "/allowed")
 	foreignTargetRoot := addObservation("028_foreign_target", "foreign-target", project, generation, "/allowed")
 
-	// The first root is a seed-only false positive: its later related Patient
-	// matches, but its sorted-first Patient does not.
 	addEdge("false_first_nonmatch", falsePositiveRoot, nonmatchingFirst, project, generation, "/allowed")
 	addEdge("false_later_match", falsePositiveRoot, target, project, generation, "/allowed")
 	addEdge("first_target", firstEligibleRoot, target, project, generation, "/allowed")
@@ -199,7 +197,7 @@ func TestRootPageRelatedSeedFalsePositiveDoesNotConsumePageAgainstArango(t *test
 
 	bindings := rootPageRelatedSeedBindings(project, generation)
 	compiled := compileRootPageRelatedSeedOutput(t, rootPageRelatedSeedOutput(targetID), bindings)
-	full, err := CompileRecipeOutputWithPolicy(compiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
+	full, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile full related construction output: %v", err)
 	}
@@ -227,11 +225,11 @@ func TestRootPageRelatedSeedFalsePositiveDoesNotConsumePageAgainstArango(t *test
 		t.Fatalf("unpaged related construction has duplicate rows per root: %#v", fullRows)
 	}
 
-	page, err := CompileRecipeOutputPageWithPolicy(compiled, bindings, 1, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled, bindings, 1, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile paged related construction output: %v", err)
 	}
-	keyBinds := rootPageRelatedSeedCloneBinds(page.RowsBindVars)
+	keyBinds := rootPageRelatedSeedCloneBinds(testAQLBinds(t, page.Rows))
 	keyBinds[RootPageKeysBind] = []string{
 		falsePositiveRoot, firstEligibleRoot, firstEligibleRoot, secondEligibleRoot,
 		deniedRoot, staleRoot, foreignRoot, deniedEdgeRoot, staleEdgeRoot,
@@ -239,11 +237,11 @@ func TestRootPageRelatedSeedFalsePositiveDoesNotConsumePageAgainstArango(t *test
 		"missing-root-page-key",
 	}
 	selectedRows := make([]map[string]any, 0, len(fullRows))
-	if err := client.QueryRows(ctx, page.RowsQuery, 100, keyBinds, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, page.Rows), 100, keyBinds, func(row map[string]any) error {
 		selectedRows = append(selectedRows, row)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute selected-root key-set with duplicate, missing, and out-of-scope keys: %v\n%s", err, page.RowsQuery)
+		t.Fatalf("execute selected-root key-set with duplicate, missing, and out-of-scope keys: %v\n%s", err, testAQLText(t, page.Rows))
 	}
 	if !reflect.DeepEqual(rootPageRelatedSeedRowSignatures(selectedRows), rootPageRelatedSeedRowSignatures(fullRows)) {
 		t.Fatalf("selected-root key-set changed exact scoped related rows: got %#v, want %#v", selectedRows, fullRows)
@@ -295,12 +293,12 @@ type rootPageRelatedSeedPage struct {
 	rows []map[string]any
 }
 
-func rootPageRelatedSeedReadPage(t *testing.T, ctx context.Context, client *store.Client, page CompiledOutputPage, after string) rootPageRelatedSeedPage {
+func rootPageRelatedSeedReadPage(t *testing.T, ctx context.Context, client *arangofactory.Client, page CompiledOutputPage, after string) rootPageRelatedSeedPage {
 	t.Helper()
-	keyBinds := rootPageRelatedSeedCloneBinds(page.RootKeysBindVars)
+	keyBinds := rootPageRelatedSeedCloneBinds(testAQLBinds(t, page.RootKeys))
 	keyBinds[RootPageAfterKeyBind] = after
 	result := rootPageRelatedSeedPage{keys: make([]string, 0, 1)}
-	if err := client.QueryRows(ctx, page.RootKeysQuery, 100, keyBinds, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, page.RootKeys), 100, keyBinds, func(row map[string]any) error {
 		key, ok := row["_key"].(string)
 		if !ok || key == "" {
 			return fmt.Errorf("root-key query returned invalid _key %#v", row["_key"])
@@ -308,7 +306,7 @@ func rootPageRelatedSeedReadPage(t *testing.T, ctx context.Context, client *stor
 		result.keys = append(result.keys, key)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute related root-key page after %q: %v\n%s", after, err, page.RootKeysQuery)
+		t.Fatalf("execute related root-key page after %q: %v\n%s", after, err, testAQLText(t, page.RootKeys))
 	}
 	if len(result.keys) == 0 {
 		return result
@@ -316,13 +314,13 @@ func rootPageRelatedSeedReadPage(t *testing.T, ctx context.Context, client *stor
 	if len(result.keys) != 1 {
 		t.Fatalf("related root-key page after %q returned %#v, want at most one key", after, result.keys)
 	}
-	rowBinds := rootPageRelatedSeedCloneBinds(page.RowsBindVars)
+	rowBinds := rootPageRelatedSeedCloneBinds(testAQLBinds(t, page.Rows))
 	rowBinds[RootPageKeysBind] = result.keys
-	if err := client.QueryRows(ctx, page.RowsQuery, 100, rowBinds, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, page.Rows), 100, rowBinds, func(row map[string]any) error {
 		result.rows = append(result.rows, row)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute selected-root rows after %q: %v\n%s", after, err, page.RowsQuery)
+		t.Fatalf("execute selected-root rows after %q: %v\n%s", after, err, testAQLText(t, page.Rows))
 	}
 	return result
 }

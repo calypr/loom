@@ -8,13 +8,9 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// RowGrain identifies the resource represented by one output row.
 type RowGrain string
 
 const (
-	// RowGrainResource is the safe fallback for a generated FHIR resource that
-	// does not yet have a product-specific "one row per" label. It still has a
-	// stable root resource identity and is therefore safe to compile.
 	RowGrainResource        RowGrain = "resource"
 	RowGrainPatient         RowGrain = "patient"
 	RowGrainSpecimen        RowGrain = "specimen"
@@ -22,12 +18,8 @@ const (
 	RowGrainDiagnosis       RowGrain = "diagnosis"
 	RowGrainObservation     RowGrain = "observation"
 	RowGrainStudyEnrollment RowGrain = "study_enrollment"
-	// RowGrainExpanded is a synthetic grain whose identity is supplied by a
-	// recipe expansion expression rather than by the root resource key.
-	RowGrainExpanded RowGrain = "expanded"
-	// RowGrainGroups is a synthetic grain whose identity is an immutable
-	// explicit group in a pinned group revision.
-	RowGrainGroups RowGrain = "groups"
+	RowGrainExpanded        RowGrain = "expanded"
+	RowGrainGroups          RowGrain = "groups"
 )
 
 func (g RowGrain) Validate() error {
@@ -42,10 +34,6 @@ func (g RowGrain) Validate() error {
 	}
 }
 
-// InferRowGrain returns the product grain naturally represented by a generated
-// FHIR root type. Valid schema resource types without a named product grain use
-// RowGrainResource so every valid semantic request still carries a stable row
-// identity.
 func InferRowGrain(resourceType string) (RowGrain, bool) {
 	canonical, ok := fhirschema.CanonicalResourceType(resourceType)
 	if !ok {
@@ -69,9 +57,6 @@ func InferRowGrain(resourceType string) (RowGrain, bool) {
 	}
 }
 
-// RootResourceForGrain returns the only root resource type currently capable
-// of representing a named product grain without row expansion. The generic
-// resource grain deliberately accepts any generated resource root.
 func RootResourceForGrain(grain RowGrain) (string, bool) {
 	switch grain {
 	case RowGrainResource:
@@ -95,10 +80,6 @@ func RootResourceForGrain(grain RowGrain) (string, bool) {
 	}
 }
 
-// ValidateRootGrain prevents an API caller from asking for a named row grain
-// while compiling rows rooted at a different resource. Cross-grain output will
-// require an explicit future EXPLODE/root-rewrite operation; accepting it now
-// would silently lie about the output identity.
 func ValidateRootGrain(resourceType string, grain RowGrain) error {
 	if err := grain.Validate(); err != nil {
 		return err
@@ -117,9 +98,6 @@ func ValidateRootGrain(resourceType string, grain RowGrain) error {
 	return nil
 }
 
-// DefaultRowIdentity uses the immutable project/key pair emitted by the graph
-// loader. The grain remains explicit so downstream code cannot silently use a
-// related resource as the output identity.
 func DefaultRowIdentity(grain RowGrain) (RowIdentity, bool) {
 	if err := grain.Validate(); err != nil {
 		return RowIdentity{}, false
@@ -130,7 +108,6 @@ func DefaultRowIdentity(grain RowGrain) (RowIdentity, bool) {
 	return RowIdentity{Grain: grain, Fields: []string{"project", "_key"}}, true
 }
 
-// ProjectionMode defines how values at a selected path contribute to a row.
 type ProjectionMode string
 
 const (
@@ -156,13 +133,8 @@ func (m ProjectionMode) Validate() error {
 	}
 }
 
-// ExpandsRows reports whether the projection deliberately changes row
-// multiplicity instead of reducing values into the current row grain.
 func (m ProjectionMode) ExpandsRows() bool { return m == ProjectionExplode }
 
-// Cardinality describes the formal multiplicity of a relationship or field.
-// Observed data may refine UnknownObservedMany, but must not weaken a declared
-// required, optional, or repeated relationship.
 type Cardinality string
 
 const (
@@ -190,8 +162,6 @@ func (c Cardinality) AllowsMany() bool {
 
 func (c Cardinality) IsRequired() bool { return c == CardinalityRequiredOne }
 
-// ValidateProjection rejects implicit row expansion. Repeated values must be
-// reduced explicitly or deliberately exploded into rows.
 func ValidateProjection(cardinality Cardinality, mode ProjectionMode) error {
 	if err := cardinality.Validate(); err != nil {
 		return err
@@ -205,16 +175,11 @@ func ValidateProjection(cardinality Cardinality, mode ProjectionMode) error {
 	return nil
 }
 
-// RowIdentity declares the stable fields that uniquely identify a row at a
-// particular grain. Fields are ordered so callers can construct deterministic
-// composite keys.
 type RowIdentity struct {
 	Grain  RowGrain
 	Fields []string
 }
 
-// Clone returns an independent row-identity value for transport between
-// compiler stages.
 func (i *RowIdentity) Clone() *RowIdentity {
 	if i == nil {
 		return nil

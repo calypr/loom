@@ -16,14 +16,6 @@ import (
 	"time"
 )
 
-// defaultFenceAccessCacheEntries bounds how many parsed Fence snapshots one
-// client retains. A snapshot only has to survive one TTL, so the useful working
-// set is the number of distinct bearer tokens seen within a TTL. Token churn
-// keeps minting sha256 keys that are never read again, and the TTL only decides
-// whether a snapshot is served, never whether its memory is released: the entry
-// cap is the memory bound, and the expiry sweeps on read and on insert are what
-// keep churned-away snapshots from holding slots. Past the cap the least
-// recently used token loses its slot and simply refetches.
 const defaultFenceAccessCacheEntries = 1024
 
 type FenceUserAccessClient struct {
@@ -40,9 +32,7 @@ type FenceUserAccessClient struct {
 type cachedResourceAccess struct {
 	snapshot  map[string][]resourceAccessRecord
 	expiresAt time.Time
-	// seq orders cache touches (inserts and served hits) so cap eviction is
-	// deterministic and never depends on map iteration order.
-	seq uint64
+	seq       uint64
 }
 
 func NewFenceUserAccessClientWithTrustedIssuer(client *http.Client, trustedIssuer string, cacheTTL time.Duration) (*FenceUserAccessClient, error) {
@@ -63,9 +53,6 @@ func newFenceUserAccessClient(client *http.Client, trustedIssuer string, cacheTT
 	return newFenceUserAccessClientWithCachePolicy(client, trustedIssuer, cacheTTL, defaultFenceAccessCacheEntries, nil)
 }
 
-// newFenceUserAccessClientWithCachePolicy is the seam used by tests to pin the
-// entry bound and the clock. A maxEntries below one disables retention
-// instead of admitting nothing.
 func newFenceUserAccessClientWithCachePolicy(client *http.Client, trustedIssuer string, cacheTTL time.Duration, maxEntries int, now func() time.Time) *FenceUserAccessClient {
 	if client == nil {
 		client = http.DefaultClient
@@ -93,9 +80,6 @@ func (c *FenceUserAccessClient) currentTime() time.Time {
 	return time.Now()
 }
 
-// ValidateTrustedFenceIssuer requires an absolute HTTP(S) issuer URL without
-// userinfo, query, or fragment. The URL path is allowed because some issuers
-// expose their user endpoint below a base path.
 func ValidateTrustedFenceIssuer(issuer string) error {
 	_, err := parseTrustedFenceIssuer(issuer)
 	return err
@@ -163,15 +147,11 @@ func (c *FenceUserAccessClient) getResourceAccess(ctx context.Context, authoriza
 	if cached, ok := c.cache[key]; ok {
 		if now.Before(cached.expiresAt) {
 			snapshot := cloneResourceAccess(cached.snapshot)
-			// A served hit makes this snapshot the most recently used, so
-			// cap eviction discards churned-away tokens first.
 			cached.seq = c.nextAccessSeqLocked()
 			c.cache[key] = cached
 			c.mu.Unlock()
 			return snapshot, nil
 		}
-		// Expired entries are never served, so release the slot instead of
-		// leaving token churn to accumulate dead snapshots.
 		delete(c.cache, key)
 	}
 	c.mu.Unlock()
@@ -216,11 +196,6 @@ func (c *FenceUserAccessClient) getResourceAccess(ctx context.Context, authoriza
 	return snapshot, nil
 }
 
-// storeResourceAccessLocked installs a fresh snapshot valid until now+TTL and
-// holds the cache within maxCacheEntries: snapshots past their TTL are dropped
-// first (they can never be served again), then the least-recently-used entries
-// until the cap is met. Eviction removes whole per-token keys, so one token can
-// never lose grants belonging to another. Callers must hold c.mu.
 func (c *FenceUserAccessClient) storeResourceAccessLocked(key string, snapshot map[string][]resourceAccessRecord, now time.Time) {
 	c.cache[key] = cachedResourceAccess{snapshot: cloneResourceAccess(snapshot), expiresAt: now.Add(c.cacheTTL), seq: c.nextAccessSeqLocked()}
 	for token, entry := range c.cache {
@@ -308,11 +283,6 @@ func NormalizeAuthResourcePath(value string) string {
 	if value == "" {
 		return ""
 	}
-	// Control characters (including NUL) must never participate in scope
-	// paths: every scope-digest encoder joins normalized paths with \x00,
-	// so a NUL inside one declared path folds distinct restricted grant
-	// lists onto one digest (finding F-B22). Such declarations are refused
-	// at ingest; consumers already treat an empty normalization as absent.
 	if containsAuthPathControlChar(value) {
 		return ""
 	}
@@ -487,17 +457,10 @@ func normalizeResourcePath(resource string) string {
 	return strings.TrimSuffix(resource, "/")
 }
 
-// NormalizeAuthResourcePaths is the exported view of ingest-time scope-path
-// normalization, for callers that build restricted read-scope paths without a
-// wired ScopeResolver. Entries normalizing to empty or containing control
-// characters are dropped (see the F-B22 note in NormalizeAuthResourcePath).
 func NormalizeAuthResourcePaths(paths []string) []string {
 	return normalizeAuthResourcePathList(paths)
 }
 
-// containsAuthPathControlChar reports whether value holds an ASCII control
-// byte (C0 range or DEL). Those bytes never legitimately appear in
-// authorization resource paths and they enable the F-B22 digest fold.
 func containsAuthPathControlChar(value string) bool {
 	for i := 0; i < len(value); i++ {
 		if value[i] < 0x20 || value[i] == 0x7f {

@@ -12,28 +12,6 @@ import (
 	materialization "github.com/calypr/loom/internal/dataframe/publication"
 )
 
-// Durable R4 control for the production GraphQL execution reader.
-//
-// Reproduction. A persisted execution declares auth_resource_paths
-// ["p1","foreign\x00secret"]. A project member granted only p1 was served the
-// execution metadata, because normalizeAuthResourcePathList drops the malformed
-// non-blank entry and the surviving path covered the truncated declaration.
-// ReadScope.CoversExecutionPaths now refuses a declaration holding any
-// malformed non-blank entry, so the reader's existing restricted-mode gate
-// conceals it. These cases run the real NewAuthorizedRecipeExecutionReader and
-// the real authscope resolver, driving only its declared ScopeResolverConfig
-// seam, against durable metadata fixtures.
-//
-// Contract pinned here:
-//   - malformed persisted scope       -> the concealed RECIPE_EXECUTION_NOT_FOUND
-//     user error, byte-identical to a missing id, with zero metadata disclosure
-//     and zero leak of the malformed bytes;
-//   - permitted normal execution      -> still fully readable (no over-denial);
-//   - legitimate blank declarations   -> unchanged pre-existing policy;
-//   - backend faults                  -> unchanged classification (retryable
-//     BACKEND_UNAVAILABLE for store/catalog faults, not-found for the durable
-//     sentinel) instead of collapsing into the concealed 404.
-
 const (
 	mscHomeProject    = "P"
 	mscGeneration     = "g-msc"
@@ -48,9 +26,6 @@ const (
 	mscOutputRowCount = int64(424242)
 )
 
-// mscStore is the durable-metadata fixture for the reader's own
-// RecipeExecutionStore seam. Unknown ids yield the shipped not-found sentinel,
-// so a concealed denial can be compared against a genuinely missing execution.
 type mscStore struct {
 	executions map[string]materialization.BundleExecution
 	fault      error
@@ -92,8 +67,6 @@ func mscStoreWith(id string, declared []string) *mscStore {
 	return &mscStore{executions: map[string]materialization.BundleExecution{id: mscBundle(id, declared)}}
 }
 
-// mscProbe drives the production resolver's declared catalog seam so a
-// restricted scope resolves without a live Fence or database.
 type mscProbe struct {
 	existing []string
 	calls    []catalog.AuthResourcePathOptions
@@ -115,8 +88,6 @@ func mscReader(store RecipeExecutionStore, probe *mscProbe) RecipeExecutionReade
 	return NewAuthorizedRecipeExecutionReader(store, resolver)
 }
 
-// mscMember returns a genuine project member (the shipped authorizer admits it)
-// whose only grant is the clean path.
 func mscMember(grants ...string) *authscope.Principal {
 	return &authscope.Principal{Subject: "operator-msc", Projects: []string{mscHomeProject}, AuthResourcePaths: grants}
 }
@@ -163,8 +134,6 @@ func mscVerdict(t *testing.T, id, verdict, observed string) {
 	t.Logf("R4-GRAPHQL %s | VERDICT=%s | OBSERVED=%s", id, verdict, observed)
 }
 
-// TestGraphQLRecipeExecutionConcealsMalformedPersistedScope is the required
-// regression for acceptance index 1.
 func TestGraphQLRecipeExecutionConcealsMalformedPersistedScope(t *testing.T) {
 	t.Run("mixed-valid-and-nul-declaration-is-concealed-for-a-member-granted-only-p1", func(t *testing.T) {
 		store := mscStoreWith(mscExecID, []string{mscGrantedPath, mscMalformedNUL})
@@ -172,8 +141,6 @@ func TestGraphQLRecipeExecutionConcealsMalformedPersistedScope(t *testing.T) {
 		reader := mscReader(store, probe)
 		principal := mscMember(mscGrantedPath)
 
-		// Precondition: the caller really is a member the shipped authorizer admits,
-		// so the refusal below cannot be a membership denial.
 		if err := authscope.AuthorizeProject(principal, mscHomeProject, false); err != nil {
 			t.Fatalf("precondition: shipped AuthorizeProject must admit this member, got %v", err)
 		}
@@ -186,7 +153,6 @@ func TestGraphQLRecipeExecutionConcealsMalformedPersistedScope(t *testing.T) {
 		if leaked := mscLeakedMetadata(err, got); leaked != "" {
 			t.Fatalf("concealed refusal disclosed metadata (%s): code=%q message=%q", leaked, userErr.Code(), userErr.Error())
 		}
-		// Indistinguishable from a genuinely missing execution id.
 		missingGot, missingErr := reader(mscContext(principal), mscMissingID)
 		missingUserErr := mscAssertConcealed(t, missingGot, missingErr)
 		if missingUserErr.Code() != userErr.Code() || missingUserErr.Retryable() != userErr.Retryable() {
@@ -311,9 +277,6 @@ func TestGraphQLRecipeExecutionConcealsMalformedPersistedScope(t *testing.T) {
 	})
 
 	t.Run("malformed-scope-refusal-is-not-a-membership-or-store-artifact", func(t *testing.T) {
-		// The same store and probe serve the permitted read; only the persisted
-		// declaration changes. A disclosure-only difference between the two runs
-		// proves the malformed entry is what denies the read.
 		clean := mscReader(mscStoreWith(mscExecID, []string{mscGrantedPath}), &mscProbe{existing: []string{mscGrantedPath}})
 		got, err := clean(mscContext(mscMember(mscGrantedPath)), mscExecID)
 		mscAssertReadable(t, got, err, "baseline-clean-declaration")
@@ -338,8 +301,6 @@ func TestGraphQLRecipeExecutionConcealsMalformedPersistedScope(t *testing.T) {
 	})
 }
 
-// mscAssertFaultClassification pins that a dependency fault keeps its existing
-// semantic classification instead of collapsing into the concealed not-found.
 func mscAssertFaultClassification(t *testing.T, got *RecipeExecution, err error, wantCode dataframeerrors.ErrorCode, wantRetryable bool, cause string) {
 	t.Helper()
 	if got != nil {
@@ -358,9 +319,6 @@ func mscAssertFaultClassification(t *testing.T, got *RecipeExecution, err error,
 	}
 }
 
-// mscLeakedMetadata returns a non-empty description when a response or error
-// carries execution metadata (or the malformed declaration bytes) that a
-// concealed refusal must never expose.
 func mscLeakedMetadata(err error, got *RecipeExecution) string {
 	if got != nil {
 		return "payload present"

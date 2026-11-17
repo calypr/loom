@@ -13,18 +13,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-// ROW-SOURCE-05 durable regressions.
-//
-// ProposeConstruction composes the candidate through the Pivot lane first and
-// the Filter lane second (construction_proposal.go). Both lanes preserved
-// durable Pivot-owned inputs out of the accepted base, and both set branches
-// bulk-copied every base projection except the edited owner's. The 01 wire
-// contract ("nil never re-attaches; [] clears") makes the submitted candidate
-// a full replacement construction: an owner whose complete base-owned chain
-// is gone from the candidate is intentionally cleared, and no lane may
-// re-import it from the base (constructionOwnerInputsClearedFromCandidate).
-// A partial chain remains a client omission that preservation must repair.
-
 const (
 	rs05PivotID      = "pivot-one"
 	rs05OtherPivotID = "pivot-two"
@@ -112,14 +100,6 @@ func rs05CloneConstruction(c authoringv2.Construction) authoringv2.Construction 
 	return out
 }
 
-// ---------------------------------------------------------------------------
-// Lane-level: the Pivot clear must survive the Filter preparation even when
-// the accepted base still holds the inputs (the not-yet-applied clear window).
-// ---------------------------------------------------------------------------
-
-// Reproducer-equivalent from the ROW-SOURCE-05 contract: an edited Pivot that
-// submits PivotSources: [] clears its owned private projections; the
-// subsequent Filter preparation on that result must leave them cleared.
 func TestPivotSourceClearSurvivesFilterPreparation(t *testing.T) {
 	snapshot := filterSourceSnapshot("pivot-clear-survives-filter")
 	service := filterSourceService(t)
@@ -157,9 +137,6 @@ func TestPivotSourceClearSurvivesFilterPreparation(t *testing.T) {
 	}
 }
 
-// The same sequence with a replacement selection: the pivot preparation swaps
-// the owned projection, and the filter preparation must neither drop the
-// replacement nor restore the replaced-away projection.
 func TestPivotSourceReplaceSurvivesFilterPreparation(t *testing.T) {
 	snapshot := filterSourceSnapshot("pivot-replace-survives-filter")
 	service := filterSourceService(t)
@@ -203,7 +180,6 @@ func TestPivotSourceReplaceSurvivesFilterPreparation(t *testing.T) {
 	}
 }
 
-// A Pivot clear with no Filter preparation at all is unaffected.
 func TestPivotSourceClearWithoutFilterPreparationUnaffected(t *testing.T) {
 	snapshot := filterSourceSnapshot("pivot-clear-alone")
 	service := filterSourceService(t)
@@ -233,11 +209,6 @@ func TestPivotSourceClearWithoutFilterPreparationUnaffected(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Ports of the operator-accepted reproduction seeds
-// (/tmp/opencode/xop-repro/internal/explorer/lifecycle/repro_filter_clears_pivot_test.go).
-// ---------------------------------------------------------------------------
-
 func rs05OtherHelperStep() authoringv2.ConstructionStep {
 	return authoringv2.ConstructionStep{
 		ID: rs05Helper2ID, OwnerStepID: rs05OtherPivotID,
@@ -255,7 +226,6 @@ func rs05OtherHelperStep() authoringv2.ConstructionStep {
 	}
 }
 
-// rs05HelperStep is the helper-form pivot chain used by the xop seeds.
 func rs05HelperStep() authoringv2.ConstructionStep {
 	return authoringv2.ConstructionStep{
 		ID: rs05HelperID, OwnerStepID: rs05PivotID,
@@ -349,10 +319,6 @@ func rs05AssertionPivotCleared(t *testing.T, name string, prepared authoringv2.C
 	}
 }
 
-// TestXopPortFilterPreparationRestoresClearedPivotInputs: after the Pivot
-// source inputs were cleared (no helper, no projection), composing a FILTER
-// candidate must not re-attach them from the durable base, both for a plain
-// filter edit and for a filter preparation with a signed filter source.
 func TestXopPortFilterPreparationRestoresClearedPivotInputs(t *testing.T) {
 	snapshot := filterSourceSnapshot("xop-port-filter-restores-pivot")
 	service := filterSourceService(t)
@@ -381,9 +347,6 @@ func TestXopPortFilterPreparationRestoresClearedPivotInputs(t *testing.T) {
 	}
 }
 
-// TestXopPortPivotLaneReaddsDuringFilterChange: the pivot lane, when NOT the
-// applied operation (any non-Pivot edit runs it first with skipOwnerID=""),
-// must already refuse to re-add the cleared pivot inputs.
 func TestXopPortPivotLaneReaddsDuringFilterChange(t *testing.T) {
 	snapshot := filterSourceSnapshot("xop-port-pivot-lane-readd")
 	service := filterSourceService(t)
@@ -400,9 +363,6 @@ func TestXopPortPivotLaneReaddsDuringFilterChange(t *testing.T) {
 	rs05AssertionPivotCleared(t, "pivot lane during filter change", prepared)
 }
 
-// TestXopPortPerOwnerIsolationOnlyEditedOwnerPreserves: the durable
-// re-attach must never resurrect the owner the candidate intentionally
-// cleared, while foreign owners the candidate keeps must survive untouched.
 func TestXopPortPerOwnerIsolationOnlyEditedOwnerPreserves(t *testing.T) {
 	snapshot := filterSourceSnapshot("xop-port-owner-isolation")
 	service := filterSourceService(t)
@@ -427,9 +387,6 @@ func TestXopPortPerOwnerIsolationOnlyEditedOwnerPreserves(t *testing.T) {
 	rs05AssertionPivotCleared(t, "per-owner isolation", prepared)
 }
 
-// TestXopPortControlDurableAlreadyClearedStaysCleared pins the trigger:
-// restore only fires from the accepted base; once the durable is cleared,
-// nothing is re-added and the lane's own signed materialization still works.
 func TestXopPortControlDurableAlreadyClearedStaysCleared(t *testing.T) {
 	snapshot := filterSourceSnapshot("xop-port-cleared-durable")
 	service := filterSourceService(t)
@@ -450,9 +407,6 @@ func TestXopPortControlDurableAlreadyClearedStaysCleared(t *testing.T) {
 	}
 }
 
-// TestXopPortClearPivotPathEmptySliceStrips: the 01 contract holds on the
-// pivot lane — an explicit empty (non-nil) PivotSources strips the helper
-// and projection while a foreign filter-owned projection survives (scope).
 func TestXopPortClearPivotPathEmptySliceStrips(t *testing.T) {
 	snapshot := filterSourceSnapshot("xop-port-clear-empty")
 	service := filterSourceService(t)
@@ -476,11 +430,6 @@ func TestXopPortClearPivotPathEmptySliceStrips(t *testing.T) {
 	}
 }
 
-// TestXopPortPivotSetBranchDoesNotReImportClearedFilterProjection pins the
-// pivot lane SET branch (construction_pivot_source.go) foreign-owner bulk
-// copy: a candidate that cleared the FILTER's durable input while the Pivot
-// SET re-materializes its own must not have the filter-owned projection
-// re-imported from the base.
 func TestXopPortPivotSetBranchDoesNotReImportClearedFilterProjection(t *testing.T) {
 	snapshot := filterSourceSnapshot("xop-port-pivot-set-filter-clear")
 	service := filterSourceService(t)
@@ -519,10 +468,6 @@ func TestXopPortPivotSetBranchDoesNotReImportClearedFilterProjection(t *testing.
 	}
 }
 
-// TestXopPortFilterSetBranchDoesNotReImportClearedPivotProjection pins the
-// filter lane SET branch (filter_source.go) foreign-owner bulk copy: a
-// candidate that cleared another Pivot's durable input while the Filter SET
-// materializes its own must not have the pivot-owned projection re-imported.
 func TestXopPortFilterSetBranchDoesNotReImportClearedPivotProjection(t *testing.T) {
 	snapshot := filterSourceSnapshot("xop-port-filter-set-pivot-clear")
 	service := filterSourceService(t)
@@ -555,11 +500,6 @@ func TestXopPortFilterSetBranchDoesNotReImportClearedPivotProjection(t *testing.
 	}
 }
 
-// The mirror hazard direction: a candidate whose Filter-owned projection is
-// already gone and whose second Pivot carried only part of its chain. Pivot
-// preparation must still repair the partial client omission yet leave the
-// fully cleared Filter input cleared, and the following Filter preparation
-// must keep it that way.
 func TestFilterSourceClearNotRestoredByPivotPreparation(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-clear-mirror")
 	service := filterSourceService(t)
@@ -610,16 +550,11 @@ func TestFilterSourceClearNotRestoredByPivotPreparation(t *testing.T) {
 	}
 }
 
-// Contract preservation: ordinary Filter source creation and restoration
-// still materialize exactly the signed durable projection through the
-// complete preparation sequence, alongside the other Pivot's carried chain.
 func TestFilterSourceCreateAndRestoreSurvivePivotPreparation(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-create-and-restore-sequence")
 	service := filterSourceService(t)
 	selection := filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)
 
-	// Create: the candidate carries the other Pivot's chain (full-replacement
-	// contract) and adds a new source-backed Filter ahead of it.
 	baseConstruction := authoringv2.Construction{
 		Version: authoringv2.ConstructionVersion,
 		Steps: []authoringv2.ConstructionStep{
@@ -642,8 +577,6 @@ func TestFilterSourceCreateAndRestoreSurvivePivotPreparation(t *testing.T) {
 		t.Fatalf("creating a filter source dropped the carried pivot-two chain: %#v", created.SourceProjections)
 	}
 
-	// Restore: reselecting a saved source-backed Filter keeps its one durable
-	// projection through both preparations.
 	saved := rs05CloneConstruction(baseConstruction)
 	restored := rs05RunBothPreparations(t, service, filterSourceBase(snapshot, saved),
 		filterSourceProposalRequest(rs05FilterID, []ConstructionFilterSourceSelection{selection}), saved)
@@ -676,12 +609,6 @@ func rs05RunBothPreparations(t *testing.T, service *Service, base constructionBa
 	}
 	return prepared
 }
-
-// ---------------------------------------------------------------------------
-// FULL ProposeConstruction regressions (both ChangedStepID directions) over
-// the pending-clear window: the accepted base still holds the inputs while
-// the submitted full-replacement candidate has cleared them.
-// ---------------------------------------------------------------------------
 
 func rs05ProposeService(t *testing.T) (*Service, *fakeStore, capability.Snapshot) {
 	t.Helper()
@@ -830,11 +757,6 @@ func rs05ProposeRequest(store *explorer.Explorer, snapshot capability.Snapshot, 
 	}
 }
 
-// Direction 1 (ChangedStepID = FILTER): the pending user clear of the Pivot
-// source inputs must survive the complete ProposeConstruction sequence;
-// pre-fix the pivot lane (then the filter lane) re-added the inputs from the
-// base, which the authoring validation rejected as a projection the filter
-// no longer carries — the proposal could not even be previewed.
 func TestProposeConstructionFilterEditDoesNotRestoreClearedPivotSourceInput(t *testing.T) {
 	service, store, snapshot := rs05ProposeService(t)
 	durable := authoringv2.Construction{
@@ -874,9 +796,6 @@ func TestProposeConstructionFilterEditDoesNotRestoreClearedPivotSourceInput(t *t
 	}
 }
 
-// Direction 1 with a signed Filter source selection (the ROW-SOURCE-05
-// contract's own repro sequence): the filter lane's own materialization must
-// still happen while the cleared Pivot input stays cleared.
 func TestProposeConstructionFilterSourceSetDoesNotRestoreClearedPivotSourceInput(t *testing.T) {
 	service, store, snapshot := rs05ProposeService(t)
 	durable := authoringv2.Construction{
@@ -912,9 +831,6 @@ func TestProposeConstructionFilterSourceSetDoesNotRestoreClearedPivotSourceInput
 	}
 }
 
-// Direction 2 (ChangedStepID = PIVOT): the owning lane's [] clear strips the
-// Pivot inputs while a foreign filter-owned durable input must survive the
-// same proposal (no over-clear) — the per-operator ownership acceptance.
 func TestProposeConstructionPivotClearKeepsForeignFilterSourceInput(t *testing.T) {
 	service, store, snapshot := rs05ProposeService(t)
 	durable := authoringv2.Construction{
@@ -953,9 +869,6 @@ func TestProposeConstructionPivotClearKeepsForeignFilterSourceInput(t *testing.T
 	}
 }
 
-// Control pin for the trigger: the restore only fires while the accepted
-// base still holds the inputs. With the durable itself cleared, a filter
-// edit stays clean and pre-views normally.
 func TestProposeConstructionFilterEditAgainstAlreadyClearedDurable(t *testing.T) {
 	service, store, snapshot := rs05ProposeService(t)
 	clearedDurable := authoringv2.Construction{
@@ -989,14 +902,6 @@ func rs05BaseWithHelperStage(base constructionBase) constructionBase {
 	})
 	return base
 }
-
-// ---------------------------------------------------------------------------
-// b92548c7 third-lane coverage (b9-review Finding 1, mutE-proven):
-// constructionCandidateWithDeriveSources shares preserveConstructionOwnedInputs
-// with the two original lanes; the shared-helper repair must make the Derive
-// lane inherit the candidate-cleared semantics, and the :383/:244 foreign-owner
-// copies must honor a cleared DERIVE-owned durable input symmetrically.
-// ---------------------------------------------------------------------------
 
 const (
 	rs05DeriveID     = "derive-total"
@@ -1038,11 +943,6 @@ func rs05DeriveRequest(changedStepID string) ConstructionProposalRequest {
 	}
 }
 
-// TestXopPortDerivePreparationDoesNotRestoreClearedPivotInput is the durable
-// port of the b9 reviewer's mutE-proved Finding 1: with the filter lane fixed,
-// the DERIVE preparation re-imported the intentionally cleared Pivot chain
-// from the base (derive_source.go:230). The shared-helper predicate must close
-// this third lane without editing the frozen derive_source.go.
 func TestXopPortDerivePreparationDoesNotRestoreClearedPivotInput(t *testing.T) {
 	snapshot := filterSourceSnapshot("xop-port-derive-restores-pivot")
 	service := filterSourceService(t)
@@ -1063,10 +963,6 @@ func TestXopPortDerivePreparationDoesNotRestoreClearedPivotInput(t *testing.T) {
 	}
 }
 
-// TestXopPortPivotSetBranchDoesNotReImportClearedDeriveProjection is the
-// mirror through the Pivot SET-branch foreign copy (:383): with the Pivot SET
-// materializing its own signed selection, a fully client-cleared DERIVE-owned
-// durable input must not be re-imported from the base.
 func TestXopPortPivotSetBranchDoesNotReImportClearedDeriveProjection(t *testing.T) {
 	snapshot := filterSourceSnapshot("xop-port-pivot-set-derive-clear")
 	service := filterSourceService(t)
@@ -1110,8 +1006,6 @@ func TestXopPortPivotSetBranchDoesNotReImportClearedDeriveProjection(t *testing.
 	}
 }
 
-// TestXopPortFilterSetBranchDoesNotReImportClearedDeriveProjection is the
-// mirror through the Filter SET-branch foreign copy (:244).
 func TestXopPortFilterSetBranchDoesNotReImportClearedDeriveProjection(t *testing.T) {
 	snapshot := filterSourceSnapshot("xop-port-filter-set-derive-clear")
 	service := filterSourceService(t)
@@ -1167,10 +1061,6 @@ func rs05ProposeDeriveStep(literal int64) authoringv2.ConstructionStep {
 	}
 }
 
-// TestProposeConstructionDeriveEditDoesNotRestoreClearedPivotSourceInput runs
-// the complete preparation sequence (pivot -> filter -> derive) with
-// ChangedStepID = DERIVE and a client-cleared Pivot chain: the proposal must
-// stay previewable with the cleared input still cleared.
 func TestProposeConstructionDeriveEditDoesNotRestoreClearedPivotSourceInput(t *testing.T) {
 	service, store, snapshot := rs05ProposeService(t)
 	durable := authoringv2.Construction{
@@ -1215,21 +1105,11 @@ func TestProposeConstructionDeriveEditDoesNotRestoreClearedPivotSourceInput(t *t
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Derive / Unpivot SET-branch foreign-owner bulk copy. The Pivot and Filter SET
-// branches gate the base bulk copy on constructionOwnerInputsClearedFromCandidate
-// (construction_pivot_source.go:582, filter_source.go:266-267); the Derive and
-// Unpivot SET branches compose the same projection set (derive_source.go:322-325,
-// unpivot_source.go:392-395) and must honour the identical set rule.
-// ---------------------------------------------------------------------------
-
 const (
 	rs05SetFilterID  = "patient-filter-active"
 	rs05SetFilterCol = "patient_filter_active"
 )
 
-// rs05PatientSetFilterStep is a foreign (FILTER-owned) accepted step carrying a
-// server-owned signed projection, used as the owner another lane must not touch.
 func rs05PatientSetFilterStep(prevStepID string) authoringv2.ConstructionStep {
 	return authoringv2.ConstructionStep{
 		ID:     rs05SetFilterID,
@@ -1252,17 +1132,11 @@ func rs05PatientSetFilterProjection() authoringv2.ConstructionSourceProjection {
 	}
 }
 
-// rs05PatientDerivedColumns is the SET-candidate derive step output set (signed
-// operand slot plus the derived column) used by both SET-branch durables.
 func rs05PatientSetDerivedOutputs() []authoringv2.StageColumn {
 	return append(deriveSourcePatientIdentityColumns(), deriveSourcePatientProjectionColumn(),
 		authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
 }
 
-// TestXopPortDeriveSetBranchDoesNotReImportClearedFilterProjection pins the
-// Derive SET-branch foreign copy: a candidate that legitimately cleared a
-// foreign FILTER-owned durable input while the Derive SET materializes its own
-// signed operand must not have that input re-imported from the accepted base.
 func TestXopPortDeriveSetBranchDoesNotReImportClearedFilterProjection(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
 	snapshot, service := harness.snapshot, harness.service
@@ -1298,8 +1172,6 @@ func TestXopPortDeriveSetBranchDoesNotReImportClearedFilterProjection(t *testing
 	}
 }
 
-// TestXopPortUnpivotSetBranchDoesNotReImportClearedFilterProjection is the
-// mirror through the Unpivot SET-branch foreign copy.
 func TestXopPortUnpivotSetBranchDoesNotReImportClearedFilterProjection(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
 	snapshot, service := harness.snapshot, harness.service
@@ -1349,9 +1221,6 @@ func TestXopPortUnpivotSetBranchDoesNotReImportClearedFilterProjection(t *testin
 	}
 }
 
-// The second half of the same promise: a PARTIAL chain is still a client
-// omission that preservation must repair, and a foreign owner the candidate
-// keeps must survive untouched. These stay green across the gate fix.
 func TestXopPortDeriveSetBranchStillRepairsPartialPivotChain(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
 	snapshot, service := harness.snapshot, harness.service

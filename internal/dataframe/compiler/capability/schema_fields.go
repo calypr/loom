@@ -8,9 +8,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// SchemaFieldDescriptor is structural metadata from the active generated FHIR
-// definitions. It deliberately carries neither population observations nor
-// compiler-probed operations; route selection owns the exact compiler proof.
 type SchemaFieldDescriptor struct {
 	ResourceType  string   `json:"resourceType"`
 	Path          string   `json:"path"`
@@ -19,9 +16,6 @@ type SchemaFieldDescriptor struct {
 	RepeatedPaths []string `json:"repeatedPaths,omitempty"`
 }
 
-// SchemaFieldDescriptors returns bounded-depth generated primitive paths for
-// one concrete resource type. Arrays remain MANY at every nested scalar path,
-// and repeated path identities are reported without inferred widths.
 func SchemaFieldDescriptors(resourceType string) []SchemaFieldDescriptor {
 	canonical, ok := fhirschema.ConcreteResourceType(resourceType)
 	if !ok {

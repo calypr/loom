@@ -12,8 +12,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// prepareRunInput resolves field references and returns the effective scope
-// and selected generation alongside the GraphQL-shaped input.
 func (s *Service) prepareRunInput(ctx context.Context, input model.FhirDataframeInput) (model.FhirDataframeInput, authscope.ReadScope, string, error) {
 	input.Project = projectid.Canonical(input.Project)
 	if input.Project == "" {
@@ -208,10 +206,6 @@ func (s *Service) resolveReadScopeForGeneration(ctx context.Context, principal *
 		returnScope, err := s.scopeResolver.ResolveReadScopeForGeneration(ctx, principal, project, datasetGeneration, requested)
 		return returnScope, queryBackend(err)
 	}
-	// F-B22 Tier-1: with no resolver wired, client- and IdP-supplied paths
-	// become \x00-joined scope digests downstream. Normalize at this boundary
-	// so control bytes, stray slashes, and duplicate spellings can never
-	// form a scope; an all-garbage non-empty request is refused, not widened.
 	normalizedRequested := authscope.NormalizeAuthResourcePaths(requested)
 	if len(requested) > 0 && len(normalizedRequested) == 0 {
 		return authscope.ReadScope{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")

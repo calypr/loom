@@ -342,9 +342,6 @@ func graphqlFailureStatus(body []byte) int {
 	}
 	data := bytes.TrimSpace(payload.Data)
 	if len(data) > 0 && !bytes.Equal(data, []byte("null")) {
-		// GraphQL can legitimately return useful partial data alongside field
-		// errors. Keep HTTP 200 for that case; only failed operations are lifted
-		// into the HTTP error contract.
 		return 0
 	}
 	status := http.StatusBadRequest

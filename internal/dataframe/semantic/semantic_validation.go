@@ -7,9 +7,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// ValidateSemanticGraph checks the schema and structural safety of an already
-// constructed semantic graph. It performs no observed-data or authorization
-// checks and does not mutate the graph.
 func ValidateSemanticGraph(root SemanticNode) error {
 	if strings.TrimSpace(root.ResourceType) == "" {
 		return fmt.Errorf("semantic graph root resource type is required")
@@ -66,10 +63,6 @@ func (s *semanticValidationState) validateChildren(parent SemanticNode, path []s
 		}
 
 		edge := fmt.Sprintf("%s -[%s]-> %s", parent.ResourceType, child.EdgeLabel, child.ResourceType)
-		// Semantic plans are finite values: every child is explicitly present in
-		// the request and therefore has a bounded traversal route. Repeating an
-		// edge (including a self-reference) is valid and is left to the explicit
-		// physical cost policy rather than an authoring-time hop or cycle cap.
 		if err := s.validateChildren(child, append(path, edge)); err != nil {
 			return err
 		}

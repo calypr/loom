@@ -4,6 +4,8 @@ import (
 	"container/list"
 	"encoding/json"
 	"sync"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 )
 
 const (
@@ -14,9 +16,6 @@ const (
 	groupPreviewCacheRowOverhead   = 24
 )
 
-// groupPreviewRowsKey identifies raw rows for one exact preview query and
-// source collection version. It deliberately retains the full query and
-// canonical bind JSON so a cache hit cannot depend on a digest collision.
 type groupPreviewRowsKey struct {
 	query         string
 	bindVars      string
@@ -27,8 +26,12 @@ type groupPreviewRowsKey struct {
 	decision      bool
 }
 
-func newGroupPreviewRowsKey(query string, bindVars map[string]any, collection, revision string, limit int) (groupPreviewRowsKey, int, bool) {
-	if query == "" || collection == "" || revision == "" || limit <= 0 {
+func newGroupPreviewRowsKey(command command.CompiledCommand, collection, revision string, limit int) (groupPreviewRowsKey, int, bool) {
+	if collection == "" || revision == "" || limit <= 0 {
+		return groupPreviewRowsKey{}, 0, false
+	}
+	query, bindVars, dispatchErr := command.AQLParameters()
+	if dispatchErr != nil || query == "" {
 		return groupPreviewRowsKey{}, 0, false
 	}
 	canonicalBinds, err := json.Marshal(bindVars)
@@ -46,8 +49,12 @@ func newGroupPreviewRowsKey(query string, bindVars map[string]any, collection, r
 	return key, weight, weight <= groupPreviewCacheMaxEntryBytes
 }
 
-func newGroupPreviewProjectionDecisionKey(query string, bindVars map[string]any, collection, revision, indexIdentity string) (groupPreviewRowsKey, int, bool) {
-	if query == "" || collection == "" || revision == "" || indexIdentity == "" {
+func newGroupPreviewProjectionDecisionKey(command command.CompiledCommand, collection, revision, indexIdentity string) (groupPreviewRowsKey, int, bool) {
+	if collection == "" || revision == "" || indexIdentity == "" {
+		return groupPreviewRowsKey{}, 0, false
+	}
+	query, bindVars, dispatchErr := command.AQLParameters()
+	if dispatchErr != nil || query == "" {
 		return groupPreviewRowsKey{}, 0, false
 	}
 	canonicalBinds, err := json.Marshal(bindVars)
@@ -84,9 +91,6 @@ type groupPreviewRowsEntry struct {
 	weight   int
 }
 
-// groupPreviewRowsCache is a zero-value-usable LRU. Entries contain immutable
-// JSON-encoded raw query rows; consumers decode fresh maps before applying the
-// normal post-query checks and visitor.
 type groupPreviewRowsCache struct {
 	mu      sync.Mutex
 	entries map[groupPreviewRowsKey]*list.Element

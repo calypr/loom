@@ -24,8 +24,6 @@ test('isolated DATE oracle is written under QA isolation with its real project a
   assert.deepEqual(actualOracle.rows, report.target.qaIsolation.fixtureRows,
     'The literal DATE rows must match the retained QA isolation rows.');
 
-  // The retired journey report gate is not exercised here. This checks the
-  // retained producer's project/generation binding against the literal oracle.
   assert.equal(report.target.qaIsolation.fixtureOracle, undefined);
 
   const fixtureOracle = {

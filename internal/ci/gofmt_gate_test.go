@@ -1,19 +1,5 @@
 package ci
 
-// Durable formatting boundary (BS-67-1 class follow-through, Round 78).
-// The gofmt-drift class that reached ten tracked files across two waves is
-// now asserted dead: every Git-tracked .go file must be gofmt-canonical.
-// Tracked-only scope keeps operator working-copy experiments out of the
-// gate's face; untracked files are not CI content.
-//
-// Arms: (1) detector sensitivity — a known non-canonical source is RED
-// through the same gofmt binary invocation, proving assertions (2) and (3)
-// carry teeth; (2) the repository run is CLEAN; (3) a freshly gofmt'd copy
-// of that same source is CLEAN, guarding against a vacuous always-clean
-// detector; (4) any non-zero gofmt exit is FATAL — a batch that lists one
-// dirty file while another fails to parse (exit 2, nothing listed for it)
-// must error, not pass on the listed file's strength.
-
 import (
 	"bytes"
 	"fmt"
@@ -53,10 +39,6 @@ func gofmtList(t *testing.T, gofmt string, files []string) (string, error) {
 		cmd.Stderr = os.Stderr
 		out, err := cmd.Output()
 		dirty.Write(out)
-		// Any non-zero gofmt exit is fatal regardless of what the batch
-		// listed: exit 2 with parse errors on stderr and a non-empty list
-		// for other files in the same batch would otherwise pass the
-		// broken file silently (reviewer-found shape, parent-reproduced).
 		if err != nil {
 			return "", fmt.Errorf("gofmt batch %d-%d: %w", start, end, err)
 		}
@@ -87,7 +69,6 @@ func trackedGoFiles(t *testing.T) []string {
 func TestGofmtGateTrackedFilesAreCanonical(t *testing.T) {
 	gofmt := gofmtBinary(t)
 
-	// Arm 1: sensitivity. Same invocation shape as the repository run.
 	scratch := t.TempDir()
 	dirtyPath := filepath.Join(scratch, "dirty.go")
 	if err := os.WriteFile(dirtyPath, []byte("package scratch\nfunc  f( ) int {\nreturn 1\n}\n"), 0o644); err != nil {
@@ -101,7 +82,6 @@ func TestGofmtGateTrackedFilesAreCanonical(t *testing.T) {
 		t.Fatalf("sensitivity arm: gofmt did not flag the known-dirty file (output %q); the gate would be vacuous", dirty)
 	}
 
-	// Arm 2: repository baseline.
 	files := trackedGoFiles(t)
 	report, err := gofmtList(t, gofmt, files)
 	if err != nil {
@@ -111,7 +91,6 @@ func TestGofmtGateTrackedFilesAreCanonical(t *testing.T) {
 		t.Fatalf("gofmt drift in tracked files:\n%s", report)
 	}
 
-	// Arm 3: anti-vacuity — the detector clears canonical input too.
 	cleanPath := filepath.Join(scratch, "clean.go")
 	if err := os.WriteFile(cleanPath, []byte("package scratch\n\nfunc f() int {\n\treturn 1\n}\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -124,9 +103,6 @@ func TestGofmtGateTrackedFilesAreCanonical(t *testing.T) {
 		t.Fatalf("gofmt flagged canonical input: %q", clean)
 	}
 
-	// Arm 4: exit-code honesty (reviewer-found shape, parent-reproduced):
-	// a batch mixing a listed-dirty file with an UNPARSEABLE file must
-	// return an error, never pass on the strength of the listed file.
 	brokenPath := filepath.Join(scratch, "broken.go")
 	if err := os.WriteFile(brokenPath, []byte("package scratch\nfunc f( {\n"), 0o644); err != nil {
 		t.Fatal(err)

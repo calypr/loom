@@ -45,10 +45,6 @@ func AggregationsJSON(result dfmaterialization.AggregationsResult) (json.RawMess
 	return json.Marshal(dfmaterialization.NormalizeAggregationResults(result.Aggregations))
 }
 
-// GraphQL launches sibling resolvers concurrently, but a large selection set
-// can take several milliseconds to enqueue its final aggregate call. The
-// fallback exists only for directive-skipped fields where expectedCalls cannot
-// be reached; normal operations dispatch immediately at the exact count.
 const aggregateFallbackDelay = 10 * time.Millisecond
 
 type aggregateOperationStateKey struct{}

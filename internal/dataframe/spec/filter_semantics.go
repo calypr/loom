@@ -7,11 +7,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// ValidateTypedFilterForResource proves that a resolved filter selector has a
-// compatible shape in the active generated FHIR schema. Runtime catalog
-// validation remains responsible for whether that field is populated in the
-// selected project; this function prevents a request from using a value type
-// that cannot be represented by the generated resource definition.
 func ValidateTypedFilterForResource(resourceType string, filter TypedFilter) error {
 	if err := filter.Validate(); err != nil {
 		return err
@@ -68,9 +63,6 @@ func filterKindMatchesGeneratedPrimitive(kind FilterValueKind, primitive fhirsch
 		if kind == FilterString {
 			return true
 		}
-		// A code filter is safe only when the resolved generated selector ends
-		// in a code primitive. This remains deliberately conservative: fields
-		// such as Patient.gender are strings, not terminology codes.
 		return kind == FilterCode && (canonicalPath == "code" || strings.HasSuffix(canonicalPath, ".code"))
 	case fhirschema.PrimitiveBoolean:
 		return kind == FilterBoolean

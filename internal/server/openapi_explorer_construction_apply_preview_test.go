@@ -274,8 +274,16 @@ func applyConstructionPreviewRouteFixture(t *testing.T, failApplyCapture, emptyA
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

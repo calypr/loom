@@ -39,10 +39,6 @@ func explorerScopeDigest(scope authscope.ReadScope) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// explorerCapabilityResolver is the one construction boundary for Builder
-// capabilities. Catalog observations are evidence only; every public item is
-// intersected with the real dataframe compiler before the immutable snapshot
-// is persisted or returned.
 type explorerCapabilityResolver struct {
 	evidence  catalog.CapabilityEvidenceReader
 	scopes    *authscope.ScopeResolver
@@ -62,9 +58,6 @@ func (r *explorerCapabilityResolver) Resolve(ctx context.Context, project, reque
 	project = projectid.Canonical(project)
 	storageProject := projectid.Legacy(project)
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	// Project membership is independent of whether generation-level Fence
-	// scopes are configured. A nil ScopeResolver means unrestricted dataframe
-	// reads, not that a principal's explicit project allowlist is ignored.
 	if err := authscope.AuthorizeProject(principal, project, false); err != nil {
 		return capability.Snapshot{}, err
 	}
@@ -158,9 +151,6 @@ func (r *explorerCapabilityResolver) Resolve(ctx context.Context, project, reque
 	return value.(capability.Snapshot).Clone(), nil
 }
 
-// ResolveToken loads an exact retained snapshot. It never substitutes the
-// current active generation, and it re-authorizes the caller against the
-// snapshot's generation and exact authorization-scope digest.
 func (r *explorerCapabilityResolver) ResolveToken(ctx context.Context, project, token string) (capability.Snapshot, error) {
 	authorized, err := r.ResolveForExecution(ctx, project, token)
 	if err != nil {
@@ -169,11 +159,6 @@ func (r *explorerCapabilityResolver) ResolveToken(ctx context.Context, project, 
 	return authorized.Snapshot.Clone(), nil
 }
 
-// ResolveForExecution loads an exact retained snapshot and its effective
-// generation-scoped read authorization. Retention is intentional here:
-// preview and other execution paths may use an inactive generation while its
-// immutable capability remains available. The caller's current effective
-// scope must still match the scope digest captured by the snapshot.
 func (r *explorerCapabilityResolver) ResolveForExecution(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {
 	project = projectid.Canonical(project)
 	token = strings.TrimSpace(token)
@@ -201,10 +186,6 @@ func (r *explorerCapabilityResolver) ResolveForExecution(ctx context.Context, pr
 	return lifecycle.AuthorizedCapability{Snapshot: snapshot.Clone(), Scope: scope.Clone()}, nil
 }
 
-// ResolveForCompilation loads an exact token for a new compile. Unlike
-// execution, compilation is only valid against the currently active immutable
-// dataset generation; a retained inactive token is rejected even when its
-// scope is otherwise still authorized.
 func (r *explorerCapabilityResolver) ResolveForCompilation(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {
 	project = projectid.Canonical(project)
 	authorized, err := r.ResolveForExecution(ctx, project, token)
@@ -255,11 +236,6 @@ func requireCompleteCapabilityEvidence(value catalog.CapabilityEvidence) error {
 	for _, item := range value.ResourceInventory.Values {
 		documents += item.DocumentCount
 	}
-	// A staged generation proves the catalog write phase completed, and every
-	// non-empty FHIR resource necessarily profiles at least its identity fields.
-	// Therefore a populated inventory with zero enrichment rows is a missing
-	// artifact, not a legitimate empty catalog (notably for older generations
-	// created before capability evidence existed).
 	if documents > 0 && len(value.FieldEnrichment.Values) == 0 {
 		return fmt.Errorf("%w: field enrichment artifact is empty for a populated generation", capability.ErrSnapshotUnavailable)
 	}
@@ -327,11 +303,6 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 		observed.Label, observed.StorageDirection, observed.BuilderDirection = item.Label, item.StorageDirection, builderDirection
 		observed.ObservedEdgeCount += item.EdgeCount
 		observedRelationships[observedKey] = observed
-		// A stored FHIR reference is navigable in both directions. Catalog
-		// evidence retains the physical OUTBOUND orientation, while the
-		// dataframe compiler proves whether either generated traversal is
-		// legal. Publish both observations here and let ProbeEdge remove any
-		// direction the generated schema cannot lower.
 		for _, route := range []struct {
 			from, to, direction string
 		}{
@@ -443,9 +414,6 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 			}
 			metadata, scalar := fhirschema.ResolveTerminalScalarMetadata(resourceType, targetPath)
 			if !scalar || metadata.Primitive == fhirschema.PrimitiveUnknown {
-				// A semantic observation with no generated scalar value path is
-				// retained only in the source catalog. Never turn an object or
-				// unresolved structural path into a projectable capability.
 				continue
 			}
 			maxPopulation := int64(0)
@@ -481,9 +449,6 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 	for _, aggregate := range fields {
 		key := aggregate.observation.ResourceType + "\x00" + aggregate.observation.Path
 		if _, semanticOwner := semanticOwnerFields[key]; semanticOwner {
-			// The repeated object is an evidence owner, not a scalar Builder
-			// candidate. Its concepts are attached to the checked value path;
-			// its maxItems remains available to boundary derivation above.
 			continue
 		}
 		for suggestion := range aggregate.values {
@@ -508,11 +473,6 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 	return out
 }
 
-// semanticConceptValuePath returns the generated scalar field that carries a
-// concept's value. Concept evidence is often discovered on an object owner
-// such as Observation.component[]; that owner is not itself a projectable
-// capability candidate. The owning scope and value selector preserve the
-// original pairing without advertising the object as scalar.
 func semanticConceptValuePath(observation catalog.SemanticObservation) string {
 	selector := strings.Trim(strings.TrimSpace(observation.Value.Selector), ".")
 	selector = strings.TrimPrefix(selector, "root.")
@@ -578,10 +538,6 @@ func (c explorerCapabilityCompiler) ProbeCandidate(ctx context.Context, candidat
 	if len(proof.ChartAggregations) > 0 {
 		proof.SupportedOperations = append(proof.SupportedOperations, capability.OperationChart, capability.OperationAggregate)
 	}
-	// Catalog candidates are route-independent. Advertise operations that the
-	// field can support when placed on a related occurrence; command validation
-	// derives the same contract again from the selected occurrence and rejects
-	// related-only operations at the row root.
 	input := capability.AggregateInput{
 		LogicalType:     string(result.Candidate.Primitive),
 		Cardinality:     string(result.Candidate.Cardinality),
@@ -839,10 +795,6 @@ func authoringCatalogAvailability(value *capability.Availability) *authoringv2.C
 }
 
 func stringProjectionModes(values []capability.ProjectionMode) []string {
-	// ALL and DISTINCT are stable authoring-v2 spellings. Legacy workspaces
-	// keep decoding ALL as array projection; DISTINCT is only needed when the
-	// capability snapshot can prove distinct-array semantics, so no persisted
-	// workspace version migration is needed here.
 	out := make([]string, len(values))
 	for i, value := range values {
 		switch value {

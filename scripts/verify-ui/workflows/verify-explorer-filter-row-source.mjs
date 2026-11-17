@@ -1,29 +1,4 @@
 #!/usr/bin/env node
-// ROW-SOURCE-01 §18 Filter row-source journey — committed repeatable verification.
-// Standalone raw-CDP browser journey against the owned loom-dev stack, following the
-// scripts/verify-ui/workflows raw-CDP convention (see core-protocol-browser.mjs): a
-// directly-runnable node script, not a Playwright registry entry.
-//
-// Legs (assertions carried over verbatim from the authoritative journey-run v3 report):
-//   1 DISCOVERY   optgroup "Dataset fields (not in output)" exposes the unselected gender field
-//   2 CONFIGURE   native picker -> EQUALS female -> proposal READY -> DOM preview == oracle
-//   3 CANCEL      byte-stable pre-proposal construction
-//   4 APPLY       persisted FILTER step + materialized gender source projection + exact rows
-//   4 RELOAD      capability echo gender columnId == persisted source projection (materialized echo)
-//   4 EDIT        value -> male => 0 rows; value -> female => oracle rows; persisted
-//   4 REMOVE      filter steps 1->0, rows return to unfiltered, gender projection unowned
-//   4 RE-ADD      honest re-materialization: new filter-owned columnId, capability echo equal
-//   API negatives 7/7 (valid control, forged sig 409, cross-snapshot stale 409, tampered path 409,
-//                     empty/absent choiceId 400, unpopulated field never offered/never accepted)
-//
-// Exit-code contract (kept from the raw harness): every named check must run AND pass. A skipped
-// (missing) check or a thrown assertion is a failure; an empty identity where rows are required
-// is a failure. Any failure exits 1.
-//
-// Reproduce (owned stack env identifies the target, per loom-dev conventions):
-//   LOOM_DEV_SOURCE_ROOT=<repo> LOOM_DEV_COMPOSE_PROJECT=loom-dev-stravinsky \
-//   LOOM_DEV_API_PORT=8182 LOOM_DEV_UI_PORT=3182 \
-//   node scripts/verify-ui/workflows/verify-explorer-filter-row-source.mjs --out <FRESH_DIR>
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -117,7 +92,6 @@ const record = (name, evidence) => {
 };
 const save = (name, value) => writeFileSync(join(out, name), typeof value === 'string' ? value : JSON.stringify(value, null, 2));
 
-// Independent oracle computed straight from the pinned source fixture.
 const computeOracle = () => {
   const patients = readFileSync(join(session.fixtureDir, 'Patient.ndjson'), 'utf8')
     .split(/\r?\n/).filter((line) => line.trim()).map((line) => JSON.parse(line));
@@ -128,12 +102,8 @@ const computeOracle = () => {
   return { equalFemale, missingGender, all: patients.map((patient) => patient.id).sort() };
 };
 
-// Docker build-stamp identity via the scoped bridge's permitted docker exec channel
-// (shared collector in loom-dev.mjs: label-resolved API container, /workspace stamp
-// script --check plus the recorded build json), same channel as the CDA captures.
 const collectBuildIdentity = () => sharedCollectBuildIdentity(session, { repoRoot: REPO_ROOT });
 
-// ---- Raw CDP harness (flags and DevToolsActivePort path match loom-dev/core-protocol) ----
 const chromePath = options.chrome ?? process.env.LOOM_E2E_CHROME
   ?? ['/usr/bin/chromium', '/opt/google/chrome/chrome'].find((candidate) => existsSync(candidate));
 assert.ok(chromePath && existsSync(chromePath), 'No Chrome binary: pass --chrome, set LOOM_E2E_CHROME, or install /opt/google/chrome/chrome');
@@ -172,7 +142,7 @@ try {
       const value = await probe();
       if (value) return value;
       if (Date.now() > deadline) {
-        try { save(`FAIL-${String(message).replace(/\W+/g, '_')}.html`, await evaluate('document.documentElement.outerHTML')); } catch { /* best effort */ }
+        try { save(`FAIL-${String(message).replace(/\W+/g, '_')}.html`, await evaluate('document.documentElement.outerHTML')); } catch { }
         assert.fail(`condition failed: ${message}`);
       }
       await wait(80);
@@ -211,8 +181,6 @@ try {
     await wait(300);
   };
 
-  // Build identity BEFORE the run (pin the deployed build). Barrier must PASS, never certify on a
-  // stale or unreadable identity (mirrors the derive script's gate).
   const stampBefore = collectBuildIdentity();
   assert.equal(stampBefore.checkExit, 0, `serving build identity must be current before the journey runs: ${JSON.stringify(stampBefore)}`);
   assert.ok(stampBefore.runningBinary && stampBefore.liveSource && stampBefore.expectedSource && stampBefore.gitHead,
@@ -221,15 +189,9 @@ try {
   report.buildIdentity = { before: stampBefore, after: null };
   save('build-identity.before.json', stampBefore);
 
-  // Independent oracle.
   const oracle = computeOracle();
   report.oracle = oracle;
 
-  // Self-seed three independent fixtures: A carries the raw-CDP UI journey, B is a pristine
-  // zero-step proposal host for the API negatives (candidateConstruction references a single new
-  // step, which a project with a persisted step would reject), and C supplies a valid signed
-  // gender choice whose embedded snapshot differs from B (the provably-stale choiceId, matching
-  // the v3 cross-snapshot negative).
   const mainFixture = await createFreshVerificationFixture(session, mainLabel, { populateBootstrap: false });
   const negFixture = await createFreshVerificationFixture(session, negLabel, { populateBootstrap: false });
   const staleFixture = await createFreshVerificationFixture(session, staleLabel, { populateBootstrap: false });
@@ -275,10 +237,6 @@ try {
     const setBack = await setInput('[data-testid="construction-filter-editor"] input[aria-label="Value"]', value);
     assert.equal(setBack, value, 'value input set failed');
     await until(() => mounted('[data-testid="construction-proposal-ready"]'), 'proposal ready', 30000);
-    // Post-selection read-back (the silent-vacuous half of this helper): every read above happens in
-    // the same turn as our own write, so an app-side reset or an option that never bound could satisfy
-    // the whole helper. Re-read what the picker actually holds once it announces READY; zero matches
-    // (no selected option) is a failure, not a pass.
     const bound = await evaluate(`(()=>{
       const s=document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Column"]');
       const c=document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Condition"]');
@@ -299,9 +257,6 @@ try {
     report.steps.push({ step: 'picker', ...picked });
     await wait(400);
   };
-  // Server-truth doc read. It deliberately does NOT default the construction object to {}: an absent
-  // construction turned every `(doc.steps || []).filter(...)` census below into an empty scan that
-  // its own `length === 0` assert then certified as success (the mut-H2 silent-vacuous channel).
   const builderDoc = async () => {
     const builder = (await mainCtx.call('builder')).value;
     const doc = builder?.workspace?.documents?.[0]?.construction;
@@ -310,7 +265,6 @@ try {
     return doc;
   };
 
-  // STEP 0 behavior: capabilities expose the filterSourceInput gender choice.
   await navigate();
   {
     const builder = (await mainCtx.call('builder')).value;
@@ -326,7 +280,6 @@ try {
     record('step-0-behavior-capabilities', { status: caps.status, supported: fsi.supported, choicesPaths: fsi.choices.map((c) => c.fieldPath) });
   }
 
-  // STEP 1 DISCOVERY
   {
     await realClick('[data-testid="construction-action-keep-rows"]');
     await until(() => mounted('[data-testid="construction-filter-editor"]'), 'filter editor', 20000);
@@ -349,7 +302,6 @@ try {
     await until(() => evaluate(`!document.querySelector('[data-testid="construction-filter-editor"]')`), 'filter editor closed', 10000);
   }
 
-  // STEP 2 CONFIGURE + oracle-exact preview, then CANCEL
   {
     await openKeepRowsEditorAndPick('gender', 'female');
     const domPreview = await readDomPreview();
@@ -369,7 +321,6 @@ try {
     record('step-2-configure-oracle-preview', { previewIdentity: domIdentity, oracle: oracle.equalFemale });
   }
 
-  // STEP 3 CANCEL byte-stability
   {
     const after = await mainCtx.call('builder');
     const same = JSON.stringify(after.value.workspace) === JSON.stringify(baseline.workspace)
@@ -380,7 +331,6 @@ try {
     record('step-3-cancel-byte-stable', { sameDoc: same, draftDigest: after.value.draftDigest });
   }
 
-  // STEP 4 APPLY -> persisted doc + exact rows
   {
     await navigate();
     await openKeepRowsEditorAndPick('gender', 'female');
@@ -412,7 +362,6 @@ try {
     record('step-4-apply-exact-rows', { identity, sourceProjections: (doc.sourceProjections || []).map((p) => ({ col: p.columnId, path: p.fieldPath })) });
   }
 
-  // STEP 4 RELOAD -> materialized server-echo columnId equals the persisted source projection
   {
     await navigate();
     await realClick('[data-testid="construction-action-keep-rows"]');
@@ -442,8 +391,6 @@ try {
     record('step-4-reload-materialized-echo', { genderColumnId: genderEcho.columnId, persistedGenderCol });
   }
 
-  // STEP 4 EDIT -> male => 0 rows, female => oracle rows, both persisted (server-truth assert on
-  // the persisted FILTER value, mirroring the derive script's persisted-literal gate).
   {
     await navigate(); await wait(300);
     const persistedFilterValue = async () => {
@@ -511,14 +458,9 @@ try {
     record('step-4-edit-back-female-rows', { identity: backIds, oracle: oracle.equalFemale, persistedFilterValue: 'female' });
   }
 
-  // STEP 4 REMOVE -> rows return to unfiltered, gender projection unowned
   {
     if (await mounted('[data-testid="construction-close-operation-editor"]')) { await realClick('[data-testid="construction-close-operation-editor"]'); await wait(200); }
     await navigate(); await wait(300);
-    // Zero-match discipline: both post-removal asserts below are `length === 0` claims over a filter
-    // predicate, so they are only meaningful when the pre-removal census really contained the FILTER
-    // step and its filter-owned gender projection. Observing the pre-state first turns "went to zero"
-    // into a witnessed transition instead of an empty scan that certifies itself.
     const preRemoveDoc = await builderDoc();
     assert.ok((preRemoveDoc.steps || []).some((step) => step.operation?.kind === 'FILTER'),
       `REMOVE pre-remove census: no FILTER step in the persisted doc (${(preRemoveDoc.steps || []).length} step(s)); the post-removal zero asserts below would be vacuous: ${JSON.stringify((preRemoveDoc.steps || []).map((step) => step.operation?.kind))}`);
@@ -555,7 +497,6 @@ try {
     record('step-4-remove-unfiltered', { afterRemoveIdentity: afterRemoveIds, unowned: leftovers.length === 0 });
   }
 
-  // STEP 4 RE-ADD -> honest re-materialization (new filter-owned columnId, capability echo equal)
   {
     await navigate(); await wait(200);
     await openKeepRowsEditorAndPick('gender', 'female');
@@ -594,10 +535,8 @@ try {
     record('step-4-re-add-honest-rematerialization', { filterStepId: filterStep.id, projCol: projection.columnId, projOwner: projection.ownerStepId, capEcho: genderEcho.columnId });
   }
 
-  // ---- API negatives (7/7) against the deployed binary, on a pristine zero-step host ----
   await runApiNegatives(negCtx, staleCtx);
 
-  // Post-run build identity: source and running binary must be unchanged across the run.
   const stampAfter = collectBuildIdentity();
   requireRecordedIdentity(stampAfter, 'post-run:');
   report.buildIdentity.after = stampAfter;
@@ -608,7 +547,6 @@ try {
 
   assert.deepEqual(exceptions, [], `uncaught page exceptions: ${JSON.stringify(exceptions)}`);
 
-  // Exit-code contract: every named check must have run and passed.
   const expectedChecks = [
     'step-0-behavior-capabilities', 'step-1-discovery', 'step-2-configure-oracle-preview', 'step-3-cancel-byte-stable',
     'step-4-apply-exact-rows', 'step-4-reload-materialized-echo', 'step-4-edit-male-zero-rows', 'step-4-edit-back-female-rows',
@@ -620,7 +558,6 @@ try {
   const skipped = expectedChecks.filter((name) => !present.has(name));
   assert.equal(skipped.length, 0, `skipped checks (each assertion must run): ${JSON.stringify(skipped)}`);
 
-  // Evidence floor: every leg must have produced its screenshot; silently dropped captures fail.
   const EXPECTED_SCREENSHOT_FLOOR = 11;
   assert.ok(report.screenshots.length >= EXPECTED_SCREENSHOT_FLOOR,
     `screenshot tally below the per-leg floor: wrote ${report.screenshots.length}, expected at least ${EXPECTED_SCREENSHOT_FLOOR}`);
@@ -632,13 +569,12 @@ try {
 } catch (error) {
   report.status = 'failed';
   report.error = error instanceof Error ? error.message : String(error);
-  try { save('journey.json', report); } catch { /* best effort */ }
+  try { save('journey.json', report); } catch { }
   console.error(`JOURNEY_FAILED ${report.error}`);
   process.exitCode = 1;
 } finally {
   try {
     if (chrome && chrome.exitCode === null && chrome.signalCode === null) {
-      // detached spawn => own process group; leader-only kills orphan the helper tree
       const groupSignal = (signal) => { try { process.kill(-chrome.pid, signal); return true; } catch { return chrome.kill(signal); } };
       const exited = new Promise((done) => chrome.once('exit', done));
       if (groupSignal('SIGTERM')) {
@@ -646,19 +582,14 @@ try {
       }
       if (chrome.exitCode === null && chrome.signalCode === null) groupSignal('SIGKILL');
     }
-  } catch { /* teardown best effort */ }
-  if (profile) { try { rmSync(profile, { recursive: true, force: true }); } catch { /* reported via absence of deletion */ } }
+  } catch { }
+  if (profile) { try { rmSync(profile, { recursive: true, force: true }); } catch { } }
 }
 
 function assertNonEmpty(values, label) {
   assert.ok(Array.isArray(values) && values.length > 0, `${label}: zero rows matched, expected at least one oracle row`);
 }
 
-// Zero-match discipline for the build-stamp barrier: the stamp script only compares the recorded
-// identity when its own --check runs, so a failed or truncated `cat` of the recorded stamp leaves
-// recordedBinary/recordedSource null and the checkExit gate alone never notices. An empty identity
-// census must FAIL the run rather than certify it (same discipline as assertNonEmpty above and the
-// unpivot twin's "no empty running column" gate). Every floor that existed before stays in place.
 function requireRecordedIdentity(stamp, when) {
   assert.ok(stamp.recordedBinary && stamp.recordedSource,
     `${when} recorded build identity is unreadable or empty (recordedBinary/recordedSource must be non-null): ${JSON.stringify(stamp)}`);
@@ -685,9 +616,6 @@ async function runApiNegatives(host, staleCtx) {
   const embeddedSnapshot = (token) => {
     try { return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).snapshotToken ?? null; } catch { return null; }
   };
-  // Decodes the `rc1.<payload>.<digest>` row-choice token (see capability/row_choice.go:257-278).
-  // Without it, a token that fails to decode makes embeddedSnapshot() null, and `null !== hostToken`
-  // would satisfy the staleness check by accident — the zero-match twin of the vacuous-pass class.
   const decodedPayload = (token) => {
     try { return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()); } catch { return null; }
   };
@@ -710,8 +638,6 @@ async function runApiNegatives(host, staleCtx) {
     `the host gender choiceId must embed the host catalog snapshot (capability/row_choice.go:131 sets it from the minting snapshot); a null snapshot would satisfy the staleness comparison by accident: ${JSON.stringify({ embedded: embeddedSnapshot(genderChoice.choiceId), host: hostCaps.builder.catalog.snapshotToken })}`);
   const activeInCaps = hostCaps.choices.some((choice) => choice.fieldPath === 'active');
 
-  // Provably-stale choiceId: a valid signed token whose embedded snapshot comes from another
-  // fixture, so it is stale relative to the proposal host (the v3 cross-snapshot 409 negative).
   const staleCaps = await capabilities(staleCtx);
   const staleGender = staleCaps.choices.find((choice) => choice.fieldPath === 'gender');
   assert.ok(staleGender, 'gender choice must exist on the cross-snapshot fixture');

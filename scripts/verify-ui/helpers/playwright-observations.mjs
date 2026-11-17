@@ -1,4 +1,3 @@
-/** Wait for observable DOM state using a Playwright callback and serializable condition data. */
 export function waitForCondition(page, condition, timeout = 30000) {
   return page.waitForFunction((current) => {
     const element = selector => document.querySelector(selector);

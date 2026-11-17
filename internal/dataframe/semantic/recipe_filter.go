@@ -9,18 +9,10 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// LowerRecipeFilters converts the closed recipe filter wire type into the
-// canonical typed-filter representation consumed by the semantic and physical
-// compilers. Selectors are relative to resourceType unless they are prefixed
-// with root.
 func LowerRecipeFilters(resourceType string, filters []recipe.Filter) ([]spec.TypedFilter, error) {
 	return lowerRecipeFiltersForAlias(resourceType, "root", filters)
 }
 
-// LowerRecipeFiltersForAlias is the traversal-local variant of
-// LowerRecipeFilters. The alias prefix is accepted for GraphQL/catalog
-// round-trips, but is removed before schema resolution; the canonical typed
-// filter always carries a resource-relative selector.
 func LowerRecipeFiltersForAlias(resourceType, alias string, filters []recipe.Filter) ([]spec.TypedFilter, error) {
 	return lowerRecipeFiltersForAlias(resourceType, alias, filters)
 }
@@ -65,9 +57,6 @@ func lowerRecipeFilterForAlias(resourceType, alias string, input recipe.Filter) 
 	if err != nil {
 		return spec.TypedFilter{}, fmt.Errorf("filter selector %q: %w", canonical, err)
 	}
-	// Terminal metadata includes repetition inherited from a repeated parent;
-	// the cardinality helper also proves that every repeated path was explicitly
-	// iterated. Keep the two facts in agreement rather than trusting the wire.
 	if repeated != metadata.Repeated {
 		return spec.TypedFilter{}, fmt.Errorf("filter selector %q has inconsistent generated cardinality", canonical)
 	}
@@ -124,10 +113,6 @@ func recipeFilterKind(primitive fhirschema.PrimitiveKind, canonical string) (spe
 	case fhirschema.PrimitiveDateTime:
 		return spec.FilterDateTime, nil
 	case fhirschema.PrimitiveString:
-		// Generated metadata does not carry terminology identity separately;
-		// code is safely recognized only at a terminal `.code` path. The shared
-		// validator rejects system/display values until paired Coding lowering
-		// exists in canonical physical IR.
 		if canonical == "code" || strings.HasSuffix(canonical, ".code") {
 			return spec.FilterCode, nil
 		}

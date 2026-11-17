@@ -11,13 +11,13 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -33,13 +33,13 @@ func TestRelatedSourceProjectionLivenessForKeylessCount(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			query := compileRelatedExpandCountQuery(t, relatedExpandCountOutput(test.groupByFlag))
 			for _, marker := range []string{"unused_count_column_marker", "unused_list_column_marker", "unused_presence_column_marker"} {
-				gotMarker := strings.Contains(query.Query, marker)
+				gotMarker := strings.Contains(testAQLText(t, query.Command), marker)
 				if gotMarker != test.wantMarker {
-					t.Errorf("related source projection %q included = %t, want %t:\n%s", marker, gotMarker, test.wantMarker, query.Query)
+					t.Errorf("related source projection %q included = %t, want %t:\n%s", marker, gotMarker, test.wantMarker, testAQLText(t, query.Command))
 				}
 			}
-			if !strings.Contains(query.Query, "related_expand_records") || !strings.Contains(query.Query, "WITH COUNT INTO") {
-				t.Fatalf("query must retain related expansion and row counting:\n%s", query.Query)
+			if !strings.Contains(testAQLText(t, query.Command), "related_expand_records") || !strings.Contains(testAQLText(t, query.Command), "WITH COUNT INTO") {
+				t.Fatalf("query must retain related expansion and row counting:\n%s", testAQLText(t, query.Command))
 			}
 		})
 	}
@@ -50,7 +50,7 @@ func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testi
 		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
 	}
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "Observation"}, {Name: "fhir_edge", Edge: true},
 	}}); err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testi
 			Project: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeUnrestricted,
 		}
 		directOutput := lowerConstructionOutput(t, directRelatedExpandOutput(recipe.ExpansionPreserveParent), bindings)
-		previewQuery, err := CompileRecipeOutputWithPolicy(directOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+		previewQuery, err := CompileRecipeOutput(ArangoTarget(), directOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -141,7 +141,7 @@ func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testi
 		for parent, parentRows := range byParent {
 			for _, row := range parentRows {
 				rowID, _ := row["__loom_row_id"].(string)
-				compiled, err := CompileRowLineageOutput(directOutput, rowID, 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+				compiled, err := CompileRowLineageOutput(ArangoTarget(), directOutput, rowID, 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 				if err != nil {
 					t.Fatalf("compile row lineage for %s: %v", parent, err)
 				}
@@ -170,7 +170,7 @@ func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testi
 		stage := directOutput.Plan.StageSequence.Stages[0]
 		constructionID := directOutput.Plan.BindVars[stage.RelatedExpand.ConstructionIDBindKey].(string)
 		forgedRowID := relatedExpandRowID(t, project+"_p1", constructionID, "Observation/"+project+"_forged")
-		forged, err := CompileRowLineageOutput(directOutput, forgedRowID, 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+		forged, err := CompileRowLineageOutput(ArangoTarget(), directOutput, forgedRowID, 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -224,7 +224,7 @@ func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testi
 	t.Run(string(recipe.ExpansionError), func(t *testing.T) {
 		_, query := compileRelatedExpandOracleQuery(t, relatedExpandOracleOutput(recipe.ExpansionError), project, generation)
 		started := time.Now()
-		err := client.QueryRows(ctx, query.Query, 500, query.BindVars, func(map[string]any) error { return nil })
+		err := client.QueryRows(ctx, testAQLText(t, query.Command), 500, testAQLBinds(t, query.Command), func(map[string]any) error { return nil })
 		t.Logf("RELATED_EXPAND %s query rejected an empty route in %s", recipe.ExpansionError, time.Since(started))
 		if err == nil {
 			t.Fatalf("ERROR policy returned rows despite active p2 having no related resource")
@@ -238,7 +238,7 @@ func TestGroupedRelatedExpandUsesDistinctContributorUnionAndOnwardIdentityAgains
 		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
 	}
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "Observation"}, {Name: "Specimen"}, {Name: "fhir_edge", Edge: true},
 	}}); err != nil {
 		t.Fatal(err)
@@ -350,7 +350,7 @@ func TestGroupedRelatedExpandUsesDistinctContributorUnionAndOnwardIdentityAgains
 				compiled.Plan.StageSequence.Stages[2].RelatedExpand == nil || compiled.Plan.StageSequence.Stages[2].RelatedExpand.AnchorKind != "activeRelatedRecord" {
 				t.Fatalf("expected Group → contributor-set expansion → exact onward identity stages: %#v", compiled.Stages)
 			}
-			query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+			query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -398,12 +398,10 @@ func TestGroupedRelatedExpandUsesDistinctContributorUnionAndOnwardIdentityAgains
 		output := groupedRelatedExpansionOutput(recipe.ExpansionError)
 		query := compileConstructionOutputQueryWithBindings(t, output, project, generation,
 			recipe.RuntimeBindings{AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}})
-		err := client.QueryRows(ctx, query.Query, 100, query.BindVars, func(map[string]any) error { return nil })
-		if err == nil {
-			t.Fatal("ERROR policy returned rows for the empty female contributor group")
-		}
-		if !strings.Contains(strings.ToLower(err.Error()), "related expansion") || !strings.Contains(strings.ToLower(err.Error()), "no related records") {
-			t.Fatalf("ERROR policy failed for an unrelated reason: %v", err)
+		err := client.QueryRows(ctx, testAQLText(t, query.Command), 100, testAQLBinds(t, query.Command), func(map[string]any) error { return nil })
+		cause := requireStableRuntimeCode(t, err, "CONSTRUCTION_EXPANSION_EMPTY")
+		if !strings.Contains(strings.ToLower(cause), "related expansion") || !strings.Contains(strings.ToLower(cause), "no related records") {
+			t.Fatalf("ERROR policy failed for an unrelated reason: diagnostic cause = %q", cause)
 		}
 	})
 	thresholdTwo, thresholdThree := 2, 3
@@ -431,7 +429,7 @@ func TestGroupedRelatedExpandUsesDistinctContributorUnionAndOnwardIdentityAgains
 				compiled.Plan.StageSequence.Stages[1].Kind != ir.PhysicalStageRelatedEligibilityOp {
 				t.Fatalf("expected direct Group -> related eligibility with materialized root contributors: %#v", compiled.Plan.StageSequence.Stages)
 			}
-			query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+			query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -536,7 +534,7 @@ func TestRelatedFieldReadsExactExpandedRecordAfterFilterAgainstArango(t *testing
 		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
 	}
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "Observation"}, {Name: "fhir_edge", Edge: true},
 	}}); err != nil {
 		t.Fatal(err)
@@ -663,7 +661,7 @@ func TestRelatedFieldReadsExactExpandedRecordAfterFilterAgainstArango(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -672,8 +670,8 @@ func TestRelatedFieldReadsExactExpandedRecordAfterFilterAgainstArango(t *testing
 		"related_field_document.dataset_generation == @dataset_generation",
 		"related_field_document.auth_resource_path IN @auth_resource_paths",
 	} {
-		if !strings.Contains(query.Query, required) {
-			t.Fatalf("exact field lookup omits scope guard %q: %s", required, query.Query)
+		if !strings.Contains(testAQLText(t, query.Command), required) {
+			t.Fatalf("exact field lookup omits scope guard %q: %s", required, testAQLText(t, query.Command))
 		}
 	}
 	rows := executeReshapeOracleQuery(t, ctx, client, query)
@@ -763,21 +761,21 @@ func compileRelatedExpandOracleQuery(t *testing.T, output recipe.Output, project
 	if err != nil {
 		t.Fatalf("compile related-expansion recipe: %v", err)
 	}
-	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile related-expansion query: %v", err)
 	}
 	return compiled.Outputs[0], query
 }
 
-func executeRowLineageOracleQuery(t *testing.T, ctx context.Context, client *store.Client, query CompiledRowLineageQuery) map[string]any {
+func executeRowLineageOracleQuery(t *testing.T, ctx context.Context, client *arangofactory.Client, query CompiledRowLineageQuery) map[string]any {
 	t.Helper()
 	rows := make([]map[string]any, 0, 1)
-	if err := client.QueryRows(ctx, query.Query, 32, query.BindVars, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, query.Command), 32, testAQLBinds(t, query.Command), func(row map[string]any) error {
 		rows = append(rows, row)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute compiler-generated row lineage query: %v\n%s", err, query.Query)
+		t.Fatalf("execute compiler-generated row lineage query: %v\n%s", err, testAQLText(t, query.Command))
 	}
 	if len(rows) != 1 {
 		t.Fatalf("row lineage returned %d rows, want one result: %#v", len(rows), rows)
@@ -881,7 +879,7 @@ func compileRelatedExpandCountQuery(t *testing.T, output recipe.Output) Compiled
 	if err != nil {
 		t.Fatalf("compile related expansion count recipe: %v", err)
 	}
-	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("render related expansion count recipe: %v", err)
 	}
@@ -893,7 +891,7 @@ func TestRelatedExpandRepeatedScalarContributorMatchesWithinTerminalRecordAgains
 		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
 	}
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "Observation"}, {Name: "fhir_edge", Edge: true},
 	}}); err != nil {
 		t.Fatal(err)
@@ -994,8 +992,8 @@ func TestRelatedExpandRepeatedScalarContributorMatchesWithinTerminalRecordAgains
 	}
 	query := compileConstructionOutputQueryWithBindings(t, output, project, generation, bindings)
 	for _, required := range []string{".project == @project", ".dataset_generation == @dataset_generation", "auth_resource_path IN @auth_resource_paths"} {
-		if !strings.Contains(query.Query, required) {
-			t.Fatalf("repeated related predicate query omitted scope guard %q: %s", required, query.Query)
+		if !strings.Contains(testAQLText(t, query.Command), required) {
+			t.Fatalf("repeated related predicate query omitted scope guard %q: %s", required, testAQLText(t, query.Command))
 		}
 	}
 	rows := executeReshapeOracleQuery(t, ctx, client, query)
@@ -1032,7 +1030,7 @@ func TestTerminalRepeatedPrimitiveSelectorValuesAgainstArango(t *testing.T) {
 		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
 	}
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Patient"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Patient"}}}); err != nil {
 		t.Fatal(err)
 	}
 	project, generation := "loom_repeated_terminal_"+uuid.NewString(), "generation-repeated-terminal"
@@ -1107,7 +1105,7 @@ func TestTerminalRepeatedPrimitiveSelectorValuesAgainstArango(t *testing.T) {
 			if err != nil {
 				t.Fatalf("render %s terminal primitive selector: %v", mode, err)
 			}
-			rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: rendered.Query, BindVars: rendered.BindVars})
+			rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: testAQLCommand(rendered.Query, rendered.BindVars)})
 			if len(rows) != len(documents) {
 				t.Fatalf("%s terminal primitive query returned %d rows, want %d:\n%s", mode, len(rows), len(documents), rendered.Query)
 			}

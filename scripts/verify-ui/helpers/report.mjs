@@ -40,7 +40,6 @@ export const recordUntested = (report, dimension, name, reason) => {
   current.evidence.push({ name, status: 'untested', reason });
 };
 
-// This is a diagnostic label only. The Playwright observer owns native failure assertions.
 export const classifyNetworkRecord = (record = {}) => {
   if (['exception', 'console-error', 'console', 'pageerror', 'runtime'].includes(record.kind) || record.internalError) {
     return 'unexpected-error';
@@ -66,7 +65,6 @@ export const isActionable = (snapshot) =>
   && snapshot?.pointerEvents !== 'none'
   && Boolean(snapshot?.receivesPointer);
 
-// Report status describes recorded evidence; it is never used to decide whether a native test passed.
 export const finishReport = (report) => {
   const assertions = Array.isArray(report.assertions) ? report.assertions : [];
   const requiredChecks = Array.isArray(report.requiredChecks) ? report.requiredChecks : [];

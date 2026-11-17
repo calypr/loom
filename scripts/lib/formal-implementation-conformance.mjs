@@ -195,8 +195,6 @@ function verifyTrace(root, scratch, header, expected, checkModel, outputDirector
         copyFileSync(join(scratch, 'vitest.json'), join(outputDirectory, 'vitest.json'));
     }
     checkModel('ImplementationConformance', directory);
-    // A passing full run above pstack's graph budget still gets a clearly scoped
-    // reader diagram. Select actual traces covering distinct observed edge kinds.
     const edgeKinds = (trace) => trace.slice(1).map((o, i) => JSON.stringify([trace[i].status, o.event, o.status, o.staleEvent, o.completionObserved, o.completionAccepted]));
     const uncovered = new Set(traces.flatMap(edgeKinds));
     const selected = [];
@@ -217,7 +215,6 @@ function verifyTrace(root, scratch, header, expected, checkModel, outputDirector
     assert.ok(sampleResult.chart, 'Representative trace diagram exceeded the pstack chart budget');
     if (outputDirectory)
         writeFileSync(join(outputDirectory, 'diagram-scope.json'), JSON.stringify({ selection: 'greedy coverage of observed edge kinds; not all model schedules', selected: selected.map((trace) => trace[0].name), allTraces: traces.length, selectedStates: selected.reduce((sum, trace) => sum + trace.length, 0) }, null, 2));
-    // Controls for the bridge itself: a corrupted real observation must fail its exact rule.
     const isHook = traces[0][0].kind === 'lifecycle';
     const corrupt = structuredClone(traces);
     const record = corrupt.flat().find((o) => isHook ? o.canApply : o.receiptId !== '');
@@ -229,7 +226,6 @@ function verifyTrace(root, scratch, header, expected, checkModel, outputDirector
     else
         record.receiptSnapshot = 'wrong-snapshot';
     writeFileSync(join(directory, 'ImplementationConformance.tla'), withData(corrupt));
-    // Isolate the rule: another valid failure must not mask the intended one.
     const invariant = isHook ? 'Inv_VisibleReadyIsReviewed' : 'Inv_RenderedReconcileReceiptIsCurrent';
     writeFileSync(join(directory, 'ImplementationConformance.cfg'), `SPECIFICATION Spec\nCHECK_DEADLOCK FALSE\nCONSTANT Traces <- Observations\nINVARIANT ${invariant}\n`);
     checkModel('ImplementationConformance', directory, invariant);

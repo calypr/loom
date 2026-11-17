@@ -9,18 +9,12 @@ import (
 	"strings"
 )
 
-// ResolvedColumn is a discovered output column whose name and logical value
-// type have been frozen before execution. It is intentionally independent of
-// ClickHouse or any other storage type.
 type ResolvedColumn struct {
 	Output      string
 	DynamicName string
 	Column      Column
 }
 
-// ResolvedRecipePlan is the only recipe representation accepted by a
-// production execution/materialization adapter. Stored recipe data and
-// request-scoped discovery are never mutated in place.
 type ResolvedRecipePlan struct {
 	SemanticPlan         RecipePlan
 	ResolvedColumns      map[string][]ResolvedColumn
@@ -29,17 +23,10 @@ type ResolvedRecipePlan struct {
 	SourceGeneration     string
 }
 
-// ResolveRecipePlan freezes all dynamic schemas and records the scope and
-// source generation used to obtain them. A plan with no dynamic maps still
-// receives a deterministic schema digest. Dynamic schemas must already have
-// been resolved by the catalog-backed recipe resolver before this boundary.
 func ResolveRecipePlan(plan RecipePlan, scopeDigest, sourceGeneration string) (ResolvedRecipePlan, error) {
 	if strings.TrimSpace(sourceGeneration) == "" {
 		sourceGeneration = plan.Bindings.DatasetGeneration
 	}
-	// An empty generation is the intentional legacy-null dataset namespace. It
-	// remains a precise scope when the catalog resolver used the same empty
-	// generation during discovery; physical lowering renders the nil bind.
 	if strings.TrimSpace(scopeDigest) == "" {
 		for _, output := range plan.Outputs {
 			if outputHasDynamicMaps(output.Root) || len(output.DynamicMaps) > 0 {
@@ -62,9 +49,6 @@ func ResolveRecipePlan(plan RecipePlan, scopeDigest, sourceGeneration string) (R
 					return fmt.Errorf("output %q dynamic map %q is unresolved; resolve it through the catalog-backed recipe resolver first", output.Name, dynamic.Name)
 				}
 				if len(dynamic.Columns) == 0 {
-					// An empty catalog result is a valid optional family. The
-					// resolver has already frozen it to zero columns, so there is
-					// no schema or physical lookup to attach to this node.
 					continue
 				}
 				candidates := make([]Candidate, 0, len(dynamic.Columns))
@@ -102,7 +86,6 @@ func ResolveRecipePlan(plan RecipePlan, scopeDigest, sourceGeneration string) (R
 			return ResolvedRecipePlan{}, err
 		}
 	}
-	// Marshal map keys deterministically by normalizing through sorted keys.
 	keys := make([]string, 0, len(resolved.ResolvedColumns))
 	for key := range resolved.ResolvedColumns {
 		keys = append(keys, key)

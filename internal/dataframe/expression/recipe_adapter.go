@@ -9,9 +9,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// FromRecipe converts the persisted wire expression into the typed AST. Type
-// checking remains a separate operation because selector types come from the
-// active generated schema/catalog.
 func FromRecipe(input recipe.Expression) (Expression, error) {
 	if input.Document != nil {
 		context := strings.TrimSpace(input.Document.Context)
@@ -60,11 +57,6 @@ func FromRecipe(input recipe.Expression) (Expression, error) {
 	return Expression{Kind: CallNode, Call: &call, NullBehavior: NullPropagate}, nil
 }
 
-// FromRecipeInContexts is the scope-aware variant used by semantic recipe
-// lowering. The wire format keeps selectors as strings; this helper turns a
-// leading lexical alias into SelectorRef.Context while rejecting aliases that
-// are not visible at the current recipe node. An unqualified selector is
-// resolved by the caller's root scope.
 func FromRecipeInContexts(input recipe.Expression, contexts map[string]struct{}) (Expression, error) {
 	expr, err := FromRecipe(input)
 	if err != nil {

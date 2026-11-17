@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/calypr/loom/internal/catalog"
@@ -62,10 +61,6 @@ const (
 	InitialPresentationChart             = "CHART"
 )
 
-// ApplyCommandsRequest is the browser's mutation envelope. CommandID is an
-// idempotency token retained only for the last successfully applied command,
-// never a durable authoring identity; retrying an older command is a draft
-// conflict after a later command advances the draft.
 type ApplyCommandsRequest struct {
 	CommandID            string    `json:"commandId"`
 	SemanticsVersion     int       `json:"semanticsVersion"`
@@ -76,8 +71,6 @@ type ApplyCommandsRequest struct {
 	draftSourceContext   *DraftSourceContext
 }
 
-// DraftSourceContext is attached by lifecycle after resolving the request's
-// authorized snapshot. It is never accepted from the browser.
 type DraftSourceContext struct {
 	SnapshotToken            string
 	SourceGeneration         string
@@ -160,8 +153,6 @@ type Command struct {
 	resolvedDraftRevision    *Workspace
 }
 
-// ConstructionOutputPresentation updates user-facing metadata for a stable
-// construction output. Name and Type remain compiler-owned identities.
 type ConstructionOutputPresentation struct {
 	StepID   string             `json:"stepId"`
 	ColumnID string             `json:"columnId"`
@@ -186,8 +177,6 @@ func (p ConstructionOutputPresentation) Validate() error {
 	return nil
 }
 
-// ResolveDraftRevision binds a restore command to a workspace resolved by the
-// lifecycle service from the owner's exact previous-draft pointer.
 func (c *Command) ResolveDraftRevision(workspace Workspace) error {
 	if c == nil || c.Type != CommandRestoreDraftRevision || strings.TrimSpace(c.DraftRevisionID) == "" || c.DraftRevisionID != strings.TrimSpace(c.DraftRevisionID) {
 		return fmt.Errorf("RESTORE_DRAFT_REVISION requires an exact server-resolved draft revision")
@@ -200,8 +189,6 @@ func (c *Command) ResolveDraftRevision(workspace Workspace) error {
 	return nil
 }
 
-// ColumnTransformationChange replaces or removes the one typed value
-// transformation attached to an authored column.
 type ColumnTransformationChange struct {
 	Kind           string                               `json:"kind"`
 	Transformation *columntransform.ValueTransformation `json:"transformation,omitempty"`
@@ -224,8 +211,6 @@ func (c ColumnTransformationChange) Validate() error {
 	}
 }
 
-// ConstructionChoiceSelection carries only the server-issued source identity
-// and the form the author chose from its current supported options.
 type ConstructionChoiceSelection struct {
 	RowValuePolicy ConstructionRowValuePolicy        `json:"rowValuePolicy,omitempty"`
 	ChoiceID       string                            `json:"choiceId"`
@@ -271,8 +256,6 @@ func (s ConstructionChoiceSelection) validate() error {
 	}
 }
 
-// ResolvedConstructionChoice is populated by lifecycle after it re-authorizes
-// and reconstructs the choice against the current compiler snapshot.
 type ResolvedConstructionChoice struct {
 	CandidateID string
 	Source      ColumnSource
@@ -281,8 +264,6 @@ type ResolvedConstructionChoice struct {
 	FrameID     string
 }
 
-// SemanticSelection is client intent plus an internal-only resolution filled
-// by lifecycle after authorization and context checks.
 type SemanticSelection struct {
 	ConceptID           string                          `json:"conceptId"`
 	BindingID           string                          `json:"bindingId"`
@@ -302,10 +283,6 @@ func (s *SemanticSelection) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// ApplyInterpretationCandidate is the closed, receipt-backed payload for an
-// interpretation repair. The receipt ID and revision ID are both required:
-// the former proves the preview that was shown to the user, while the latter
-// prevents replaying that preview with a different immutable revision.
 type ApplyInterpretationCandidate struct {
 	CandidateReceiptID string `json:"candidateReceiptId"`
 	RevisionID         string `json:"revisionId"`
@@ -403,9 +380,6 @@ func rejectUnknownProposalCommandFields(raw []byte, commandType string) error {
 	return nil
 }
 
-// ResolveRowDefinitionProposal attaches the lifecycle-validated row definition
-// to an apply command. The resolved value is deliberately not part of the
-// browser command or its serialized payload.
 func (c *Command) ResolveRowDefinitionProposal(rows RowDefinition) error {
 	if c == nil || c.Type != CommandApplyRowDefinitionProposal {
 		return fmt.Errorf("row definition can only be resolved for APPLY_ROW_DEFINITION_PROPOSAL")
@@ -425,8 +399,6 @@ func (c *Command) ResolveRowDefinitionProposal(rows RowDefinition) error {
 	return nil
 }
 
-// ResolveTableShapeProposal attaches the lifecycle-validated table shape to an
-// apply command. A nil shape is a resolved removal, not an unresolved command.
 func (c *Command) ResolveTableShapeProposal(shape *TableShape) error {
 	if c == nil || c.Type != CommandApplyTableShapeProposal {
 		return fmt.Errorf("table shape can only be resolved for APPLY_TABLE_SHAPE_PROPOSAL")
@@ -444,9 +416,6 @@ func (c *Command) ResolveTableShapeProposal(shape *TableShape) error {
 	return nil
 }
 
-// ResolveConstructionProposal attaches the lifecycle-validated candidate
-// document's construction and row intent to an apply command. Both values are
-// server-resolved state and never appear in the browser command payload.
 func (c *Command) ResolveConstructionProposal(candidate *Document) error {
 	if c == nil || c.Type != CommandApplyConstructionProposal {
 		return fmt.Errorf("construction can only be resolved for APPLY_CONSTRUCTION_PROPOSAL")
@@ -475,9 +444,6 @@ func (c *Command) ResolveConstructionProposal(candidate *Document) error {
 	return nil
 }
 
-// ResolvePopulationMemberProposal attaches the server-revalidated candidate
-// population to a closed proposal apply command. The browser can submit only
-// outputId and proposalId; selection and route data are never caller supplied.
 func (c *Command) ResolvePopulationMemberProposal(selectionRevisionID string, route []PopulationRouteStep) error {
 	if c == nil || c.Type != CommandApplyPopulationMemberProposal {
 		return fmt.Errorf("population can only be resolved for APPLY_POPULATION_MEMBER_PROPOSAL")
@@ -835,8 +801,6 @@ func (c Command) validate() error {
 	return nil
 }
 
-// ApplyCommands is a pure reducer over canonical authoring state. It clones
-// the input and either returns one fully valid workspace or no mutation.
 func ApplyCommands(workspace Workspace, catalog CatalogSnapshot, commandID string, commands []Command) (Workspace, []CommandResult, error) {
 	working, err := cloneWorkspace(workspace)
 	if err != nil {
@@ -874,690 +838,70 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 	case CommandSetFrameSource, CommandReplaceFrameSource, CommandRemoveFrameSource:
 		return applyFrameSourceCommand(workspace, command)
 	case CommandCreateTable:
-		node, ok := catalogNode(catalog, command.RootNodeID)
-		if !ok || !node.RowRootEligible {
-			return result, fmt.Errorf("rootNodeId %q is not an eligible catalog root", command.RootNodeID)
-		}
-		outputID := commandGeneratedID("out_", commandID, index, command.Type)
-		tabID := commandGeneratedID("tab_", commandID, index, command.Type)
-		for _, document := range workspace.Documents {
-			if document.Output.ID == outputID {
-				return CommandResult{Type: CommandResultTableCreated, OutputID: outputID, TabID: tabID}, nil
-			}
-		}
-		title := strings.TrimSpace(command.Title)
-		workspace.Documents = append(workspace.Documents, Document{Kind: Kind, Output: Output{ID: outputID, Title: title}, RootResourceType: node.ResourceType, Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: node.ResourceType}, Rows: RecordsRowDefinition(), Columns: []Column{}})
-		workspace.Tabs = append(workspace.Tabs, Tab{ID: tabID, Title: title, OutputID: outputID, Order: len(workspace.Tabs), Visible: true})
-		return CommandResult{Type: CommandResultTableCreated, OutputID: outputID, TabID: tabID, OccurrenceID: RootOccurrenceID}, nil
+		return applyCreateTableCommand(workspace, catalog, commandID, index, command)
 	case CommandDuplicateTable:
-		sourceIndex := documentIndex(workspace, command.SourceOutputID)
-		if sourceIndex < 0 {
-			return result, fmt.Errorf("source output %q was not found", command.SourceOutputID)
-		}
-		outputID := commandGeneratedID("out_", commandID, index, command.Type)
-		tabID := commandGeneratedID("tab_", commandID, index, command.Type)
-		copy := workspace.Documents[sourceIndex]
-		copy.Output.ID, copy.Output.Title = outputID, strings.TrimSpace(command.Title)
-		workspace.Documents = append(workspace.Documents, copy)
-		workspace.Tabs = append(workspace.Tabs, Tab{ID: tabID, Title: copy.Output.Title, OutputID: outputID, Order: len(workspace.Tabs), Visible: true})
-		return CommandResult{Type: CommandResultTableCreated, OutputID: outputID, TabID: tabID, OccurrenceID: RootOccurrenceID}, nil
+		return applyDuplicateTableCommand(workspace, commandID, index, command)
 	case CommandDeleteTable:
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		workspace.Documents = append(workspace.Documents[:document], workspace.Documents[document+1:]...)
-		workspace.Tabs = removeOutputTab(workspace.Tabs, command.OutputID)
-		cleanupWorkspaceBindings(workspace)
-		return result, nil
+		return applyDeleteTableCommand(workspace, command)
 	case CommandRenameTable:
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		title := strings.TrimSpace(command.Title)
-		workspace.Documents[document].Output.Title = title
-		for i := range workspace.Tabs {
-			if workspace.Tabs[i].OutputID == command.OutputID {
-				workspace.Tabs[i].Title = title
-			}
-		}
-		return result, nil
+		return applyRenameTableCommand(workspace, command)
 	case CommandReorderTables:
-		if len(command.OutputIDs) != len(workspace.Documents) {
-			return result, fmt.Errorf("outputIds must list every table exactly once")
-		}
-		positions := map[string]int{}
-		seen := map[string]bool{}
-		for order, outputID := range command.OutputIDs {
-			if documentIndex(workspace, outputID) < 0 || seen[outputID] {
-				return result, fmt.Errorf("outputIds contains an unknown or duplicate output")
-			}
-			seen[outputID] = true
-			positions[outputID] = order + 1
-		}
-		sort.SliceStable(workspace.Tabs, func(i, j int) bool {
-			return positions[workspace.Tabs[i].OutputID] < positions[workspace.Tabs[j].OutputID]
-		})
-		for order := range workspace.Tabs {
-			workspace.Tabs[order].Order = order
-		}
-		return result, nil
+		return applyReorderTablesCommand(workspace, command)
 	case CommandSetTableRoot:
-		document := documentIndex(workspace, command.OutputID)
-		node, ok := catalogNode(catalog, command.RootNodeID)
-		if document < 0 || !ok || !node.RowRootEligible {
-			return result, fmt.Errorf("output or eligible root node was not found")
-		}
-		current := &workspace.Documents[document]
-		if current.RootResourceType == node.ResourceType {
-			return result, nil
-		}
-		if current.RootResourceType != node.ResourceType && documentHasConfiguredMeaning(*current) {
-			return result, fmt.Errorf("ROOT_REBASE_REQUIRED: changing table root would discard configured routes, columns, filters, actions, or population")
-		}
-		current.RootResourceType = node.ResourceType
-		current.Route = RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: node.ResourceType}
-		return result, nil
+		return applySetTableRootCommand(workspace, catalog, command)
 	case CommandApplyTableRootRebase:
-		proposal := *command.RowChange
-		if proposal.Mode == RowChangeModeReplace {
-			replaced, err := ApplyRowReplacement(*workspace, catalog, proposal)
-			if err != nil {
-				return result, err
-			}
-			*workspace = replaced
-			result.OutputID = proposal.OutputID
-			result.OccurrenceID = RootOccurrenceID
-			return result, nil
-		}
-		document := documentIndex(workspace, proposal.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", proposal.OutputID)
-		}
-		rebased, err := ApplyRowChange(workspace.Documents[document], catalog, proposal)
-		if err != nil {
-			return result, err
-		}
-		workspace.Documents[document] = rebased
-		result.OutputID = proposal.OutputID
-		result.OccurrenceID = RootOccurrenceID
-		return result, nil
+		return applyTableRootRebaseCommand(workspace, catalog, command)
 	case CommandSetTablePopulation:
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		if command.RouteChoiceID != "" {
-			if command.ResolvedPopulationRoute == nil {
-				return result, fmt.Errorf("population route choice has no server resolution")
-			}
-			setPopulationRoute(&workspace.Documents[document], command.SelectionRevisionID, command.ResolvedPopulationRoute)
-		} else if err := setPopulation(&workspace.Documents[document], catalog, command.SelectionRevisionID, command.EdgeIDs); err != nil {
-			return result, err
-		}
-		return result, nil
+		return applySetTablePopulationCommand(workspace, catalog, command)
 	case CommandClearTablePopulation:
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		workspace.Documents[document].Population = nil
-		return result, nil
+		return applyClearTablePopulationCommand(workspace, command)
 	case CommandAddRoute:
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		parent := findRoute(&workspace.Documents[document].Route, command.ParentOccurrenceID)
-		edge, ok := catalogEdge(catalog, command.EdgeID)
-		if parent == nil || !ok {
-			return result, fmt.Errorf("parent occurrence or edge was not found")
-		}
-		parentDepth, depthFound := routeDepth(&workspace.Documents[document].Route, command.ParentOccurrenceID)
-		if !depthFound {
-			return result, fmt.Errorf("parent occurrence or edge was not found")
-		}
-		if catalog.RoutePolicy.MaxHops != nil && parentDepth+1 > *catalog.RoutePolicy.MaxHops {
-			return result, fmt.Errorf("ROUTE_TOO_LONG: route exceeds capability route policy (maxHops=%d, hops=%d)", *catalog.RoutePolicy.MaxHops, parentDepth+1)
-		}
-		from, fromOK := catalogNode(catalog, edge.FromNodeID)
-		to, toOK := catalogNode(catalog, edge.ToNodeID)
-		parentNodeID, parentNodeFound := catalogNodeIDForOccurrence(workspace.Documents[document].Route, parent.OccurrenceID, catalog)
-		if !fromOK || !toOK || !parentNodeFound || edge.FromNodeID != parentNodeID || from.ResourceType != parent.ResourceType {
-			return result, fmt.Errorf("edge %q does not extend occurrence %q", edge.ID, command.ParentOccurrenceID)
-		}
-		if !catalog.RoutePolicy.AllowRepeatedEdges {
-			used, err := routePathUsesCatalogEdge(workspace.Documents[document].Route, command.ParentOccurrenceID, edge.ID, catalog)
-			if err != nil {
-				return result, fmt.Errorf("route parent does not resolve to an exact path: %w", err)
-			}
-			if used {
-				return result, fmt.Errorf("edge %q is already used in this route", edge.ID)
-			}
-		}
-		occurrenceID := commandGeneratedID("occ_", commandID, index, command.Type)
-		if findRoute(&workspace.Documents[document].Route, occurrenceID) != nil {
-			return CommandResult{Type: CommandResultRouteAdded, OutputID: command.OutputID, OccurrenceID: occurrenceID}, nil
-		}
-		parent.Children = append(parent.Children, RouteNode{OccurrenceID: occurrenceID, ResourceType: to.ResourceType, CatalogEdgeID: edge.ID, Relationship: edge.Label})
-		return CommandResult{Type: CommandResultRouteAdded, OutputID: command.OutputID, OccurrenceID: occurrenceID}, nil
+		return applyAddRouteCommand(workspace, catalog, commandID, index, command)
 	case CommandUpdateRouteEdge:
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		parent, occurrence := findRouteWithParent(&workspace.Documents[document].Route, command.OccurrenceID)
-		edge, ok := catalogEdge(catalog, command.EdgeID)
-		if parent == nil || occurrence == nil || !ok {
-			return result, fmt.Errorf("route occurrence, parent, or edge was not found")
-		}
-		parentNodeID, parentNodeFound := catalogNodeIDForOccurrence(workspace.Documents[document].Route, parent.OccurrenceID, catalog)
-		occurrenceNodeID, occurrenceNodeFound := catalogNodeIDForOccurrence(workspace.Documents[document].Route, occurrence.OccurrenceID, catalog)
-		if !parentNodeFound || !occurrenceNodeFound {
-			return result, fmt.Errorf("route occurrence does not resolve to one exact catalog path")
-		}
-		from, fromOK := catalogNode(catalog, edge.FromNodeID)
-		to, toOK := catalogNode(catalog, edge.ToNodeID)
-		if !fromOK || !toOK || edge.FromNodeID != parentNodeID || edge.ToNodeID != occurrenceNodeID || from.ResourceType != parent.ResourceType || to.ResourceType != occurrence.ResourceType {
-			return result, fmt.Errorf("edge %q cannot replace the relationship for occurrence %q", edge.ID, command.OccurrenceID)
-		}
-		if !catalog.RoutePolicy.AllowRepeatedEdges {
-			usedOnPath, err := routePathUsesCatalogEdge(workspace.Documents[document].Route, parent.OccurrenceID, edge.ID, catalog)
-			if err != nil {
-				return result, fmt.Errorf("route parent does not resolve to an exact path: %w", err)
-			}
-			usedInSubtree, err := routeSubtreeUsesCatalogEdge(*occurrence, occurrenceNodeID, edge.ID, catalog)
-			if err != nil {
-				return result, fmt.Errorf("route subtree does not resolve to exact paths: %w", err)
-			}
-			if usedOnPath || usedInSubtree {
-				return result, fmt.Errorf("edge %q is already used in this route", edge.ID)
-			}
-		}
-		occurrence.CatalogEdgeID = edge.ID
-		occurrence.Relationship = edge.Label
-		result.OccurrenceID = occurrence.OccurrenceID
-		return result, nil
+		return applyUpdateRouteEdgeCommand(workspace, catalog, command)
 	case CommandSetRouteMatchMode:
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		occurrence := findRoute(&workspace.Documents[document].Route, command.OccurrenceID)
-		if occurrence == nil || occurrence.OccurrenceID == RootOccurrenceID {
-			return result, fmt.Errorf("non-root route occurrence %q was not found", command.OccurrenceID)
-		}
-		occurrence.MatchMode = command.MatchMode.Normalized()
-		result.OccurrenceID = occurrence.OccurrenceID
-		return result, nil
+		return applySetRouteMatchModeCommand(workspace, command)
 	case CommandRemoveRoute:
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		removed := map[string]bool{}
-		if !removeRoute(&workspace.Documents[document].Route, command.OccurrenceID, removed) {
-			return result, fmt.Errorf("occurrence %q was not found", command.OccurrenceID)
-		}
-		columns := workspace.Documents[document].Columns[:0]
-		for _, column := range workspace.Documents[document].Columns {
-			if !removed[column.OccurrenceID] {
-				columns = append(columns, column)
-			}
-		}
-		workspace.Documents[document].Columns = columns
-		cleanupDocumentReferences(&workspace.Documents[document])
-		cleanupWorkspaceBindings(workspace)
-		return result, nil
+		return applyRemoveRouteCommand(workspace, command)
 	case CommandAddColumn:
-		document := documentIndex(workspace, command.OutputID)
-		candidate, ok := catalogCandidate(catalog, command.CandidateID)
-		if document < 0 || !ok {
-			return result, fmt.Errorf("output or candidate was not found")
-		}
-		occurrence := findRoute(&workspace.Documents[document].Route, command.OccurrenceID)
-		node, nodeOK := catalogNode(catalog, candidate.NodeID)
-		if occurrence == nil || !nodeOK || occurrence.ResourceType != node.ResourceType {
-			return result, fmt.Errorf("candidate %q does not belong to occurrence %q", candidate.ID, command.OccurrenceID)
-		}
-		mode := strings.ToUpper(strings.TrimSpace(command.ProjectionMode))
-		if mode == "" {
-			mode = candidate.DefaultProjectionMode
-		}
-		if !contains(candidate.ProjectionModes, mode) {
-			return result, fmt.Errorf("projection mode %q is not advertised", mode)
-		}
-		presentation := strings.ToUpper(strings.TrimSpace(command.InitialPresentation))
-		if presentation == "" {
-			presentation = InitialPresentationTable
-		}
-		if presentation == InitialPresentationFilter && !candidate.Filterable {
-			return result, fmt.Errorf("candidate %q does not support filters", candidate.ID)
-		}
-		if presentation == InitialPresentationChart && !candidate.Chartable {
-			return result, fmt.Errorf("candidate %q does not support charts", candidate.ID)
-		}
-		for i := range workspace.Documents[document].Columns {
-			column := &workspace.Documents[document].Columns[i]
-			if column.OccurrenceID == command.OccurrenceID && column.Source.Kind == SourceField && column.Source.Field != nil && strings.TrimPrefix(column.Source.Field.Path, "root.") == strings.TrimPrefix(candidate.FieldPath, "root.") && strings.EqualFold(column.Source.Field.ProjectionMode, mode) {
-				applyInitialPresentation(column, presentation, nextTableOrder(workspace.Documents[document]))
-				return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: column.Column}, nil
-			}
-		}
-		columnID := commandGeneratedID("col_", command.OutputID, command.OccurrenceID, candidate.ID, mode)
-		if command.OccurrenceID != RootOccurrenceID {
-			columnID = command.OccurrenceID + "__" + columnID
-		}
-		label := strings.TrimSpace(command.Title)
-		if label == "" {
-			label = candidate.Label
-		}
-		source := editableSource(command.OccurrenceID, ColumnSource{Kind: SourceField, Field: &FieldSource{Path: strings.TrimPrefix(candidate.FieldPath, "root."), ProjectionMode: mode}})
-		column := Column{Column: columnID, Label: label, LogicalType: candidate.LogicalType, OccurrenceID: command.OccurrenceID, Source: source}
-		column.ColumnID = stagedSourceColumnID(workspace.Documents[document].Output.ID, commandID, index, command.Type, column.Column)
-		applyInitialPresentation(&column, presentation, nextTableOrder(workspace.Documents[document]))
-		workspace.Documents[document].Columns = append(workspace.Documents[document].Columns, column)
-		return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: columnID}, nil
+		return applyAddColumnCommand(workspace, catalog, commandID, index, command)
 	case CommandAddColumnSource:
 		return applyColumnSource(workspace, catalog, commandID, index, command, *command.Source, "", InitialPresentationTable)
 	case CommandApplyConstructionChoice:
-		resolved := command.ResolvedChoice
-		if resolved == nil || strings.TrimSpace(resolved.CandidateID) == "" || strings.TrimSpace(resolved.LogicalType) == "" {
-			return result, fmt.Errorf("construction choice has no server-resolved source")
-		}
-		presentation := strings.ToUpper(strings.TrimSpace(command.InitialPresentation))
-		if presentation == "" {
-			presentation = InitialPresentationTable
-		}
-		documentPos := documentIndex(workspace, command.OutputID)
-		if documentPos < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		document := workspace.Documents[documentPos]
-		if document.Route.OccurrenceID != RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
-			return result, fmt.Errorf("table root route is invalid")
-		}
-		targetResourceType := document.RootResourceType
-		if len(resolved.Route) > 0 {
-			targetResourceType = resolved.Route[len(resolved.Route)-1].ToResourceType
-		}
-		if presentation != InitialPresentationTable {
-			candidate, ok := catalogCandidate(catalog, resolved.CandidateID)
-			if !ok {
-				return result, fmt.Errorf("construction choice candidate %q was not found", resolved.CandidateID)
-			}
-			node, ok := catalogNode(catalog, candidate.NodeID)
-			if !ok {
-				return result, fmt.Errorf("construction choice candidate %q has no catalog node", resolved.CandidateID)
-			}
-			if node.ResourceType != targetResourceType || len(resolved.Route) > 0 && node.ID != resolved.Route[len(resolved.Route)-1].ToNodeID {
-				return result, fmt.Errorf("construction choice candidate %q does not match its exact terminal route", resolved.CandidateID)
-			}
-			if presentation == InitialPresentationFilter && !candidate.Filterable {
-				return result, fmt.Errorf("construction choice candidate %q does not support filters", resolved.CandidateID)
-			}
-			if presentation == InitialPresentationChart && !candidate.Chartable {
-				return result, fmt.Errorf("construction choice candidate %q does not support charts", resolved.CandidateID)
-			}
-		}
-		occurrenceID, routeErr := ensureConstructionRoute(&workspace.Documents[documentPos], catalog, commandID, index, resolved.Route, resolved.CandidateID)
-		if routeErr != nil {
-			return result, routeErr
-		}
-		if err := initializeEmptyConstructionBeforeSourceAdd(workspace, command.OutputID); err != nil {
-			return result, err
-		}
-		command.OccurrenceID = occurrenceID
-		applied, err := applyColumnSource(workspace, catalog, commandID, index, command, resolved.Source, resolved.LogicalType, presentation)
-		if err != nil {
-			return result, err
-		}
-		if resolved.FrameID != "" {
-			if presentation != InitialPresentationTable {
-				return result, fmt.Errorf("frame categories can only be added as table columns")
-			}
-			columns := workspace.Documents[documentPos].Columns
-			found := false
-			for columnIndex := range columns {
-				if columns[columnIndex].Column == applied.Column {
-					columns[columnIndex].FrameID = resolved.FrameID
-					found = true
-					break
-				}
-			}
-			if !found {
-				return result, fmt.Errorf("applied frame category column %q was not found", applied.Column)
-			}
-		}
-		return applied, nil
+		return applyConstructionChoiceCommand(workspace, catalog, commandID, index, command)
 	case CommandAddSemanticSelections:
 		if err := initializeEmptyConstructionBeforeSourceAdd(workspace, command.OutputID); err != nil {
 			return result, err
 		}
 		return applySemanticSelections(workspace, catalog, commandID, index, command)
 	case CommandUpdateColumn:
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		for i := range workspace.Documents[document].Columns {
-			current := &workspace.Documents[document].Columns[i]
-			if current.Column != command.Column {
-				continue
-			}
-			value := command.ColumnValue
-			if strings.TrimSpace(value.Label) == "" {
-				return result, fmt.Errorf("column label is required")
-			}
-			current.Label, current.Table, current.Filter, current.Chart = value.Label, value.Table, value.Filter, value.Chart
-			if value.Contributor != nil {
-				contributor := value.Contributor.Normalized()
-				current.Contributor = &contributor
-			}
-			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
-		}
-		return result, fmt.Errorf("column %q was not found", command.Column)
+		return applyUpdateColumnCommand(workspace, command)
 	case CommandUpdateConstructionOutput:
-		documentIndex := documentIndex(workspace, command.OutputID)
-		if documentIndex < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		construction := workspace.Documents[documentIndex].Construction
-		if construction == nil {
-			return result, fmt.Errorf("output %q has no construction", command.OutputID)
-		}
-		presentation := command.ConstructionOutput
-		outputName := ""
-		for _, step := range construction.Steps {
-			if step.ID != presentation.StepID {
-				continue
-			}
-			for _, output := range step.Outputs {
-				if output.ID == presentation.ColumnID {
-					outputName = output.Name
-					break
-				}
-			}
-			break
-		}
-		if outputName == "" {
-			return result, fmt.Errorf("construction output %q was not found in step %q", presentation.ColumnID, presentation.StepID)
-		}
-		for stepIndex := range construction.Steps {
-			for outputIndex := range construction.Steps[stepIndex].Outputs {
-				current := &construction.Steps[stepIndex].Outputs[outputIndex]
-				if current.ID != presentation.ColumnID {
-					continue
-				}
-				current.Label = presentation.Label
-				if presentation.Table == nil {
-					current.Table = nil
-				} else {
-					table := *presentation.Table
-					current.Table = &table
-				}
-			}
-		}
-		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: outputName}, nil
+		return applyUpdateConstructionOutputCommand(workspace, command)
 	case CommandUpdateColumnTransformation:
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		for i := range workspace.Documents[document].Columns {
-			current := &workspace.Documents[document].Columns[i]
-			if current.Column != command.Column {
-				continue
-			}
-			if command.TransformationChange.Kind == "REMOVE" {
-				current.ValueTransformation = nil
-			} else {
-				if err := validateColumnValueTransformationForCatalog(
-					workspace.Documents[document], catalog, *current, current.Source, *command.TransformationChange.Transformation,
-				); err != nil {
-					return result, err
-				}
-				transformation := command.TransformationChange.Transformation.Clone()
-				current.ValueTransformation = &transformation
-			}
-			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
-		}
-		return result, fmt.Errorf("column %q was not found", command.Column)
+		return applyUpdateColumnTransformationCommand(workspace, catalog, command)
 	case CommandSetColumnContributor:
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		for i := range workspace.Documents[document].Columns {
-			current := &workspace.Documents[document].Columns[i]
-			if current.Column != command.Column {
-				continue
-			}
-			contributor := command.Contributor.Normalized()
-			if err := ValidateContributorForCatalog(workspace.Documents[document], catalog, current.OccurrenceID, current.Source, contributor); err != nil {
-				return result, err
-			}
-			current.Contributor = &contributor
-			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
-		}
-		return result, fmt.Errorf("column %q was not found", command.Column)
+		return applySetColumnContributorCommand(workspace, catalog, command)
 	case CommandClearColumnContributor:
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		for i := range workspace.Documents[document].Columns {
-			current := &workspace.Documents[document].Columns[i]
-			if current.Column != command.Column {
-				continue
-			}
-			current.Contributor = nil
-			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
-		}
-		return result, fmt.Errorf("column %q was not found", command.Column)
+		return applyClearColumnContributorCommand(workspace, command)
 	case CommandApplyInterpretationCandidate:
-		if strings.TrimSpace(command.OutputID) == "" || strings.TrimSpace(command.Column) == "" ||
-			command.InterpretationCandidate == nil ||
-			strings.TrimSpace(command.InterpretationCandidate.CandidateReceiptID) == "" ||
-			strings.TrimSpace(command.InterpretationCandidate.RevisionID) == "" ||
-			command.InterpretationCandidate.CandidateReceiptID != strings.TrimSpace(command.InterpretationCandidate.CandidateReceiptID) ||
-			command.InterpretationCandidate.RevisionID != strings.TrimSpace(command.InterpretationCandidate.RevisionID) {
-			return result, fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE requires outputId, column, and exact interpretationCandidate payload")
-		}
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		for index := range workspace.Documents[document].Columns {
-			current := &workspace.Documents[document].Columns[index]
-			if current.Column != command.Column {
-				continue
-			}
-			revisionID := command.InterpretationCandidate.RevisionID
-			current.Interpretation = &FeatureInterpretation{
-				Kind:   FeatureInterpretationPinned,
-				Pinned: &PinnedInterpretation{RevisionID: revisionID},
-			}
-			// A pinned human interpretation owns the feature meaning. Any inline
-			// contributor is stale for this exact candidate and must not survive.
-			current.Contributor = nil
-			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
-		}
-		return result, fmt.Errorf("column %q was not found", command.Column)
+		return applyInterpretationCandidateCommand(workspace, command)
 	case CommandApplyRowDefinitionProposal:
-		if command.resolvedRowDefinition == nil {
-			return result, fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL has no lifecycle-resolved row definition")
-		}
-		rows, err := cloneRowDefinition(*command.resolvedRowDefinition)
-		if err != nil {
-			return result, err
-		}
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		workspace.Documents[document].Rows = rows
-		return result, nil
+		return applyRowDefinitionProposalCommand(workspace, command)
 	case CommandApplyTableShapeProposal:
-		if !command.resolvedTableShapeSet {
-			return result, fmt.Errorf("APPLY_TABLE_SHAPE_PROPOSAL has no lifecycle-resolved table shape")
-		}
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		shape, err := cloneTableShape(command.resolvedTableShape)
-		if err != nil {
-			return result, err
-		}
-		workspace.Documents[document].TableShape = shape
-		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
+		return applyTableShapeProposalCommand(workspace, command)
 	case CommandApplyPopulationMemberProposal:
-		if !command.resolvedPopulationSet || command.resolvedPopulation == nil {
-			return result, fmt.Errorf("APPLY_POPULATION_MEMBER_PROPOSAL has no lifecycle-resolved population")
-		}
-		documentPos := documentIndex(workspace, command.OutputID)
-		if documentPos < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		population := *command.resolvedPopulation
-		population.Route = clonePopulationRouteSteps(command.resolvedPopulation.Route)
-		if err := population.Validate(); err != nil {
-			return result, fmt.Errorf("resolved population is invalid: %w", err)
-		}
-		workspace.Documents[documentPos].Population = &population
-		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
+		return applyPopulationMemberProposalCommand(workspace, command)
 	case CommandApplyConstructionProposal:
-		if !command.resolvedConstructionSet || command.resolvedConstruction == nil || command.resolvedConstructionRows == nil {
-			return result, fmt.Errorf("APPLY_CONSTRUCTION_PROPOSAL has no lifecycle-resolved construction")
-		}
-		documentIndexValue := documentIndex(workspace, command.OutputID)
-		if documentIndexValue < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		document, err := UpgradeDocumentToConstruction(workspace.Documents[documentIndexValue])
-		if err != nil {
-			return result, fmt.Errorf("prepare staged construction: %w", err)
-		}
-		construction, err := cloneConstruction(command.resolvedConstruction)
-		if err != nil {
-			return result, err
-		}
-		document.Construction = construction
-		rows, err := cloneRowDefinition(*command.resolvedConstructionRows)
-		if err != nil {
-			return result, err
-		}
-		document.Rows = rows
-		document.TableShape = nil
-		if err := document.Validate(); err != nil {
-			return result, fmt.Errorf("resolved construction is invalid: %w", err)
-		}
-		workspace.Documents[documentIndexValue] = document
-		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
+		return applyConstructionProposalCommand(workspace, command)
 	case CommandRestoreDraftRevision:
-		if command.resolvedDraftRevision == nil {
-			return result, fmt.Errorf("RESTORE_DRAFT_REVISION has no lifecycle-resolved draft revision")
-		}
-		restored, err := cloneWorkspace(*command.resolvedDraftRevision)
-		if err != nil {
-			return result, err
-		}
-		*workspace = restored
-		return CommandResult{Type: CommandResultDraftRestored}, nil
+		return applyRestoreDraftRevisionCommand(workspace, command)
 	case CommandUpdateColumnSource:
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		for i := range workspace.Documents[document].Columns {
-			current := &workspace.Documents[document].Columns[i]
-			if current.Column != command.Column {
-				continue
-			}
-			source := editableSource(current.OccurrenceID, *command.Source)
-			if err := validateEditableSource(workspace.Documents[document], catalog, current.OccurrenceID, source); err != nil {
-				return result, err
-			}
-			if current.ValueTransformation != nil {
-				if err := validateColumnValueTransformationForCatalog(workspace.Documents[document], catalog, *current, source, *current.ValueTransformation); err != nil {
-					return result, err
-				}
-			}
-			current.Source = source
-			current.LogicalType = inferredSourceLogicalType(workspace.Documents[document], catalog, current.OccurrenceID, source, current.LogicalType)
-			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
-		}
-		return result, fmt.Errorf("column %q was not found", command.Column)
+		return applyUpdateColumnSourceCommand(workspace, catalog, command)
 	case CommandUpdateColumnRowValuePolicy:
-		if err := command.validate(); err != nil {
-			return result, err
-		}
-		documentPos := documentIndex(workspace, command.OutputID)
-		if documentPos < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		document := &workspace.Documents[documentPos]
-		if document.Rows.Kind != RowDefinitionGroups || document.Rows.Groups == nil ||
-			document.Rows.Groups.Source.Kind != GroupSourceExplicit || document.Rows.Groups.Source.Explicit == nil {
-			return result, fmt.Errorf("UPDATE_COLUMN_ROW_VALUE_POLICY requires explicit grouped rows")
-		}
-		columnIndex := -1
-		for index := range document.Columns {
-			if document.Columns[index].Column != command.Column {
-				continue
-			}
-			if columnIndex >= 0 {
-				return result, fmt.Errorf("column %q is ambiguous", command.Column)
-			}
-			columnIndex = index
-		}
-		if columnIndex < 0 {
-			return result, fmt.Errorf("column %q was not found", command.Column)
-		}
-		column := document.Columns[columnIndex]
-		if column.ColumnID == "" || !supportsExplicitGroupRowValueColumn(column) {
-			return result, fmt.Errorf("column %q must be a supported root FHIR field with a stable columnId", command.Column)
-		}
-		matchingBinding := -1
-		for index := range document.Rows.Groups.RowValues {
-			if document.Rows.Groups.RowValues[index].ColumnID != column.ColumnID {
-				continue
-			}
-			if matchingBinding >= 0 {
-				return result, fmt.Errorf("row value binding for columnId %q is ambiguous", column.ColumnID)
-			}
-			matchingBinding = index
-		}
-		if matchingBinding < 0 {
-			return result, fmt.Errorf("row value binding for columnId %q was not found", column.ColumnID)
-		}
-		document.Rows.Groups.RowValues[matchingBinding].Policy = command.RowValuePolicy
-		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: column.Column}, nil
+		return applyUpdateColumnRowValuePolicyCommand(workspace, command)
 	case CommandRemoveColumn:
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		columns := workspace.Documents[document].Columns[:0]
-		found := false
-		for _, column := range workspace.Documents[document].Columns {
-			if column.Column == command.Column {
-				found = true
-				removeConstructionColumnValues(&workspace.Documents[document], column.ColumnID)
-				removeExplicitGroupRowValue(&workspace.Documents[document], column.ColumnID)
-				continue
-			}
-			columns = append(columns, column)
-		}
-		if !found {
-			return result, fmt.Errorf("column %q was not found", command.Column)
-		}
-		workspace.Documents[document].Columns = columns
-		cleanupDocumentReferences(&workspace.Documents[document])
-		cleanupWorkspaceBindings(workspace)
-		return result, nil
+		return applyRemoveColumnCommand(workspace, command)
 	}
 	return result, fmt.Errorf("unsupported command type %q", command.Type)
 }
@@ -1594,10 +938,6 @@ func setPopulationRoute(document *Document, selectionRevisionID string, route []
 	document.Population = &Population{SelectionRevisionID: strings.TrimSpace(selectionRevisionID), Route: steps}
 }
 
-// editableSource adds the explicit related-resource policy to new child
-// selections. A child column is rendered through a first matching resource
-// even when its projection mode is VALUE or INDEXED, so publication must not
-// silently present that reduction as lossless.
 func editableSource(occurrenceID string, source ColumnSource) ColumnSource {
 	source = source.Normalized()
 	mode := strings.ToUpper(strings.TrimSpace(source.ProjectionMode()))
@@ -1673,9 +1013,6 @@ func cloneWorkspace(value Workspace) (Workspace, error) {
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return Workspace{}, err
 	}
-	// SourceWhere is a private persisted-draft compatibility payload and is
-	// intentionally omitted from current JSON. Preserve it for transactional
-	// legacy migration and frozen in-memory callers while keeping it unwritable.
 	for documentIndex := range value.Documents {
 		if documentIndex >= len(result.Documents) {
 			break
@@ -1756,10 +1093,6 @@ func validateWorkspaceContributors(workspace Workspace, catalog CatalogSnapshot)
 	return nil
 }
 
-// ValidateContributorForCatalog proves one authored contributor against the
-// pinned occurrence and catalog. It is shared by command application and the
-// compilation boundary so a stale/foreign candidate cannot become a recipe
-// selector.
 func ValidateContributorForCatalog(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource, predicate ContributorPredicate) error {
 	if source.Kind != SourceAggregate || source.Aggregate == nil {
 		return fmt.Errorf("contributor is only supported for aggregate sources")
@@ -1835,8 +1168,6 @@ func validateEditableSource(document Document, catalog CatalogSnapshot, occurren
 		if _, err := fhirschema.ValidateCorrelatedBinding(occurrence.ResourceType, *source.Lookup.Binding); err != nil {
 			return fmt.Errorf("source binding: %w", err)
 		}
-		// Correlated lookups carry their structural source in Binding. They do
-		// not have a legacy field path to resolve against a catalog candidate.
 		return nil
 	}
 	if source.OwnerRecords != nil && source.Kind == SourceOwnerRecords {
@@ -2160,7 +1491,6 @@ func applyInitialPresentation(column *Column, presentation string, tableOrder in
 func nextTableOrder(document Document) int {
 	result := 0
 	if document.Rows.Kind == RowDefinitionGroups && document.Rows.Groups != nil && document.Rows.Groups.Source.Kind == GroupSourceExplicit {
-		// Cohort label, ordinal and members precede the contributed fields.
 		result = 3 + len(document.Rows.Groups.RowValues)
 	}
 	for _, column := range document.Columns {

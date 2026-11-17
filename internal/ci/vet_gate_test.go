@@ -1,13 +1,5 @@
 package ci
 
-// CI vet boundary: `go test` vets only its fixed analyzer subset, so classes
-// outside that subset (copylocks above all) ship green unless a full `go vet`
-// gates them. The GitHub node-unit job has no Go toolchain, so this package
-// holds the durable gate checks in the go-unit job: repo-wide default-set
-// greenness, a fault control proving copylocks actually fires (via -overlay,
-// so nothing is written to the repo), its negative control, and the
-// scripts/ci/vet.mjs CLI smoke that CI calls.
-
 import (
 	"encoding/json"
 	"errors"
@@ -22,9 +14,6 @@ import (
 	"time"
 )
 
-// R67Nonce keeps probe content unique per run: the vet analyzer result is
-// cached on package CONTENT, so a stale cached diagnostic (naming an earlier
-// run's temp path) could otherwise replay and mask a regression.
 const vetProbeSourceTemplate = `package authoringv2
 
 import "sync"
@@ -103,18 +92,12 @@ func TestVetGateFiresOnInjectedCopylocksFault(t *testing.T) {
 	if runErr == nil {
 		t.Fatalf("the injected copylocks fault must make the default-set go vet fail (that is the shipped-green class this gate exists for):\n%s", out)
 	}
-	// vet names the overlay replacement file, so this run's temp dir is the
-	// current-run proof; combined with the content nonce it is cache-immune.
 	for _, want := range []string{"copies lock value", temp} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("default-set go vet output must contain %q for the injected probe; got:\n%s", want, out)
 		}
 	}
 
-	// Negative control: -copylocks=false keeps the default analyzer set minus
-	// copylocks, so the same fault passing vet identifies copylocks (rather
-	// than any other analyzer, or a compile failure from the probe) as what
-	// fired above.
 	out, runErr = runGoVet(t, "-copylocks=false", "-overlay="+overlay, pkg)
 	if runErr != nil {
 		t.Fatalf("with -copylocks=false the same overlay must vet clean; anything failing there is not the copylocks class:\n%v\n%s", runErr, out)

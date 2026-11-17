@@ -17,7 +17,6 @@ const modelDirectory = join(root, 'verification/builder-interactions');
 const initialLabel = 'Patient ID';
 const competingLabel = 'Patient Competing B';
 
-// The ten invariants of CoreAuthoringProtocol.cfg in declaration order (TypeOK excluded).
 export const coreProtocolProperties = ['Inv_EntryCASDecidesCompilation', 'Inv_CaptureEqualsCommittedHead', 'Inv_ReceiptPersistedForCapture', 'Inv_PreviewRequiresPersistedReceipt', 'Inv_ServerEchoesRequestedReceipt', 'Inv_NoAdmissionWithoutExecution', 'Inv_StaleAdmissionIsUnreachable', 'Inv_HeadAdvancedOnlyByCommittedSave', 'Inv_LostAckCannotAdmitAdvancedHead', 'Inv_StaleSaveDoesNotMoveHead'];
 
 const files = () => ['go.mod', 'go.sum', coreProtocolAdapter, 'internal/server/core_authoring_protocol_test.go', ...['internal/explorer/lifecycle', 'internal/explorer'].flatMap(directory => readdirSync(join(root, directory)).filter(file => file.endsWith('.go') && !file.endsWith('_test.go')).map(file => `${directory}/${file}`))].sort();
@@ -33,17 +32,8 @@ const cap = value => value === 1 ? 'cap1' : 'cap2';
 const content = receipt => receipt === 'cap1' ? 1 : 2;
 const caps = ['cap1', 'cap2'];
 
-// The event-log taxonomy the Go adapter records at real call boundaries.
-// Every name except 'Observe' corresponds to exactly one named model action
-// (or branch); 'Observe' is the documented stutter (see checkCoreProtocolEventPath).
 export const coreProtocolReplayEvents = ['SaveDispatch', 'SaveAck', 'REntryAccept', 'REntryReject', 'RCapture', 'RPersist', 'RComplete', 'PreviewExec', 'Observe'];
 
-// The eight replay schedules the model explores at the production boundary:
-// reconcile of head rTarget versus a competing save of head sTarget, with the
-// save issued before reconcile entry, while compile is suspended, or omitted,
-// optionally re-previewing after the head observably advanced. The client's
-// save acknowledgement is not wire-observable and has no field here; the two
-// mounted-driver vitest proofs own the acknowledgement/admission identities.
 export const coreProtocolCases = [
   { id: 'S1', rTarget: 1, sTarget: 1, savePosition: 'before-entry', previewAfterAdvance: false },
   { id: 'S2', rTarget: 1, sTarget: 1, savePosition: 'in-compile', previewAfterAdvance: false },
@@ -55,21 +45,6 @@ export const coreProtocolCases = [
   { id: 'S8', rTarget: 1, sTarget: 1, savePosition: 'in-compile', previewAfterAdvance: true },
 ];
 
-// Plan C14: the model's head channels merge the two value-equal heads of an
-// A -> B -> A prefix, so the merge's justification cannot come from the
-// abstract schedules themselves (head identity is all they carry). The
-// concrete-prefix lane replays exactly that prefix through the production
-// boundary and records raw wire facts; the named claims below, adjudicated
-// here, are what the C14 row requires: the revert's value identity is
-// witnessed by the emitted receipt label while the stored digests stay
-// pairwise distinct (ApplyCommands canonicalizes through migration and
-// normalization on every save, so a value-equal revert legitimately stores a
-// new digest — the model merges values, not stored forms), a stale client
-// holding that value-equal head identity cannot own the current head, a
-// fresh request at the real head completes with a persisted receipt, the
-// same-request replay does not move or diverge the head, the preview echoes
-// the persisted receipt, and the store persisted each replaced head as a
-// distinct revision.
 export const coreProtocolConcretePrograms = [{ id: 'C14-A-B-A' }];
 export const coreProtocolConcreteProperties = ['C14_ValueMergeZoneRealized', 'C14_StaleValueEqualReconcileCannotOwnHead', 'C14_StaleDigestAtCurrentVersionCannotOwnHead', 'C14_StaleVersionWithCurrentDigestCannotOwnHead', 'C14_ValidFreshReconcileCompletes', 'C14_SameRequestReplayPreservesHeadAndReceipt', 'C14_PreviewEchoesPersistedValidReceipt', 'C14_PersistedHistoryHasDistinctHeadRevisions', 'C14_NoRecordedWireAnomalies'];
 
@@ -121,10 +96,6 @@ function successors(state) {
   return next;
 }
 
-// Mirrors scratchControl in scripts/verify-builder-formal-core.mjs, widened with
-// the model's CONSTANT assignments so the worker can evaluate this model, and
-// using a generated structural view because the shared statechart view does not
-// name CoreAuthoringProtocol variables.
 const controlView = "export const title = 'Core authoring protocol controls';\nexport const state = (v) => Object.entries(v).map(([name, value]) => `${name}=${JSON.stringify(value)}`).join('; ');\n";
 
 function scratchControl([property, action, before, after], reportDirectory) {
@@ -184,18 +155,6 @@ export function coreProtocolFrontier() {
   return { states: [...states.values()], steps };
 }
 
-// --- Replay event-path validation -------------------------------------------------
-// The Go adapter records one event per real call boundary in production call
-// order. Here each event must extend the replica along EXACTLY ONE named model
-// action's legal successor edge (single source of truth: the successors()
-// function shared with the frontier — no duplicated step logic), and its claims
-// must agree with the replica variables of the state reached. 'Observe' events
-// (getBuilder reads) are the documented stutter: the model's Next has no stutter
-// action over vars, so an Observe is allowed only when it changes no model
-// variable and its claims (headVersion, hasReceipts) match the current replica
-// state exactly. Wrong order, omitted relevant transitions and substituted
-// identities therefore have no legal walk and are rejected as FORMAL_CONFORMANCE
-// before any terminal comparison could mask them.
 function eventPathError(message, replayCase, eventIndex, event, expectedAction, replica) {
   const available = [...new Set(successors(replica).map(edge => edge.action))];
   const witness = { schemaVersion: 1, kind: 'core-protocol-event-path', model: coreProtocolModel, case: replayCase, eventIndex, event: event ?? null, expectedAction: expectedAction ?? null, availableActions: available, replicaState: replica };
@@ -258,9 +217,6 @@ export function checkCoreProtocolEventPath(replayCase, events) {
       `Malformed core protocol replay event ${index} in case ${replayCase.id}`);
     names.push(event.name);
     if (event.name === 'Observe') {
-      // Documented stutter: an observation may not change model variables and
-      // must match the replica state it names exactly. A headVersion the
-      // replica never reached has no stutter witness and is rejected.
       const matches = event.claims.headVersion === replica.headVersion &&
         (!Object.hasOwn(event.claims, 'hasReceipts') || event.claims.hasReceipts === (replica.receipts.length > 0)) &&
         Object.keys(event.claims).every(name => ['headVersion', 'hasReceipts'].includes(name));
@@ -404,9 +360,6 @@ export function checkCoreProtocolResults(record, cases, { property } = {}) {
   assert.deepEqual(Object.keys(record).sort(), ['results', 'schemaVersion'].sort());
   assert.equal(record.schemaVersion, 1);
   assert.ok(Array.isArray(record.results));
-  // When Arango mode is active the Go lane tags every witness row with its store
-  // mode (dual replay); the store-less shape is the map-only witness. Every
-  // store present must cover every case, and store values are closed.
   const dual = record.results.some(row => row && Object.hasOwn(row, 'store'));
   const rowKeys = dual ? [...observationKeys, 'store'] : observationKeys;
   const stores = [...new Set(record.results.map(row => row && row.store).filter(value => value !== undefined))];
@@ -450,11 +403,6 @@ export function checkCoreProtocolResults(record, cases, { property } = {}) {
     try {
       const expected = expectedObservation(replayCase);
       for (const name of observationKeys.filter(name => name !== 'id' && name !== 'events')) assert.equal(actual[name], expected[name], `FORMAL_CONFORMANCE: ${name}`);
-      // Replaying the recorded call boundaries against the model's legal
-      // transitions is the conformance gate: terminal compatibility alone
-      // could let an illegal production prefix land on a compatible final
-      // state. Terminal fields are then re-checked against the replica
-      // terminal state the event stream actually derived.
       const replica = checkCoreProtocolEventPath(replayCase, actual.events);
       checkCoreProtocolTerminalConformance(replayCase, actual, replica);
     } catch (error) { error.code = 'FORMAL_CONFORMANCE'; conformance.push(error); }
@@ -475,14 +423,7 @@ export function checkCoreProtocolResults(record, cases, { property } = {}) {
   };
 }
 
-// --- Concrete-prefix lane (plan C14) -------------------------------------------
-// The Go lane records raw wire facts from the production handlers and never
-// asserts, so every C14 guarantee is adjudicated here against the recorded
-// row. A semantically wrong server therefore lands as a named red claim with
-// a witness, not as an aborted or self-certifying witness.
 const concreteRowKeys = ['id', 'seedVersion', 'seedDigest', 'saveBStatus', 'saveBDigest', 'saveAStatus', 'saveAVersion', 'saveADigest', 'mergeValueZone', 'staleAttempt', 'stale2Attempt', 'stale3Attempt', 'validAttempt', 'replayAttempt', 'previewStatus', 'previewReceipt', 'validLabel', 'revisions', 'staleError', 'stale2Error', 'stale3Error', 'staleNotes', 'notes'];
-// The Go wire record omits these when empty (omitempty), so absence is a
-// legal shape for them while every other key must always be present.
 const concreteRowOptionalKeys = ['previewReceipt', 'validLabel', 'staleError', 'stale2Error', 'stale3Error', 'staleNotes', 'notes'];
 const concreteAttemptKeys = ['requestId', 'draftVersion', 'draftDigest', 'success', 'headVersion', 'headDigest', 'hasReceipt', 'receiptId'];
 const concreteRevisionKeys = ['draftDigest', 'draftVersion', 'found', 'revisionId'];
@@ -498,9 +439,6 @@ function validateConcreteRow(record) {
   assert.deepEqual(Object.keys(record).sort(), ['results', 'schemaVersion'].sort());
   assert.equal(record.schemaVersion, 1);
   assert.ok(Array.isArray(record.results));
-  // Arango mode tags every concrete wire row with its store mode (dual
-  // replay); the store-less shape is the map-only witness. Store values are
-  // closed and handled per (store, program) below.
   const dual = record.results.some(row => row && typeof row === 'object' && Object.hasOwn(row, 'store'));
   const allowedKeys = dual ? [...concreteRowKeys, 'store'] : concreteRowKeys;
   const stores = [...new Set(record.results.map(row => row && typeof row === 'object' ? row.store : undefined).filter(value => value !== undefined))];
@@ -554,25 +492,10 @@ export function checkCoreProtocolConcreteResults(record, programs, { property } 
     assert.ok(row, 'Missing concrete program');
     const local = [], fail = name => local.push(concretePropertyError(name, program, row));
     const valid = row.validAttempt, stale = row.staleAttempt, replay = row.replayAttempt;
-    // Merge zone (value level): the two stored A digests are distinct from B
-    // and from the seed's stored digest (normalizing save path), mergeValueZone
-    // pins the digest-level fact as false, and the emitted receipt label of
-    // the head-3 compile equals the seed column label (claimed under
-    // ValidFreshReconcileCompletes) — value identity, not stored form, is
-    // what the model's head channels merge.
     const digestsPairwiseDistinct = row.seedDigest !== '' && row.saveBDigest !== '' && row.saveADigest !== '' &&
       row.seedDigest !== row.saveBDigest && row.saveADigest !== row.seedDigest && row.saveADigest !== row.saveBDigest;
     if (!(row.seedVersion === 1 && row.mergeValueZone === false && digestsPairwiseDistinct && row.saveAStatus === 200 && row.saveAVersion === 3 && row.saveBStatus === 200)) fail(coreProtocolConcreteProperties[0]);
     if (!(stale.success === false && stale.draftVersion === 1 && stale.draftDigest === row.seedDigest && stale.headVersion === 3 && stale.headDigest === row.saveADigest && stale.headDigest !== stale.draftDigest && stale.hasReceipt === false && row.staleError === 'DRAFT_CONFLICT')) fail(coreProtocolConcreteProperties[1]);
-    // Single-coordinate stale probes: with only the entry CAS version clause
-    // removed, [2] stays green and [3] alone is admitted; with only the
-    // digest clause removed, [2] alone is admitted; removing both turns all
-    // three red. Each claim is therefore the unique falsifier of one clause.
-    // The single-coordinate claims deliberately omit a hasReceipt condition
-    // (unlike the first, both-stale probe, which is scheduled first and can
-    // therefore witness receipt absence): under a single-clause fault the
-    // admitted probe persists a receipt before the later probe's wire read,
-    // and only the presented-identity comparisons are clause-deterministic.
     const stale2 = row.stale2Attempt, stale3 = row.stale3Attempt;
     if (!(stale2.success === false && stale2.draftVersion === 3 && stale2.draftDigest === row.seedDigest && stale2.headVersion === 3 && stale2.headDigest === row.saveADigest && row.stale2Error === 'DRAFT_CONFLICT')) fail(coreProtocolConcreteProperties[2]);
     if (!(stale3.success === false && stale3.draftVersion === 1 && stale3.draftDigest === row.saveADigest && stale3.headVersion === 3 && stale3.headDigest === row.saveADigest && row.stale3Error === 'DRAFT_CONFLICT')) fail(coreProtocolConcreteProperties[3]);
@@ -665,10 +588,6 @@ export async function checkCoreProtocolGraphControls(graph) {
   return mutations.length + checkCoreProtocolEventControls().length;
 }
 
-// Case-level controls proving the event validator bites: fabricated order,
-// substituted identity, omitted transition and stutter abuse must all be
-// rejected by the pure validator, and the legal stream must be accepted.
-// These run over hand-built events, without touching Go.
 function expectEventPath(control, replayCase, events, expectation) {
   let error;
   try { checkCoreProtocolEventPath(replayCase, structuredClone(events)); } catch (caught) { error = caught; }
@@ -720,8 +639,6 @@ function validateAbstractState(value) {
   assert.ok(['none', ...caps].includes(value.previewEcho) && ['none', ...caps].includes(value.admitted));
 }
 
-// Model-fault successors per property, mirroring coreProtocolModelControls so a
-// counterexample edge is exactly one supported model fault away from healthy.
 function modelFaultSuccessors(state, property) {
   const healthy = successors(state);
   const edges = healthy.map(edge => ({ action: edge.action, vars: structuredClone(edge.vars) }));
@@ -862,11 +779,6 @@ export async function checkCoreProtocolSourceProof(proof, graph, output) {
   assert.ok(known);
   assert.deepEqual(proof, known);
   if (proof.kind === 'vitest') {
-    // The shared vitest harness registers these proofs in the
-    // formal-source-proofs registry, which statically imports this module.
-    // A cyclic dynamic import from within this module's own evaluation would
-    // deadlock (Node ESM), so hand the proof to a child process whose entry
-    // is not part of this module graph; the harness itself is unchanged.
     const sourceProofModule = pathToFileURL(join(root, 'scripts/lib/formal-source-proofs.mjs')).href;
     const script = `const { checkSourceProof } = await import(${JSON.stringify(sourceProofModule)}); await checkSourceProof(JSON.parse(process.env.LOOM_CORE_PROTOCOL_VITEST_PROOF), undefined, process.env.LOOM_CORE_PROTOCOL_VITEST_OUTPUT);`;
     const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd: root, encoding: 'utf8', timeout: verificationTimeoutMs, maxBuffer: 8 * 1024 * 1024, detached: true, env: { ...process.env, LOOM_CORE_PROTOCOL_VITEST_PROOF: JSON.stringify(proof), LOOM_CORE_PROTOCOL_VITEST_OUTPUT: output } });

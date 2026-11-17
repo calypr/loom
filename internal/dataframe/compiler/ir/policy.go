@@ -6,30 +6,12 @@ import (
 	"strings"
 )
 
-// PhysicalOptimizationPolicy is the small, explainable policy used by the
-// physical optimizer. It deliberately estimates operation work rather than
-// pretending to predict Arango's cost; PROFILE remains the authority for
-// deciding whether a rewrite is worthwhile on a particular dataset.
 type PhysicalOptimizationPolicy struct {
-	// Enabled is false when the policy is disabled explicitly. Disabling the
-	// policy never disables validation or changes semantic meaning; it prevents
-	// all optional optimizer families while preserving the unoptimized physical
-	// execution plan.
-	Enabled bool
-	// MinimumSavings is the minimum estimated operation-work reduction required
-	// before an optional rewrite is applied. The default is one operation.
+	Enabled        bool
 	MinimumSavings int
-	// RuleOverrides contains explicit per-rule ablation decisions. A nil entry
-	// preserves the production default: traversal sharing and compact set
-	// projection are enabled after their live parity/profile gates. The older
-	// second-pass prepared selector experiment and later optimization families
-	// remain disabled until their own payload/cost gate has passed.
-	RuleOverrides map[PhysicalOptimizationRule]bool
+	RuleOverrides  map[PhysicalOptimizationRule]bool
 }
 
-// PhysicalOptimizationRule names an independently ablatable optimizer family.
-// These names are compiler-owned and are intentionally independent of FHIR
-// resource names or rendered AQL fragments.
 type PhysicalOptimizationRule string
 
 const (
@@ -46,8 +28,6 @@ var allPhysicalOptimizationRules = []PhysicalOptimizationRule{
 	PhysicalOptimizationRuleEndpointTraversal,
 }
 
-// RuleEnabled resolves one rule without mutating the caller's policy. A
-// global disable always wins; an explicit override wins over the defaults.
 func (policy PhysicalOptimizationPolicy) RuleEnabled(rule PhysicalOptimizationRule) bool {
 	if !policy.Enabled {
 		return false
@@ -65,8 +45,6 @@ func (policy PhysicalOptimizationPolicy) RuleEnabled(rule PhysicalOptimizationRu
 	}
 }
 
-// WithRule returns a copy with one named rule explicitly enabled or disabled.
-// It is used by benchmark and parity harnesses to change exactly one rule.
 func (policy PhysicalOptimizationPolicy) WithRule(rule PhysicalOptimizationRule, enabled bool) PhysicalOptimizationPolicy {
 	if policy.RuleOverrides == nil {
 		policy.RuleOverrides = make(map[PhysicalOptimizationRule]bool)
@@ -81,9 +59,6 @@ func (policy PhysicalOptimizationPolicy) WithRule(rule PhysicalOptimizationRule,
 	return policy
 }
 
-// PhysicalOptimizationDecision explains one candidate rewrite. The values are
-// intentionally structural and stable across schemas: they count typed
-// physical operations, not FHIR resource names or rendered AQL fragments.
 type PhysicalOptimizationDecision struct {
 	Rule                   string
 	Enabled                bool
@@ -94,10 +69,6 @@ type PhysicalOptimizationDecision struct {
 	Reason                 string
 }
 
-// PhysicalOptimizationReport is attached to an optimized plan and copied
-// into compiler diagnostics. A rejection is useful evidence: it tells callers
-// why a seemingly similar route was left unshared instead of silently hiding
-// the decision in rendered AQL.
 type PhysicalOptimizationReport struct {
 	Policy         string
 	Enabled        bool
@@ -106,9 +77,6 @@ type PhysicalOptimizationReport struct {
 	Decisions      []PhysicalOptimizationDecision
 }
 
-// PhysicalOptimizationRuleState reports the resolved state of every known
-// optimizer family, including families that had no candidate in this plan.
-// Decisions remain reserved for candidate-specific estimates and rewrites.
 type PhysicalOptimizationRuleState struct {
 	Rule    PhysicalOptimizationRule
 	Enabled bool
@@ -117,15 +85,6 @@ type PhysicalOptimizationRuleState struct {
 
 const physicalOptimizationPolicyName = "conservative-structural-v1"
 
-// DefaultPhysicalOptimizationPolicy returns the production policy. The
-// LOOM_PHYSICAL_COST_POLICY environment variable is intentionally a local
-// developer switch, not a user-controlled query input. Set it to "off" (or
-// "0"/"false") to compare the unshared physical shape; all validation and
-// result semantics remain unchanged. Compact set projection includes
-// traversal-time selector projection for fallback-free rich consumers; set
-// LOOM_PHYSICAL_RULE_COMPACT_PROJECTION=off to compare full-node output. The
-// older second-pass prepared selector experiment remains opt-in via
-// LOOM_PHYSICAL_RULE_PREPARED_SELECTORS=on.
 func DefaultPhysicalOptimizationPolicy() PhysicalOptimizationPolicy {
 	policy := PhysicalOptimizationPolicy{Enabled: true, MinimumSavings: 1}
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("LOOM_PHYSICAL_COST_POLICY"))) {
@@ -196,33 +155,20 @@ func (report *PhysicalOptimizationReport) AddDecision(decision PhysicalOptimizat
 	report.addDecision(decision)
 }
 
-// estimateTraversalSharingWork models the prefix and subset operations that
-// the rewrite actually changes. Every original set pays for its traversal and
-// scope prefix. The shared plan pays for one prefix plus one typed subset per
-// consumer. Consumer-specific operations are present in either plan and are
-// therefore intentionally excluded from the estimate.
 func estimateTraversalSharingWork(prefix PhysicalTraversalPrefixDecomposition, candidateSets int) (baseline, optimized, savings int) {
 	if candidateSets < 2 {
 		return 0, 0, 0
 	}
-	// Traversal plus the canonical scope block. The decomposition carries the
-	// scope operation count so this estimate remains independent of a specific
-	// FHIR route or an incidental renderer variable name.
 	prefixOperations := 1 + prefix.Prefix.ScopeOperationCount
 	if prefix.Prefix.SourceVariable == "" {
 		return 0, 0, 0
 	}
 	baseline = prefixOperations * candidateSets
-	optimized = prefixOperations + candidateSets // one typed subset per set
+	optimized = prefixOperations + candidateSets
 	savings = baseline - optimized
 	return baseline, optimized, savings
 }
 
-// estimatePreparedSelectorWork uses a deliberately small structural model:
-// selector extraction has a source iteration and a value projection, while a
-// prepared value pays one projection plus a cheap field read at each consumer.
-// It is only used as a lower-bound gate (PROFILE remains authoritative), so a
-// selector must have at least two consumers before preparation is allowed.
 func estimatePreparedSelectorWork(selectorUseCount int) (baseline, optimized, savings int) {
 	if selectorUseCount < 2 {
 		return 0, 0, 0

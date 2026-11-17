@@ -37,12 +37,9 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 			"id": "same-source-row", "status": "active",
 			"component": []any{
 				semanticGroupComponent(targetSystem, targetVersion, "shared-code", "Z Shared"),
-				// Same exact tuple, a second representation, and same-row duplicate.
 				semanticGroupComponent(targetSystem, targetVersion, "shared-code", "A Shared"),
 				semanticGroupComponent(targetSystem, targetVersion, "shared-code", "A Shared"),
-				// A different code with the same label must remain a separate group.
 				semanticGroupComponent(targetSystem, targetVersion, "different-code", "A Shared"),
-				// With no nonblank display, the public label falls back to code.
 				semanticGroupComponent(targetSystem, targetVersion, "fallback-code", "  "),
 			},
 		},
@@ -73,7 +70,7 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 	compile := func(policy recipe.ConstructionGroupMissingKeyPolicy) CompiledQuery {
 		t.Helper()
 		if policy == recipe.ConstructionGroupMissingKeyGroup {
-			query, err := CompileRecipeOutputWithPolicy(groupedCompiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+			query, err := CompileRecipeOutput(ArangoTarget(), groupedCompiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatalf("compile semantic Group with %s missing-key policy: %v", policy, err)
 			}
@@ -89,7 +86,7 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 	if len(grouped) != 5 {
 		t.Fatalf("semantic Group rows = %#v, want four keyed groups plus one missing-key group", grouped)
 	}
-	unlimitedQuery, err := CompileRecipeOutputWithPolicy(groupedCompiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
+	unlimitedQuery, err := CompileRecipeOutput(ArangoTarget(), groupedCompiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile unlimited semantic Group query: %v", err)
 	}
@@ -113,8 +110,6 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 			sharedDisplayIDs = append(sharedDisplayIDs, rowID)
 		}
 	}
-	// Two distinct semantic tuples intentionally share the same public label.
-	// Their row identities must still be distinct, so the label cannot own key equality.
 	if len(sharedDisplayIDs) != 2 || sharedDisplayIDs[0] == "" || sharedDisplayIDs[1] == "" || sharedDisplayIDs[0] == sharedDisplayIDs[1] {
 		t.Fatalf("same-display semantic groups have row IDs %#v, want two distinct tuple identities", sharedDisplayIDs)
 	}
@@ -138,27 +133,29 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 		t.Fatalf("active shared-code Group row with two contributors is missing: %#v", grouped)
 	}
 	sharedCodeRowID, _ := sharedCodeRow["__loom_row_id"].(string)
-	lineageQuery, err := CompileRowLineageOutput(groupedCompiled, sharedCodeRowID, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	lineageQuery, err := CompileRowLineageOutput(ArangoTarget(), groupedCompiled, sharedCodeRowID, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile semantic Group row-lineage page: %v", err)
 	}
 	identityProbe := lineageQuery
-	identityProbe.BindVars = make(map[string]any, len(lineageQuery.BindVars))
-	for key, value := range lineageQuery.BindVars {
-		identityProbe.BindVars[key] = value
+	probeText := testAQLText(t, lineageQuery.Command)
+	probeBinds := make(map[string]any, len(testAQLBinds(t, lineageQuery.Command)))
+	for key, value := range testAQLBinds(t, lineageQuery.Command) {
+		probeBinds[key] = value
 	}
-	identityProbe.Query = strings.Replace(identityProbe.Query,
+	probeText = strings.Replace(probeText,
 		"FILTER __loom_physical_construction_row_lineage_semantic_identity == @row_lineage_row_id",
 		"FILTER __loom_physical_construction_row_lineage_semantic_collected_key_0 == @diagnostic_scalar_key AND __loom_physical_construction_row_lineage_semantic_tuple == @diagnostic_semantic_tuple", 1)
-	identityProbe.Query = strings.Replace(identityProbe.Query,
+	probeText = strings.Replace(probeText,
 		"RETURN {key0: __loom_physical_construction_row_lineage_semantic_collected_key_0, semanticTuple: __loom_physical_construction_row_lineage_semantic_tuple}",
 		"RETURN {identity: __loom_physical_construction_row_lineage_semantic_identity, key0: __loom_physical_construction_row_lineage_semantic_collected_key_0, semanticTuple: __loom_physical_construction_row_lineage_semantic_tuple}", 1)
-	identityProbe.Query = strings.Replace(identityProbe.Query,
+	probeText = strings.Replace(probeText,
 		"RETURN {found: __loom_physical_construction_row_lineage_semantic_selected_group != null, contributors:",
 		"RETURN {selectedGroup: __loom_physical_construction_row_lineage_semantic_selected_group, found: __loom_physical_construction_row_lineage_semantic_selected_group != null, contributors:", 1)
-	identityProbe.BindVars["diagnostic_scalar_key"] = "active"
-	identityProbe.BindVars["diagnostic_semantic_tuple"] = []any{targetSystem, targetVersion, "shared-code"}
-	delete(identityProbe.BindVars, rowLineageRowIDBind)
+	probeBinds["diagnostic_scalar_key"] = "active"
+	probeBinds["diagnostic_semantic_tuple"] = []any{targetSystem, targetVersion, "shared-code"}
+	delete(probeBinds, rowLineageRowIDBind)
+	identityProbe.Command = testAQLCommand(probeText, probeBinds)
 	identityResult := executeRowLineageOracleQuery(t, ctx, client, identityProbe)
 	selectedGroup, _ := identityResult["selectedGroup"].(map[string]any)
 	lineageIdentity, _ := selectedGroup["identity"].(string)
@@ -169,7 +166,7 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 	contributors, _ := lineage["contributors"].([]any)
 	if lineage["found"] != true || lineage["hasMore"] != false || len(contributors) != 2 {
 		t.Fatalf("semantic Group row lineage = %#v, want the two exact matching source rows; grouped row=%#v executed identity=%#v; AQL:\n%s",
-			lineage, sharedCodeRow, identityResult, lineageQuery.Query)
+			lineage, sharedCodeRow, identityResult, testAQLText(t, lineageQuery.Command))
 	}
 	wantContributorIDs := map[string]bool{"same-source-row": false, "same-code-active-second-row": false}
 	for _, value := range contributors {
@@ -191,12 +188,17 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 
 	bagQuery := compile(recipe.ConstructionGroupMissingKeyGroup)
 	const rootScan = "FOR root IN @@root_collection"
-	if strings.Count(bagQuery.Query, rootScan) != 1 {
-		t.Fatalf("semantic Group query has %d replaceable direct-root scans, want one:\n%s", strings.Count(bagQuery.Query, rootScan), bagQuery.Query)
+	if strings.Count(testAQLText(t, bagQuery.Command), rootScan) != 1 {
+		t.Fatalf("semantic Group query has %d replaceable direct-root scans, want one:\n%s", strings.Count(testAQLText(t, bagQuery.Command), rootScan), testAQLText(t, bagQuery.Command))
 	}
-	bagQuery.Query = strings.Replace(bagQuery.Query, rootScan,
+	bagText := strings.Replace(testAQLText(t, bagQuery.Command), rootScan,
 		"FOR root IN [DOCUMENT(@@root_collection, @duplicate_root_key), DOCUMENT(@@root_collection, @duplicate_root_key)]", 1)
-	bagQuery.BindVars["duplicate_root_key"] = project + "_same-source-row"
+	bagBinds := make(map[string]any, len(testAQLBinds(t, bagQuery.Command))+1)
+	for key, value := range testAQLBinds(t, bagQuery.Command) {
+		bagBinds[key] = value
+	}
+	bagBinds["duplicate_root_key"] = project + "_same-source-row"
+	bagQuery.Command = testAQLCommand(bagText, bagBinds)
 	bagRows := executeReshapeOracleQuery(t, ctx, client, bagQuery)
 	bagCounts := make(map[string][]float64, len(bagRows))
 	for _, row := range bagRows {
@@ -254,7 +256,7 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 	}
 
 	errorQuery := compile(recipe.ConstructionGroupMissingKeyError)
-	if err := client.QueryRows(ctx, errorQuery.Query, 100, errorQuery.BindVars, func(map[string]any) error { return nil }); err == nil {
+	if err := client.QueryRows(ctx, testAQLText(t, errorQuery.Command), 100, testAQLBinds(t, errorQuery.Command), func(map[string]any) error { return nil }); err == nil {
 		t.Fatal("ERROR semantic Group accepted missing and out-of-family category rows")
 	}
 }
@@ -349,7 +351,7 @@ func semanticGroupArangoOutput(
 func compileSemanticCategoryGroupQuery(t *testing.T, bindings recipe.RuntimeBindings, output recipe.Output) CompiledQuery {
 	t.Helper()
 	compiled := lowerConstructionOutput(t, output, bindings)
-	query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile semantic Group query: %v", err)
 	}

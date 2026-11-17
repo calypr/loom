@@ -1,9 +1,5 @@
 package lower
 
-// This file contains the canonical recipe lowering boundary. Persisted
-// recipes are a frontend: after resolution each output is lowered to the same
-// ir.PhysicalPlan used by the GraphQL dataframe compiler.
-
 import (
 	"fmt"
 	"strings"
@@ -15,10 +11,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// CompiledRecipe is orchestration metadata around one canonical physical plan
-// per output.  It deliberately contains no recipe-specific traversal,
-// projection, or renderer structures.  Output order is the persisted recipe
-// order and therefore part of the stable materialization contract.
 func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPlan, resolvedColumns map[string][]semantic.ResolvedColumn) ([]DynamicColumnMetadata, error) {
 	dynamics := flattenRecipeDynamicMaps(output.Root)
 	if len(dynamics) == 0 {
@@ -136,14 +128,7 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 				if output.Collision != "overwrite" {
 					return nil, fmt.Errorf("dynamic column %q collides with another output column", outputName)
 				}
-				// The legacy dataframe flatteners update one row map in declaration
-				// order. Preserve that contract for an explicit overwrite policy
-				// instead of rejecting a category/identifier or extension collision.
 				plan.Operations[returnOp].Return.Projections[projectionIndex] = ir.PhysicalProjection{Name: outputName, Expression: &lookup}
-				// Keep validation metadata for every family sharing this public
-				// compatibility column. The physical projection is intentionally
-				// overwritten in declaration order, but runtime-key validation must
-				// still accept keys frozen for the earlier family.
 				metadata = append(metadata, entry)
 				continue
 			}
@@ -222,12 +207,6 @@ func lowerDynamicItemExpression(input semantic.SemanticExpression, bindVars map[
 	return lowerDynamicItemAST(input.Expression, bindVars, resourceType)
 }
 
-// lowerDynamicItemAST lowers a dynamic value/key expression after semantic
-// checking has already proven every selector. It intentionally handles item
-// selectors as raw payload paths: the item resource type is a nested FHIR
-// datatype (Extension, Identifier, ObservationComponent, ...), not the parent
-// resource type carried by the dynamic map. Re-validating it against the
-// parent schema would reject valid generic choice fields.
 func lowerDynamicItemAST(input expression.Expression, bindVars map[string]any, resourceType string) (ir.PhysicalExpression, error) {
 	if input.Document != nil && strings.EqualFold(strings.TrimSpace(input.Document.Context), "item") {
 		return ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: "dynamic_item"}}, nil

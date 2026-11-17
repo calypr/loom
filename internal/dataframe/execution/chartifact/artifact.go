@@ -1,6 +1,3 @@
-// Package chartifact manages private ClickHouse tables used to cross an
-// execution boundary. These artifacts are never registered as published
-// outputs and never advance a visibility pointer.
 package chartifact
 
 import (
@@ -45,16 +42,10 @@ var (
 )
 
 const (
-	// ScopeModeRows preserves and validates the authorization path on every row.
-	ScopeModeRows = "ROW_SCOPED"
-	// ScopeModeWhole binds the complete relation to one compiler-verified
-	// authorization scope. Such rows intentionally carry no individual path.
+	ScopeModeRows  = "ROW_SCOPED"
 	ScopeModeWhole = "WHOLE_SCOPE"
 )
 
-// Identity binds an intermediate table to the exact source execution and
-// compiler result that created it. SchemaDigest and ScopeDigest are computed
-// by Begin; supplied values, when present, must match.
 type Identity struct {
 	ExecutionID         string
 	OutputID            string
@@ -71,8 +62,6 @@ type Identity struct {
 	ScopeEvidenceDigest string
 }
 
-// Column records a stable compiler ID alongside logical and physical types.
-// The physical type is restricted to the supported scalar storage types.
 type Column struct {
 	ID             string `json:"id,omitempty"`
 	Name           string `json:"name"`
@@ -85,9 +74,6 @@ type Column struct {
 	NormalizedUnit string `json:"normalizedUnit,omitempty"`
 }
 
-// Manifest is the durable identity and cleanup record for one private table.
-// Catalog implementations must treat Identity, Columns, and PhysicalTable as
-// immutable after Create.
 type Manifest struct {
 	ArtifactID    string    `json:"artifactId"`
 	Identity      Identity  `json:"identity"`
@@ -102,11 +88,6 @@ type Manifest struct {
 	UpdatedAt     time.Time `json:"updatedAt"`
 }
 
-// Progress is the only mutable portion of a manifest. Catalog.Update must
-// compare the current lease owner with owner and must not replace immutable
-// identity or schema fields. For active states it may extend LeaseUntil but
-// must not shorten it; CLEANUP_PENDING may make the lease immediately
-// reclaimable after the owner has stopped using the table.
 type Progress struct {
 	State      State
 	RowCount   int64
@@ -115,13 +96,6 @@ type Progress struct {
 	UpdatedAt  time.Time
 }
 
-// Catalog is the durable manifest and lease boundary. Create must be
-// conditional on ArtifactID being absent. Update and Renew must compare the
-// owner and reject expired leases; Renew must not resurrect an expired lease.
-// Update must preserve immutable identity, schema, and table fields. ClaimCleanup
-// must atomically compare LeaseUntil with expiredBefore, change the owner, and
-// set the cleanup lease; only one caller may win. Delete and ReleaseCleanup
-// must verify the current owner.
 type Catalog interface {
 	Create(context.Context, Manifest) error
 	Update(context.Context, string, string, Progress) error
@@ -132,10 +106,6 @@ type Catalog interface {
 	ReleaseCleanup(context.Context, string, string, time.Time) error
 }
 
-// ClickHouse is the narrow private-table contract. The production adapter can
-// be the existing typed client; tests use a fake and do not need a server.
-// InsertRows must consume its bounded batch before returning, and DropTable
-// must be idempotent.
 type ClickHouse interface {
 	CreateTable(context.Context, string, []clickhouse.Column) error
 	InsertRows(context.Context, string, []clickhouse.Column, []map[string]any) error
@@ -190,8 +160,6 @@ func New(cfg Config) (*Manager, error) {
 	}, nil
 }
 
-// NormalizeSchema appends the Loom-owned identity and scope columns required
-// by a private intermediate artifact. Conflicting uses of reserved names fail.
 func NormalizeSchema(columns []Column) ([]Column, error) {
 	var rowID *Column
 	var authPath *Column
@@ -281,9 +249,6 @@ func NormalizeSchema(columns []Column) ([]Column, error) {
 	return result, nil
 }
 
-// ColumnsFromCompiledOutput converts the compiler's finalized output schema
-// into the physical scalar schema used at the private engine boundary. Hidden
-// compiler helpers are omitted; the stable row identity is always retained.
 func ColumnsFromCompiledOutput(schema []lower.CompiledOutputColumn) ([]Column, error) {
 	columns := make([]Column, 0, len(schema))
 	rowIDSeen := false
@@ -297,9 +262,6 @@ func ColumnsFromCompiledOutput(schema []lower.CompiledOutputColumn) ([]Column, e
 			columns = append(columns, Column{ID: compiled.ID, Name: rowIDColumn, SemanticPath: "loom:row_id", LogicalType: "string", Internal: true})
 			continue
 		}
-		// Other internal identity helpers (for example, the root FHIR `_key`)
-		// are not the artifact's stable row identity. They are compiler inputs
-		// for deriving `__loom_row_id` and must not be exposed as artifact data.
 		if compiled.Internal {
 			continue
 		}
@@ -372,8 +334,6 @@ func scopeDigest(identity Identity) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// ScopeDigest returns the private artifact scope digest for an exact identity.
-// An omitted scope mode retains the legacy row-scoped meaning.
 func ScopeDigest(identity Identity) string { return scopeDigest(identity) }
 
 func schemaDigest(stageID string, columns []Column) (string, error) {
@@ -389,7 +349,6 @@ func schemaDigest(stageID string, columns []Column) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// SchemaDigest returns the digest of a normalized compiler stage schema.
 func SchemaDigest(stageID string, columns []Column) (string, error) {
 	normalized, err := NormalizeSchema(columns)
 	if err != nil {
@@ -523,8 +482,6 @@ type Writer struct {
 	mu         sync.Mutex
 }
 
-// Write validates and buffers one row. The writer retains a defensive copy;
-// the caller may reuse the supplied map as soon as Write returns.
 func (w *Writer) Write(ctx context.Context, input map[string]any) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -605,7 +562,6 @@ func (w *Writer) validateRow(input map[string]any) (map[string]any, int, error) 
 			return nil, 0, fmt.Errorf("private artifact row authorization path is outside the exact restricted scope")
 		}
 	}
-	// project_id is Loom-owned metadata; never trust a source row value.
 	row[projectIDColumn] = w.manifest.Identity.Project
 	for _, column := range w.manifest.Columns {
 		value, exists := row[column.Name]
@@ -756,8 +712,6 @@ func (w *Writer) flush(ctx context.Context) error {
 	return nil
 }
 
-// Finalize flushes and verifies the table before making it available to a
-// later typed ClickHouse stage. Its lease remains active until Release.
 func (w *Writer) Finalize(ctx context.Context) (*Artifact, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -786,8 +740,6 @@ func (w *Writer) Finalize(ctx context.Context) (*Artifact, error) {
 	return &Artifact{manager: w.manager, manifest: cloneManifest(w.manifest), owner: w.owner, lease: w.lease}, nil
 }
 
-// Abort removes a partially written artifact. If ClickHouse cannot drop the
-// table, the cleanup-pending manifest remains for Reconcile.
 func (w *Writer) Abort(ctx context.Context) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -839,8 +791,6 @@ func (a *Artifact) CheckLease() error {
 	return a.lease.check()
 }
 
-// LeaseContext cancels ctx if the durable cleanup lease is lost. A streaming
-// ClickHouse query should use this context until it stops reading the table.
 func (a *Artifact) LeaseContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -860,8 +810,6 @@ func (a *Artifact) LeaseContext(ctx context.Context) (context.Context, context.C
 	return leaseCtx, cancel
 }
 
-// Release drops the table and removes its manifest. It is safe to call more
-// than once. A failed drop leaves an expired cleanup-pending manifest.
 func (a *Artifact) Release(ctx context.Context) error {
 	if a == nil {
 		return nil
@@ -888,8 +836,6 @@ func (a *Artifact) Release(ctx context.Context) error {
 	return a.releaseErr
 }
 
-// Reconcile claims and removes artifacts whose execution leases expired. It
-// can be run repeatedly and is safe when multiple service replicas race.
 func (m *Manager) Reconcile(ctx context.Context, now time.Time, limit int) error {
 	if ctx == nil {
 		return fmt.Errorf("private artifact reconciliation context is required")

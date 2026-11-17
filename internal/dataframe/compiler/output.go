@@ -7,9 +7,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 )
 
-// publicOutputColumns returns the ordered transport schema owned by the
-// compiler. Physical identity and executor-validation projections are kept in
-// OutputSchema but never leak into dataframe JSON/CSV/publication columns.
 func publicOutputColumns(schema []lower.CompiledOutputColumn) []string {
 	columns := make([]string, 0, len(schema))
 	for _, column := range schema {
@@ -21,9 +18,6 @@ func publicOutputColumns(schema []lower.CompiledOutputColumn) []string {
 	return columns
 }
 
-// PublicOutputColumns returns a copy of the compiler-owned transport schema.
-// It is used by recipe execution adapters that need to carry the schema with
-// streamed rows without re-walking semantic recipe nodes.
 func PublicOutputColumns(schema []lower.CompiledOutputColumn) []string {
 	return publicOutputColumns(schema)
 }
@@ -64,9 +58,6 @@ func physicalTraversalCount(plan ir.PhysicalPlan) int {
 	return count
 }
 
-// withGenericPhysicalExecutionWindow inserts the deterministic root ordering
-// and optional preview bound before any traversal LET subquery, ensuring an
-// expensive optional navigation is evaluated only for selected root rows.
 func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.PhysicalPlan, error) {
 	if plan.StageSequence != nil {
 		out := clonePhysicalPlan(plan)
@@ -77,9 +68,6 @@ func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.Phy
 			out.BindVars[genericPhysicalExecutionLimitBind] = limit
 			out.StageSequence.PreviewLimitBindKey = genericPhysicalExecutionLimitBind
 			if out.StageSequence.PreviewSourceWindowByRootID && !insertConstructionPreviewRootIDWindow(&out) {
-				// Optimizer rewrites may make the source shape ineligible. The
-				// canonical source path remains correct; only skip this preview
-				// optimization when its root-scan insertion point is unavailable.
 				out.StageSequence.PreviewSourceWindowByRootID = false
 			}
 			out.StageSequence.PreviewTerminalPivotWindow = previewTerminalPivotWindowEligible(out.StageSequence)
@@ -142,9 +130,6 @@ func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.Phy
 		return out, nil
 	}
 
-	// The generic scope verifier defines the root scope as every operation up
-	// to the first traversal or terminal return. BuildGenericPhysicalPlan has
-	// already proven that the whole prefix scopes the root correctly.
 	insertAt := physicalScopeWindowEnd(plan.Operations, 1)
 	unnestIndex := -1
 	for index, operation := range plan.Operations {
@@ -156,18 +141,11 @@ func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.Phy
 		}
 	}
 	if unnestIndex >= 0 {
-		// A row expansion owns the additional variables in its stable identity
-		// tuple. Keep the window after that operation, while still before the
-		// unrelated child SET/traversal operations it is intended to bound.
 		if unnestIndex > insertAt {
 			return ir.PhysicalPlan{}, fmt.Errorf("generic execution window requires row expansion before child SET/traversal operations")
 		}
 		insertAt = unnestIndex + 1
 	} else {
-		// Shared expression LETs are deliberately emitted immediately before
-		// RETURN for root-only plans. Put the root execution window before them so
-		// AQL can discard rows before evaluating the family maps, while traversal
-		// plans still insert the window before their first child SET.
 		for insertAt > 1 && insertAt <= len(plan.Operations) && plan.Operations[insertAt-1].Kind == ir.PhysicalExpressionLetOp {
 			insertAt--
 		}
@@ -266,9 +244,7 @@ func insertConstructionPreviewRootIDWindow(plan *ir.PhysicalPlan) bool {
 		{
 			Kind:   ir.PhysicalSortOp,
 			Source: ir.PhysicalSource{SemanticNode: plan.Source.SemanticNode, ResourceType: plan.Source.ResourceType, SemanticField: "id"},
-			// Loom's FHIR ingest stores the validated logical resource id both
-			// at the document root and in payload. The root field is indexed.
-			Sort: &ir.PhysicalSort{Keys: []ir.PhysicalValue{{Variable: root, Path: []string{"id"}}}},
+			Sort:   &ir.PhysicalSort{Keys: []ir.PhysicalValue{{Variable: root, Path: []string{"id"}}}},
 		},
 		{
 			Kind:   ir.PhysicalLimitOp,

@@ -1,5 +1,3 @@
-// Offline static checks for pivot-keyword-fixture-oracle.mjs:
-// node --test scripts/verify-ui/helpers/tests/pivot-keyword-oracle.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"net/http"
 	"strings"
 	"sync"
@@ -21,23 +22,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// This file closes the SERVER half of plan row C15
-// (docs/verification/CORE_PROTOCOL_VERIFICATION_PLAN.md:384): restore a previous
-// revision while a command, reconcile, recovery GET or preview is pending, then
-// complete the old work. Every claim is read back from the real contracts:
-//
-//   - restore is an ordinary command through the same compare-and-swap boundary as
-//     any edit (lifecycle/draft_restore.go:26-46 owner/Undo-target checks, then
-//     explorer/service.go:324 SaveDraft),
-//   - reconcile admits on the head identity read at entry and afterwards compiles
-//     only that captured workspace (lifecycle/authoring.go:552-568),
-//   - preview admits on the retained receipt and never requires head equality
-//     (lifecycle/preview.go:28-44),
-//   - hydration reads version/digest/workspace from one persisted-state snapshot
-//     (lifecycle/query.go:101-135).
-//
-// Client-side completion ordering (the mounted-driver half of C15) is out of scope.
-
 const (
 	coreProtocolRestoreOriginalLabel  = "Patient ID"
 	coreProtocolRestoreSavedLabel     = "Patient Head A"
@@ -46,8 +30,6 @@ const (
 	coreProtocolRestoreFollowUpLabel  = "Patient Follow-Up After Restore"
 )
 
-// coreProtocolRevisionID mirrors the server-owned history identity the persisted
-// store mints on every accepted draft CAS (http_test_helpers_test.go:156).
 func coreProtocolRevisionID(explorerID string, draftVersion int64) string {
 	return fmt.Sprintf("draft_revision_%s_%d", explorerID, draftVersion)
 }
@@ -77,17 +59,12 @@ func coreProtocolDecodeAck(t *testing.T, response testHTTPResponse) authoringv2.
 	return ack
 }
 
-// restoreRevision posts the production RESTORE_DRAFT_REVISION command with the exact
-// CAS identity the Builder client sends. The acknowledgement is decoded leniently so
-// a rejected attempt can still be asserted through its typed error envelope.
 func (f *coreProtocolFixture) restoreRevision(commandID, revisionID string, expectedVersion int64, expectedDigest string) (testHTTPResponse, authoringv2.ApplyCommandsResponse) {
 	f.t.Helper()
 	response := coreProtocolRequest(f.t, f.app, http.MethodPost, f.basePath+"/commands", coreProtocolRestoreBody(f, commandID, revisionID, expectedVersion, expectedDigest), "builder-command-"+commandID)
 	return response, coreProtocolDecodeAck(f.t, response)
 }
 
-// restoreAttempt is restoreRevision without the t.Fatal on transport failure, for
-// calls that must run suspended in a goroutine.
 func (f *coreProtocolFixture) restoreAttempt(commandID, revisionID string, expectedVersion int64, expectedDigest string) (testHTTPResponse, authoringv2.ApplyCommandsResponse, error) {
 	response, err := coreProtocolDo(f.app, http.MethodPost, f.basePath+"/commands", coreProtocolRestoreBody(f, commandID, revisionID, expectedVersion, expectedDigest), "builder-command-"+commandID)
 	if err != nil || response.StatusCode != http.StatusOK {
@@ -96,7 +73,6 @@ func (f *coreProtocolFixture) restoreAttempt(commandID, revisionID string, expec
 	return response, coreProtocolDecodeAck(f.t, response), err
 }
 
-// saveLabelAttempt is fixture.saveLabel's shape for goroutine-suspended calls.
 func (f *coreProtocolFixture) saveLabelAttempt(commandID, label string, expectedVersion int64, expectedDigest string) (testHTTPResponse, authoringv2.ApplyCommandsResponse, error) {
 	body, err := coreProtocolSaveLabelBody(f, commandID, label, expectedVersion, expectedDigest)
 	if err != nil {
@@ -109,8 +85,6 @@ func (f *coreProtocolFixture) saveLabelAttempt(commandID, label string, expected
 	return response, coreProtocolDecodeAck(f.t, response), nil
 }
 
-// MustRestoreRevision restores the hydrated head's server-resolved Undo target and
-// returns the accepted head identity.
 func (f *coreProtocolFixture) MustRestoreRevision(commandID string, hydrated loomapi.BuilderState) (int64, string, string) {
 	f.t.Helper()
 	if hydrated.PreviousDraftRevisionId == nil || *hydrated.PreviousDraftRevisionId == "" {
@@ -127,15 +101,11 @@ func (f *coreProtocolFixture) MustRestoreRevision(commandID string, hydrated loo
 	return ack.DraftVersion, ack.DraftDigest, revisionID
 }
 
-// previewPending is fixture.preview's transport without the t.Fatal on transport
-// error, so a preview can be suspended in a goroutine at the preview seam.
 func (f *coreProtocolFixture) previewPending(receiptID string) (testHTTPResponse, error) {
 	body := fmt.Sprintf(`{"receiptId":%q,"outputId":"patients","limit":10}`, receiptID)
 	return coreProtocolDo(f.app, http.MethodPost, f.basePath+"/preview", body, "")
 }
 
-// coreProtocolSeedRestorableHead saves one accepted edit onto the fixture's first head
-// and returns that saved head A's identity plus its server-resolved Undo target.
 func coreProtocolSeedRestorableHead(t *testing.T, fixture *coreProtocolFixture, commandID, label string) (int64, string, string) {
 	t.Helper()
 	_, hydrated := fixture.getBuilder()
@@ -155,11 +125,6 @@ func coreProtocolSeedRestorableHead(t *testing.T, fixture *coreProtocolFixture, 
 	return ack.DraftVersion, ack.DraftDigest, *ack.PreviousDraftRevisionId
 }
 
-// coreProtocolSeedDraftRevisionRecord persists a well-formed history record through the
-// exposed store handle (the same seeding surface openapi_explorer_draft_restore_test.go
-// uses) with the current head's source context, so a browser-supplied draftRevisionId
-// that passes every identity/adjacency check but is NOT the head's recorded Undo target
-// tests the Undo-ownership guard on its own.
 func coreProtocolSeedDraftRevisionRecord(t *testing.T, fixture *coreProtocolFixture, revisionID string, draftVersion int64, raw []byte, digest string) {
 	t.Helper()
 	head, err := fixture.store.Get(context.Background(), "project-a", "core-protocol")
@@ -185,8 +150,6 @@ func coreProtocolStoredHead(t *testing.T, fixture *coreProtocolFixture) explorer
 	return *current
 }
 
-// coreProtocolExpectHead proves the persisted head still is the expected revision; it
-// is how each case shows the completed or rejected stale work moved nothing.
 func coreProtocolExpectHead(t *testing.T, fixture *coreProtocolFixture, wantVersion int64, wantDigest, stage string) explorer.Explorer {
 	t.Helper()
 	stored := coreProtocolStoredHead(t, fixture)
@@ -205,9 +168,6 @@ func coreProtocolAwait(t *testing.T, opened <-chan struct{}, what string) {
 	}
 }
 
-// coreProtocolDecodeHydratedState decodes the public Builder hydration envelope and
-// re-derives the workspace digest, which is what lets the recovery-GET cases prove the
-// announced version/digest pair belongs to the state actually returned.
 func coreProtocolDecodeHydratedState(t *testing.T, response testHTTPResponse, wantVersion int64, wantDigest, wantUndoTarget, wantLabel, stage string) {
 	t.Helper()
 	if response.StatusCode != http.StatusOK {
@@ -244,11 +204,6 @@ func coreProtocolDecodeHydratedState(t *testing.T, response testHTTPResponse, wa
 	}
 }
 
-// coreProtocolSaveGate records and parks the persisted draft CAS of specific accepted
-// commands so two writers can be provably inside the compare-and-swap window at the
-// same time. It wraps the same store SaveDraft the production save path performs
-// (explorer/service.go:324 → http_test_helpers_test.go:142); it never decides the CAS
-// outcome, it only observes the attempts and releases parked calls on request.
 type coreProtocolSaveGate struct {
 	mu       sync.Mutex
 	entries  map[string]*coreProtocolSaveGateEntry
@@ -308,8 +263,6 @@ func (g *coreProtocolSaveGate) releaseAll() {
 	}
 }
 
-// record logs only the compare-and-swap calls of the watched racing commands, so the
-// witness can prove which attempt the store accepted and which it rejected.
 func (g *coreProtocolSaveGate) record(attempt coreProtocolSaveAttempt) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -353,14 +306,6 @@ func (s *coreProtocolGatedStore) SaveDraft(ctx context.Context, value explorer.E
 	return stored, err
 }
 
-// coreProtocolPendingFixture reuses the shared core-protocol fixture (same persisted
-// store and seed, same wire helpers, same beforeCompile compile seam) and mounts the
-// production route stack over that store with two extra test-owned scheduling
-// observations, both at boundaries the fixture contract already declares test-owned:
-// entry to PreviewReceipt execution (core_authoring_protocol_test.go:121-123) and
-// entry to the persisted draft CAS. The compile/preview closures are the same
-// compileExplorerReceipt and compileValidatedReceiptResolution+PreviewOutput calls the
-// shared fixture installs, so no production behaviour is substituted.
 type coreProtocolPendingFixture struct {
 	*coreProtocolFixture
 	gate          *coreProtocolSaveGate
@@ -371,8 +316,15 @@ func newCoreProtocolPendingFixture(t *testing.T) *coreProtocolPendingFixture {
 	t.Helper()
 	base := newCoreProtocolFixture(t)
 	pending := &coreProtocolPendingFixture{coreProtocolFixture: base, gate: newCoreProtocolSaveGate()}
-	queryRows := func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }
-	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: queryRows, PreviewQueryRows: queryRows})
+	queryRows := func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+		command := request.Command
+		_, _, deriveErr := command.AQLParameters()
+		if deriveErr != nil {
+			return deriveErr
+		}
+		return nil
+	}
+	engine, err := dataframeexecution.New(dataframeexecution.Config{CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, SourceRows: queryRows, PreviewSourceRows: queryRows})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,19 +373,11 @@ func newCoreProtocolPendingFixture(t *testing.T) *coreProtocolPendingFixture {
 	return pending
 }
 
-// TestCoreAuthoringProtocolRestoreDuringPendingWork is the C15 server-contract
-// witness. Each subtest parks one kind of pending work at a real boundary, commits a
-// restore of an older revision while it is parked, then completes the parked work and
-// reads back both persisted and public state.
 func TestCoreAuthoringProtocolRestoreDuringPendingWork(t *testing.T) {
 	if label := newCoreProtocolFixture(t).workspace.Documents[0].Columns[0].Label; label != coreProtocolRestoreOriginalLabel {
 		t.Fatalf("fixture baseline label=%q, this witness pins it as the restore target", label)
 	}
 
-	// 1. A reconcile of captured head A stays parked inside the shared compile seam
-	// while a restore commits head R. The completed reconcile may only describe
-	// captured A: its returned workspace and its persisted receipt keep A's identity,
-	// the head stays R, and a fresh attempt at the obsolete reconcile is refused.
 	t.Run("reconcile-pending-while-restore-commits", func(t *testing.T) {
 		fixture := newCoreProtocolFixture(t)
 		headVersion, headDigest, undoRevision := coreProtocolSeedRestorableHead(t, fixture, "c15-reconcile-save-a", coreProtocolRestoreSavedLabel)
@@ -484,7 +428,6 @@ func TestCoreAuthoringProtocolRestoreDuringPendingWork(t *testing.T) {
 			close(release)
 			t.Fatalf("restored head still carries the obsolete saved intent: %s", headWhilePending.DraftConfig)
 		}
-		// Hydration inside the same window already describes the restored head.
 		coreProtocolDecodeHydratedState(t, coreProtocolRequest(t, fixture.app, http.MethodGet, fixture.basePath+"/builder", "", ""),
 			wantRestoredVersion, ackRestore.DraftDigest, coreProtocolRevisionID("core-protocol", headVersion), coreProtocolRestoreOriginalLabel, "hydration during pending reconcile and pending restore")
 
@@ -518,19 +461,12 @@ func TestCoreAuthoringProtocolRestoreDuringPendingWork(t *testing.T) {
 		coreProtocolBoundaryFailure(t, stale, "fresh reconcile against the replaced head", http.StatusConflict, "DRAFT_CONFLICT", "reconcile", "")
 	})
 
-	// 2. After the restore commits R, admission follows the CAS/ownership contracts in
-	// both directions: obsolete intent is refused (obsolete-identity restore and
-	// obsolete-identity command), the committed restore replays without re-applying,
-	// and the next command binds to R's identity and advances the head. Only the
-	// current Undo target is restorable, so a later legitimate restore still works.
 	t.Run("next-command-binds-to-restored-head", func(t *testing.T) {
 		fixture := newCoreProtocolFixture(t)
 		headVersion, headDigest, undoRevision := coreProtocolSeedRestorableHead(t, fixture, "c15-command-save-a", coreProtocolRestoreSavedLabel)
 		_, hydratedBeforeRestore := fixture.getBuilder()
 		restoredVersion, restoredDigest, _ := fixture.MustRestoreRevision("c15-command-restore-r", hydratedBeforeRestore)
 
-		// The bounded last-command replay record makes the committed restore an
-		// idempotent acknowledgement; a replayed restore must never re-apply.
 		replay, ackReplay := fixture.restoreRevision("c15-command-restore-r", undoRevision, headVersion, headDigest)
 		if replay.StatusCode != http.StatusOK {
 			t.Fatalf("committed restore must replay as an idempotent acknowledgement: status=%d body=%s", replay.StatusCode, replay.Body)
@@ -577,11 +513,6 @@ func TestCoreAuthoringProtocolRestoreDuringPendingWork(t *testing.T) {
 		}
 		coreProtocolExpectHead(t, fixture, ackFollowUp.DraftVersion, ackFollowUp.DraftDigest, "rejected stale Undo")
 
-		// The Undo-ownership guard on its own: a persisted history record whose
-		// version is exactly head-1 (so version adjacency would pass, and whose bytes
-		// and digest are identical to the legitimate Undo target) must still be refused
-		// because it is not the head's recorded Undo target. The positive control is the
-		// identical content restored through the real Undo target below.
 		foreignRaw, foreignErr := fixture.workspace.CanonicalJSON()
 		if foreignErr != nil {
 			t.Fatal(foreignErr)
@@ -607,11 +538,6 @@ func TestCoreAuthoringProtocolRestoreDuringPendingWork(t *testing.T) {
 			redoneVersion, redoneDigest, coreProtocolRevisionID("core-protocol", ackFollowUp.DraftVersion), coreProtocolRestoreOriginalLabel, "restore after follow-up")
 	})
 
-	// 3. A restore commits while a preview for a retained receipt of A is parked at
-	// the execution boundary. The preview keeps executing per the immutable-receipt
-	// contract (lifecycle/preview.go:28-44 admits on the receipt, never on head
-	// equality) and its displayed server data stays A's frozen contract; afterwards a
-	// fresh reconcile of R produces a receipt bound to R.
 	t.Run("preview-pending-while-restore-commits", func(t *testing.T) {
 		fixture := newCoreProtocolPendingFixture(t)
 		base := fixture.coreProtocolFixture
@@ -693,11 +619,6 @@ func TestCoreAuthoringProtocolRestoreDuringPendingWork(t *testing.T) {
 		}
 	})
 
-	// 4. A restore and a competing command save race at the store CAS. Both writers are
-	// provably parked inside the compare-and-swap window with the same expected
-	// identity, exactly one CAS is accepted, the loser's rejection comes from the CAS
-	// itself (recorded by the store as a rejected compare-and-swap for the pre-race
-	// identity), and head plus history revision stay coherent for either winner.
 	t.Run("restore-races-command-save", func(t *testing.T) {
 		for _, winner := range []string{"restore", "save"} {
 			winner := winner
@@ -783,13 +704,6 @@ func TestCoreAuthoringProtocolRestoreDuringPendingWork(t *testing.T) {
 				if attempts[0].commandID != winnerCommandID || !attempts[0].acceptedByStoreCAS {
 					t.Fatalf("first recorded CAS is not the accepted winner: %+v", attempts[0])
 				}
-				// Common origin: CAS semantics accept a writer only against the head it
-				// read, so two accepted writers would be legitimate only if the second
-				// were a different origin riding the first's result. That would be a
-				// chained/sequential dispatch masquerading as a race, so both recorded
-				// CAS attempts must compare-and-swap the single pre-race head identity
-				// (C15, docs/verification/CORE_PROTOCOL_VERIFICATION_PLAN.md:384: restore
-				// and subsequent admission follow the actual CAS/ownership contract).
 				if attempts[0].expectedVersion != headVersion || attempts[0].expectedDigest != headDigest {
 					t.Fatalf("winner did not race from the common pre-race head: %+v want version=%d digest=%s", attempts[0], headVersion, headDigest)
 				}
@@ -844,11 +758,6 @@ func TestCoreAuthoringProtocolRestoreDuringPendingWork(t *testing.T) {
 		}
 	})
 
-	// 5. Recovery GET (Builder hydration) while the captured-A reconcile is still
-	// parked returns a coherent envelope, checked before the restore commits and again
-	// after, with the announced digest re-derived from the returned workspace so a
-	// mixed version/digest pair cannot pass. Completing the parked reconcile afterwards
-	// leaves head R coherent.
 	t.Run("recovery-get-during-pending-reconcile", func(t *testing.T) {
 		fixture := newCoreProtocolFixture(t)
 		headVersion, headDigest, undoRevision := coreProtocolSeedRestorableHead(t, fixture, "c15-recovery-save-a", coreProtocolRestoreSavedLabel)

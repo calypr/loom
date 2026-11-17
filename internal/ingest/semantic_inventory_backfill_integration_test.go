@@ -9,10 +9,9 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publication "github.com/calypr/loom/internal/dataset"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -27,17 +26,18 @@ func TestRetainedSemanticInventoryBackfillArangoIntegration(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	client, err := arangostore.Open(ctx, endpoint, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
 	project := "c01-backfill-" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	generation := strings.ReplaceAll(uuid.NewString(), "-", "")
-	if err := client.Bootstrap(ctx, arangostore.BootstrapSpec{Collections: []arangostore.CollectionSpec{{Name: "Observation"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
-	store, err := catalogarango.New(client)
+	store, err := arangofactory.NewCatalogStore(client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestRetainedSemanticInventoryBackfillArangoIntegration(t *testing.T) {
 	if _, claimed, err := store.ClaimSemanticInventoryBackfill(ctx, build, "integration-owner", time.Minute); err != nil || !claimed {
 		t.Fatalf("initial explicit claim claimed=%v err=%v", claimed, err)
 	}
-	if _, claimed, err := store.ClaimSemanticInventoryBackfill(ctx, build, "integration-contender", time.Minute); err != catalogarango.ErrSemanticInventoryClaimed || claimed {
+	if _, claimed, err := store.ClaimSemanticInventoryBackfill(ctx, build, "integration-contender", time.Minute); err != arangofactory.ErrSemanticInventoryClaimed || claimed {
 		t.Fatalf("concurrent explicit claim claimed=%v err=%v, want claim rejection", claimed, err)
 	}
 	if err := store.FailSemanticInventoryBackfill(ctx, build, "integration-owner", "release test claim"); err != nil {
@@ -133,13 +133,13 @@ func backfillIntegrationPayload(scope string, distinct int) map[string]any {
 	return map[string]any{"resourceType": "Observation", "id": scope, "component": components}
 }
 
-func readBackfillIntegrationSources(t *testing.T, ctx context.Context, store *catalogarango.Store, project, generation string) map[string]catalogarango.RetainedSemanticInventoryRow {
+func readBackfillIntegrationSources(t *testing.T, ctx context.Context, store *arangofactory.CatalogStore, project, generation string) map[string]catalog.RetainedSemanticInventoryRow {
 	t.Helper()
 	page, err := store.ReadRetainedSemanticInventoryPage(ctx, project, generation, "Observation", "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := make(map[string]catalogarango.RetainedSemanticInventoryRow, len(page.Rows))
+	rows := make(map[string]catalog.RetainedSemanticInventoryRow, len(page.Rows))
 	for _, row := range page.Rows {
 		rows[row.Key] = row
 	}
@@ -164,7 +164,7 @@ func integrationBackfillManifest(t *testing.T, project, generation string) publi
 	return manifest
 }
 
-func assertRetainedInventoryPageCodes(t *testing.T, ctx context.Context, store *catalogarango.Store, project, generation string, paths []string, wantCount int, prefix string, sharedPopulation int64) {
+func assertRetainedInventoryPageCodes(t *testing.T, ctx context.Context, store *arangofactory.CatalogStore, project, generation string, paths []string, wantCount int, prefix string, sharedPopulation int64) {
 	t.Helper()
 	codes, err := collectRetainedInventoryPageCodes(ctx, store, project, generation, paths)
 	if err != nil {
@@ -195,7 +195,7 @@ func assertRetainedInventoryPageCodes(t *testing.T, ctx context.Context, store *
 	}
 }
 
-func collectRetainedInventoryPageCodes(ctx context.Context, store *catalogarango.Store, project, generation string, paths []string) (map[string]catalog.SemanticObservation, error) {
+func collectRetainedInventoryPageCodes(ctx context.Context, store *arangofactory.CatalogStore, project, generation string, paths []string) (map[string]catalog.SemanticObservation, error) {
 	options := catalog.SemanticInventoryPageOptions{
 		Project: project, DatasetGeneration: generation, AuthResourcePaths: paths,
 		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(false),

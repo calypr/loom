@@ -38,9 +38,6 @@ func validFrameForm(form capability.ConstructionChoiceForm) bool {
 	}
 }
 
-// FrameDefinition selects one metadata-backed correlated code/value family
-// and an exact route. It is source guidance until matching categories are
-// added; it does not change the row grain or compile an evaluator of its own.
 type FrameDefinition struct {
 	ID          string                             `json:"id"`
 	Title       string                             `json:"title"`
@@ -93,7 +90,6 @@ func (f FrameDefinition) Validate() error {
 		f.ZeroPolicy == FrameZeroNull && f.ManyPolicy == FrameManyFirst && f.Form == capability.ConstructionChoiceFirst ||
 		f.ZeroPolicy == FrameZeroEmptyList && f.ManyPolicy == FrameManyAll && f.Form == capability.ConstructionChoiceAll ||
 		f.ZeroPolicy == FrameZeroEmptyList && f.ManyPolicy == FrameManyDistinct && f.Form == capability.ConstructionChoiceDistinct {
-		// The selected form and its zero/many behavior are a closed policy pair.
 	} else {
 		return fmt.Errorf("frame zero/many policy does not match form %q", f.Form)
 	}
@@ -213,7 +209,6 @@ func cloneFrameRoute(route []capability.ConstructionRouteStep) []capability.Cons
 	return cloned
 }
 
-// ResolveFrameSource attaches a frame choice already authorized by lifecycle.
 func (c *Command) ResolveFrameSource(frame FrameDefinition) error {
 	if c == nil || c.Type != CommandSetFrameSource && c.Type != CommandReplaceFrameSource {
 		return fmt.Errorf("a frame source can only be resolved for SET_FRAME_SOURCE or REPLACE_FRAME_SOURCE")

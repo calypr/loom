@@ -15,8 +15,6 @@ import { EXPLORER_AUTHORING_SEMANTICS_VERSION } from '../ui/packages/loom-ui/src
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
-// Browser-only helpers are optional after the acceptance harness retirement.
-// Loading this module must not prevent development startup, shutdown or doctor.
 const optionalBrowserHelper = async (file, name) => {
   const path = join(SCRIPT_DIR, 'verify-ui/helpers', file);
   if (!existsSync(path)) throw new Error(`Browser verification is unavailable: ${file} was retired. Use the current verification skill to select an executable check.`);
@@ -27,8 +25,6 @@ const optionalBrowserHelper = async (file, name) => {
 const performAction = async (...args) => (await optionalBrowserHelper('playwright-actions.mjs', 'performAction'))(...args);
 const captureNativeFailureEvidence = async (...args) => (await optionalBrowserHelper('native-failure-evidence.mjs', 'captureNativeFailureEvidence'))(...args);
 
-// These are read operations even though the public API represents them as POST.
-// Everything else, including unknown endpoints, remains a write for diagnostics.
 const readOnlyDevPostSuffixes = new Set([
   'schema-fields', 'suggestions', 'semantic-inventory', 'frame-source-options',
   'configured-column-context', 'construction-choices', 'related-expand-choices',
@@ -216,10 +212,6 @@ export const normalizeDockerHostPath = dockerHostPath;
 export const sourceMountMatches = (mountedPath, expectedPath) =>
   resolve(dockerHostPath(String(mountedPath))) === resolve(expectedPath);
 
-/**
- * A DevSession is the only input accepted by lifecycle and verification code.
- * It keeps ownership, URLs, fixture identity, and evidence location together.
- */
 export const createDevSession = (env = process.env, cwd = REPO_ROOT) => {
   const sourceRoot = resolve(envValue(env, 'LOOM_DEV_SOURCE_ROOT', cwd));
   const defaults = defaultSessionValues(sourceRoot, env);
@@ -420,7 +412,6 @@ export const captureDevJourneyFailure = async (page, diagnostics, report, eviden
     writeJSON(evidencePath, JSON.parse(sanitizeBody(JSON.stringify(failure))));
     recordEvidence(report, evidencePath);
   } catch {
-    // Keep the originating Playwright assertion if failure evidence cannot be written.
   }
   report.target.nativeFailure = evidenceName;
   return evidenceName;
@@ -852,11 +843,6 @@ export const parseBuildIdentity = ({ stampOutput, recordedOutput, gitHeadOutput 
   };
 };
 
-// The scoped sandbox docker bridge (OpenShell) denies `docker compose exec`; only
-// ps/inspect/top/logs/exec are permitted and compose ps additionally requires the
-// host registration's own compose file. Resolve the API container via label filters
-// (scoped bridge) and probe it with docker exec, the same channel
-// scripts/verify-ui/helpers/cda-verification-identity.mjs uses for CDA captures.
 export const resolveOwnedApiContainer = (target, { env = commandEnvironment(target), psRunner } = {}) => {
   const listed = (psRunner ?? ((args) => spawnSync('docker', args, { encoding: 'utf8', env, timeout: 15000 })))(
     ['ps', '--filter', `label=com.docker.compose.project=${target.composeProject}`,
@@ -1008,9 +994,6 @@ const waitForHTTP = async (url, predicate = (response) => response.ok, timeout =
 
 export const generationLoadDisposition = (value) => {
   const state = String(value?.state ?? '').trim().toUpperCase();
-  // Modern immutable loads remain STAGED after graph/catalog finalization;
-  // activation is recorded by the separate project-generation pointer.
-  // READY is the legacy spelling retained by the dataset manifest codec.
   if (state === 'STAGED' || state === 'READY' || state === 'ACTIVE') return 'ready';
   if (state === 'FAILED' || state === 'ERROR') return 'failed';
   if (state === 'LOADING' || state === 'QUEUED') return 'loading';
@@ -1040,10 +1023,6 @@ const waitForGenerationReady = async (url, timeout, initialError = '') => {
   throw new Error(`timed out waiting for fixture generation: ${last}`);
 };
 
-// Air can leave the previous process answering /readyz during its debounce
-// window. The build command records a source and binary digest only after a
-// successful compile; the check also hashes the executable held by the running
-// server, so edits, deletions, and a stale process cannot pass this barrier.
 const waitForFreshBuild = async (target, timeout = 30000) => {
   const started = Date.now();
   let last = 'no build metadata';
@@ -1198,9 +1177,6 @@ const seedFixture = async (target, { requireFresh = false, populateBootstrap = t
       const text = await response.text();
       if (!response.ok) throw new Error(`fixture seed returned HTTP ${response.status}: ${text.slice(0, 500)}`);
     } catch (error) {
-      // Large multipart loads may outlive the HTTP connection while the
-      // generation continues under its durable lifecycle record. Poll that
-      // record before treating a transport disconnect as an ingestion failure.
       submitError = error instanceof Error ? error.message : String(error);
     }
     await waitForGenerationReady(statusURL, target.fixtureLoadTimeout, submitError);
@@ -3435,7 +3411,7 @@ export const verifyJ05BrowserScenario = async (target, report, entryTarget = tar
           state = await fetchExplorerState(target, explorerId);
           runtime = state.runtime ?? state;
           if (runtime.outputs?.length && (state.active?.revisionId || state.publication?.revisionId || runtime.publication?.revisionId)) break;
-        } catch { /* publication becomes readable after the durable publish response */ }
+        } catch { }
         await sleep(300);
       }
       output = runtime?.outputs?.find((candidate) => candidate.outputId === report.target.outputId);
@@ -3712,7 +3688,7 @@ export const verifyJ05BrowserScenario = async (target, report, entryTarget = tar
     recordEvidence(report, join(evidenceDir, failureTrace));
     throw error;
   } finally {
-    try { await captureDOM('j05-final'); } catch { /* preserve the primary failure */ }
+    try { await captureDOM('j05-final'); } catch { }
   }
 };
 
@@ -4846,7 +4822,7 @@ export const verifyJ01BrowserScenario = async (target, report, entryTarget = tar
           explorerState = await fetchExplorerState(target, report.target.explorerId);
           runtime = explorerState.runtime ?? explorerState;
           if (runtime.outputs?.length) break;
-        } catch { /* the durable publication can precede its Viewer read */ }
+        } catch { }
         await sleep(500);
       }
       if (!runtime?.outputs?.length) throw new Error('J01 published Explorer runtime did not become readable');
@@ -5827,17 +5803,12 @@ const verifyInterpretationCandidate = async (target, report, diagnostics, page, 
 
 const runIDForProject = (value) => value.replace(/[^a-z0-9_]/gi, '_').slice(-40);
 
-// Ingestion keys include the project and generation. Legacy FIRST orders by
-// those storage keys, not FHIR IDs; these expectations do not use the compiler.
 export const expectedFixtureRelatedValue = (project, generation) => {
   const key = (id) => createHash('sha256')
     .update(['vertex', project, generation, 'Observation', id, ''].join('\0')).digest('hex');
   return key('dev-observation-001') < key('dev-observation-003') ? 172.5 : 180;
 };
 
-// Normal resource rows use [project, _key] as their compiler identity. The
-// generation loader qualifies each physical document key before the cell-trace
-// endpoint hashes those identity parts as JSON.
 export const j04DefaultRecordCellTraceRowID = (project, generation, resourceType, sourceID) => {
   const parts = [project, generation, resourceType, sourceID];
   if (parts.some((part) => typeof part !== 'string' || !part.trim())) {
@@ -6800,7 +6771,7 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
         state = await fetchExplorerState(target, explorerId);
         runtime = state.runtime ?? state;
         if (runtime?.outputs?.length) break;
-      } catch { /* The publish request may still be materializing. */ }
+      } catch { }
       await sleep(500);
     }
     if (!runtime?.outputs?.length) throw new Error('published Explorer runtime did not become readable');
@@ -7053,9 +7024,6 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
 };
 
 const measureHotReload = async (target, report, waitForProbeValue, readProbeValue) => {
-  // This file is the package source imported through the development-only
-  // @calypr/loom-ui alias. The wrapper stylesheet is intentionally not the
-  // probe: a wrapper-only HMR check could pass while the package alias is stale.
   const probePath = join(target.sourceRoot, 'ui/packages/loom-ui/src/styles.css');
   const original = readFileSync(probePath);
   const marker = `\n/* loom-dev-hotreload-probe */\n.loom-ui-root { --loom-dev-hotreload-probe: ${target.fixtureGeneration}; }\n`;
@@ -9772,7 +9740,7 @@ export const verifyJ04BrowserScenario = async (target, report, entryTarget, fixt
             publishedState = await fetchExplorerState(target, explorerId);
             runtime = publishedState.runtime ?? publishedState;
             if (runtime?.outputs?.some((output) => output.outputId === outputId) && (runtime.publication?.revisionId || publishedState.active?.revisionId)) break;
-          } catch { /* Publish may still be materializing. */ }
+          } catch { }
           await page.waitForTimeout(300);
         }
         const publishOutcome = await publishResponsePromise;

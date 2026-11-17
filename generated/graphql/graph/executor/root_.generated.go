@@ -653,6 +653,7 @@ type ComplexityRoot struct {
 		RequestPreparationMs func(childComplexity int) int
 		ResultAssemblyMs     func(childComplexity int) int
 		RowMaterializationMs func(childComplexity int) int
+		SourceQueryMs        func(childComplexity int) int
 		TotalMs              func(childComplexity int) int
 	}
 
@@ -5730,6 +5731,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DataframeQueryDiagnostics.RowMaterializationMs(childComplexity), true
+	case "DataframeQueryDiagnostics.sourceQueryMs":
+		if e.ComplexityRoot.DataframeQueryDiagnostics.SourceQueryMs == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeQueryDiagnostics.SourceQueryMs(childComplexity), true
 	case "DataframeQueryDiagnostics.totalMs":
 		if e.ComplexityRoot.DataframeQueryDiagnostics.TotalMs == nil {
 			break
@@ -20166,10 +20173,6 @@ enum FhirValueMode {
   DISTINCT
 }
 
-# Typed, storage-independent dataframe predicates. ` + "`" + `select` + "`" + ` is a FHIR path
-# (or a resolved catalog selector), while ` + "`" + `fieldRef` + "`" + ` is optional frontend
-# provenance used during scoped field resolution. Values are a strict tagged
-# union; exactly one member matching ` + "`" + `kind` + "`" + ` is accepted by recipe validation.
 enum FhirFilterOperator {
   EQUALS
   NOT_EQUALS
@@ -20220,8 +20223,6 @@ input FhirFilterInput {
   select: String!
   fieldRef: String
   operator: FhirFilterOperator!
-  # Scalar selectors do not accept an array quantifier. Repeated selectors
-  # must opt into ANY, ALL, or NONE explicitly after schema resolution.
   quantifier: FhirFilterQuantifier
   values: [FhirFilterValueInput!]! = []
 }
@@ -20319,9 +20320,6 @@ input FhirDataframeInput {
   cursor: String
 }
 
-# Explicit, bounded FHIR graph traversal. Graph mode defaults each edge to
-# REQUIRED (unlike the dataframe builder's OPTIONAL default) and returns
-# complete node paths rather than flattened rows.
 input FhirGraphQueryInput {
   project: String!
   authResourcePaths: [String!]
@@ -20389,13 +20387,11 @@ type FhirDataframeResult {
   diagnostics: DataframeQueryDiagnostics!
 }
 
-# Server-side timings for one dataframe request. ` + "`" + `arangoQueryMs` + "`" + ` excludes
-# Loom's per-row flattening/delivery time; together those two fields identify
-# whether the database plan or result materialization is dominant.
 type DataframeQueryDiagnostics {
   inputResolutionMs: Float!
   requestPreparationMs: Float!
   compilationMs: Float!
+  sourceQueryMs: Float!
   arangoQueryMs: Float!
   rowMaterializationMs: Float!
   resultAssemblyMs: Float!
@@ -20403,8 +20399,6 @@ type DataframeQueryDiagnostics {
   plan: DataframeCompilerPlanDiagnostics!
 }
 
-# Compiler facts for deciding which AQL rewrite to implement next. These are
-# not Arango estimates; pair them with a live PROFILE for operator-level cost.
 type DataframeCompilerPlanDiagnostics {
   traversalSets: Int!
   sharedTraversalCount: Int!
@@ -24253,6 +24247,8 @@ func (ec *executionContext) childFields_DataframeQueryDiagnostics(ctx context.Co
 		return ec.fieldContext_DataframeQueryDiagnostics_requestPreparationMs(ctx, field)
 	case "compilationMs":
 		return ec.fieldContext_DataframeQueryDiagnostics_compilationMs(ctx, field)
+	case "sourceQueryMs":
+		return ec.fieldContext_DataframeQueryDiagnostics_sourceQueryMs(ctx, field)
 	case "arangoQueryMs":
 		return ec.fieldContext_DataframeQueryDiagnostics_arangoQueryMs(ctx, field)
 	case "rowMaterializationMs":

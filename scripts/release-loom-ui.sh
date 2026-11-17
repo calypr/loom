@@ -15,8 +15,6 @@ upstream_remote=''
 upstream_branch=''
 upstream_ref=''
 
-# These are the only paths the automated release commit may ever include.
-# Keep this as a literal array: the allowlist is part of the release contract.
 owned_paths=(
   Makefile
   scripts/release-loom-ui.sh
@@ -152,8 +150,6 @@ bootstrap() {
   require_layout
   for command in node npm git tar mktemp chmod mkdir rm tr grep; do command_exists "$command"; done
 
-  # Never inherit ~/.npm. npm_config_cache is intentionally exported only for
-  # this process and its children. The directory is an exact mktemp target.
   if [[ -z "$release_npm_cache" || ! -d "$release_npm_cache" ]]; then
     release_npm_cache=$(mktemp -d "${TMPDIR:-/tmp}/loom-release-npm-cache.XXXXXX")
     chmod 700 "$release_npm_cache"
@@ -213,8 +209,6 @@ commit_owned_changes() {
   status=$(git -C "$repo_root" status --porcelain=v1 --untracked-files=all -- "${owned_paths[@]}")
   [[ -n "$status" ]] || return 0
 
-  # Stage only the literal allowlist, then --only protects unrelated staged
-  # entries from being included in this release commit.
   git -C "$repo_root" add -- "${owned_paths[@]}"
   git -C "$repo_root" commit --only "${owned_paths[@]}" -m "release(ui): @calypr/loom-ui $version"
 }
@@ -404,8 +398,6 @@ repair_or_verify_existing_release() {
   fi
   case "$comparison" in
     1)
-      # The explicit publish stage authorizes repairing a missing/stale latest
-      # tag, but never permits moving latest backward.
       npm dist-tag add "$package_name@$version" latest --registry "$registry"
       ;;
     0)
@@ -464,9 +456,6 @@ publish() {
 release() {
   local version=$1
 
-  # Keep this sequence explicit. A registry mutation is reachable only after
-  # the branch is checked, authentication succeeds, owned changes are pushed,
-  # and publish performs its normal verification.
   require_release_git_state
   bootstrap no
   authenticate_release
@@ -478,9 +467,6 @@ release() {
     prepare "$version"
   fi
 
-  # Preparation is allowed to mutate only the three UI metadata files. Check
-  # again before staging so a toolchain-generated source or workspace change
-  # cannot slip past the release boundary.
   require_clean_ui_scope
   commit_owned_changes "$version"
   push_release_head

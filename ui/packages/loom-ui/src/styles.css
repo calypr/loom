@@ -124,8 +124,6 @@
 .loom-viewer-table tbody tr:last-child td {
   border-bottom: 0;
 }
-
-/* Builder-only accents follow the loom-wide border reset above. */
 .loom-ui-root .construction-table-tabs {
   background-color: transparent;
 }
@@ -205,8 +203,6 @@
 .loom-ui-root .construction-preview-data-row {
   border-bottom: 1px solid #eef2f7;
 }
-
-/* Keep interactive feedback consistent inside Loom and its body-level portals. */
 :where(
   .loom-ui-root,
   body:has(.loom-ui-root) > [data-mantine-shared-portal-node]:has([role="dialog"], [role="menu"], [role="menuitem"]),

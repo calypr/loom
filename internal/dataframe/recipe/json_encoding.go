@@ -1,6 +1,3 @@
-// Package recipe defines the persistence-neutral recipe document used by the
-// dataframe compiler. A recipe describes semantic row shaping only; it never
-// carries database collection, table, AQL, or SQL details.
 package recipe
 
 import (
@@ -23,7 +20,6 @@ func (b Bundle) ExpandFragments() (Bundle, error) {
 	return expanded, nil
 }
 
-// Explanation is a storage-independent summary of a validated recipe.
 type Explanation struct {
 	RecipeSchemaVersion int                 `json:"recipeSchemaVersion"`
 	Name                string              `json:"name"`
@@ -32,7 +28,6 @@ type Explanation struct {
 	Outputs             []OutputExplanation `json:"outputs"`
 }
 
-// OutputExplanation intentionally omits physical implementation details.
 type OutputExplanation struct {
 	Name               string   `json:"name"`
 	RootResourceType   string   `json:"rootResourceType"`
@@ -45,14 +40,10 @@ type OutputExplanation struct {
 	CatalogProjections []string `json:"catalogProjections,omitempty"`
 }
 
-// DocumentRef identifies the complete document in a lexical recipe context.
-// Context defaults to root when omitted.
 type DocumentRef struct {
 	Context string `json:"context,omitempty"`
 }
 
-// Expression is the generic recipe expression input AST. Exactly one of
-// Select, Literal, Call, or Document is set; Call nodes may contain Args.
 type Expression struct {
 	Select   string
 	Literal  json.RawMessage
@@ -183,12 +174,6 @@ func (e *Expression) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// UnmarshalJSON accepts the small amount of metadata emitted by the Explorer
-// Builder while keeping catalog-only fields out of the executable recipe.
-// Label and ColumnID are durable recipe metadata; logical type and selection
-// details are resolved by the compiler from the expression and schema.
-// Keep this compatibility surface explicit so unrelated recipe typos remain
-// strict parse errors.
 func (f *Field) UnmarshalJSON(data []byte) error {
 	type fieldJSON struct {
 		Name      string       `json:"name"`
@@ -199,8 +184,6 @@ func (f *Field) UnmarshalJSON(data []byte) error {
 		Fallbacks []Expression `json:"fallbacks,omitempty"`
 		ValueMode ValueMode    `json:"valueMode,omitempty"`
 
-		// Explorer Builder catalog/presentation metadata. These fields are
-		// intentionally not copied into Field.
 		LogicalType   string `json:"logicalType,omitempty"`
 		Repeated      bool   `json:"repeated,omitempty"`
 		Family        string `json:"family,omitempty"`
@@ -230,7 +213,6 @@ func (f *Field) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Parse strictly decodes and validates a recipe document.
 func Parse(data []byte) (Bundle, error) {
 	if err := detectDuplicateKeys(data); err != nil {
 		return Bundle{}, err
@@ -253,6 +235,3 @@ func Parse(data []byte) (Bundle, error) {
 	}
 	return b, nil
 }
-
-// Validate checks semantic document invariants and resource-independent
-// expression safety.

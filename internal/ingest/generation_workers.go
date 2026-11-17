@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/catalog"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 
 	"github.com/bmeg/jsonschemagraph/graph"
 )
@@ -67,15 +67,6 @@ type fileLoadResult struct {
 
 const rowErrorSampleLimit = 10
 
-// selectGenerationRowErrorSamples picks the bounded row-error samples a failed
-// generation load reports to operators. fileSamples holds one candidate list per
-// staged file, in the sorted discovery order DiscoverNDJSON returns, and each list
-// is already ordered by line. Rank zero takes the earliest sample from every failing
-// file before any later file can be dropped, so a file with many bad rows cannot
-// starve the samples of the files after it; later ranks round-robin the remaining
-// budget in the same file order. When more files fail than the cap permits, the
-// earliest files in discovery order keep the whole budget. Duplicate samples are
-// ignored, so the result never exceeds the cap and keeps file-then-line order.
 func selectGenerationRowErrorSamples(fileSamples [][]RowErrorSample) []RowErrorSample {
 	failing := make([][]RowErrorSample, 0, len(fileSamples))
 	longest := 0
@@ -124,8 +115,6 @@ func flattenRowErrorSamples(picked [][]RowErrorSample) []RowErrorSample {
 	for _, fileSamples := range picked {
 		samples = append(samples, fileSamples...)
 	}
-	// Two staged files can share a base name in different subdirectories, so the
-	// group order alone does not guarantee the reported order.
 	sort.SliceStable(samples, func(i, j int) bool {
 		if samples[i].File != samples[j].File {
 			return samples[i].File < samples[j].File
@@ -147,15 +136,12 @@ type fileWriteTask struct {
 	replace            bool
 }
 
-type documentInserter func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error
+type documentInserter func(context.Context, *arangofactory.Client, string, []json.RawMessage, bool, string) error
 
-// loadFile owns one scanner and closes it before returning. A blank generation
-// preserves the primary resource-loader identity; overwrite controls its
-// upsert contract while immutable generations always pass false.
 func loadFile(
 	ctx context.Context,
 	opts LoadOptions,
-	client *arangostore.Client,
+	client *arangofactory.Client,
 	schema *graph.GraphSchema,
 	file string,
 	datasetGeneration string,

@@ -112,10 +112,6 @@ func (w Workspace) Validate() error {
 	return nil
 }
 
-// ValidateForPublication applies constraints that are intentionally too strict
-// for mutable Builder state. Changing a table root or route temporarily clears
-// its selections; that intermediate workspace remains compilable, but a visible
-// table must have a visible source column or final construction output to publish.
 func (w Workspace) ValidateForPublication() error {
 	visibleOutputs := make(map[string]bool, len(w.Tabs))
 	for _, tab := range w.Tabs {
@@ -356,7 +352,3 @@ func (s BuilderState) Validate() error {
 func emptyID(value string) bool {
 	return strings.TrimSpace(value) == "" || value != strings.TrimSpace(value)
 }
-
-// CanonicalJSON and Digest provide content-addressed, deterministic wire
-// representations. Catalog collections and unordered selections are sorted;
-// routeSteps retain their authored path order.

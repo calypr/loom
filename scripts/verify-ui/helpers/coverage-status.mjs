@@ -787,9 +787,6 @@ export const currentCoverageBaseline = ({ cwd = process.cwd(), env = process.env
   try { currentSourceFingerprint = sourceFingerprint(cwd); } catch {}
   return {
     sourceFingerprint: currentSourceFingerprint,
-    // The running API identity is intentionally opt-in. Reports need the exact
-    // three-part digest emitted by loom-dev-build-stamp.sh --check; an absent
-    // value leaves build freshness unknown instead of guessing from a freeze.
     apiBuildIdentity: normalizeApiBuildIdentity(env.LOOM_VERIFY_UI_API_BUILD_IDENTITY),
   };
 };

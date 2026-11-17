@@ -162,9 +162,6 @@ const scanCss = (path) => {
   return records;
 };
 
-// useQuery and useMutation are the framework primitives that domain hooks wrap.
-// Their call sites stay in the inventory, but registering the primitive itself
-// would not identify the data dependency a scenario owns.
 const frameworkHooks = new Set(['useQuery', 'useMutation']);
 
 export const inventoryCoverageDrift = (records, scenarios = registry) => {

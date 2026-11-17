@@ -17,8 +17,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// Service is the persistence-neutral lifecycle coordinator. Compiler and
-// publication adapters are intentionally injected by server wiring.
 type Service struct {
 	store Store
 	now   func() time.Time
@@ -37,10 +35,6 @@ func (s *Service) Get(ctx context.Context, project, id string) (*Explorer, error
 	return s.store.Get(ctx, projectid.Legacy(project), id)
 }
 
-// MigrateLegacyConstructionSteps normalizes drafts written when a nil empty
-// construction sequence serialized as null. It verifies that the stored
-// digest matches that exact legacy representation, then records the canonical
-// array representation through the normal draft compare-and-swap path.
 func (s *Service) MigrateLegacyConstructionSteps(ctx context.Context, project, id string, expectedVersion int64, expectedDigest string) (*Explorer, error) {
 	owner, err := s.Get(ctx, project, id)
 	if err != nil {
@@ -72,11 +66,6 @@ func (s *Service) MigrateLegacyConstructionSteps(ctx context.Context, project, i
 	return s.store.SaveDraft(ctx, *owner, expectedVersion, expectedDigest)
 }
 
-// LoadExplorerState returns the one canonical response for the public
-// Explorer GET route. It loads the identity and immutable active revision
-// together, then derives the renderer-facing projection from that revision.
-// The HTTP layer should not reconstruct this response from individual legacy
-// adapters.
 func (s *Service) LoadExplorerState(ctx context.Context, project, id string) (ExplorerStateV1, error) {
 	project = projectid.Canonical(project)
 	id = strings.TrimSpace(id)
@@ -158,9 +147,6 @@ func explorerURL(project, id string) string {
 	return "/api/v1/projects/" + url.PathEscape(project) + "/explorers/" + url.PathEscape(id)
 }
 
-// createEmptyInteractive creates only the Explorer identity. Unpublished
-// Explorers have no persisted authoring content and hydrate as an empty valid
-// Builder model.
 func (s *Service) createEmptyInteractive(ctx context.Context, project, id, title, actor string) (*Explorer, error) {
 	if id == "" || id == "default" {
 		return nil, fmt.Errorf("invalid interactive Explorer identity")
@@ -168,9 +154,6 @@ func (s *Service) createEmptyInteractive(ctx context.Context, project, id, title
 	return s.store.Create(ctx, Explorer{Project: projectid.Legacy(project), ExplorerID: id, Title: title, ManagementMode: ManagementInteractive, UpdatedBy: actor, UpdatedAt: s.now()})
 }
 
-// CreateInteractiveFrom creates a new Explorer identity and, when requested,
-// seeds it from a server-owned source workspace without asking the browser to
-// reconstruct or re-identify that workspace.
 func (s *Service) CreateInteractiveFrom(ctx context.Context, project, id, title, sourceExplorerID, actor string) (*Explorer, error) {
 	if strings.TrimSpace(sourceExplorerID) == "" {
 		return s.createEmptyInteractive(ctx, project, id, title, actor)
@@ -209,18 +192,10 @@ func (s *Service) CreateInteractiveFrom(ctx context.Context, project, id, title,
 	return s.store.Create(ctx, Explorer{Project: projectid.Legacy(project), ExplorerID: id, Title: title, ManagementMode: ManagementInteractive, DraftConfig: canonical, DraftVersion: 1, DraftDigest: digest, UpdatedBy: actor, UpdatedAt: s.now()})
 }
 
-// ApplyWorkspaceCommands is the authoritative Builder mutation boundary. It
-// resolves backend-owned identities, applies a command batch atomically, and
-// persists both the new draft and the bounded last-command replay record in
-// one compare-and-swap. Older command IDs are rejected by draft CAS.
 func (s *Service) ApplyWorkspaceCommands(ctx context.Context, project, id string, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string) (*authoringv2.ApplyCommandsResponse, error) {
 	return s.applyWorkspaceCommands(ctx, project, id, catalog, request, actor, nil, nil)
 }
 
-// ApplyWorkspaceCommandsChecked is the mutation boundary for workflows that
-// need external immutable references resolved and validated before the draft
-// CAS. The preparer runs against the single loaded workspace before reduction;
-// the checker runs against the fully reduced workspace before SaveDraft.
 func (s *Service) ApplyWorkspaceCommandsChecked(ctx context.Context, project, id string, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string, prepare func(context.Context, authoringv2.Workspace, []authoringv2.Command) ([]authoringv2.Command, error), checker func(authoringv2.Workspace) error) (*authoringv2.ApplyCommandsResponse, error) {
 	return s.applyWorkspaceCommands(ctx, project, id, catalog, request, actor, prepare, checker)
 }
@@ -351,9 +326,6 @@ func (s *Service) FailRevision(ctx context.Context, id string, diagnostics []Dia
 	return s.store.FailRevision(ctx, id, diagnostics)
 }
 
-// CompilationReceiptForExplorer performs the tenant-scoped lookup used by
-// execution and publication. The ID-only method above remains for legacy
-// callers during the receipt migration.
 func (s *Service) CompilationReceiptForExplorer(ctx context.Context, project, explorerID, id string) (*CompilationReceipt, error) {
 	return s.store.GetCompilationReceiptForExplorer(ctx, projectid.Canonical(project), explorerID, id)
 }
@@ -394,9 +366,6 @@ func (s *Service) GetRevision(ctx context.Context, revisionID string) (*Revision
 	return s.store.GetRevision(ctx, strings.TrimSpace(revisionID))
 }
 
-// GetDraftRevision performs the tenant and Explorer scoped lookup required by
-// the Builder's server-resolved restore command. Stores without draft history
-// support cannot authorize a browser-supplied revision ID.
 func (s *Service) GetDraftRevision(ctx context.Context, project, explorerID, revisionID string) (*DraftRevision, error) {
 	reader, ok := s.store.(DraftRevisionReader)
 	if !ok {
@@ -409,8 +378,6 @@ func (s *Service) VisitSelectionMembers(ctx context.Context, project, selectionI
 	return s.store.VisitSelectionMembers(ctx, projectid.Canonical(project), selectionID, after, pageSize, visit)
 }
 
-// PublishAuthoring atomically stores the receipt and immutable revision, then
-// switches both the dataset release and Explorer active pointers.
 func (s *Service) PublishAuthoring(ctx context.Context, receipt CompilationReceipt, revision Revision, release dataset.ProjectRelease, expectedReleaseRevision int64) (*Revision, error) {
 	if receipt.ID == "" || revision.ID == "" || revision.CompilationReceiptID != receipt.ID {
 		return nil, fmt.Errorf("authoring publication identity is incomplete")
@@ -420,11 +387,6 @@ func (s *Service) PublishAuthoring(ctx context.Context, receipt CompilationRecei
 	return s.store.PublishAuthoring(ctx, receipt, revision, release, expectedReleaseRevision)
 }
 
-// UpsertRepositoryV2 records the repository-owned default and its immutable
-// receipt-backed ready revision after dataframe publication has succeeded.
-// Activation is intentionally a separate call so callers can compose it with
-// the dataset release switch where the durable adapter supports that atomic
-// transaction.
 func (s *Service) UpsertRepositoryV2(ctx context.Context, receipt CompilationReceipt, sourceCommit, actor string, materializations []Materialization, dataset DatasetMetadata, qualityReports []publication.QualityReport, publicationMetadata PublicationMetadata) (*Explorer, *Revision, error) {
 	if err := receipt.Validate(); err != nil {
 		return nil, nil, fmt.Errorf("invalid repository compilation receipt: %w", err)
@@ -468,10 +430,6 @@ func (s *Service) ActivateRepositoryGeneration(ctx context.Context, project, gen
 	return s.store.ActivateRepositoryGeneration(ctx, projectid.Legacy(project), generation, revisionID)
 }
 
-// RepositoryRevisionID is stable for retrying the same checked-out repository
-// content and immutable compilation receipt against the same Loom generation.
-// Including the receipt identity prevents a compiler-contract upgrade from
-// colliding with a revision produced under older lowering semantics.
 func RepositoryRevisionID(project, sourceCommit, definitionDigest, sourceGeneration string, receiptIdentity ...string) string {
 	artifact := ""
 	if len(receiptIdentity) > 0 {

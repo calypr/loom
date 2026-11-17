@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -23,30 +23,30 @@ func TestSourceGroupPreviewMatchesGenericScopedExpandedGroupAgainstArango(t *tes
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"},
 	}
 	compiledOutput := lowerConstructionOutput(t, sourceGroupPreviewArangoOutput(), bindings)
-	preview, err := CompileRecipeOutputWithPolicy(compiledOutput, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	preview, err := CompileRecipeOutput(ArangoTarget(), compiledOutput, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile key-paged source Group preview: %v", err)
 	}
-	full, err := CompileRecipeOutputWithPolicy(compiledOutput, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
+	full, err := CompileRecipeOutput(ArangoTarget(), compiledOutput, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile generic full-source Group: %v", err)
 	}
-	selectedKeys := strings.Index(preview.Query, "source_group_preview_selected_root_keys")
-	canonicalGroup := strings.Index(preview.Query, "LET __loom_construction_stage_1 = (")
+	selectedKeys := strings.Index(testAQLText(t, preview.Command), "source_group_preview_selected_root_keys")
+	canonicalGroup := strings.Index(testAQLText(t, preview.Command), "LET __loom_construction_stage_1 = (")
 	hasFocusRelationship := false
-	for _, value := range preview.BindVars {
+	for _, value := range testAQLBinds(t, preview.Command) {
 		if relationship, ok := value.(string); ok && relationship == "focus_Specimen" {
 			hasFocusRelationship = true
 			break
 		}
 	}
 	if selectedKeys < 0 || canonicalGroup < selectedKeys || !hasFocusRelationship ||
-		!strings.Contains(preview.Query, "WITH COUNT INTO") || !strings.Contains(preview.Query, "__loom_physical_unnest_index_0 IN") {
-		t.Fatalf("preview did not key-page before the unchanged routed COUNT_ROWS Group:\n%s", preview.Query)
+		!strings.Contains(testAQLText(t, preview.Command), "WITH COUNT INTO") || !strings.Contains(testAQLText(t, preview.Command), "__loom_physical_unnest_index_0 IN") {
+		t.Fatalf("preview did not key-page before the unchanged routed COUNT_ROWS Group:\n%s", testAQLText(t, preview.Command))
 	}
 
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Specimen"}, {Name: "Observation"}, {Name: "fhir_edge", Edge: true},
 	}}); err != nil {
 		t.Fatal(err)
@@ -141,15 +141,11 @@ func TestSourceGroupPreviewMatchesGenericScopedExpandedGroupAgainstArango(t *tes
 	}
 	addValid("missing_key", "observation_missing_key", nil, false, "one")
 	addValid("null_key", "observation_null_key", nil, true, "one", "two")
-	// This malformed key has no eligible relationship. It must not trigger the
-	// STRING-key assertion in either the preview frontier or the generic Group.
 	roots = append(roots, resource("malformed_ineligible", "Specimen", project, generation, "/allowed",
 		rootPayload(map[string]any{"unexpected": "object"}, true)))
 	observations = append(observations, resource("observation_malformed_ineligible", "Observation", project, generation, "/allowed", observationPayload()))
 	roots = append(roots, resource("malformed_eligible", "Specimen", project, generation, "/allowed",
 		rootPayload(map[string]any{"unexpected": "eligible-object"}, true)))
-	// A key without any route is excluded from both the scoped source rows and
-	// the preview frontier.
 	roots = append(roots, resource("no_eligible_route", "Specimen", project, generation, "/allowed", rootPayload("00-no-route", true)))
 
 	addInvalidRoute := func(rootID, observationID, relation string, edgeProject, edgeGeneration, edgeAuth, targetProject, targetGeneration, targetAuth string) {
@@ -191,8 +187,6 @@ func TestSourceGroupPreviewMatchesGenericScopedExpandedGroupAgainstArango(t *tes
 		t.Fatalf("last generic Group = %#v, want group_26 after the 25-row preview boundary", fullRows[len(fullRows)-1])
 	}
 
-	// Confirm from Arango's own mixed-type sort that an object key lies beyond
-	// this 25-group page before making it relationship-eligible below.
 	var orderedTypes []string
 	orderQuery := `FOR root IN Specimen
 FILTER root.project == @project AND root.dataset_generation == @dataset_generation
@@ -223,11 +217,11 @@ RETURN {kind: TYPENAME(group_key)}`
 	insert("Observation", []json.RawMessage{eligibleTarget})
 	eligibleEdge := edge("edge_malformed_eligible", "malformed_eligible", "observation_malformed_eligible", project, generation, "/allowed")
 	insert("fhir_edge", []json.RawMessage{eligibleEdge})
-	previewErr := executeSourceGroupPreviewError(ctx, client, preview)
+	previewErr := executeSourceGroupPreviewError(t, ctx, client, preview)
 	if previewErr == nil || !strings.Contains(previewErr.Error(), "CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH") {
 		t.Fatalf("eligible malformed STRING key preview error = %v, want CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH despite being beyond the first 25 groups", previewErr)
 	}
-	fullErr := executeSourceGroupPreviewError(ctx, client, full)
+	fullErr := executeSourceGroupPreviewError(t, ctx, client, full)
 	if fullErr == nil || !strings.Contains(fullErr.Error(), "CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH") {
 		t.Fatalf("generic Group error for eligible malformed key = %v, want CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH", fullErr)
 	}
@@ -264,6 +258,6 @@ func sourceGroupPreviewArangoOutput() recipe.Output {
 	}
 }
 
-func executeSourceGroupPreviewError(ctx context.Context, client *store.Client, query CompiledQuery) error {
-	return client.QueryRows(ctx, query.Query, 500, query.BindVars, func(map[string]any) error { return nil })
+func executeSourceGroupPreviewError(t *testing.T, ctx context.Context, client *arangofactory.Client, query CompiledQuery) error {
+	return client.QueryRows(ctx, testAQLText(t, query.Command), 500, testAQLBinds(t, query.Command), func(map[string]any) error { return nil })
 }

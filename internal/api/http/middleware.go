@@ -15,12 +15,6 @@ import (
 
 const maxLoggedErrorResponseBytes = 32 * 1024
 
-// errorResponseLogAttrs extracts the useful, server-owned diagnostic fields
-// from responses that were already written by a handler. Authoring routes
-// intentionally write their 4xx response and return nil, so the Fiber error
-// handler cannot log the underlying diagnostic. Keeping this extraction in
-// the request middleware gives every route the same failure visibility while
-// bounding the raw packet retained in logs.
 func errorResponseLogAttrs(body []byte) []any {
 	if len(body) == 0 {
 		return nil
@@ -118,8 +112,6 @@ func (s *HTTPServer) loggingMiddleware(c fiber.Ctx) error {
 }
 
 func (s *HTTPServer) authenticationMiddleware(c fiber.Ctx) error {
-	// Health probes must remain available before credentials are configured and
-	// are deliberately not project/data APIs.
 	switch c.Path() {
 	case "/health", "/livez", "/readyz":
 		return c.Next()

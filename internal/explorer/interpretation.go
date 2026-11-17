@@ -15,9 +15,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// Interpretation IDs are deliberately opaque to callers.  They are still
-// constrained to Arango-safe, URL-safe values so a malformed ID cannot become
-// a collection key or an ambiguous share URL.
 type InterpretationLibraryID string
 type InterpretationRevisionID string
 type InterpretationRuleID string
@@ -38,8 +35,6 @@ var (
 	ErrInterpretationIdentityMismatch = errors.New("interpretation revision identity mismatch")
 )
 
-// InterpretationLibrary is the mutable authoring head for one project and
-// library.  Revisions never mutate; only this pointer advances.
 type InterpretationLibrary struct {
 	ID             InterpretationLibraryID     `json:"id"`
 	Project        string                      `json:"project"`
@@ -72,8 +67,6 @@ type InterpretationApplicability struct {
 	SchemaDigests   []string `json:"schemaDigests,omitempty"`
 }
 
-// InterpretationStructuralMatch is a closed conjunction over observed
-// catalog identity.  Empty dimensions are wildcards.
 type InterpretationStructuralMatch struct {
 	ResourceType     string   `json:"resourceType,omitempty"`
 	SourceProfile    string   `json:"sourceProfile,omitempty"`
@@ -86,8 +79,6 @@ type InterpretationStructuralMatch struct {
 	Cardinality      string   `json:"cardinality,omitempty"`
 }
 
-// The candidate is intentionally a separate type: a rule can never smuggle
-// an arbitrary map or query expression into the matcher.
 type InterpretationStructuralCandidate struct {
 	ResourceType     string
 	SourceProfile    string
@@ -113,10 +104,6 @@ type InterpretationFeatureDefinition struct {
 	Contributor *authoringv2.ContributorPredicate `json:"contributor,omitempty"`
 }
 
-// ResolvedInterpretation is the immutable, occurrence-scoped result of
-// resolving one pinned feature against one exact capability snapshot. It is
-// kept in the explorer domain so receipts can freeze it without creating an
-// import cycle with the compilation package.
 type ResolvedInterpretation struct {
 	OutputID       string                          `json:"outputId"`
 	Column         string                          `json:"column"`
@@ -173,9 +160,6 @@ func canonicalInterpretationProject(raw string) (string, error) {
 	return project, nil
 }
 
-// CanonicalInterpretationProject is the persistence-boundary project parser.
-// It accepts the repository's legacy project spelling but always returns the
-// canonical slash-separated identity.
 func CanonicalInterpretationProject(raw string) (string, error) {
 	return canonicalInterpretationProject(raw)
 }
@@ -407,8 +391,6 @@ func (r InterpretationRevision) canonicalized() (InterpretationRevision, error) 
 
 func canonicalInterpretationDefinition(def InterpretationFeatureDefinition, resourceType string) (InterpretationFeatureDefinition, error) {
 	def.Source = def.Source.Normalized()
-	// Document.Validate is the existing closed authoring validator.  A
-	// synthetic document keeps B06 from inventing a second source language.
 	document := authoringv2.Document{
 		Kind:             authoringv2.Kind,
 		Output:           authoringv2.Output{ID: "interpretation", Title: "Interpretation"},
@@ -463,9 +445,6 @@ func validateStaticAmbiguity(rules []InterpretationRule) error {
 	return nil
 }
 
-// CanonicalContent returns executable interpretation content. Project,
-// lineage, authorship, explanation, and timestamps are omitted; stable rule
-// IDs remain because they are part of selected-rule provenance.
 func (r InterpretationRevision) CanonicalContent() ([]byte, error) {
 	n, err := r.canonicalized()
 	if err != nil {
@@ -535,9 +514,6 @@ func (r InterpretationRevision) ComputeRevisionID() (InterpretationRevisionID, e
 	return InterpretationRevisionID("interpretation_" + hex.EncodeToString(sum[:])), nil
 }
 
-// PrepareInterpretationRevision canonicalizes an incoming revision and
-// recomputes both immutable identities.  Persistence adapters must call this
-// instead of trusting client-supplied IDs or digests.
 func PrepareInterpretationRevision(r InterpretationRevision) (InterpretationRevision, error) {
 	n, err := r.canonicalized()
 	if err != nil {

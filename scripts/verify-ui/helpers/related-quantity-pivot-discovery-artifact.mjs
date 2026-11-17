@@ -244,7 +244,6 @@ function validateQueryEvidence(run, manifest) {
   }
 }
 
-/** Load a trusted complete acquisition after validating its source, scope, query manifest, and full result. */
 export async function loadRelatedQuantityPivotDiscoveryArtifact({
   artifactPath,
   artifactSha256,

@@ -35,10 +35,6 @@ fi
 [[ -f "$ui_build_context/apps/demo/Dockerfile" ]] || { echo "UI build context has no apps/demo/Dockerfile: $ui_build_context" >&2; exit 2; }
 case "$seed" in true|false) ;; *) echo "invalid LOOM_DEMO_SEED: $seed" >&2; exit 2 ;; esac
 
-# Acceptance scripts prewarm an explicit host cache. Go's MkdirTemp creates
-# content-addressed cache roots as 0700, and the bind mount masks the image's
-# arango-fhir ownership. Grant the container's matching supplementary group
-# read/traverse access only; keep the application process non-root.
 fixture_cache_dir=${LOOM_DEMO_FIXTURE_CACHE_DIR:-}
 if [[ -n "$fixture_cache_dir" ]]; then
   [[ -d "$fixture_cache_dir" ]] || { echo "fixture cache directory does not exist: $fixture_cache_dir" >&2; exit 2; }

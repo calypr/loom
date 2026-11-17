@@ -12,9 +12,6 @@ import (
 
 const PopulationRouteChoiceIDMaxLength = 16384
 
-// PopulationRouteChoiceIdentity pins an exact route to one current table and
-// immutable resource selection. It is identity, not authorization: apply
-// must still load the selection and re-authorize every route edge.
 type PopulationRouteChoiceIdentity struct {
 	Version             int
 	SnapshotToken       string
@@ -31,7 +28,6 @@ type populationRouteChoiceToken struct {
 	Route               []ConstructionRouteStep `json:"route"`
 }
 
-// NewPopulationRouteChoiceID creates a stable opaque identifier for a route.
 func NewPopulationRouteChoiceID(identity PopulationRouteChoiceIdentity) (string, error) {
 	if identity.Version == 0 {
 		identity.Version = 1
@@ -55,8 +51,6 @@ func NewPopulationRouteChoiceID(identity PopulationRouteChoiceIdentity) (string,
 	return "pr1." + base64.RawURLEncoding.EncodeToString(payload) + "." + hex.EncodeToString(digest[:]), nil
 }
 
-// DecodePopulationRouteChoiceID checks the token envelope and exact route.
-// The caller must still re-authorize the snapshot, selection, and every edge.
 func DecodePopulationRouteChoiceID(value string) (PopulationRouteChoiceIdentity, error) {
 	if len(value) == 0 || len(value) > PopulationRouteChoiceIDMaxLength {
 		return PopulationRouteChoiceIdentity{}, fmt.Errorf("population route choice id has an invalid length")

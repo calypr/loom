@@ -7,9 +7,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// renderConstructionPivotRowLineage validates Pivot policies over the full
-// scoped input, then pages the exact typed-key preimage without a contributor
-// array.
 func (r *physicalPlanRenderer) renderConstructionPivotRowLineage(
 	sourceQuery string,
 	stage ir.PhysicalConstructionStage,
@@ -110,10 +107,6 @@ type constructionPivotLineageVariables struct {
 	Source string
 }
 
-// renderConstructionPivotLineageValidation matches grouped-Pivot execution
-// semantics across every source group. Group aggregates retain counts only;
-// the final scalar aggregate keeps selected-row discovery from constructing a
-// result array proportional to the number of Pivot groups.
 func (r *physicalPlanRenderer) renderConstructionPivotLineageValidation(
 	sourceQuery string,
 	stage ir.PhysicalConstructionStage,

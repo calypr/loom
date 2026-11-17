@@ -17,14 +17,6 @@ import (
 	"github.com/calypr/loom/internal/ingest"
 )
 
-// F-B27 durable control: scoped dataset-mutation gates must be project-bound.
-// Threat model matches F-B20/F-B21: calypr/scoped-principal deployments
-// (basic/noAuth installs AllowAll and is the single-operator posture). The
-// gate under test is the production authscope.ScopeResolver decision that
-// CreateDatasetGeneration (operations.go:60) and ActivateDatasetGeneration
-// (operations.go:89) call as their ONLY authorization; ingest-side activation
-// (ingest/generation_orchestration.go Activate) has no principal at all.
-
 type stubResourceAccess struct{ writePaths []string }
 
 func (s stubResourceAccess) GetAllowedResources(_ context.Context, _, _, _ string) ([]string, error) {
@@ -196,9 +188,6 @@ func TestCrossProjectDatasetActivateGateIsProjectBound(t *testing.T) {
 	}
 }
 
-// Contrast controls (green in both pre-fix and repaired postures): the gate
-// exists and legitimate owners keep working.
-
 func TestDatasetPublishControlsSameProjectOwnerAndEmptyGrant(t *testing.T) {
 	ownerLoaderCalls := 0
 	loader := func(_ context.Context, _ GenerationLoadRequest, _ ingest.EventSink) (ingest.LoadSummary, error) {
@@ -221,10 +210,6 @@ func TestDatasetPublishControlsSameProjectOwnerAndEmptyGrant(t *testing.T) {
 		t.Fatalf("empty-grant publish must be refused as forbidden, got %v", err)
 	}
 }
-
-// Bootstrap guard for REPAIR-8: a project with no recorded catalog paths yet
-// (first-ever generation) must stay publishable — the repair may only require
-// membership among EXISTING project paths, never forbid empty catalogs.
 
 func TestDatasetPublishNewProjectBootstrapRemainsPossible(t *testing.T) {
 	loaderCalls := 0

@@ -23,10 +23,6 @@ func recipeScopeDigest(bindings recipe.RuntimeBindings) string {
 	return hex.EncodeToString(hash[:])
 }
 
-// recipeOutputLogicalColumns is the one conversion point from the finalized
-// compiler schema to the backend-neutral publication schema. Publication must
-// not reconstruct nested names from semantic recipe nodes because those names
-// are finalized by physical lowering.
 func recipeOutputLogicalColumns(plan dataframeexecution.Resolved, outputName string) []publication.LogicalColumn {
 	for _, output := range plan.Compiled.Outputs {
 		if output.Name != outputName {
@@ -40,9 +36,6 @@ func recipeOutputLogicalColumns(plan dataframeexecution.Resolved, outputName str
 				if kind == "" {
 					kind = "string"
 				}
-				// Group row identity is a structured tuple in the compiler. The
-				// publication row key is its canonical JSON text so ClickHouse can
-				// order and page by the hidden identity column.
 				if output.RowGrain == spec.RowGrainGroups && kind == "object" {
 					kind = "string"
 				}

@@ -5,7 +5,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
-// effectiveAuthScopeUnrestricted makes resolved request scopes authoritative.
 func effectiveAuthScopeUnrestricted(paths []string, mode authscope.ReadScopeMode) bool {
 	switch mode {
 	case authscope.ReadScopeUnrestricted:
@@ -15,7 +14,6 @@ func effectiveAuthScopeUnrestricted(paths []string, mode authscope.ReadScopeMode
 	case "":
 		return len(paths) == 0
 	default:
-		// An invalid internal mode must fail closed rather than bypass scope.
 		return false
 	}
 }

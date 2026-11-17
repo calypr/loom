@@ -131,8 +131,6 @@ describe('ROW-SOURCE-06 round-2 attacks (ConstructionOperationEditor)', () => {
     });
     setKind('First value', 'column');
     setKind('Second value', 'column');
-    // The kind shortcut reuses the numeric column it just materialized, so each lane
-    // explicitly re-picks a distinct dataset field.
     fireEvent.change(operandColumn('Second value'), { target: { value: 'source:choice-b' } });
 
     const offers = (select: HTMLSelectElement, choiceId: string, columnId: string) =>
@@ -172,7 +170,6 @@ describe('ROW-SOURCE-06 round-2 attacks (ConstructionOperationEditor)', () => {
       filterSourceInput: {
         supported: true,
         stageId: 'source_projection',
-        // zod allows two choices sharing one materialized columnId; server proposal paths reject duplicates.
         choices: [numericChoice('choice-a', 'root.a', 'shared-column'), numericChoice('choice-b', 'root.b', 'shared-column')],
       },
     });
@@ -181,8 +178,6 @@ describe('ROW-SOURCE-06 round-2 attacks (ConstructionOperationEditor)', () => {
 
     const control = filterColumn();
     expect(sourceOptgroup(control)).toBeNull();
-    // Evidence: both bindings live on one columnId, but only one bound option renders,
-    // so root.b is neither selectable nor explained.
     expect([...control.options].filter((o) => o.value === 'shared-column')).toHaveLength(1);
     expect(screen.getByTestId('source-picker-explanation').textContent)
       .toContain('already used by another source selection');
@@ -198,7 +193,6 @@ describe('ROW-SOURCE-06 round-2 attacks (ConstructionOperationEditor)', () => {
         choices: [{ choiceId: 'choice-status', fieldPath: 'root.status', label: 'Status', logicalType: 'string', isPopulated: false, columnId: '' }],
       },
     });
-    // Two status surfaces coexist legitimately here (column notice + zero-eligible explanation).
     expect(screen.getAllByRole('status').some((node) => (node.textContent ?? '').includes('no columns'))).toBe(true);
     expect(screen.queryByRole('combobox', { name: 'Column' })).toBeNull();
   });
@@ -250,9 +244,6 @@ describe('ROW-SOURCE-06 round-2 attacks (ConstructionOperationEditor)', () => {
     expect(selectable || explained).toBe(true);
   });
 
-  // Coordinator addendum (self-review of round-2 delta): when the first
-  // operand has no source section (literal kind), a zero-field second operand
-  // must still explain itself rather than render an unexplained empty picker.
   it('hosts the explanation on the second operand when the first operand is literal', () => {
     renderEditor({
       family: 'CALCULATE',
@@ -269,8 +260,6 @@ describe('ROW-SOURCE-06 round-2 attacks (ConstructionOperationEditor)', () => {
     expect(screen.getByTestId('source-picker-explanation').textContent).toContain('dataset field');
   });
 
-  // Coordinator addendum: pins the visibility-aware self-exclusion that keeps a
-  // still-selectable sole binding from falsely producing the all-bound banner.
   it('renders no banner while the sole bound derive field stays selectable as its materialized column', () => {
     renderEditor({
       family: 'CALCULATE',
@@ -304,7 +293,6 @@ describe('ROW-SOURCE-06 round-2 attacks (ConstructionOperationEditor)', () => {
         choices: [{ choiceId: 'choice-a', fieldPath: 'root.a', label: 'Root a', logicalType: 'decimal', isPopulated: true, columnId: 'filter-input_saved' }],
       },
     });
-    // Drive the condition column to a different stage column than the bound private column.
     fireEvent.change(filterColumn(), { target: { value: 'age-id' } });
 
     const control = filterColumn();

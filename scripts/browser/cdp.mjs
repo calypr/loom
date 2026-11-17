@@ -1,4 +1,3 @@
-// Shared dependency-free Chrome DevTools transport. Importing this module starts nothing.
 export class CDPClient {
   constructor(socket) {
     this.socket = socket;

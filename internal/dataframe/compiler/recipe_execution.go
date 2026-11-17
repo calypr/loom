@@ -3,6 +3,7 @@ package compiler
 import (
 	"fmt"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
@@ -26,11 +27,10 @@ func workspaceOutputCaptureRequired(output lower.CompiledRecipeOutput) bool {
 	return false
 }
 
-// CompileResolvedRecipePlanWithPolicy is the common execution boundary for a
-// resolved recipe bundle. Lowering produces canonical physical plans; this
-// function applies the generic optimizer, inserts the typed execution window,
-// and renders through RenderPhysicalPlan for each output.
-func CompileResolvedRecipePlanWithPolicy(resolved semantic.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) ([]CompiledQuery, error) {
+func CompileResolvedRecipePlan(target Target, resolved semantic.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) ([]CompiledQuery, error) {
+	if err := target.validate(); err != nil {
+		return nil, err
+	}
 	compiled, err := lower.CompileResolvedRecipePlan(resolved, policy)
 	if err != nil {
 		return nil, err
@@ -38,7 +38,7 @@ func CompileResolvedRecipePlanWithPolicy(resolved semantic.ResolvedRecipePlan, l
 	queries := make([]CompiledQuery, 0, len(compiled.Outputs))
 	for _, output := range compiled.Outputs {
 		output.TranslationVersion = resolved.SemanticPlan.TranslationVersion
-		query, err := CompileRecipeOutputWithPolicy(output, resolved.SemanticPlan.Bindings, limit, policy)
+		query, err := CompileRecipeOutput(target, output, resolved.SemanticPlan.Bindings, limit, policy)
 		if err != nil {
 			return nil, fmt.Errorf("output %q: %w", output.Name, err)
 		}
@@ -47,11 +47,15 @@ func CompileResolvedRecipePlanWithPolicy(resolved semantic.ResolvedRecipePlan, l
 	return queries, nil
 }
 
-// CompileRecipeOutputWithPolicy applies the common optimizer, execution
-// window, and canonical renderer to one already-lowered recipe output.
-func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledQuery, error) {
+func CompileRecipeOutput(target Target, output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledQuery, error) {
+	if err := target.validate(); err != nil {
+		return CompiledQuery{}, err
+	}
 	if workspaceOutputCaptureRequired(output) {
 		return CompiledQuery{}, fmt.Errorf("output %q references same-workspace outputs; server-owned workspace capture is not available", output.Name)
+	}
+	if output.Plan.ClickHousePrefix != nil || (output.OptimizedPlan != nil && output.OptimizedPlan.ClickHousePrefix != nil) {
+		return CompiledQuery{}, fmt.Errorf("output %q is a composite ClickHouse plan; compile its source prefix through CompileClickHousePrefix and its combine through the ClickHouse stream path", output.Name)
 	}
 	var physical ir.PhysicalPlan
 	groupRows := len(output.Plan.Operations) == 1 && output.Plan.Operations[0].Kind == ir.PhysicalGroupRowsOp
@@ -86,6 +90,9 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		if err := appendAuthResourcePathProjection(&physical); err != nil {
 			return CompiledQuery{}, err
 		}
+	}
+	if target.backend == command.CompiledBackendPostgreSQL {
+		return compilePostgreSQLRecipeOutput(target, output, bindings, limit, physical, includePreviewSourceID)
 	}
 	streamingMissingCategoryPivot := canRenderStreamingMissingCategoryPivotPreview(output, bindings, physical)
 	legacyPreviewCoveringIndex := previewCoveringIndexSpec(physical)
@@ -123,6 +130,10 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 	if err != nil {
 		return CompiledQuery{}, fmt.Errorf("render canonical recipe physical plan: %w", err)
 	}
+	compiledCommand, err := command.NewAQLCommand(rendered.Query, rendered.BindVars)
+	if err != nil {
+		return CompiledQuery{}, fmt.Errorf("tag canonical recipe command: %w", err)
+	}
 	columns, pivotFields := physicalProjectionMetadata(physical)
 	if len(output.Columns) != 0 {
 		columns = append([]string(nil), output.Columns...)
@@ -156,8 +167,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		TraversalCount:     physicalTraversalCount(physical),
 		RowIdentity:        output.RowIdentity.Clone(),
 		OptimizationRules:  recipeOptimizationRules(physical),
-		Query:              rendered.Query,
-		BindVars:           rendered.BindVars,
+		Command:            compiledCommand,
 		Columns:            columns,
 		OutputSchema:       outputSchema,
 		PublicColumns:      publicColumns,
@@ -172,11 +182,109 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 	}, nil
 }
 
-// canRenderStreamingMissingCategoryPivotPreview only enables the streaming
-// renderer for a direct typed-root scan feeding one terminal Pivot. The
-// renderer retains the full source query and all scope predicates; this gate
-// only excludes shapes whose projections or row membership need an
-// intermediate table.
+type CompiledClickHousePrefix struct {
+	Command       command.CompiledCommand
+	OutputColumns []string
+	Fingerprint   string
+}
+
+func CompileClickHousePrefix(target Target, plan ir.PhysicalPlan) (CompiledClickHousePrefix, error) {
+	if err := target.validate(); err != nil {
+		return CompiledClickHousePrefix{}, err
+	}
+	if plan.Engine != ir.PhysicalEngineClickHouse || plan.ClickHousePrefix == nil || plan.ClickHouseCombine == nil {
+		return CompiledClickHousePrefix{}, fmt.Errorf("composite ClickHouse plan with a typed prefix is required")
+	}
+	if err := plan.Validate(); err != nil {
+		return CompiledClickHousePrefix{}, fmt.Errorf("validate composite ClickHouse prefix plan: %w", err)
+	}
+	switch prefix := plan.ClickHousePrefix; prefix.SourceBackend {
+	case ir.PhysicalPrefixSourceAQL:
+		if target.backend != command.CompiledBackendAQL {
+			return CompiledClickHousePrefix{}, fmt.Errorf("AQL-tagged ClickHouse prefix requires the AQL compile target, got %s", string(target.backend))
+		}
+		rendered, err := aql.RenderClickHousePrefix(plan)
+		if err != nil {
+			return CompiledClickHousePrefix{}, fmt.Errorf("render ClickHouse prefix command: %w", err)
+		}
+		compiledCommand, err := command.NewAQLCommand(rendered.Query, rendered.BindVars)
+		if err != nil {
+			return CompiledClickHousePrefix{}, fmt.Errorf("tag ClickHouse prefix command: %w", err)
+		}
+		fingerprint, err := categoryQueryFingerprint(rendered.Query, rendered.BindVars)
+		if err != nil {
+			return CompiledClickHousePrefix{}, fmt.Errorf("fingerprint ClickHouse prefix command: %w", err)
+		}
+		return CompiledClickHousePrefix{
+			Command:       compiledCommand,
+			OutputColumns: clickHousePrefixSchema(plan),
+			Fingerprint:   fingerprint,
+		}, nil
+	case ir.PhysicalPrefixSourcePostgreSQL:
+		if target.backend != command.CompiledBackendPostgreSQL {
+			return CompiledClickHousePrefix{}, fmt.Errorf("PostgreSQL-tagged ClickHouse prefix requires the PostgreSQL compile target, got %s", string(target.backend))
+		}
+		source := ir.ClonePhysicalPlan(plan)
+		source.Engine = ir.PhysicalEngineAQL
+		source.ClickHouseCombine = nil
+		source.ClickHousePrefix = nil
+		tagged, rendered, err := target.renderPostgreSQLFinalPlan(source)
+		if err != nil {
+			return CompiledClickHousePrefix{}, fmt.Errorf("render ClickHouse prefix command: %w", err)
+		}
+		if err := matchClickHousePrefixSchema(plan, rendered.OutputColumns); err != nil {
+			return CompiledClickHousePrefix{}, err
+		}
+		return CompiledClickHousePrefix{
+			Command:       tagged,
+			OutputColumns: append([]string(nil), rendered.OutputColumns...),
+			Fingerprint:   postgreSQLPlanFingerprint(rendered.SQL, rendered.Args, rendered.OutputColumns),
+		}, nil
+	default:
+		return CompiledClickHousePrefix{}, prefix.SourceBackend.Validate()
+	}
+}
+
+func clickHousePrefixSchema(plan ir.PhysicalPlan) []string {
+	if plan.StageSequence == nil {
+		return nil
+	}
+	columns := make([]string, 0, len(plan.StageSequence.FinalColumns))
+	for _, column := range plan.StageSequence.FinalColumns {
+		columns = append(columns, column.Name)
+	}
+	return columns
+}
+
+func matchClickHousePrefixSchema(plan ir.PhysicalPlan, declared []string) error {
+	if plan.StageSequence == nil {
+		return fmt.Errorf("PostgreSQL ClickHouse prefix has no typed stage sequence")
+	}
+	sequence := plan.StageSequence
+	expected := clickHousePrefixSchema(plan)
+	if len(expected) == 0 {
+		return fmt.Errorf("PostgreSQL ClickHouse prefix declares no typed final schema columns")
+	}
+	sawRowIdentity := false
+	for _, column := range sequence.FinalColumns {
+		if column.Name == sequence.FinalRowIdentity {
+			sawRowIdentity = true
+		}
+	}
+	if !sawRowIdentity {
+		return fmt.Errorf("PostgreSQL ClickHouse prefix typed schema does not carry its row identity column %q", sequence.FinalRowIdentity)
+	}
+	if len(declared) != len(expected) {
+		return fmt.Errorf("PostgreSQL ClickHouse prefix declares %d result columns, want the exact typed prefix schema %v", len(declared), expected)
+	}
+	for index := range expected {
+		if declared[index] != expected[index] {
+			return fmt.Errorf("PostgreSQL ClickHouse prefix result column %d is %q, want the typed prefix column %q", index, declared[index], expected[index])
+		}
+	}
+	return nil
+}
+
 func canRenderStreamingMissingCategoryPivotPreview(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, plan ir.PhysicalPlan) bool {
 	sequence := plan.StageSequence
 	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
@@ -248,10 +356,6 @@ func canRenderStreamingMissingCategoryPivotPreview(output lower.CompiledRecipeOu
 	return true
 }
 
-// streamingPivotInputProjectsSourceRows proves that the Pivot's row-shaped
-// inputs are a pure projection of the immediately preceding source RETURN.
-// Lowering represents that relationship through the stage input variable,
-// even when the source itself is a direct root scan.
 func streamingPivotInputProjectsSourceRows(pivot ir.PhysicalGroupedPivot, inputRowVariable string, sourceNames map[string]struct{}) bool {
 	if inputRowVariable == "" || len(pivot.InputProjections) == 0 {
 		return false
@@ -286,12 +390,6 @@ func streamingPivotInputProjectsSourceRows(pivot ir.PhysicalGroupedPivot, inputR
 	return true
 }
 
-// withoutUnusedTerminalPivotPresenceCompanions keeps category-presence
-// sidecars out of ordinary terminal Pivot previews. Lowering retains them in
-// the canonical plan so a later category-discovery scan can distinguish an
-// absent source property from explicit NULL. A frozen Pivot only consumes
-// that proof when one of its categories is MISSING; otherwise carrying the
-// hidden boolean through the preview would disable the bounded two-scan path.
 func withoutUnusedTerminalPivotPresenceCompanions(plan ir.PhysicalPlan) ir.PhysicalPlan {
 	sequence := plan.StageSequence
 	if sequence == nil || len(sequence.Stages) != 1 || sequence.PreviewLimitBindKey == "" ||

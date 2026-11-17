@@ -142,12 +142,6 @@ const hasDuplicateCoding = record => {
   return false;
 };
 
-/**
- * Select a bounded raw Observation pair for one explicit nested-list shape.
- * The default requires a component with multiple codings; the separate
- * single-coding-per-component mode proves the flattened outer component list.
- * The empty-parent row is selected when available and otherwise stays a gap.
- */
 export function selectNestedAuthoredExpandWitnesses(rows, {
   project,
   generation,

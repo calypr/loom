@@ -8,14 +8,12 @@ const exactRef = (value) => ({
   id: value?.id,
 });
 
-/** The verifier decodes every response belonging to its exact project and Explorer. */
 export const shouldCapturePopulationMemberNativeResponse = (request, { project, explorer }) => {
   if (!request || typeof request.path !== 'string') return false;
   return request.scopeProject === project && request.scopeExplorer === explorer &&
     request.path.startsWith(`/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/`);
 };
 
-/** Compare complete preview populations without assuming the backend's row order. */
 export const assertExactPreviewMultiset = (actual, expected, label = 'preview rows') => {
   assert(Array.isArray(actual) && Array.isArray(expected), `${label} must be arrays`);
   const unmatched = [...expected];
@@ -28,7 +26,6 @@ export const assertExactPreviewMultiset = (actual, expected, label = 'preview ro
   assert.equal(unmatched.length, 0, `${label} is missing rows or multiplicity: ${String(unmatched)}`);
 };
 
-/** Assert that a native response is the exact attached-selection minus one member proposal. */
 export const assertPopulationMemberRemovalProposal = (proposal, expected) => {
   assert(proposal && typeof proposal === 'object', 'member-removal proposal response is required');
   for (const key of ['proposalId', 'baseDocumentDigest', 'candidateWorkspaceDigest']) {
@@ -64,7 +61,6 @@ export const assertPopulationMemberRemovalProposal = (proposal, expected) => {
   return candidate;
 };
 
-/** Assert that one native authoring request applies only the current removal receipt. */
 export const assertPopulationMemberRemovalApplyCommand = (requests, expected) => {
   assert(Array.isArray(requests), 'native requests must be an array');
   assert(typeof expected.path === 'string' && expected.path.length > 0, 'expected scoped commands path is required');

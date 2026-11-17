@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
@@ -29,12 +30,8 @@ type TableShapeExclusionRefusal struct {
 
 func (e *TableShapeExclusionRefusal) Error() string { return string(e.Code) }
 
-// CompiledTableShapeExclusionQuery is an exact, bounded diagnostic query
-// derived from one finalized output plan. It has no caller-supplied paths or
-// query fragments.
 type CompiledTableShapeExclusionQuery struct {
-	Query                string
-	BindVars             map[string]any
+	Command              command.CompiledCommand
 	ResourceTypeField    string
 	ResourceIDField      string
 	IdentityStatusField  string
@@ -49,7 +46,10 @@ type CompiledTableShapeExclusionQuery struct {
 	Diagnostics          ir.CompilerPlanDiagnostics
 }
 
-func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, offset, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledTableShapeExclusionQuery, error) {
+func CompileTableShapeExclusions(target Target, output lower.CompiledRecipeOutput, offset, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledTableShapeExclusionQuery, error) {
+	if err := target.validate(); err != nil {
+		return CompiledTableShapeExclusionQuery{}, err
+	}
 	if offset < 0 {
 		return CompiledTableShapeExclusionQuery{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionInvalidOffset}
 	}
@@ -60,7 +60,7 @@ func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, of
 		return CompiledTableShapeExclusionQuery{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionInvalidLimit}
 	}
 
-	_ = policy // Diagnostics execute against the exact canonical plan, before publication optimizations.
+	_ = policy
 	physical, err := withGenericPhysicalExecutionWindow(ir.ClonePhysicalPlan(output.Plan), 0)
 	if err != nil {
 		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("prepare table-shape exclusion plan: %w", err)
@@ -86,9 +86,6 @@ func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, of
 		return CompiledTableShapeExclusionQuery{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionNoPolicy}
 	}
 
-	// Ordinary Pivot previews omit presence metadata to retain bounded execution.
-	// Diagnostics must recover missing versus explicit null from the exact direct
-	// root projection, rather than HAS on its always-populated projected column.
 	if pivot.CategoryPresence == nil && !pivot.CategoryPresenceFromInput && physical.StageSequence == nil &&
 		len(physical.Operations) > 0 && physical.Operations[0].RootScan != nil {
 		root := physical.Operations[0].RootScan.Variable
@@ -131,15 +128,32 @@ func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, of
 	if err := ir.ValidateGenericPhysicalPlanScope(physical); err != nil {
 		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("verify table-shape exclusion scope: %w", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical)
-	if err != nil {
-		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("render table-shape exclusion plan: %w", err)
-	}
-	if strings.TrimSpace(output.Name) == "" {
-		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("table-shape exclusion output name is required")
+	var compiledCommand command.CompiledCommand
+	if target.backend == command.CompiledBackendPostgreSQL {
+		postgresCommand, _, postgresErr := target.renderPostgreSQLFinalPlan(physical)
+		if postgresErr != nil {
+			return CompiledTableShapeExclusionQuery{}, postgresErr
+		}
+		if strings.TrimSpace(output.Name) == "" {
+			return CompiledTableShapeExclusionQuery{}, fmt.Errorf("table-shape exclusion output name is required")
+		}
+		compiledCommand = postgresCommand
+	} else {
+		rendered, err := aql.RenderPhysicalPlan(physical)
+		if err != nil {
+			return CompiledTableShapeExclusionQuery{}, fmt.Errorf("render table-shape exclusion plan: %w", err)
+		}
+		if strings.TrimSpace(output.Name) == "" {
+			return CompiledTableShapeExclusionQuery{}, fmt.Errorf("table-shape exclusion output name is required")
+		}
+		aqlCommand, commandErr := command.NewAQLCommand(rendered.Query, rendered.BindVars)
+		if commandErr != nil {
+			return CompiledTableShapeExclusionQuery{}, fmt.Errorf("tag table-shape exclusion command: %w", commandErr)
+		}
+		compiledCommand = aqlCommand
 	}
 	return CompiledTableShapeExclusionQuery{
-		Query: rendered.Query, BindVars: rendered.BindVars,
+		Command:              compiledCommand,
 		ResourceTypeField:    ir.PhysicalTableShapeExclusionResourceTypeField,
 		ResourceIDField:      ir.PhysicalTableShapeExclusionResourceIDField,
 		IdentityStatusField:  ir.PhysicalTableShapeExclusionIdentityStatusField,

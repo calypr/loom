@@ -348,8 +348,6 @@ export const GuidedGraphWorkspace = ({
     const edgeWidth = isRouteEdge ? 3 : isLegalNextEdge ? 2.5 : 1.75;
     return {
       id: edge.edgeId,
-      // Loom's catalog edges are directed. Keep the catalog orientation in
-      // React Flow; do not synthesize a reverse edge for FHIR relationships.
       source: edge.fromNodeId,
       target: edge.toNodeId,
       label: edgeOverviewLabels.get(edge.edgeId),

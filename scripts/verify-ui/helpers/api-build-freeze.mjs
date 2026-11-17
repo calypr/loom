@@ -86,11 +86,6 @@ async function observe(readStamp) {
   }
 }
 
-/**
- * Capture the result of a caller-provided running-API build-stamp check.
- * The callback returns { status, stdout, signal?, errorCode?, failureKind?, diagnostic? }
- * and stays injectable so portable tests and non-Docker deployments need no Docker tool.
- */
 export async function captureApiBuildFreeze(readStamp) {
   if (typeof readStamp !== 'function') throw new TypeError('readStamp must be a function');
   const before = await observe(readStamp);
@@ -112,16 +107,10 @@ export async function captureApiBuildFreeze(readStamp) {
   });
 }
 
-/** Return the local CDA API container name without starting or changing it. */
 export function localCDAApiContainer(env = process.env) {
   return env.LOOM_API_CONTAINER?.trim() || defaultLocalCDAApiContainer;
 }
 
-/**
- * Read the existing dev build stamp from one explicitly selected container.
- * This is an optional Docker adapter; callers may instead inject any check
- * into captureApiBuildFreeze.
- */
 export function checkContainerApiBuildStamp(container, {
   execFileImpl = execFile,
   timeoutMs = 10000,

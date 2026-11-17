@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { isDeepStrictEqual } from 'node:util';
 
-// Native Playwright body for compound coded grouping lifecycles.
 export async function verifyCompoundCodedGroup({ page, cda, check, mode = 'single' }) {
 const origin = cda.uiOrigin;
 const apiOrigin = cda.apiOrigin;

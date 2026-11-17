@@ -45,9 +45,9 @@ test('publish replaces a stale partial entry instead of swallowing the collision
     await writeFile(join(source, 'app.js'), 'healed js');
     await writeFile(join(source, 'app.css'), '.healed { color: blue }');
     await publishArtifacts({ directory, key, source });
-    await rm(join(directory, key, 'app.css')); // Asset removed after a valid publish.
+    await rm(join(directory, key, 'app.css'));
     assert.equal((await restoreArtifacts({ directory, key, destination })).status, 'miss');
-    await publishArtifacts({ directory, key, source }); // Must replace the stale directory, not no-op on ENOTEMPTY.
+    await publishArtifacts({ directory, key, source });
     assert.equal((await restoreArtifacts({ directory, key, destination })).status, 'hit', 'The next publish commits over a stale entry');
     assert.equal(await readFile(join(destination, 'app.css'), 'utf8'), '.healed { color: blue }');
   } finally { await rm(directory, { recursive: true, force: true }); }

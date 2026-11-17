@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
@@ -20,7 +21,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/unit"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/projectid"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -31,12 +31,13 @@ func TestNumericAggregateLiteralValuesAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
 	selector, err := spec.ParseSelector("component[].valueInteger")
@@ -108,7 +109,7 @@ func TestNumericAggregateLiteralValuesAgainstArango(t *testing.T) {
 				}
 				want := *tc.want
 				if name == "mean_value" {
-					want /= 3 // 2, 0, and 4 contribute; the null is ignored.
+					want /= 3
 				}
 				value, ok := got.(float64)
 				if !ok || math.Abs(value-want) > 1e-9 {
@@ -126,12 +127,13 @@ func TestExplicitGroupRowsAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	collections := []store.CollectionSpec{
+	collections := []arangofactory.CollectionSpec{
 		{Name: "Observation"},
 		{Name: "loom_explorer_explicit_group_revisions"},
 		{Name: "loom_explorer_explicit_group_definitions"},
@@ -139,7 +141,7 @@ func TestExplicitGroupRowsAgainstArango(t *testing.T) {
 		{Name: "loom_explorer_selections"},
 		{Name: "loom_explorer_selection_members"},
 	}
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: collections}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: collections}); err != nil {
 		t.Fatal(err)
 	}
 	project, generation := "group_rows_"+uuid.NewString(), "generation_"+uuid.NewString()
@@ -192,11 +194,11 @@ func TestExplicitGroupRowsAgainstArango(t *testing.T) {
 			t.Fatal(compileErr)
 		}
 		rows := make([]map[string]any, 0)
-		if queryErr := client.QueryRows(ctx, queries[0].Query, 100, queries[0].BindVars, func(row map[string]any) error {
+		if queryErr := client.QueryRows(ctx, testAQLText(t, queries[0].Command), 100, testAQLBinds(t, queries[0].Command), func(row map[string]any) error {
 			rows = append(rows, row)
 			return nil
 		}); queryErr != nil {
-			t.Fatalf("execute explicit group rows: %v\n%s", queryErr, queries[0].Query)
+			t.Fatalf("execute explicit group rows: %v\n%s", queryErr, testAQLText(t, queries[0].Command))
 		}
 		return rows
 	}
@@ -249,19 +251,18 @@ func TestExplicitGroupRowsAgainstArango(t *testing.T) {
 		t.Fatal(err)
 	}
 	unassignedRows := make([]map[string]any, 0)
-	if err := client.QueryRows(ctx, unassignedQueries[0].Query, 100, unassignedQueries[0].BindVars, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, unassignedQueries[0].Command), 100, testAQLBinds(t, unassignedQueries[0].Command), func(row map[string]any) error {
 		unassignedRows = append(unassignedRows, row)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute GROUP_AS_UNASSIGNED query: %v\n%s", err, unassignedQueries[0].Query)
+		t.Fatalf("execute GROUP_AS_UNASSIGNED query: %v\n%s", err, testAQLText(t, unassignedQueries[0].Command))
 	}
 	if len(unassignedRows) != 4 || unassignedRows[3]["group_id"] != "__loom_unassigned__" {
 		t.Fatalf("unassigned group rows = %#v", unassignedRows)
 	}
 	errorQuery := mustCompileGroupRowsQuery(t, project, generation, revisionID, "ERROR")
-	if err := client.QueryRows(ctx, errorQuery.Query, 100, errorQuery.BindVars, func(map[string]any) error { return nil }); err == nil || !strings.Contains(err.Error(), "EXPLICIT_GROUP_UNASSIGNED_MEMBER") {
-		t.Fatalf("ERROR policy query error = %v, want unassigned member assertion", err)
-	}
+	err = client.QueryRows(ctx, testAQLText(t, errorQuery.Command), 100, testAQLBinds(t, errorQuery.Command), func(map[string]any) error { return nil })
+	requireStableRuntimeCode(t, err, "EXPLICIT_GROUP_UNASSIGNED_MEMBER")
 }
 
 func compileGroupRowsQuery(project, generation, revisionID, policy string) ([]CompiledQuery, error) {
@@ -276,7 +277,7 @@ func compileGroupRowsQuery(project, generation, revisionID, policy string) ([]Co
 	if err != nil {
 		return nil, err
 	}
-	return CompileResolvedRecipePlanWithPolicy(resolved, 100, ir.DefaultPhysicalOptimizationPolicy())
+	return CompileResolvedRecipePlan(ArangoTarget(), resolved, 100, ir.DefaultPhysicalOptimizationPolicy())
 }
 
 func mustCompileGroupRowsQuery(t *testing.T, project, generation, revisionID, policy string) CompiledQuery {
@@ -297,7 +298,7 @@ func groupRowsMembership(revisionID, project, generation, groupID, memberID stri
 	}
 }
 
-func insertGroupRowsFixtureDocs(ctx context.Context, t *testing.T, client *store.Client, collection string, docs []map[string]any) {
+func insertGroupRowsFixtureDocs(ctx context.Context, t *testing.T, client *arangofactory.Client, collection string, docs []map[string]any) {
 	t.Helper()
 	raw := make([]json.RawMessage, 0, len(docs))
 	for _, doc := range docs {
@@ -321,12 +322,13 @@ func TestUnitNormalizationLiteralValuesAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -398,9 +400,7 @@ func TestUnitNormalizationLiteralValuesAgainstArango(t *testing.T) {
 				return nil
 			})
 			if tc.wantUnknown {
-				if queryErr == nil || !strings.Contains(queryErr.Error(), "UNIT_IDENTITY_UNKNOWN") {
-					t.Fatalf("query error = %v, want UNIT_IDENTITY_UNKNOWN\n%s", queryErr, rendered.Query)
-				}
+				requireStableRuntimeCode(t, queryErr, "UNIT_IDENTITY_UNKNOWN")
 				return
 			}
 			if queryErr != nil {
@@ -424,12 +424,13 @@ func TestExtensionCompilerLiteralValuesAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
 	project := "loom_extension_" + uuid.NewString()
@@ -484,12 +485,13 @@ func TestCorrelatedCompilerLiteralValuesAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
 	coding := func(system, code string) map[string]any { return map[string]any{"system": system, "code": code} }
@@ -583,12 +585,13 @@ func TestOwnerRecordsPreserveRepeatedFHIRValuesAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -707,12 +710,13 @@ func TestContributorPredicatesRemainFeatureLocalAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "Observation"}, {Name: "fhir_edge", Edge: true},
 	}}); err != nil {
 		t.Fatal(err)
@@ -836,12 +840,13 @@ func TestRecipeOccurrenceExpansionLiteralRowsAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "Observation"}, {Name: "Specimen"}, {Name: "fhir_edge", Edge: true},
 	}}); err != nil {
 		t.Fatal(err)
@@ -1031,24 +1036,25 @@ func TestRecipeOccurrenceExpansionLiteralRowsAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	queryErr := client.QueryRows(ctx, queries[0].Query, 100, queries[0].BindVars, func(map[string]any) error { return nil })
-	if queryErr == nil || !strings.Contains(queryErr.Error(), "specimen-owner") || !strings.Contains(queryErr.Error(), emptySpecimenKey) {
-		t.Fatalf("ERROR policy error = %v, want owner-boundary assertion for occurrence specimen-owner and empty owner %s\n%s", queryErr, emptySpecimenKey, queries[0].Query)
+	queryErr := client.QueryRows(ctx, testAQLText(t, queries[0].Command), 100, testAQLBinds(t, queries[0].Command), func(map[string]any) error { return nil })
+	cause := requireStableRuntimeCode(t, queryErr, "CONSTRUCTION_EXPANSION_EMPTY")
+	if !strings.Contains(cause, "specimen-owner") || !strings.Contains(cause, emptySpecimenKey) {
+		t.Fatalf("ERROR policy diagnostic cause = %q, want owner-boundary assertion for occurrence specimen-owner and empty owner %s\n%s", cause, emptySpecimenKey, testAQLText(t, queries[0].Command))
 	}
 }
 
-func runRecipeExpansionQuery(t *testing.T, ctx context.Context, client *store.Client, project, generation string, output recipe.Output) []map[string]any {
+func runRecipeExpansionQuery(t *testing.T, ctx context.Context, client *arangofactory.Client, project, generation string, output recipe.Output) []map[string]any {
 	t.Helper()
 	queries, err := compileRecipeExpansionQuery(t, project, generation, output)
 	if err != nil {
 		t.Fatal(err)
 	}
 	rows := make([]map[string]any, 0)
-	if err := client.QueryRows(ctx, queries[0].Query, 100, queries[0].BindVars, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, queries[0].Command), 100, testAQLBinds(t, queries[0].Command), func(row map[string]any) error {
 		rows = append(rows, row)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute occurrence expansion query: %v\n%s", err, queries[0].Query)
+		t.Fatalf("execute occurrence expansion query: %v\n%s", err, testAQLText(t, queries[0].Command))
 	}
 	return rows
 }
@@ -1065,7 +1071,7 @@ func compileRecipeExpansionQuery(t *testing.T, project, generation string, outpu
 	if err != nil {
 		return nil, err
 	}
-	return CompileResolvedRecipePlanWithPolicy(resolved, 100, ir.DefaultPhysicalOptimizationPolicy())
+	return CompileResolvedRecipePlan(ArangoTarget(), resolved, 100, ir.DefaultPhysicalOptimizationPolicy())
 }
 
 func expansionIdentityFromRow(t *testing.T, row map[string]any) map[string]any {

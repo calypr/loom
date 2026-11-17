@@ -42,7 +42,7 @@ func TestConstructionPreviewLimitAppliesAfterFinalStage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	queries, err := CompileResolvedRecipePlanWithPolicy(resolved, 3, ir.DefaultPhysicalOptimizationPolicy())
+	queries, err := CompileResolvedRecipePlan(ArangoTarget(), resolved, 3, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,22 +50,22 @@ func TestConstructionPreviewLimitAppliesAfterFinalStage(t *testing.T) {
 		t.Fatalf("compiled queries = %d, want one", len(queries))
 	}
 	query := queries[0]
-	finalRows := strings.Index(query.Query, "FOR __loom_construction_final_row IN")
-	limit := strings.Index(query.Query, "LIMIT @limit")
+	finalRows := strings.Index(testAQLText(t, query.Command), "FOR __loom_construction_final_row IN")
+	limit := strings.Index(testAQLText(t, query.Command), "LIMIT @limit")
 	if finalRows < 0 || limit < finalRows {
-		t.Fatalf("preview limit is not applied after the final stage rows:\n%s", query.Query)
+		t.Fatalf("preview limit is not applied after the final stage rows:\n%s", testAQLText(t, query.Command))
 	}
-	if got, exists := query.BindVars["limit"]; !exists || got != 3 {
+	if got, exists := testAQLBinds(t, query.Command)["limit"]; !exists || got != 3 {
 		t.Fatalf("preview limit bind = %#v, exists=%t", got, exists)
 	}
-	if got := query.BindVars["@root_collection"]; got != "Patient" {
+	if got := testAQLBinds(t, query.Command)["@root_collection"]; got != "Patient" {
 		t.Fatalf("root collection bind = %#v, want collection-bind form with Patient", got)
 	}
-	if _, exists := query.BindVars["root_collection"]; exists {
+	if _, exists := testAQLBinds(t, query.Command)["root_collection"]; exists {
 		t.Fatal("plain root collection bind leaked into executable AQL bind variables")
 	}
-	if strings.Contains(query.Query[:finalRows], "LIMIT @limit") {
-		t.Fatalf("preview limit leaked into source scan before construction stages:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command)[:finalRows], "LIMIT @limit") {
+		t.Fatalf("preview limit leaked into source scan before construction stages:\n%s", testAQLText(t, query.Command))
 	}
 }
 
@@ -107,12 +107,12 @@ func TestStreamingMissingCategoryPivotUsesStoredParentProjectionIndex(t *testing
 	if !outputHasCompositeSource(compiled.Outputs[0]) {
 		t.Fatal("production-shaped Pivot lost its composite-source classification under IncludeSourceIdentity")
 	}
-	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if query.PreviewCoveringIndex == nil {
-		t.Fatalf("direct-root typed-MISSING Pivot has no stored-values index contract: %s", query.Query)
+		t.Fatalf("direct-root typed-MISSING Pivot has no stored-values index contract: %s", testAQLText(t, query.Command))
 	}
 	physical, err := optimize.OptimizePhysicalPlanWithPolicy(compiled.Outputs[0].Plan, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
@@ -176,30 +176,30 @@ func TestStreamingMissingCategoryPivotUsesStoredParentProjectionIndex(t *testing
 		"HAS(__loom_physical_construction_reshape_stream_source_parent, @",
 		"TABLE_PIVOT_UNLISTED_CATEGORY",
 	} {
-		if !strings.Contains(query.Query, required) {
-			t.Fatalf("stored-parent streaming query omitted %q:\n%s", required, query.Query)
+		if !strings.Contains(testAQLText(t, query.Command), required) {
+			t.Fatalf("stored-parent streaming query omitted %q:\n%s", required, testAQLText(t, query.Command))
 		}
 	}
 	compiledPivot := compiled.Outputs[0].Plan.StageSequence.Stages[0].GroupedPivot
-	if streamingTestBindKey(query.BindVars, "reshape_category_column", compiledPivot.CategoryColumn) != "" ||
-		streamingTestBindKey(query.BindVars, "reshape_category_presence_column", compiledPivot.CategoryPresenceColumn) != "" {
-		t.Fatalf("direct scalar Pivot retained field-name binds: %#v", query.BindVars)
+	if streamingTestBindKey(testAQLBinds(t, query.Command), "reshape_category_column", compiledPivot.CategoryColumn) != "" ||
+		streamingTestBindKey(testAQLBinds(t, query.Command), "reshape_category_presence_column", compiledPivot.CategoryPresenceColumn) != "" {
+		t.Fatalf("direct scalar Pivot retained field-name binds: %#v", testAQLBinds(t, query.Command))
 	}
-	categoryValue := streamingTestDirectScalarVariable(query.Query, "__loom_physical_construction_reshape_stream_source_parent.code")
-	presenceValue := streamingTestDirectScalarVariable(query.Query, "IS_OBJECT(__loom_physical_construction_reshape_stream_source_parent)")
+	categoryValue := streamingTestDirectScalarVariable(testAQLText(t, query.Command), "__loom_physical_construction_reshape_stream_source_parent.code")
+	presenceValue := streamingTestDirectScalarVariable(testAQLText(t, query.Command), "IS_OBJECT(__loom_physical_construction_reshape_stream_source_parent)")
 	if categoryValue == "" || presenceValue == "" {
-		t.Fatalf("direct scalar category or presence projection missing: category=%q presence=%q\n%s", categoryValue, presenceValue, query.Query)
+		t.Fatalf("direct scalar category or presence projection missing: category=%q presence=%q\n%s", categoryValue, presenceValue, testAQLText(t, query.Command))
 	}
 	missingMatch := fmt.Sprintf("NOT (%s == true)", presenceValue)
 	nullMatch := fmt.Sprintf("(%s == true AND %s == null)", presenceValue, categoryValue)
-	if !strings.Contains(query.Query, missingMatch) || !strings.Contains(query.Query, nullMatch) {
-		t.Fatalf("stored-parent projection merged MISSING and explicit NULL categories: missing=%q null=%q\n%s", missingMatch, nullMatch, query.Query)
+	if !strings.Contains(testAQLText(t, query.Command), missingMatch) || !strings.Contains(testAQLText(t, query.Command), nullMatch) {
+		t.Fatalf("stored-parent projection merged MISSING and explicit NULL categories: missing=%q null=%q\n%s", missingMatch, nullMatch, testAQLText(t, query.Command))
 	}
-	if strings.Contains(query.Query, "HAS(root.payload.valueQuantity.code)") {
-		t.Fatalf("presence test inspected the leaf instead of its stored parent object:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command), "HAS(root.payload.valueQuantity.code)") {
+		t.Fatalf("presence test inspected the leaf instead of its stored parent object:\n%s", testAQLText(t, query.Command))
 	}
-	if !strings.Contains(query.Query, " AGGREGATE ") || strings.Contains(query.Query, "INTO __loom_reshape_pivot_group_rows_") {
-		t.Fatalf("stored-parent preview stopped using complete-population streaming aggregation:\n%s", query.Query)
+	if !strings.Contains(testAQLText(t, query.Command), " AGGREGATE ") || strings.Contains(testAQLText(t, query.Command), "INTO __loom_reshape_pivot_group_rows_") {
+		t.Fatalf("stored-parent preview stopped using complete-population streaming aggregation:\n%s", testAQLText(t, query.Command))
 	}
 }
 
@@ -212,71 +212,69 @@ func TestRootGroupedPivotPreviewBoundsParentsBeforeRelatedExpansion(t *testing.T
 	pivot.Inputs = []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: expand.ID}}
 	output.Construction.Steps = []recipe.ConstructionStep{expand, pivot}
 	query := compileConstructionPivotPreview(t, output, 3)
-	limit := strings.Index(query.Query, "LIMIT @limit")
-	stage := strings.Index(query.Query, "LET __loom_construction_stage_1")
-	if !query.PartialValidation || limit < 0 || stage < limit || !strings.Contains(query.Query[stage:], "COLLECT") {
-		t.Fatalf("preview must bound parents but retain complete related contributions and grouping:\n%s", query.Query)
+	limit := strings.Index(testAQLText(t, query.Command), "LIMIT @limit")
+	stage := strings.Index(testAQLText(t, query.Command), "LET __loom_construction_stage_1")
+	if !query.PartialValidation || limit < 0 || stage < limit || !strings.Contains(testAQLText(t, query.Command)[stage:], "COLLECT") {
+		t.Fatalf("preview must bound parents but retain complete related contributions and grouping:\n%s", testAQLText(t, query.Command))
 	}
 	full := compileConstructionPivotPreview(t, output, 0)
-	if strings.Contains(full.Query, "LIMIT @limit") || full.PartialValidation {
+	if strings.Contains(testAQLText(t, full.Command), "LIMIT @limit") || full.PartialValidation {
 		t.Fatal("preview window leaked into full execution")
 	}
 	expand.Operation.RelatedExpand.EmptyPolicy = recipe.ExpansionExclude
 	expand.Outputs[len(expand.Outputs)-1].Nullable = false
 	output.Construction.Steps[0] = expand
 	query = compileConstructionPivotPreview(t, output, 3)
-	if strings.Contains(query.Query[:strings.Index(query.Query, "LET __loom_construction_stage_1")], "LIMIT @limit") {
+	if strings.Contains(testAQLText(t, query.Command)[:strings.Index(testAQLText(t, query.Command), "LET __loom_construction_stage_1")], "LIMIT @limit") {
 		t.Fatal("dropping unmatched parents must not use a source-root window")
 	}
 }
 
 func TestConstructionPreviewBoundsProvenRootIDPivotBeforeSourceMaterialization(t *testing.T) {
 	query := compileConstructionPivotPreview(t, constructionPreviewPivotOutput("root.id", false), 3)
-	sourceStart := strings.Index(query.Query, "LET __loom_construction_source_projection = (")
-	stageStart := strings.Index(query.Query, "LET __loom_construction_stage_1 = (")
+	sourceStart := strings.Index(testAQLText(t, query.Command), "LET __loom_construction_source_projection = (")
+	stageStart := strings.Index(testAQLText(t, query.Command), "LET __loom_construction_stage_1 = (")
 	if sourceStart < 0 || stageStart <= sourceStart {
-		t.Fatalf("construction query has no source projection followed by terminal stage:\n%s", query.Query)
+		t.Fatalf("construction query has no source projection followed by terminal stage:\n%s", testAQLText(t, query.Command))
 	}
-	sourceQuery := query.Query[sourceStart:stageStart]
+	sourceQuery := testAQLText(t, query.Command)[sourceStart:stageStart]
 	sortAt := strings.Index(sourceQuery, "SORT root.id ASC")
 	limitAt := strings.Index(sourceQuery, "LIMIT @limit")
 	returnAt := strings.Index(sourceQuery, "RETURN ")
 	if sortAt < 0 || limitAt <= sortAt || returnAt <= limitAt {
 		t.Fatalf("root-id sort/limit did not run before source projection materialization:\n%s", sourceQuery)
 	}
-	if got, exists := query.BindVars["limit"]; !exists || got != 3 {
+	if got, exists := testAQLBinds(t, query.Command)["limit"]; !exists || got != 3 {
 		t.Fatalf("preview limit bind = %#v, exists=%t", got, exists)
 	}
 	if !query.PartialValidation {
 		t.Fatal("preview with a source window was not marked as partial validation")
 	}
-	stageQuery := query.Query[stageStart:]
+	stageQuery := testAQLText(t, query.Command)[stageStart:]
 	if strings.Contains(stageQuery, "COLLECT") {
-		t.Fatalf("proven root-ID pivot still materialized group rows:\n%s", query.Query)
+		t.Fatalf("proven root-ID pivot still materialized group rows:\n%s", testAQLText(t, query.Command))
 	}
 	if strings.Count(stageQuery, "FOR ") != 2 {
-		// One FOR iterates source rows inside the stage and one emits final rows.
-		// Category matching must not add a FOR over group rows per output cell.
-		t.Fatalf("root-ID pivot emitted per-category group-row scans:\n%s", query.Query)
+		t.Fatalf("root-ID pivot emitted per-category group-row scans:\n%s", testAQLText(t, query.Command))
 	}
 	if strings.Contains(stageQuery, "SORT __loom_construction_pivot_group") {
-		t.Fatalf("root-ID pivot retained an intermediate sort before the final identity sort:\n%s", query.Query)
+		t.Fatalf("root-ID pivot retained an intermediate sort before the final identity sort:\n%s", testAQLText(t, query.Command))
 	}
 	for _, validation := range []string{"TYPENAME(", "TABLE_PIVOT_VALUE_TYPE_MISMATCH", "TABLE_PIVOT_CELL_CARDINALITY", "TABLE_PIVOT_UNLISTED_CATEGORY"} {
 		if !strings.Contains(stageQuery, validation) {
-			t.Fatalf("root-ID pivot dropped %q validation:\n%s", validation, query.Query)
+			t.Fatalf("root-ID pivot dropped %q validation:\n%s", validation, testAQLText(t, query.Command))
 		}
 	}
 
 	full := compileConstructionPivotPreview(t, constructionPreviewPivotOutput("root.id", false), 0)
-	if strings.Contains(full.Query, "LIMIT @limit") || strings.Contains(full.Query, "SORT root.id ASC") {
-		t.Fatalf("full construction execution received a preview-only source window:\n%s", full.Query)
+	if strings.Contains(testAQLText(t, full.Command), "LIMIT @limit") || strings.Contains(testAQLText(t, full.Command), "SORT root.id ASC") {
+		t.Fatalf("full construction execution received a preview-only source window:\n%s", testAQLText(t, full.Command))
 	}
-	if strings.Contains(full.Query, "COLLECT") || strings.Count(full.Query, "FOR ") != 3 {
-		t.Fatalf("full direct-ID pivot did not retain the one-input-per-group renderer:\n%s", full.Query)
+	if strings.Contains(testAQLText(t, full.Command), "COLLECT") || strings.Count(testAQLText(t, full.Command), "FOR ") != 3 {
+		t.Fatalf("full direct-ID pivot did not retain the one-input-per-group renderer:\n%s", testAQLText(t, full.Command))
 	}
-	if !strings.Contains(full.Query, "SORT __loom_construction_final_row.__loom_row_id ASC") {
-		t.Fatalf("full construction output lost deterministic final row-identity ordering:\n%s", full.Query)
+	if !strings.Contains(testAQLText(t, full.Command), "SORT __loom_construction_final_row.__loom_row_id ASC") {
+		t.Fatalf("full construction output lost deterministic final row-identity ordering:\n%s", testAQLText(t, full.Command))
 	}
 	if full.PartialValidation {
 		t.Fatal("full construction execution was marked as partial validation")
@@ -287,8 +285,8 @@ func TestConstructionPreviewRootIDProofUsesLoweredProjectionNotSemanticAlias(t *
 	output := constructionPreviewPivotOutput("root.id", false)
 	output.Fields[0].FieldRef = "source-column:specimen-id"
 	query := compileConstructionPivotPreview(t, output, 3)
-	if !strings.Contains(query.Query, "SORT root.id ASC") || !strings.Contains(query.Query, "LIMIT @limit") {
-		t.Fatalf("direct lowered root id with opaque semantic identity did not qualify for source window:\n%s", query.Query)
+	if !strings.Contains(testAQLText(t, query.Command), "SORT root.id ASC") || !strings.Contains(testAQLText(t, query.Command), "LIMIT @limit") {
+		t.Fatalf("direct lowered root id with opaque semantic identity did not qualify for source window:\n%s", testAQLText(t, query.Command))
 	}
 }
 
@@ -330,17 +328,17 @@ func TestConstructionPreviewUsesTerminalPivotWindowWithoutRootIDProof(t *testing
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			query := compileConstructionPivotPreview(t, tc.output, 3)
-			if strings.Contains(query.Query, "SORT root.id ASC") {
-				t.Fatalf("unproven plan received the early source order:\n%s", query.Query)
+			if strings.Contains(testAQLText(t, query.Command), "SORT root.id ASC") {
+				t.Fatalf("unproven plan received the early source order:\n%s", testAQLText(t, query.Command))
 			}
-			if strings.Count(query.Query, "LIMIT @limit") != 2 {
-				t.Fatalf("terminal Pivot preview should limit complete groups and retain the final limit:\n%s", query.Query)
+			if strings.Count(testAQLText(t, query.Command), "LIMIT @limit") != 2 {
+				t.Fatalf("terminal Pivot preview should limit complete groups and retain the final limit:\n%s", testAQLText(t, query.Command))
 			}
 			if !query.PartialValidation {
 				t.Fatal("preview group window was not marked as partial validation")
 			}
-			if tc.name == "non-identity group key" && !strings.Contains(query.Query, "COLLECT") {
-				t.Fatalf("nonunique group key bypassed canonical COLLECT:\n%s", query.Query)
+			if tc.name == "non-identity group key" && !strings.Contains(testAQLText(t, query.Command), "COLLECT") {
+				t.Fatalf("nonunique group key bypassed canonical COLLECT:\n%s", testAQLText(t, query.Command))
 			}
 		})
 	}
@@ -351,23 +349,23 @@ func TestConstructionPreviewTerminalPivotLimitsCompleteGroupsBeforeCellReduction
 	if !preview.PartialValidation {
 		t.Fatal("terminal Pivot preview window was not marked as partial validation")
 	}
-	selectedStart := strings.Index(preview.Query, "LET __loom_physical_construction_reshape_preview_selected_group_keys = (")
+	selectedStart := strings.Index(testAQLText(t, preview.Command), "LET __loom_physical_construction_reshape_preview_selected_group_keys = (")
 	if selectedStart < 0 {
-		t.Fatalf("terminal Pivot preview has no first-pass group selection:\n%s", preview.Query)
+		t.Fatalf("terminal Pivot preview has no first-pass group selection:\n%s", testAQLText(t, preview.Command))
 	}
-	selectedLimit := strings.Index(preview.Query[selectedStart:], "LIMIT @limit") + selectedStart
-	sourceStart := strings.Index(preview.Query, "LET __loom_construction_source_projection = (")
-	filterAt := strings.Index(preview.Query, "FILTER root.payload.gender IN __loom_physical_construction_reshape_preview_selected_group_keys")
-	stageStart := strings.Index(preview.Query, "LET __loom_construction_stage_1 = (")
+	selectedLimit := strings.Index(testAQLText(t, preview.Command)[selectedStart:], "LIMIT @limit") + selectedStart
+	sourceStart := strings.Index(testAQLText(t, preview.Command), "LET __loom_construction_source_projection = (")
+	filterAt := strings.Index(testAQLText(t, preview.Command), "FILTER root.payload.gender IN __loom_physical_construction_reshape_preview_selected_group_keys")
+	stageStart := strings.Index(testAQLText(t, preview.Command), "LET __loom_construction_stage_1 = (")
 	if selectedLimit <= selectedStart || sourceStart <= selectedLimit || filterAt <= sourceStart || stageStart <= filterAt {
-		t.Fatalf("preview must select complete group tuples, filter the direct source scan before its wide projection, then run the Pivot stage:\n%s", preview.Query)
+		t.Fatalf("preview must select complete group tuples, filter the direct source scan before its wide projection, then run the Pivot stage:\n%s", testAQLText(t, preview.Command))
 	}
-	keySource := preview.Query[selectedStart:sourceStart]
+	keySource := testAQLText(t, preview.Command)[selectedStart:sourceStart]
 	if strings.Contains(keySource, "root.payload.multipleBirthInteger") || strings.Contains(keySource, "root.payload.category") ||
 		strings.Count(keySource, "RETURN {") != 1 {
 		t.Fatalf("first pass materialized non-key source projections:\n%s", keySource)
 	}
-	sourceQuery := preview.Query[sourceStart:stageStart]
+	sourceQuery := testAQLText(t, preview.Command)[sourceStart:stageStart]
 	groupFilterAt := strings.Index(sourceQuery, "FILTER root.payload.gender IN __loom_physical_construction_reshape_preview_selected_group_keys")
 	projectionAt := strings.Index(sourceQuery, "RETURN ")
 	if !strings.Contains(sourceQuery, "root.payload.multipleBirthInteger") || groupFilterAt < 0 || projectionAt <= groupFilterAt {
@@ -378,26 +376,26 @@ func TestConstructionPreviewTerminalPivotLimitsCompleteGroupsBeforeCellReduction
 		"root.dataset_generation == @dataset_generation",
 		"root.auth_resource_path IN @auth_resource_paths",
 	} {
-		if strings.Count(preview.Query, scope) != 2 {
-			t.Fatalf("source scope %q appears %d times, want both scans:\n%s", scope, strings.Count(preview.Query, scope), preview.Query)
+		if strings.Count(testAQLText(t, preview.Command), scope) != 2 {
+			t.Fatalf("source scope %q appears %d times, want both scans:\n%s", scope, strings.Count(testAQLText(t, preview.Command), scope), testAQLText(t, preview.Command))
 		}
 	}
-	stage := preview.Query[stageStart:]
+	stage := testAQLText(t, preview.Command)[stageStart:]
 	collectAt := strings.Index(stage, "COLLECT ")
 	cellValidationAt := strings.Index(stage, "TABLE_PIVOT_CELL_CARDINALITY")
 	if collectAt < 0 || cellValidationAt <= collectAt {
 		t.Fatalf("preview must collect selected groups completely before computing cells:\n%s", stage)
 	}
-	if strings.Count(stage, "LIMIT @limit") != 1 || strings.Count(preview.Query, "LIMIT @limit") != 2 {
-		t.Fatalf("expected first-pass group and final output limits:\n%s", preview.Query)
+	if strings.Count(stage, "LIMIT @limit") != 1 || strings.Count(testAQLText(t, preview.Command), "LIMIT @limit") != 2 {
+		t.Fatalf("expected first-pass group and final output limits:\n%s", testAQLText(t, preview.Command))
 	}
-	if got := preview.BindVars["limit"]; got != 3 {
+	if got := testAQLBinds(t, preview.Command)["limit"]; got != 3 {
 		t.Fatalf("preview limit bind = %#v, want 3", got)
 	}
 
 	full := compileConstructionPivotPreview(t, constructionPreviewPivotOutput("root.gender", false), 0)
-	if full.PartialValidation || strings.Contains(full.Query, "LIMIT @limit") || strings.Contains(full.Query, "reshape_preview_identity") {
-		t.Fatalf("full execution received the preview-only group window:\n%s", full.Query)
+	if full.PartialValidation || strings.Contains(testAQLText(t, full.Command), "LIMIT @limit") || strings.Contains(testAQLText(t, full.Command), "reshape_preview_identity") {
+		t.Fatalf("full execution received the preview-only group window:\n%s", testAQLText(t, full.Command))
 	}
 }
 
@@ -405,15 +403,15 @@ func TestConstructionPreviewTwoScanUsesSeparateProjectionBindNamespaces(t *testi
 	output := constructionPreviewPivotOutput("root.gender", false)
 	output.Fields[0], output.Fields[1] = output.Fields[1], output.Fields[0]
 	query := compileConstructionPivotPreview(t, output, 3)
-	if got := query.BindVars["__loom_physical_preview_key_projection_0_name"]; got != "resource_id" {
+	if got := testAQLBinds(t, query.Command)["__loom_physical_preview_key_projection_0_name"]; got != "resource_id" {
 		t.Fatalf("first-pass projection-name bind = %#v, want resource_id", got)
 	}
-	if got := query.BindVars["__loom_physical_projection_0_name"]; got != "_key" {
+	if got := testAQLBinds(t, query.Command)["__loom_physical_projection_0_name"]; got != "_key" {
 		t.Fatalf("second-pass projection-name bind = %#v, want _key", got)
 	}
-	if _, ok := query.BindVars["__loom_physical_reshape_preview_source_group_column"]; ok ||
-		!strings.Contains(query.Query, "FILTER root.payload.gender IN __loom_physical_construction_reshape_preview_selected_group_keys") {
-		t.Fatalf("second-pass filter did not use the compiler-proven direct group source path:\n%s", query.Query)
+	if _, ok := testAQLBinds(t, query.Command)["__loom_physical_reshape_preview_source_group_column"]; ok ||
+		!strings.Contains(testAQLText(t, query.Command), "FILTER root.payload.gender IN __loom_physical_construction_reshape_preview_selected_group_keys") {
+		t.Fatalf("second-pass filter did not use the compiler-proven direct group source path:\n%s", testAQLText(t, query.Command))
 	}
 }
 
@@ -421,7 +419,7 @@ func TestConstructionPreviewCoveringIndexMetadataAndRootHint(t *testing.T) {
 	query := compileConstructionPivotPreview(t, constructionPreviewPivotOutput("root.gender", false), 3)
 	index := query.PreviewCoveringIndex
 	if index == nil {
-		t.Fatalf("eligible terminal Pivot preview has no covering-index spec:\n%s", query.Query)
+		t.Fatalf("eligible terminal Pivot preview has no covering-index spec:\n%s", testAQLText(t, query.Command))
 	}
 	if index.PrepareAfterPreview {
 		t.Fatal("Pivot covering index must remain prepared before the preview query")
@@ -437,11 +435,11 @@ func TestConstructionPreviewCoveringIndexMetadataAndRootHint(t *testing.T) {
 		t.Fatalf("index fields = %#v, want %#v", index.Fields, wantFields)
 	}
 	wantHint := "OPTIONS { indexHint: \"" + index.Name + "\", forceIndexHint: false }"
-	if strings.Count(query.Query, wantHint) != 2 {
-		t.Fatalf("both source scans must use the same non-forcing index hint %q:\n%s", wantHint, query.Query)
+	if strings.Count(testAQLText(t, query.Command), wantHint) != 2 {
+		t.Fatalf("both source scans must use the same non-forcing index hint %q:\n%s", wantHint, testAQLText(t, query.Command))
 	}
-	if strings.Count(query.Query, "FOR root IN @@root_collection "+wantHint) != 2 {
-		t.Fatalf("index hint was not placed on both root source scans:\n%s", query.Query)
+	if strings.Count(testAQLText(t, query.Command), "FOR root IN @@root_collection "+wantHint) != 2 {
+		t.Fatalf("index hint was not placed on both root source scans:\n%s", testAQLText(t, query.Command))
 	}
 
 	repeated := compileConstructionPivotPreview(t, constructionPreviewPivotOutput("root.gender", false), 3)
@@ -465,8 +463,8 @@ func TestConstructionPreviewCoveringIndexIneligiblePlansStayUnhinted(t *testing.
 			if query.PreviewCoveringIndex != nil {
 				t.Fatalf("ineligible plan produced index metadata: %+v", query.PreviewCoveringIndex)
 			}
-			if strings.Contains(query.Query, "indexHint:") {
-				t.Fatalf("ineligible plan received an index hint:\n%s", query.Query)
+			if strings.Contains(testAQLText(t, query.Command), "indexHint:") {
+				t.Fatalf("ineligible plan received an index hint:\n%s", testAQLText(t, query.Command))
 			}
 		})
 	}
@@ -476,7 +474,7 @@ func TestConstructionGroupPreviewUsesProjectionFieldsAndOneRootHint(t *testing.T
 	query := compileConstructionOutputQuery(t, constructionGroupRowValuesOutput(), "group-covering-project", "group-covering-generation")
 	index := query.PreviewCoveringIndex
 	if index == nil {
-		t.Fatalf("eligible terminal Group preview has no covering-index spec:\n%s", query.Query)
+		t.Fatalf("eligible terminal Group preview has no covering-index spec:\n%s", testAQLText(t, query.Command))
 	}
 	if index.Collection != "Observation" {
 		t.Fatalf("index collection = %q, want Observation", index.Collection)
@@ -489,49 +487,50 @@ func TestConstructionGroupPreviewUsesProjectionFieldsAndOneRootHint(t *testing.T
 		t.Fatalf("index fields = %#v, want %#v", index.Fields, wantFields)
 	}
 	wantHint := "OPTIONS { indexHint: \"" + index.Name + "\", forceIndexHint: false }"
-	if strings.Count(query.Query, wantHint) != 1 || !strings.Contains(query.Query, "FOR root IN @@root_collection "+wantHint) {
-		t.Fatalf("Group source should receive one non-forcing root hint %q:\n%s", wantHint, query.Query)
+	if strings.Count(testAQLText(t, query.Command), wantHint) != 1 || !strings.Contains(testAQLText(t, query.Command), "FOR root IN @@root_collection "+wantHint) {
+		t.Fatalf("Group source should receive one non-forcing root hint %q:\n%s", wantHint, testAQLText(t, query.Command))
 	}
-	if strings.Count(query.Query, "FOR root IN @@root_collection") != 1 {
-		t.Fatalf("Group preview unexpectedly changed its source scan count:\n%s", query.Query)
+	if strings.Count(testAQLText(t, query.Command), "FOR root IN @@root_collection") != 1 {
+		t.Fatalf("Group preview unexpectedly changed its source scan count:\n%s", testAQLText(t, query.Command))
 	}
 	sequential := query.PreviewGroupScan
 	if sequential == nil || sequential.Collection != index.Collection {
 		t.Fatalf("eligible direct Group preview has no scan alternatives: %+v", sequential)
 	}
-	if !strings.Contains(sequential.SequentialQuery, "OPTIONS { disableIndex: true }") || strings.Contains(sequential.SequentialQuery, "indexHint:") {
-		t.Fatalf("sequential alternative did not disable only its direct root index:\n%s", sequential.SequentialQuery)
+	if !strings.Contains(testAQLText(t, sequential.Sequential), "OPTIONS { disableIndex: true }") || strings.Contains(testAQLText(t, sequential.Sequential), "indexHint:") {
+		t.Fatalf("sequential alternative did not disable only its direct root index:\n%s", testAQLText(t, sequential.Sequential))
 	}
 	for _, scope := range []string{
 		"root.project == @project", "root.dataset_generation == @dataset_generation",
 		"root.auth_resource_path IN @auth_resource_paths", "FILTER root_scope_allowed == @scope_allowed",
 	} {
-		if !strings.Contains(sequential.ScopeCountQuery, scope) {
-			t.Fatalf("scope count omitted canonical filter %q:\n%s", scope, sequential.ScopeCountQuery)
+		if !strings.Contains(testAQLText(t, sequential.ScopeCount), scope) {
+			t.Fatalf("scope count omitted canonical filter %q:\n%s", scope, testAQLText(t, sequential.ScopeCount))
 		}
 	}
-	if !strings.Contains(sequential.ScopeCountQuery, "COLLECT WITH COUNT INTO") ||
-		!strings.Contains(sequential.ScopeCountQuery, "RETURN {count:") ||
-		strings.Contains(sequential.ScopeCountQuery, "payload.note") || strings.Contains(sequential.ScopeCountQuery, "construction_group") {
-		t.Fatalf("scope count should return a named count without projecting or grouping source values:\n%s", sequential.ScopeCountQuery)
+	if !strings.Contains(testAQLText(t, sequential.ScopeCount), "COLLECT WITH COUNT INTO") ||
+		!strings.Contains(testAQLText(t, sequential.ScopeCount), "RETURN {count:") ||
+		strings.Contains(testAQLText(t, sequential.ScopeCount), "payload.note") || strings.Contains(testAQLText(t, sequential.ScopeCount), "construction_group") {
+		t.Fatalf("scope count should return a named count without projecting or grouping source values:\n%s", testAQLText(t, sequential.ScopeCount))
 	}
 	for _, bind := range []string{"project", "dataset_generation", "auth_resource_paths"} {
-		if _, ok := sequential.ScopeCountBindVars[bind]; !ok {
+		if _, ok := testAQLBinds(t, sequential.ScopeCount)[bind]; !ok {
 			t.Fatalf("scope count omitted %q bind", bind)
 		}
 	}
 
 	existingName := "loom_pivot_preview_existing_compatible"
-	queryWithExistingIndex, existingBinds, err := RenderPreviewPhysicalPlanWithRootIndexHint(query.PhysicalPlan, existingName)
+	queryWithExistingIndexCommand, err := RenderPreviewPhysicalPlanWithRootIndexHint(query.PhysicalPlan, existingName)
 	if err != nil {
 		t.Fatalf("render Group preview with existing compatible index: %v", err)
 	}
+	queryWithExistingIndex, existingBinds := testAQLView(t, queryWithExistingIndexCommand)
 	if !strings.Contains(queryWithExistingIndex, "OPTIONS { indexHint: \""+existingName+"\", forceIndexHint: false }") ||
 		strings.Contains(queryWithExistingIndex, "forceIndexHint: true") {
 		t.Fatalf("existing index hint is not non-forcing:\n%s", queryWithExistingIndex)
 	}
-	if !reflect.DeepEqual(existingBinds, query.BindVars) {
-		t.Fatalf("existing-index render changed query binds: got=%v want=%v", existingBinds, query.BindVars)
+	if !reflect.DeepEqual(existingBinds, testAQLBinds(t, query.Command)) {
+		t.Fatalf("existing-index render changed query binds: got=%v want=%v", existingBinds, testAQLBinds(t, query.Command))
 	}
 
 	repeated := compileConstructionOutputQuery(t, constructionGroupRowValuesOutput(), "group-covering-project", "group-covering-generation")
@@ -543,14 +542,14 @@ func TestConstructionGroupPreviewUsesProjectionFieldsAndOneRootHint(t *testing.T
 	fullOutput := lowerConstructionOutput(t, constructionGroupRowValuesOutput(), recipe.RuntimeBindings{
 		Project: "group-covering-project", DatasetGeneration: "group-covering-generation",
 	})
-	full, err := CompileRecipeOutputWithPolicy(fullOutput, recipe.RuntimeBindings{
+	full, err := CompileRecipeOutput(ArangoTarget(), fullOutput, recipe.RuntimeBindings{
 		Project: "group-covering-project", DatasetGeneration: "group-covering-generation",
 	}, 0, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if full.PreviewCoveringIndex != nil || strings.Contains(full.Query, "indexHint:") {
-		t.Fatalf("full Group execution received preview index metadata or a hint: %+v\n%s", full.PreviewCoveringIndex, full.Query)
+	if full.PreviewCoveringIndex != nil || strings.Contains(testAQLText(t, full.Command), "indexHint:") {
+		t.Fatalf("full Group execution received preview index metadata or a hint: %+v\n%s", full.PreviewCoveringIndex, testAQLText(t, full.Command))
 	}
 }
 
@@ -563,7 +562,7 @@ func TestConstructionGroupScanAlternativeRejectsExtraSourceFilters(t *testing.T)
 	operations := append([]ir.PhysicalOperation(nil), output.Plan.Operations[:len(output.Plan.Operations)-1]...)
 	operations = append(operations, output.Plan.Operations[1], output.Plan.Operations[len(output.Plan.Operations)-1])
 	output.Plan.Operations = operations
-	query, err := CompileRecipeOutputWithPolicy(output, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), output, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -587,7 +586,7 @@ func compileConstructionPivotPreview(t *testing.T, output recipe.Output, limit i
 	if err != nil {
 		t.Fatal(err)
 	}
-	queries, err := CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
+	queries, err := CompileResolvedRecipePlan(ArangoTarget(), resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

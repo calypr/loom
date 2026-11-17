@@ -8,14 +8,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// RenderedPhysicalPlan is an executable AQL representation of a validated
-// PhysicalPlan. BindVars is independent of the input plan and uses Arango's
-// required "@name" key form for collection bind variables referenced as
-// "@@name" in Query.
-//
-// This renderer covers generic physical navigation and rich expression
-// operators emitted by BuildGenericPhysicalPlan. Projection names, including
-// nested object field names, remain bind-backed and never become AQL source.
 type RenderedPhysicalPlan struct {
 	Query             string
 	BindVars          map[string]any
@@ -25,15 +17,10 @@ type RenderedPhysicalPlan struct {
 var rootIndexHintPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 var previewSourcePathSegmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// RenderPhysicalPlan renders a validated physical plan to deterministic AQL.
-// It keeps data and metadata values out of the generated AQL source.
 func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 	return renderPhysicalPlan(plan, "")
 }
 
-// RenderPhysicalPlanWithRootIndexHint renders one direct root scan with a
-// non-forcing persistent-index hint. The hint can improve covering reads, but
-// Arango remains free to choose another plan when the index does not help.
 func RenderPhysicalPlanWithRootIndexHint(plan ir.PhysicalPlan, indexHint string) (RenderedPhysicalPlan, error) {
 	if !rootIndexHintPattern.MatchString(indexHint) {
 		return RenderedPhysicalPlan{}, fmt.Errorf("root index hint %q is not a safe index name", indexHint)
@@ -45,10 +32,6 @@ func RenderPhysicalPlanWithRootIndexHint(plan ir.PhysicalPlan, indexHint string)
 	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{rootIndexHint: indexHint})
 }
 
-// RenderPhysicalPlanWithRootIndexDisabled renders a plan with Arango's
-// per-FOR full-scan option on its direct root scan. It is reserved for
-// compiler-proven preview alternatives; ordinary callers should let Arango
-// choose its scan plan.
 func RenderPhysicalPlanWithRootIndexDisabled(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 	if len(plan.Operations) == 0 || plan.Operations[0].Kind != ir.PhysicalRootScanOp ||
 		plan.Operations[0].RootScan == nil || plan.Operations[0].RootScan.Population != nil {
@@ -57,31 +40,19 @@ func RenderPhysicalPlanWithRootIndexDisabled(plan ir.PhysicalPlan) (RenderedPhys
 	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{disableRootIndex: true})
 }
 
-// RenderPhysicalPlanWithSemanticGroupProjectionFactorization renders a narrow
-// direct-source semantic Group after identical complete Coding projections
-// have been collected with occurrence weights.
 func RenderPhysicalPlanWithSemanticGroupProjectionFactorization(plan ir.PhysicalPlan, indexName string, disableIndex bool) (RenderedPhysicalPlan, error) {
 	return renderSemanticGroupProjectionPreview(plan, indexName, disableIndex, false)
 }
 
-// RenderPhysicalPlanWithSemanticGroupProjectionAssessment renders a bounded
-// metadata-only sample of complete Coding projections for runtime admission.
 func RenderPhysicalPlanWithSemanticGroupProjectionAssessment(plan ir.PhysicalPlan, indexName string, disableIndex bool) (RenderedPhysicalPlan, error) {
 	return renderSemanticGroupProjectionPreview(plan, indexName, disableIndex, true)
 }
 
-// ValidateSemanticGroupProjectionPreviewPlan reports whether plan is within
-// the exact direct-source Group shape shared by the factorized and assessment
-// renderers.
 func ValidateSemanticGroupProjectionPreviewPlan(plan ir.PhysicalPlan) error {
 	_, _, _, err := semanticGroupProjectionPreviewShape(plan)
 	return err
 }
 
-// RenderPhysicalRootScopeCount renders an exact count of a direct source
-// plan's canonical project, generation, and authorization scope. It drops
-// source projections and is only valid when those are the plan's sole row
-// filters.
 func RenderPhysicalRootScopeCount(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 	if plan.Engine == ir.PhysicalEngineClickHouse || plan.StageSequence == nil || len(plan.Operations) < 5 {
 		return RenderedPhysicalPlan{}, fmt.Errorf("root scope count requires a staged AQL source plan")
@@ -131,7 +102,6 @@ func RenderPhysicalRootScopeCount(plan ir.PhysicalPlan) (RenderedPhysicalPlan, e
 			}
 			lines = append(lines, rendered...)
 		case ir.PhysicalExpressionLetOp:
-			// Source projection calculations do not affect row membership.
 		case ir.PhysicalReturnOp:
 			if index != len(plan.Operations)-2 || operation.Return == nil {
 				return RenderedPhysicalPlan{}, fmt.Errorf("root scope count has an unexpected return operation")
@@ -150,10 +120,6 @@ func RenderPhysicalRootScopeCount(plan ir.PhysicalPlan) (RenderedPhysicalPlan, e
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query)}, nil
 }
 
-// RenderPhysicalPlanWithRelatedExpandPreviewLimit bounds a terminal
-// RELATED_EXPAND's per-parent candidate rows while retaining the complete
-// final output ordering. The optimization is ignored unless the plan ends at
-// a related expansion whose row identity is the final row identity.
 func RenderPhysicalPlanWithRelatedExpandPreviewLimit(plan ir.PhysicalPlan, limit int) (RenderedPhysicalPlan, error) {
 	if limit < 1 {
 		return RenderedPhysicalPlan{}, fmt.Errorf("related expansion preview limit must be positive")
@@ -161,10 +127,6 @@ func RenderPhysicalPlanWithRelatedExpandPreviewLimit(plan ir.PhysicalPlan, limit
 	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{relatedExpandPreviewLimit: limit})
 }
 
-// RenderPhysicalPlanWithRootPageKeys resolves a sorted, unique page of exact
-// root keys by document lookup before running the unchanged scoped plan.
-// relatedExpandPreviewLimit is zero when no terminal related-expansion cap is
-// required.
 func RenderPhysicalPlanWithRootPageKeys(plan ir.PhysicalPlan, bindKey string, relatedExpandPreviewLimit int) (RenderedPhysicalPlan, error) {
 	if !previewSourcePathSegmentPattern.MatchString(bindKey) {
 		return RenderedPhysicalPlan{}, fmt.Errorf("root page key bind %q is not a safe bind name", bindKey)
@@ -188,10 +150,6 @@ func RenderPhysicalPlanWithRootPageKeys(plan ir.PhysicalPlan, bindKey string, re
 	})
 }
 
-// RenderPhysicalPlanWithCategoryScanPresenceMarker keeps the selected value
-// projection ordinary and carries its property-presence result in a separate
-// internal field. Category scans consume this marker after their source plan
-// has finished filtering rows.
 func RenderPhysicalPlanWithCategoryScanPresenceMarker(plan ir.PhysicalPlan, columnName, markerColumn string) (RenderedPhysicalPlan, error) {
 	if strings.TrimSpace(columnName) == "" || strings.TrimSpace(markerColumn) == "" {
 		return RenderedPhysicalPlan{}, fmt.Errorf("category scan presence requires a selected column and marker")
@@ -202,24 +160,14 @@ func RenderPhysicalPlanWithCategoryScanPresenceMarker(plan ir.PhysicalPlan, colu
 	})
 }
 
-// RenderPhysicalPlanWithTerminalProjection returns one public column from a
-// validated terminal construction stage while preserving every intermediate
-// stage projection needed to evaluate the plan.
 func RenderPhysicalPlanWithTerminalProjection(plan ir.PhysicalPlan, columnName string) (RenderedPhysicalPlan, error) {
 	return renderPhysicalPlanWithTerminalProjection(plan, columnName, false)
 }
 
-// RenderPhysicalPlanWithUnorderedTerminalProjection returns one public column
-// from a validated terminal construction stage without sorting the terminal
-// rows by identity. The caller must impose any ordering its result contract
-// requires.
 func RenderPhysicalPlanWithUnorderedTerminalProjection(plan ir.PhysicalPlan, columnName string) (RenderedPhysicalPlan, error) {
 	return renderPhysicalPlanWithTerminalProjection(plan, columnName, true)
 }
 
-// RenderPhysicalPlanWithUnorderedTerminalProjectionPresenceMarker renders a
-// category scan projection while carrying property presence separately from
-// its nullable value through construction stages.
 func RenderPhysicalPlanWithUnorderedTerminalProjectionPresenceMarker(plan ir.PhysicalPlan, columnName, markerColumn string) (RenderedPhysicalPlan, error) {
 	if strings.TrimSpace(markerColumn) == "" {
 		return RenderedPhysicalPlan{}, fmt.Errorf("category scan presence marker is required")
@@ -286,9 +234,6 @@ func physicalStageColumnByID(columns []ir.PhysicalStageColumn, id string) (ir.Ph
 	return ir.PhysicalStageColumn{}, false
 }
 
-// RenderPhysicalPlanWithDynamicCategoryPivotPreview renders a terminal
-// nonunique Pivot preview with category specifications supplied as one bind
-// array. Full execution continues to use the canonical static renderer.
 func RenderPhysicalPlanWithDynamicCategoryPivotPreview(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 	sequence := plan.StageSequence
 	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
@@ -304,18 +249,10 @@ func RenderPhysicalPlanWithDynamicCategoryPivotPreview(plan ir.PhysicalPlan) (Re
 	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{dynamicPivotPreview: true})
 }
 
-// RenderPhysicalPlanWithStreamingMissingCategoryPivotPreview renders a
-// direct-root terminal Pivot preview with per-category COLLECT aggregations.
-// It avoids retaining every projected source row in a group array while
-// preserving the full source scan and exact presence-aware category matches.
 func RenderPhysicalPlanWithStreamingMissingCategoryPivotPreview(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 	return renderStreamingMissingCategoryPivotPreview(plan, "", false)
 }
 
-// RenderPhysicalPlanWithStreamingMissingCategoryPivotPreviewAndRootIndexHint
-// applies a non-forcing root index hint and renders the hidden missing
-// category marker directly from its stored parent object. Callers must supply
-// a compiler-owned stored-values index matching the source projections.
 func RenderPhysicalPlanWithStreamingMissingCategoryPivotPreviewAndRootIndexHint(plan ir.PhysicalPlan, indexHint string) (RenderedPhysicalPlan, error) {
 	if !rootIndexHintPattern.MatchString(indexHint) {
 		return RenderedPhysicalPlan{}, fmt.Errorf("root index hint %q is not a safe index name", indexHint)
@@ -345,10 +282,6 @@ func renderStreamingMissingCategoryPivotPreview(plan ir.PhysicalPlan, indexHint 
 	})
 }
 
-// RenderPhysicalPlanWithTwoScanPivotPreview renders a terminal Pivot preview
-// by selecting complete group tuples before reading their contributing source
-// rows. The caller must prove the source projection is a direct, terminal
-// Pivot projection before enabling this path.
 func RenderPhysicalPlanWithTwoScanPivotPreview(plan ir.PhysicalPlan, indexHint string, groupKeySourcePaths [][]string) (RenderedPhysicalPlan, error) {
 	if !rootIndexHintPattern.MatchString(indexHint) {
 		return RenderedPhysicalPlan{}, fmt.Errorf("root index hint %q is not a safe index name", indexHint)
@@ -475,10 +408,6 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 			return renderGraphPhysicalPlan(plan, collectionKeys)
 		}
 	}
-	// This renderer deliberately supports only BuildGenericPhysicalPlan's
-	// navigation contract. Validate its required project/auth windows again at
-	// the executable boundary so a manually assembled plan cannot render an
-	// unscoped resource scan.
 	if err := ir.ValidateGenericPhysicalPlanScope(plan); err != nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("verify renderable generic physical plan scope: %w", err)
 	}
@@ -755,11 +684,6 @@ func (r *physicalPlanRenderer) renderRootScan(root ir.PhysicalRootScan) ([]strin
 	return lines, nil
 }
 
-// pruneUnusedRuntimeBindVars is required after physical rewrites. Traversal
-// sharing can remove a typed edge predicate while retaining its original
-// logical bind in the cloned plan. Arango rejects undeclared bind variables,
-// so only values referenced by the final rendered AQL may cross the execution
-// boundary.
 func pruneUnusedRuntimeBindVars(bindVars map[string]any, query string) map[string]any {
 	pruned := make(map[string]any, len(bindVars))
 	for key, value := range bindVars {
@@ -856,10 +780,6 @@ func (r *physicalPlanRenderer) renderScopeOperation(operation ir.PhysicalOperati
 	}
 }
 
-// physicalNavigationRenderLayout is the intentionally narrow executable shape
-// produced by BuildGenericPhysicalPlan. Post-window operations retain physical
-// plan order because sets, traversals, and expression LETs may depend on values
-// introduced by any preceding operation.
 type physicalNavigationRenderLayout struct {
 	root            ir.PhysicalRootScan
 	rootScope       []ir.PhysicalOperation

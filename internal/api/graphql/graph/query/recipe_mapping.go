@@ -1,9 +1,5 @@
 package queryapi
 
-// This file is the transport-only GraphQL -> recipe boundary.  It copies the
-// already resolved GraphQL selections into the canonical recipe wire types;
-// semantic validation and compilation remain in the recipe/semantic packages.
-
 import (
 	"fmt"
 	"strings"
@@ -13,14 +9,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// RecipeBundleFromInput creates the ephemeral one-output recipe used by a
-// one-shot GraphQL dataframe request.  Runtime scope (project, generation,
-// authorization, and limit) is deliberately not copied into the bundle; the
-// caller supplies it through recipe.RuntimeBindings.
-//
-// Field references must have been resolved by PrepareRunInput first.  Keeping
-// that boundary explicit prevents an unresolved catalog name from becoming an
-// executable selector or an accidental storage-specific path.
 func RecipeBundleFromInput(in model.FhirDataframeInput) (recipe.Bundle, error) {
 	if strings.TrimSpace(in.RootResourceType) == "" {
 		return recipe.Bundle{}, fmt.Errorf("rootResourceType is required")

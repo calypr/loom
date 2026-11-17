@@ -11,7 +11,6 @@ import (
 	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
 )
 
-// ExportDataframe streams one authorized project's published dataframe.
 func (s *Service) ExportDataframe(ctx context.Context, project string, request dfmaterialization.ExportRequest, out io.Writer) error {
 	if s.reader == nil {
 		return dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))

@@ -9,12 +9,12 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/projectid"
 )
 
 type recipeAuthorization struct {
-	resolver *authscope.ScopeResolver
+	resolver                   *authscope.ScopeResolver
+	selectionMembersCollection string
 }
 
 var _ graphresolver.RecipeAuthorizer = recipeAuthorization{}
@@ -25,7 +25,7 @@ func (a recipeAuthorization) AuthorizeRead(ctx context.Context, bindings recipe.
 	}
 	bindings.Project = strings.TrimSpace(bindings.Project)
 	bindings.SelectionProject = projectid.Canonical(bindings.Project)
-	bindings.SelectionMembersCollection = explorerarango.SelectionMembersCollection
+	bindings.SelectionMembersCollection = a.selectionMembersCollection
 	if a.resolver == nil {
 		bindings.AuthScopeMode = authscope.ReadScopeUnrestricted
 		return bindings, nil
@@ -49,7 +49,7 @@ func (a recipeAuthorization) AuthorizeWrite(ctx context.Context, bindings recipe
 	}
 	bindings.Project = strings.TrimSpace(bindings.Project)
 	bindings.SelectionProject = projectid.Canonical(bindings.Project)
-	bindings.SelectionMembersCollection = explorerarango.SelectionMembersCollection
+	bindings.SelectionMembersCollection = a.selectionMembersCollection
 	if a.resolver == nil {
 		bindings.AuthScopeMode = authscope.ReadScopeUnrestricted
 		return bindings, nil

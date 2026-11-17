@@ -14,14 +14,10 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-// PublicOutputContracts is the current, transport-neutral public output
-// contract persisted inside a compilation receipt. Outputs retain workspace
-// order; executable selectors and physical names are deliberately absent.
 type PublicOutputContracts struct {
 	Outputs []PublicOutputContract `json:"outputs"`
 }
 
-// PublicOutputContract describes one compiled workspace output.
 type PublicOutputContract struct {
 	OutputID              string               `json:"outputId"`
 	RootResourceType      string               `json:"rootResourceType,omitempty"`
@@ -57,8 +53,6 @@ type PublicOutputColumn struct {
 	Chartable             bool                            `json:"chartable"`
 	UnitNormalization     *PublicUnitNormalization        `json:"unitNormalization,omitempty"`
 
-	// Compiler identities remain available to internal legacy tests only. They
-	// are deliberately absent from the V2 public contract.
 	EmissionID     string `json:"-"`
 	PublicColumn   string `json:"-"`
 	CandidateID    string `json:"-"`
@@ -76,10 +70,6 @@ type PublicUnitNormalization struct {
 	Rules  []PublicUnitRuleIdentity `json:"rules"`
 }
 
-// DecodePublicOutputContracts strictly decodes the current contract shape.
-// Null columns are accepted because an empty V2 selection is a valid mutable
-// editor state and the current compiler serializes its nil slice as null.
-// Missing fields, unknown fields, duplicate keys, and trailing JSON are not accepted.
 func DecodePublicOutputContracts(raw json.RawMessage) (PublicOutputContracts, error) {
 	if len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return PublicOutputContracts{}, invalidOutputContract("contract is required")
@@ -158,8 +148,6 @@ func (c PublicOutputContracts) Output(outputID string) (PublicOutputContract, bo
 	return PublicOutputContract{}, false
 }
 
-// ValidateAgainst proves that the ordered contract set exactly matches the
-// recipe outputs and each output's ordered emitted columns.
 func (c PublicOutputContracts) ValidateAgainst(bundle recipe.Bundle, emitted []EmittedColumn) error {
 	if len(c.Outputs) != len(bundle.Outputs) {
 		return invalidOutputContract("output count %d does not match recipe output count %d", len(c.Outputs), len(bundle.Outputs))
@@ -186,10 +174,6 @@ func (c PublicOutputContracts) ValidateAgainst(bundle recipe.Bundle, emitted []E
 	return nil
 }
 
-// ValidateAgainst proves that the typed public contract is exactly the
-// compiler-owned emitted-column sequence for the receipt's bundle. It checks
-// output identity, order, IDs, and every public metadata bit. A mismatch is a
-// receipt integrity failure and therefore requires explicit recompilation.
 func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []EmittedColumn) error {
 	if strings.TrimSpace(c.OutputID) == "" {
 		return invalidOutputContract("outputId is required")

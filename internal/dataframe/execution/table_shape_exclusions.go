@@ -2,12 +2,15 @@ package execution
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	postgresrender "github.com/calypr/loom/internal/dataframe/compiler/render/postgres"
 )
 
 type TableShapeExclusionStatus string
@@ -55,7 +58,7 @@ func (e *Engine) TableShapeExclusions(ctx context.Context, resolved Resolved, re
 		if output.Name != request.Output {
 			continue
 		}
-		compiled, err := compiler.CompileTableShapeExclusionsWithPolicy(output, request.Offset, request.Limit, ir.DefaultPhysicalOptimizationPolicy())
+		compiled, err := compiler.CompileTableShapeExclusions(e.compileTarget, output, request.Offset, request.Limit, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			var refusal *compiler.TableShapeExclusionRefusal
 			if errors.As(err, &refusal) {
@@ -66,6 +69,9 @@ func (e *Engine) TableShapeExclusions(ctx context.Context, resolved Resolved, re
 					return TableShapeExclusionResult{Status: TableShapeExclusionNoExclusionPolicy, Exclusions: []TableShapeExclusion{}}, nil
 				}
 			}
+			if errors.Is(err, postgresrender.ErrUnsupportedPostgresPlan) {
+				return TableShapeExclusionResult{Status: TableShapeExclusionUnsupported, Exclusions: []TableShapeExclusion{}}, nil
+			}
 			return TableShapeExclusionResult{}, err
 		}
 		return e.TableShapeExclusionsCompiled(ctx, compiled)
@@ -73,18 +79,42 @@ func (e *Engine) TableShapeExclusions(ctx context.Context, resolved Resolved, re
 	return TableShapeExclusionResult{}, fmt.Errorf("table-shape exclusion output %q was not found", request.Output)
 }
 
-// TableShapeExclusionsCompiled is the narrow execution seam for callers and
-// tests holding the compiler-produced canonical diagnostic query.
 func (e *Engine) TableShapeExclusionsCompiled(ctx context.Context, compiled compiler.CompiledTableShapeExclusionQuery) (TableShapeExclusionResult, error) {
-	if e == nil || e.queryRows == nil {
+	isPostgreSQL := false
+	switch compiled.Command.Backend() {
+	case command.CompiledBackendAQL:
+	case command.CompiledBackendPostgreSQL:
+		isPostgreSQL = true
+	}
+	if e == nil || e.sourceRows == nil {
+		if isPostgreSQL {
+			return TableShapeExclusionResult{Status: TableShapeExclusionUnsupported, Exclusions: []TableShapeExclusion{}}, nil
+		}
 		return TableShapeExclusionResult{}, fmt.Errorf("table-shape exclusion query executor is required")
 	}
-	if compiled.Query == "" || compiled.Limit <= 0 || compiled.Offset < 0 || compiled.ResourceTypeField == "" || compiled.ResourceIDField == "" || compiled.CategoryPresentField == "" || compiled.CategoryValueField == "" || compiled.CategoryTypeField == "" || compiled.OutputRowIDField == "" || compiled.ReasonField == "" || compiled.IdentityStatusField == "" || compiled.OmissionField == "" {
+	if !isPostgreSQL && compiled.Command.Backend() != command.CompiledBackendAQL ||
+		compiled.Limit <= 0 || compiled.Offset < 0 || compiled.ResourceTypeField == "" || compiled.ResourceIDField == "" || compiled.CategoryPresentField == "" || compiled.CategoryValueField == "" || compiled.CategoryTypeField == "" || compiled.OutputRowIDField == "" || compiled.ReasonField == "" || compiled.IdentityStatusField == "" || compiled.OmissionField == "" {
 		return TableShapeExclusionResult{}, fmt.Errorf("table-shape exclusion query is missing typed result metadata")
+	}
+	parse := parseTableShapeExclusion
+	request := RowsRequest{Command: compiled.Command, BatchSize: e.batchSize}
+	if isPostgreSQL {
+		parse = parsePostgreSQLTableShapeExclusion
+		request.DeclaredColumns = []string{
+			compiled.ResourceTypeField,
+			compiled.ResourceIDField,
+			compiled.IdentityStatusField,
+			compiled.CategoryValueField,
+			compiled.CategoryPresentField,
+			compiled.CategoryTypeField,
+			compiled.OutputRowIDField,
+			compiled.ReasonField,
+			compiled.OmissionField,
+		}
 	}
 	rows := make([]TableShapeExclusion, 0, compiled.Limit+1)
 	tooMany := false
-	err := e.queryRows(ctx, compiled.Query, e.batchSize, compiled.BindVars, func(row map[string]any) error {
+	err := e.sourceRows(ctx, request, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -92,7 +122,7 @@ func (e *Engine) TableShapeExclusionsCompiled(ctx context.Context, compiled comp
 			tooMany = true
 			return errTableShapeExclusionOverflow
 		}
-		parsed, parseErr := parseTableShapeExclusion(compiled, row)
+		parsed, parseErr := parse(compiled, row)
 		if parseErr != nil {
 			return parseErr
 		}
@@ -105,6 +135,9 @@ func (e *Engine) TableShapeExclusionsCompiled(ctx context.Context, compiled comp
 	if err != nil {
 		if ctx.Err() != nil {
 			return TableShapeExclusionResult{Status: TableShapeExclusionIncomplete, Exclusions: []TableShapeExclusion{}, Complete: false, NextOffset: compiled.Offset}, nil
+		}
+		if isPostgreSQL && errors.Is(err, command.ErrCompiledCommandBackendNotRegistered) {
+			return TableShapeExclusionResult{Status: TableShapeExclusionUnsupported, Exclusions: []TableShapeExclusion{}}, nil
 		}
 		return TableShapeExclusionResult{}, fmt.Errorf("execute table-shape exclusions: %w", err)
 	}
@@ -136,6 +169,58 @@ func (e *Engine) TableShapeExclusionsCompiled(ctx context.Context, compiled comp
 
 var errTableShapeExclusionOverflow = errors.New("table-shape exclusion page overflow")
 
+type tableShapeExclusionEvidence struct {
+	present          bool
+	categoryValue    any
+	categoryType     string
+	categoryTypeOK   bool
+	outputRowID      string
+	outputRowIDOK    bool
+	reason           string
+	reasonOK         bool
+	identityStatus   string
+	identityStatusOK bool
+	sourceIdentityOK bool
+	resourceType     string
+	resourceID       string
+	omission         string
+	omissionOK       bool
+}
+
+func tableShapeExclusionFromEvidence(evidence tableShapeExclusionEvidence) (TableShapeExclusion, error) {
+	if !evidence.categoryTypeOK || evidence.categoryType == "" {
+		return TableShapeExclusion{}, fmt.Errorf("table-shape exclusion has invalid category type")
+	}
+	if !evidence.outputRowIDOK || evidence.outputRowID == "" {
+		return TableShapeExclusion{}, fmt.Errorf("table-shape exclusion has invalid output row identity")
+	}
+	if !evidence.reasonOK || evidence.reason != ir.PhysicalTableShapeExclusionReasonUnlistedCategory {
+		return TableShapeExclusion{}, fmt.Errorf("table-shape exclusion has invalid reason")
+	}
+	if !evidence.identityStatusOK {
+		return TableShapeExclusion{}, fmt.Errorf("table-shape exclusion has invalid source identity status")
+	}
+	result := TableShapeExclusion{
+		Category:     CategoryValue{Present: evidence.present, Value: evidence.categoryValue},
+		CategoryType: evidence.categoryType, OutputRowID: evidence.outputRowID, Reason: evidence.reason,
+	}
+	switch evidence.identityStatus {
+	case ir.PhysicalTableShapeExclusionIdentityExact:
+		if !evidence.sourceIdentityOK || evidence.resourceType == "" || evidence.resourceID == "" {
+			return TableShapeExclusion{}, fmt.Errorf("exact table-shape source identity is incomplete")
+		}
+		result.SourceIdentity = &TableShapeSourceIdentity{ResourceType: evidence.resourceType, ResourceID: evidence.resourceID}
+	case ir.PhysicalTableShapeExclusionIdentityUnavailable:
+		if !evidence.omissionOK || evidence.omission != ir.PhysicalTableShapeExclusionSourceIdentityUnavailable {
+			return TableShapeExclusion{}, fmt.Errorf("table-shape source identity omission is invalid")
+		}
+		result.OmissionCode = evidence.omission
+	default:
+		return TableShapeExclusion{}, fmt.Errorf("table-shape exclusion has unknown source identity status %q", evidence.identityStatus)
+	}
+	return result, nil
+}
+
 func parseTableShapeExclusion(compiled compiler.CompiledTableShapeExclusionQuery, row map[string]any) (TableShapeExclusion, error) {
 	categoryPresent, ok := row[compiled.CategoryPresentField].(bool)
 	if !ok {
@@ -145,42 +230,90 @@ func parseTableShapeExclusion(compiled compiler.CompiledTableShapeExclusionQuery
 	if !exists {
 		return TableShapeExclusion{}, fmt.Errorf("table-shape exclusion is missing category value")
 	}
-	categoryType, ok := row[compiled.CategoryTypeField].(string)
-	if !ok || categoryType == "" {
-		return TableShapeExclusion{}, fmt.Errorf("table-shape exclusion has invalid category type")
-	}
-	rowID, ok := row[compiled.OutputRowIDField].(string)
-	if !ok || rowID == "" {
-		return TableShapeExclusion{}, fmt.Errorf("table-shape exclusion has invalid output row identity")
-	}
-	reason, ok := row[compiled.ReasonField].(string)
-	if !ok || reason != ir.PhysicalTableShapeExclusionReasonUnlistedCategory {
-		return TableShapeExclusion{}, fmt.Errorf("table-shape exclusion has invalid reason")
-	}
-	identityStatus, ok := row[compiled.IdentityStatusField].(string)
+	categoryType, categoryTypeOK := row[compiled.CategoryTypeField].(string)
+	outputRowID, outputRowIDOK := row[compiled.OutputRowIDField].(string)
+	reason, reasonOK := row[compiled.ReasonField].(string)
+	identityStatus, identityStatusOK := row[compiled.IdentityStatusField].(string)
+	resourceType, resourceTypeOK := row[compiled.ResourceTypeField].(string)
+	resourceID, resourceIDOK := row[compiled.ResourceIDField].(string)
+	omission, omissionOK := row[compiled.OmissionField].(string)
+	return tableShapeExclusionFromEvidence(tableShapeExclusionEvidence{
+		present:          categoryPresent,
+		categoryValue:    categoryValue,
+		categoryType:     categoryType,
+		categoryTypeOK:   categoryTypeOK,
+		outputRowID:      outputRowID,
+		outputRowIDOK:    outputRowIDOK,
+		reason:           reason,
+		reasonOK:         reasonOK,
+		identityStatus:   identityStatus,
+		identityStatusOK: identityStatusOK,
+		sourceIdentityOK: resourceTypeOK && resourceIDOK,
+		resourceType:     resourceType,
+		resourceID:       resourceID,
+		omission:         omission,
+		omissionOK:       omissionOK,
+	})
+}
+
+func parsePostgreSQLTableShapeExclusion(compiled compiler.CompiledTableShapeExclusionQuery, row map[string]any) (TableShapeExclusion, error) {
+	present, ok := decodePostgreSQLPresence(row[compiled.CategoryPresentField])
 	if !ok {
-		return TableShapeExclusion{}, fmt.Errorf("table-shape exclusion has invalid source identity status")
+		return TableShapeExclusion{}, fmt.Errorf("table-shape exclusion has invalid category presence")
 	}
-	result := TableShapeExclusion{
-		Category:     CategoryValue{Present: categoryPresent, Value: categoryValue},
-		CategoryType: categoryType, OutputRowID: rowID, Reason: reason,
+	categoryValue, exists := row[compiled.CategoryValueField]
+	if !exists {
+		return TableShapeExclusion{}, fmt.Errorf("table-shape exclusion is missing category value")
 	}
-	switch identityStatus {
-	case ir.PhysicalTableShapeExclusionIdentityExact:
-		resourceType, typeOK := row[compiled.ResourceTypeField].(string)
-		resourceID, idOK := row[compiled.ResourceIDField].(string)
-		if !typeOK || resourceType == "" || !idOK || resourceID == "" {
-			return TableShapeExclusion{}, fmt.Errorf("exact table-shape source identity is incomplete")
-		}
-		result.SourceIdentity = &TableShapeSourceIdentity{ResourceType: resourceType, ResourceID: resourceID}
-	case ir.PhysicalTableShapeExclusionIdentityUnavailable:
-		omission, omissionOK := row[compiled.OmissionField].(string)
-		if !omissionOK || omission != ir.PhysicalTableShapeExclusionSourceIdentityUnavailable {
-			return TableShapeExclusion{}, fmt.Errorf("table-shape source identity omission is invalid")
-		}
-		result.OmissionCode = omission
+	categoryType, categoryTypeOK := row[compiled.CategoryTypeField].(string)
+	outputRowID, outputRowIDOK := row[compiled.OutputRowIDField].(string)
+	reason, reasonOK := row[compiled.ReasonField].(string)
+	identityStatus, identityStatusOK := row[compiled.IdentityStatusField].(string)
+	resourceType, resourceTypeOK := decodePostgreSQLEvidenceText(row[compiled.ResourceTypeField])
+	resourceID, resourceIDOK := decodePostgreSQLEvidenceText(row[compiled.ResourceIDField])
+	omission, omissionOK := row[compiled.OmissionField].(string)
+	return tableShapeExclusionFromEvidence(tableShapeExclusionEvidence{
+		present:          present,
+		categoryValue:    categoryValue,
+		categoryType:     categoryType,
+		categoryTypeOK:   categoryTypeOK,
+		outputRowID:      outputRowID,
+		outputRowIDOK:    outputRowIDOK,
+		reason:           reason,
+		reasonOK:         reasonOK,
+		identityStatus:   identityStatus,
+		identityStatusOK: identityStatusOK,
+		sourceIdentityOK: resourceTypeOK && resourceIDOK,
+		resourceType:     resourceType,
+		resourceID:       resourceID,
+		omission:         omission,
+		omissionOK:       omissionOK,
+	})
+}
+
+func decodePostgreSQLPresence(value any) (bool, bool) {
+	raw, ok := value.(json.RawMessage)
+	if !ok {
+		return false, false
+	}
+	switch string(raw) {
+	case "true":
+		return true, true
+	case "false":
+		return false, true
 	default:
-		return TableShapeExclusion{}, fmt.Errorf("table-shape exclusion has unknown source identity status %q", identityStatus)
+		return false, false
 	}
-	return result, nil
+}
+
+func decodePostgreSQLEvidenceText(value any) (string, bool) {
+	raw, ok := value.(json.RawMessage)
+	if !ok || len(raw) == 0 {
+		return "", false
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil || text == "" {
+		return "", false
+	}
+	return text, true
 }

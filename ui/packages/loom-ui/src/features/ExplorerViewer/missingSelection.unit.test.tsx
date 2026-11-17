@@ -1,7 +1,4 @@
 // @vitest-environment jsdom
-// Literal/missing collision contracts for the published Viewer: a value spelled exactly
-// like the missing bucket label stays data (EQ/IN), and only the tagged bucket emits
-// IS_NULL. Table and ordinary CSV export consume the same request.
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -80,10 +77,6 @@ const harness = (options: { readonly literalTerm?: boolean } = {}) => {
   render(<LoomExplorerViewer project="NCPI_ACCEPTANCE" explorerId="default" client={client} />);
   const statusFilters = (index: number): ReadonlyArray<CapturedFilter> =>
     ((inputs[index]?.filters ?? []) as ReadonlyArray<CapturedFilter>).filter((filter) => filter.column === 'status');
-  // Each distinct request identity loads exactly once, so a new GraphQL input means
-  // the new selection landed in the request the table is rendered from. The baseline
-  // is the last verified request rather than the count at call time: an undebounced
-  // selection can already have fired its request before this helper runs.
   let verified = -1;
   const expectStatusFilters = async (expected: ReadonlyArray<CapturedFilter>): Promise<number> => {
     await waitFor(() => {
@@ -179,7 +172,6 @@ describe('missing and populated choices stay mutually exclusive', () => {
     fireEvent.click(pending);
     await view.expectStatusFilters([{ column: 'status', op: 'IN', value: ['active', 'pending'] }]);
 
-    // The reader ANDs clauses with no OR group, so the bucket replaces populated values.
     fireEvent.click(bucket);
     await view.expectStatusFilters([{ column: 'status', op: 'IS_NULL', value: {} }]);
     expect(active).toHaveProperty('checked', false);
@@ -190,7 +182,6 @@ describe('missing and populated choices stay mutually exclusive', () => {
     await view.expectStatusFilters([{ column: 'status', op: 'EQ', value: 'active' }]);
     expect(bucket).toHaveProperty('checked', false);
 
-    // Advance to page two, then any selection change returns to the first page.
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     await waitFor(() => {
       const latest = view.inputs[view.inputs.length - 1];
@@ -269,8 +260,6 @@ describe('table and ordinary CSV export share one request', () => {
     await waitFor(() => { expect(view.exportOutput).toHaveBeenCalledTimes(1); });
     const request = exportRequestOf();
     expect(request.filters?.filter((filter) => filter.column === 'status')).toEqual([{ column: 'status', op: 'IS_NULL', value: {} }]);
-    // No cursor: the export follows the full first-page table request, and JSON
-    // serialization drops the undefined key before it reaches the wire.
     expect(request.after).toBeUndefined();
     expect(request.columns).toEqual(['patient_id', 'status']);
   });

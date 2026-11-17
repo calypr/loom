@@ -254,9 +254,6 @@ func ClonePhysicalSubplan(subplan PhysicalSubplan) PhysicalSubplan {
 	return clonePhysicalSubplan(subplan)
 }
 
-// CanonicalExecutionPhysicalPlan returns the renderer-relevant plan contract.
-// Compiler diagnostics and semantic source locations are deliberately removed:
-// they explain a plan but do not change what the backend executes.
 func CanonicalExecutionPhysicalPlan(plan PhysicalPlan) PhysicalPlan {
 	out := clonePhysicalPlan(plan)
 	out.Source = PhysicalSource{}

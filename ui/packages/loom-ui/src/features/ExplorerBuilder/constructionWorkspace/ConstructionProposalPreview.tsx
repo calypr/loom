@@ -3,12 +3,9 @@ import type { ExplorerBuilderPreviewResult } from '../../../types';
 import type { DraftTable } from '../authoring/model';
 import { formatPreviewCell, previewCellTitle, sortByPresentationOrder } from '../components/PreviewTable';
 
-// Counts and their noun stay together so a phrase can never grow a second unit.
 const formatCount = (count: number, noun: string) =>
   `${count.toLocaleString()} ${noun}${count === 1 ? '' : 's'}`;
 
-// rowCount counts encoded preview rows. Only sampled=false proves the preview
-// exhausted the output and lets that returned count describe the proposal total.
 export const rowCountImpactSummary = (
   preview: ExplorerBuilderPreviewResult,
   impactLabel: string,

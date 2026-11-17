@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// historicalBareJoin replays the pre-repair PointerName EXACTLY as shipped:
-// conditional optional components joined with a bare "\x00". It pins the
-// fault premise (the archived CONFIRMED pairs fold HERE) while production
-// PointerName must separate them (Repair-5).
 func historicalBareJoin(i BundleIdentity) string {
 	parts := []string{i.Project, i.DatasetGeneration, i.Name}
 	if strings.TrimSpace(i.TranslationVersion) != "" {
@@ -40,9 +36,6 @@ func TestPointerNameLengthPrefixDefeatsNulFold(t *testing.T) {
 	t.Logf("FB21 control: historical bare join folded both to %q; production PointerName now separates %q vs %q", historicalBareJoin(nulA), nulA.PointerName(), foldB.PointerName())
 }
 
-// TestPointerNameIsInjectiveOverDistinctComponents drives the archived
-// fold-class pairs plus delimiter-spoof neighbours: every DISTINCT
-// (component, value) assignment must yield a distinct pointer name.
 func TestPointerNameIsInjectiveOverDistinctComponents(t *testing.T) {
 	seen := map[string]string{}
 	entries := []struct {
@@ -67,9 +60,6 @@ func TestPointerNameIsInjectiveOverDistinctComponents(t *testing.T) {
 	}
 }
 
-// TestPointerNameOptionalComponentSemanticsAreShipPreserved pins the shipped
-// exclusion behaviour (whitespace-only == absent) that the Repair-5 encoder
-// must not alter.
 func TestPointerNameOptionalComponentSemanticsAreShipPreserved(t *testing.T) {
 	base := BundleIdentity{Project: "proj", DatasetGeneration: "gen", Name: "orders"}
 	withTV := func(tv, out string) BundleIdentity {
@@ -87,19 +77,6 @@ func TestPointerNameOptionalComponentSemanticsAreShipPreserved(t *testing.T) {
 	if withTV("v1 ", "main").PointerName() == withTV("v1", "main").PointerName() {
 		t.Fatalf("trailing-space TranslationVersion was collapsed; the shipped encoding keeps the raw value inside a live component")
 	}
-	// Documented boundary equality (NOT a fold-class defect): blank-valued
-	// optional components are EXCLUDED, so (TV="x", Out blank) and
-	// (TV blank, Out="x") occupy one 4-component namespace, matching the
-	// pre-repair bare join. That boundary cannot steal a pointer: a document
-	// publish REQUIRES a non-blank TranslationVersion
-	// (internal/dataframe/recipe/document_validation.go:39), so the blank-TV /
-	// Output-only twin of a blank-Output identity is never publishable; a
-	// blank-Output identity only arises from a multi-output publication —
-	// incrementalPublicationOutput returns "" unless there is exactly one
-	// binding and one stream
-	// (internal/server/recipe_publication.go:214-218) — and its 4 components
-	// never collide with a 5-component single-output name; Key() still
-	// distinguishes the executions themselves.
 	left := withTV("x", "")
 	right := withTV("", "x")
 	if left.PointerName() != right.PointerName() || historicalBareJoin(left) != historicalBareJoin(right) {

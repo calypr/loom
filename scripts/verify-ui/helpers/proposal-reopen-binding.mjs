@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 
-/** Verify that a post-Cancel removal candidate was newly captured and is still bound to the unchanged draft. */
 export const assertReopenedProposalAfterCancel = ({ previous, cancelledAt, current, state, outputId, removeStepIds }) => {
   assert(Number.isInteger(previous?.requestIndex) && Number.isInteger(current?.requestIndex),
     'Both proposal captures must retain their native request indices');

@@ -15,8 +15,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
 
-// recipeExecution returns the legacy execution document consumed by ETL. A
-// denied execution remains indistinguishable from a missing catalog entry.
 func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (any, int) {
 	if r.releases == nil {
 		return map[string]any{"error": "recipe execution not found"}, http.StatusNotFound
@@ -71,42 +69,8 @@ func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (any, int) 
 			RowCount: output.RowCount,
 			Columns:  columns,
 		}
-		// F-R3 twin parity (REPAIR-20b, adversarial review
-		// ses_e65cad76effe F-1/F-2/F-3): the output failure fields are built
-		// through the SAME encoding chain the GraphQL twin uses — the twin's
-		// own constructor dataframeapi.PersistedFailure
-		// (internal/api/graphql/graph/dataframe/model.go:73-84) exactly as
-		// executionModel (recipe_control_graphql.go:319,334) consumes it, and
-		// the same non-empty Phase gate it applies (:329-331). The raw text
-		// given to the constructor for the message slot is the reader-level
-		// mirror of execution.Error, gated by output health (REPAIR-20c):
-		// recipe_execution_reader.go mirrors execution.Error only onto
-		// outputs that are not themselves healthy (durable READY/PUBLISHED
-		// publish no mirrored text), so the lease-lost reconciliation shape
-		// (bundle_store.go:1207-1214 fails the execution, leaving READY
-		// outputs untouched) no longer stamps a phantom per-output trio —
-		// the ledger entry REPAIR-20b recorded as deliberately unfixed on
-		// the twin side is now repaired on both twins. A genuine per-output
-		// failure (failPhase bundle_store.go:989-995 persists its own
-		// FailureCode/Phase, or leaves the output FAILED) still projects.
-		// What that chain publishes — never a raw durable copy:
-		//   - persisted code present -> the code's stable public message
-		//     (errors.PublicMessage substitution) with the persisted code and
-		//     retryable;
-		//   - code-less failure text -> errors.SanitizePersistedFailure
-		//     (internal/dataframe/errors/errors.go:271-277): unknown text is
-		//     Normalize-inferred to a public message/INTERNAL_ERROR code/
-		//     inferred retryable and is never echoed to clients;
-		//     whitespace-only text becomes present-but-empty "", "", false;
-		//   - no persisted code and no raw text -> all three nil, so the
-		//     omitempty generated keys stay absent (additive-optional
-		//     contract, matching the twin publishing nothing when healthy).
 		mirroredError := ""
 		if item.State != string(publication.BundleReady) {
-			// recipeExecutionHTTPState renders both durable success states
-			// (READY and PUBLISHED) as READY; anything else (FAILED, in
-			// flight) keeps the execution.Error mirror, exactly as the
-			// GraphQL twin reader gates it.
 			mirroredError = execution.Error
 		}
 		message, code, retryable := dataframeapi.PersistedFailure(mirroredError, output.FailureCode, output.FailureRetryable)
@@ -126,16 +90,6 @@ func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (any, int) 
 		State:                recipeExecutionHTTPState(execution.State),
 		Outputs:              outputs,
 	}
-	// F-R3 twin parity: the execution-level failure trio is built through the
-	// same twin constructor+sanitizer chain as the outputs above
-	// (PersistedFailure over execution.Error/FailureCode/FailureRetryable,
-	// plus the non-empty FailurePhase gate at recipe_control_graphql.go:
-	// 339-341), so both transports publish identical bytes for the same
-	// durable record (bundle_store.go failPhase:985-988, lease-lost :1207-
-	// 1213): public-message substitution for persisted codes, never echoing
-	// unknown durable text, explicit true/false errorRetryable on failure
-	// (docs/loom-reliability-contract.md "Retryability is explicit"), and
-	// total absence (nil -> omitempty) when no failure is persisted.
 	response.Error, response.ErrorCode, response.ErrorRetryable = dataframeapi.PersistedFailure(execution.Error, execution.FailureCode, execution.FailureRetryable)
 	if execution.FailurePhase != "" {
 		response.Phase = &execution.FailurePhase
@@ -143,26 +97,10 @@ func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (any, int) 
 	return response, http.StatusOK
 }
 
-// recipeExecutionReadScope consults the wired resolver for the auth paths an
-// execution declares. The variable is the test seam for the CoversExecutionPaths
-// defense-in-depth gate against resolver drift: a production resolver's
-// Restricted success always echoes the requested path set back (scope_resolver.go
-// ResolveReadScopeForGeneration), so the subset loop that makes Covers the
-// sole disclosure gate is otherwise unreachable in e2e. The default remains
-// the authentic resolver call; production behavior is unchanged.
 var recipeExecutionReadScope = func(ctx context.Context, scopes *authscope.ScopeResolver, principal *authscope.Principal, project, datasetGeneration string, declared []string) (authscope.ReadScope, error) {
 	return scopes.ResolveReadScopeForGeneration(ctx, principal, project, datasetGeneration, declared)
 }
 
-// recipeExecutionLookupResponse is the HTTP twin of the GraphQL reader's
-// recipeExecutionLookupError (recipe_execution_reader.go:81-99). The durable
-// not-found sentinel is the only signal that maps to a permanent, concealed
-// not-found; every other store failure stays an explicit retryable outage so a
-// transient Arango fault never collapses into a non-retryable 404. Unclassified
-// faults fail safe as retryable dependency faults per
-// docs/loom-reliability-contract.md, and denial-concealment per authpolicy
-// keeps the not-found envelope. No new response shape is introduced: retryable
-// faults reuse the same shared service error the authorization outage emits.
 func recipeExecutionLookupResponse(ctx context.Context, err error) (any, int) {
 	if err == nil || errors.Is(err, publication.ErrBundleNotFound) {
 		return map[string]any{"error": "recipe execution not found"}, http.StatusNotFound
@@ -182,24 +120,11 @@ func recipeExecutionLookupResponse(ctx context.Context, err error) (any, int) {
 	return response, status
 }
 
-// recipeExecutionAuthorizationResponse keeps concealment for denials while
-// exposing a retryable shared service envelope for an authorization outage.
-// The generated OpenAPI adapter owns the final 503 response type; this seam
-// keeps the semantic route behavior testable without hand-editing generated
-// code.
 func recipeExecutionAuthorizationResponse(ctx context.Context, err error) (any, int) {
 	status := recipeExecutionAuthorizationStatus(err)
 	if status != http.StatusServiceUnavailable {
 		return map[string]any{"error": "recipe execution not found"}, status
 	}
-	// F-4: the default 503 arm must keep this function's docstring promise (and
-	// the GraphQL twin recipe_execution_reader.go:98 fail-safe) of a retryable
-	// shared service envelope for an authorization outage. A known sentinel
-	// outage already maps to the 503 BACKEND_UNAVAILABLE envelope and is
-	// untouched; an arbitrary catalog/authorization fault that would otherwise
-	// map to a non-retryable INTERNAL_ERROR gets the same fail-safe wrapper the
-	// lookup twin applies just above (mapServiceError then re-map when the
-	// shared mapper does not yield 503), so no new response shape is invented.
 	mappedStatus, response := mapServiceError(err, ctx)
 	if mappedStatus != http.StatusServiceUnavailable {
 		_, response = mapServiceError(dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)), ctx)
@@ -212,16 +137,6 @@ func recipeExecutionAuthorizationStatus(err error) int {
 	case errors.Is(err, authscope.ErrUnauthenticated):
 		return http.StatusUnauthorized
 	case errors.Is(err, authscope.ErrForbidden):
-		// F-B32: a per-generation scope denial (ResolveReadScopeForGeneration ->
-		// ErrForbidden for a restricted caller missing an auth_resource_path) is
-		// an unauthorized-to-see execution and must conceal to 404, matching the
-		// GraphQL twin (recipe_execution_reader.go:39-41 -> recipeExecutionLookupError:94
-		// -> authpolicy Classify(ErrForbidden, OperationConcealedLookup)=CodeRecipeExecutionNotFound,
-		// policy.go:40-41,47-52) and this route's sibling uncovered-path branch
-		// (openapi_recipe_execution.go:40-42). A 403 here was a status-only
-		// existence oracle over the shared "recipe execution not found" body.
-		// Unauthenticated (401) and authorization-backend failure (503) arms are
-		// preserved unchanged.
 		return http.StatusNotFound
 	case errors.Is(err, authscope.ErrAuthorizationBackendUnavailable):
 		return http.StatusServiceUnavailable

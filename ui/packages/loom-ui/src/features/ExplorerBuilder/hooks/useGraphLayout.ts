@@ -10,7 +10,6 @@ interface GraphLayoutState {
   readonly positions: ReadonlyMap<string, { x: number; y: number }>;
 }
 
-/** Runs the asynchronous ELK layout and ignores results for obsolete catalogs. */
 export const useGraphLayout = (
   identity: string,
   nodes: ReadonlyArray<GraphLayoutNode>,

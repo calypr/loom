@@ -14,6 +14,7 @@ import (
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -166,8 +167,16 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -436,8 +445,16 @@ func TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -672,8 +689,16 @@ func TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -899,7 +924,15 @@ func TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP(t *tes
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{}, SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1342,7 +1375,15 @@ func TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP(t *
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{}, SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1822,9 +1863,17 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:     compilerTestRegistry{},
-		ScopeDigest:  recipeScopeDigest,
-		QueryRows:    func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		ScopeDigest:   recipeScopeDigest,
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 		RootPageRows: 100,
 	})
 	if err != nil {
@@ -1950,8 +1999,6 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 		t.Fatalf("related-source default ALL value = %#v, want the full matching list", got)
 	}
 
-	// Exercise the same exact proposal through the generated OpenAPI request DTO.
-	// A missing wire field silently resets ONE to the default ALL array.
 	related.RowValuePolicy = authoringv2.ConstructionRowValueOne
 	candidateJSON, err = json.Marshal(candidateConstruction)
 	if err != nil {
@@ -2006,7 +2053,6 @@ func TestBuilderHTTPSerializesEmptyConstructionStepsAsArray(t *testing.T) {
 	if !bytes.Contains(draft, []byte(`"steps":[]`)) {
 		t.Fatalf("test draft did not contain canonical empty steps: %s", draft)
 	}
-	// Simulate a legacy persisted draft that decoded its empty slice as null.
 	draft = bytes.Replace(draft, []byte(`"steps":[]`), []byte(`"steps":null`), 1)
 	legacyDigest, err := workspace.LegacyNilConstructionStepsDigest()
 	if err != nil {
@@ -2165,8 +2211,16 @@ func TestConstructionProposalCurrentCodingGroupSpecimenFocusObservationHTTP(t *t
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{}, ScopeDigest: recipeScopeDigest, RootPageRows: 100,
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{}, ScopeDigest: recipeScopeDigest, RootPageRows: 100,
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -2392,8 +2446,16 @@ func TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation(t *testing.
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

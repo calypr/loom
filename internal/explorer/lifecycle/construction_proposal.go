@@ -79,18 +79,11 @@ type ConstructionGroupFieldChoice struct {
 	MatchedOutputKeyID string                                         `json:"matchedOutputKeyId,omitempty"`
 }
 
-// ConstructionGroupRelatedOccurrenceChoice is display/filter metadata for a
-// server-issued related occurrence CHOICE. RouteID is an opaque equality key
-// for one Group editor and carries no proposal authority.
 type ConstructionGroupRelatedOccurrenceChoice struct {
 	RouteID    string `json:"routeId"`
 	RouteLabel string `json:"routeLabel,omitempty"`
 }
 
-// ConstructionSourceProjectionAvailability indicates whether root scalar
-// source fields can be carried into this exact stage. It does not certify an
-// individual field; the existing construction-choice proposal validates and
-// compiles each selected field before it can be applied.
 type ConstructionSourceProjectionAvailability struct {
 	Supported  bool   `json:"supported"`
 	StageID    string `json:"stageId"`
@@ -98,9 +91,6 @@ type ConstructionSourceProjectionAvailability struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
-// ConstructionWorkspaceInput is a current sibling output eligible to be
-// consumed by a same-workspace Combine. Its columns come from the finalized
-// lower.OutputSchema frozen into the exact workspace compilation receipt.
 type ConstructionWorkspaceInput struct {
 	OutputID string                             `json:"outputId"`
 	Title    string                             `json:"title"`
@@ -341,9 +331,6 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 	if err != nil {
 		return ConstructionCapabilitiesResponse{}, err
 	}
-	// Choice IDs are ephemeral response authority, not receipt state. Copy the
-	// stage slice before decorating the selected descriptor so a later request
-	// still validates the original signed compilation receipt.
 	stages := append([]explorer.ReceiptConstructionStage(nil), base.stages...)
 	if authoringv2.CanPopulateConstructionRows(&base.construction) && len(stages) > 0 {
 		last := len(stages) - 1
@@ -483,11 +470,6 @@ func constructionWorkspaceInputs(base constructionBase, targetOutputID string) (
 	return inputs, nil
 }
 
-// constructionCapabilitiesWorkspace keeps the selected output, all of its
-// inputs, and independent sibling outputs in the capability receipt. Current
-// draft consumers of the selected output are omitted because their authored
-// projections may be stale after a source replacement; the saved workspace is
-// retained separately for CAS validation and the full-workspace Publish path.
 func constructionCapabilitiesWorkspace(workspace authoringv2.Workspace, targetOutputID string) (authoringv2.Workspace, error) {
 	if constructionDocumentIndex(workspace, targetOutputID) < 0 {
 		return authoringv2.Workspace{}, fmt.Errorf("selected output %q is missing or duplicated", targetOutputID)
@@ -534,8 +516,6 @@ func constructionCapabilitiesWorkspace(workspace authoringv2.Workspace, targetOu
 	return projected, nil
 }
 
-// workspaceOutputConsumerClosure includes the selected output and each
-// transitive current-draft output that consumes it.
 func workspaceOutputConsumerClosure(workspace authoringv2.Workspace, targetOutputID string) (map[string]struct{}, error) {
 	if constructionDocumentIndex(workspace, targetOutputID) < 0 {
 		return nil, fmt.Errorf("selected output %q is missing or duplicated", targetOutputID)
@@ -1286,9 +1266,6 @@ func reauthorizeConstructionRelatedEligibility(
 	step authoringv2.ConstructionStep,
 	related authoringv2.ConstructionRelatedEligibility,
 ) error {
-	// RELATED_ELIGIBILITY shares RELATED_EXPAND's signed route and contributor
-	// choices. Reuse that exact-stage/anchor reauthorization path; its row-grain
-	// policy fields are irrelevant because this operation emits no expanded row.
 	return reauthorizeConstructionRelatedExpand(ctx, base, rootResourceType, step, authoringv2.ConstructionRelatedExpand{
 		AnchorColumnID: related.AnchorColumnID, ChoiceID: related.ChoiceID,
 		TargetNodeID: related.TargetNodeID, TargetResourceType: related.TargetResourceType,

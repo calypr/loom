@@ -1,10 +1,6 @@
 -------------------------- MODULE ReconcileAcceptance --------------------------
 EXTENDS Naturals, FiniteSets, TLC
 
-(* Source: authoring/reconcileAcceptance.ts. This is the synchronous decision   *)
-(* frontier after an awaited reconcile and cancellation check, not the await.  *)
-(* Submitted owner A/fingerprint F0 are symmetry representatives. Replay also  *)
-(* renames both owner/fingerprint pairs and reverses output order on real code. *)
 Owners == {"A", "B"}
 Fingerprints == {"F0", "F1"}
 Versions == 0..2

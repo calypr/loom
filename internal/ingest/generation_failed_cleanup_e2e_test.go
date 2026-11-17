@@ -1,52 +1,5 @@
 package ingest
 
-// DURABLE guarantee pin for the pre-STAGED failure leg of loadGeneration
-// (generation_orchestration.go:179-190 deferred cleanup + :289-295
-// GenerationLoadIncompleteError). Recorded as coverage candidate (c) in
-// FINDINGS.md pass 2026-11-04i: no prior durable test drives a real mid-load
-// failure against ArangoDB and observes the store-visible consequences.
-//
-// PINNED CONTRACT (pre-stated before execution):
-//   1. A load that passes preflight then accrues row errors returns
-//      GenerationLoadIncompleteError and the persisted manifest is FAILED —
-//      never left LOADING (evidence: store-visible ReadManifest readback;
-//      guard-level CAS-vs-blind-UPDATE equivalence is pinned by
-//      internal/dataset/arango/generation_activation_cas_e2e_test.go, not
-//      by this file).
-//   2. The failed generation is never activatable: Store.Activate returns
-//      publication.ErrGenerationNotReady.
-//   3. The failed generation is never active: ResolveActiveManifest returns
-//      publication.ErrNoActiveGeneration AND the lifecycle active document's
-//      manifestKey (read raw, so the resolver's own STAGED-only filter cannot
-//      mask a dangling pointer to the FAILED manifest) is absent.
-//   4. It cannot be silently recreated: a second Load for the same dataset
-//      reference is rejected sequentially at the single-query
-//      publicationarango.CreateManifest claim with
-//      publication.ErrManifestAlreadyExists. (Concurrent-claim behavior is
-//      not pinned by this test.)
-//   5. The paired semantic inventory build is marked failed
-//      (catalog.SemanticInventoryBuildCollection doc reaches state "failed").
-//   6. Positive control: a clean load yields a STAGED manifest reachable via
-//      ResolveActiveManifest; persisted row count is checked against the acked
-//      count (3/3); row-content equality is not asserted.
-//
-// FAULT MODEL (measured, not asserted-by-hope; see FINDINGS repair-27 review):
-//   M1 neutralize the deferred FAILED transition (generation_orchestration.go
-//     cleanup func returns nil) -> the observing RED witness is PIN 1.
-//     PINS 2-3 stay green under M1 (their guards reject every non-staged state
-//     identically, LOADING included); PIN 4 is state-agnostic (existence-based
-//     claim). PINS 2-4 are contract invariants, not sensors of the transition.
-//   M2 neutralize FailSemanticInventoryBuild -> the observing RED witness is
-//     PIN 5/5b (state stays 'running', diagnostics never set).
-//   M3 set the project's active.manifestKey to the failed manifest before the
-//     incomplete-error return -> the observing RED witness is PIN 3's raw
-//     active-document read (the resolver's STAGED-only join filter alone would
-//     stay green; measured via worker fault run).
-//   Each deferred cleanup leg therefore has exactly one dedicated sensor.
-//
-// Gating and owned-database lifecycle follow the package precedent
-// keycollide_generated_e2e_test.go (skip-clean without LOOM_TEST_ARANGO_URL).
-
 import (
 	"context"
 	"encoding/json"
@@ -60,10 +13,9 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	catalog "github.com/calypr/loom/internal/catalog"
 	publication "github.com/calypr/loom/internal/dataset"
-	publicationarango "github.com/calypr/loom/internal/dataset/arango"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -95,9 +47,6 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 		for i := 0; i < 25; i++ {
 			rows = append(rows, failLegPatientRow(i))
 		}
-		// Malformed line placed beyond the 10-row preflight sample window
-		// (preflight.go:13 defaultPreflightSampleRows) so the claim, bootstrap
-		// and inventory begin all execute before the failure lands.
 		rows = append(rows, `{oops`)
 		for i := 25; i < 30; i++ {
 			rows = append(rows, failLegPatientRow(i))
@@ -111,7 +60,7 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 			t.Fatalf("ref: %v", err)
 		}
 		_, loadErr := Load(ctx, LoadOptions{
-			ConnectionOptions: arangostore.ConnectionOptions{URL: endpoint, Database: database},
+			ConnectionOptions: arangofactory.ConnectionOptions{URL: endpoint, Database: database},
 			Schema:            repoPath(t, "schemas", "graph-fhir.json"),
 			MetaDir:           metaDir,
 			Project:           project,
@@ -128,12 +77,13 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 		}
 		t.Logf("FAILLEG fault load | %v", loadErr)
 
-		client, err := arangostore.Open(ctx, endpoint, database)
+		arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 		if err != nil {
 			t.Fatalf("open: %v", err)
 		}
+		client := arangoBackend.Client
 		defer func() { _ = client.Close(context.Background()) }()
-		store, err := publicationarango.New(client)
+		store, err := arangofactory.NewDatasetStore(client)
 		if err != nil {
 			t.Fatalf("lifecycle store: %v", err)
 		}
@@ -152,9 +102,6 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 		if active, err := store.ResolveActiveManifest(ctx, project); !errors.Is(err, publication.ErrNoActiveGeneration) {
 			t.Errorf("PIN 3 | failed generation reached active pointer: active=%+v err=%v", active, err)
 		}
-		// Raw read, independent of readActiveAQL's manifestKey!=null and
-		// STAGED/READY join filters: a dangling pointer pinned to the FAILED
-		// manifest must not hide behind the resolver's own guard.
 		activeKey, pointerFound, err := failLegReadActivePointer(ctx, client, project)
 		if err != nil {
 			t.Fatalf("PIN 3 raw active read: %v", err)
@@ -164,17 +111,14 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 		}
 
 		if _, err := Load(ctx, LoadOptions{
-			ConnectionOptions: arangostore.ConnectionOptions{URL: endpoint, Database: database},
+			ConnectionOptions: arangofactory.ConnectionOptions{URL: endpoint, Database: database},
 			Schema:            repoPath(t, "schemas", "graph-fhir.json"),
 			MetaDir:           metaDir,
 			Project:           project,
 			Dataset:           &ref,
 			BatchSize:         10,
 			ProgressEvery:     100,
-		}); !errors.Is(err, publicationarango.ErrManifestAlreadyExists) {
-			// FAILED blocks silent re-creation through the atomic claim: the
-			// second Load must die at CreateManifest, never reaching the
-			// loader loop again.
+		}); !errors.Is(err, arangofactory.ErrManifestAlreadyExists) {
 			t.Errorf("PIN 4 | re-load of failed generation returned %v, want ErrManifestAlreadyExists", err)
 		}
 
@@ -213,7 +157,7 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 			t.Fatalf("ref: %v", err)
 		}
 		summary, err := Load(ctx, LoadOptions{
-			ConnectionOptions: arangostore.ConnectionOptions{URL: endpoint, Database: database},
+			ConnectionOptions: arangofactory.ConnectionOptions{URL: endpoint, Database: database},
 			Schema:            repoPath(t, "schemas", "graph-fhir.json"),
 			MetaDir:           metaDir,
 			Project:           project,
@@ -224,12 +168,13 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 		if err != nil {
 			t.Fatalf("positive control load failed: %v", err)
 		}
-		client, err := arangostore.Open(ctx, endpoint, database)
+		arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 		if err != nil {
 			t.Fatalf("open: %v", err)
 		}
+		client := arangoBackend.Client
 		defer func() { _ = client.Close(context.Background()) }()
-		store, err := publicationarango.New(client)
+		store, err := arangofactory.NewDatasetStore(client)
 		if err != nil {
 			t.Fatalf("lifecycle store: %v", err)
 		}
@@ -252,8 +197,8 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 	t.Cleanup(func() { failLegAssertNoResidue(t, endpoint) })
 }
 
-func failLegReadActivePointer(ctx context.Context, client *arangostore.Client, project string) (string, bool, error) {
-	exists, err := client.CollectionExists(ctx, publicationarango.LifecycleCollection)
+func failLegReadActivePointer(ctx context.Context, client *arangofactory.Client, project string) (string, bool, error) {
+	exists, err := client.CollectionExists(ctx, arangofactory.DatasetLifecycleCollection)
 	if err != nil {
 		return "", false, err
 	}
@@ -263,8 +208,8 @@ func failLegReadActivePointer(ctx context.Context, client *arangostore.Client, p
 	var manifestKey string
 	var found bool
 	err = client.QueryRows(ctx, `FOR a IN @@lifecycle FILTER a._key == @active_key AND a.recordType == "active_generation" RETURN {manifestKey: a.manifestKey}`, 1, map[string]any{
-		"@lifecycle": publicationarango.LifecycleCollection,
-		"active_key": publicationarango.ActiveDocumentKey(project),
+		"@lifecycle": arangofactory.DatasetLifecycleCollection,
+		"active_key": arangofactory.DatasetActiveDocumentKey(project),
 	}, func(row map[string]any) error {
 		value, _ := row["manifestKey"].(string)
 		manifestKey, found = value, true
@@ -273,7 +218,7 @@ func failLegReadActivePointer(ctx context.Context, client *arangostore.Client, p
 	return manifestKey, found, err
 }
 
-func failLegReadBuildState(ctx context.Context, client *arangostore.Client, collection, project, generation string) (string, string, int, bool, error) {
+func failLegReadBuildState(ctx context.Context, client *arangofactory.Client, collection, project, generation string) (string, string, int, bool, error) {
 	exists, err := client.CollectionExists(ctx, collection)
 	if err != nil {
 		return "", "", 0, false, err

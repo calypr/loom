@@ -21,6 +21,7 @@ type HTTPConfig struct {
 	CoreReadyCheck       func(context.Context) error
 	ClickHouseReadyCheck func(context.Context) error
 	ClickHouseEnabled    bool
+	CoreState            func(error) string
 }
 
 type HTTPServer struct {
@@ -31,6 +32,7 @@ type HTTPServer struct {
 	coreReadyCheck       func(context.Context) error
 	clickHouseReadyCheck func(context.Context) error
 	clickHouseEnabled    bool
+	coreState            func(error) string
 	healthMu             sync.Mutex
 	lastHealth           time.Time
 	lastHealthResult     healthResult
@@ -38,6 +40,7 @@ type HTTPServer struct {
 
 type healthResult struct {
 	status, core, dataframe string
+	coreState               string
 	httpStatus              int
 }
 
@@ -75,6 +78,7 @@ func NewHTTPServer(cfg HTTPConfig) (*HTTPServer, error) {
 		coreReadyCheck:       cfg.CoreReadyCheck,
 		clickHouseReadyCheck: cfg.ClickHouseReadyCheck,
 		clickHouseEnabled:    cfg.ClickHouseEnabled,
+		coreState:            cfg.CoreState,
 	}
 	app := fiber.New(fiber.Config{
 		BodyLimit:         cfg.BodyLimit,

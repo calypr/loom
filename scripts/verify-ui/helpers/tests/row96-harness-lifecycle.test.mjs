@@ -10,12 +10,11 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '
 const SUBJECT = join(REPO_ROOT, 'scripts/verify-ui/workflows/verify-explorer-row-source-four-state.mjs');
 const MAIN_MARKER = 'const main = async () => {';
 const INJECTED = `${MAIN_MARKER} if (process.env.RS96_FORCE_FAIL === '1') throw new Error('injected failure');`;
-const DEEP_MARKER = "  markPhase('cdp-connect');"; // throws right after connect+listeners completed and the phase was recorded
+const DEEP_MARKER = "  markPhase('cdp-connect');";
 const DEEP_INJECTED = `${DEEP_MARKER} if (process.env.RS96_FORCE_FAIL_DEEP === '1') throw new Error('injected failure');`;
 const SPAWN_TIMEOUT_MS = 120000;
 const POST_EXIT_GRACE_MS = 1000;
 const STACK_ENV = {
-  // Constructor inputs only: the staged lifecycle run never contacts this stack.
   LOOM_DEV_SOURCE_ROOT: REPO_ROOT,
   LOOM_DEV_COMPOSE_PROJECT: 'loom-dev-stravinsky',
   LOOM_DEV_API_PORT: '8182',
@@ -24,10 +23,7 @@ const STACK_ENV = {
 
 const listProfiles = (directory) => readdirSync(directory).filter((name) => name.startsWith('rs96-prof-'));
 
-// Process-group survivor scan: zombies (empty cmdline, invisible to pgrep -f / cmdline
-// filters) are still group members, and no unrelated path-mentioning process is touched.
 const groupMembers = (pgid) => {
-  // zombie entries awaiting reap are terminally dead; only live group members count
   if (!Number.isInteger(pgid)) return [];
   try {
     return readdirSync('/proc').filter((entry) => {
@@ -42,10 +38,6 @@ const groupMembers = (pgid) => {
 
 const stageFailedRun = async (slug) => {
   const root = mkdtempSync(join(tmpdir(), 'rs96-lifecycle-'));
-  // Preserve the subject's repository-relative geometry so its three-level REPO_ROOT
-  // calculation resolves to this disposable tree. Dependencies remain symlinks into
-  // the real, read-only source checkout; the fixture lookup resolves through a staged
-  // testdata symlink instead of escaping to /tmp/testdata.
   const nested = join(root, 'scripts', 'verify-ui', 'workflows');
   mkdirSync(nested, { recursive: true });
   symlinkSync(join(REPO_ROOT, 'scripts/loom-dev.mjs'), join(root, 'scripts', 'loom-dev.mjs'));
@@ -60,9 +52,6 @@ const stageFailedRun = async (slug) => {
   const injected = deep ? DEEP_INJECTED : INJECTED;
   const markerCount = source.split(marker).length - 1;
   assert.equal(markerCount, 1, 'forced-failure injection must land on a unique marker');
-  // This test owns browser lifecycle, not the application journey. Remove only the
-  // staged copy's server identity/fixture setup; keep real Chrome/CDP and the
-  // production failure reporting, process-tree teardown, and profile deletion.
   let stagedSource = source;
   if (deep) {
     const cdpMarker = "  const portFile = join(profile, 'DevToolsActivePort');";
@@ -88,7 +77,7 @@ const stageFailedRun = async (slug) => {
   child.stderr.on('data', (chunk) => { stderr = (stderr + chunk).slice(-16000); });
   let timedOut = false;
   const exit = await new Promise((done) => {
-    const killer = setTimeout(() => { timedOut = true; try { child.kill('SIGKILL'); } catch { /* already gone */ } }, SPAWN_TIMEOUT_MS);
+    const killer = setTimeout(() => { timedOut = true; try { child.kill('SIGKILL'); } catch { } }, SPAWN_TIMEOUT_MS);
     child.on('exit', (code, signal) => { clearTimeout(killer); done({ code, signal }); });
   });
   await new Promise((done) => setTimeout(done, POST_EXIT_GRACE_MS));
@@ -97,26 +86,18 @@ const stageFailedRun = async (slug) => {
   const treeMarker = stdout.match(/RUN_TREE pgid=(\d+)/);
   const treePgid = treeMarker ? Number(treeMarker[1]) : null;
   const survivors = treePgid === null ? [] : groupMembers(treePgid).map((pid) => ({ pid, profilePath: profilePaths.join(',') || 'none' }));
-  // Measured BEFORE this harness's own cleanup: deletion is the child's responsibility.
-  // The bounded poll absorbs the volume's stale-metadata reads; process-group members
-  // (above) are the authoritative survivors — rmSync succeeds even while a live holder
-  // keeps the tree open, so dirGone alone is never the lifecycle proof.
   let dirGoneAtExit = false;
   for (let attempt = 0; attempt < 60 && !dirGoneAtExit; attempt += 1) {
     dirGoneAtExit = profilePaths.every((profilePath) => !existsSync(profilePath));
     if (!dirGoneAtExit && attempt < 59) await new Promise((done) => setTimeout(done, 50));
   }
   const journeyPath = join(out, 'journey.json');
-  // Buffered at exit+grace BEFORE any cleanup: this docker volume intermittently
-  // ENOENTs a file that milliseconds-earlier reads see intact, so retry then keep
-  // the parsed value; later assertions never reopen the path.
   let report = null;
   for (let attempt = 0; attempt < 20 && report === null; attempt += 1) {
     try { report = JSON.parse(readFileSync(journeyPath, 'utf8')); }
     catch { if (attempt < 19) await new Promise((done) => setTimeout(done, 50)); }
   }
-  // kill(-pgid) can be denied (EPERM) in sandboxed kernels: signal members individually
-  for (const pid of groupMembers(treePgid)) { try { process.kill(pid, 'SIGKILL'); } catch { /* racing exit */ } }
+  for (const pid of groupMembers(treePgid)) { try { process.kill(pid, 'SIGKILL'); } catch { } }
   for (const profilePath of profilePaths) rmSync(profilePath, { recursive: true, force: true });
   if (process.env.RS96_KEEP_STAGED !== '1') rmSync(root, { recursive: true, force: true });
   return { ...exit, timedOut, stdout, stderr, out, journeyPath, report, dirGone: dirGoneAtExit, stagedRoot: root, profilePaths, survivors };
@@ -148,8 +129,6 @@ const assertNoSurvivors = async (slug) => {
     assert.equal(run.profilePaths.length, 1, `deep failure must still create exactly one profile; ${summarize(run)}`);
     assert.match(run.stdout, /RUN_TREE pgid=\d+/, `deep case must have launched the tracked chrome tree; ${summarize(run)}`);
     assert.deepEqual(run.survivors, [], `no process may remain in the chrome process group after child exit plus grace; ${run.survivors.map((entry) => `${entry.pid}@${entry.profilePath}`).join(' , ')}; ${summarize(run)}`);
-    // D-4 (reviewer): the deep case must actually transit the CDP phase or it can
-    // green-off on an early identity/fixture throw without ever launching a browser tree.
     const reachedCdp = (run.report?.phaseTimings?.phases ?? []).some((phase) => phase.phase === 'cdp-connect');
     assert.equal(run.report?.lifecycleOnly, true, 'deep case must use isolated lifecycle preconditions');
     assert.equal(run.report?.status, 'failed', 'deep injected failure must be recorded');
@@ -157,7 +136,6 @@ const assertNoSurvivors = async (slug) => {
     assert.equal(run.report?.buildIdentity, null, 'lifecycle test must not claim a serving build identity');
     assert.equal(run.report?.fixture, null, 'lifecycle test must not create a serving fixture');
     assert.ok(reachedCdp, `deep failed run must reach the cdp-connect phase (identity/fixture early throw made it vacuous); phases=${JSON.stringify(run.report?.phaseTimings?.phases ?? null)}; ${summarize(run)}`);
-    // profile teardown guarantee: the harness removes its own user-data-dir even on failure
     assert.ok(run.dirGone, `run profile dir must be deleted by harness teardown, persisted: ${run.profilePaths.join(' , ')}`);
   } finally {
     delete process.env.RS96_FORCE_FAIL_DEEP;

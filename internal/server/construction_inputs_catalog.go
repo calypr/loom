@@ -164,14 +164,51 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 		return response, nil
 	}
 
+	candidates, err := c.collectConstructionInputCandidates(ctx, project, snapshot.Identity.Generation, query, scope)
+	if err != nil {
+		return constructionInputsResponse{}, err
+	}
+	pageCandidates := make([]constructionInputCandidate, 0, limit)
+	for _, candidate := range candidates {
+		if cursor != nil && !constructionInputAfterCursor(candidate.entry, *cursor) {
+			continue
+		}
+		pageCandidates = append(pageCandidates, candidate)
+		if len(pageCandidates) > limit {
+			break
+		}
+	}
+	hasMore := len(pageCandidates) > limit
+	if hasMore {
+		pageCandidates = pageCandidates[:limit]
+	}
+	if len(pageCandidates) == 0 {
+		return response, nil
+	}
+	page, err := c.resolveConstructionInputPage(ctx, pageCandidates, project, snapshot.Identity.Generation, scope)
+	if err != nil {
+		return constructionInputsResponse{}, err
+	}
+	if hasMore {
+		last := page[len(page)-1]
+		response.NextCursor, err = encodeConstructionInputsCursor(query, request.SnapshotToken, request.ExpectedDraftVersion, request.ExpectedDraftDigest, last)
+		if err != nil {
+			return constructionInputsResponse{}, fmt.Errorf("encode construction input catalog cursor: %w", err)
+		}
+	}
+	response.Entries = page
+	return response, nil
+}
+
+func (c constructionInputsCatalog) collectConstructionInputCandidates(ctx context.Context, project, generation, query string, scope authscope.ReadScope) ([]constructionInputCandidate, error) {
 	executions, err := c.catalog.ListExecutions(ctx, publication.BundlePublished, time.Now().UTC().Add(time.Second))
 	if err != nil {
-		return constructionInputsResponse{}, constructionInputsUnavailable(err)
+		return nil, constructionInputsUnavailable(err)
 	}
 	references := make([]constructionInputReference, 0)
 	for _, execution := range executions {
 		execution = execution.CanonicalizeLegacy()
-		if !execution.State.Successful() || projectid.Canonical(execution.Project) != project || execution.DatasetGeneration != snapshot.Identity.Generation || strings.TrimSpace(execution.ID) == "" {
+		if !execution.State.Successful() || projectid.Canonical(execution.Project) != project || execution.DatasetGeneration != generation || strings.TrimSpace(execution.ID) == "" {
 			continue
 		}
 		for _, output := range execution.Outputs {
@@ -189,7 +226,7 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 		}
 	}
 	if len(references) == 0 {
-		return response, nil
+		return []constructionInputCandidate{}, nil
 	}
 
 	candidates := make([]constructionInputCandidate, 0, len(references))
@@ -197,7 +234,7 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 	publicationMetadataLoaded := make(map[string]bool)
 	for _, reference := range references {
 		materialization := constructionInputMaterialization(reference)
-		if err := validateConstructionInputMaterialization(materialization, reference, project, snapshot.Identity.Generation); err != nil {
+		if err := validateConstructionInputMaterialization(materialization, reference, project, generation); err != nil {
 			continue
 		}
 		persistedScope, err := persistedMaterializationScope(materialization)
@@ -216,7 +253,7 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 			if errors.Is(err, authscope.ErrForbidden) || errors.Is(err, authscope.ErrUnauthenticated) {
 				continue
 			}
-			return constructionInputsResponse{}, constructionInputsUnavailable(err)
+			return nil, constructionInputsUnavailable(err)
 		}
 		if effectiveScope.Mode == authscope.ReadScopeRestricted && len(effectiveScope.AuthResourcePaths) == 0 || !sameClickHouseReadScope(effectiveScope, scope) {
 			continue
@@ -228,14 +265,14 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 		if !publicationMetadataLoaded[metadataKey] {
 			metadata, err := c.constructionInputPublicationMetadata(ctx, reference.execution, project)
 			if err != nil {
-				return constructionInputsResponse{}, constructionInputsUnavailable(err)
+				return nil, constructionInputsUnavailable(err)
 			}
 			publicationMetadata[metadataKey] = metadata
 			publicationMetadataLoaded[metadataKey] = true
 		}
 		presentation, err := constructionInputPresentationFor(materialization, publicationMetadata[metadataKey])
 		if err != nil {
-			return constructionInputsResponse{}, constructionInputsUnavailable(err)
+			return nil, constructionInputsUnavailable(err)
 		}
 		columns := constructionInputColumns(materialization.Columns, presentation.columnLabels)
 		if len(columns) == 0 {
@@ -261,23 +298,10 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 		}
 		return leftEntry.RevisionID < rightEntry.RevisionID
 	})
-	pageCandidates := make([]constructionInputCandidate, 0, limit)
-	for _, candidate := range candidates {
-		if cursor != nil && !constructionInputAfterCursor(candidate.entry, *cursor) {
-			continue
-		}
-		pageCandidates = append(pageCandidates, candidate)
-		if len(pageCandidates) > limit {
-			break
-		}
-	}
-	hasMore := len(pageCandidates) > limit
-	if hasMore {
-		pageCandidates = pageCandidates[:limit]
-	}
-	if len(pageCandidates) == 0 {
-		return response, nil
-	}
+	return candidates, nil
+}
+
+func (c constructionInputsCatalog) resolveConstructionInputPage(ctx context.Context, pageCandidates []constructionInputCandidate, project, generation string, scope authscope.ReadScope) ([]constructionInputEntry, error) {
 	pagePins := make([]string, 0, len(pageCandidates))
 	seenPagePins := make(map[string]bool, len(pageCandidates))
 	for _, candidate := range pageCandidates {
@@ -288,14 +312,14 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 		}
 	}
 	page := make([]constructionInputEntry, 0, len(pageCandidates))
-	err = c.reader.WithExecutionReadPins(ctx, pagePins, func(scanCtx context.Context) error {
+	err := c.reader.WithExecutionReadPins(ctx, pagePins, func(scanCtx context.Context) error {
 		for _, candidate := range pageCandidates {
 			reference := candidate.reference
 			materialization, err := c.reader.ExactExecutionMaterialization(scanCtx, reference.execution.ID, reference.output.Name)
 			if err != nil {
 				return fmt.Errorf("resolve exact published construction input %q/%q: %w", reference.execution.ID, reference.output.Name, err)
 			}
-			if err := validateConstructionInputMaterialization(materialization, reference, project, snapshot.Identity.Generation); err != nil {
+			if err := validateConstructionInputMaterialization(materialization, reference, project, generation); err != nil {
 				return fmt.Errorf("exact published construction input identity changed: %w", err)
 			}
 			persistedScope, err := persistedMaterializationScope(materialization)
@@ -341,19 +365,11 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 	if err != nil {
 		var authoringErr *explorer.AuthoringError
 		if errors.As(err, &authoringErr) {
-			return constructionInputsResponse{}, err
+			return nil, err
 		}
-		return constructionInputsResponse{}, constructionInputsUnavailable(err)
+		return nil, constructionInputsUnavailable(err)
 	}
-	if hasMore {
-		last := page[len(page)-1]
-		response.NextCursor, err = encodeConstructionInputsCursor(query, request.SnapshotToken, request.ExpectedDraftVersion, request.ExpectedDraftDigest, last)
-		if err != nil {
-			return constructionInputsResponse{}, fmt.Errorf("encode construction input catalog cursor: %w", err)
-		}
-	}
-	response.Entries = page
-	return response, nil
+	return page, nil
 }
 
 func (c constructionInputsCatalog) authorizedSnapshot(ctx context.Context, project, explorerID string, request constructionInputsRequest) (*explorer.Explorer, capability.Snapshot, authscope.ReadScope, error) {

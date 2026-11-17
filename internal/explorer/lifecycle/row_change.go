@@ -9,9 +9,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-// AssessRowChange resolves capability evidence against one exact persisted
-// draft and compiles a ready candidate without mutating the draft. Applying the
-// candidate remains on the existing CAS command path.
 func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRequest) (AssessRowChangeResult, error) {
 	if strings.TrimSpace(request.SnapshotToken) == "" || request.DraftVersion < 1 || strings.TrimSpace(request.DraftDigest) == "" || strings.TrimSpace(request.OutputID) == "" || strings.TrimSpace(request.RootNodeID) == "" {
 		return AssessRowChangeResult{}, malformed("row-change", "snapshotToken, draftVersion, draftDigest, outputId, and rootNodeId are required", nil)
@@ -92,10 +89,6 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 	return result, nil
 }
 
-// rowChangeReceiptWorkspace keeps the receipt scoped to the output being
-// replaced. Current-draft WORKSPACE_OUTPUT consumers remain unchanged in the
-// persisted candidate and may need separate repair after the source schema
-// changes.
 func rowChangeReceiptWorkspace(workspace authoringv2.Workspace, outputID string) (authoringv2.Workspace, error) {
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {

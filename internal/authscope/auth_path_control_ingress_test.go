@@ -6,13 +6,6 @@ import (
 	"testing"
 )
 
-// F-B22 Tier-1 durable control: auth resource paths carrying NUL or any
-// control byte must be rejected at ingest, so scope digests that join
-// normalized paths with \x00 can never fold two distinct restricted grants.
-// Pre-fix code accepted these paths verbatim at every site; archived
-// CONFIRMED text is kept verbatim as the REGRESSION branch so any regression
-// fails loudly again.
-
 func TestNormalizeAuthResourcePathRejectsControlCharacters(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -56,10 +49,6 @@ func TestCalyprKeyExtractionRejectsControlCharacters(t *testing.T) {
 }
 
 func TestNormalizedPathListDropsControlCharEntries(t *testing.T) {
-	// Archived fold pair from the F-B22 discovery: under the pre-fix
-	// ingest these two distinct grant lists survived normalization and,
-	// joined with \x00 by the explorer encoders (explorer_capability.go
-	// and lifecycle/policy.go), folded to the same digest.
 	left := normalizeAuthResourcePathList([]string{"a\x00b", "c"})
 	right := normalizeAuthResourcePathList([]string{"a", "b\x00c"})
 	join := func(paths []string) string { return strings.Join(paths, "\x00") }
@@ -86,8 +75,6 @@ func TestNormalizedListDropsControlCharEntriesStable(t *testing.T) {
 	t.Logf("VERDICT=REPAIRED NormalizeAuthResourcePaths=%q (deduped, normalized, control-character entries dropped)", got)
 }
 
-// normalizeAuthResourcePathListRaw reproduces the archived pre-fix behavior
-// for shape discrimination only (no product dependency).
 func normalizeAuthResourcePathListRaw(paths []string) []string {
 	seen := map[string]struct{}{}
 	out := []string{}

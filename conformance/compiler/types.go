@@ -1,4 +1,3 @@
-// Package compilerfixture loads the canonical recipe compiler oracle corpus.
 package compilerfixture
 
 import (

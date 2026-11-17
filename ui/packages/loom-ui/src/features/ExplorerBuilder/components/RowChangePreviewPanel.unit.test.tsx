@@ -40,7 +40,6 @@ const renderPanel = (
 
 const impact = () => screen.getByTestId('row-change-row-count-impact');
 const impactText = () => impact().textContent ?? '';
-// Mirror the component's locale-aware count formatting so assertions pin wording, not separators.
 const count = (value: number) => `${value.toLocaleString()} ${value === 1 ? 'row' : 'rows'}`;
 const applyButton = () => screen.getByRole('button', { name: 'Apply row change' });
 
@@ -84,8 +83,6 @@ describe('RowChangePreviewPanel', () => {
     );
   });
 
-  // The preview schema leaves sampled optional, so an absent flag must not be reported as a
-  // proven total the proposed root produces.
   it('names an unreported sampling status instead of claiming a total', () => {
     renderPanel({ status: 'ready', preview: preview({ rowCount: 25, sampled: undefined, rows: rows(2) }) });
     expect(impactText()).toBe(
@@ -102,8 +99,6 @@ describe('RowChangePreviewPanel', () => {
     );
   });
 
-  // A consumer can display fewer rows than the response returned; neither count
-  // establishes the full proposal total when the response is sampled.
   it('separates returned sampled rows from the smaller displayed count', () => {
     renderPanel({ status: 'ready', preview: preview({ rowCount: 25, sampled: true, rows: rows(2) }) });
     expect(impactText()).toBe(
@@ -176,8 +171,6 @@ describe('RowChangePreviewPanel', () => {
     expect(applyButton()).toBeDisabled();
   });
 
-  // Assistive tech only announces mutations to a live region that is already mounted, so the
-  // impact must be one node that changes text rather than one that mounts with each proposal.
   it('keeps one live region mounted so the first ready proposal after loading is announced', () => {
     const { rerender } = renderPanel({ status: 'loading' });
     const region = impact();
@@ -213,8 +206,6 @@ describe('RowChangePreviewPanel', () => {
   });
 });
 
-// The panel is the only consumer of the exported summary, so its wording is pinned here: the
-// acceptance copy for each sampling status, and the claim the contract does not license.
 describe('rowCountImpactSummary', () => {
   const summary = (overrides: Partial<ExplorerBuilderPreviewResult>) =>
     rowCountImpactSummary(preview(overrides), 'Observation row root', 'Only displayed rows were checked in this preview.');
@@ -227,7 +218,6 @@ describe('rowCountImpactSummary', () => {
     expect(summary({ rowCount: 25, sampled, rows: rows(2) })).toBe(expected);
   });
 
-  // The contract defines rowCount as returned rows, never as distinct root resources.
   it('never equates rows with distinct root resources', () => {
     for (const sampled of [false, true, undefined] as const) {
       expect(summary({ rowCount: 25, sampled, rows: rows(2) })).not.toMatch(/distinct|unique|resource/i);

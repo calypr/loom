@@ -42,46 +42,36 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 1. Generate package support used by the schema-derived files.
 	if err := generateFHIRHelpers(filepath.Join(*structsDir, "helpers.go")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating helpers.go: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 2. Generate model.go
 	if err := generateModel(&schema, filepath.Join(*structsDir, "model.go")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating model.go: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 3. Generate validate.go
 	if err := generateValidate(&schema, filepath.Join(*structsDir, "validate.go")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating validate.go: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 4. Generate extract.go
 	if err := generateExtract(&schema, filepath.Join(*structsDir, "extract.go")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating extract.go: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 5. Generate the concrete-resource registry and GraphQL markers.
 	if err := generateFHIRResources(&schema, filepath.Join(*structsDir, "resources.go"), filepath.Join(*structsDir, "graphql.go")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating resource registry: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 6. Generate internal compiler schema metadata
 	if err := generateFHIRSchema(&schema, *metadataOut); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating generated/fhirschema/generated.go: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Keep the FHIR GraphQL surface generated from the same parsed schema as
-	// the compiler metadata and Go models. The SDL is intentionally emitted as
-	// a separate schema document so the handwritten dataframe API remains
-	// readable and stable.
 	if strings.TrimSpace(*graphqlOut) != "" {
 		if err := os.MkdirAll(filepath.Dir(*graphqlOut), 0755); err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating GraphQL schema directory: %v\n", err)

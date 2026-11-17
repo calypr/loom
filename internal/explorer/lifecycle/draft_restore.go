@@ -65,8 +65,6 @@ func (s *Service) prepareDraftRevisionRestore(
 			return nil, conflict("commands", "DRAFT_REVISION_INVALID", "the prior draft revision failed its digest check", nil, digestErr)
 		}
 	} else {
-		// A first draft mutation can snapshot an empty draft config. Restore the
-		// effective prior workspace from the still-active immutable revision.
 		if owner.ActiveRevisionID != "" {
 			active, activeErr := s.store.ActiveRevision(ctx, project, explorerID)
 			if activeErr != nil {

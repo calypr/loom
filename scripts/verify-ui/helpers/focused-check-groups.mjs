@@ -69,10 +69,6 @@ function parseCommand(command, location) {
   return { runner, fileOffset: 4 };
 }
 
-/**
- * Validate command-array metadata and create argv-safe process plans.
- * This function performs no filesystem access and starts no processes.
- */
 export function planFocusedCheckGroups(groups, repoRoot) {
   if (!Array.isArray(groups)) fail('groups', 'expected an array');
   if (typeof repoRoot !== 'string' || !path.isAbsolute(repoRoot)) {

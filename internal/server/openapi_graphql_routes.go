@@ -13,13 +13,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// serveGraphQL invokes the native GraphQL http.Handler through a bounded
-// request/response adapter. GraphQL remains a native HTTP transport; unlike
-// the removed REST path this does not create a Fiber context or re-enter a
-// Fiber handler.
-// nilHandlerGraphQLEnvelope keeps the documented GraphQL response shape even
-// on the defensive unwired path: every executed /graphql response, including
-// this one, is a GraphQL envelope with top-level data/errors members.
 const nilHandlerGraphQLEnvelope = `{"data":null,"errors":[{"message":"GraphQL handler is not configured"}]}`
 
 func serveGraphQL(ctx context.Context, handler http.Handler, body any, method string) (int, []byte, error) {

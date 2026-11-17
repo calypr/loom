@@ -76,13 +76,10 @@ const (
 	ConstructionChoiceSourceGroupField      ConstructionChoiceSourceKind = "GROUP_FIELD"
 )
 
-// ConstructionChoiceSource is closed to the variants defined by this package.
 type ConstructionChoiceSource interface {
 	constructionChoiceSource()
 }
 
-// FieldChoiceSource identifies one exact, compiler-proved capability field.
-// Labels stay outside the identity so presentation changes do not select data.
 type FieldChoiceSource struct {
 	Kind               ConstructionChoiceSourceKind `json:"kind"`
 	CandidateID        string                       `json:"candidateId"`
@@ -95,9 +92,6 @@ type FieldChoiceSource struct {
 
 func (FieldChoiceSource) constructionChoiceSource() {}
 
-// GroupFieldChoiceSource is an ephemeral, compiler-context-bound Group field
-// capability. The choice token contains one input variant; flat fields are
-// accepted only to decode pre-sum CURRENT_STAGE tokens.
 type GroupFieldChoiceSource struct {
 	Kind                 ConstructionChoiceSourceKind `json:"kind"`
 	TargetGroupStepID    string                       `json:"targetGroupStepId,omitempty"`
@@ -113,8 +107,6 @@ type GroupFieldChoiceSource struct {
 	Shape                string                       `json:"shape"`
 	Reference            bool                         `json:"reference"`
 
-	// Flat CURRENT_STAGE capability fields retained for existing builders and
-	// old choice-token decoding. New tokens carry these fields under Input.
 	SourceRole         string   `json:"-"`
 	OwnerOccurrenceID  string   `json:"-"`
 	OwnerResourceType  string   `json:"-"`
@@ -414,8 +406,6 @@ func (source *GroupFieldChoiceSource) normalizeAndValidateInput() error {
 
 func (GroupFieldChoiceSource) constructionChoiceSource() {}
 
-// SemanticBindingChoiceSource preserves the observed FHIR owner and terminology
-// identity. Display text is deliberately excluded from computational identity.
 type SemanticBindingChoiceSource struct {
 	Kind                  ConstructionChoiceSourceKind `json:"kind"`
 	GroupOutputID         string                       `json:"groupOutputId,omitempty"`
@@ -464,9 +454,6 @@ func validateSemanticCategoryChoiceSource(source SemanticBindingChoiceSource) er
 	return nil
 }
 
-// SemanticFrameFamily is the metadata identity of one correlated code/value
-// binding, independent of any one observed code. It is persisted with a frame
-// so later category choices can be checked against the same binding.
 type SemanticFrameFamily struct {
 	BindingID             string   `json:"bindingId"`
 	ResourceType          string   `json:"resourceType"`
@@ -484,9 +471,6 @@ type SemanticFrameFamily struct {
 	SchemaVersion         int      `json:"schemaVersion"`
 }
 
-// SemanticFrameChoiceSource is a server-issued frame-family choice. The
-// anchor concept proves the family against the current inventory; its selected
-// code is intentionally absent so the frame represents the whole family.
 type SemanticFrameChoiceSource struct {
 	Kind               ConstructionChoiceSourceKind `json:"kind"`
 	AnchorConceptID    string                       `json:"anchorConceptId"`
@@ -500,8 +484,6 @@ type SemanticFrameChoiceSource struct {
 
 func (SemanticFrameChoiceSource) constructionChoiceSource() {}
 
-// RelatedResourceChoiceSource identifies one exact terminal resource node.
-// It lets lifecycle authorize a route without requiring a field selection.
 type RelatedResourceChoiceSource struct {
 	Kind               ConstructionChoiceSourceKind `json:"kind"`
 	StageID            string                       `json:"stageId"`
@@ -515,8 +497,6 @@ type RelatedResourceChoiceSource struct {
 
 func (RelatedResourceChoiceSource) constructionChoiceSource() {}
 
-// RelatedFieldChoiceSource binds one scalar field to a specific stage that
-// carries an exact terminal resource identity.
 type RelatedFieldChoiceSource struct {
 	Kind         ConstructionChoiceSourceKind `json:"kind"`
 	StageID      string                       `json:"stageId"`
@@ -530,9 +510,6 @@ type RelatedFieldChoiceSource struct {
 
 func (RelatedFieldChoiceSource) constructionChoiceSource() {}
 
-// CodedGroupChoiceSource binds a root Coding[] path to one output and one
-// exact construction input stage. The persisted construction stores the path
-// facts separately so it remains compilable after this snapshot expires.
 type CodedGroupChoiceSource struct {
 	Kind         ConstructionChoiceSourceKind `json:"kind"`
 	OutputID     string                       `json:"outputId"`
@@ -583,10 +560,6 @@ type ConstructionChoiceFact struct {
 	Value string `json:"value"`
 }
 
-// ConstructionRouteStep pins one directed traversal in a construction choice.
-// Capability edge identity, endpoint identity, generated relationship label,
-// and physical storage direction are all retained so apply cannot substitute
-// a different route that happens to reach the same resource type.
 type ConstructionRouteStep struct {
 	EdgeID           string `json:"edgeId"`
 	FromNodeID       string `json:"fromNodeId"`
@@ -598,8 +571,6 @@ type ConstructionRouteStep struct {
 	MatchMode        string `json:"matchMode"`
 }
 
-// ConstructionChoiceIdentity is the decoded, pinned identity used to
-// re-resolve and reconstruct a server-issued choice during apply.
 type ConstructionChoiceIdentity struct {
 	Version              string
 	Kind                 ConstructionChoiceSourceKind
@@ -637,20 +608,14 @@ type constructionChoiceToken struct {
 	Route                []ConstructionRouteStep      `json:"route"`
 }
 
-// NewFieldConstructionChoice exposes only projection modes already proven by
-// the compiler. Indexed is a Builder annotation, not a compiler projection.
 func NewFieldConstructionChoice(snapshotToken string, candidate Candidate) (ConstructionChoice, error) {
 	return NewFieldConstructionChoiceForRoute(snapshotToken, nil, candidate)
 }
 
-// IsSupportedConstructionSourceType reports whether the recipe compiler
-// accepts a declared logical type for a source projection.
 func IsSupportedConstructionSourceType(logicalType string) bool {
 	return recipe.IsValidConstructionLogicalType(logicalType)
 }
 
-// ValidateConstructionSourceType rejects values that the recipe compiler
-// cannot emit and, when available, points to the nearest typed child field.
 func ValidateConstructionSourceType(candidate Candidate, candidates []Candidate) error {
 	if IsSupportedConstructionSourceType(candidate.LogicalType) {
 		return nil
@@ -678,9 +643,6 @@ func ValidateConstructionSourceType(candidate Candidate, candidates []Candidate)
 	return fmt.Errorf("%s", message)
 }
 
-// NewFieldConstructionChoiceForRoute exposes only projection modes already
-// proven by the compiler for this exact route. A nil or empty route represents
-// the zero-hop row-root choice.
 func NewFieldConstructionChoiceForRoute(snapshotToken string, route []ConstructionRouteStep, candidate Candidate) (ConstructionChoice, error) {
 	if strings.TrimSpace(snapshotToken) == "" || strings.TrimSpace(candidate.ID) == "" || strings.TrimSpace(candidate.NodeID) == "" || strings.TrimSpace(candidate.ResourceType) == "" || strings.TrimSpace(candidate.FieldPath) == "" {
 		return ConstructionChoice{}, fmt.Errorf("snapshot token and exact candidate identity are required")
@@ -711,8 +673,6 @@ func NewFieldConstructionChoiceForRoute(snapshotToken string, route []Constructi
 	return choice, nil
 }
 
-// NewGroupFieldConstructionChoice creates an ephemeral Group-key authority
-// from compiler-issued source context and one authorized scalar candidate.
 func NewGroupFieldConstructionChoice(snapshotToken string, route []ConstructionRouteStep, source GroupFieldChoiceSource, candidate Candidate) (ConstructionChoice, error) {
 	source.Kind = ConstructionChoiceSourceGroupField
 	if strings.TrimSpace(snapshotToken) == "" {
@@ -758,9 +718,6 @@ func NewGroupFieldConstructionChoice(snapshotToken string, route []ConstructionR
 	return choice, nil
 }
 
-// NewGroupCodingIdentityChoice exposes a compiler-proved current Coding item
-// as its normalized terminology identity without inventing an inventory
-// family binding.
 func NewGroupCodingIdentityChoice(snapshotToken string, route []ConstructionRouteStep, source GroupFieldChoiceSource) (ConstructionChoice, error) {
 	source.Kind = ConstructionChoiceSourceGroupField
 	source.ValueKind = "CODING_IDENTITY"
@@ -1029,8 +986,6 @@ func containsProjectionMode(modes []ProjectionMode, want ProjectionMode) bool {
 	return false
 }
 
-// NewConstructionRelatedResourceRouteChoiceFromAnchor pins a route to one
-// exact compiler-proven row anchor as well as its terminal resource.
 func NewConstructionRelatedResourceRouteChoiceFromAnchor(
 	snapshotToken, stageID, anchorColumnID, anchorKind, anchorNodeID, anchorResource,
 	targetNodeID, targetResource string, route []ConstructionRouteStep,
@@ -1073,8 +1028,6 @@ func NewConstructionRelatedResourceRouteChoiceFromAnchor(
 	}, nil
 }
 
-// NewConstructionRelatedFieldChoice issues a stage-bound choice for one
-// compiler catalog scalar field on the active exact terminal resource.
 func NewConstructionRelatedFieldChoice(snapshotToken, stageID string, candidate Candidate) (ConstructionRelatedFieldChoice, error) {
 	if strings.TrimSpace(snapshotToken) == "" || strings.TrimSpace(stageID) == "" ||
 		strings.TrimSpace(candidate.ID) == "" || strings.TrimSpace(candidate.NodeID) == "" ||
@@ -1106,8 +1059,6 @@ func NewConstructionRelatedFieldChoice(snapshotToken, stageID string, candidate 
 	return ConstructionRelatedFieldChoice{ChoiceID: choiceID, Source: source, Label: label}, nil
 }
 
-// NewConstructionCodedGroupChoice issues a choice for one generated root
-// Coding[] path on one exact source-projection stage.
 func NewConstructionCodedGroupChoice(
 	snapshot Snapshot,
 	outputID, stageID string,
@@ -1152,15 +1103,10 @@ func NewConstructionCodedGroupChoice(
 	}, nil
 }
 
-// NewSemanticConstructionChoice binds an inventory observation to the exact
-// compiler candidate for its value path. Snapshot, semantic context, and build
-// identities pin the choice without adding separate mutable context fields.
 func NewSemanticConstructionChoice(snapshotToken, semanticContextToken, buildID string, source SemanticBindingChoiceSource, candidate Candidate, ownerRecordsProved ...bool) (ConstructionChoice, error) {
 	return NewSemanticConstructionChoiceForRoute(snapshotToken, semanticContextToken, buildID, nil, source, candidate, ownerRecordsProved...)
 }
 
-// NewSemanticConstructionChoiceForRoute pins an observed semantic binding to
-// the exact compiler-proved route and terminal candidate.
 func NewSemanticConstructionChoiceForRoute(snapshotToken, semanticContextToken, buildID string, route []ConstructionRouteStep, source SemanticBindingChoiceSource, candidate Candidate, ownerRecordsProved ...bool) (ConstructionChoice, error) {
 	if (source.GroupOutputID == "") != (source.GroupStageID == "") ||
 		(source.GroupOutputID != "" && (strings.TrimSpace(source.GroupOutputID) != source.GroupOutputID || strings.TrimSpace(source.GroupStageID) != source.GroupStageID)) {
@@ -1228,8 +1174,6 @@ func NewSemanticConstructionChoiceForRoute(snapshotToken, semanticContextToken, 
 	return choice, nil
 }
 
-// NewSemanticFrameConstructionChoice issues an exact family-and-route token
-// for a correlated code/value source, without binding it to one category code.
 func NewSemanticFrameConstructionChoice(
 	snapshotToken, semanticContextToken, buildID string,
 	source SemanticFrameChoiceSource,
@@ -1326,8 +1270,6 @@ func ownerRecordsSourceSupported(source SemanticBindingChoiceSource, candidate C
 	return false
 }
 
-// DecodeConstructionChoiceID validates the token envelope and returns the
-// typed pinned identity. The caller must still re-authorize and re-resolve it.
 func DecodeConstructionChoiceID(choiceID string) (ConstructionChoiceIdentity, error) {
 	if len(choiceID) == 0 || len(choiceID) > ConstructionChoiceIDMaxLength {
 		return ConstructionChoiceIdentity{}, fmt.Errorf("construction choice id has an invalid length")

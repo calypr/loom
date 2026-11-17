@@ -137,7 +137,7 @@ func TestWorkspaceCombineScopeEvidenceBindsExactPrivateAQLPrefix(t *testing.T) {
 	privateRef := ir.PhysicalCombineInputRef{PrivateStageID: source.Plan.StageSequence.FinalStageID}
 	publishedRef := ir.PhysicalCombineInputRef{TableID: "4:r1:1v7:published", RevisionID: "revision-1", OutputID: "published"}
 	combine := testWorkspaceCombinePayload("tag_id", privateRef, "source_value", publishedRef)
-	actualPlan, err := ComposeClickHouseCombine(source.Plan, *combine, bindings)
+	actualPlan, err := ComposeClickHouseCombine(source.Plan, *combine, ir.PhysicalPrefixSourceAQL, bindings)
 	if err != nil {
 		t.Fatalf("compose exact AQL prefix and Combine: %v", err)
 	}

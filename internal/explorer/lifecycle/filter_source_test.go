@@ -51,8 +51,6 @@ func filterSourceSnapshot(token string) capability.Snapshot {
 	)
 }
 
-// filterSourceDocument keeps only the row identity selected, so every other
-// eligible root scalar must reach a filter through a signed source choice.
 func filterSourceDocument() authoringv2.Document {
 	return authoringv2.Document{
 		Kind:             authoringv2.Kind,
@@ -143,8 +141,6 @@ func filterSourceGroupStep() authoringv2.ConstructionStep {
 	}
 }
 
-// filterSourceRowChoice returns the signed choice the planner issues for one
-// exact root field so a test can hold a legitimate, current token.
 func filterSourceRowChoice(t *testing.T, snapshot capability.Snapshot, path string) capability.RowChoice {
 	t.Helper()
 	choices, err := filterSourceResolver(t).ListRowChoices(context.Background(), snapshot, filterSourceDocument())
@@ -173,8 +169,6 @@ func filterSourceProposalRequest(changedStepID string, sources []ConstructionFil
 	}
 }
 
-// (a) Discovery exposes the populated unselected root scalar with a signed
-// choice id and never advertises a schema-only field.
 func TestConstructionFilterSourceCapabilityExposesPopulatedUnselectedRootScalar(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-discovery")
 	result, err := filterSourceService(t).constructionFilterSourceCapability(context.Background(),
@@ -224,10 +218,6 @@ func TestConstructionFilterSourceCapabilityExposesPopulatedUnselectedRootScalar(
 	}
 }
 
-// ROW-SOURCE-03 S-C: the single display-label builder must surface the exact
-// schema Title on discovery and write the identical string into the durable
-// claim, so the advertised label and the server-derived projection for one
-// field are the same bytes (the compiled artifact copies those bytes).
 func TestConstructionFilterSourceTitleLabelIsSharedByDiscoveryAndDurableClaim(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-title-parity")
 	service := filterSourceService(t)
@@ -270,10 +260,6 @@ func TestConstructionFilterSourceTitleLabelIsSharedByDiscoveryAndDurableClaim(t 
 	}
 }
 
-// Candidate-label fallback shape (rs03-label-owner.md pinned decision): the
-// capability snapshot builder collapses an empty schema Title to the bare
-// field path (builder.go:296 first(TrimSpace(f.Label), path)), so the lane
-// label for such a field is the raw path — not the legacy 'Type.path'.
 func TestConstructionFilterSourceEmptyTitleCandidateLabelIsRawPath(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-empty-title")
 	for index := range snapshot.Candidates {
@@ -313,9 +299,6 @@ func TestConstructionFilterSourceEmptyTitleCandidateLabelIsRawPath(t *testing.T)
 	}
 }
 
-// labeledRowSourceChoicePlanner rewrites the planner's display label after
-// signing, so a test can pin the builder chain when the snapshot candidate
-// carries no label at all. Signing stays with the real resolver.
 type labeledRowSourceChoicePlanner struct {
 	inner *SchemaRowChoiceResolver
 	label string
@@ -332,10 +315,6 @@ func (p labeledRowSourceChoicePlanner) ListRowChoices(ctx context.Context, snaps
 	return choices, nil
 }
 
-// With no snapshot candidate label, advertise falls through the builder
-// chain to the row choice display label, and to the exact legacy
-// 'ResourceType.path' when that is blank too; the durable claim never sees
-// the choice label and lands on 'ResourceType.path'.
 func TestConstructionFilterSourceBlankCandidateLabelFallsThroughBuilderChain(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-blank-label")
 	for index := range snapshot.Candidates {
@@ -377,8 +356,6 @@ func TestConstructionFilterSourceBlankCandidateLabelFallsThroughBuilderChain(t *
 	if projection.Label != "BodyStructure.active" {
 		t.Fatalf("durable label = %q, want the exact legacy 'Type.path' fallback", projection.Label)
 	}
-	// ConstructionFilterSourceFacts is the reconcile-side twin of the durable
-	// write; it must produce the identical string for the identical claim.
 	facts, ok := ConstructionFilterSourceFacts(snapshot, filterSourceRootType, filterSourceField)
 	if !ok || facts.Label != projection.Label {
 		t.Fatalf("facts label = %q (ok %v), want the durable label %q", facts.Label, ok, projection.Label)
@@ -407,7 +384,6 @@ func TestConstructionFilterSourceCapabilityRefusesStaleStageAndRowChangingPrefix
 	}
 }
 
-// (d) The observed/populated gate is enforced on admission, not only display.
 func TestConstructionFilterSourceRejectsUnpopulatedFieldOnDiscoveryAndAdmission(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-unpopulated")
 	service := filterSourceService(t)
@@ -421,8 +397,6 @@ func TestConstructionFilterSourceRejectsUnpopulatedFieldOnDiscoveryAndAdmission(
 			t.Fatalf("unpopulated field offered: %#v", choice)
 		}
 	}
-	// The planner still issues a signed token for the schema-only field, so the
-	// proposal boundary must refuse it rather than trust the picker.
 	unpopulated := filterSourceRowChoice(t, snapshot, "description")
 	if _, err := capability.DecodeRowChoiceID(unpopulated.ChoiceID); err != nil {
 		t.Fatalf("crafted schema-only candidate produced no signed token: %v", err)
@@ -439,7 +413,6 @@ func TestConstructionFilterSourceRejectsUnpopulatedFieldOnDiscoveryAndAdmission(
 	}
 }
 
-// (c) A token from another snapshot, or a tampered token, is refused.
 func TestConstructionFilterSourceRefusesForgedAndCrossSnapshotChoices(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-current")
 	other := filterSourceSnapshot("filter-source-other")
@@ -473,8 +446,6 @@ func TestConstructionFilterSourceRefusesForgedAndCrossSnapshotChoices(t *testing
 	}
 }
 
-// (b) A valid selection compiles the filter and durably owns exactly one
-// server-derived projection for the unselected field.
 func TestConstructionCandidateWithFilterSourcesMaterializesOwnedProjection(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-apply")
 	service := filterSourceService(t)
@@ -522,9 +493,6 @@ func TestConstructionCandidateWithFilterSourcesMaterializesOwnedProjection(t *te
 	if len(analyzed.Construction.SourceProjections) != 1 || analyzed.Construction.SourceProjections[0].OwnerStepID != "filter-active" {
 		t.Fatalf("analysis dropped or re-owned the filter projection: %#v", analyzed.Construction.SourceProjections)
 	}
-	// Independently derived expectation: the surviving rows still expose just the
-	// selected identity, and the filtered-on field is carried as an input slot,
-	// so the output schema still equals the input schema.
 	wantIDs := []string{filterSourceIdentity, filterSourceColumn}
 	gotIDs := make([]string, 0, len(analyzed.Construction.Steps[0].Outputs))
 	for _, output := range analyzed.Construction.Steps[0].Outputs {
@@ -552,8 +520,6 @@ func TestConstructionFilterSourceRequiresMatchingColumnAndIgnoresNonFilterSteps(
 		t.Fatalf("mismatched column error = %v, want FILTER_SOURCE_COLUMN_MISMATCH", err)
 	}
 
-	// Mirroring Pivot: filterSources that do not belong to the edited FILTER
-	// step leave the construction untouched.
 	unedited, err := service.constructionCandidateWithFilterSources(context.Background(), base,
 		filterSourceProposalRequest("missing-step", []ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), construction)
 	if err != nil {
@@ -564,7 +530,6 @@ func TestConstructionFilterSourceRequiresMatchingColumnAndIgnoresNonFilterSteps(
 	}
 }
 
-// The row-preserving prefix allow-list is enforced, not trust-me coded.
 func TestConstructionFilterSourceCannotCrossRowChangingPrefix(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-prefix")
 	service := filterSourceService(t)
@@ -596,8 +561,6 @@ func TestConstructionFilterSourceCannotCrossRowChangingPrefix(t *testing.T) {
 	}
 }
 
-// A projection the filter does not own is refused, and so is one whose owner
-// filter names a different column.
 func TestConstructionFilterSourceProjectionMustMatchItsFilterColumn(t *testing.T) {
 	document := filterSourceDocument()
 
@@ -634,8 +597,6 @@ func TestConstructionFilterSourceProjectionMustMatchItsFilterColumn(t *testing.T
 	}
 }
 
-// (e) Dropping the selection strips its projection, and a filter left pointing
-// at the removed source fails instead of silently keeping it.
 func TestConstructionFilterSourceRemovalStripsProjectionAndRefusesDanglingFilter(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-removal")
 	service := filterSourceService(t)
@@ -685,7 +646,6 @@ func TestConstructionFilterSourceRemovalStripsProjectionAndRefusesDanglingFilter
 	}
 }
 
-// (f) Selected-column filter behavior is unchanged by filter source support.
 func TestConstructionFilterSourceLeavesSelectedColumnFilterBehaviorUnchanged(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-regression")
 	service := filterSourceService(t)
@@ -707,7 +667,6 @@ func TestConstructionFilterSourceLeavesSelectedColumnFilterBehaviorUnchanged(t *
 	}
 }
 
-// Duplicate or blank selection facts are refused at the request boundary.
 func TestConstructionFilterSourceSelectionsRequireExactDeduplicatedFacts(t *testing.T) {
 	duplicate := filterSourceProposalRequest("filter-active", []ConstructionFilterSourceSelection{
 		{ChoiceID: "rc1.a.b", ColumnID: "c1"}, {ChoiceID: "rc1.a.b", ColumnID: "c2"},
@@ -732,10 +691,6 @@ func TestConstructionFilterSourceSelectionsRequireExactDeduplicatedFacts(t *test
 	}
 }
 
-// (g) The advertised choice object is EXACTLY the six pinned wire fields. Any
-// pivot-style extra field (occurrenceId/fhirType/valueType/isIdentifier/
-// isReference) makes the strict UI schema reject the whole capabilities
-// response, so the shape is pinned structurally and on the wire.
 func TestConstructionFilterSourceChoiceWireShapeIsExactlySixFields(t *testing.T) {
 	wantFields := map[string]bool{"choiceId": true, "fieldPath": true, "label": true, "logicalType": true, "isPopulated": true, "columnId": true}
 	structFields := make(map[string]bool, reflect.TypeOf(ConstructionFilterSourceChoice{}).NumField())
@@ -771,10 +726,6 @@ func TestConstructionFilterSourceChoiceWireShapeIsExactlySixFields(t *testing.T)
 	}
 }
 
-// The advertised columnId is the signed materialized column the UI uses to
-// restore a saved source-backed filter. It must come only from durable
-// server-derived state that is still live for exactly this stage: a vanished,
-// re-pointed, or foreign-owned materialization is advertised as absent.
 func TestConstructionFilterSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSigned(t *testing.T) {
 	snapshot := filterSourceSnapshot("filter-source-column-binding")
 	service := filterSourceService(t)
@@ -846,8 +797,6 @@ func TestConstructionFilterSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSig
 	}
 }
 
-// (a, wiring) GetConstructionCapabilities assembles filterSourceInput beside
-// pivotSourceInput on the owned-style fixture.
 func TestGetConstructionCapabilitiesAssemblesFilterSourceInputBesidePivotSourceInput(t *testing.T) {
 	harness := newFilterSourceHarness(t)
 	capabilities, err := harness.service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
@@ -895,8 +844,6 @@ func TestGetConstructionCapabilitiesAssemblesFilterSourceInputBesidePivotSourceI
 	}
 }
 
-// (b) Through ProposeConstruction with the real compiler, the accepted
-// candidate filters on the unselected field's compiled slot.
 func TestProposeConstructionFilterSourceFiltersUnselectedFieldWithRealCompiler(t *testing.T) {
 	harness := newFilterSourceHarness(t)
 	harness.saveDraft(t, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
@@ -966,7 +913,6 @@ func TestProposeConstructionFilterSourceFiltersUnselectedFieldWithRealCompiler(t
 	}
 }
 
-// (6) An accepted proposal whose field stops qualifying is refused at Apply.
 func TestApplyConstructionProposalRefusesStaleFilterSourceBinding(t *testing.T) {
 	for _, stale := range []bool{false, true} {
 		name := "current"
@@ -1043,9 +989,6 @@ func TestApplyConstructionProposalRefusesStaleFilterSourceBinding(t *testing.T) 
 	}
 }
 
-// A restore of a saved source-backed filter whose field stopped presenting
-// data must fail closed at proposal time like a forged token: the durable
-// columnId alone never vouches for the vanished field.
 func TestProposeConstructionFilterSourceRefusesVanishedFieldRestore(t *testing.T) {
 	harness := newFilterSourceHarness(t)
 	durable := authoringv2.Construction{
@@ -1120,8 +1063,6 @@ func filterSourcePatientFilterStep(columnID string) authoringv2.ConstructionStep
 	}
 }
 
-// filterSourceHarness wires the real workspace compiler/lowering path and the
-// real schema-backed row-choice planner around the patients fixture.
 type filterSourceHarness struct {
 	service  *Service
 	store    *fakeStore
@@ -1214,8 +1155,6 @@ func newFilterSourceHarness(t *testing.T) *filterSourceHarness {
 	return harness
 }
 
-// saveDraft stores an owned-style construction whose only selected column is
-// the row identity.
 func (h *filterSourceHarness) saveDraft(t *testing.T, construction authoringv2.Construction) {
 	t.Helper()
 	workspace, err := authoringv2.DecodeWorkspace(h.store.created.DraftConfig)
@@ -1277,8 +1216,6 @@ func (h *filterSourceHarness) choice(t *testing.T, path string) capability.RowCh
 	return capability.RowChoice{}
 }
 
-// unobserveBirthChange makes the selected field stop presenting observed data
-// while keeping the same snapshot identity, mimicking data going empty.
 func (h *filterSourceHarness) unobserveBirthCount() {
 	for index := range h.snapshot.Candidates {
 		if h.snapshot.Candidates[index].FieldPath == "multipleBirthInteger" {
@@ -1287,12 +1224,6 @@ func (h *filterSourceHarness) unobserveBirthCount() {
 	}
 }
 
-// --- ROW-SOURCE-03 S-A: precise per-skipped-class lane reason codes -------
-
-// staleRowSourceChoicePlanner signs every enumerated choice against a
-// different snapshot, mimicking a planner hand-off race between two dataset
-// versions. The real SchemaRowChoiceResolver always pins the passed snapshot,
-// so this only exists to exercise the version skip class.
 type staleRowSourceChoicePlanner struct {
 	inner  *SchemaRowChoiceResolver
 	issued capability.Snapshot
@@ -1454,11 +1385,6 @@ func TestConstructionFilterSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 	}
 }
 
-// --- ROW-SOURCE-03 S-B: inventory-error abort verdicts ----------------------
-
-// failingRowSourcePlanner aborts enumeration the way an unreachable row-choice
-// inventory does; it is the injection point for the S-B verdict that must stay
-// distinguishable from the healthy empty-data codes.
 type failingRowSourcePlanner struct{ err error }
 
 func (p failingRowSourcePlanner) ListRowChoices(context.Context, capability.Snapshot, authoringv2.Document) ([]capability.RowChoice, error) {

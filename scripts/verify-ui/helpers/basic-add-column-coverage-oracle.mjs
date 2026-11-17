@@ -52,11 +52,6 @@ const expectedPatient = Object.freeze({
 
 const MAX_FIXTURE_BYTES = 4096;
 
-/**
- * Reads the exact three-row Add Columns fixture and returns a raw-source oracle.
- * The row states retain the missing/null distinction for the oracle; populated
- * counts and examples describe only values the native UI can display.
- */
 export function readBasicAddColumnCoverageOracle({
   fixtureDir = BASIC_ADD_COLUMN_COVERAGE_FIXTURE_DIR,
 } = {}) {

@@ -9,9 +9,6 @@ import (
 	"github.com/calypr/loom/internal/dataset"
 )
 
-// publicationVerificationStore is a narrow integration adapter over durable
-// execution metadata. Publication owns the record shape; release activation
-// consumes only its frozen exact-selector contract.
 type publicationVerificationStore struct {
 	executions publication.ExactExecutionCatalog
 }
@@ -23,7 +20,6 @@ func (s publicationVerificationStore) VerifyPublication(ctx context.Context, pro
 	execution, output, err := s.executions.FindExecutionBySelector(ctx, project, generation, selector)
 	if err != nil {
 		if errors.Is(err, publication.ErrBundleNotFound) {
-			// Deterministic absence: a contract miss, not a store fault.
 			return dataset.PublicationVerification{}, fmt.Errorf("%w: %w", dataset.ErrPublicationRecordMissing, err)
 		}
 		return dataset.PublicationVerification{}, err

@@ -1,6 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
 
-/** Select a successful native Preview request for one action/reload window. */
 export const selectSavedPreviewRequest = (requests, { startIndex, path, receiptId, outputId }) => {
   if (!Array.isArray(requests) || !Number.isInteger(startIndex) || startIndex < 0 || startIndex > requests.length) return undefined;
   if (![path, receiptId, outputId].every(value => typeof value === 'string' && value.length > 0)) return undefined;
@@ -11,7 +10,6 @@ export const selectSavedPreviewRequest = (requests, { startIndex, path, receiptI
   );
 };
 
-/** Reuse a saved Preview only when Cancel restores the same draft and visible receipt. */
 export const selectCanceledSavedPreviewRequest = (requests, { startIndex, path, outputId, before, after }) => {
   if (!Array.isArray(requests) || !before || !after || !Number.isInteger(startIndex) || startIndex < 0 || startIndex > requests.length) return undefined;
   if (before.outputId !== outputId || after.outputId !== outputId) return undefined;
@@ -42,7 +40,6 @@ export const selectCanceledSavedPreviewRequest = (requests, { startIndex, path, 
 const completedSuccessfulResponse = entry => entry?.status === 200 && Number.isFinite(entry.completedAt) &&
   !entry.failure && !entry.responseReadError && entry.response && entry.response.bodyNotRead !== true;
 
-/** Bind a proposal preview to the exact accepted choice command and persisted reconciliation receipt. */
 export const selectAcceptedChoicePreviewBinding = (requests, {
   startIndex, proposalPath, commandPath, reconcilePath, outputId, before, after,
 }) => {
@@ -124,7 +121,6 @@ export const selectAcceptedChoicePreviewBinding = (requests, {
   return undefined;
 };
 
-/** A cached accepted choice preview survives Cancel only for the exact same current draft and visible receipt. */
 export const selectCanceledAcceptedChoicePreviewBinding = (before, after) => {
   if (!before || !after || before.kind !== 'accepted-choice' || after.kind !== 'accepted-choice') return undefined;
   if (![before.receiptId, before.outputId, before.commandId, before.snapshotToken, before.draftDigest].every(value =>

@@ -37,10 +37,6 @@ type previewGroupIdentityFilter struct {
 	BoundedVariable         string
 }
 
-// relatedGroupPreviewShapeFor accepts only a direct scoped-root expansion
-// chain whose first related FHIR ID is the sole COUNT_ROWS Group key. The
-// preview can then select complete Group identities through the exact first
-// hop and reuse the canonical construction stages for every selected root.
 func relatedGroupPreviewShapeFor(plan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, options physicalRenderOptions) (relatedGroupPreviewShape, bool) {
 	if plan.Engine == ir.PhysicalEngineClickHouse || sequence == nil || sequence.PreviewLimitBindKey == "" ||
 		sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow || sequence.CellTraceReturn != nil ||
@@ -247,10 +243,6 @@ func relatedGroupPreviewExactFirstHop(plan ir.PhysicalPlan, stage ir.PhysicalCon
 		return ir.PhysicalTraversal{}, false
 	}
 
-	// Reuse the exact COUNT route proof after converting only the already-verified
-	// sorted-unique object projection into its terminal _id scalar. The candidate
-	// scan assumes normal ingestion stores each resourceType in its named vertex
-	// collection; the reverse root check still verifies the physical root bucket.
 	route := related.RelatedRecords
 	route.Unique = false
 	route.Sort = nil

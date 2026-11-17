@@ -29,12 +29,6 @@ func TestFragmentCycleRejected(t *testing.T) {
 	}
 }
 
-// TestFragmentExpansionFailuresAreClassifiedValidationError pins that every
-// fragment-expansion user fault reaches the typed *ValidationError channel.
-// Before this repair these two legs escaped it as raw fmt.Errorf and the
-// register mutation wire-returned 500 INTERNAL_ERROR (parent RED log
-// verification/publication-bundle/evidence/recipe-revision/RED-fragment-expansion.log),
-// while the two control legs below already wire-returned 400 INVALID_REQUEST.
 func TestFragmentExpansionFailuresAreClassifiedValidationError(t *testing.T) {
 	classified := func(err error) bool {
 		var validation *ValidationError

@@ -22,11 +22,6 @@ type groupRowValuePreviewShape struct {
 	keyType string
 }
 
-// terminalGroupRowValuePreviewWindowFor proves narrow direct-root Group shapes
-// whose row values or semantic memberships can be deferred until the first
-// ordinary group keys are selected. The frontier scans the same scoped roots,
-// groups and orders by the exact direct-root key, and retains every root key
-// for those groups. The canonical source and Group then run over those roots.
 func terminalGroupRowValuePreviewWindowFor(
 	plan, sourcePlan ir.PhysicalPlan,
 	sequence *ir.PhysicalStageSequence,
@@ -55,9 +50,6 @@ func terminalGroupRowValuePreviewWindowFor(
 	stage := sequence.Stages[0]
 	group := stage.Group
 	semanticGroup := group != nil && group.SemanticKey != nil
-	// This frontier intentionally keeps the existing no-hint gate for ordinary
-	// row-value Groups; only a proven semantic Group may carry a non-forcing
-	// root hint into its direct-key scan.
 	if options.rootIndexHint != "" && !semanticGroup {
 		return ir.PhysicalPlan{}, groupRowValuePreviewShape{}, false
 	}
@@ -116,8 +108,6 @@ func terminalGroupRowValuePreviewWindowFor(
 				return ir.PhysicalPlan{}, groupRowValuePreviewShape{}, false
 			}
 		case ir.PhysicalFilterOp:
-			// Only the exact project/generation/auth filters in the generic
-			// root-scope block are safe to reuse in the key frontier.
 			if index >= rootScopeEnd {
 				return ir.PhysicalPlan{}, groupRowValuePreviewShape{}, false
 			}
@@ -134,8 +124,6 @@ func terminalGroupRowValuePreviewWindowFor(
 				return ir.PhysicalPlan{}, groupRowValuePreviewShape{}, false
 			}
 		default:
-			// An UNNEST, traversal, or root window can change which source rows
-			// contribute to a Group. Those shapes stay on the generic renderer.
 			return ir.PhysicalPlan{}, groupRowValuePreviewShape{}, false
 		}
 	}
@@ -223,9 +211,6 @@ func renderGroupRowValuePreviewFrontier(
 	sequence *ir.PhysicalStageSequence,
 	options physicalRenderOptions,
 ) (groupRowValuePreviewFrontier, error) {
-	// Root hints are non-forcing. Apply the same hint to the key scan when one
-	// was selected; the canonical source later resolves the selected keys with
-	// DOCUMENT, so its root-window scan does not use or require that hint.
 	source, err := renderPhysicalPlanWithOptions(frontierPlan, physicalRenderOptions{
 		rootIndexHint:    options.rootIndexHint,
 		disableRootIndex: options.disableRootIndex,

@@ -133,36 +133,23 @@ const encountersOutput: ExplorerRuntimeV1['outputs'][number] = {
     { type: 'export-stale', title: 'Export stale table', output: 'visits-42' },
     { type: 'export-blank', title: 'Export blank target', output: '   ' },
     { type: 'export-ambiguous', title: 'Export duplicated table', output: 'encounters' },
-    // No fileName: the download name can only come from the resolved target's own identity.
     { type: 'export-target-id-no-filename', title: 'Export patients unfiled', output: 'pat-9c21' },
-    // An empty fileName is not a usable download name, so it must not download the active table.
     { type: 'export-target-id-empty-filename', title: 'Export patients blank file', output: 'pat-9c21', fileName: '' },
-    // Only a case-exact lookup may resolve these; a lenient lookup would export patients.
     { type: 'export-wrong-case-id', title: 'Export patients by wrong-case ID', output: 'PAT-9C21' },
     { type: 'export-wrong-case-name', title: 'Export patients by wrong-case name', output: 'Patients' },
-    // A configured column/heading override is part of the resolved target's export request.
     { type: 'export-target-id-columns', title: 'Export patients gender', output: 'pat-9c21', columns: ['gender'], exportHeaders: { gender: 'Sex' } },
-    // '' is a contract-valid string in runtimeActionSchema, so an action may carry it. It is
-    // an explicit target that resolves to nothing, not a request for whatever is on screen.
     { type: 'export-empty-string', title: 'Export empty target', output: '' },
-    // A published output literally named ' patients ' must not be reachable by the trimmed
-    // name, and ' patients ' must never silently resolve to the unpadded patients table.
     { type: 'export-padded-name', title: 'Export padded table', output: ' patients ', fileName: 'padded-by-name.csv' },
-    // Only an exact name may resolve; a prefix is a different (missing) table.
     { type: 'export-prefix-name', title: 'Export prefix table', output: 'patient' },
     { type: 'custom-export-patients', title: 'Custom export patients', output: 'pat-9c21' },
     { type: 'custom-export-stale', title: 'Custom export stale table', output: 'visits-42' },
   ],
 };
-// A published output whose name carries the padding the padded-name action asks for. An
-// implementation that trims the target answers this request with the patients table.
 const paddedNamedOutput: ExplorerRuntimeV1['outputs'][number] = {
   ...encountersOutput,
   outputId: 'pad-6c11', name: ' patients ', title: 'Padded named table', actions: undefined,
   selector: { recipe: 'recipe-pinned', translationVersion: 'v1', output: 'collisions' },
 };
-// A published output that borrows the active output's name. Only its own ID may select it;
-// an implementation that shortcuts a name match to the active output exports the wrong table.
 const shadowOutput: ExplorerRuntimeV1['outputs'][number] = {
   ...encountersOutput,
   outputId: 'shd-3a90', name: 'encounters', title: 'Shadow table', actions: undefined,
@@ -171,22 +158,16 @@ const shadowOutput: ExplorerRuntimeV1['outputs'][number] = {
 const twinEncountersOutput: ExplorerRuntimeV1['outputs'][number] = {
   ...encountersOutput, outputId: 'enc-8b02', title: 'Encounters copy', actions: undefined,
 };
-// A published output whose only name is whitespace. An implementation that matches a
-// whitespace-only action target verbatim would export this table instead of failing closed.
 const blankNamedOutput: ExplorerRuntimeV1['outputs'][number] = {
   ...encountersOutput,
   outputId: 'blk-2e50', name: '   ', title: 'Blank named table', actions: undefined,
   selector: { recipe: 'recipe-pinned', translationVersion: 'v1', output: 'collisions' },
 };
-// A published output whose only name is the empty string. An implementation that trims a
-// whitespace-only target and then looks it up would export this table instead of failing closed.
 const emptyNamedOutput: ExplorerRuntimeV1['outputs'][number] = {
   ...encountersOutput,
   outputId: 'emp-4b08', name: '', title: 'Empty named table', actions: undefined,
   selector: { recipe: 'recipe-pinned', translationVersion: 'v1', output: 'collisions' },
 };
-// A published output named exactly like the encounters outputId exercises ID-over-name
-// precedence: a name-first lookup would export this table instead of the ID owner.
 const collidingOutput: ExplorerRuntimeV1['outputs'][number] = {
   ...encountersOutput,
   outputId: 'col-1d4e', name: 'enc-7f3a', title: 'Colliding table', actions: undefined,
@@ -194,11 +175,7 @@ const collidingOutput: ExplorerRuntimeV1['outputs'][number] = {
 };
 const dualRuntime: ExplorerRuntimeV1 = { ...runtime, outputs: [patientsOutput, encountersOutput] };
 const ambiguousRuntime: ExplorerRuntimeV1 = { ...runtime, outputs: [patientsOutput, encountersOutput, twinEncountersOutput] };
-// The padded-name table is published so an exact match exists for the padded target; a
-// trimmed lookup would answer that request with the unpadded patients table.
 const paddedRuntime: ExplorerRuntimeV1 = { ...runtime, outputs: [patientsOutput, encountersOutput, paddedNamedOutput] };
-// The shadow output is published first and shares the active output's name, so an
-// implementation that resolves a name to the active output exports the wrong table.
 const shadowRuntime: ExplorerRuntimeV1 = {
   ...runtime,
   outputs: [
@@ -207,10 +184,7 @@ const shadowRuntime: ExplorerRuntimeV1 = {
     { ...encountersOutput, actions: [...(encountersOutput.actions ?? []), { type: 'export-shadow', title: 'Export shadow table', output: 'shd-3a90', fileName: 'shadow-by-id.csv' }] },
   ],
 };
-// The whitespace-named outputs are published first, so an implementation that resolves a
-// blank target by name lands on them rather than failing closed.
 const blankNamedRuntime: ExplorerRuntimeV1 = { ...runtime, outputs: [blankNamedOutput, emptyNamedOutput, patientsOutput, encountersOutput] };
-// The colliding output is listed first so a name-first lookup would win over the real ID owner.
 const collisionRuntime: ExplorerRuntimeV1 = {
   ...runtime,
   outputs: [
@@ -298,8 +272,6 @@ describe('Viewer export action output targeting', () => {
   const actionHarness = (options: {
     runtime?: ExplorerRuntimeV1;
     customActionsFor?: (client: LoomClient) => Readonly<Record<string, LoomViewerActionHandler>>;
-    // By default the embedder pins the Encounters tab; an uncontrolled session lets a
-    // test select outputs the way a reader does.
     uncontrolled?: boolean;
   } = {}) => {
     const { downloads, created } = downloadsOn();
@@ -311,15 +283,10 @@ describe('Viewer export action output targeting', () => {
     return { ...view, downloads, created };
   };
 
-  // The action runs asynchronously; flush its pending promise chain first so a silent-fallback
-  // implementation has already issued the export it is not allowed to issue. Asserting the spy
-  // before the error text keeps the failure evidence behavioral, not just a missing message.
   const unresolvedAlert = async (exportOutput: { mock: { calls: unknown[] } }, actionTitle: string, target?: string) => {
     for (let round = 0; round < 5; round += 1) await act(async () => { await Promise.resolve(); });
     expect(exportOutput.mock.calls, `action "${actionTitle}" must not issue an export request`).toHaveLength(0);
     expect(await screen.findByText('Action failed')).toBeInTheDocument();
-    // The visible error names the action and the unresolved target; the wording is not asserted,
-    // so a rephrased message still satisfies the contract.
     if (target) await screen.findByText((content) => content.includes(actionTitle) && content.includes(target));
   };
 
@@ -360,7 +327,6 @@ describe('Viewer export action output targeting', () => {
     expect(exportOutput).toHaveBeenCalledTimes(1);
     expect(exportOutput.mock.calls[0][0].selector).toEqual({ recipe: 'recipe-pinned', translationVersion: 'v1', output: 'patients' });
     expect(created).toHaveBeenCalledTimes(1);
-    // The action config carries no fileName, so the only correct name is the target's own.
     expect(downloads[0].fileName).toBe('patients.csv');
     expect(await downloads[0].blob?.text()).toContain('patient-male');
     expect(screen.queryByText('Action failed')).toBeNull();
@@ -374,8 +340,6 @@ describe('Viewer export action output targeting', () => {
     expect(exportOutput).toHaveBeenCalledTimes(1);
     expect(exportOutput.mock.calls[0][0].selector).toEqual({ recipe: 'recipe-pinned', translationVersion: 'v1', output: 'patients' });
     expect(created).toHaveBeenCalledTimes(1);
-    // An action-declared (even unusable) file name must not be replaced by the active
-    // table's name: that would label a patients export as the encounters download.
     expect(downloads[0].fileName).not.toBe('encounters.csv');
     expect(await downloads[0].blob?.text()).toContain('patient-male');
     expect(screen.queryByText('Action failed')).toBeNull();
@@ -403,7 +367,6 @@ describe('Viewer export action output targeting', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Export colliding target' }));
     await waitFor(() => expect(downloads).toHaveLength(1));
     expect(exportOutput).toHaveBeenCalledTimes(1);
-    // 'enc-7f3a' is the encounters outputId and simultaneously the collisions output name.
     expect(exportOutput.mock.calls[0][0].selector).toEqual({ recipe: 'recipe-pinned', translationVersion: 'v1', output: 'encounters' });
     expect(created).toHaveBeenCalledTimes(1);
     expect(downloads[0].fileName).toBe('colliding-by-id.csv');
@@ -417,8 +380,6 @@ describe('Viewer export action output targeting', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Export padded table' }));
     await waitFor(() => expect(downloads).toHaveLength(1));
     expect(exportOutput).toHaveBeenCalledTimes(1);
-    // The action asks for ' patients ' and a table is published under exactly that name, so
-    // only that table may answer. A trimmed lookup would export the unpadded patients table.
     expect(exportOutput.mock.calls[0][0].selector).toEqual({ recipe: 'recipe-pinned', translationVersion: 'v1', output: 'collisions' });
     expect(created).toHaveBeenCalledTimes(1);
     expect(downloads[0].fileName).toBe('padded-by-name.csv');
@@ -427,8 +388,6 @@ describe('Viewer export action output targeting', () => {
   });
 
   it('shows an action error and makes no export request when only the trimmed name is published', async () => {
-    // No output is named ' patients ' here; the closest is 'patients'. A lookup that trims
-    // the target before matching would download the patients table for this action.
     const { exportOutput, requests, downloads, created } = actionHarness();
     await screen.findByText('encounter-confirmed');
     fireEvent.click(screen.getByRole('button', { name: 'Export padded table' }));
@@ -456,8 +415,6 @@ describe('Viewer export action output targeting', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Export shadow table' }));
     await waitFor(() => expect(downloads).toHaveLength(1));
     expect(exportOutput).toHaveBeenCalledTimes(1);
-    // 'shd-3a90' is the shadow table, whose name duplicates the active output's name; an
-    // implementation that treats a name match as the active output exports encounters here.
     expect(exportOutput.mock.calls[0][0].selector).toEqual({ recipe: 'recipe-pinned', translationVersion: 'v1', output: 'collisions' });
     expect(created).toHaveBeenCalledTimes(1);
     expect(downloads[0].fileName).toBe('shadow-by-id.csv');
@@ -478,8 +435,6 @@ describe('Viewer export action output targeting', () => {
     expect(downloads).toHaveLength(0);
   });
 
-  // runtimeActionSchema accepts any string, so '' is a published shape. It names no table, so
-  // it must not be read as "no target" and quietly export whatever tab the reader is on.
   it('shows an action error and makes no export request for an empty-string output', async () => {
     const { exportOutput, graphql, requests, downloads, created } = actionHarness();
     await screen.findByText('encounter-confirmed');
@@ -506,8 +461,6 @@ describe('Viewer export action output targeting', () => {
     expect(screen.queryByText('Action failed')).toBeNull();
   });
 
-  // Published blank/empty output names are the decoys: a lookup that resolves a
-  // whitespace-only target by name would export one of those tables.
   it.each([
     ['a blank explicit output', 'Export blank target', {}],
     ['an empty explicit output', 'Export blank target', { runtime: blankNamedRuntime }],
@@ -573,8 +526,6 @@ describe('Viewer export action output targeting', () => {
     await screen.findByText('encounter-confirmed');
     fireEvent.click(screen.getByRole('button', { name: 'Custom export patients' }));
     await waitFor(() => expect(contexts).toHaveLength(1));
-    // The handler exports through context.request, so a context bound to the active output
-    // would download the encounters table for an action that names patients.
     expect(contexts[0]).toEqual({
       actionOutput: 'pat-9c21',
       contextOutputId: 'pat-9c21',
@@ -592,15 +543,11 @@ describe('Viewer export action output targeting', () => {
   it('gives a custom handler the target rows once the target output has been loaded', async () => {
     const contexts: CapturedContext[] = [];
     const { exportOutput } = actionHarness({ uncontrolled: true, customActionsFor: (client) => ({ 'custom-export-patients': recordingHandler(contexts, client) }) });
-    // Read the patients table (the default output), then move to encounters so the action
-    // runs with a different table active.
     await screen.findByText('patient-male');
     fireEvent.click(screen.getByRole('tab', { name: /Encounters/ }));
     await screen.findByText('encounter-confirmed');
     fireEvent.click(screen.getByRole('button', { name: 'Custom export patients' }));
     await waitFor(() => expect(contexts).toHaveLength(1));
-    // The handler reads context.result for the rows it exports, so it must receive the
-    // target's rows rather than the active table's rows or nothing at all.
     expect(contexts[0]).toEqual({
       actionOutput: 'pat-9c21',
       contextOutputId: 'pat-9c21',
@@ -1088,7 +1035,6 @@ describe('Viewer cell explanation later-page failure', () => {
     expect(alert).toHaveTextContent('The cell trace could not be loaded.');
     expect(within(alert).getByText(/already loaded are still shown/)).toBeInTheDocument();
     fireEvent.click(await retryButton(dialog));
-    // The retry request is pending: the earlier evidence and its alert stay on screen.
     expect(await retryButton(dialog)).toBeDisabled();
     expect(within(dialog).getByText('Patient / patient-gender-1')).toBeInTheDocument();
     expect(within(dialog).getByText('Source details (1)')).toBeInTheDocument();

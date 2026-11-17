@@ -6,10 +6,6 @@ import (
 	"fmt"
 )
 
-// UpgradeDocumentToConstruction converts a legacy document to the staged
-// operation contract. It is intended for the first staged edit. The input is
-// never mutated, and TableShape is cleared only after every legacy operation
-// has been represented and the staged document validates.
 func UpgradeDocumentToConstruction(document Document) (Document, error) {
 	upgraded := document
 	if document.Columns == nil {

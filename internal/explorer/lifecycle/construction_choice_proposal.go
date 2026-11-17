@@ -14,9 +14,6 @@ import (
 
 const maxConstructionChoiceProposalChoices = 100
 
-// ConstructionChoiceProposalSelection mirrors one APPLY_CONSTRUCTION_CHOICE
-// command. Title is presentation input and remains optional, just like the
-// command itself.
 type ConstructionChoiceProposalSelection struct {
 	RowValuePolicy authoringv2.ConstructionRowValuePolicy `json:"rowValuePolicy,omitempty"`
 	ChoiceID       string                                 `json:"choiceId"`
@@ -68,9 +65,6 @@ func (r ConstructionChoiceProposalRequest) Validate() error {
 	return nil
 }
 
-// ConstructionChoiceProposalResponse contains the exact candidate identities
-// and receipt the transport must preview. PreviewReceiptID is deliberately
-// transport-internal; clients receive the rendered preview instead.
 type ConstructionChoiceProposalResponse struct {
 	CommandID                string                                `json:"commandId"`
 	SnapshotToken            string                                `json:"snapshotToken"`
@@ -86,9 +80,6 @@ type ConstructionChoiceProposalResponse struct {
 	PreviewReceiptID         string                                `json:"-"`
 }
 
-// ProposeConstructionChoice compiles a candidate produced by the same
-// server-side choice resolver and pure reducer used by APPLY_CONSTRUCTION_CHOICE.
-// It does not save the candidate workspace or advance the draft version.
 func (s *Service) ProposeConstructionChoice(ctx context.Context, request ConstructionChoiceProposalRequest) (ConstructionChoiceProposalResponse, error) {
 	if err := request.Validate(); err != nil {
 		return ConstructionChoiceProposalResponse{}, malformed("construction-choice-proposal", err.Error(), err)

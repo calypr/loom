@@ -22,16 +22,6 @@ func fieldCatalogKey(project, authResourcePath, resourceType, path string) strin
 
 const generationFieldCatalogKeyPrefix = "gfc_"
 
-// fieldCatalogKeyForGeneration returns the persistent catalog document key for
-// one profiler identity. The empty-generation branch deliberately calls the
-// pre-generation key function unchanged: existing catalogs and callers that
-// have not selected a generation must retain their exact legacy key layout.
-//
-// A non-empty generation uses a SHA-256 digest of every identity component.
-// In particular, it must not append a sanitized generation string to the
-// legacy key: sanitization is many-to-one (for example, a slash and a space
-// both become an underscore) and would allow one immutable generation to
-// overwrite another catalog row.
 func fieldCatalogKeyForGeneration(project, datasetGeneration, authResourcePath, resourceType, path string) string {
 	datasetGeneration = NormalizeDatasetGeneration(datasetGeneration)
 	if datasetGeneration == "" {

@@ -8,7 +8,6 @@ import { apiChecks } from './formal-api.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
-/** Read current workflow commands; this describes routes and never executes them. */
 function workflowJobs(source, file) {
   const starts = [...source.matchAll(/^  ([a-z][\w-]*):\s*$/gm)];
   return starts.map((match, index) => {
@@ -75,7 +74,6 @@ export async function verificationInventory(projectRoot = root) {
   const goRoutes = go.map(file => ({ file, route: clickhousePackages.some(pattern => packageMatches(file, pattern)) ? 'go-clickhouse'
     : (path.posix.dirname(file) === '.' && /go list \./.test(main('go-unit').body)) || packagePatterns.some(pattern => packageMatches(file, pattern)) ? 'go-unit'
       : main('contracts').body.includes(`./${file}`) ? 'contracts' : undefined }));
-  // A file can have ordinary unit checks plus opt-in/service-backed CI routes.
   const extraGoJobs = jobs.filter(job => ['go-arango', 'go-publication-rows'].includes(job.id));
   for (const row of goRoutes) {
     const names = [...readFileSync(path.join(projectRoot, row.file), 'utf8').matchAll(/^func (Test\w+)\(/gm)].map(match => match[1]);

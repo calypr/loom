@@ -717,7 +717,6 @@ export async function filterBrowserWorkflow({ page, cda }) {
     lifecycle.cancel = { status: 'passed', preservedDraftDigest: baseline.draftDigest, expectedRows: [sourceRow], actualRows: cancelledRows, durationMs };
     await cda.click('[data-testid="construction-action-keep-rows"]');
     await cda.wait(() => Boolean(document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Condition"]:not(:disabled)')), []);
-    // Toggle away and back so a canceled proposal is recreated even if the editor retained its form.
     await cda.selectOption('[data-testid="construction-filter-editor"] select[aria-label="Condition"]', 'EQUALS');
     start = Date.now();
     await cda.selectOption('[data-testid="construction-filter-editor"] select[aria-label="Condition"]', 'MISSING');

@@ -1,14 +1,18 @@
 package compiler
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/columntransform"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	postgresrender "github.com/calypr/loom/internal/dataframe/compiler/render/postgres"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/semantic"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -18,18 +22,18 @@ func TestCompileCellTraceUsesFinalValueAndStableIdentity(t *testing.T) {
 		RootColumnNaming: recipe.RootColumnNamingExact,
 		Fields:           []recipe.Field{{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
 	})
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "patient_id", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileCellTraceOutput(ArangoTarget(), output, "patient_id", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"root.payload.id", "@cell_trace_offset", "@cell_trace_limit", "[@project, root._key]"} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("trace query missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("trace query missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
 	for _, field := range []string{ir.PhysicalCellTraceValueField, ir.PhysicalCellTraceContributionsField, ir.PhysicalCellTraceStatusField, ir.PhysicalCellTraceHasMoreField} {
-		if !containsBindValue(compiled.BindVars, field) {
-			t.Fatalf("trace field %q missing from binds %#v", field, compiled.BindVars)
+		if !containsBindValue(testAQLBinds(t, compiled.Command), field) {
+			t.Fatalf("trace field %q missing from binds %#v", field, testAQLBinds(t, compiled.Command))
 		}
 	}
 	if compiled.IdentityPartsColumn != ir.PhysicalCellTraceIdentityPartsField || compiled.ExplicitIdentityColumn != "" {
@@ -50,7 +54,7 @@ func TestCompileCellTraceForSourceOnlyGroupRowsUsesFinalMemberValueAndObjectIden
 	if output.Plan.StageSequence != nil || len(output.Plan.Operations) != 1 || output.Plan.Operations[0].GroupRows == nil {
 		t.Fatalf("source-only explicit cohort was not compiled as the ordinary GROUP_ROWS terminal: %#v", output.Plan)
 	}
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "resourceType", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileCellTraceOutput(ArangoTarget(), output, "resourceType", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile CellTrace for ordinary group-row member field: %v", err)
 	}
@@ -73,16 +77,16 @@ func TestCompileCellTraceForSourceOnlyGroupRowsUsesFinalMemberValueAndObjectIden
 		"__loom_trace_source_identity.id, value:",
 		"UNIQUE(",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Errorf("typed GROUP_ROWS CellTrace query is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Errorf("typed GROUP_ROWS CellTrace query is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	if strings.Contains(compiled.Query, "TRACE_CONTRIBUTORS_UNAVAILABLE") {
-		t.Fatalf("selected scalar member field should carry exact contributor evidence:\n%s", compiled.Query)
+	if strings.Contains(testAQLText(t, compiled.Command), "TRACE_CONTRIBUTORS_UNAVAILABLE") {
+		t.Fatalf("selected scalar member field should carry exact contributor evidence:\n%s", testAQLText(t, compiled.Command))
 	}
 	for _, field := range []string{ir.PhysicalCellTraceValueField, ir.PhysicalCellTraceExplicitIdentityField} {
-		if !containsBindValue(compiled.BindVars, field) {
-			t.Errorf("group-row CellTrace is missing typed output field %q: %#v", field, compiled.BindVars)
+		if !containsBindValue(testAQLBinds(t, compiled.Command), field) {
+			t.Errorf("group-row CellTrace is missing typed output field %q: %#v", field, testAQLBinds(t, compiled.Command))
 		}
 	}
 }
@@ -134,27 +138,27 @@ func TestCompileSourceOnlyGroupRowsCellTraceMatchesExactOneAndAllMemberValues(t 
 					RowValues: []recipe.GroupRowValuePolicy{{ColumnID: test.field.ColumnID, Policy: test.policy}},
 				},
 			})
-			compiled, err := CompileCellTraceOutputWithPolicy(output, test.field.Name, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+			compiled, err := CompileCellTraceOutput(ArangoTarget(), output, test.field.Name, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatalf("compile %s GROUP_ROWS CellTrace: %v", test.name, err)
 			}
 			for _, marker := range test.want {
-				if !strings.Contains(compiled.Query, marker) {
-					t.Errorf("query is missing %q:\n%s", marker, compiled.Query)
+				if !strings.Contains(testAQLText(t, compiled.Command), marker) {
+					t.Errorf("query is missing %q:\n%s", marker, testAQLText(t, compiled.Command))
 				}
 			}
 			for _, marker := range test.unexpected {
-				if strings.Contains(compiled.Query, marker) {
-					t.Errorf("query unexpectedly contains %q:\n%s", marker, compiled.Query)
+				if strings.Contains(testAQLText(t, compiled.Command), marker) {
+					t.Errorf("query unexpectedly contains %q:\n%s", marker, testAQLText(t, compiled.Command))
 				}
 			}
-			if strings.Contains(compiled.Query, "TRACE_CONTRIBUTORS_UNAVAILABLE") {
-				t.Errorf("supported %s output has unavailable contributor evidence:\n%s", test.name, compiled.Query)
+			if strings.Contains(testAQLText(t, compiled.Command), "TRACE_CONTRIBUTORS_UNAVAILABLE") {
+				t.Errorf("supported %s output has unavailable contributor evidence:\n%s", test.name, testAQLText(t, compiled.Command))
 			}
-			if !strings.Contains(compiled.Query, "source.auth_resource_path IN @auth_resource_paths") ||
-				!strings.Contains(compiled.Query, "revision.project == @project") ||
-				!strings.Contains(compiled.Query, "revision.generation == @dataset_generation") {
-				t.Errorf("%s trace lost its project, generation, or authorization scope:\n%s", test.name, compiled.Query)
+			if !strings.Contains(testAQLText(t, compiled.Command), "source.auth_resource_path IN @auth_resource_paths") ||
+				!strings.Contains(testAQLText(t, compiled.Command), "revision.project == @project") ||
+				!strings.Contains(testAQLText(t, compiled.Command), "revision.generation == @dataset_generation") {
+				t.Errorf("%s trace lost its project, generation, or authorization scope:\n%s", test.name, testAQLText(t, compiled.Command))
 			}
 		})
 	}
@@ -170,13 +174,13 @@ func TestCompileCellTraceExplainsOptionalTraversalBeforeFirstReduction(t *testin
 			Fields: []recipe.Field{{Name: "condition_id", Expr: recipe.Expression{Select: "id"}, ValueMode: recipe.ValueModeFirst}},
 		}},
 	})
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "condition_id", 5, 10, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileCellTraceOutput(ArangoTarget(), output, "condition_id", 5, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"FOR __loom_physical_trace_contributor", "IN child_set_1", "TO_ARRAY(", "resourceType:", "resourceId:", "LENGTH(__loom_physical_trace_status_candidates) > 1 ? \"AMBIGUOUS\""} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("trace query missing pre-reduction contributor evidence %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("trace query missing pre-reduction contributor evidence %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
 	if compiled.ContributionOffset != 5 || compiled.ContributionLimit != 10 {
@@ -195,13 +199,13 @@ func TestCompileCellTraceExplainsRelatedAggregateContributors(t *testing.T) {
 			Aggregates: []recipe.Aggregate{{Name: "maximum_value", Operation: recipe.AggregateMax, Expr: &value}},
 		}},
 	})
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "maximum_value", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileCellTraceOutput(ArangoTarget(), output, "maximum_value", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"FOR __loom_physical_trace_contributor", "IN child_set_1", "resourceType:", "resourceId:", ".payload.valueQuantity.value"} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("trace query missing related aggregate contributor evidence %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("trace query missing related aggregate contributor evidence %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
 }
@@ -227,17 +231,17 @@ func TestCompileCellTracePreservesAggregateContributorsThroughCategoryRecode(t *
 			},
 		}},
 	})
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "category", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileCellTraceOutput(ArangoTarget(), output, "category", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"FOR __loom_physical_trace_contributor", "IN child_set_1", ".payload.valueString", "resourceType:", "resourceId:"} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("recoded aggregate trace is missing contributor evidence %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("recoded aggregate trace is missing contributor evidence %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	if containsBindValue(compiled.BindVars, "TRACE_CONTRIBUTORS_UNAVAILABLE") {
-		t.Fatalf("recoded aggregate trace unexpectedly reports unavailable contributors: %#v", compiled.BindVars)
+	if containsBindValue(testAQLBinds(t, compiled.Command), "TRACE_CONTRIBUTORS_UNAVAILABLE") {
+		t.Fatalf("recoded aggregate trace unexpectedly reports unavailable contributors: %#v", testAQLBinds(t, compiled.Command))
 	}
 }
 
@@ -252,17 +256,17 @@ func TestCompileCellTraceExplainsNumericAggregateContributors(t *testing.T) {
 			{Name: "mean_value", Operation: recipe.AggregateMean, Expr: &value},
 		},
 	})
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "sum_value", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileCellTraceOutput(ArangoTarget(), output, "sum_value", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"NUMERIC_AGGREGATE_NON_NUMERIC", "resourceType:", "resourceId:", "value:", "!= null"} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("numeric aggregate trace is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("numeric aggregate trace is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	if strings.Contains(compiled.Query, "AMBIGUOUS") {
-		t.Fatalf("a numeric reduction with explicit contributor enumeration must not be marked lossy:\n%s", compiled.Query)
+	if strings.Contains(testAQLText(t, compiled.Command), "AMBIGUOUS") {
+		t.Fatalf("a numeric reduction with explicit contributor enumeration must not be marked lossy:\n%s", testAQLText(t, compiled.Command))
 	}
 }
 
@@ -285,7 +289,7 @@ func TestCompileWindowedAggregateCellTraceUsesEligibleContributors(t *testing.T)
 			}},
 		}},
 	})
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "window_sum", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileCellTraceOutput(ArangoTarget(), output, "window_sum", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,8 +299,8 @@ func TestCompileWindowedAggregateCellTraceUsesEligibleContributors(t *testing.T)
 		"FOR __loom_physical_trace_numeric_contributor IN FIRST(FOR __loom_physical_contributor_window_scope",
 		"__loom_physical_contributor_window_timestamp",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("windowed aggregate trace query missing eligible contributor evidence %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("windowed aggregate trace query missing eligible contributor evidence %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
 }
@@ -315,13 +319,13 @@ func TestCompileCellTraceUsesOwnerRecordEvidenceAsContributions(t *testing.T) {
 			Key: fhirschema.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
 		}},
 	})
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "height_records", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileCellTraceOutput(ArangoTarget(), output, "height_records", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"trace_owner_record", ".source.resourceType", ".source.resourceId", "ownerOrdinal", "INVALID_CHOICE_ARM"} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("owner-record trace query missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("owner-record trace query missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
 }
@@ -351,39 +355,39 @@ func TestCompileCellTraceCarriesPivotAndDerivedLeafLineage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	alpha, err := CompileCellTraceOutputWithPolicy(compiled, "alpha", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	alpha, err := CompileCellTraceOutput(ArangoTarget(), compiled, "alpha", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"UNIQUE(FLATTEN", "resourceId:", "FILTER", " != null"} {
-		if !strings.Contains(alpha.Query, want) {
-			t.Fatalf("pivot trace query missing %q:\n%s", want, alpha.Query)
+		if !strings.Contains(testAQLText(t, alpha.Command), want) {
+			t.Fatalf("pivot trace query missing %q:\n%s", want, testAQLText(t, alpha.Command))
 		}
 	}
-	if !containsBindValue(alpha.BindVars, ir.PhysicalCellTraceSourceDocumentField) || !containsBindValue(alpha.BindVars, ir.PhysicalCellTraceSourcePresencePrefix+"6") {
-		t.Fatalf("pivot trace did not bind source document and value-presence fields: %#v", alpha.BindVars)
+	if !containsBindValue(testAQLBinds(t, alpha.Command), ir.PhysicalCellTraceSourceDocumentField) || !containsBindValue(testAQLBinds(t, alpha.Command), ir.PhysicalCellTraceSourcePresencePrefix+"6") {
+		t.Fatalf("pivot trace did not bind source document and value-presence fields: %#v", testAQLBinds(t, alpha.Command))
 	}
 
-	group, err := CompileCellTraceOutputWithPolicy(compiled, "group_text", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	group, err := CompileCellTraceOutput(ArangoTarget(), compiled, "group_text", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsBindValue(group.BindVars, "group_text") || !containsBindValue(group.BindVars, ir.PhysicalCellTraceSourcePresencePrefix+"2") {
-		t.Fatalf("pivot group-key trace does not retain the selected source field:\n%s", group.Query)
+	if !containsBindValue(testAQLBinds(t, group.Command), "group_text") || !containsBindValue(testAQLBinds(t, group.Command), ir.PhysicalCellTraceSourcePresencePrefix+"2") {
+		t.Fatalf("pivot group-key trace does not retain the selected source field:\n%s", testAQLText(t, group.Command))
 	}
 
-	derived, err := CompileCellTraceOutputWithPolicy(compiled, "alpha_plus_zero", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	derived, err := CompileCellTraceOutput(ArangoTarget(), compiled, "alpha_plus_zero", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Count(derived.Query, "FOR __loom_physical_trace_pivot_cell_source"); got != 4 {
-		t.Fatalf("derived trace has %d pivot contributor subqueries, want status/page for alpha and zero:\n%s", got, derived.Query)
+	if got := strings.Count(testAQLText(t, derived.Command), "FOR __loom_physical_trace_pivot_cell_source"); got != 4 {
+		t.Fatalf("derived trace has %d pivot contributor subqueries, want status/page for alpha and zero:\n%s", got, testAQLText(t, derived.Command))
 	}
-	if strings.Contains(derived.Query, ir.PhysicalCellTraceDerivedOmission) {
-		t.Fatalf("supported derived lineage has omission:\n%s", derived.Query)
+	if strings.Contains(testAQLText(t, derived.Command), ir.PhysicalCellTraceDerivedOmission) {
+		t.Fatalf("supported derived lineage has omission:\n%s", testAQLText(t, derived.Command))
 	}
-	if !containsBindValue(derived.BindVars, "alpha") || !containsBindValue(derived.BindVars, "zero") {
-		t.Fatalf("derived trace lost pivot category bindings: %#v", derived.BindVars)
+	if !containsBindValue(testAQLBinds(t, derived.Command), "alpha") || !containsBindValue(testAQLBinds(t, derived.Command), "zero") {
+		t.Fatalf("derived trace lost pivot category bindings: %#v", testAQLBinds(t, derived.Command))
 	}
 }
 
@@ -393,35 +397,35 @@ func TestCompileCellTraceDistinguishesUnpivotValueFromGeneratedKey(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	value, err := CompileCellTraceOutputWithPolicy(compiled, "amount", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	value, err := CompileCellTraceOutput(ArangoTarget(), compiled, "amount", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"sourceDocument", "sourcePresence", "sourceSupported"} {
-		if !strings.Contains(value.Query, want) {
-			t.Fatalf("unpivot trace query missing %q:\n%s", want, value.Query)
+		if !strings.Contains(testAQLText(t, value.Command), want) {
+			t.Fatalf("unpivot trace query missing %q:\n%s", want, testAQLText(t, value.Command))
 		}
 	}
-	if !containsBindValue(value.BindVars, ir.PhysicalCellTraceSourceDocumentField) {
-		t.Fatalf("unpivot trace did not bind the source-document field: %#v", value.BindVars)
+	if !containsBindValue(testAQLBinds(t, value.Command), ir.PhysicalCellTraceSourceDocumentField) {
+		t.Fatalf("unpivot trace did not bind the source-document field: %#v", testAQLBinds(t, value.Command))
 	}
-	passed, err := CompileCellTraceOutputWithPolicy(compiled, "text_value", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	passed, err := CompileCellTraceOutput(ArangoTarget(), compiled, "text_value", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsBindValue(passed.BindVars, ir.PhysicalCellTracePassSourceDocumentField) || !containsBindValue(passed.BindVars, ir.PhysicalCellTracePassSourcePresenceField) {
-		t.Fatalf("unpivot pass-through trace lost source evidence fields: %#v", passed.BindVars)
+	if !containsBindValue(testAQLBinds(t, passed.Command), ir.PhysicalCellTracePassSourceDocumentField) || !containsBindValue(testAQLBinds(t, passed.Command), ir.PhysicalCellTracePassSourcePresenceField) {
+		t.Fatalf("unpivot pass-through trace lost source evidence fields: %#v", testAQLBinds(t, passed.Command))
 	}
-	if !containsBindValue(value.BindVars, "group_number") || !containsBindValue(value.BindVars, "numeric_value") {
-		t.Fatalf("unpivot trace lost selected source columns: %#v", value.BindVars)
+	if !containsBindValue(testAQLBinds(t, value.Command), "group_number") || !containsBindValue(testAQLBinds(t, value.Command), "numeric_value") {
+		t.Fatalf("unpivot trace lost selected source columns: %#v", testAQLBinds(t, value.Command))
 	}
 
-	key, err := CompileCellTraceOutputWithPolicy(compiled, "measure", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	key, err := CompileCellTraceOutput(ArangoTarget(), compiled, "measure", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(key.Query, ir.PhysicalCellTraceGeneratedKeyOmission) {
-		t.Fatalf("unpivot key trace omitted its generated-key reason:\n%s", key.Query)
+	if !strings.Contains(testAQLText(t, key.Command), ir.PhysicalCellTraceGeneratedKeyOmission) {
+		t.Fatalf("unpivot key trace omitted its generated-key reason:\n%s", testAQLText(t, key.Command))
 	}
 }
 
@@ -450,7 +454,7 @@ func TestConstructionCellTraceResolvesDeriveInputsThroughFilterStage(t *testing.
 
 func TestCompileConstructionCellTraceReturnsDerivedValueAndStageEvidence(t *testing.T) {
 	output := compilePopulationMappingOutput(t, constructionCellTraceRecipeOutput())
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "total", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileCellTraceOutput(ArangoTarget(), output, "total", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,15 +466,15 @@ func TestCompileConstructionCellTraceReturnsDerivedValueAndStageEvidence(t *test
 		"@cell_trace_offset, @cell_trace_fetch_limit",
 		"inputStageId:", "inputColumnId:", "outputStageId:", "outputColumnId:", "finalStageId:", "constructionId:", "operation:",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("construction cell trace query is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("construction cell trace query is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
 	for _, want := range []string{
 		"source_projection", "amount_id", "amount", "derive_total", "total_id", "total", "keep_positive", "calc_total", "DERIVE",
 	} {
-		if !containsBindValue(compiled.BindVars, want) {
-			t.Errorf("construction trace bind value %q is missing from %#v", want, compiled.BindVars)
+		if !containsBindValue(testAQLBinds(t, compiled.Command), want) {
+			t.Errorf("construction trace bind value %q is missing from %#v", want, testAQLBinds(t, compiled.Command))
 		}
 	}
 	if compiled.IdentityPartsColumn != ir.PhysicalCellTraceIdentityPartsField || compiled.ExplicitIdentityColumn != "" {
@@ -501,7 +505,7 @@ func TestConstructionRelatedSourceCellTraceReplaysScopedRoutePerOccurrence(t *te
 		t.Fatal("trace did not retain the exact producer route subplan")
 	}
 
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "observation_status", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileCellTraceOutput(ArangoTarget(), output, "observation_status", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -515,23 +519,23 @@ func TestConstructionRelatedSourceCellTraceReplaysScopedRoutePerOccurrence(t *te
 		"LIMIT @cell_trace_offset, @cell_trace_fetch_limit",
 		"NO_MATCH",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Errorf("related-source trace query is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Errorf("related-source trace query is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	if strings.Contains(compiled.Query, "UNIQUE(") || strings.Contains(compiled.Query, "SORTED_UNIQUE(") || strings.Contains(compiled.Query, ".payload.status != null") {
-		t.Fatalf("related-source trace must preserve path occurrences and null values without deduplication/filtering:\n%s", compiled.Query)
+	if strings.Contains(testAQLText(t, compiled.Command), "UNIQUE(") || strings.Contains(testAQLText(t, compiled.Command), "SORTED_UNIQUE(") || strings.Contains(testAQLText(t, compiled.Command), ".payload.status != null") {
+		t.Fatalf("related-source trace must preserve path occurrences and null values without deduplication/filtering:\n%s", testAQLText(t, compiled.Command))
 	}
 	for _, want := range []string{
 		"fixture_program-project-a", "generation-a", "subject_Patient", "Patient", "Observation",
 		"resourceType", "resourceId", "value", "outputStageId", "outputColumnId", "observation_status", "add_observation_status", "finalStageId", "RELATED_SOURCE",
 	} {
-		if !containsBindValue(compiled.BindVars, want) {
-			t.Errorf("related-source route bind value %q is missing from %#v", want, compiled.BindVars)
+		if !containsBindValue(testAQLBinds(t, compiled.Command), want) {
+			t.Errorf("related-source route bind value %q is missing from %#v", want, testAQLBinds(t, compiled.Command))
 		}
 	}
-	if !strings.Contains(compiled.Query, "dataset_generation") || !strings.Contains(compiled.Query, "auth_resource_path") {
-		t.Fatalf("related-source trace lost generation or authorization filters:\n%s", compiled.Query)
+	if !strings.Contains(testAQLText(t, compiled.Command), "dataset_generation") || !strings.Contains(testAQLText(t, compiled.Command), "auth_resource_path") {
+		t.Fatalf("related-source trace lost generation or authorization filters:\n%s", testAQLText(t, compiled.Command))
 	}
 	if compiled.IdentityPartsColumn != ir.PhysicalCellTraceIdentityPartsField || compiled.ExplicitIdentityColumn != "" || compiled.RowIdentity == nil {
 		t.Fatalf("related-source trace lost exact output row identity: %#v", compiled)
@@ -542,7 +546,7 @@ func TestConstructionCellTraceRejectsMalformedPublishedIdentity(t *testing.T) {
 	output := compilePopulationMappingOutput(t, constructionCellTraceRecipeOutput())
 	output.RowIdentity = output.RowIdentity.Clone()
 	output.RowIdentity.Fields = []string{"project", "not_the_root_key"}
-	if _, err := CompileCellTraceOutputWithPolicy(output, "total", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || err.Error() != "construction cell trace row identity does not match the final stage" {
+	if _, err := CompileCellTraceOutput(ArangoTarget(), output, "total", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || err.Error() != "construction cell trace row identity does not match the final stage" {
 		t.Fatalf("malformed construction identity error = %v", err)
 	}
 }
@@ -565,7 +569,7 @@ func TestConstructionCellTraceRejectsStructuredGeneratedIdentity(t *testing.T) {
 			output.Plan.StageSequence.Stages[lastStage].OutputColumns[index].Kind = "object"
 		}
 	}
-	if _, err := CompileCellTraceOutputWithPolicy(output, "alpha", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || err.Error() != "construction cell trace row identity does not match the final stage" {
+	if _, err := CompileCellTraceOutput(ArangoTarget(), output, "alpha", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || err.Error() != "construction cell trace row identity does not match the final stage" {
 		t.Fatalf("structured generated identity error = %v", err)
 	}
 }
@@ -578,11 +582,11 @@ func assertConstructionTraceUsesPreviewIdentity(t *testing.T, output lower.Compi
 	if compiled.RowIdentity == nil || !reflect.DeepEqual(compiled.RowIdentity.Fields, output.RowIdentity.Fields) {
 		t.Fatalf("cell trace identity = %#v, want Preview identity %#v", compiled.RowIdentity, output.RowIdentity)
 	}
-	if compiled.BindVars["project"] != "fixture_program-project-a" {
-		t.Fatalf("cell trace project identity bind = %#v, want the same pinned project as Preview", compiled.BindVars["project"])
+	if testAQLBinds(t, compiled.Command)["project"] != "fixture_program-project-a" {
+		t.Fatalf("cell trace project identity bind = %#v, want the same pinned project as Preview", testAQLBinds(t, compiled.Command)["project"])
 	}
-	if !strings.Contains(compiled.Query, "[@project, __loom_construction_final_row._key]") {
-		t.Fatalf("cell trace identity parts do not match Preview project/key order:\n%s", compiled.Query)
+	if !strings.Contains(testAQLText(t, compiled.Command), "[@project, __loom_construction_final_row._key]") {
+		t.Fatalf("cell trace identity parts do not match Preview project/key order:\n%s", testAQLText(t, compiled.Command))
 	}
 }
 
@@ -626,16 +630,16 @@ func TestConstructionCellTraceMarksPivotLineageAsUnsupported(t *testing.T) {
 	if len(lineage.RowIdentityFields) != 1 || lineage.RowIdentityFields[0] != "__loom_row_id" {
 		t.Fatalf("pivot trace identity = %#v, want the compiler-generated explicit scalar identity", lineage.RowIdentityFields)
 	}
-	compiled, err := CompileCellTraceOutputWithPolicy(output, "alpha", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompileCellTraceOutput(ArangoTarget(), output, "alpha", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(compiled.Query, "__loom_construction_final_row.alpha") || !strings.Contains(compiled.Query, "CONSTRUCTION_TRACE_OPERATION_UNSUPPORTED") {
-		t.Fatalf("unsupported reshape trace must retain the value and explicit omission:\n%s\n%#v", compiled.Query, compiled.BindVars)
+	if !strings.Contains(testAQLText(t, compiled.Command), "__loom_construction_final_row.alpha") || !strings.Contains(testAQLText(t, compiled.Command), "CONSTRUCTION_TRACE_OPERATION_UNSUPPORTED") {
+		t.Fatalf("unsupported reshape trace must retain the value and explicit omission:\n%s\n%#v", testAQLText(t, compiled.Command), testAQLBinds(t, compiled.Command))
 	}
 	if compiled.ExplicitIdentityColumn != ir.PhysicalCellTraceExplicitIdentityField || compiled.IdentityPartsColumn != "" ||
-		!strings.Contains(compiled.Query, "__loom_construction_final_row.__loom_row_id") {
-		t.Fatalf("pivot trace must match Preview's literal generated row ID without re-hashing:\n%s\n%#v", compiled.Query, compiled)
+		!strings.Contains(testAQLText(t, compiled.Command), "__loom_construction_final_row.__loom_row_id") {
+		t.Fatalf("pivot trace must match Preview's literal generated row ID without re-hashing:\n%s\n%#v", testAQLText(t, compiled.Command), compiled)
 	}
 }
 
@@ -687,10 +691,283 @@ func TestCompileCellTraceRejectsUnknownOrHiddenColumn(t *testing.T) {
 		Name: "Patients", RootResourceType: "Patient", RowGrain: "patient",
 		Fields: []recipe.Field{{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
 	})
-	if _, err := CompileCellTraceOutputWithPolicy(output, "missing", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
+	if _, err := CompileCellTraceOutput(ArangoTarget(), output, "missing", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
 		t.Fatal("unknown trace column was accepted")
 	}
-	if _, err := CompileCellTraceOutputWithPolicy(output, "__loom_row_id", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
+	if _, err := CompileCellTraceOutput(ArangoTarget(), output, "__loom_row_id", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
 		t.Fatal("internal row identity was accepted as a trace column")
+	}
+}
+
+func mustPostgresCellTraceTarget(t *testing.T) Target {
+	t.Helper()
+	binding, err := ir.NewPostgresStorageBinding("pgir02_it_unit")
+	if err != nil {
+		t.Fatalf("NewPostgresStorageBinding: %v", err)
+	}
+	target, err := PostgreSQLTarget(binding)
+	if err != nil {
+		t.Fatalf("PostgreSQLTarget: %v", err)
+	}
+	return target
+}
+
+func compilePopulationMappingOutputWithPolicy(t *testing.T, output recipe.Output, policy ir.PhysicalOptimizationPolicy) lower.CompiledRecipeOutput {
+	t.Helper()
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "population-mapping-test",
+		TranslationVersion:  "population-mapping-test",
+		Outputs:             []recipe.Output{output},
+	}
+	bindings := recipe.RuntimeBindings{Project: "fixture_program-project-a", SelectionProject: "fixture_program/project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members"}
+	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return compiled.Outputs[0]
+}
+
+func sql24PostgreSQLOutput() recipe.Output {
+	return recipe.Output{
+		Name: "Patients", RootResourceType: "Patient", RowGrain: "patient",
+		RootColumnNaming: recipe.RootColumnNamingExact,
+		Fields: []recipe.Field{
+			{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}},
+			{Name: "gender", Expr: recipe.Expression{Select: "root.gender"}},
+		},
+	}
+}
+
+func sql24TraversalOutput() recipe.Output {
+	return recipe.Output{
+		Name: "Patients", RootResourceType: "Patient", RowGrain: "patient",
+		RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact,
+		Fields: []recipe.Field{{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
+		Traversals: []recipe.Traversal{{
+			Name: "subject_Patient", ToResourceType: "Condition", Alias: "condition",
+			Fields: []recipe.Field{{Name: "condition_id", Expr: recipe.Expression{Select: "id"}, ValueMode: recipe.ValueModeFirst}},
+		}},
+	}
+}
+
+func sql24PostgresSQL(t *testing.T, compiled CompiledCellTraceQuery) (string, []command.PostgreSQLParameter) {
+	t.Helper()
+	sqlText, parameters, err := compiled.Command.PostgreSQLParameters()
+	if err != nil {
+		t.Fatalf("compiled cell trace command is not a PostgreSQL command: %v", err)
+	}
+	return sqlText, parameters
+}
+
+func TestCompileCellTracePostgreSQLRootExtract(t *testing.T) {
+	output := compilePopulationMappingOutput(t, sql24PostgreSQLOutput())
+	compiled, err := CompileCellTraceOutput(mustPostgresCellTraceTarget(t), output, "gender", 2, 5, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("PostgreSQL root-extract cell trace compile: %v", err)
+	}
+	sqlText, parameters := sql24PostgresSQL(t, compiled)
+	for _, want := range []string{
+		`AS "__loom_trace_value"`, `AS "__loom_trace_contributions"`,
+		`AS "__loom_trace_identity_parts"`, `AS "__loom_trace_status"`,
+		`AS "__loom_trace_has_more"`, `AS "__loom_trace_omission"`,
+		`'NO_MATCH'`, `'RECORDED_NULL'`, `'VALUE'`, `false AS "__loom_trace_has_more"`,
+		`jsonb_build_object('resourceType',`,
+	} {
+		if !strings.Contains(sqlText, want) {
+			t.Fatalf("PostgreSQL root-extract trace is missing %q:\n%s", want, sqlText)
+		}
+	}
+	if compiled.IdentityPartsColumn != ir.PhysicalCellTraceIdentityPartsField || compiled.ExplicitIdentityColumn != "" {
+		t.Fatalf("trace identity columns = (%q, %q)", compiled.IdentityPartsColumn, compiled.ExplicitIdentityColumn)
+	}
+	if compiled.ValueColumn != ir.PhysicalCellTraceValueField || compiled.StatusColumn != ir.PhysicalCellTraceStatusField ||
+		compiled.ContributionsColumn != ir.PhysicalCellTraceContributionsField ||
+		compiled.HasMoreColumn != ir.PhysicalCellTraceHasMoreField || compiled.OmissionColumn != ir.PhysicalCellTraceOmissionField {
+		t.Fatalf("contract columns do not match the registered field names: %#v", compiled)
+	}
+	if compiled.ContributionOffset != 2 || compiled.ContributionLimit != 5 {
+		t.Fatalf("trace page = %d/%d", compiled.ContributionOffset, compiled.ContributionLimit)
+	}
+	if len(parameters) == 0 {
+		t.Fatal("every scope and page fact must travel as an ordered parameter")
+	}
+	if output.Plan.Operations[terminalIndexOf(t, output.Plan)].CellTraceReturn != nil {
+		t.Fatal("compiling a diagnostic terminal mutated the canonical Preview plan")
+	}
+}
+
+func TestCompileCellTracePostgreSQLAuthoredIdentityMintsExplicitColumn(t *testing.T) {
+	output := sql24PostgreSQLOutput()
+	output.Identity = &recipe.Identity{Name: "row", Expr: recipe.Expression{Select: "root.id"}}
+	root := compilePopulationMappingOutput(t, output)
+	compiled, err := CompileCellTraceOutput(mustPostgresCellTraceTarget(t), root, "gender", 0, 5, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("authored-identity cell trace must compile on the PostgreSQL target: %v", err)
+	}
+	if compiled.ExplicitIdentityColumn != ir.PhysicalCellTraceExplicitIdentityField || compiled.IdentityPartsColumn != "" {
+		t.Fatalf("contract columns = (%q, %q), want the explicit identity named by the mint",
+			compiled.ExplicitIdentityColumn, compiled.IdentityPartsColumn)
+	}
+	sqlText, _ := sql24PostgresSQL(t, compiled)
+	if !strings.Contains(sqlText, ` AS "`+ir.PhysicalCellTraceExplicitIdentityField+`"`) {
+		t.Fatalf("the minted explicit identity must publish as its contract column:\n%s", sqlText)
+	}
+	if strings.Contains(sqlText, ir.PhysicalCellTraceIdentityPartsField) {
+		t.Fatalf("the identity-parts spelling must stay unpublished under the mint's pick law:\n%s", sqlText)
+	}
+	terminalSeen := false
+	for _, operation := range root.Plan.Operations {
+		if operation.Kind == ir.PhysicalCellTraceReturnOp {
+			terminalSeen = true
+		}
+	}
+	if terminalSeen {
+		t.Fatal("compiling the trace must not mutate the canonical plan")
+	}
+}
+
+func terminalIndexOf(t *testing.T, plan ir.PhysicalPlan) int {
+	t.Helper()
+	for _, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalCellTraceReturnOp {
+			t.Fatalf("canonical preview plan already carries the evidence terminal")
+		}
+		_ = operation
+	}
+	return len(plan.Operations) - 1
+}
+
+func TestCompileCellTracePostgreSQLReducedSetContributors(t *testing.T) {
+	output := compilePopulationMappingOutputWithPolicy(t, sql24TraversalOutput(),
+		ir.DefaultPhysicalOptimizationPolicy().WithRule(ir.PhysicalOptimizationRuleEndpointTraversal, false))
+	compiled, err := CompileCellTraceOutput(mustPostgresCellTraceTarget(t), output, "condition_id", 5, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("PostgreSQL reduced-set cell trace compile: %v", err)
+	}
+	sqlText, parameters := sql24PostgresSQL(t, compiled)
+	for _, want := range []string{
+		`jsonb_agg(jsonb_build_object('resourceType',`, `'resourceId',`, `'value',`,
+		`AS capped`, `OFFSET $`, `WITH ORDINALITY`,
+		`'AMBIGUOUS'`, `'NO_MATCH'`, `AS "__loom_trace_has_more"`,
+	} {
+		if !strings.Contains(sqlText, want) {
+			t.Fatalf("PostgreSQL reduced-set trace is missing %q:\n%s", want, sqlText)
+		}
+	}
+	if compiled.ContributionOffset != 5 || compiled.ContributionLimit != 10 {
+		t.Fatalf("trace page = %d/%d", compiled.ContributionOffset, compiled.ContributionLimit)
+	}
+	if compiled.IdentityPartsColumn != ir.PhysicalCellTraceIdentityPartsField {
+		t.Fatalf("identity column = %q", compiled.IdentityPartsColumn)
+	}
+	_ = parameters
+}
+
+func TestCompileCellTracePostgreSQLRefusesEndpointLookupTyped(t *testing.T) {
+	output := compilePopulationMappingOutput(t, sql24TraversalOutput())
+	_, err := CompileCellTraceOutput(mustPostgresCellTraceTarget(t), output, "condition_id", 5, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err == nil || !strings.Contains(err.Error(), "endpoint-lookup") {
+		t.Fatalf("endpoint-lookup shape must refuse with the spine's typed voice, got: %v", err)
+	}
+	if !errors.Is(err, postgresrender.ErrUnsupportedPostgresPlan) {
+		t.Fatalf("refusal must be the typed unsupported-plan error: %v", err)
+	}
+}
+
+func TestCompileCellTracePostgreSQLNamedRefusals(t *testing.T) {
+	target := mustPostgresCellTraceTarget(t)
+
+	groupRows := compilePopulationMappingOutput(t, recipe.Output{
+		Name: "GroupedSpecimens", RootResourceType: "Specimen", RowGrain: "groups",
+		RootColumnNaming: recipe.RootColumnNamingExact,
+		Fields:           []recipe.Field{{Name: "resourceType", ColumnID: "resource_type", Expr: recipe.Expression{Select: "root.resourceType"}}},
+		GroupRows: &recipe.GroupRows{
+			RevisionID: "grouprev_1", UnassignedMemberPolicy: "EXCLUDE",
+			RowValues: []recipe.GroupRowValuePolicy{{ColumnID: "resource_type", Policy: recipe.ConstructionRowValueOne}},
+		},
+	})
+	if _, err := CompileCellTraceOutput(target, groupRows, "resourceType", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil ||
+		!strings.Contains(err.Error(), "explicit group rows cell trace is unsupported on the PostgreSQL compile target") {
+		t.Fatalf("group-rows trace must refuse by name: %v", err)
+	}
+
+	construction := compilePopulationMappingOutput(t, constructionCellTraceRecipeOutput())
+	if construction.Plan.StageSequence == nil {
+		t.Fatal("construction fixture lost its stage sequence")
+	}
+	if _, err := CompileCellTraceOutput(target, construction, "total", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil ||
+		!strings.Contains(err.Error(), "composed construction cell trace is unsupported on the PostgreSQL compile target") {
+		t.Fatalf("composed-construction trace must refuse by name: %v", err)
+	}
+
+	aggregateValue := recipe.Expression{Select: "valueQuantity.value"}
+	aggregate := compilePopulationMappingOutput(t, recipe.Output{
+		Name: "Patients", RootResourceType: "Patient", RowGrain: "patient",
+		RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact,
+		Fields: []recipe.Field{{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
+		Traversals: []recipe.Traversal{{
+			Name: "subject_Patient", ToResourceType: "Observation", Alias: "observation",
+			Aggregates: []recipe.Aggregate{{Name: "maximum_value", Operation: recipe.AggregateMax, Expr: &aggregateValue}},
+		}},
+	})
+	if _, err := CompileCellTraceOutput(target, aggregate, "maximum_value", 0, 25, ir.DefaultPhysicalOptimizationPolicy()); err == nil ||
+		!strings.Contains(err.Error(), "aggregate, owner-records, call-recode, and prepared-extract values") {
+		t.Fatalf("aggregate trace must refuse with the terminal-surface voice: %v", err)
+	}
+
+	root := compilePopulationMappingOutput(t, sql24PostgreSQLOutput())
+	if _, err := CompileCellTraceOutput(target, root, "missing", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
+		t.Fatal("unknown trace column was accepted on the PostgreSQL target")
+	}
+	if _, err := CompileCellTraceOutput(target, root, "__loom_row_id", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
+		t.Fatal("internal row identity was accepted as a trace column on the PostgreSQL target")
+	}
+	if _, err := CompileCellTraceOutput(target, root, "gender", -1, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil ||
+		!strings.Contains(err.Error(), "cell trace offset cannot be negative") {
+		t.Fatalf("negative offset must refuse with the shared page voice: %v", err)
+	}
+	if defaulted, err := CompileCellTraceOutput(target, root, "gender", 0, 0, ir.DefaultPhysicalOptimizationPolicy()); err != nil ||
+		defaulted.ContributionLimit != 25 {
+		t.Fatalf("limit <= 0 must take the registered default 25 on the shared page contract: %v / %+v", err, defaulted)
+	}
+	if _, err := CompileCellTraceOutput(target, root, "gender", 0, MaxCellTraceContributions+1, ir.DefaultPhysicalOptimizationPolicy()); err == nil ||
+		!strings.Contains(err.Error(), "cell trace contribution limit exceeds") {
+		t.Fatalf("over-max limit must refuse with the shared page voice: %v", err)
+	}
+}
+
+func TestCompileCellTraceArangoVoiceUnchangedForPostgresArms(t *testing.T) {
+	root := compilePopulationMappingOutput(t, sql24PostgreSQLOutput())
+	compiled, err := CompileCellTraceOutput(ArangoTarget(), root, "gender", 2, 5, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"root.payload.gender", "@cell_trace_offset", "@cell_trace_limit", "LENGTH(__loom_physical_trace_status_candidates) == 0"} {
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("AQL root-extract voice lost %q:\n%s", want, testAQLText(t, compiled.Command))
+		}
+	}
+
+	traversal := compilePopulationMappingOutput(t, sql24TraversalOutput())
+	compiled, err = CompileCellTraceOutput(ArangoTarget(), traversal, "condition_id", 5, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"FOR __loom_physical_trace_contributor", "IN child_set_1", "LENGTH(__loom_physical_trace_status_candidates) > 1 ? \"AMBIGUOUS\"", "SLICE("} {
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("AQL reduced-set voice lost %q:\n%s", want, testAQLText(t, compiled.Command))
+		}
+	}
+	if compiled.ContributionOffset != 5 || compiled.ContributionLimit != 10 {
+		t.Fatalf("AQL trace page = %d/%d", compiled.ContributionOffset, compiled.ContributionLimit)
 	}
 }

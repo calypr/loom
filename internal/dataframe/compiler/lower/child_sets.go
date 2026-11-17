@@ -124,22 +124,7 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 		}
 		projections = append(projections, ir.PhysicalProjection{Name: traversalColumnName(projectionPrefix, slice.Name), Expression: &expression})
 	}
-	// A traversal-time projection is the production form of selector reuse. It
-	// computes selector arrays in the original child subquery and removes the
-	// payload before materialization. The older prepared-set pass is retained
-	// only for explicit experiments and is never layered on top of this shape.
 	if policy.RuleEnabled(ir.PhysicalOptimizationRuleCompactProjection) {
-		// Dynamic maps and deferred pivot families both read the original
-		// resource payload at the outer return boundary. A selector-only
-		// projection would discard that payload and leave their lookup/pivot
-		// evaluation iterating over `child_set_N.payload` (null). Keep the
-		// compact identity/payload contract for those sets; ordinary selector
-		// consumers still use the cheaper single-materialization projection.
-		//
-		// A pivot's public columns are OBJECT_LOOKUP projections over its
-		// deferred map, so projectPhysicalChildSet cannot discover its key/value
-		// selectors from the return projection list. Do not drop payload until a
-		// correlated pivot-specific projection contract exists.
 		if len(child.DynamicMaps) == 0 && len(child.Pivots) == 0 && len(child.OwnerRecords) == 0 {
 			projectPhysicalChildSet(&set, child.ResourceType, projections)
 		} else {
@@ -205,12 +190,6 @@ func buildPhysicalChildRouteScope(physical *ir.PhysicalPlan, child semantic.Sema
 	return scope, nil
 }
 
-// compactPhysicalSetOutput retains graph identity and only the payload needed
-// by downstream selectors/rich consumers. Scope predicates run before this
-// projection, so project, generation, and authorization metadata do not need
-// to remain in the post-window set. Nested traversal still receives _id, and
-// UNIQUE/SORT retain both identity keys to preserve duplicate and ordering
-// semantics.
 func compactPhysicalSetOutput(node semantic.SemanticNode) *ir.PhysicalSetOutput {
 	fields := []ir.PhysicalSetOutputField{
 		ir.PhysicalSetGraphIDField,
@@ -233,10 +212,6 @@ func compactPhysicalSetOutput(node semantic.SemanticNode) *ir.PhysicalSetOutput 
 	return &ir.PhysicalSetOutput{Fields: fields}
 }
 
-// prepareRichChildSet adds a generic selector cache when at least two rich
-// consumers read the same child relationship set. The cache is deliberately
-// selector-based (not FHIR-resource-specific): any generated resource type
-// with repeated aggregate, pivot, or slice selectors can use it.
 func prepareRichChildSet(set *ir.PhysicalSet, resourceType string, projections []ir.PhysicalProjection, policy ir.PhysicalOptimizationPolicy) {
 	if !policy.RuleEnabled(ir.PhysicalOptimizationRulePreparedSelectors) {
 		return
@@ -300,9 +275,6 @@ func prepareRichChildSet(set *ir.PhysicalSet, resourceType string, projections [
 	}
 	eligible := map[string]string{}
 	fields := make([]ir.PhysicalPreparedField, 0)
-	// Map iteration order must not influence the physical plan. Stable field
-	// allocation keeps generated AQL and bind-variable names deterministic,
-	// which is important for explain fixtures and cache keys.
 	keys := make([]string, 0, len(counts))
 	for key := range counts {
 		keys = append(keys, key)
@@ -331,10 +303,6 @@ func prepareRichChildSet(set *ir.PhysicalSet, resourceType string, projections [
 			if extract == nil || extract.Source.Variable != set.Variable || extract.UnitNormalization != nil {
 				return
 			}
-			// Fallback selectors are an ordered fallback chain. A prepared
-			// primary value alone cannot preserve that contract, so leave these
-			// extracts on the original renderer path until the prepared schema
-			// can represent fallback alternatives explicitly.
 			if len(extract.Fallbacks) == 0 {
 				if field, ok := eligible[physicalSelectorIdentity(extract.Selector)]; ok {
 					extract.Prepared = &ir.PhysicalPreparedReference{SetVariable: set.Prepared.Variable, Field: field}
@@ -390,10 +358,6 @@ func prepareRichChildSet(set *ir.PhysicalSet, resourceType string, projections [
 	}
 }
 
-// projectPhysicalChildSet attaches selector values to the original set item
-// rather than creating a second prepared array. A fallback selector is an
-// ordered multi-source contract that cannot be represented by one projected
-// field, so the entire set conservatively retains its existing payload output.
 func projectPhysicalChildSet(set *ir.PhysicalSet, resourceType string, projections []ir.PhysicalProjection) {
 	if set == nil || len(projections) == 0 {
 		return

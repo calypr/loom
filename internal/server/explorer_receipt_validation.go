@@ -25,8 +25,6 @@ func validateReceiptFullStream(ctx context.Context, recipeEngine *dataframeexecu
 	if err != nil {
 		return classifyReceiptPreviewResolutionError(receipt.ID, err)
 	}
-	// Receipt validation compiles every output. Restore the exact execution
-	// selector afterward so unrelated receipt outputs are never streamed.
 	resolved.Semantic.SemanticPlan.Bindings.OutputNames = []string{output}
 	streams, err := recipeEngine.Streams(ctx, resolved)
 	if err != nil {

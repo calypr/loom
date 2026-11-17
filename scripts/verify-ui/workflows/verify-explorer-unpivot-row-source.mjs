@@ -1,70 +1,4 @@
 #!/usr/bin/env node
-// ROW-SOURCE-02 slice 2 UNPIVOT row-source journey — committed repeatable verification.
-// Standalone raw-CDP browser journey against the owned loom-dev stack, following the
-// scripts/verify-ui/workflows raw-CDP convention (siblings: core-protocol-browser.mjs,
-// verify-explorer-filter-row-source.mjs, verify-explorer-derive-row-source.mjs).
-//
-// Legs (contract from internal/explorer/lifecycle/unpivot_source.go + the slice-2 UI lane):
-//   0 BEHAVIOR     capabilities expose unpivotSourceInput with the signed populated root
-//                  scalars valueQuantity.unit (string) AND effectiveDateTime (date_time, the
-//                  compiler-whitelisted date family widened by the F-1 rework).
-//   1 PRELUDE      persisted signed FILTER (status EQUALS final), row-preserving. A persisted
-//                  row-preserving step is ALSO the carrier the melt ledger requires: the
-//                  reconcile arm (explorer_output_reconcile.go) only finds declared signed
-//                  melt inputs on steps strictly before the melt. Melt-first signed candidates
-//                  are a server defect (500 CONSTRUCTION_RECEIPT_CONTRACT_INVALID; receipt
-//                  /tmp/opencode/unpivot-journey-commit.md F-A, probe proof
-//                  /tmp/opencode/unpivot/probe10.log + probe12.log B) — deliberately not pinned
-//                  here; the named refusals fire before compilation so the negatives below stay
-//                  pristine-host honest.
-//   2 DISCOVERY    More actions -> Reshape entry enabled; intent "Reshape table" -> "Turn
-//                  columns into rows" choice; melt-row editor exposes the family-consistent
-//                  "Fields from your data" dataset optgroup (source:<choiceId> options with the
-//                  fieldPath tooltip; testids per slice-2 receipt) and the add-source-field
-//                  affordance.
-//   3 CONFIGURE    melt = public ID + signed valueQuantity.unit + signed subject.reference
-//                  (Add a field each; post-cd39eeaf add pre-binds the first visible choice,
-//                  S-C-labelled) with explicit keys; PREVIEW is oracle-exact per
-//                  melt row (PRESERVE keeps em-dash/blank cells for rows missing unit/subject;
-//                  id melt cells exact). The signed date_time lane is NOT run through the UI:
-//                  the shipped editor's reshapeScalarTypes gate refuses date_time synth columns
-//                  so a bound date row never reaches proposal-ready (recorded defect F-B,
-//                  ConstructionReshapeEditor.tsx:448 'datetime' vs capability 'date_time').
-//   3 CANCEL       byte-stable against the post-prelude baseline.
-//   5 APPLY        persisted UNPIVOT step + server-owned signed source projections owned by the
-//                  melt step, compiled echo facts (fhirType string, logicalType string, server
-//                  label), melt outputs Variable/Value; honestly NOT
-//                  materialized: melt input columns never appear as displayable columns.
-//   6 RELOAD       history click reopens the melt editor with saved dataset-field bindings
-//                  restored; capability echo columnId == persisted projection columnId.
-//   7 EDIT         rename key/value outputs + null-row policy DROP -> persisted; PREVIEW with
-//                  DROP shows no blank melt cells.
-//   8 EDIT         rebind the signed unit row to the public Number column, then uncheck it: the
-//                  unit lane dissolves (binding dropped, input removed) and STAYS
-//                  dissolved after apply (rs05 fourth-lane cleared-melt witness: only the
-//                  subject.reference melt lane + the filter lane projections remain; the earlier
-//                  UI remove+re-add legs repeat the clearing across applies).
-//   9 RE-ADD       honest re-materialization: unit lane re-binds, new owned projection columnId,
-//                  capability echo equal.
-//  10 REMOVE      melt step removed; Variable/Value headers gone; no melt-owned projection
-//                  left behind; the prelude filter lane is untouched.
-//  API negatives 15/15 on a pristine proposal host with exact statuses + diagnostic codes
-//                  (public-only control 200, forged 409 INVALID_UNPIVOT_SOURCE_CHOICE,
-//                  cross-snapshot 409, tampered payload 409, empty/absent choiceId 400
-//                  MALFORMED_REQUEST, duplicate 400, column mismatch 422
-//                  UNPIVOT_SOURCE_COLUMN_MISMATCH, over-selection 422, kind-incompatible melt
-//                  422 UNPIVOT_SOURCE_TYPES_INCOMPATIBLE, already-projected melt 422
-//                  UNPIVOT_SOURCE_FIELD_ALREADY_PROJECTED (never a 500), payloadless UNPIVOT +
-//                  sources 422 UNPIVOT_SOURCE_REQUIRES_UNPIVOT, non-UNPIVOT step 200-undecorated,
-//                  new-unpersisted-carrier 409 STALE_STAGE_REFERENCE).
-//
-// Exit-code contract (kept from the siblings): every named check must run AND pass. A skipped
-// (missing) check or a thrown assertion is a failure. Any failure exits 1.
-//
-// Reproduce (owned stack env identifies the target, per loom-dev conventions):
-//   LOOM_DEV_SOURCE_ROOT=<repo> LOOM_DEV_COMPOSE_PROJECT=loom-dev-stravinsky \
-//   LOOM_DEV_API_PORT=8182 LOOM_DEV_UI_PORT=3182 \
-//   node scripts/verify-ui/workflows/verify-explorer-unpivot-row-source.mjs --out <FRESH_DIR>
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -129,13 +63,6 @@ const seed = async (result) => {
   assert.equal(response.status, 200, `seed CREATE_TABLE failed (${response.status}): ${JSON.stringify(response.value).slice(0, 400)}`);
   builder = (await call('builder')).value;
   const outputId = builder.workspace.documents[0].output.id;
-  // 'ID' is the public melt input; 'Number' (valueInteger) is the kept numeric anchor column;
-  // 'Date' (effectiveDateTime) is the unmelted date-family survival witness: since cd39eeaf the
-  // signed lane hides the date family from discovery entirely and melt satisfiability refuses it
-  // (operator decision #4), so it can only ever be a carried column here. The signed melt lanes
-  // (valueQuantity.unit, subject.reference) are never projected columns: they enter only through
-  // unpivotSources. (The stage UNPIVOT capability requires >=1 public scalar column on the melt
-  // input stage, internal/dataframe/compiler/lower/recipe_construction.go:2245.)
   for (const [fieldPath, title] of [['id', 'ID'], ['valueInteger', 'Number'], ['effectiveDateTime', 'Date']]) {
     const candidate = candidateFor(fieldPath);
     assert.ok(candidate, `seed requires the ${fieldPath} candidate`);
@@ -179,30 +106,17 @@ const record = (name, evidence) => {
 };
 const save = (name, value) => writeFileSync(join(out, name), typeof value === 'string' ? value : JSON.stringify(value, null, 2));
 
-// Independent oracle over the FULL live dataset for the base Observation node: the pinned
-// testdata/devloop-fixture ndjson plus the repo-generated J01 concept observations. The melt
-// grids are validated cell-by-cell for every visible row against per-observation facts taken
-// straight from the seeded data, so no compiler-internal value can silently match itself.
 const computeOracle = () => {
   const observations = readFileSync(join(session.fixtureDir, 'Observation.ndjson'), 'utf8')
     .split(/\r?\n/).filter((line) => line.trim()).map((line) => JSON.parse(line));
   const generated = (generatedJ01ConceptNDJSON(session.fixtureDir) || '')
     .split(/\r?\n/).filter((line) => line.trim()).map((line) => JSON.parse(line));
   const oracle = buildUnpivotOracle([...observations, ...generated]);
-  // The signed melt lanes run through the UI on string-family choices only. Since cd39eeaf
-  // the server outright refuses date-family signed melts (422 UNSUPPORTED_UNPIVOT_SOURCE_DATE_FIELD)
-  // and melt satisfiability fails closed on any date-family kind, so the only date witness here
-  // is the unmelted public Date column. (Recorded history: UI gate F-B and melt-kind note F-D
-  // were fixed in 0dd7be44; every active melt input still shares one tableScalarKind.)
   return oracle;
 };
 
-// Docker build-stamp identity via the scoped bridge's permitted docker exec channel
-// (shared collector in loom-dev.mjs: label-resolved API container, /workspace stamp
-// script --check plus the recorded build json), same channel as the CDA captures.
 const collectBuildIdentity = () => sharedCollectBuildIdentity(session, { repoRoot: REPO_ROOT });
 
-// ---- Raw CDP harness (flags and DevToolsActivePort path match loom-dev/core-protocol) ----
 const chromePath = options.chrome ?? process.env.LOOM_E2E_CHROME
   ?? ['/usr/bin/chromium', '/opt/google/chrome/chrome'].find((candidate) => existsSync(candidate));
 assert.ok(chromePath && existsSync(chromePath), 'No Chrome binary: pass --chrome, set LOOM_E2E_CHROME, or install /opt/google/chrome/chrome');
@@ -243,7 +157,7 @@ try {
       const value = await probe();
       if (value) return value;
       if (Date.now() > deadline) {
-        try { save(`FAIL-${String(message).replace(/\W+/g, '_')}.html`, await evaluate('document.documentElement.outerHTML')); } catch { /* best effort */ }
+        try { save(`FAIL-${String(message).replace(/\W+/g, '_')}.html`, await evaluate('document.documentElement.outerHTML')); } catch { }
         assert.fail(`condition failed: ${message}`);
       }
       await wait(80);
@@ -287,14 +201,11 @@ try {
     report.screenshots.push(file);
   };
   const readDomPreview = async () => {
-    // Preview pages are ordered by an opaque group key, so the handful of exactly-populated
-    // fixture records never reach a 25- or 50-row page. Raise the row limit to the maximum so
-    // every record (blank AND exact witnesses) is present, and poll until the refetch settles.
     const raw = () => evaluate(`(()=>{const t=document.querySelector('[data-testid="construction-proposal-preview"]')||document.querySelector('[data-testid="construction-preview"]')||document.querySelector('[data-testid="preview-table-content"]');if(!t)return null;const th=[...t.querySelectorAll('thead th, [role=columnheader]')].map(e=>e.textContent.trim());const trs=[...t.querySelectorAll('tbody tr,[role=row]')];const rows=trs.map(tr=>[...tr.querySelectorAll('td,[role=cell]')].map(td=>td.textContent.trim()));return{headers:th,rows};})()`);
     if (await mounted('select[aria-label="Preview row limit"]')) {
       const current = await evaluate(`document.querySelector('select[aria-label="Preview row limit"]')?.value || ''`);
       if (current !== '1000') {
-        try { await setSelect('select[aria-label="Preview row limit"]', '1000'); } catch { /* control may be transient */ }
+        try { await setSelect('select[aria-label="Preview row limit"]', '1000'); } catch { }
         for (let i = 0; i < 50; i += 1) {
           const probe = await raw();
           if (probe && probe.rows.length >= 900) break;
@@ -310,9 +221,6 @@ try {
     await until(() => mounted('[data-testid="construction-action-keep-rows"]'), 'keep-rows action visible', 60000);
     await wait(300);
   };
-  // Production entry (BuilderWorkspace RowDefinitionSettingsPanel): row-definition settings ->
-  // Reshape-table intent -> "Stack columns" (construction-action-unpivot-rows), which mounts the
-  // UnpivotEditor directly with form kind 'unpivot'.
   const openUnpivotEditor = async () => {
     const trigger = await until(() => evaluate(`(()=>{const e=document.querySelector('[data-testid="construction-rows-settings-trigger"]');return e?!e.disabled&&{aria:e.getAttribute('aria-label')||e.textContent.trim()}:null;})()`),
       'row-definition settings trigger present and enabled', 25000);
@@ -360,10 +268,6 @@ try {
     const committed = await setSelect(`[data-testid="construction-reshape-unpivot-input-${index}-column"]`, sourceOptionValue);
     assert.equal(committed, sourceOptionValue, `row ${index} must accept the dataset-field option ${sourceOptionValue}`);
   };
-  // The add-source-field affordance pre-binds the first available choice; when that is the
-  // date-family field the row binds through the editor's enriched stage (the option arrives
-  // bound, excluded from the dataset optgroup), so identity is asserted via the row label and
-  // completed with an explicit dataset-option rebind when the first choice differs.
   const bindDatasetRow = async (index, fieldPath, expectedLabel) => {
     await until(() => mounted(`[data-testid="construction-reshape-unpivot-input-${index}-column"]`), `dataset melt row ${index}`, 20000);
     const rows = await readRowDatasetOptions(index);
@@ -384,14 +288,6 @@ try {
     const ogMain=s.querySelector('optgroup[label="Fields in this table"]');
     return {mainOptions:ogMain?[...ogMain.querySelectorAll('option')].map(o=>({value:o.value,label:o.textContent.trim()})):[],
       options:og?[...og.querySelectorAll('option')].map(o=>({value:o.value,label:o.textContent.trim(),title:o.getAttribute('title'),testid:o.getAttribute('data-testid')})):null};})()`);
-  // Server-truth doc read (bs-62-2 twin fix from verify-explorer-filter-row-source.mjs:329-338).
-  // It deliberately does NOT default the construction object to {}: an absent construction turned
-  // every `(doc.steps || []).filter(...)` census below into an empty scan that its own
-  // `length === 0` claim then certified as success. Callers only reach this after at least one
-  // construction proposal has been applied (authoringv2/commands.go:1447 sets Document.Construction
-  // on APPLY_CONSTRUCTION_PROPOSAL; live-pinned: a seeded doc carries no construction key yet, so
-  // every pre-first-proposal poll in this file keeps a tolerant read instead); swallowing its
-  // absence into {} after that point could only mask a broken read.
   const builderDoc = async () => {
     const builder = (await mainCtx.call('builder')).value;
     const doc = builder?.workspace?.documents?.[0]?.construction;
@@ -399,31 +295,19 @@ try {
       `server-truth read returned no construction object for document 0; a census over it would pass vacuously: keys=${JSON.stringify(Object.keys(builder?.workspace?.documents?.[0] ?? {}))} doc=${JSON.stringify(builder?.workspace?.documents?.[0] ?? null).slice(0, 300)}`);
     return doc;
   };
-  // The authored date-family survival witness: exactly one public column sourced from
-  // effectiveDateTime. Returning a copy keeps deep-equality comparisons against the
-  // pre-melt baseline meaningful across apply, reload, and melt removal.
   const dateWitnessDefinition = (builderValue) => {
     const columns = builderValue?.workspace?.documents?.[0]?.columns || [];
     const matches = columns.filter((column) => column?.source?.field?.path === 'effectiveDateTime');
     return matches.length === 1 ? { ...matches[0] } : null;
   };
-  // The preview grid renders each column header as title+logical-type badge text
-  // concatenated (live receipts: 'Numberinteger', 'Observation.statusstring',
-  // 'Datedate_time'). The Date witness header is matched by its exact title plus the
-  // optional date-family suffix only — never a loose /date/i scan that could admit
-  // unrelated columns into the survival assertion.
   const isDateWitnessCheckbox = (box) => /^Date(?:date_time|date)?$/i.test(String(box.label ?? ''));
   const meltStep = async () => {
     const doc = await builderDoc();
     return (doc.steps || []).find((step) => step.operation?.kind === 'UNPIVOT');
   };
   const meltProjections = async () => (((await builderDoc()).sourceProjections || []).filter((p) => (p.ownerStepId || '').startsWith('unpivot_')));
-  // The melt lane is only "cleared" when NO melt-owned projection for that field remains; the
-  // prelude filter lane keeps its own status projection as a distinct rs05 lane witness.
   const filterLaneProjection = async () => (((await builderDoc()).sourceProjections || []).filter((p) => p.fieldPath === 'status'));
 
-  // Oracle: every visible melt page row is checked against the seeded dataset. A melt page shows
-  // (rows-per-record) cells per source row; the visible Number anchor identifies each group.
   const evidence = { blankMeltCells: 0, exactMeltCells: 0, idMeltCells: 0, dateSurvivalCells: 0 };
   const checkMeltPreview = (preview, label, activeKeys) => {
     const result = assertUnpivotMeltPreview(preview, label, activeKeys, oracle);
@@ -469,7 +353,6 @@ try {
     assert.fail('no history step opened the requested editor');
   };
 
-  // Build identity BEFORE the run (pin the deployed build).
   const stampBefore = collectBuildIdentity();
   report.buildIdentity = { before: stampBefore, after: null };
   save('build-identity.before.json', stampBefore);
@@ -479,13 +362,9 @@ try {
   assert.equal(stampBefore.expectedSource, stampBefore.liveSource, `serving source must match the expected source: ${JSON.stringify(stampBefore)}`);
   requireRecordedIdentity(stampBefore, 'pre-run:');
 
-  // Independent oracle.
   const oracle = computeOracle();
   report.oracle = { rows: oracle.rows, unitBlankCount: oracle.unitBlankCount, subjectBlankCount: oracle.subjectBlankCount, effectiveValues: oracle.effectiveValues };
 
-  // Self-seed three independent fixtures: A carries the raw-CDP UI journey, B is a pristine
-  // proposal host for the API negatives (a persisted melt there would mask candidate
-  // validation), and C supplies valid signed tokens whose embedded snapshot differs from B.
   const mainFixture = await createFreshVerificationFixture(session, mainLabel, { populateBootstrap: false });
   const negFixture = await createFreshVerificationFixture(session, negLabel, { populateBootstrap: false });
   const staleFixture = await createFreshVerificationFixture(session, staleLabel, { populateBootstrap: false });
@@ -502,9 +381,6 @@ try {
 
   await Promise.all([send('Page.enable'), send('Runtime.enable')]);
 
-  // STEP 0 BEHAVIOR: capabilities expose unpivotSourceInput with the signed unit string and
-  // ZERO date-family choices: the server refuses date/date_time melts (cd39eeaf, operator
-  // decision #4) and discovery hides them instead of advertising a refusal.
   await navigate();
   {
     const builder = (await mainCtx.call('builder')).value;
@@ -529,8 +405,6 @@ try {
     record('step-0-behavior-capabilities', { status: caps.status, supported: usi.supported, choicesPaths: usi.choices.map((c) => c.fieldPath) });
   }
 
-  // STEP 1 PRELUDE: a persisted row-preserving signed FILTER (status EQUALS final) which is also
-  // the ledger carrier for signed melt inputs.
   {
     await realClick('[data-testid="construction-action-keep-rows"]');
     await until(() => mounted('[data-testid="construction-filter-editor"]'), 'filter-editor mounted', 20000);
@@ -543,11 +417,6 @@ try {
     await setInput('[data-testid="construction-filter-editor"] input[aria-label="Value"]', 'final');
     await until(() => mounted('[data-testid="construction-proposal-ready"]'), 'prelude proposal ready', 30000);
     await realClick('[data-testid="construction-apply-proposal"]');
-    // Pre-first-persistence window: construction is legitimately nil until the first
-    // APPLY_CONSTRUCTION_PROPOSAL (live-pinned 2026-11-02: a seeded doc carries no construction
-    // key; authoringv2/commands.go:1447 sets it on proposal apply). This poll therefore keeps the
-    // filter lane's tolerant read shape; the post-loop asserts below are the observed-transition
-    // floor — a FILTER step or its signed status lane that never persists stays loudly red.
     for (let i = 0; i < 25; i += 1) {
       const builder = (await mainCtx.call('builder')).value;
       if ((builder.workspace.documents[0].construction?.steps || []).some((s) => s.operation?.kind === 'FILTER')) break;
@@ -563,7 +432,6 @@ try {
     record('step-1-prelude-filter-step', { filterLanes: (doc.sourceProjections || []).filter((p) => p.fieldPath === 'status').length });
   }
 
-  // STEP 2 DISCOVERY: Reshape entry -> intent pivot-branch -> unpivot choice + dataset optgroup.
   await navigate();
   {
     const entry = await openUnpivotEditor();
@@ -573,7 +441,6 @@ try {
     const boxes = await meltCheckboxLabels();
     assert.ok(boxes.some((box) => box.label === 'ID') && boxes.some((box) => box.label === 'Number'),
       `melt checkbox list must expose the staged public columns: ${JSON.stringify(boxes)}`);
-    // Configure one public melt input so the dataset-channel affordances render.
     for (const box of boxes) {
       if (box.checked && box.label !== 'ID') await clickCheckboxByLabel(`Unpivot ${box.label}`);
     }
@@ -603,7 +470,6 @@ try {
     await closeUnpivotEditor();
   }
 
-  // STEP 3 CONFIGURE + oracle-exact melt preview with PRESERVE blanks.
   await navigate();
   {
     await openUnpivotEditor();
@@ -612,11 +478,6 @@ try {
       if (box.checked && box.label !== 'ID') await clickCheckboxByLabel(`Unpivot ${box.label}`);
     }
     if (!(await meltCheckboxLabels()).find((box) => box.label === 'ID')?.checked) await clickCheckboxByLabel('Unpivot ID');
-    // Two signed lanes on the string family (the only pairing both the UI scalar gate and
-    // the compiler accept). The add button pre-binds the first unbound populated choice
-    // visible after cd39eeaf hid the date family server-side (valueQuantity.unit), already
-    // S-C-labelled, so bindDatasetRow accepts the pre-bind and only rebinds when the target
-    // is still offered in the dataset optgroup.
     await realClick('[data-testid="construction-reshape-unpivot-add-source-field"]');
     await bindDatasetRow(1, 'valueQuantity.unit', 'valueQuantity.unit');
     await realClick('[data-testid="construction-reshape-unpivot-add-source-field"]');
@@ -635,7 +496,6 @@ try {
         assert.fail('STEP 3: the public Date column must stay unmelted as the date-family survival witness');
       }
     }
-    // Explicit deterministic keys for the three melt inputs.
     assert.equal(await setInputKey(0, KEY_ID), KEY_ID, 'id melt key set');
     assert.equal(await setInputKey(1, KEY_UNIT), KEY_UNIT, 'unit melt key set');
     assert.equal(await setInputKey(2, KEY_SUB), KEY_SUB, 'subject melt key set');
@@ -650,7 +510,6 @@ try {
     await closeUnpivotEditor();
   }
 
-  // STEP 4 CANCEL byte-stability against the post-prelude baseline.
   {
     const baseline = postPreludeBaseline;
     const after = await mainCtx.call('builder');
@@ -663,7 +522,6 @@ try {
     record('step-4-cancel-byte-stable', { sameDoc: same, draftDigest: after.value.draftDigest });
   }
 
-  // STEP 5 APPLY -> persisted UNPIVOT step + signed melt-lane projections + honest columns.
   await navigate();
   {
     await openUnpivotEditor();
@@ -719,14 +577,11 @@ try {
     assert.ok((dom?.headers || []).some((header) => /Variable/i.test(header)) && (dom?.headers || []).some((header) => /Value/i.test(header)),
       `APPLY: melt outputs absent from the applied table: ${JSON.stringify(dom?.headers)}`);
     assert.ok(!(dom?.headers || []).some((header) => /ID$|identity/i.test(header)), `APPLY: melted ID column must leave the table: ${JSON.stringify(dom?.headers)}`);
-    // Honesty leg: the consumed signed melt inputs are never materialized as displayable columns.
     assert.ok(!(dom?.headers || []).some((header) => /valueQuantity\.unit|subject\.reference/i.test(header)),
       `APPLY: consumed signed melt input must not appear as a column: ${JSON.stringify(dom?.headers)}`);
     const seen = checkMeltPreview(dom, 'STEP 5 APPLY', [KEY_ID, KEY_UNIT, KEY_SUB]);
     {
       report.dateWitness = report.dateWitness || { baseline: dateWitnessDefinition(postPreludeBaseline), postApply: null, reload: null, afterRemoval: null };
-      // Observation.effectiveDateTime is a date_time-rooted field (probe-decorated
-      // logicalType date_time); the witness must be authored with date-family truth.
       assert.ok(report.dateWitness.baseline && ['date', 'date_time'].includes(String(report.dateWitness.baseline.logicalType).toLowerCase()),
         `SURVIVAL: the baseline Date witness must be an authored date-family column: ${JSON.stringify(report.dateWitness.baseline)}`);
       const postApply = dateWitnessDefinition((await mainCtx.call('builder')).value);
@@ -744,7 +599,6 @@ try {
     record('step-5-apply-exact-rows', { previewRows: seen.length, subLane: sub.columnId, unitLane: unit.columnId, meltOwner: step.id });
   }
 
-  // STEP 6 RELOAD -> saved-binding restore + capability echo columnId == persisted lane columnId.
   {
     await navigate();
     const doc = await builderDoc();
@@ -753,18 +607,12 @@ try {
     const unit = (doc.sourceProjections || []).find((p) => p.fieldPath === 'valueQuantity.unit');
     const opened = await openEditorFromHistory(async () => {
       const rows = await evaluate(`(()=>[...document.querySelectorAll('[data-testid$="-column"]')].filter(s=>s.getAttribute('data-testid').startsWith('construction-reshape-unpivot-input-')).length)()`);
-      // Saved signed rows render their server-declared column (label span), never the
-      // 'Selected field (from your data)' placeholder, which only appears for orphans.
       const restored = await evaluate(`(()=>[...document.querySelectorAll('[data-testid$="-column"]')].filter(s=>{if(!s.getAttribute('data-testid').startsWith('construction-reshape-unpivot-input-'))return false;const l=s.closest('label');const sp=l&&l.querySelector('span');const t=sp?sp.textContent.trim():'';return t==='valueQuantity.unit'||t==='subject.reference';}).length)()`);
       return rows >= 3 && restored >= 2 && `rows:${rows}:restored:${restored}`;
     });
-    // Server-truth read (bs-62-2 class): the echo must be keyed to a melt step that is OBSERVED on
-    // the server, never to an undefined handle after a silently-missing construction.
     const meltLiveSource = await builderDoc();
     const meltLive = (meltLiveSource.steps || []).find((s) => s.operation?.kind === 'UNPIVOT');
     assert.ok(meltLive, 'RELOAD: the UNPIVOT step vanished from the server-truth doc between the reload census and the echo keying (the pre-fix bytes died here with an opaque TypeError on undefined.inputs)');
-    // Echo is keyed to the consuming step's input stage (the carrier filter stage), not to the
-    // melt stage itself — the derive-lane lesson applies verbatim.
     const inputStageId = (meltLive.inputs || []).find((input) => input.kind === 'STEP_OUTPUT')?.stepId;
     let echoSub = null, echoUnit = null;
     for (let i = 0; i < 15 && !(echoSub?.columnId && echoUnit?.columnId); i += 1) {
@@ -796,7 +644,6 @@ try {
     record('step-6-reload-materialized-echo', { opened, echoSub: echoSub.columnId, echoUnit: echoUnit.columnId });
   }
 
-  // STEP 7 EDIT -> rename the melt outputs + switch blanks policy to DROP (no blank cells).
   {
     await navigate(); await wait(300);
     await openEditorFromHistory(() => mounted('[data-testid="construction-reshape-unpivot"]'));
@@ -827,20 +674,15 @@ try {
     record('step-7-edit-rename-and-drop', { persistedPolicy: 'DROP', renamedOutputs: ['melt_name', 'melt_value'], blankCells: 0 });
   }
 
-  // STEP 8 EDIT -> dissolve the signed unit melt lane by rebinding its row to a public column.
   {
     await navigate(); await wait(300);
     await openEditorFromHistory(() => mounted('[data-testid="construction-reshape-unpivot"]'));
     await openAdvanced();
-    // Locate the signed unit row by its bound label; row order follows the persisted step's
-    // input order, which must not be hard-coded.
     const unitRowLabel = await evaluate(`(()=>{const idx=[];document.querySelectorAll('[data-testid$="-column"]').forEach((s)=>{const t=s.getAttribute('data-testid')||'';if(!t.startsWith('construction-reshape-unpivot-input-'))return;const m=t.match(/input-(\\d+)-column$/);if(!m)return;const l=s.closest('label');const sp=l&&l.querySelector('span');if(sp&&sp.textContent.trim()==='valueQuantity.unit')idx.push(Number(m[1]));});return idx[0]===undefined?null:idx[0];})()`);
     assert.ok(unitRowLabel !== null, 'a melt row bound to valueQuantity.unit must exist before the dissolve');
     const numberColumnValue = await evaluate(`(()=>{const s=document.querySelector('[data-testid="construction-reshape-unpivot-input-${unitRowLabel}-column"]');const o=[...s.querySelectorAll('option')].find(o=>o.textContent.trim()==='Number');return o?o.value:null;})()`);
     assert.ok(numberColumnValue, 'the public Number column must remain selectable for the melt row');
     await setRowSource(unitRowLabel, numberColumnValue);
-    // The rebind dissolves the signed binding; unchecking the public column then drops the
-    // input entirely so Number returns to the table as the anchor (rebind alone would melt it).
     await until(() => meltCheckboxLabels().then((boxes) => boxes.find((box) => box.label === 'Number')?.checked === true), 'Number input present after rebind', 15000);
     await clickCheckboxByLabel('Unpivot Number');
     await until(() => meltCheckboxLabels().then((boxes) => boxes.find((box) => box.label === 'Number')?.checked === false), 'Number input removed after uncheck', 15000);
@@ -850,9 +692,6 @@ try {
     report.steps.push({ step: 'step8-raw-preview', headers: domPreview?.headers, varIndex, sample: (domPreview?.rows || []).slice(0, 12) });
     const visibleKeys = [...new Set((domPreview?.rows || []).map((row) => row[varIndex]))]
       .filter((cell) => cell && !/^dev-|^final$/.test(cell) && !/^\d+$/.test(cell) && !/^\u2014$/.test(cell));
-    // Under the persisted DROP policy, melt rows with missing values are dropped per-value
-    // row, so the sparse subject values may fall off the page. The dissolution witness is
-    // the ABSENCE of the cleared unit key while the surviving id key stays visible.
     assert.ok((domPreview?.rows || []).length >= 10, `dissolved melt preview lost its row coverage: ${(domPreview?.rows || []).length}`);
     assert.ok(!visibleKeys.includes(KEY_UNIT), `cleared unit lane must not melt rows anymore, got ${JSON.stringify(visibleKeys)}`);
     assert.ok(visibleKeys.includes(KEY_ID), `surviving id lane must keep melting: ${JSON.stringify(visibleKeys)}`);
@@ -872,7 +711,6 @@ try {
     record('step-8-cleared-melt-lane-stays-cleared', { lanes: lanes.map((p) => p.fieldPath), filterLane: filterLanes[0]?.columnId });
   }
 
-  // STEP 9 RE-ADD -> honest re-materialization of the unit melt lane.
   {
     await navigate(); await wait(200);
     await openEditorFromHistory(() => mounted('[data-testid="construction-reshape-unpivot"]'));
@@ -911,17 +749,12 @@ try {
     record('step-9-re-add-honest-rematerialization', { unitLane: unit.columnId, echo: echo.columnId });
   }
 
-  // STEP 10 REMOVE -> melt step gone; melt lanes gone; filter lane intact.
   {
     if (await mounted('[data-testid="construction-close-operation-editor"]')) { await realClick('[data-testid="construction-close-operation-editor"]'); await wait(200); }
     await navigate(); await wait(300);
     const docBefore = await builderDoc();
     const step = (docBefore.steps || []).find((s) => s.operation?.kind === 'UNPIVOT');
     assert.ok(step, 'REMOVE: no UNPIVOT step to remove');
-    // Zero-match discipline (filter-lane twin): the post-removal `length === 0` leftover asserts
-    // below are only meaningful when the pre-removal census really contained both signed melt
-    // lanes; observing the pre-state turns "went to zero" into a witnessed transition instead of an
-    // empty scan that certifies itself.
     assert.ok(docBefore.sourceProjections?.some((projection) => projection.fieldPath === 'valueQuantity.unit' && (projection.ownerStepId || '').startsWith('unpivot_')),
       `REMOVE pre-remove census: no melt-owned valueQuantity.unit projection in the persisted doc; "no leftover melt lane" must never be certified from a census that was empty to begin with: ${JSON.stringify((docBefore.sourceProjections || []).map((projection) => ({ path: projection.fieldPath, owner: projection.ownerStepId })))}`);
     assert.ok(docBefore.sourceProjections?.some((projection) => projection.fieldPath === 'subject.reference' && (projection.ownerStepId || '').startsWith('unpivot_')),
@@ -966,7 +799,6 @@ try {
     record('step-10-remove-clean', { meltLanes: leftovers.length, filterLane: filterLanes[0]?.columnId });
   }
 
-  // Post-run build identity: source and running binary must be unchanged across the run.
   const stampAfter = collectBuildIdentity();
   requireRecordedIdentity(stampAfter, 'post-run:');
   report.buildIdentity.after = stampAfter;
@@ -977,12 +809,8 @@ try {
 
   assertNoUncaughtPageExceptions(exceptions);
 
-  // ---- API negatives against the deployed binary, on a pristine proposal host ----
   await runApiNegatives(negCtx, staleCtx);
 
-  // Exit-code contract: every named check must have run and passed.
-  // The aggregate evidence check is recorded only after this scan; the post-record
-  // re-verification below closes the set.
   assertRequiredChecks(report.checks);
   assertMeltEvidence(evidence);
   record('blank-and-exact-melt-evidence', { blankMeltCells: evidence.blankMeltCells, exactMeltCells: evidence.exactMeltCells, idMeltCells: evidence.idMeltCells });
@@ -993,14 +821,13 @@ try {
 } catch (error) {
   report.status = 'failed';
   report.error = error instanceof Error ? error.message : String(error);
-  try { save('FAIL-final.html', await evaluate('document.documentElement.outerHTML')); } catch { /* best effort */ }
-  try { save('journey.json', report); } catch { /* best effort */ }
+  try { save('FAIL-final.html', await evaluate('document.documentElement.outerHTML')); } catch { }
+  try { save('journey.json', report); } catch { }
   console.error(`JOURNEY_FAILED ${report.error}`);
   process.exitCode = 1;
 } finally {
   try {
     if (chrome && chrome.exitCode === null && chrome.signalCode === null) {
-      // detached spawn => own process group; leader-only kills orphan the helper tree
       const groupSignal = (signal) => { try { process.kill(-chrome.pid, signal); return true; } catch { return chrome.kill(signal); } };
       const exited = new Promise((done) => chrome.once('exit', done));
       if (groupSignal('SIGTERM')) {
@@ -1008,17 +835,10 @@ try {
       }
       if (chrome.exitCode === null && chrome.signalCode === null) groupSignal('SIGKILL');
     }
-  } catch { /* teardown best effort */ }
-  if (profile) { try { rmSync(profile, { recursive: true, force: true }); } catch { /* reported via absence of deletion */ } }
+  } catch { }
+  if (profile) { try { rmSync(profile, { recursive: true, force: true }); } catch { } }
 }
 
-// Zero-match discipline for the build-stamp barrier (bs-62-2 twin fix from
-// verify-explorer-filter-row-source.mjs:676-688): the stamp script compares the recorded identity
-// internally but a failed or truncated `cat` of the recorded stamp leaves
-// recordedBinary/recordedSource null in OUR hands, and the checkExit gate alone never notices.
-// Safety: loom-dev-build-stamp.sh --check exits 0 only when expected_source == source_digest &&
-// running_binary == expected_binary read from the same recorded file, so on every legitimate green
-// these equalities already hold and this floor cannot false-fail a real run.
 function requireRecordedIdentity(stamp, when) {
   assert.ok(stamp.recordedBinary && stamp.recordedSource,
     `${when} recorded build identity is unreadable or empty (recordedBinary/recordedSource must be non-null): ${JSON.stringify(stamp)}`);
@@ -1038,21 +858,8 @@ async function runApiNegatives(host, staleCtx) {
     assert.equal(caps.status, 200, 'capabilities must be 200 for the negatives control');
     return { builder, choices: caps.value.unpivotSourceInput?.choices || [], caps: caps.value };
   };
-  // The proposal host carries exactly one persisted row-preserving signed FILTER: the signed
-  // melt ledger requires a persisted carrier step (the melt-first crash is recorded in the
-  // journey receipt as a defect and is intentionally NOT offered as an accepted control), and
-  // every named refusal above the compile step fires identically with or without it. Any
-  // persisted melt or derive lane here would mask candidate validation, hence the filter-only
-  // assertion.
   let carrierStep = null;
   {
-    // Report-only (bs-62-2 class, same disposition as the filter lane): the pristine-host claim is
-    // a zero-step count over an optionally-missing census. A seeded doc legitimately carries NO
-    // construction object until the first construction proposal is applied (live-pinned 2026-11-02;
-    // authoringv2/commands.go:1447 sets it on APPLY_CONSTRUCTION_PROPOSAL), so a construction-present
-    // assert could not gate this read without false-failing a legitimate green. Residual risk is
-    // closed only by the carrier deepEqual below plus the 200-status asserts; a proposal-persisted
-    // sentinel read would close it fully and is out of this lane's proven-safe scope.
     const stepCount = ((await host.call('builder')).value.workspace?.documents?.[0]?.construction?.steps || []).length;
     assert.equal(stepCount, 0, 'the negatives host must start pristine before the ledger carrier is added');
     const sourceCaps = await capabilities(host);
@@ -1070,9 +877,6 @@ async function runApiNegatives(host, staleCtx) {
     assert.equal(proposal.status, 200, `carrier filter proposal failed (${proposal.status})`);
     const applied = await host.cmd('carrier', [{ type: 'APPLY_CONSTRUCTION_PROPOSAL', outputId, proposalId: proposal.value.proposalId }]);
     assert.equal(applied.status, 200, `carrier filter apply failed (${applied.status})`);
-    // Server-truth census (bs-62-2 `construction || {}` twin at the pre-fix :1173): the
-    // deepEqual(kinds, ['FILTER']) below already refused a missing doc, but swallowing it into {}
-    // misattributed the failure — name the unreadable server-truth read at the read site instead.
     const carrierBuilder = (await host.call('builder')).value;
     const carrierDoc = carrierBuilder?.workspace?.documents?.[0];
     const doc = carrierDoc?.construction;
@@ -1090,26 +894,17 @@ async function runApiNegatives(host, staleCtx) {
   assert.ok(unitChoice && valueChoice, 'valueQuantity.unit/value choices must exist on the negatives host');
   assert.ok(alreadyChoice, "valueInteger must remain listable in unpivot choices so the already-projected guard is the live-line defence (pinned behaviour; the guard must refuse it as a melt lane)");
 
-  // Decodes the `rc1.<payload>.<digest>` row-choice token (see capability/row_choice.go:257-278).
-  // Without decodedPayload, a token that fails to decode makes embeddedSnapshot() null, and
-  // `null !== hostToken` would satisfy the staleness check by accident — the zero-match twin of the
-  // vacuous-pass class (bs-62-2 N2 analog, mirrored from verify-explorer-filter-row-source.mjs:707-712).
   const embeddedSnapshot = (token) => {
     try { return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).snapshotToken ?? null; } catch { return null; }
   };
   const decodedPayload = (token) => {
     try { return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()); } catch { return null; }
   };
-  // The host token is the reference for every token-level negative below: it must actually decode
-  // and must embed the host catalog snapshot (row_choice.go sets SnapshotToken from the minting
-  // snapshot), otherwise a null-embedded undecodable token could satisfy staleness comparisons by
-  // accident (shape from the filter lane :727-729).
   assert.ok(decodedPayload(unitChoice.choiceId),
     `the host valueQuantity.unit choiceId must decode as a signed row-choice token, or every token-level negative below is unverifiable: ${String(unitChoice.choiceId).slice(0, 24)}`);
   assert.equal(embeddedSnapshot(unitChoice.choiceId), hostCaps.builder.catalog.snapshotToken,
     `the host valueQuantity.unit choiceId must embed the host catalog snapshot; a null/foreign snapshot would satisfy the staleness comparison by accident: ${JSON.stringify({ embedded: embeddedSnapshot(unitChoice.choiceId), host: hostCaps.builder.catalog.snapshotToken })}`);
 
-  // Provably-stale choiceId from another fixture (provably different embedded snapshot).
   const staleCaps = await capabilities(staleCtx);
   const staleUnit = staleCaps.choices.find((choice) => choice.fieldPath === 'valueQuantity.unit');
   assert.ok(staleUnit, 'valueQuantity.unit choice must exist on the cross-snapshot fixture');
@@ -1161,13 +956,10 @@ async function runApiNegatives(host, staleCtx) {
     return response;
   };
 
-  // C0: public-only melt control (no source channel) must be accepted — the selected-columns
-  // regression control proving the new channel changed nothing for public melts.
   const control = await expectCase('C0-public-control', meltRequest(null), '200', { record: false });
   assert.ok(!JSON.stringify(control.value).includes('"unpivot-input_'), 'C0: a public-only melt must not decorate any signed melt lanes');
   record('negative-C0-public-control', { expected: '200', status: 200, undecorated: true });
 
-  // C1 is executed LAST (it is the only accepted-and-decorated case); compute its expectation here.
   {
     const decorated = await host.call('construction-proposals', meltRequest([unitChoice]));
     assert.equal(decorated.status, 200, `C1: signed control on a pristine host compiles the same way the journey applies it server-side; got ${decorated.status}`);
@@ -1214,24 +1006,18 @@ async function runApiNegatives(host, staleCtx) {
     await expectCase('C9-over-selection', body, '422', { diagnosticCode: 'UNPIVOT_SOURCE_COLUMN_MISMATCH' });
   }
   {
-    // Public STRING melt input + signed NUMBER-kind lane => no physical type satisfies the melt.
     const body = meltRequest([valueChoice]);
     await expectCase('C10-types-incompatible', body, '422', { diagnosticCode: 'UNPIVOT_SOURCE_TYPES_INCOMPATIBLE' });
   }
   {
-    // The F-DS1 twin: the field is already a projected column, so choosing it for a melt lane is
-    // a named 422 — never a 500 receipt-contract crash (pinned live in probe10/12 runs).
     await expectCase('C11-already-projected-not-500', meltRequest([alreadyChoice]), '422', { diagnosticCode: 'UNPIVOT_SOURCE_FIELD_ALREADY_PROJECTED' });
   }
   {
-    // Non-melt kind family witness: an UNPIVOT step with no payload cannot carry melt lanes.
     const body = meltRequest([unitChoice]);
     body.candidateConstruction.steps[1].operation = { kind: 'UNPIVOT' };
     await expectCase('C12-payloadless-requires-unpivot', body, '422', { diagnosticCode: 'UNPIVOT_SOURCE_REQUIRES_UNPIVOT' });
   }
   {
-    // Contract behaviour (live-pinned): unpivotSources on a NON-UNPIVOT changed step are ignored,
-    // and the signed fieldPath must never decorate the ignored candidate.
     const body = meltRequest([unitChoice]);
     const colId = body.candidateConstruction.steps[1].operation.unpivot.inputs[0].columnId;
     body.candidateConstruction.steps[1].operation = { kind: 'FILTER', filter: { columnId: colId, operator: 'EQUALS', values: [{ kind: 'STRING', string: 'x' }] } };
@@ -1242,8 +1028,6 @@ async function runApiNegatives(host, staleCtx) {
     record('contract-C13-non-melt-step-undecorated', { status: response.status, undecorated: true });
   }
   {
-    // A brand-new (unpersisted) filter carrier cannot host signed melt inputs: the choices are
-    // bound to accepted receipt stages, and a candidate-local stage ref is a named 409.
     const cols = stageColumns.map((column) => ({ id: column.id, name: column.name, label: column.label, type: column.type }));
     const fs = `f_${uuid()}`;
     const filterStep = { id: fs, inputs: [{ kind: 'SOURCE_PROJECTION' }], operation: { kind: 'FILTER', filter: { columnId: 'filter-input_status', operator: 'EQUALS', values: [{ kind: 'STRING', string: 'final' }] } }, outputs: [...cols, { id: 'filter-input_status', name: 'status', label: 'Observation.status', type: 'string' }] };
@@ -1265,11 +1049,6 @@ async function runApiNegatives(host, staleCtx) {
     record('negative-C14-new-carrier-stale-stage', { expected: '409', status: 409, diagnosticCode: 'STALE_STAGE_REFERENCE' });
   }
   {
-    // Operator decision #4 (server cd39eeaf): a signed date-family melt must answer with the
-    // named 422 refusal — pre-fix the accepted binary 200-decorated exactly this request
-    // (authority /tmp/opencode/jrev/probe-date-melt-dp4.log). The token must be genuine, so it
-    // is minted through the filter channel's RowChoice signing (unpivot discovery now hides the
-    // date family and cannot mint it). A zero-code-match response fails loudly, never vacuously.
     const filterChoices = hostCaps.caps.filterSourceInput?.choices || [];
     const dateChoiceToken = filterChoices.find((choice) => choice.fieldPath === 'effectiveDateTime' && choice.choiceId);
     assert.ok(dateChoiceToken, `C15 requires a genuine signed effectiveDateTime token from the filter channel; got fieldPaths ${JSON.stringify(filterChoices.map((choice) => choice.fieldPath)).slice(0, 400)}`);
@@ -1283,9 +1062,6 @@ async function runApiNegatives(host, staleCtx) {
     record('negative-C15-signed-date-melt-refused', { expected: '422', status: 422, diagnosticCode: 'UNSUPPORTED_UNPIVOT_SOURCE_DATE_FIELD' });
   }
   {
-    // Payload-level hide witness on the proposal host (step 0/2 cover the journey payload and
-    // rendered optgroup): zero date-family melt choices while the permitted string lanes stay
-    // listed, so the hide is selective and never vacuous.
     const leaked = (hostCaps.choices || []).filter((choice) => ['date', 'date_time'].includes(String(choice.logicalType).toLowerCase()) || choice.fieldPath === 'effectiveDateTime');
     assert.equal(leaked.length, 0, `C16: the melt payload leaked date-family choices on the negatives host: ${JSON.stringify(leaked)}`);
     assert.ok((hostCaps.choices || []).some((choice) => choice.fieldPath === 'valueQuantity.unit'), 'C16: the payload hide must stay selective — the unit lane must remain listed');

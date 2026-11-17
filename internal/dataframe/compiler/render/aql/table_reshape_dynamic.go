@@ -6,9 +6,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// renderGroupedTablePivotDynamicPreview keeps category-dependent work in one
-// bound category loop. It is used only by explicitly selected terminal
-// previews; publication and full execution retain the static renderer.
 func (r *physicalPlanRenderer) renderGroupedTablePivotDynamicPreview(
 	pivot ir.PhysicalGroupedPivot,
 	lines []string,
@@ -114,9 +111,6 @@ func (r *physicalPlanRenderer) renderGroupedTablePivotDynamicPreview(
 			unlistedVariable, itemVariable, pivot.GroupRowsVariable, listed,
 		))
 		if pivot.UnlistedCategoryPolicy == "ERROR" {
-			// Keep the category loop as a dependency of the unlisted assertion.
-			// This preserves duplicate and missing-cell error precedence even if
-			// AQL moves calculations while optimizing the query.
 			lines = append(lines, fmt.Sprintf(
 				`  FILTER (IS_OBJECT(%s) ? ASSERT(%s == 0, "TABLE_PIVOT_UNLISTED_CATEGORY") : false)`,
 				categoryCellsVariable, unlistedVariable,

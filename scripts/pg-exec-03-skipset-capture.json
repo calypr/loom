@@ -1,0 +1,18 @@
+{
+  "ticket": "pg-exec-03",
+  "package": "./internal/dataframe/execution",
+  "goVersion": "go version go1.26.5 linux/amd64",
+  "skipFilter": "/^Test(?:ZZ)?PostgresPostQuery/",
+  "skips": [
+    "TestPostgresPostQueryCrossTargetJSONNullConvergence",
+    "TestPostgresPostQueryDynamicColumnsRefuseAndMarkersNeedNoDynamicSurface",
+    "TestPostgresPostQueryMalformedMarkerFailsBeforeRow",
+    "TestPostgresPostQueryMutationControls",
+    "TestPostgresPostQueryNamedUUIDSemanticsParity",
+    "TestPostgresPostQueryNestedMarkersMaterialize",
+    "TestPostgresPostQueryPreviewComputesNamedUUID5",
+    "TestPostgresPostQueryStreamComputesNamedUUID3",
+    "TestPostgresPostQueryThreeStateValues",
+    "TestZZPostgresPostQueryZeroLeftoverFixtures"
+  ]
+}

@@ -13,15 +13,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// ConstructionExpandSourceCapability advertises the authorized populated direct
-// root primitive ARRAY fields an EXPAND step can flatten through signed source
-// choices, beside the existing Pivot, Group, Filter, Derive, and Unpivot source
-// inputs. EXPAND flattens one array-valued column into its scalar items, so the
-// compiler's own array input gate (lowerConstructionExpand requires a public,
-// Many-cardinality column whose items are a table scalar kind) qualifies only
-// the direct root primitive arrays whose generated-schema element type the
-// recipe construction logical-type whitelist accepts as a scalar — objects,
-// Coding, nested arrays, repeated-boundary scopes, and references are refused.
 type ConstructionExpandSourceCapability struct {
 	Supported  bool                             `json:"supported"`
 	StageID    string                           `json:"stageId"`
@@ -30,15 +21,6 @@ type ConstructionExpandSourceCapability struct {
 	Choices    []ConstructionExpandSourceChoice `json:"choices"`
 }
 
-// ConstructionExpandSourceChoice is pinned to exactly six wire fields. The
-// UI capabilities schema is strict, so pivot-style extras (occurrenceId,
-// fhirType, valueType, isIdentifier, isReference) must never be added.
-// LogicalType is the ELEMENT logical type of the array (for example "string"
-// for a HumanName family array), never a container label, because the existing
-// EXPAND renderer only accepts scalar items. ColumnID is the signed
-// materialized column id from durable server-derived state, mirroring pivot's
-// choice.columnId, so the UI can restore a saved source-backed EXPAND array
-// input; it is "" while no live materialization exists.
 type ConstructionExpandSourceChoice struct {
 	ChoiceID    string `json:"choiceId"`
 	FieldPath   string `json:"fieldPath"`
@@ -48,20 +30,11 @@ type ConstructionExpandSourceChoice struct {
 	ColumnID    string `json:"columnId"`
 }
 
-// ConstructionExpandSourceSelection binds one server-signed root primitive
-// array field choice to the exact columnId that is the edited EXPAND step's
-// InputColumnID. The channel admits exactly one selection per proposal.
 type ConstructionExpandSourceSelection struct {
 	ChoiceID string `json:"choiceId"`
 	ColumnID string `json:"columnId"`
 }
 
-// validateConstructionExpandSourceSelections is the request-boundary guard.
-// There is no invented per-request cap: the honest bound is structural, and
-// the candidate prep refuses any selection whose columnId is not the edited
-// step's single declared array input, so the request channel can never
-// outgrow what one expand consumes. A duplicate choiceId or columnId is
-// refused outright.
 func validateConstructionExpandSourceSelections(selections []ConstructionExpandSourceSelection) error {
 	seenChoices := make(map[string]bool, len(selections))
 	seenColumns := make(map[string]bool, len(selections))
@@ -80,18 +53,6 @@ func validateConstructionExpandSourceSelections(selections []ConstructionExpandS
 	return nil
 }
 
-// expandSourceElementLogicalTypeIsAdmissible is the expand lane's own admission
-// of an array element as a flattenable scalar item. It delegates the primitive
-// vocabulary to the persisted recipe validator's exported whitelist,
-// recipe.IsValidConstructionLogicalType, so this channel can never advertise an
-// element type the construction recipe would later reject. The whitelist itself
-// still accepts "object" (the recipe carries object columns for other lanes),
-// so the lane layers the contract's object refusal on top of the single
-// delegated decision; the generated-schema gate re-checks the element through
-// FHIRType (including Coding) at resolve time. If the recipe whitelist is ever
-// un-exported again, this is the local canonical mirror point; the
-// whitelist-drift guard test (parent-owned) must keep this gate and the recipe
-// validator in lockstep.
 func expandSourceElementLogicalTypeIsAdmissible(logicalType string) bool {
 	kind := strings.ToLower(strings.TrimSpace(logicalType))
 	if kind == "" || kind == "object" {
@@ -100,10 +61,6 @@ func expandSourceElementLogicalTypeIsAdmissible(logicalType string) bool {
 	return recipe.IsValidConstructionLogicalType(kind)
 }
 
-// expandSourceElementFHIRTypeIsAdmissible refuses the object-bearing element
-// FHIR types the generated index reports for non-primitive array items: the
-// anonymous "object" shape and Coding, whose code/display payloads the EXPAND
-// renderer cannot flatten to one scalar item column.
 func expandSourceElementFHIRTypeIsAdmissible(fhirType string) bool {
 	switch strings.TrimSpace(fhirType) {
 	case "", "object", "Coding":
@@ -112,17 +69,8 @@ func expandSourceElementFHIRTypeIsAdmissible(fhirType string) bool {
 	return true
 }
 
-// expandSourceCardinality is the single wire cardinality the lane signs into
-// the server-populated ConstructionExpand.ExpandedField payload. It matches
-// authoringv2.ConstructionExpandedFieldCardinalityMany, which the compiler mapping turns
-// into the expression.Many the physical EXPAND gate requires
-// (lower/recipe_construction_reshape.go:473).
 const expandSourceCardinality = authoringv2.ConstructionExpandedFieldCardinalityMany
 
-// expandSourceSignedField derives the server-owned operation payload from one
-// resolved lane projection. The client never authors it: constructionCandidate-
-// WithExpandSources overwrites whatever the candidate carried, and Apply-time
-// reauthorization re-derives it from snapshot facts and refuses mismatch.
 func expandSourceSignedField(projection authoringv2.ConstructionSourceProjection) *authoringv2.ConstructionExpandedFieldSource {
 	return &authoringv2.ConstructionExpandedFieldSource{
 		Path:        projection.FieldPath,
@@ -132,15 +80,6 @@ func expandSourceSignedField(projection authoringv2.ConstructionSourceProjection
 	}
 }
 
-// expandSourceBackingCandidate is the EXPAND-lane counterpart of the scalar
-// row-source backing check. A signed array row choice is backed by a snapshot
-// candidate for a direct-root repeated array: many cardinality, the ARRAY
-// projection the capability builder mints for repeated fields, and boundaries
-// that only ever describe the field itself (a boundary at another path marks
-// nested repetition, which is not a direct-root array the EXPAND step can
-// flatten). The scalar lane's constructionGroupSourceCandidate rejects exactly
-// this shape by design — an array cannot be carried as a scalar VALUE — so the
-// lanes must not share one backing rule.
 func expandSourceBackingCandidate(snapshot capability.Snapshot, nodeID, resourceType, path string) (capability.Candidate, bool) {
 	candidate, found := uniqueRowSourceCandidate(snapshot, nodeID, resourceType, path)
 	if !found || !candidate.Populated || !capability.IsRepeatedCardinality(candidate.Cardinality) ||
@@ -160,9 +99,6 @@ func expandSourceIsDirectRootRepeated(candidate capability.Candidate, path strin
 	return true
 }
 
-// expandSourceBackingSkipClass names the honest classification for a refusal
-// to back an array row choice, mirroring expandSourceBackingCandidate clause
-// by clause so the lane's reason codes stay as precise as the scalar lane's.
 func expandSourceBackingSkipClass(snapshot capability.Snapshot, choice capability.RowChoice) rowSourceSkipClass {
 	candidate, found := uniqueRowSourceCandidate(snapshot, choice.NodeID, choice.ResourceType, choice.Path)
 	switch {
@@ -179,8 +115,6 @@ func expandSourceBackingSkipClass(snapshot capability.Snapshot, choice capabilit
 	}
 }
 
-// expandSourceStepPayloadIsConsistent reports whether the owner step carries a
-// shape-valid signed payload pointing at exactly this canonical field path.
 func expandSourceStepPayloadIsConsistent(step authoringv2.ConstructionStep, fieldPath string) bool {
 	if step.Operation.Expand == nil || step.Operation.Expand.ExpandedField == nil {
 		return false
@@ -192,11 +126,6 @@ func expandSourceStepPayloadIsConsistent(step authoringv2.ConstructionStep, fiel
 	return canonicalRowPath(source.Path) == canonicalRowPath(fieldPath)
 }
 
-// expandInputColumnIDs returns the column ids an EXPAND operation consumes.
-// This is the documented divergence from the Unpivot source channel, which
-// melts an arbitrary declared value set: EXPAND flattens exactly one declared
-// array input, and the array column itself leaves the expand's own output
-// schema while its prefix carries it.
 func expandInputColumnIDs(expand *authoringv2.ConstructionExpand) []string {
 	if expand == nil || strings.TrimSpace(expand.InputColumnID) == "" {
 		return nil
@@ -243,13 +172,6 @@ func (s *Service) constructionExpandSourceCapability(
 				enumeration.skip(rowSourceSkipVersion)
 				continue
 			}
-			// The planner mints an array-shaped root field only as the
-			// ExpandedScope class (applicableRowChoiceKinds): FieldGroupKey is
-			// reserved for scalar grouping keys. capability.RowChoice carries
-			// no Shape field, but the minting gate (capability.NewRowChoice via
-			// validateRowChoiceFacts) pins ARRAY<->MANY onto ExpandedScope as
-			// one class, so this filter stays alongside resolve's re-pin of
-			// identity.Shape == RowChoiceArray against the decoded signed id.
 			if choice.Kind != capability.RowChoiceExpandedScope || choice.OccurrenceID != authoringv2.RootOccurrenceID || choice.Reference ||
 				choice.Cardinality != capability.RowChoiceMany || canonicalRowPath(choice.Path) == "resourceType" {
 				enumeration.skip(rowSourceSkipRoute)
@@ -331,10 +253,6 @@ func (s *Service) resolveConstructionExpandSource(
 	if err != nil {
 		return authoringv2.ConstructionSourceProjection{}, unavailable("construction-proposal", "FHIR_SCHEMA_UNAVAILABLE", "FHIR field metadata is unavailable", err)
 	}
-	// The generated-schema gate mirrors the array shape rules the semantic row
-	// expander enforces (compilation/row_expansion.go): a canonical, generated
-	// ARRAY of MANY non-reference values whose element FHIRType still matches
-	// the signed identity.
 	facts, err := schemaIndex.ResolveRowPath(fhirschema.DefinitionName(rootNode.ResourceType), resolved.ScopePath)
 	if err != nil || facts.CanonicalPath != resolved.ScopePath || facts.Shape != fhirschema.RowPathArray ||
 		facts.Cardinality != fhirschema.RowCardinalityMany || facts.Reference || facts.FHIRType != identity.FHIRType {
@@ -357,19 +275,6 @@ func (s *Service) resolveConstructionExpandSource(
 	}, nil
 }
 
-// constructionCandidateWithExpandSources resolves the signed field choice,
-// derives the durable server-owned projection facts for the edited EXPAND
-// step's single array input, and carries that column through the
-// row-preserving prefix that feeds the flatten. It mirrors the Unpivot source
-// contract; the documented divergences are (1) EXPAND consumes exactly one
-// input column — the step's declared InputColumnID — instead of melting an
-// arbitrary declared set, (2) the array column is carried by the steps
-// strictly before the expand, whose own outputs leave it to be consumed
-// exactly as the existing lowerConstructionExpand receives a selected-column
-// expand input from an earlier stage (the EXPAND step's own declarations keep
-// only its client-declared item/ordinal/preserved outputs; it must not
-// re-declare its input), and (3) there is no joint melt-class check because one
-// array contributes one scalar item type.
 func (s *Service) constructionCandidateWithExpandSources(
 	ctx context.Context,
 	base constructionBase,
@@ -381,11 +286,6 @@ func (s *Service) constructionCandidateWithExpandSources(
 		candidate.Steps[changedIndex].Operation.Kind == authoringv2.ConstructionOperationExpand
 	candidate = preserveConstructionOwnedInputs(base.construction, candidate, "")
 	if !applyExpandSources {
-		// A nil channel must not strand a signed Expand step: the editing
-		// client rebuilds the operation from form state and can never carry
-		// the server-signed payload back. Restore it from the durable
-		// base-owned projection so save/reopen round-trips compile, and
-		// strip payloads nothing owns server-side.
 		return repairSignedExpandFields(base.construction, candidate, nil), nil
 	}
 	expand := candidate.Steps[changedIndex].Operation.Expand
@@ -397,9 +297,6 @@ func (s *Service) constructionCandidateWithExpandSources(
 		if err != nil {
 			return authoringv2.Construction{}, unprocessable("construction-proposal", "EXPAND_SOURCE_STAGE_UNAVAILABLE", err.Error(), err)
 		}
-		// Removal strips the signed payload as well: the cleared step no
-		// longer has a candidate-side owned projection, so the same repair
-		// pass that restores intact payloads strips this one's.
 		return repairSignedExpandFields(base.construction, cleared, nil), nil
 	}
 	acceptedStageID := constructionStepInputStageID(candidate.Steps[changedIndex])
@@ -495,36 +392,14 @@ func (s *Service) constructionCandidateWithExpandSources(
 		if droppedOwned[output.ID] && !reowned[output.ID] {
 			continue
 		}
-		// The EXPAND step's own declarations keep only the client-declared
-		// item/ordinal/preserved outputs: lowerConstructionExpand refuses any
-		// declaration equal to expand.InputColumnID
-		// (lower/recipe_construction_reshape.go:530), and the input stage — not
-		// this step — must present the public Many array column
-		// (lower/recipe_construction_reshape.go:469-478).
 		expandOutputs = append(expandOutputs, output)
 	}
 	steps[changedIndex].Outputs = expandOutputs
 
-	// Sign the operation payload (RelatedExpand ContributorSource precedent):
-	// authoringv2.StageColumn carries no Cardinality, so the compiled Many
-	// cardinality of the materialized array input is assigned from this
-	// server-derived shape in the authoring-to-recipe mapping (owned by the
-	// parent at internal/explorer/compilation/construction.go). Clone the
-	// operation payload before mutation: the step copy above still aliases the
-	// caller's ConstructionExpand pointer.
 	signed := expandSourceSignedField(resolved[0])
 	expanded := *steps[changedIndex].Operation.Expand
 	expanded.ExpandedField = signed
 	steps[changedIndex].Operation.Expand = &expanded
-	// First-step note: with no prefix, the array column reaches the input stage
-	// through construction.SourceProjections, which is how the root
-	// SOURCE_PROJECTION stage's public columns are produced
-	// (internal/explorer/compilation/construction.go:33-43 plus the semantic
-	// source verifier at internal/explorer/compilation/semantic_compile.go:507-533).
-	// The semantic source verifier carries the EXPAND-owned array accept
-	// branch (facts-proved RowPathArray + Many + non-reference), and the
-	// semantic selector resolver derives the compiled cardinality from the
-	// generated schema; the lane never hacks cardinality through stage text.
 
 	candidate.Steps, candidate.SourceProjections = steps, projections
 	candidate = repairSignedExpandFields(base.construction, candidate, resolved)
@@ -534,16 +409,6 @@ func (s *Service) constructionCandidateWithExpandSources(
 	return candidate, nil
 }
 
-// repairSignedExpandFields reconciles every EXPAND step's server-signed
-// payload against server-derived ownership. A projection counts as trusted
-// ownership ONLY when it equals (byte-for-byte) a projection this wave's
-// resolve minted from the live snapshot (minted) or a durable base-owned
-// projection the lane's own resolve wrote and Apply re-proved. Client-authored
-// candidate projections never establish ownership: without a matching minted
-// or durable entry the payload is stripped, and the authoring unowned-source
-// wall refuses the dangling step. Restoring an owned payload always re-derives
-// it from the trusted projection, never from client payload text. Apply-time
-// reauthorization re-proves everything against the live snapshot regardless.
 func repairSignedExpandFields(base authoringv2.Construction, candidate authoringv2.Construction, minted []authoringv2.ConstructionSourceProjection) authoringv2.Construction {
 	baseProjections := make(map[string]authoringv2.ConstructionSourceProjection, len(base.SourceProjections))
 	for _, projection := range base.SourceProjections {
@@ -572,9 +437,6 @@ func repairSignedExpandFields(base authoringv2.Construction, candidate authoring
 			continue
 		}
 		inputID := step.Operation.Expand.InputColumnID
-		// Candidate entries are trusted only when byte-equal to this wave's
-		// mint; everything else falls back to the durable base, then to
-		// not-owned (stripped), never to client text.
 		projection, owned := candidateProjections[inputID]
 		minted, hasMinted := mintedProjections[inputID]
 		if !owned || projection.OwnerStepID != step.ID || !hasMinted || !reflect.DeepEqual(projection, minted) {
@@ -600,10 +462,6 @@ func repairSignedExpandFields(base authoringv2.Construction, candidate authoring
 		expanded.ExpandedField = expandSourceSignedField(projection)
 		step.Operation.Expand = &expanded
 	}
-	// Drop expand-owned projections the client authored outright: any
-	// projection claiming an EXPAND step as owner that the server did not
-	// mint this wave or durably own in the base is client text and must not
-	// reach the receipt document.
 	if len(candidate.SourceProjections) > 0 {
 		filtered := make([]authoringv2.ConstructionSourceProjection, 0, len(candidate.SourceProjections))
 		for _, projection := range candidate.SourceProjections {
@@ -620,11 +478,6 @@ func repairSignedExpandFields(base authoringv2.Construction, candidate authoring
 	return candidate
 }
 
-// validateExpandSourceColumns is the final candidate-prep gate: the selection's
-// columnId must be the step's single Expand InputColumnID, and the (now
-// server-signed) ExpandedField must be internally consistent and name exactly
-// the resolved canonical array field with the Many wire cardinality, so a
-// client-forged operation payload cannot survive this function.
 func validateExpandSourceColumns(steps []authoringv2.ConstructionStep, expandID string, sources []ConstructionExpandSourceSelection, resolved []authoringv2.ConstructionSourceProjection) error {
 	index := constructionStepIndex(steps, expandID)
 	if index < 0 || steps[index].Operation.Expand == nil {
@@ -705,13 +558,6 @@ func clearConstructionExpandOwnedSources(base, candidate authoringv2.Constructio
 	return candidate, nil
 }
 
-// constructionOwnedExpandSourceColumnID returns the durable server-derived
-// materialized column for a root array field at one exact stage, mirroring
-// constructionOwnedUnpivotSourceColumnID. An EXPAND owns the slot only while an
-// owner EXPAND step whose input stage is this exact step's input stage still
-// declares the projection column as its single Expand InputColumnID. A
-// vanished, re-pointed, or foreign-owned materialization returns "", so the UI
-// never renders a restore into a column the server can no longer sign.
 func constructionOwnedExpandSourceColumnID(construction authoringv2.Construction, stageID, path string) string {
 	for _, projection := range construction.SourceProjections {
 		if projection.OwnerStepID == "" || canonicalRowPath(projection.FieldPath) != canonicalRowPath(path) {
@@ -727,10 +573,6 @@ func constructionOwnedExpandSourceColumnID(construction authoringv2.Construction
 			constructionStepInputStageID(step) != stageID {
 			continue
 		}
-		// The server only signs restoration of a live column while the owner
-		// step still carries its coherent signed payload for exactly this root
-		// field; a vanished, stripped, or forged payload returns "" like any
-		// other un-signable materialization.
 		if !expandSourceStepPayloadIsConsistent(step, projection.FieldPath) {
 			continue
 		}
@@ -739,12 +581,6 @@ func constructionOwnedExpandSourceColumnID(construction authoringv2.Construction
 	return ""
 }
 
-// ConstructionExpandSourceFacts derives the server-owned projection facts for
-// one root primitive array field from the authorized snapshot plus generated
-// FHIR metadata. Apply reauthorization and receipt reconcile share this single
-// derivation so a persisted expand-owned claim can never drift from the facts
-// the server would have signed it from. Column and owner identities stay
-// claim-sourced, exactly as the Apply-side DeepEquals expects them.
 func ConstructionExpandSourceFacts(snapshot capability.Snapshot, rootResourceType, fieldPath string) (authoringv2.ConstructionSourceProjection, bool) {
 	path := canonicalRowPath(fieldPath)
 	if strings.TrimSpace(rootResourceType) == "" || path == "" {
@@ -806,9 +642,6 @@ func isExpandOwnedSourceProjection(construction authoringv2.Construction, projec
 		containsConstructionColumnIDLocal(expandInputColumnIDs(step.Operation.Expand), projection.ColumnID)
 }
 
-// reauthorizeConstructionExpandSources re-derives the server-owned facts for
-// every expand-owned projection from the live authorized snapshot so an Apply
-// cannot stage a flatten whose array stopped qualifying after the proposal.
 func (s *Service) reauthorizeConstructionExpandSources(ctx context.Context, base constructionBase, outputID string, construction authoringv2.Construction) error {
 	if s.config.RowChoicePlanner == nil {
 		return unavailable("commands", "ROW_CHOICE_UNAVAILABLE", "authorized expand source choice planning is not configured", nil)
@@ -830,9 +663,6 @@ func (s *Service) reauthorizeConstructionExpandSources(ctx context.Context, base
 		if step.Operation.Expand == nil || !containsConstructionColumnIDLocal(expandInputColumnIDs(step.Operation.Expand), projection.ColumnID) {
 			return fmt.Errorf("expand source projection %q is not the input column of its owner Expand step", projection.ColumnID)
 		}
-		// Fail-closed on the operation payload itself: a lane-owned input whose
-		// step lost (or forged) its server-signed ExpandedField never reaches
-		// the claim-vs-redo DeepEqual below.
 		signed := step.Operation.Expand.ExpandedField
 		if signed == nil {
 			return fmt.Errorf("expand source projection %q has no server-consistent Expand payload: missing signed array source", projection.ColumnID)

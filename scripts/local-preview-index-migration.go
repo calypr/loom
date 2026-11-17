@@ -68,9 +68,6 @@ type compilerIndexSpec struct {
 	StoredValues []string `json:"storedValues"`
 }
 
-// migrationCollection is the smallest mutation surface needed by the local
-// replacement transition. Keeping it narrow makes operation ordering and
-// rollback testable without an Arango connection.
 type migrationCollection interface {
 	Indexes(context.Context) ([]driver.IndexResponse, error)
 	EnsurePersistentIndex(context.Context, []string, *driver.CreatePersistentIndexOptions) (driver.IndexResponse, bool, error)
@@ -270,9 +267,6 @@ func transitionLocalIndex(ctx context.Context, collection migrationCollection, e
 		return rollbackCandidate(ctx, collection, newIndex.ID, candidate)
 	}
 
-	// The old ID and every unrelated definition are reread after creation and
-	// immediately before deletion. This local migration uses explicit inventory
-	// authorization; it is not a compiler replacement/supersedence claim.
 	preDeleteIndexes, err := collection.Indexes(ctx)
 	if err != nil {
 		rollbackErr := rollbackCreatedCandidate()
@@ -311,8 +305,6 @@ func transitionLocalIndex(ctx context.Context, collection migrationCollection, e
 		err = errors.New("final inventory does not contain the exact candidate plus the three preserved owned indexes")
 	}
 	if err != nil {
-		// Restore the authorized old definition first, then remove only the exact
-		// candidate ID so a verification failure leaves the original inventory.
 		restoreErr := restoreOriginalOwnedInventory(ctx, collection, expected, candidate, newIndex.ID, candidateCreatedByInvocation)
 		return r, errors.Join(err, restoreErr)
 	}
@@ -438,7 +430,6 @@ func validateOwnedInventory(indexes []driver.IndexResponse, expected []indexSpec
 		}
 	}
 	if _, exists := owned[expected[0].Name]; !exists {
-		// Candidate-only completed inventory is checked separately by the caller.
 		if _, hasCandidate := owned[candidate.Name]; !hasCandidate {
 			return nil, errors.New("exact old index and compiler candidate are both absent")
 		}

@@ -11,8 +11,6 @@ type ConstructionDependencyIssue struct {
 	ColumnID string `json:"columnId"`
 }
 
-// ConstructionImpact describes the stages that must be recalculated for a
-// proposed edit or removal and any stable column references that need repair.
 type ConstructionImpact struct {
 	ChangedStepID   string                        `json:"changedStepId,omitempty"`
 	RemovedStepIDs  []string                      `json:"removedStepIds,omitempty"`
@@ -24,10 +22,6 @@ func (i ConstructionImpact) HasMissingInputs() bool {
 	return len(i.MissingInputs) != 0
 }
 
-// AnalyzeStepEdit returns an isolated candidate document with the selected
-// stable step ID replaced. Later stage schemas are recalculated from the
-// candidate. Missing column references are reported instead of cascading
-// deletion or invalidating the accepted document.
 func (d Document) AnalyzeStepEdit(replacement ConstructionStep) (Document, ConstructionImpact, error) {
 	if d.Construction == nil {
 		return d, ConstructionImpact{}, fmt.Errorf("document has no staged construction")
@@ -56,11 +50,6 @@ func (d Document) AnalyzeStepEdit(replacement ConstructionStep) (Document, Const
 	return candidate, impact, nil
 }
 
-// AnalyzeConstructionCandidate accepts one complete proposal and verifies its
-// identity-level changes against the saved sequence. It supports replacing one
-// existing step, appending one new step, and removing only explicitly named
-// steps. Surviving steps retain their order; downstream edits remain available
-// for repairing dependencies in the submitted candidate.
 func (d Document) AnalyzeConstructionCandidate(candidateConstruction Construction, changedStepID string, removeStepIDs []string) (Document, ConstructionImpact, error) {
 	base := d
 	if d.Construction == nil {
@@ -172,8 +161,6 @@ func (d Document) AnalyzeConstructionCandidate(candidateConstruction Constructio
 		if oldStep.OwnerStepID == changedStepID && oldStep.Operation.Kind == ConstructionOperationCodedPivot &&
 			candidateStep.OwnerStepID == changedStepID && candidateStep.Operation.Kind == ConstructionOperationCodedPivot &&
 			!reflect.DeepEqual(oldStep, candidateStep) && oldIndex < firstChanged {
-			// A direct-source coded-value input is part of its owning GROUP proposal.
-			// Recalculate from this helper when the owner edits its selected codes.
 			firstChanged = oldIndex
 		}
 		if oldStep.ID == changedStepID {
@@ -317,10 +304,6 @@ func appendedRelatedSourceSuffixStart(existing, candidate []ConstructionStep, st
 	return start, true
 }
 
-// ProposeStepRemoval removes only the selected step and the downstream steps
-// explicitly named in removeStepIDs. It retains unrelated later steps, rewires
-// their stage input to the nearest surviving stage, and reports missing column
-// references for repair before application.
 func (d Document) ProposeStepRemoval(stepID string, removeStepIDs []string) (Document, ConstructionImpact, error) {
 	if d.Construction == nil {
 		return d, ConstructionImpact{}, fmt.Errorf("document has no staged construction")
@@ -817,7 +800,6 @@ func rebuildStageColumns(step ConstructionStep, input []StageColumn, authoredSou
 		if column.Type == "" || column.Type == "INFER" {
 			column.Type = step.Operation.RelatedField.Source.LogicalType
 		}
-		// The terminal record can be absent after PRESERVE_PARENT expansion.
 		column.Nullable = true
 		outputs = append(outputs, column)
 	default:
@@ -943,8 +925,6 @@ func cloneTablePresentation(presentation *TablePresentation) *TablePresentation 
 	return &cloned
 }
 
-// stagedSourceColumnID assigns the immutable identity when a source column is
-// authored, before the table has a construction or a published revision.
 func stagedSourceColumnID(outputID, commandID string, commandIndex int, commandType string, identity ...any) string {
 	values := make([]any, 0, len(identity)+5)
 	values = append(values, "staged-source-column/v1", outputID, commandID, commandIndex, commandType)

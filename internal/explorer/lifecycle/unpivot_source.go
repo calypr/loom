@@ -14,15 +14,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// ConstructionUnpivotSourceCapability advertises the authorized populated root
-// scalar fields an UNPIVOT step can melt through signed source choices, beside
-// the existing Pivot, Group, Filter, and Derive source inputs. UNPIVOT melts
-// value columns into one key/value pair, so only logical kinds the physical
-// table compiler accepts as scalar melt inputs qualify — the kinds
-// lower.TableReshapeScalarKind maps to a table scalar class, minus the date
-// family: the compiler melts date and date_time into the STRING class, but
-// that parity is not consent for this lane, which refuses date and date_time
-// outright.
 type ConstructionUnpivotSourceCapability struct {
 	Supported  bool                              `json:"supported"`
 	StageID    string                            `json:"stageId"`
@@ -31,13 +22,6 @@ type ConstructionUnpivotSourceCapability struct {
 	Choices    []ConstructionUnpivotSourceChoice `json:"choices"`
 }
 
-// ConstructionUnpivotSourceChoice is pinned to exactly six wire fields. The
-// UI capabilities schema is strict, so pivot-style extras (occurrenceId,
-// fhirType, valueType, isIdentifier, isReference) must never be added.
-// ColumnID is the signed materialized column id from durable server-derived
-// state, mirroring pivot's choice.columnId, so the UI can restore a saved
-// source-backed UNPIVOT melt input; it is "" while no live materialization
-// exists.
 type ConstructionUnpivotSourceChoice struct {
 	ChoiceID    string `json:"choiceId"`
 	FieldPath   string `json:"fieldPath"`
@@ -47,19 +31,11 @@ type ConstructionUnpivotSourceChoice struct {
 	ColumnID    string `json:"columnId"`
 }
 
-// ConstructionUnpivotSourceSelection binds one server-signed root scalar field
-// choice to the exact columnId the edited UNPIVOT step melts as one of its
-// value inputs.
 type ConstructionUnpivotSourceSelection struct {
 	ChoiceID string `json:"choiceId"`
 	ColumnID string `json:"columnId"`
 }
 
-// validateConstructionUnpivotSourceSelections is the request-boundary guard.
-// There is no invented per-request cap: the honest bound is structural, and
-// the candidate prep refuses any selection whose columnId is not a declared
-// melt input of the edited step, so the request channel can never outgrow what
-// one melt consumes. A duplicate choiceId or columnId is refused outright.
 func validateConstructionUnpivotSourceSelections(selections []ConstructionUnpivotSourceSelection) error {
 	seenChoices := make(map[string]bool, len(selections))
 	seenColumns := make(map[string]bool, len(selections))
@@ -78,29 +54,11 @@ func validateConstructionUnpivotSourceSelections(selections []ConstructionUnpivo
 	return nil
 }
 
-// unpivotSourceLogicalTypeIsTableScalar reports whether a root scalar field can
-// be melted by UNPIVOT as far as the physical compiler is concerned. The
-// decision is delegated verbatim to the compiler's own melt gate,
-// lower.TableReshapeScalarKind, which maps the STRING family (string, date,
-// date_time, code, uuid) plus integer, decimal, and boolean to physical scalar
-// classes and refuses everything else (number, object, and the misspelled
-// datetime/date-time aliases). The lane's own admission is
-// unpivotSourceLogicalTypeIsMeltEligible, which layers the date-family refusal
-// on top of this single delegated decision so no local whitelist can drift
-// from the compiler again.
 func unpivotSourceLogicalTypeIsTableScalar(logicalType string) bool {
 	_, ok := lower.TableReshapeScalarKind(logicalType)
 	return ok
 }
 
-// unpivotSourceLogicalTypeIsMeltEligible is the unpivot lane's own admission
-// of a root scalar field as a signed melt value column. The compiler maps the
-// date family to the STRING class, but compiler parity is not consent for this
-// channel: a signed date/date_time melt silently loses date semantics into a
-// string value column, so the lane refuses it. The canonicalization matches
-// the compiler's (trim + lowercase) so no alias can smuggle the date family
-// past the exclusion; the delegation still rejects every kind the compiler
-// itself refuses.
 func unpivotSourceLogicalTypeIsMeltEligible(logicalType string) bool {
 	switch strings.ToLower(strings.TrimSpace(logicalType)) {
 	case "date", "date_time":
@@ -109,18 +67,6 @@ func unpivotSourceLogicalTypeIsMeltEligible(logicalType string) bool {
 	return unpivotSourceLogicalTypeIsTableScalar(logicalType)
 }
 
-// unpivotMeltKindsSatisfiable reports whether the melt's value columns can
-// share one physical value type. The unpivot lane first refuses the date
-// family outright (compiler parity is not consent, see
-// unpivotSourceLogicalTypeIsMeltEligible). Every remaining kind is mapped
-// through the compiler's authoritative melt gate,
-// lower.TableReshapeScalarKind; a melt is unsatisfiable if any input is one
-// the compiler refuses as a value column, never silently dropped. The
-// remaining cross-class rule is taken verbatim from the compiler's
-// compatibility predicate
-// (ir.tableScalarKindsCompatible: output == input || (output == "DECIMAL" &&
-// input == "INTEGER")), which the lowerer applies to every unpivot input
-// against the single chosen value-column type.
 func unpivotMeltKindsSatisfiable(kinds []string) bool {
 	classes := make([]string, 0, len(kinds))
 	for _, kind := range kinds {
@@ -151,11 +97,6 @@ func unpivotMeltKindsSatisfiable(kinds []string) bool {
 	return false
 }
 
-// unpivotInputColumnIDs returns the column ids an UNPIVOT operation melts into
-// the key/value pair. This is the documented divergence from the Derive source
-// channel, which binds slots to the two arithmetic operand ids; UNPIVOT melts
-// an arbitrary declared set of value inputs and the melt columns themselves
-// leave the row schema.
 func unpivotInputColumnIDs(unpivot *authoringv2.ConstructionUnpivot) []string {
 	if unpivot == nil {
 		return nil
@@ -303,16 +244,6 @@ func (s *Service) resolveConstructionUnpivotSource(
 	}, nil
 }
 
-// constructionCandidateWithUnpivotSources resolves the signed field choices,
-// derives the durable server-owned projection facts for the edited UNPIVOT
-// step's melt inputs, and carries those slots through the row-preserving
-// prefix that feeds the melt. It mirrors the Derive source contract; the
-// documented divergences are (1) UNPIVOT melts an arbitrary declared input
-// set instead of two operand slots, (2) the melted slots are consumed and
-// leave the melt's own output schema, so they are carried only by the steps
-// strictly before the melt, and (3) every melt value column must share one
-// physical value type, so the joint kind set is checked against the
-// compiler's own compatibility rule before the candidate is accepted.
 func (s *Service) constructionCandidateWithUnpivotSources(
 	ctx context.Context,
 	base constructionBase,
@@ -519,13 +450,6 @@ func clearConstructionUnpivotOwnedSources(base, candidate authoringv2.Constructi
 	return candidate, nil
 }
 
-// constructionOwnedUnpivotSourceColumnID returns the durable server-derived
-// materialized column for a root scalar field at one exact stage, mirroring
-// constructionOwnedDeriveSourceColumnID. An UNPIVOT owns the slot only while
-// an owner UNPIVOT step whose input stage is this exact stage still melts the
-// projection column as one of its declared value inputs. A vanished,
-// re-pointed, or foreign-owned materialization returns "", so the UI never
-// renders a restore into a column the server can no longer sign.
 func constructionOwnedUnpivotSourceColumnID(construction authoringv2.Construction, stageID, path string) string {
 	for _, projection := range construction.SourceProjections {
 		if projection.OwnerStepID == "" || canonicalRowPath(projection.FieldPath) != canonicalRowPath(path) {
@@ -546,12 +470,6 @@ func constructionOwnedUnpivotSourceColumnID(construction authoringv2.Constructio
 	return ""
 }
 
-// ConstructionUnpivotSourceFacts derives the server-owned projection facts for
-// one root scalar field from the authorized snapshot plus generated FHIR
-// metadata. Apply reauthorization and receipt reconcile share this single
-// derivation so a persisted unpivot-owned claim can never drift from the facts
-// the server would have signed it from. Column and owner identities stay
-// claim-sourced, exactly as the Apply-side DeepEquals expects them.
 func ConstructionUnpivotSourceFacts(snapshot capability.Snapshot, rootResourceType, fieldPath string) (authoringv2.ConstructionSourceProjection, bool) {
 	path := canonicalRowPath(fieldPath)
 	if strings.TrimSpace(rootResourceType) == "" || path == "" {
@@ -609,9 +527,6 @@ func isUnpivotOwnedSourceProjection(construction authoringv2.Construction, proje
 		containsConstructionColumnIDLocal(unpivotInputColumnIDs(step.Operation.Unpivot), projection.ColumnID)
 }
 
-// reauthorizeConstructionUnpivotSources re-derives the server-owned facts for
-// every unpivot-owned projection from the live authorized snapshot so an Apply
-// cannot stage a melt whose field stopped qualifying after the proposal.
 func (s *Service) reauthorizeConstructionUnpivotSources(ctx context.Context, base constructionBase, outputID string, construction authoringv2.Construction) error {
 	if s.config.RowChoicePlanner == nil {
 		return unavailable("commands", "ROW_CHOICE_UNAVAILABLE", "authorized unpivot source choice planning is not configured", nil)

@@ -23,10 +23,6 @@ const (
 	TraversalModeBuilder = "builder"
 )
 
-// EvidenceStatus describes the meaning of a capability-evidence read. An
-// empty Values slice is only usable when Status is EvidenceEmpty (or
-// EvidenceAvailable with Complete true); unavailable, incomplete, and
-// truncated reads must never be treated as an empty capability set.
 type EvidenceStatus string
 
 const (
@@ -37,10 +33,6 @@ const (
 	EvidenceTruncated   EvidenceStatus = "truncated"
 )
 
-// CapabilityEvidenceOptions identifies one immutable, authorization-scoped
-// evidence namespace. ResourceTypes is optional and is primarily useful for a
-// bounded read or a test; an empty value means every generated concrete FHIR
-// resource type.
 type CapabilityEvidenceOptions struct {
 	Project                       string
 	DatasetGeneration             string
@@ -54,9 +46,6 @@ type ResourceInventoryOptions = CapabilityEvidenceOptions
 type RelationshipObservationOptions = CapabilityEvidenceOptions
 type FieldEnrichmentOptions = CapabilityEvidenceOptions
 
-// EvidenceDiagnostic records malformed historical evidence without promoting
-// it to a capability. Diagnostics are deliberately data-only so callers can
-// retain an otherwise usable snapshot and explain excluded records.
 type EvidenceDiagnostic struct {
 	Code            string `json:"code"`
 	Message         string `json:"message"`
@@ -67,9 +56,6 @@ type EvidenceDiagnostic struct {
 	Count           int64  `json:"count,omitempty"`
 }
 
-// ResourceInventoryObservation is the only evidence source for capability
-// row nodes. It is intentionally independent of field profiling: a resource
-// with no populated field may still be a valid, empty row collection.
 type ResourceInventoryObservation struct {
 	Project           string `json:"project"`
 	DatasetGeneration string `json:"dataset_generation,omitempty"`
@@ -90,8 +76,6 @@ type ResourceInventoryResult struct {
 
 const ResourceInventoryCollection = "fhir_resource_inventory"
 
-// ResourceInventoryCount is a content-addressed count of retained vertices
-// for one resource type and authorization path in one immutable generation.
 type ResourceInventoryCount struct {
 	Key               string `json:"_key"`
 	RecordType        string `json:"record_type"`
@@ -103,8 +87,6 @@ type ResourceInventoryCount struct {
 	DocumentCount     int64  `json:"document_count"`
 }
 
-// ResourceInventoryBuild is the publish-last completeness marker for all
-// generated resource types in one project generation.
 type ResourceInventoryBuild struct {
 	Key               string   `json:"_key"`
 	RecordType        string   `json:"record_type"`
@@ -135,12 +117,6 @@ type ResourceInventoryRebuildSummary struct {
 	DocumentCount     int64  `json:"document_count"`
 }
 
-// RelationshipObservation retains both projections of one physical edge
-// aggregate. StorageFromType/StorageToType are the original _from/_to
-// endpoint types (and StorageDirection is always OUTBOUND for fhir_edge).
-// FromType/ToType are the Builder-facing inverse where the generated
-// traversal registry supports it; BuilderDirection is the physical AQL
-// direction needed to follow that Builder edge.
 type RelationshipObservation struct {
 	Project           string `json:"project"`
 	DatasetGeneration string `json:"dataset_generation,omitempty"`
@@ -167,11 +143,6 @@ type RelationshipObservationResult struct {
 	Diagnostics []EvidenceDiagnostic      `json:"diagnostics,omitempty"`
 }
 
-// FieldEnrichmentObservation is a capability-facing copy of the bounded
-// profiler summary. It is never used to create row nodes. DistinctTruncated
-// describes only that field's bounded suggestions; the result-level Truncated
-// flag is reserved for an incomplete enrichment artifact and fails closed for
-// capability publication.
 type FieldEnrichmentObservation struct {
 	Project               string                      `json:"project"`
 	DatasetGeneration     string                      `json:"dataset_generation,omitempty"`
@@ -208,9 +179,6 @@ type FieldEnrichmentResult struct {
 	Diagnostics        []EvidenceDiagnostic         `json:"diagnostics,omitempty"`
 }
 
-// CapabilityEvidence is the neutral aggregate consumed by a snapshot
-// compiler. The three reads remain separately inspectable so optional field
-// enrichment cannot make resource inventory or relationship evidence vanish.
 type CapabilityEvidence struct {
 	ResourceInventory ResourceInventoryResult       `json:"resource_inventory"`
 	Relationships     RelationshipObservationResult `json:"relationships"`
@@ -223,46 +191,35 @@ type CapabilityEvidenceReader interface {
 	DiscoverFieldEnrichment(context.Context, FieldEnrichmentOptions) (FieldEnrichmentResult, error)
 }
 
-// Write-side catalog records persisted during load.
 type FieldCatalogDocument struct {
-	Key        string `json:"_key"`
-	RecordType string `json:"record_type,omitempty"`
-	Project    string `json:"project"`
-	// DatasetGeneration identifies the immutable dataset generation that
-	// produced this catalog row. An omitted value is intentionally the legacy
-	// dataset namespace; readers always bind either this exact value or null so
-	// legacy and generation-qualified observations never mix.
-	DatasetGeneration   string                      `json:"dataset_generation,omitempty"`
-	AuthResourcePath    string                      `json:"auth_resource_path,omitempty"`
-	ResourceType        string                      `json:"resource_type"`
-	Path                string                      `json:"path"`
-	Kind                string                      `json:"kind"`
-	DocCount            int64                       `json:"doc_count"`
-	MaxItems            int                         `json:"max_items,omitempty"`
-	SampleCount         int                         `json:"sample_count"`
-	DistinctValues      []string                    `json:"distinct_values,omitempty"`
-	DistinctTruncated   bool                        `json:"distinct_truncated"`
-	EnrichmentComplete  *bool                       `json:"enrichment_complete,omitempty"`
-	EnrichmentTruncated bool                        `json:"enrichment_truncated"`
-	ExtensionValues     []ExtensionValueObservation `json:"extension_values,omitempty"`
-	// SemanticObservations retain correlated terminology/value facts discovered
-	// on one owning FHIR item. They are additive to the raw field profile: a
-	// missing or unresolved interpretation never removes the source field.
-	SemanticObservations  []SemanticObservation `json:"semantic_observations,omitempty"`
-	PivotCandidate        bool                  `json:"pivot_candidate"`
-	PivotKind             string                `json:"pivot_kind,omitempty"`
-	PivotColumns          []string              `json:"pivot_columns,omitempty"`
-	PivotFamily           string                `json:"pivot_family,omitempty"`
-	PivotColumnSelect     string                `json:"pivot_column_selector,omitempty"`
-	PivotValueSelect      string                `json:"pivot_value_selector,omitempty"`
-	PivotItemSource       string                `json:"pivot_item_source,omitempty"`
-	PivotItemResourceType string                `json:"pivot_item_resource_type,omitempty"`
-	PivotValueSelectors   []string              `json:"pivot_value_selectors,omitempty"`
+	Key                   string                      `json:"_key"`
+	RecordType            string                      `json:"record_type,omitempty"`
+	Project               string                      `json:"project"`
+	DatasetGeneration     string                      `json:"dataset_generation,omitempty"`
+	AuthResourcePath      string                      `json:"auth_resource_path,omitempty"`
+	ResourceType          string                      `json:"resource_type"`
+	Path                  string                      `json:"path"`
+	Kind                  string                      `json:"kind"`
+	DocCount              int64                       `json:"doc_count"`
+	MaxItems              int                         `json:"max_items,omitempty"`
+	SampleCount           int                         `json:"sample_count"`
+	DistinctValues        []string                    `json:"distinct_values,omitempty"`
+	DistinctTruncated     bool                        `json:"distinct_truncated"`
+	EnrichmentComplete    *bool                       `json:"enrichment_complete,omitempty"`
+	EnrichmentTruncated   bool                        `json:"enrichment_truncated"`
+	ExtensionValues       []ExtensionValueObservation `json:"extension_values,omitempty"`
+	SemanticObservations  []SemanticObservation       `json:"semantic_observations,omitempty"`
+	PivotCandidate        bool                        `json:"pivot_candidate"`
+	PivotKind             string                      `json:"pivot_kind,omitempty"`
+	PivotColumns          []string                    `json:"pivot_columns,omitempty"`
+	PivotFamily           string                      `json:"pivot_family,omitempty"`
+	PivotColumnSelect     string                      `json:"pivot_column_selector,omitempty"`
+	PivotValueSelect      string                      `json:"pivot_value_selector,omitempty"`
+	PivotItemSource       string                      `json:"pivot_item_source,omitempty"`
+	PivotItemResourceType string                      `json:"pivot_item_resource_type,omitempty"`
+	PivotValueSelectors   []string                    `json:"pivot_value_selectors,omitempty"`
 }
 
-// SemanticObservationCompleteness describes how much evidence backs one
-// observed concept. It is intentionally data-only: completeness is not a
-// claim that a concept is clinically equivalent to another label.
 type SemanticObservationCompleteness string
 
 const (
@@ -276,11 +233,6 @@ const (
 	SemanticIncomplete SemanticObservationCompleteness = "incomplete"
 )
 
-// SemanticObservation is a bounded, correlated concept candidate. The key and
-// value are observed on the same owning item; downstream code must not flatten
-// those selectors independently and zip them together. All identity fields are
-// extensible strings so new FHIR profiles can remain visible without changing
-// the storage envelope.
 type SemanticObservation struct {
 	SchemaVersion          int                             `json:"schema_version"`
 	Source                 SemanticObservationSource       `json:"source"`
@@ -301,9 +253,6 @@ type SemanticObservation struct {
 	RuleVersion            string                          `json:"rule_version,omitempty"`
 }
 
-// ConceptCandidate is the public catalog vocabulary used by Builder and
-// semantic planning. It aliases the persisted observation to keep one source
-// of truth for identity and completeness.
 type ConceptCandidate = SemanticObservation
 
 type SemanticObservationSource struct {
@@ -328,32 +277,17 @@ type SemanticObservationValue struct {
 	FallbackOnBlankString bool     `json:"fallback_on_blank_string,omitempty"`
 }
 
-// ExtensionValueObservation preserves the correlation between an Extension
-// URL and the concrete value[x] member observed on the same object. Keeping
-// this pairing in the catalog avoids independently combining unrelated URL
-// and value distinct-value sets during recipe schema discovery.
 type ExtensionValueObservation struct {
-	URL        string `json:"url"`
-	SourcePath string `json:"source_path"`
-	ValuePath  string `json:"value_path"`
-	ValueType  string `json:"value_type"`
-	// URLPath contains ancestor Extension URLs for nested extensions. It is
-	// empty for top-level extensions and lets recipe discovery avoid leaf-name
-	// collisions while retaining deterministic parent__child names.
-	URLPath []string `json:"url_path,omitempty"`
+	URL        string   `json:"url"`
+	SourcePath string   `json:"source_path"`
+	ValuePath  string   `json:"value_path"`
+	ValueType  string   `json:"value_type"`
+	URLPath    []string `json:"url_path,omitempty"`
 }
 
-// Read-side field discovery request and response types.
 type PopulatedFieldOptions struct {
-	Project string
-	// DatasetGeneration is optional. An empty value means the legacy dataset
-	// namespace and therefore reads only catalog documents whose
-	// dataset_generation is null or absent.
-	DatasetGeneration string
-	// AuthResourcePathsUnrestricted is the effective AQL bypass mode. A nil
-	// value preserves the legacy convention that an empty path list is
-	// unrestricted; request services must set it explicitly after resolving
-	// authorization so a restricted-empty intersection remains restricted.
+	Project                       string
+	DatasetGeneration             string
 	AuthResourcePathsUnrestricted *bool
 	AuthResourcePaths             []string
 	ResourceType                  string
@@ -386,27 +320,16 @@ type PopulatedField struct {
 	PivotValueSelectors   []string                    `json:"pivot_value_selectors,omitempty"`
 }
 
-// Read-side auth path discovery request type.
 type AuthResourcePathOptions struct {
 	Project           string
 	DatasetGeneration string
 	CursorBatch       int
-	// AllGenerations lists the project's recorded paths across every dataset
-	// generation. Existing callers keep generation-scoped semantics; this
-	// opt-in flag exists for project-level write authorization (F-B27),
-	// because an empty DatasetGeneration means "row has no generation", not
-	// "any generation".
-	AllGenerations bool
+	AllGenerations    bool
 }
 
-// Read-side reference discovery request and response types.
 type PopulatedReferenceOptions struct {
-	Project string
-	// DatasetGeneration follows the same legacy-null contract as
-	// PopulatedFieldOptions.
-	DatasetGeneration string
-	// AuthResourcePathsUnrestricted has the same explicit-mode contract as
-	// PopulatedFieldOptions.
+	Project                       string
+	DatasetGeneration             string
 	AuthResourcePathsUnrestricted *bool
 	AuthResourcePaths             []string
 	FromType                      string
@@ -423,9 +346,6 @@ type PopulatedReference struct {
 	EdgeCount         int64  `json:"edge_count"`
 }
 
-// RelationshipCatalogDocument is the ingest-owned edge cardinality row used
-// by builder and storage reference discovery. Auth paths remain part of the
-// identity so restricted readers can aggregate only authorized edges.
 type RelationshipCatalogDocument struct {
 	Key               string `json:"_key"`
 	Project           string `json:"project"`
@@ -446,7 +366,6 @@ type RelationshipKey struct {
 	ToType            string
 }
 
-// Write-side field profiling state.
 type Profiler struct {
 	project                  string
 	datasetGeneration        string
@@ -482,6 +401,9 @@ type fieldCatalogStats struct {
 	pivotItemSource       string
 	pivotItemResourceType string
 	pivotValueSelectors   []string
+	pivotColumnArms       map[string]struct{}
+	pivotValueArms        map[string]struct{}
+	pivotSpecApplied      bool
 	extensionValues       []ExtensionValueObservation
 	extensionValueSet     map[string]struct{}
 	semanticObservations  map[string]*semanticObservationStats
@@ -493,7 +415,6 @@ type semanticObservationStats struct {
 	unitSet     map[string]struct{}
 }
 
-// Shared write-side shape planning cache.
 type ShapePlanCache struct {
 	mu            sync.RWMutex
 	plans         map[string]*shapePlan

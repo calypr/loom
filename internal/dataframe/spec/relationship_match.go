@@ -4,13 +4,6 @@ import (
 	"fmt"
 )
 
-// TraversalMatchMode controls whether a relationship contributes values to a
-// dataframe row only, or must exist for that root row to be included at all.
-//
-// OPTIONAL is the legacy behavior: a missing child yields an empty child
-// projection but does not remove the root row. REQUIRED is intentionally
-// opt-in and lowers to a root-scoped semi-join. The empty value is OPTIONAL so
-// callers retain the same schema-backed relationship behavior.
 type TraversalMatchMode string
 
 const (

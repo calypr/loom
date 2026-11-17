@@ -1,10 +1,6 @@
 --------------------------- MODULE ReconcileLifecycle ---------------------------
 EXTENDS Naturals, TLC
 
-(* CurrentRequest abstracts reconcileResultIsCurrent (generation/explorer/    *)
-(* workspace fingerprint). Incoming receipt fields and diagnostics are free  *)
-(* inputs, not correct fields fabricated by the model. Receipt variables log *)
-(* the NEW acceptance event for preview, not retained reducer storage.       *)
 Identities == {"A", "B"}
 Generations == 0..2
 Versions == 0..2

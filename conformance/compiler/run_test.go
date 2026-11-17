@@ -14,9 +14,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// Result is the pure-compiler outcome for one oracle fixture. It intentionally
-// stops before execution; result-row parity against META belongs to the Arango
-// integration corpus.
 type Result struct {
 	FixtureID string
 	Compiled  compiler.CompiledQuery
@@ -38,7 +35,7 @@ func compileRecipe(bundle recipe.Bundle, project string, limit int, policy ir.Ph
 	if err != nil {
 		return compiler.CompiledQuery{}, err
 	}
-	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, policy)
+	queries, err := compiler.CompileResolvedRecipePlan(compiler.ArangoTarget(), resolved, limit, policy)
 	if err != nil {
 		return compiler.CompiledQuery{}, err
 	}
@@ -75,18 +72,22 @@ func Verify(fixture Fixture) error {
 			return fmt.Errorf("compiled optimizer rules %v do not contain %q", result.Compiled.OptimizationRules, want)
 		}
 	}
+	compiledText, compiledBinds, dispatchErr := result.Compiled.Command.AQLParameters()
+	if dispatchErr != nil {
+		return dispatchErr
+	}
 	for _, fragment := range fixture.Expected.QueryContains {
-		if !strings.Contains(result.Compiled.Query, fragment) {
+		if !strings.Contains(compiledText, fragment) {
 			return fmt.Errorf("compiled query does not contain %q", fragment)
 		}
 	}
 	for _, fragment := range fixture.Expected.QueryNotContains {
-		if strings.Contains(result.Compiled.Query, fragment) {
+		if strings.Contains(compiledText, fragment) {
 			return fmt.Errorf("compiled query unexpectedly contains %q", fragment)
 		}
 	}
 	for key, want := range fixture.Expected.BindVars {
-		if got, ok := result.Compiled.BindVars[key]; !ok || fmt.Sprint(got) != fmt.Sprint(want) {
+		if got, ok := compiledBinds[key]; !ok || fmt.Sprint(got) != fmt.Sprint(want) {
 			return fmt.Errorf("bind variable %q = %#v, want %#v", key, got, want)
 		}
 	}

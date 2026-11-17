@@ -6,8 +6,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-// ErrorClass lets transports map application failures to their own response
-// contracts without making HTTP status codes part of the application layer.
 type ErrorClass string
 
 const (
@@ -20,9 +18,6 @@ const (
 	ClassInternal      ErrorClass = "internal"
 )
 
-// Error is a typed application failure. Details are safe, structured
-// diagnostics; Cause remains available to server-side logging and is never
-// serialized by lifecycle.
 type Error struct {
 	Class   ErrorClass
 	Stage   string

@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -22,7 +22,7 @@ func TestRelatedEligibilityCountRowsReverseMatchesForwardOnArango(t *testing.T) 
 		t.Skip("Arango query equivalence requires the integration database")
 	}
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "Observation"}, {Name: "Specimen"}, {Name: "fhir_edge", Edge: true},
 	}}); err != nil {
 		t.Fatal(err)
@@ -183,7 +183,7 @@ func compileRelatedCountPhysicalPlan(t *testing.T, project, generation string) i
 	return compiled.Outputs[0].Plan
 }
 
-func executeRelatedCountValue(t *testing.T, ctx context.Context, client *store.Client, query string, binds map[string]any) float64 {
+func executeRelatedCountValue(t *testing.T, ctx context.Context, client *arangofactory.Client, query string, binds map[string]any) float64 {
 	t.Helper()
 	var value float64
 	count := 0

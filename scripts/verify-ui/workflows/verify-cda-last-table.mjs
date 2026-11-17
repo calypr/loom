@@ -140,7 +140,6 @@ try {
     assert.deepEqual(rows.map(row => row.ordinal), Array.from({ length: 25 }, (_, index) => index + 1),
       `${phase}: the preview must expose every ordinal from 1 through 25`);
 
-    // Restore the visible top with ordinary wheel input so each lifecycle comparison uses the same viewport.
     let current = scrollTop;
     while (current > metrics.initialScrollTop + 0.5) {
       const previous = current;

@@ -2,9 +2,6 @@ const panelSelector = '[data-testid="construction-proposal-panel"][data-proposal
 const previewSelector = '[data-testid="construction-proposal-preview"][data-preview-status="ready"]';
 const previewRowSelector = 'tbody tr[data-testid="construction-proposal-preview-row"]';
 
-// The proposal summary panel and preview table are siblings in the Builder DOM.
-// Bind them by receipt and output identity so stale or unrelated preview tables
-// cannot satisfy a readiness wait.
 export const proposalPreviewReadinessExpression = (expectedOutputId, expectedRowCount) => {
   if (typeof expectedOutputId !== 'string' || expectedOutputId.trim() === '') {
     throw new TypeError('proposal preview readiness requires the expected output ID');

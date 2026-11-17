@@ -2,7 +2,10 @@ package execution
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -60,8 +63,6 @@ func TestMaterializePostQueryValidatesEveryPresentColumnWhenRuntimeKeysCoverAnot
 			"tags":  {ColumnName: "identifier_tags", ValueType: "string", Many: true},
 		},
 	}
-	// Runtime key metadata enumerates only family A; family B columns are still
-	// present in the row and must satisfy their frozen types.
 	newRow := func(dynamicValues map[string]any) map[string]any {
 		row := map[string]any{
 			"category_stage":              "stage-a",
@@ -88,7 +89,6 @@ func TestMaterializePostQueryValidatesEveryPresentColumnWhenRuntimeKeysCoverAnot
 	if _, err := materializePostQueryRowWithChecks(valid, checks); err != nil {
 		t.Fatalf("valid row across both families rejected: %v", err)
 	}
-	// An unselected family B column stays valid because only present values bind.
 	if _, err := materializePostQueryRowWithChecks(newRow(map[string]any{"identifier_count": 7}), checks); err != nil {
 		t.Fatalf("valid row with a missing unselected column rejected: %v", err)
 	}
@@ -112,11 +112,18 @@ func TestOutputStreamRejectsMalformedRowFromUnenumeratedDynamicFamily(t *testing
 		return OutputStream{
 			Name:    "Condition",
 			Columns: []string{"condition", "category_stage", "identifier_count"},
+			command: mustAQLCommand("FOR root IN Condition RETURN root", nil),
 			DynamicChecks: map[string]map[string]DynamicColumnCheck{
 				"category_keys":   {"stage": {ColumnName: "category_stage", ValueType: "string"}},
 				"identifier_keys": {"count": {ColumnName: "identifier_count", ValueType: "integer"}},
 			},
-			stream: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+				command := request.Command
+				_, _, dispatchErr := command.AQLParameters()
+				if dispatchErr != nil {
+					return dispatchErr
+				}
+
 				if err := visit(rows[index]); err != nil {
 					return err
 				}
@@ -251,5 +258,365 @@ func TestMaterializePostQueryStripsDynamicMetadata(t *testing.T) {
 	}
 	if _, ok := row["__loom_dynamic_runtime_keys"]; ok {
 		t.Fatal("dynamic metadata leaked into logical row")
+	}
+}
+
+const (
+	exec03DNSNamespace  = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+	exec03UUID5Wire     = `{"__loom_exact_uuid_operation":"uuid5","__loom_exact_uuid_args":["6ba7b810-9dad-11d1-80b4-00c04fd430c8","www.widgets.com"]}`
+	exec03UUID3Wire     = `{"__loom_exact_uuid_operation":"uuid3","__loom_exact_uuid_args":["6ba7b810-9dad-11d1-80b4-00c04fd430c8","www.widgets.com"]}`
+	exec03UUID5CallWire = `{"__loom_postquery_call":"uuid5","__loom_postquery_args":["6ba7b810-9dad-11d1-80b4-00c04fd430c8","www.widgets.com"]}`
+	exec03UUID5Literal  = "21f7f8de-8051-5b89-8680-0195ef798b6a"
+	exec03UUID3Literal  = "3d813cbb-47fb-32ba-91df-831e1593ac29"
+)
+
+func TestMaterializePostQueryJSONBMarkerComputesNamedUUID(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		wire string
+		want string
+	}{
+		{"exact uuid5 marker", exec03UUID5Wire, exec03UUID5Literal},
+		{"exact uuid3 marker", exec03UUID3Wire, exec03UUID3Literal},
+		{"post-query call marker", exec03UUID5CallWire, exec03UUID5Literal},
+		{"cast call keeps target", `{"__loom_postquery_call":"cast","__loom_postquery_target":"string","__loom_postquery_args":[42]}`, "42"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := materializePostQueryValue(json.RawMessage(tc.wire))
+			if err != nil {
+				t.Fatalf("materialize: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("materialized %#v, want %#v", got, tc.want)
+			}
+			if _, ok := got.(string); !ok {
+				t.Fatalf("materialized value has Go type %T, want string", got)
+			}
+		})
+	}
+	if _, err := materializePostQueryValue(json.RawMessage(`{"__loom_exact_uuid_operation":"uuid5","__loom_exact_uuid_args":"nope"}`)); err == nil || !strings.Contains(err.Error(), "malformed") {
+		t.Fatalf("non-array exact-UUID args accepted: %v", err)
+	}
+	if _, err := materializePostQueryValue(json.RawMessage(`{"__loom_postquery_call":"concat","__loom_postquery_args":{}}`)); err == nil || !strings.Contains(err.Error(), "malformed") {
+		t.Fatalf("non-array post-query args accepted: %v", err)
+	}
+}
+
+func TestMaterializePostQueryPGShapeMatchesDriverDecodedShape(t *testing.T) {
+	pgRow := map[string]any{
+		"marker": json.RawMessage(exec03UUID5Wire),
+		"nested": json.RawMessage(`{"inner":` + exec03UUID3Wire + `}`),
+		"list":   json.RawMessage(`[` + exec03UUID5CallWire + `,null,1.5]`),
+		"flag":   json.RawMessage(`true`),
+		"name":   json.RawMessage(`"w"`),
+		"count":  json.RawMessage(`2`),
+	}
+	driverWire := `{"marker":` + exec03UUID5Wire + `,"nested":{"inner":` + exec03UUID3Wire + `},"list":[` + exec03UUID5CallWire + `,null,1.5],"flag":true,"name":"w","count":2}`
+	var driverRow map[string]any
+	if err := json.Unmarshal([]byte(driverWire), &driverRow); err != nil {
+		t.Fatalf("driver-shape decode: %v", err)
+	}
+	pgResult, err := materializePostQueryRowWithChecks(pgRow, nil)
+	if err != nil {
+		t.Fatalf("materialize PG shape: %v", err)
+	}
+	driverResult, err := materializePostQueryRowWithChecks(driverRow, nil)
+	if err != nil {
+		t.Fatalf("materialize driver shape: %v", err)
+	}
+	if !reflect.DeepEqual(pgResult, driverResult) {
+		t.Fatalf("PG shape %v != driver shape %v", pgResult, driverResult)
+	}
+	want := map[string]any{
+		"marker": exec03UUID5Literal,
+		"nested": map[string]any{"inner": exec03UUID3Literal},
+		"list":   []any{exec03UUID5Literal, nil, 1.5},
+		"flag":   true,
+		"name":   "w",
+		"count":  float64(2),
+	}
+	if !reflect.DeepEqual(pgResult, want) {
+		t.Fatalf("materialized PG row = %v, want %v", pgResult, want)
+	}
+	if reflect.DeepEqual(map[string]any(pgRow), driverRow) {
+		t.Fatal("discriminating control broken: unmaterialized RawMessage row equals the decoded driver row")
+	}
+}
+
+func TestMaterializePostQueryCrossTargetJSONNullEquivalence(t *testing.T) {
+	const (
+		genderWire = `null`
+		codeWire   = `"C50.9"`
+		countWire  = `7`
+		tagsWire   = `["a",null]`
+		flagWire   = `true`
+	)
+	wantPublic := map[string]any{
+		"gender": nil,
+		"code":   "C50.9",
+		"count":  float64(7),
+		"tags":   []any{"a", nil},
+		"flag":   true,
+	}
+	type leg struct {
+		name string
+		row  map[string]any
+	}
+	postgresLeg := map[string]any{
+		"gender": json.RawMessage(genderWire),
+		"code":   json.RawMessage(codeWire),
+		"count":  json.RawMessage(countWire),
+		"tags":   json.RawMessage(tagsWire),
+		"flag":   json.RawMessage(flagWire),
+	}
+	arangoLeg := map[string]any{}
+	for column, wire := range map[string]string{"gender": genderWire, "code": codeWire, "count": countWire, "tags": tagsWire, "flag": flagWire} {
+		var value any
+		if err := json.Unmarshal([]byte(wire), &value); err != nil {
+			t.Fatalf("arango-shape decode %s: %v", column, err)
+		}
+		arangoLeg[column] = value
+	}
+	var clickHouseValues []any
+	if err := json.Unmarshal([]byte(`[`+genderWire+","+codeWire+","+countWire+","+tagsWire+","+flagWire+`]`), &clickHouseValues); err != nil {
+		t.Fatalf("clickhouse-shape decode: %v", err)
+	}
+	clickHouseLeg := map[string]any{}
+	for i, column := range []string{"gender", "code", "count", "tags", "flag"} {
+		clickHouseLeg[column] = clickHouseValues[i]
+	}
+	checks := map[string]map[string]DynamicColumnCheck{
+		"code": {"C50.9": {ColumnName: "code", ValueType: "string", AllowUnknownKeys: true}},
+	}
+	legs := []leg{{"postgres", postgresLeg}, {"arangodb", arangoLeg}, {"clickhouse", clickHouseLeg}}
+	results := map[string]map[string]any{}
+	for _, entry := range legs {
+		row, err := materializePostQueryRowWithChecks(entry.row, checks)
+		if err != nil {
+			t.Fatalf("%s leg: %v", entry.name, err)
+		}
+		results[entry.name] = row
+		if !reflect.DeepEqual(row, wantPublic) {
+			t.Fatalf("%s leg public row = %v, want %v", entry.name, row, wantPublic)
+		}
+		if value, ok := row["gender"]; !ok || value != nil {
+			t.Fatalf("%s leg: JSON-null column public value is %#v (Go %T), want untyped nil", entry.name, value, value)
+		}
+		if _, ok := row["code"].(string); !ok {
+			t.Fatalf("%s leg: code column has Go type %T, want string", entry.name, row["code"])
+		}
+		if _, ok := row["count"].(float64); !ok {
+			t.Fatalf("%s leg: count column has Go type %T, want float64", entry.name, row["count"])
+		}
+	}
+	for _, pair := range [][2]string{{"postgres", "arangodb"}, {"postgres", "clickhouse"}, {"arangodb", "clickhouse"}} {
+		if !reflect.DeepEqual(results[pair[0]], results[pair[1]]) {
+			t.Fatalf("cross-target convergence broken: %s %v != %s %v", pair[0], results[pair[0]], pair[1], results[pair[1]])
+		}
+	}
+	aliveWires := map[string]string{"gender": `"female"`, "code": `"C50.9"`, "count": countWire, "tags": tagsWire, "flag": flagWire}
+	for _, entry := range legs {
+		row := map[string]any{}
+		switch entry.name {
+		case "postgres":
+			for column, wire := range aliveWires {
+				row[column] = json.RawMessage(wire)
+			}
+		case "arangodb":
+			for column, wire := range aliveWires {
+				var value any
+				if err := json.Unmarshal([]byte(wire), &value); err != nil {
+					t.Fatalf("alive arango decode: %v", err)
+				}
+				row[column] = value
+			}
+		case "clickhouse":
+			var values []any
+			if err := json.Unmarshal([]byte(`["female","C50.9",7,["a",null],true]`), &values); err != nil {
+				t.Fatalf("alive clickhouse decode: %v", err)
+			}
+			for i, column := range []string{"gender", "code", "count", "tags", "flag"} {
+				row[column] = values[i]
+			}
+		}
+		materialized, err := materializePostQueryRowWithChecks(row, checks)
+		if err != nil {
+			t.Fatalf("%s alive control: %v", entry.name, err)
+		}
+		if materialized["gender"] != "female" {
+			t.Fatalf("%s alive control: gender = %#v, want \"female\"", entry.name, materialized["gender"])
+		}
+	}
+	if pre := postgresLeg["gender"]; pre == nil {
+		t.Fatal("discriminating control broken: adapter-shape gender column is already nil before materialization, so the nil convergence below is vacuous")
+	} else if _, isRaw := pre.(json.RawMessage); !isRaw {
+		t.Fatalf("adapter-shape gender column is %T, want json.RawMessage", pre)
+	}
+}
+
+func TestMaterializePostQueryJSONBNullsScalarsAndBytes(t *testing.T) {
+	got, err := materializePostQueryValue(json.RawMessage(`null`))
+	if err != nil || got != nil {
+		t.Fatalf("JSON null scalar materialized to %#v (err %v), want untyped nil", got, err)
+	}
+	for _, tc := range []struct {
+		wire string
+		want any
+	}{
+		{`"C50"`, "C50"},
+		{`7`, float64(7)},
+		{`true`, true},
+	} {
+		got, err := materializePostQueryValue(json.RawMessage(tc.wire))
+		if err != nil || !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("scalar %s materialized to %#v (err %v), want %#v", tc.wire, got, err, tc.want)
+		}
+	}
+	opaque := []byte(`"C50"`)
+	got, err = materializePostQueryValue(opaque)
+	if err != nil {
+		t.Fatalf("bytea passthrough: %v", err)
+	}
+	if bytes, ok := got.([]byte); !ok || string(bytes) != `"C50"` {
+		t.Fatalf("bytea value materialized to %#v (Go %T), want unchanged []byte", got, got)
+	}
+	got, err = materializePostQueryValue(json.RawMessage(nil))
+	if err == nil || got != nil {
+		t.Fatalf("typed-nil RawMessage materialized to %#v (err %v), want refusal", got, err)
+	}
+}
+
+func TestMaterializePostQueryJSONBMalformedFailsClosed(t *testing.T) {
+	for _, wire := range []string{"", " ", "{", "[1,", `"unterminated`, `{"a":1}}`, `nope`, `{"a":}`, `1x`, `{"__loom_exact_uuid_operation":`} {
+		got, err := materializePostQueryValue(json.RawMessage(wire))
+		if err == nil {
+			t.Fatalf("malformed JSONB %q accepted with value %#v", wire, got)
+		}
+		if got != nil {
+			t.Fatalf("malformed JSONB %q refused but leaked value %#v", wire, got)
+		}
+		if _, err := materializePostQueryRowWithChecks(map[string]any{"col": json.RawMessage(wire)}, nil); err == nil {
+			t.Fatalf("row with malformed JSONB column %q published", wire)
+		}
+	}
+	if _, err := materializePostQueryValue(json.RawMessage(`{"a":1}`)); err != nil {
+		t.Fatalf("alive control rejected: %v", err)
+	}
+}
+
+func TestMaterializePostQueryJSONBDeepNestingBounds(t *testing.T) {
+	deep := func(levels int) string {
+		return strings.Repeat("[", levels) + "1" + strings.Repeat("]", levels)
+	}
+	for _, levels := range []int{200, 10000} {
+		got, err := materializePostQueryValue(json.RawMessage(deep(levels)))
+		if err != nil {
+			t.Fatalf("%d-level nesting refused: %v", levels, err)
+		}
+		value := got
+		for depth := 0; depth < levels; depth++ {
+			items, ok := value.([]any)
+			if !ok || len(items) != 1 {
+				t.Fatalf("%d-level nesting truncated at depth %d: %#v", levels, depth, value)
+			}
+			value = items[0]
+		}
+		if value != float64(1) {
+			t.Fatalf("%d-level nesting leaf = %#v, want 1.0", levels, value)
+		}
+	}
+	for _, levels := range []int{10001, 20000} {
+		got, err := materializePostQueryValue(json.RawMessage(deep(levels)))
+		if err == nil {
+			t.Fatalf("%d-level nesting accepted without refusal", levels)
+		}
+		if got != nil {
+			t.Fatalf("%d-level nesting refused but leaked a value", levels)
+		}
+	}
+	wire := `{"a":{"b":[{"col":` + exec03UUID5Wire + `}]}}`
+	got, err := materializePostQueryValue(json.RawMessage(wire))
+	if err != nil {
+		t.Fatalf("nested marker: %v", err)
+	}
+	outer, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("nested marker top level = %#v", got)
+	}
+	levelA, ok := outer["a"].(map[string]any)
+	if !ok {
+		t.Fatalf("nested marker level a = %#v", outer["a"])
+	}
+	items, ok := levelA["b"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("nested marker level b = %#v", levelA["b"])
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok || item["col"] != exec03UUID5Literal {
+		t.Fatalf("nested marker value = %#v, want %s", items[0], exec03UUID5Literal)
+	}
+	got, err = materializePostQueryValue([]any{json.RawMessage(exec03UUID5Wire), "x"})
+	if err != nil {
+		t.Fatalf("RawMessage inside array: %v", err)
+	}
+	listItems, isList := got.([]any)
+	if !isList || len(listItems) != 2 || listItems[0] != exec03UUID5Literal || listItems[1] != "x" {
+		t.Fatalf("RawMessage inside array materialized to %#v", got)
+	}
+}
+
+func TestMaterializePostQueryJSONBDynamicMetadataAndChecks(t *testing.T) {
+	checks := map[string]map[string]DynamicColumnCheck{
+		"code": {"a": {ColumnName: "code_a", ValueType: "string"}},
+		"identifier_keys": {
+			"count": {ColumnName: "identifier_count", ValueType: "integer"},
+			"tags":  {ColumnName: "identifier_tags", ValueType: "string", Many: true},
+		},
+	}
+	metadataWire := `{"code":["a"],"identifier_keys":["count","tags"]}`
+	row, err := materializePostQueryRowWithChecks(map[string]any{
+		"code_a":                      json.RawMessage(`"value"`),
+		"identifier_count":            json.RawMessage(`7`),
+		"identifier_tags":             json.RawMessage(`["a","b"]`),
+		"__loom_dynamic_runtime_keys": json.RawMessage(metadataWire),
+	}, checks)
+	if err != nil {
+		t.Fatalf("conforming PG-shaped dynamic row refused: %v", err)
+	}
+	if row["code_a"] != "value" || row["identifier_count"] != float64(7) || !reflect.DeepEqual(row["identifier_tags"], []any{"a", "b"}) {
+		t.Fatalf("public PG-shaped row = %v", row)
+	}
+	if _, ok := row["__loom_dynamic_runtime_keys"]; ok {
+		t.Fatal("JSONB dynamic metadata leaked into the public row")
+	}
+	if _, err := materializePostQueryRowWithChecks(map[string]any{
+		"code_a":                      json.RawMessage(`"value"`),
+		"__loom_dynamic_runtime_keys": json.RawMessage(`{"code":["a","unexpected"]}`),
+	}, checks); err == nil {
+		t.Fatal("JSONB key drift accepted")
+	} else {
+		var drift *DynamicDriftError
+		if !errors.As(err, &drift) || drift.Key != "unexpected" {
+			t.Fatalf("JSONB key drift error = %v, want DynamicDriftError for unexpected", err)
+		}
+	}
+	for name, row := range map[string]map[string]any{
+		"string column with number":     {"code_a": json.RawMessage(`42`), "__loom_dynamic_runtime_keys": json.RawMessage(metadataWire)},
+		"integer column with fraction":  {"identifier_count": json.RawMessage(`7.5`), "__loom_dynamic_runtime_keys": json.RawMessage(metadataWire)},
+		"array column with item drift":  {"identifier_tags": json.RawMessage(`["a",42]`), "__loom_dynamic_runtime_keys": json.RawMessage(metadataWire)},
+		"array column from bare string": {"identifier_tags": json.RawMessage(`"a"`), "__loom_dynamic_runtime_keys": json.RawMessage(metadataWire)},
+	} {
+		if _, err := materializePostQueryRowWithChecks(row, checks); err == nil {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+	if _, err := materializePostQueryRowWithChecks(map[string]any{
+		"code_a":                      json.RawMessage(`"value"`),
+		"__loom_dynamic_runtime_keys": json.RawMessage(`{"code":"a"}`),
+	}, checks); err == nil {
+		t.Fatal("malformed JSONB metadata accepted as absent")
+	}
+	if _, err := materializePostQueryRowWithChecks(map[string]any{"code_a": json.RawMessage(`"value"`)}, checks); err == nil {
+		t.Fatal("missing metadata accepted for a strict family")
 	}
 }

@@ -2977,7 +2977,6 @@ function allowedEvents(contract) {
 
 function normalizedActionLabel(model, label, actions) {
   if (actions.has(label)) return label;
-  // BuilderPreview's DiscoveryComplete action records its outcome in lastAction.
   if (model === 'BuilderPreview' && /^DiscoveryComplete\(/.test(label) && actions.has('DiscoveryComplete')) {
     return 'DiscoveryComplete';
   }
@@ -5342,13 +5341,11 @@ function generateTraceModule(trace, moduleName, hasGroupLifecycle, journeyCase =
   if (journeyCase) {
     return {
       moduleText: generateCdaTraceModule(trace, moduleName, journeyCase),
-      // Cda TraceActions is exactly the JS actions sequence, indexed from zero.
       traceIndexOffset: 0,
     };
   }
   return {
     moduleText: generateModule(trace, moduleName, hasGroupLifecycle),
-    // The generic TraceActions sequence prepends its "Init" sentinel.
     traceIndexOffset: 1,
   };
 }

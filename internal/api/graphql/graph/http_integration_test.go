@@ -3,6 +3,7 @@ package graphqlapi_test
 import (
 	"context"
 	"encoding/json"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -111,7 +112,13 @@ func TestProjectDataframeDatasetsResolverIsWired(t *testing.T) {
 
 func TestGraphQLRunDataframeMutation(t *testing.T) {
 	dfService := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-		QueryRows: func(ctx context.Context, query string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			query, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			if !strings.Contains(query, "LET child_set_") || !strings.Contains(query, "LENGTH(child_set_") {
 				t.Fatalf("expected physical child-set query, got:\n%s", query)
 			}
@@ -119,7 +126,7 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 		},
 	})
 	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
-		DataframeQuery: queryapi.Config{
+		DataframeQuery: queryapi.Config{CompileTarget: compiler.ArangoTarget(),
 			ActiveManifestResolver: testActiveManifestResolver{},
 			DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 				switch opts.ResourceType {
@@ -200,7 +207,13 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 
 func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 	dfService := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-		QueryRows: func(ctx context.Context, query string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			query, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			if !strings.Contains(query, "LET child_set_") || !strings.Contains(query, "LENGTH(child_set_") {
 				t.Fatalf("expected physical child-set query, got:\n%s", query)
 			}
@@ -213,7 +226,7 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 		},
 	})
 	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
-		DataframeQuery: queryapi.Config{
+		DataframeQuery: queryapi.Config{CompileTarget: compiler.ArangoTarget(),
 			ActiveManifestResolver: testActiveManifestResolver{},
 			DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 				switch opts.ResourceType {

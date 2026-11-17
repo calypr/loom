@@ -10,10 +10,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// resolveExtensionColumns freezes URL-to-value mappings from the same scoped
-// catalog snapshot used by the other recipe discovery features. Catalog paths
-// below nested Extension arrays are deliberately retained; the semantic layer
-// lowers each frozen mapping as a bounded dynamic family.
 func resolveExtensionColumns(ctx context.Context, scope Scope, discovery Discovery, resourceType, alias string, items []recipe.ExtensionColumn) error {
 	for index := range items {
 		item := &items[index]
@@ -50,9 +46,6 @@ func resolveExtensionColumns(ctx context.Context, scope Scope, discovery Discove
 				byURL[identity] = append(byURL[identity], extensionValueCandidate{url: observation.URL, path: observation.SourcePath, valuePath: observation.ValuePath, valueType: observation.ValueType, urlPath: urlPath, fields: candidates})
 			}
 			if len(candidate.ExtensionValues) > 0 {
-				// Correlated observations supersede the legacy flattened
-				// distinct-value fallback for this URL field. Mixing both would
-				// incorrectly assign every observed value[x] kind to every URL.
 				continue
 			}
 			if !strings.HasPrefix(candidate.Path, selector+".") || !strings.HasSuffix(candidate.Path, ".url") {
@@ -149,8 +142,6 @@ func extensionValueMapping(resourceType string, candidates []extensionValueCandi
 		}
 	}
 	if len(values) != 1 {
-		// Complex and mixed value[x] representations are preserved as a JSON
-		// string by the semantic/physical extension mapper.
 		return "", "string", sourcePath
 	}
 	for _, value := range values {

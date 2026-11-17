@@ -5,10 +5,6 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-// F1/F2 anti-regression (reviewer ses_e611c1be9ffe): the group SIGKILL must not hinge on
-// the leader's exit, and an inherited stderr pipe may not pin the journey's event loop.
-// The killTree body is EXTRACTED from the subject under test, so this suite breaks the
-// moment someone weakens escalation back to the leader-exit timeout path.
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 const SUBJECT = join(REPO_ROOT, 'scripts/verify-ui/workflows/verify-explorer-row-source-four-state.mjs');
 
@@ -34,7 +30,6 @@ const LEADER_SRC = [
   '',
 ].join('\n');
 
-// argv: leaderPath stubbornPath infoPath stderrMode
 const CASE_HEAD = [
   "import { spawn } from 'node:child_process';",
   "import { readdirSync, readFileSync } from 'node:fs';",
@@ -77,7 +72,7 @@ const spawnCase = (mode) => new Promise((done) => {
   child.on('exit', (code, signal) => {
     clearTimeout(killer);
     let helperPid = null;
-    try { helperPid = Number(readFileSync(infoPath, 'utf8').match(/pid=(\d+)/)[1]); } catch { /* case died before leader wrote */ }
+    try { helperPid = Number(readFileSync(infoPath, 'utf8').match(/pid=(\d+)/)[1]); } catch { }
     done({ code, signal, stdout, helperPid });
   });
 });

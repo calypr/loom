@@ -12,25 +12,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/backends/arango"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
-	"github.com/calypr/loom/internal/store/arango"
 )
 
-func explainCompiledQuery(ctx context.Context, opts arango.ConnectionOptions, compiled dataframeexecution.CompiledQuery) (arango.ExplainResult, error) {
-	client, err := arango.Open(ctx, opts.URL, opts.Database)
+func explainCompiledQuery(ctx context.Context, opts arango.ConnectionOptions, compiled compiler.CompiledQuery) (arango.ExplainResult, error) {
+	backend, err := arango.Open(ctx, opts)
 	if err != nil {
 		return arango.ExplainResult{}, err
 	}
-	defer client.Close(ctx)
-	return client.Explain(ctx, arango.ExplainRequest{Query: compiled.Query, BindVars: compiled.BindVars})
+	defer backend.Close(ctx)
+	client := backend.Client
+	query, bindVars, err := compiled.Command.AQLParameters()
+	if err != nil {
+		return arango.ExplainResult{}, err
+	}
+	return client.Explain(ctx, arango.ExplainRequest{Query: query, BindVars: bindVars})
 }
 
-// TestGDCOptimizationPolicyAblationAgainstArango is opt-in because it reads
-// the local development database and profiles four complete GDC executions.
-// It proves that independent policy switches preserve the same dataframe
-// result before a later work package uses the measurements to enable a new
-// rewrite.
 func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
 		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run policy ablation against Arango")
@@ -75,10 +75,11 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	client, err := arango.Open(ctx, url, database)
+	arangoBackend, err := arango.Open(ctx, arango.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(ctx)
 	var expectedHash string
 	var expectedRows []map[string]any
@@ -90,7 +91,7 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 				t.Fatal(err)
 			}
 			rows := make([]map[string]any, 0, 1000)
-			err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
+			err = client.QueryRows(ctx, testAQLText(t, compiled.Command), 1000, testAQLBinds(t, compiled.Command), func(row map[string]any) error {
 				rows = append(rows, row)
 				return nil
 			})
@@ -111,8 +112,6 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 					if index >= len(expectedRows) {
 						break
 					}
-					// JSON object encoding sorts map keys, making this a stable
-					// row-level diagnostic even though rows are decoded into maps.
 					left, _ := json.Marshal(rows[index])
 					right, _ := json.Marshal(expectedRows[index])
 					if string(left) != string(right) {
@@ -122,15 +121,11 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 				}
 				t.Fatalf("result hash = %s, want %s", resultHash, expectedHash)
 			}
-			t.Logf("policy=%s rows=%d hash=%s aql_sha256=%x rule_states=%#v", candidate.name, len(rows), resultHash, sha256.Sum256([]byte(compiled.Query)), compiled.PlanDiagnostics.OptimizationPolicy.RuleStates)
+			t.Logf("policy=%s rows=%d hash=%s aql_sha256=%x rule_states=%#v", candidate.name, len(rows), resultHash, sha256.Sum256([]byte(testAQLText(t, compiled.Command))), compiled.PlanDiagnostics.OptimizationPolicy.RuleStates)
 		})
 	}
 }
 
-// TestTraversalSharingAblationAgainstArango profiles focused sibling and
-// deep-traversal fixtures with sharing isolated from prepared selectors. The
-// fixtures intentionally use an oracle project; this test rewrites only the
-// project bind to the loaded local dataset and leaves route semantics intact.
 func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
 		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run traversal sharing profile")
@@ -157,10 +152,11 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	client, err := arango.Open(ctx, url, database)
+	arangoBackend, err := arango.Open(ctx, arango.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(ctx)
 	for _, fixtureID := range []string{"patient-sibling-targets", "patient-deep-filter"} {
 		fixture, ok := byID[fixtureID]
@@ -187,7 +183,7 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 				for run := 0; run < 5; run++ {
 					candidateRows := make([]map[string]any, 0, fixture.Limit)
 					executeStart := time.Now()
-					err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
+					err = client.QueryRows(ctx, testAQLText(t, compiled.Command), 1000, testAQLBinds(t, compiled.Command), func(row map[string]any) error {
 						candidateRows = append(candidateRows, row)
 						return nil
 					})
@@ -225,17 +221,12 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 				} else if resultHash != expectedHash {
 					t.Fatalf("%s result hash = %s, want %s", candidate.name, resultHash, expectedHash)
 				}
-				t.Logf("policy=%s rows=%d hash=%s aql_sha256=%x warm_median=%0.6fs warm_min=%0.6fs runs=%#v shared=%d", candidate.name, len(rows), resultHash, sha256.Sum256([]byte(compiled.Query)), warmMedian, warm[0], executeSeconds, compiled.PlanDiagnostics.SharedTraversalCount)
+				t.Logf("policy=%s rows=%d hash=%s aql_sha256=%x warm_median=%0.6fs warm_min=%0.6fs runs=%#v shared=%d", candidate.name, len(rows), resultHash, sha256.Sum256([]byte(testAQLText(t, compiled.Command))), warmMedian, warm[0], executeSeconds, compiled.PlanDiagnostics.SharedTraversalCount)
 			}
 		})
 	}
 }
 
-// TestPreparedSelectorAblationAgainstArango profiles the prepared selector
-// payload independently from traversal sharing. It intentionally covers a
-// child aggregate+slice, a child pivot, a nested child, and the full GDC
-// dataframe so WP3 can make a generic payload decision instead of relying on
-// one resource-specific query.
 func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
 		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run prepared-selector profile")
@@ -263,10 +254,11 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 	opts := arango.ConnectionOptions{URL: url, Database: database}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	client, err := arango.Open(ctx, url, database)
+	arangoBackend, err := arango.Open(ctx, arango.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(ctx)
 	for _, fixtureID := range []string{"specimen-aggregate-slice", "patient-observation-pivot", "patient-deep-filter", "gdc-case-matrix"} {
 		fixture, ok := byID[fixtureID]
@@ -294,7 +286,7 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 				for run := 0; run < 5; run++ {
 					candidateRows := make([]map[string]any, 0, fixture.Limit)
 					executeStart := time.Now()
-					err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
+					err = client.QueryRows(ctx, testAQLText(t, compiled.Command), 1000, testAQLBinds(t, compiled.Command), func(row map[string]any) error {
 						candidateRows = append(candidateRows, row)
 						return nil
 					})
@@ -328,19 +320,13 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 					t.Fatal(err)
 				}
 				assessment := arango.AssessExplainResult(explain)
-				preparedFields := strings.Count(compiled.Query, "__loom_prepared_")
-				t.Logf("policy=%s rows=%d response_bytes=%d hash=%s aql_sha256=%x prepared_tokens=%d warm_median=%0.6fs warm_min=%0.6fs runs=%#v indexes=%#v", candidate.name, len(rows), responseBytes, executionHash, sha256.Sum256([]byte(compiled.Query)), preparedFields, warm[len(warm)/2], warm[0], executeSeconds, assessment.Indexes)
+				preparedFields := strings.Count(testAQLText(t, compiled.Command), "__loom_prepared_")
+				t.Logf("policy=%s rows=%d response_bytes=%d hash=%s aql_sha256=%x prepared_tokens=%d warm_median=%0.6fs warm_min=%0.6fs runs=%#v indexes=%#v", candidate.name, len(rows), responseBytes, executionHash, sha256.Sum256([]byte(testAQLText(t, compiled.Command))), preparedFields, warm[len(warm)/2], warm[0], executeSeconds, assessment.Indexes)
 			}
 		})
 	}
 }
 
-// TestRichConsumerReuseProfileAgainstArango records the baseline work for
-// WP4's proposed rich-consumer fusion. It deliberately uses the production
-// default (prepared selectors disabled after WP3) and reports the physical
-// reuse groups plus the rendered loop count. There is no fused candidate in
-// this test: fusion must be added only after a compatible group and a profile
-// benefit are demonstrated.
 func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
 		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run rich-consumer profile")
@@ -368,10 +354,11 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 	opts := arango.ConnectionOptions{URL: url, Database: database}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	client, err := arango.Open(ctx, url, database)
+	arangoBackend, err := arango.Open(ctx, arango.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(ctx)
 	for _, fixtureID := range []string{"specimen-aggregate-slice", "gdc-case-matrix"} {
 		fixture, ok := byID[fixtureID]
@@ -391,7 +378,7 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 			for run := 0; run < 5; run++ {
 				candidateRows := make([]map[string]any, 0, fixture.Limit)
 				start := time.Now()
-				err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
+				err = client.QueryRows(ctx, testAQLText(t, compiled.Command), 1000, testAQLBinds(t, compiled.Command), func(row map[string]any) error {
 					candidateRows = append(candidateRows, row)
 					return nil
 				})
@@ -420,14 +407,11 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 				t.Fatal(err)
 			}
 			assessment := arango.AssessExplainResult(explain)
-			t.Logf("rows=%d response_bytes=%d hash=%s aql_sha256=%x warm_median=%0.6fs warm_min=%0.6fs runs=%#v rich_source_reuse=%#v rich_consumer_groups=%#v aql_for_loops=%d indexes=%#v", len(rows), responseBytes, resultHash, sha256.Sum256([]byte(compiled.Query)), warm[len(warm)/2], warm[0], executeSeconds, compiled.PlanDiagnostics.RichSourceReuse, compiled.PlanDiagnostics.RichConsumerGroups, strings.Count(compiled.Query, "FOR "), assessment.Indexes)
+			t.Logf("rows=%d response_bytes=%d hash=%s aql_sha256=%x warm_median=%0.6fs warm_min=%0.6fs runs=%#v rich_source_reuse=%#v rich_consumer_groups=%#v aql_for_loops=%d indexes=%#v", len(rows), responseBytes, resultHash, sha256.Sum256([]byte(testAQLText(t, compiled.Command))), warm[len(warm)/2], warm[0], executeSeconds, compiled.PlanDiagnostics.RichSourceReuse, compiled.PlanDiagnostics.RichConsumerGroups, strings.Count(testAQLText(t, compiled.Command), "FOR "), assessment.Indexes)
 		})
 	}
 }
 
-// TestCompactSetProjectionAblationAgainstArango compares full stored nodes
-// with the typed identity-safe set projection while keeping traversal sharing
-// and prepared selectors fixed. It is the WP5 evidence gate.
 func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
 		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run compact-set profile")
@@ -455,10 +439,11 @@ func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 	opts := arango.ConnectionOptions{URL: url, Database: database}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	client, err := arango.Open(ctx, url, database)
+	arangoBackend, err := arango.Open(ctx, arango.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(ctx)
 	for _, fixtureID := range []string{"specimen-aggregate-slice", "patient-specimen-file", "patient-deep-filter", "gdc-case-matrix"} {
 		fixture, ok := byID[fixtureID]
@@ -491,7 +476,7 @@ func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 				for run := 0; run < 5; run++ {
 					candidateRows := make([]map[string]any, 0, limit)
 					start := time.Now()
-					err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
+					err = client.QueryRows(ctx, testAQLText(t, compiled.Command), 1000, testAQLBinds(t, compiled.Command), func(row map[string]any) error {
 						candidateRows = append(candidateRows, row)
 						return nil
 					})

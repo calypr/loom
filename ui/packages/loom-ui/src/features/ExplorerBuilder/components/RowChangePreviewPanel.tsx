@@ -24,7 +24,6 @@ export const RowChangePreviewPanel = ({
   readonly onApply: () => void;
   readonly onCancel: () => void;
 }) => {
-  // Only a ready preview has an authoritative count, so loading and error carry none.
   const impact = status === 'ready' && preview
     ? rowCountImpactSummary(preview, `${candidateRoot} row root`, PARTIAL_VALIDATION_MESSAGE)
     : '';
@@ -38,9 +37,7 @@ export const RowChangePreviewPanel = ({
       <p className="mt-1 text-sm text-slate-600">
         Review the rows and existing columns before changing this table.
       </p>
-      {/* AT only announces mutations to an already-mounted live region, so this node persists
-          across status changes instead of mounting with each proposal. It holds no text until
-          the current preview is ready, so an earlier root change's count can never persist. */}
+      {}
       <p
         role="status"
         aria-live="polite"

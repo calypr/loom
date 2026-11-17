@@ -22,9 +22,6 @@ func (r *physicalPlanRenderer) renderConstructionRelatedExpandStage(stage ir.Phy
 	if previewLimitBindKey != "" {
 		rawRecordsVariable := r.newInternalVariable("related_expand_raw_records")
 		candidateVariable := r.newInternalVariable("related_expand_preview_candidate")
-		// Keeping each parent's first N rows by the final row identity preserves
-		// the global first N: any discarded row already has N predecessors in
-		// its own parent partition.
 		lines = append(lines,
 			fmt.Sprintf("  LET %s = %s", rawRecordsVariable, records),
 			fmt.Sprintf("  LET %s = (", related.RelatedRecordsVariable),

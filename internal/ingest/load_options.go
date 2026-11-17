@@ -7,40 +7,29 @@ import (
 
 	"github.com/calypr/loom/internal/catalog"
 	publication "github.com/calypr/loom/internal/dataset"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 type LoadOptions struct {
-	arangostore.ConnectionOptions
-	Schema           string
-	MetaDir          string
-	Project          string
-	AuthResourcePath string
-	BatchSize        int
-	ProgressEvery    int
-	WriterCount      int
-	WorkerCount      int
-	LineQueueSize    int
-	WriteQueueSize   int
-	CatalogLimits    catalog.ProfileLimits
-	Truncate         bool
-	FailFast         bool
-	UseGeneric       bool
-	WriteAPI         string
-	EventSink        EventSink
-	// Dataset identifies the complete immutable generation being loaded. The
-	// generation activates only after every graph file and catalog finalization
-	// succeeds.
-	Dataset *publication.Ref
-	// StageOnly leaves a successfully loaded immutable generation STAGED. It is
-	// selected for reads only after project-release activation succeeds.
-	StageOnly bool
-	// DeferActivation is the compatibility spelling used by the generation-load
-	// HTTP API. Like StageOnly, it leaves the generation STAGED and inactive.
-	DeferActivation bool
-	// PreflightSampleRows bounds the number of payloads inspected from every
-	// staged file before Loom opens or mutates Arango. Zero uses the safe
-	// default; full row validation still happens in the loader.
+	ConnectionOptions
+	Schema              string
+	MetaDir             string
+	Project             string
+	AuthResourcePath    string
+	BatchSize           int
+	ProgressEvery       int
+	WriterCount         int
+	WorkerCount         int
+	LineQueueSize       int
+	WriteQueueSize      int
+	CatalogLimits       catalog.ProfileLimits
+	Truncate            bool
+	FailFast            bool
+	UseGeneric          bool
+	WriteAPI            string
+	EventSink           EventSink
+	Dataset             *publication.Ref
+	StageOnly           bool
+	DeferActivation     bool
 	PreflightSampleRows int
 }
 
@@ -53,31 +42,21 @@ type RowErrorSample struct {
 }
 
 type LoadSummary struct {
-	Files            int                `json:"files"`
-	VerticesInserted int                `json:"vertices_inserted"`
-	EdgesInserted    int                `json:"edges_inserted"`
-	ValidationErrors int                `json:"validation_errors"`
-	GenerationErrors int                `json:"generation_errors"`
-	EdgeErrors       int                `json:"edge_errors"`
-	BatchCounts      map[string]int     `json:"batch_counts,omitempty"`
-	Resources        map[string]int     `json:"resources"`
-	StageSeconds     map[string]float64 `json:"stage_seconds"`
-	Preflight        PreflightReport    `json:"preflight"`
-	RowErrors        []RowErrorSample   `json:"row_errors,omitempty"`
-	// SchemaIdentity is the exact configured graph-schema evidence used for
-	// this load. It remains nil when Loom cannot load the configured schema, so
-	// an early failure never looks like a successful schema observation.
-	SchemaIdentity *publication.SchemaSnapshot `json:"schema_identity,omitempty"`
-	// Dataset is the immutable target when this was a generation load. It is
-	// present even on a failed generation load so callers can identify the
-	// inactive manifest that needs operational inspection.
-	Dataset *publication.Ref `json:"dataset,omitempty"`
+	Files            int                         `json:"files"`
+	VerticesInserted int                         `json:"vertices_inserted"`
+	EdgesInserted    int                         `json:"edges_inserted"`
+	ValidationErrors int                         `json:"validation_errors"`
+	GenerationErrors int                         `json:"generation_errors"`
+	EdgeErrors       int                         `json:"edge_errors"`
+	BatchCounts      map[string]int              `json:"batch_counts,omitempty"`
+	Resources        map[string]int              `json:"resources"`
+	StageSeconds     map[string]float64          `json:"stage_seconds"`
+	Preflight        PreflightReport             `json:"preflight"`
+	RowErrors        []RowErrorSample            `json:"row_errors,omitempty"`
+	SchemaIdentity   *publication.SchemaSnapshot `json:"schema_identity,omitempty"`
+	Dataset          *publication.Ref            `json:"dataset,omitempty"`
 }
 
-// normalizeLoadOptions applies the operational defaults shared by both loader
-// modes. The immutable-generation loader deliberately has a different write
-// lifecycle, but both modes must agree on batching, progress, concurrency, and
-// the Arango write API before any input is examined.
 func normalizeLoadOptions(opts LoadOptions) LoadOptions {
 	if opts.BatchSize <= 0 {
 		opts.BatchSize = 5000
@@ -105,26 +84,14 @@ func normalizeLoadOptions(opts LoadOptions) LoadOptions {
 }
 
 var (
-	// ErrGenerationLoadRequiresDirectory prevents a one-file or arbitrary-file
-	// load from being mistaken for a complete immutable dataset snapshot.
-	ErrGenerationLoadRequiresDirectory = errors.New("dataset generation load requires a directory")
-	// ErrGenerationLoadRequiresFiles prevents an empty staged directory from
-	// becoming an active but meaningless generation.
-	ErrGenerationLoadRequiresFiles = errors.New("dataset generation load requires at least one NDJSON file")
-	// ErrGenerationLoadTruncateForbidden prevents a new generation from
-	// deleting active or historical graph data.
-	ErrGenerationLoadTruncateForbidden = errors.New("dataset generation load cannot truncate collections")
-	// ErrGenerationDatasetProjectMismatch prevents graph documents and their
-	// lifecycle manifest from being scoped to different projects.
+	ErrGenerationLoadRequiresDirectory     = errors.New("dataset generation load requires a directory")
+	ErrGenerationLoadRequiresFiles         = errors.New("dataset generation load requires at least one NDJSON file")
+	ErrGenerationLoadTruncateForbidden     = errors.New("dataset generation load cannot truncate collections")
 	ErrGenerationDatasetProjectMismatch    = errors.New("dataset generation project does not match load project")
 	ErrGenerationSingleResourceUnsupported = errors.New("single-resource imports cannot create a dataset generation")
 	ErrGenerationDatasetRequired           = errors.New("dataset generation is required")
 )
 
-// ActivationOutcomeError means the generation reached STAGED but Loom could
-// not prove that the legacy active-generation pointer was updated. STAGED is kept for
-// an operator to reconcile; it must never be downgraded to FAILED because the
-// activation request may have committed before its error reached the caller.
 type ActivationOutcomeError struct {
 	Dataset publication.Ref
 	Err     error
@@ -144,10 +111,6 @@ func (e *ActivationOutcomeError) Unwrap() error {
 	return e.Err
 }
 
-// GenerationLoadIncompleteError means row-level validation, generation, or
-// edge construction failures were observed while FailFast was disabled. The
-// graph may contain partial immutable documents, but the lifecycle manifest is
-// deliberately left FAILED and cannot be selected for reads.
 type GenerationLoadIncompleteError struct {
 	Dataset          publication.Ref
 	ValidationErrors int
@@ -174,8 +137,6 @@ type generationLoadPlan struct {
 	Manifest publication.Manifest
 }
 
-// newGenerationLoadPlan validates and snapshots all immutable information
-// after input preflight and before a database connection is opened.
 func newGenerationLoadPlan(opts LoadOptions, files []string, schemaSnapshot publication.SchemaSnapshot) (*generationLoadPlan, error) {
 	if opts.Dataset == nil {
 		return nil, ErrGenerationDatasetRequired

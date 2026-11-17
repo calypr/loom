@@ -158,7 +158,6 @@ func TestNormalizeConstructionOutputsUsesAnchoredCohortSchema(t *testing.T) {
 		{
 			ID: "filter_cohorts", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "group_rows"}},
 			Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{ColumnID: "group_label", Operator: ConstructionFilterExists}},
-			// This is the UI's visible cohort schema: group_id is an internal identity.
 			Outputs: []StageColumn{
 				{ID: "group_label", Name: "group_label", Label: "Group label", Type: "string"},
 				{ID: "group_ordinal", Name: "group_ordinal", Label: "Group ordinal", Type: "integer"},

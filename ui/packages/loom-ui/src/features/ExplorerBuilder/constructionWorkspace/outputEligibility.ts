@@ -1,21 +1,13 @@
 import type { ExplorerBuilderDocument } from '../../../types';
 
 export interface EffectiveOutputAvailability {
-  /** Preserve the existing publish guard for authored columns, including hidden ones. */
   readonly hasAnyOutputColumn: boolean;
-  /** Whether the current row-producing stage has a column available to preview. */
   readonly hasVisibleOutputColumn: boolean;
 }
 
 const hasVisibleSourceColumn = (document: ExplorerBuilderDocument): boolean =>
   document.columns.some((column) => column.table?.visible ?? Boolean(column.table));
 
-/**
- * Computes the output-column gates from the authored source and terminal stage.
- * A terminal construction may provide the first usable columns for an otherwise
- * empty table (for example, a Combine step). An explicit terminal cohort keeps
- * the source-column gate used by PreviewTable's cohort projection.
- */
 export const effectiveOutputAvailability = (
   document: ExplorerBuilderDocument,
 ): EffectiveOutputAvailability => {
@@ -55,9 +47,6 @@ export const effectiveOutputAvailability = (
   });
 
   return {
-    // Existing publication eligibility accepts authored columns regardless of
-    // their presentation visibility. Also count terminal outputs when a
-    // row-shaping construction starts from a zero-column table.
     hasAnyOutputColumn: document.columns.length > 0 || finalStep.outputs.length > 0,
     hasVisibleOutputColumn: hasVisibleConstructionOutput || sourceOutputs.some(
       (column) => column.table?.visible ?? Boolean(column.table),

@@ -21,8 +21,6 @@ test('created Explorer scope exposes canonical browser command, reconcile, and m
     `${expectedRoot}/authoring/v2/population-mapping`,
   ]);
 
-  // This covers the route helper; the retired population browser workflow's
-  // use of these routes remains a separate, unverified wiring guarantee.
 
 });
 

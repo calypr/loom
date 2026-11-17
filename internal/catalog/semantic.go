@@ -1,10 +1,5 @@
 package catalog
 
-// This file records observed FHIR concept candidates at ingestion time. It is
-// deliberately a bounded catalog operation: it never decides clinical
-// equivalence and it never removes the raw field profile when a candidate is
-// unresolved or mixed.
-
 import (
 	"encoding/json"
 	"fmt"
@@ -136,8 +131,6 @@ func semanticExampleValues(value semanticChoiceValue) []any {
 		}
 		return examples
 	}
-	// Keep a bounded scalar example for structured FHIR choice values while
-	// preserving the arm and selector in the observation itself.
 	path := strings.TrimPrefix(value.Selector, value.Arm+".")
 	if path != "" {
 		return []any{semanticValueAtPath(object, path)}
@@ -224,8 +217,6 @@ func semanticGeneratedValueType(resourceType, path string, value any, fallback s
 	if ok && metadata.Primitive != fhirschema.PrimitiveUnknown {
 		return string(metadata.Primitive)
 	}
-	// Extension value[x] arms are resolved against the generated Extension
-	// definition when the containing resource path does not expose the arm.
 	if resourceType != "Extension" {
 		metadata, ok = fhirschema.ResolveTerminalScalarMetadata("Extension", path)
 		if ok && metadata.Primitive != fhirschema.PrimitiveUnknown {
@@ -399,8 +390,6 @@ func safeSemanticExample(value any) (string, bool) {
 	return text, true
 }
 
-// These helpers avoid reflection while supporting every integer type in the
-// untyped JSON fixture values used by the profiler.
 func reflectInt64(value any) int64 {
 	switch v := value.(type) {
 	case int8:

@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/bmeg/jsonschemagraph/graph"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/catalog"
 	publication "github.com/calypr/loom/internal/dataset"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func TestNewGenerationLoadPlanRejectsUnsafeOrIncompleteInputs(t *testing.T) {
@@ -115,8 +115,8 @@ func TestGenerationLoadPreflightRunsBeforeOptionRejectionOrBackend(t *testing.T)
 		MetaDir:  dir,
 		Project:  ref.Project,
 		Dataset:  &ref,
-		Truncate: true, // would be rejected only after preflight succeeds.
-		ConnectionOptions: arangostore.ConnectionOptions{
+		Truncate: true,
+		ConnectionOptions: arangofactory.ConnectionOptions{
 			URL:      "http://127.0.0.1:1",
 			Database: "generation_preflight_must_not_connect",
 		},
@@ -150,7 +150,7 @@ func TestGenerationLoadEmptyDirectoryDoesNotOpenBackend(t *testing.T) {
 		MetaDir: dir,
 		Project: ref.Project,
 		Dataset: &ref,
-		ConnectionOptions: arangostore.ConnectionOptions{
+		ConnectionOptions: arangofactory.ConnectionOptions{
 			URL:      "http://127.0.0.1:1",
 			Database: "empty_generation_must_not_connect",
 		},
@@ -231,9 +231,6 @@ func TestSelectGenerationRowErrorSamplesCoversEveryFailingFile(t *testing.T) {
 	if got := len(samples); got != rowErrorSampleLimit {
 		t.Fatalf("samples = %d, want the full budget of %d", got, rowErrorSampleLimit)
 	}
-	// Round-robin by file order fills each smaller file completely before the
-	// largest file consumes the leftover budget, and the summary reports the
-	// picks in file-then-line order.
 	want := []string{
 		"Condition.ndjson:1", "Condition.ndjson:2", "Condition.ndjson:3",
 		"Condition.ndjson:4", "Condition.ndjson:5",
@@ -271,7 +268,6 @@ func TestSelectGenerationRowErrorSamplesIsBoundedAndDeterministic(t *testing.T) 
 	if len(samples) != rowErrorSampleLimit {
 		t.Fatalf("samples = %d, want the capped budget of %d from %d failing files", len(samples), rowErrorSampleLimit, failingFileCount)
 	}
-	// More failing files than budget: the earliest files in discovery order win.
 	for i, sample := range samples {
 		if want := fmt.Sprintf("Patient-%02d.ndjson", i); sample.File != want {
 			t.Fatalf("sample[%d] file = %q, want %q (selection = %v)", i, sample.File, want, generationRowErrorKeys(samples))
@@ -349,7 +345,6 @@ func TestGenerationRowErrorSamplesCoverEveryFailingStagedFile(t *testing.T) {
 	}
 	dir := t.TempDir()
 	invalid := "{\n"
-	// Sorted discovery order: Condition, Medication, Observation, Patient.
 	writePreflightFixture(t, dir, "Condition.ndjson", strings.Repeat(invalid, 12))
 	writePreflightFixture(t, dir, "Medication.ndjson", invalid+invalid+invalid)
 	writePreflightFixture(t, dir, "Observation.ndjson", invalid+invalid)
@@ -364,7 +359,9 @@ func TestGenerationRowErrorSamplesCoverEveryFailingStagedFile(t *testing.T) {
 	}
 
 	opts := normalizeLoadOptions(LoadOptions{Project: "project-a", WriterCount: 2, WorkerCount: 2})
-	insert := func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error { return nil }
+	insert := func(context.Context, *arangofactory.Client, string, []json.RawMessage, bool, string) error {
+		return nil
+	}
 
 	var totals fileLoadResult
 	var candidates [][]RowErrorSample
@@ -380,7 +377,6 @@ func TestGenerationRowErrorSamplesCoverEveryFailingStagedFile(t *testing.T) {
 		candidates = append(candidates, result.RowErrors)
 	}
 
-	// Aggregate counts are exact and independent of how samples are selected.
 	if totals.ValidationErrors != 17 || totals.GenerationErrors != 0 || totals.EdgeErrors != 0 {
 		t.Fatalf("totals = %+v, want 17 validation errors and no generation or edge errors", totals)
 	}
@@ -408,8 +404,6 @@ func TestGenerationRowErrorSamplesCoverEveryFailingStagedFile(t *testing.T) {
 	if _, clean := perFile["Patient.ndjson"]; clean {
 		t.Fatalf("clean file Patient.ndjson produced samples: %v", generationRowErrorKeys(samples))
 	}
-	// 12 + 3 + 2 invalid rows compete for ten slots: each failing file keeps its
-	// two earliest lines before Condition takes the remaining slots.
 	if got, want := generationRowErrorKeys(samples), []string{
 		"Condition.ndjson:1", "Condition.ndjson:2", "Condition.ndjson:3", "Condition.ndjson:4", "Condition.ndjson:5",
 		"Medication.ndjson:1", "Medication.ndjson:2", "Medication.ndjson:3",
@@ -417,7 +411,6 @@ func TestGenerationRowErrorSamplesCoverEveryFailingStagedFile(t *testing.T) {
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("samples = %v, want %v", got, want)
 	}
-	// Every sample reproduces a real invalid line from its own staged file.
 	for _, sample := range samples {
 		contents, readErr := os.ReadFile(filepath.Join(dir, sample.File))
 		if readErr != nil {
@@ -444,7 +437,9 @@ func TestGenerationRowErrorSamplesLeaveCleanLoadWithoutSamples(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts := normalizeLoadOptions(LoadOptions{Project: "project-a", WriterCount: 2, WorkerCount: 2})
-	insert := func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error { return nil }
+	insert := func(context.Context, *arangofactory.Client, string, []json.RawMessage, bool, string) error {
+		return nil
+	}
 
 	var candidates [][]RowErrorSample
 	var totals fileLoadResult

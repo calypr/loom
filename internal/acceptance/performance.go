@@ -16,10 +16,6 @@ const (
 	ProbeFloorSeconds       = 0.1
 )
 
-// PerformanceStageNames is deliberately kept in the same order as the
-// acceptance contract. These are end-to-end stages, so adding a new timed
-// stage here is an explicit contract change rather than an accidental report
-// field becoming a gate.
 var PerformanceStageNames = []string{
 	"generation_upload",
 	"explorer_publish",
@@ -38,17 +34,9 @@ type PerformanceObservation struct {
 	RepeatCurrentSeconds float64 `json:"repeat_current_seconds,omitempty"`
 	RepeatRatio          float64 `json:"repeat_ratio,omitempty"`
 	RepeatSuspected      bool    `json:"repeat_suspected,omitempty"`
-	// ReverseSuspected is retained as a wire-compatible name for consumers of
-	// the initial comparator. It is always the result of comparing the repeat
-	// current run against the repeat base run when ComparePerformanceRuns is
-	// used.
-	ReverseSuspected bool `json:"reverse_suspected"`
+	ReverseSuspected     bool    `json:"reverse_suspected"`
 }
 
-// PerformanceStageSeconds extracts only the four stages covered by the
-// performance contract. A missing stage remains absent, allowing callers to
-// report a malformed/unsupported base explicitly instead of treating zero as
-// a very fast run.
 func PerformanceStageSeconds(stages []StageReport) map[string]float64 {
 	allowed := make(map[string]struct{}, len(PerformanceStageNames))
 	for _, name := range PerformanceStageNames {
@@ -76,11 +64,6 @@ func performanceFloor(name string) (float64, bool) {
 	}
 }
 
-// ComparePerformanceRuns applies the two-part regression gate. The first
-// pair is the initial (ordered) base/current run. If that pair is suspected,
-// callers run both variants again in the opposite order with fresh databases
-// and pass that pair as repeatBase/repeatCurrent. Confirmation is therefore
-// always against the repeat's base, not a value observed before the repeat.
 func ComparePerformanceRuns(base, current, repeatBase, repeatCurrent map[string]float64) []PerformanceObservation {
 	names := map[string]bool{}
 	for _, name := range PerformanceStageNames {
@@ -122,9 +105,6 @@ func ComparePerformanceRuns(base, current, repeatBase, repeatCurrent map[string]
 	return result
 }
 
-// ComparePerformance is retained for callers that already have a reverse
-// current observation but no reverse base. New callers should use
-// ComparePerformanceRuns so confirmation is based on the repeat's base.
 func ComparePerformance(base, current, reverse map[string]float64) []PerformanceObservation {
 	return ComparePerformanceRuns(base, current, base, reverse)
 }

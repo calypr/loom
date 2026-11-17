@@ -73,7 +73,6 @@ func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadReque
 	opts.DeferActivation = req.DeferActivation
 	opts.Truncate = false
 	opts.EventSink = sink
-	// StageOnly is a CLI mode. The HTTP API stages through DeferActivation.
 	opts.StageOnly = false
 	return ingest.Load(ctx, opts)
 }
@@ -167,9 +166,6 @@ func (s *Service) runGeneration(ctx context.Context, req GenerationLoadRequest) 
 	return &GenerationLoadResult{Project: req.Project, Generation: req.Generation, AuthResourcePath: req.AuthResourcePath, SubmittedBy: req.SubmittedBy, Summary: &summary, Activated: !req.DeferActivation}, nil
 }
 
-// activateGeneration performs the release switch only after the exact
-// dataframe bundle supplied by the caller is durably successful and remains
-// the active pointer for its recipe/generation namespace.
 func (s *Service) activateGeneration(ctx context.Context, project, generation, executionID string) error {
 	fail := func(err error) error {
 		if err != nil {
@@ -208,10 +204,6 @@ func (s *Service) activateGeneration(ctx context.Context, project, generation, e
 		return fail(fmt.Errorf("read generation release: %w", err))
 	}
 	if !manifest.IsStaged() {
-		// Domain state signal: activate requires a staged manifest. The
-		// bulk-load boundary (normalizeError) classifies this sentinel as
-		// GENERATION_NOT_READY (409); a raw error here served an opaque 500
-		// on the documented 409 arm of the activate route.
 		return fail(fmt.Errorf("generation %s/%s is not READY (state %s): %w", project, generation, manifest.State, publication.ErrGenerationNotReady))
 	}
 	if err := s.generationActivator.Activate(ctx, manifest); err != nil {

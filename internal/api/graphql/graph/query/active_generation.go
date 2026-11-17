@@ -7,9 +7,6 @@ import (
 	publication "github.com/calypr/loom/internal/dataset"
 )
 
-// resolveActiveGeneration pins builder-side catalog discovery to the exact
-// READY manifest selected for this request. Without a manifest, the primary
-// unversioned catalog namespace remains the fallback.
 func (s *Service) resolveActiveGeneration(ctx context.Context, project string) (string, error) {
 	if s == nil || s.activeManifestResolver == nil {
 		return "", nil

@@ -15,9 +15,6 @@ func ParseSelector(input string) (Selector, error) {
 	return fhirschema.ParseSelector(input)
 }
 
-// ParseDirectScalarSelector accepts only a non-repeating property path. It
-// rejects array traversal, indexing, and filters so field choices can be
-// lowered as one exact payload lookup with no implicit collection behavior.
 func ParseDirectScalarSelector(input string) ([]string, error) {
 	if strings.TrimSpace(input) == "" || strings.TrimSpace(input) != input {
 		return nil, fmt.Errorf("selector must be exact and non-empty")

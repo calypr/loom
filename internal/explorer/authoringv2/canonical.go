@@ -51,15 +51,6 @@ func (w Workspace) CanonicalJSON() ([]byte, error) {
 	return json.Marshal(n)
 }
 
-// NormalizePresentationOrders gives every table column one unambiguous,
-// contiguous presentation position. Authored order is the primary key and the
-// stable public column identity breaks ties. The normalized order also becomes
-// the recipe projection order, so presentation and execution cannot disagree.
-//
-// Duplicate presentation positions are valid mutable Builder input. Freezing
-// them here keeps equivalent requests from depending on frontend collection or
-// map iteration order and makes the normalized workspace safe to persist and
-// return to the Builder.
 func (w Workspace) NormalizePresentationOrders() Workspace {
 	n := w
 	n.Documents = make([]Document, len(w.Documents))
@@ -196,10 +187,6 @@ func (w Workspace) Digest() (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-// LegacyNilConstructionStepsDigest returns the digest produced by the prior
-// canonical writer when an empty construction's nil Steps slice was encoded
-// as null. It is used only to recognize and migrate persisted drafts created
-// before empty construction sequences were normalized to arrays.
 func (w Workspace) LegacyNilConstructionStepsDigest() (string, error) {
 	legacyStepLists := 0
 	for _, document := range w.Documents {
@@ -355,10 +342,6 @@ func DecodeWorkspace(raw []byte) (Workspace, error) {
 		}
 		return out, nil
 	} else {
-		// Legacy source wires are accepted only by persisted-draft decoding.
-		// New mutation requests use the current ColumnSource decoder and never
-		// enter this compatibility path. Workspace.Validate below still rejects
-		// future semantics versions after a successful legacy decode.
 		migrated, migrationErr := decodePersistedLegacyWorkspace(raw)
 		if migrationErr != nil {
 			return out, err
@@ -469,9 +452,6 @@ func decodePersistedSource(raw json.RawMessage, semanticsVersion int) (ColumnSou
 	if err := strictDecode(raw, &legacy); err == nil {
 		return decodeLegacyFlatSource(legacy)
 	}
-	// The first v3 draft wire used nested source payloads and a nested where.
-	// Keep that wire private to persisted-draft migration; AggregateSource's
-	// current decoder deliberately rejects where on writable requests.
 	var nested struct {
 		Kind      string       `json:"kind"`
 		Field     *FieldSource `json:"field,omitempty"`

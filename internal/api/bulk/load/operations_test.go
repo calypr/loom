@@ -50,13 +50,6 @@ func TestCreateDatasetGenerationStagesCompleteBundle(t *testing.T) {
 	}
 }
 
-// createDatasetGenerationBaseline is the shipped pre-change handler body
-// (git show HEAD~1:internal/api/bulk/load/operations.go, ReadForm + a second
-// io.Copy into a separate staging directory), and stageGenerationFilesBaseline
-// is its staging helper. They exist only so the differential tests below can
-// compare the streaming stager against the behavior it replaced — same typed
-// error, same loader-visible bytes — instead of against a description of it.
-// They are never wired into a route.
 func (h *Handler) createDatasetGenerationBaseline(ctx context.Context, project, generation string, body *multipart.Reader, principal *authscope.Principal) (*GenerationLoadResult, error) {
 	if body == nil {
 		return nil, fiber.NewError(fiber.StatusUnsupportedMediaType)
@@ -149,7 +142,6 @@ func stageGenerationFilesBaseline(headers []*multipart.FileHeader) (string, erro
 	return dir, nil
 }
 
-// orderedPart is one multipart part in the exact order the client sent it.
 type orderedPart struct {
 	field    string
 	filename string
@@ -187,7 +179,6 @@ func orderedMultipart(t *testing.T, parts []orderedPart) ([]byte, string) {
 	return body.Bytes(), writer.Boundary()
 }
 
-// recordingGenerationRunner captures the loader-visible bundle and can fail.
 type recordingGenerationRunner struct {
 	req      GenerationLoadRequest
 	contents map[string]string
@@ -232,9 +223,6 @@ func allowAllHandler(t *testing.T, runner *recordingGenerationRunner) *Handler {
 	return handler
 }
 
-// assertNoTemporaryUploadFiles pins the cleanup contract: after the handler
-// returns, the redirected temp root holds no staged directory and no
-// multipart spillover file.
 func assertNoTemporaryUploadFiles(t *testing.T, tempDir string) {
 	t.Helper()
 	entries, err := os.ReadDir(tempDir)
@@ -253,11 +241,6 @@ func assertNoTemporaryUploadFiles(t *testing.T, tempDir string) {
 	}
 }
 
-// TestCreateDatasetGenerationStagesFilesThatArriveBeforeScalarFields pins the
-// compatibility-sensitive ordering contract: files first in multipart order
-// must still reach the loader byte-identical, and the scalar fields that
-// follow them (including a repeat value, where the first one wins) must still
-// reach the handler.
 func TestCreateDatasetGenerationStagesFilesThatArriveBeforeScalarFields(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("TMPDIR", tempDir)
@@ -294,10 +277,6 @@ func TestCreateDatasetGenerationStagesFilesThatArriveBeforeScalarFields(t *testi
 	assertNoTemporaryUploadFiles(t, tempDir)
 }
 
-// TestCreateDatasetGenerationRejectsBundleWithoutStagingAnything pins the
-// file-name and duplicate contract plus its cleanup: every rejection is a
-// typed error and leaves nothing on disk, including a file already streamed
-// into the staging directory before the rejecting part arrived.
 func TestCreateDatasetGenerationRejectsBundleWithoutStagingAnything(t *testing.T) {
 	large := bytes.Repeat([]byte("y"), 20*1024*1024)
 	for _, tc := range []struct {
@@ -356,9 +335,6 @@ func TestCreateDatasetGenerationRejectsBundleWithoutStagingAnything(t *testing.T
 	}
 }
 
-// TestCreateDatasetGenerationMalformedAndAbsentBodyAreInvalidInput pins the
-// pre-fix classification of parse failures: an absent or unparseable body is
-// never a staging fault, and a truncated stream leaves nothing behind.
 func TestCreateDatasetGenerationMalformedAndAbsentBodyAreInvalidInput(t *testing.T) {
 	t.Run("absent body", func(t *testing.T) {
 		handler := allowAllHandler(t, &recordingGenerationRunner{})
@@ -391,7 +367,6 @@ func TestCreateDatasetGenerationMalformedAndAbsentBodyAreInvalidInput(t *testing
 	})
 }
 
-// assertFiberStatus pins the transport-level error the route maps to a status.
 func assertFiberStatus(t *testing.T, err error, status int) {
 	t.Helper()
 	var fiberErr *fiber.Error
@@ -400,8 +375,6 @@ func assertFiberStatus(t *testing.T, err error, status int) {
 	}
 }
 
-// generationOutcome is everything the caller and the loader can observe, so
-// the two staging paths can be compared as black boxes.
 type generationOutcome struct {
 	errIsNil    bool
 	errCode     string
@@ -440,10 +413,6 @@ func outcomeOf(result *GenerationLoadResult, err error, runner *recordingGenerat
 	return outcome
 }
 
-// runGenerationOnTempRoot drives one request through one staging path with a
-// private temp root, and returns the observable outcome. The temp root must be
-// genuinely in effect: the leftover check is only meaningful if the staging
-// paths could have written there.
 func runGenerationOnTempRoot(t *testing.T, parts []orderedPart, truncate int, baseline bool, authz authscope.Authorizer, loaderErr error) generationOutcome {
 	t.Helper()
 	tempDir := t.TempDir()
@@ -476,20 +445,9 @@ func runGenerationOnTempRoot(t *testing.T, parts []orderedPart, truncate int, ba
 	return outcome
 }
 
-// TestCreateDatasetGenerationStreamingPathMatchesShippedPath is the
-// differential check behind the single-write change: every payload shape that
-// matters — multipart order, scalar semantics, filename validation, duplicates,
-// non-bundle file fields, malformed input, denied authorization, loader
-// failure — is pushed through both the streaming stager and the shipped
-// ReadForm-plus-second-copy path it replaced, and the loader-visible bytes, the
-// typed error, and the loader request must agree exactly.
 func TestCreateDatasetGenerationStreamingPathMatchesShippedPath(t *testing.T) {
 	small := []byte("{\"resourceType\":\"Patient\",\"id\":\"1\"}\n")
-	// Two of these exceed the 32 MiB ReadForm file budget, which is what forced a
-	// multipart-* spill in the shipped path.
 	overBudget := bytes.Repeat([]byte("z"), 20*1024*1024)
-	// One of these exceeds it on its own, so it is written to the staged
-	// directory before any later part can reject the request.
 	pastBudget := bytes.Repeat([]byte("z"), 33*1024*1024)
 
 	cases := []struct {
@@ -546,10 +504,6 @@ func TestCreateDatasetGenerationStreamingPathMatchesShippedPath(t *testing.T) {
 			},
 		},
 		{
-			// pastBudget is above the 32 MiB file budget on its own, so the
-			// streaming path has already written it into the staged directory
-			// before the rejecting part arrives — the handler cannot clean that
-			// up (it never receives a bundle), so the stager must.
 			name: "staged oversized file rejected by a later duplicate",
 			parts: []orderedPart{
 				{field: "file", filename: "Patient.ndjson", content: pastBudget},
@@ -572,8 +526,6 @@ func TestCreateDatasetGenerationStreamingPathMatchesShippedPath(t *testing.T) {
 			truncate: 8,
 		},
 		{
-			// A scalar field flushes the buffered files, so the rejecting part
-			// arrives while the staged directory already exists on disk.
 			name: "flushed files rejected by a later duplicate",
 			parts: []orderedPart{
 				{field: "file", filename: "Patient.ndjson", content: small},
@@ -592,8 +544,6 @@ func TestCreateDatasetGenerationStreamingPathMatchesShippedPath(t *testing.T) {
 			truncate: 8,
 		},
 		{
-			// The oversized part is already on disk and the scalar that follows
-			// pushes the parse past the memory budget.
 			name: "staged oversized file past the scalar budget",
 			parts: []orderedPart{
 				{field: "file", filename: "Patient.ndjson", content: pastBudget},
@@ -602,8 +552,6 @@ func TestCreateDatasetGenerationStreamingPathMatchesShippedPath(t *testing.T) {
 			},
 		},
 		{
-			// The oversized scalar is the final part, so only its own budget
-			// charge can refuse it — no later part re-triggers the check.
 			name: "oversized scalar value as the last part",
 			parts: []orderedPart{
 				{field: "file", filename: "Patient.ndjson", content: small},
@@ -611,22 +559,14 @@ func TestCreateDatasetGenerationStreamingPathMatchesShippedPath(t *testing.T) {
 			},
 		},
 		{
-			// Metadata alone exhausts the budget: 500 scalar parts with 96 KiB
-			// field names cost ~47 MiB of in-memory accounting while staying under
-			// the part limit, which is what readForm refuses.
 			name:  "metadata charges exhaust the memory budget",
 			parts: metadataHeavyParts(500, 96*1024),
 		},
 		{
-			// Same shape for file parts, where readForm additionally charges the
-			// MIME header size and file-header overhead.
 			name:  "file part metadata charges exhaust the memory budget",
 			parts: metadataHeavyFileParts(500, 96*1024),
 		},
 		{
-			// Boundary case for the fixed per-part map-entry overhead: 1000 parts
-			// whose field names alone sit just inside the budget, so only the
-			// 200-byte-per-part charge readForm applies can push it over.
 			name:  "per-part overhead crosses the memory budget",
 			parts: metadataHeavyParts(1000, 43950),
 		},
@@ -704,9 +644,6 @@ func TestCreateDatasetGenerationStreamingPathMatchesShippedPath(t *testing.T) {
 			deny: true,
 		},
 		{
-			// The shipped path only discovered a bad file name inside
-			// stageGenerationFiles, which ran after AuthorizeWrite, so a denied
-			// caller got FORBIDDEN rather than the file fault.
 			name: "denied authorization with an invalid file name",
 			parts: []orderedPart{
 				{field: "file", filename: "Patient.txt", content: small},
@@ -722,8 +659,6 @@ func TestCreateDatasetGenerationStreamingPathMatchesShippedPath(t *testing.T) {
 			deny: true,
 		},
 		{
-			// Authorization is still decided by the parsed scalar fields, so a
-			// bundle that fails staging must not bypass the authorizer.
 			name: "denied authorization with a bad name after a staged oversized file",
 			parts: []orderedPart{
 				{field: "file", filename: "Patient.ndjson", content: pastBudget},
@@ -733,13 +668,10 @@ func TestCreateDatasetGenerationStreamingPathMatchesShippedPath(t *testing.T) {
 			deny: true,
 		},
 		{
-			// The shipped path parsed every part before validating, so the parser
-			// limit outranks a file fault even when the bad name arrives first.
 			name:  "invalid file name plus too many parts",
 			parts: tooManyPartsWithBadName(),
 		},
 		{
-			// Likewise the scalar checks outrank a file fault.
 			name: "invalid file name plus invalid defer activation",
 			parts: []orderedPart{
 				{field: "file", filename: "Patient.txt", content: small},
@@ -762,8 +694,6 @@ func TestCreateDatasetGenerationStreamingPathMatchesShippedPath(t *testing.T) {
 			},
 		},
 		{
-			// stageGenerationFiles returned at the first offending header, so
-			// the earlier fault decides: invalid name, not the later duplicate.
 			name: "invalid file name before a duplicate",
 			parts: []orderedPart{
 				{field: "file", filename: "Patient.txt", content: small},
@@ -789,10 +719,6 @@ func TestCreateDatasetGenerationStreamingPathMatchesShippedPath(t *testing.T) {
 			},
 		},
 		{
-			// readForm charged every file part's content against the memory budget
-			// whether or not its name was usable, so an oversized invalid-name
-			// part can push a later scalar past the limit. The file fault must not
-			// outrank that parse failure.
 			name: "oversized invalid-name part then a scalar past the budget",
 			parts: []orderedPart{
 				{field: "file", filename: "Patient.txt", content: pastBudget},
@@ -810,8 +736,6 @@ func TestCreateDatasetGenerationStreamingPathMatchesShippedPath(t *testing.T) {
 			},
 		},
 		{
-			// A rejected part that is itself past the file budget is still
-			// accounted for, exactly as readForm accounted for the spill it made.
 			name: "oversized non-bundle file part then a scalar past the budget",
 			parts: []orderedPart{
 				{field: "other", filename: "junk.txt", content: pastBudget},
@@ -820,10 +744,6 @@ func TestCreateDatasetGenerationStreamingPathMatchesShippedPath(t *testing.T) {
 			},
 		},
 		{
-			// 200 in-memory non-bundle file parts of 160000 bytes each cost
-			// 32 MiB of the readForm budget, so a following 13 MiB scalar
-			// crosses the limit. Skip that charge and the same request parses
-			// cleanly, which is a different error class.
 			name:  "many non-bundle file parts then a scalar past the budget",
 			parts: nonBundleFillerParts(200, 160000, 13*1024*1024),
 		},
@@ -844,8 +764,6 @@ func TestCreateDatasetGenerationStreamingPathMatchesShippedPath(t *testing.T) {
 	}
 }
 
-// metadataHeavyParts builds n scalar parts whose field names alone push the
-// parse past the readForm memory budget, staying under the part limit.
 func metadataHeavyParts(n, nameLen int) []orderedPart {
 	name := strings.Repeat("n", nameLen)
 	parts := make([]orderedPart, 0, n+1)
@@ -855,8 +773,6 @@ func metadataHeavyParts(n, nameLen int) []orderedPart {
 	return parts
 }
 
-// metadataHeavyFileParts builds n file parts whose names and MIME headers push
-// the parse past the readForm memory budget.
 func metadataHeavyFileParts(n, nameLen int) []orderedPart {
 	name := strings.Repeat("n", nameLen)
 	parts := make([]orderedPart, 0, n+1)
@@ -866,8 +782,6 @@ func metadataHeavyFileParts(n, nameLen int) []orderedPart {
 	return parts
 }
 
-// tooManyPartsWithBadName puts an invalid file name ahead of a request that
-// trips the part-count limit, so the two failure classes compete.
 func tooManyPartsWithBadName() []orderedPart {
 	parts := []orderedPart{{field: "file", filename: "Patient.txt", content: []byte("nope\n")}}
 	for i := 0; i <= generationFormLimits().maxParts; i++ {
@@ -876,10 +790,6 @@ func tooManyPartsWithBadName() []orderedPart {
 	return parts
 }
 
-// nonBundleFillerParts builds n file parts under a non-bundle field, each
-// bytes long, followed by a scalar of scalarBytes. readForm charged every one
-// of those parts against its memory budget, which decides whether the scalar
-// trips ErrMessageTooLarge.
 func nonBundleFillerParts(n, bytesPerPart, scalarBytes int) []orderedPart {
 	parts := make([]orderedPart, 0, n+2)
 	filler := bytes.Repeat([]byte("f"), bytesPerPart)
@@ -925,10 +835,6 @@ func compareOutcomes(want, got generationOutcome) string {
 	return strings.Join(diffs, "\n")
 }
 
-// TestCreateDatasetGenerationParserLimitsMatchShippedPath pins the DoS limits
-// the streaming stager inherits from readForm: a request past the part count
-// and a scalar value past the memory budget must be refused the same way, with
-// nothing staged.
 func TestCreateDatasetGenerationParserLimitsMatchShippedPath(t *testing.T) {
 	small := []byte("{\"resourceType\":\"Patient\",\"id\":\"1\"}\n")
 	authz := authscope.AllowAllAuthorizer{}
@@ -947,8 +853,6 @@ func TestCreateDatasetGenerationParserLimitsMatchShippedPath(t *testing.T) {
 	})
 
 	t.Run("scalar value budget", func(t *testing.T) {
-		// A scalar past maxMemory (32 MiB + the 10 MiB non-file reserve) is what
-		// readForm refuses with ErrMessageTooLarge.
 		oversized := bytes.Repeat([]byte("z"), 45*1024*1024)
 		parts := []orderedPart{
 			{field: "huge", content: oversized},
@@ -979,10 +883,6 @@ func TestCreateDatasetGenerationParserLimitsMatchShippedPath(t *testing.T) {
 	})
 }
 
-// TestCreateDatasetGenerationRejectedAuthorizationAndLoaderFailureLeaveNoFiles
-// pins that authorization still runs before the loader, that a loader failure
-// keeps its identity through the handler, and that both paths dispose of the
-// staged bundle.
 func TestCreateDatasetGenerationRejectedAuthorizationAndLoaderFailureLeaveNoFiles(t *testing.T) {
 	t.Run("forbidden", func(t *testing.T) {
 		tempDir := t.TempDir()

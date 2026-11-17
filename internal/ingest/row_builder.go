@@ -110,9 +110,6 @@ func NewGenericRowBuilder(project string, class *jsonschema.Schema, schema *grap
 }
 
 func (b *GenericRowBuilder) Build(resourceType string, line []byte, stageSeconds map[string]float64) (rowBuildResult, rowErrorType, error) {
-	// jsonschemagraph currently deletes its optional namespace entry from the
-	// extra-arguments map. Generic builders are shared by parallel ingest
-	// workers, so each row must give that dependency an isolated mutable map.
 	extraArgs := maps.Clone(b.extraArgs)
 
 	var payload map[string]any

@@ -1,6 +1,3 @@
-// Package clickhouse is Loom's narrow typed boundary around the official
-// ClickHouse Go driver. The materialization service never receives a raw SQL
-// connection or a table name from the browser.
 package clickhouse
 
 import (
@@ -19,9 +16,6 @@ import (
 )
 
 type Options struct {
-	// URL accepts clickhouse://host:9000 or http://host:8123 URLs. The
-	// official driver supports both protocols; native TCP is the default
-	// recommended production transport.
 	URL      string
 	Database string
 	Username string
@@ -70,7 +64,6 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
-// Ping verifies that the configured ClickHouse connection is reachable.
 func (c *Client) Ping(ctx context.Context) error {
 	if c == nil || c.conn == nil {
 		return fmt.Errorf("ClickHouse connection is not configured")
@@ -103,8 +96,6 @@ func (c *Client) EnsureDatabase(ctx context.Context) error {
 	if err := validateIdentifier(c.opts.Database); err != nil {
 		return err
 	}
-	// CREATE DATABASE must execute through a connection whose default database
-	// is known to exist; the main connection intentionally targets the new DB.
 	options, err := parseOptions(c.opts)
 	if err != nil {
 		return err
@@ -135,7 +126,6 @@ func (c *Client) DropTable(ctx context.Context, table string) error {
 	return c.conn.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS `%s`", table))
 }
 
-// DropColumns removes validated staging columns in one ALTER TABLE operation.
 func (c *Client) DropColumns(ctx context.Context, table string, columns []string) error {
 	if err := validateIdentifier(table); err != nil {
 		return err
@@ -153,9 +143,6 @@ func (c *Client) DropColumns(ctx context.Context, table string, columns []string
 	return c.conn.Exec(ctx, fmt.Sprintf("ALTER TABLE `%s` %s", table, strings.Join(parts, ", ")))
 }
 
-// VerifyOutput confirms that a staged publication table is readable, has the
-// expected physical columns, and contains exactly the rows acknowledged by
-// the publisher before any visibility pointer is advanced.
 func (c *Client) VerifyOutput(ctx context.Context, table string, columns []Column, expectedRows int64) error {
 	if err := validateIdentifier(table); err != nil {
 		return err
@@ -585,9 +572,6 @@ func wrappedClickHouseType(value, wrapper string) (string, bool) {
 	return strings.TrimSpace(value[len(prefix) : len(value)-1]), true
 }
 
-// QueryRowsArgs executes a SELECT with driver-bound positional arguments and
-// decodes each row through ClickHouse's native driver. Query-controlled values
-// must be supplied as args rather than interpolated into query text.
 func (c *Client) QueryRowsArgs(ctx context.Context, query string, columns []string, args ...any) ([]map[string]any, error) {
 	result := make([]map[string]any, 0)
 	if err := c.QueryRowsArgsVisit(ctx, query, columns, func(row map[string]any) error {
@@ -599,9 +583,6 @@ func (c *Client) QueryRowsArgs(ctx context.Context, query string, columns []stri
 	return result, nil
 }
 
-// QueryRowsArgsVisit executes a SELECT and visits decoded rows as they arrive.
-// The callback must not retain the map after returning unless it makes a copy.
-// Query-controlled values remain driver-bound positional arguments.
 func (c *Client) QueryRowsArgsVisit(ctx context.Context, query string, columns []string, visit func(map[string]any) error, args ...any) error {
 	if len(columns) == 0 {
 		return fmt.Errorf("ClickHouse query columns are required")
@@ -658,9 +639,6 @@ func parseOptions(opts Options) (*ch.Options, error) {
 	parsed.Auth.Password = opts.Password
 	parsed.DialTimeout = opts.Timeout
 	parsed.ReadTimeout = opts.Timeout
-	// Native JSON columns are used for logical object-valued dataframe fields.
-	// Keep the setting on every connection so DDL and native batch inserts work
-	// consistently against ClickHouse 25.3 deployments.
 	if parsed.Settings == nil {
 		parsed.Settings = ch.Settings{}
 	}

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 )
@@ -16,15 +17,12 @@ const previewCoveringIndexNamePrefix = "loom_pivot_preview_"
 
 var previewCoveringIndexPrefixFields = []string{"project", "dataset_generation", "auth_resource_path"}
 
-// RenderPreviewPhysicalPlanWithRootIndexHint rerenders a compiled preview
-// plan with one compiler-owned, non-forcing root-index hint. It is used only
-// after runtime index metadata identifies an existing compatible definition.
-func RenderPreviewPhysicalPlanWithRootIndexHint(plan ir.PhysicalPlan, indexName string) (string, map[string]any, error) {
+func RenderPreviewPhysicalPlanWithRootIndexHint(plan ir.PhysicalPlan, indexName string) (command.CompiledCommand, error) {
 	rendered, err := aql.RenderPhysicalPlanWithRootIndexHint(plan, indexName)
 	if err != nil {
-		return "", nil, err
+		return command.CompiledCommand{}, err
 	}
-	return rendered.Query, rendered.BindVars, nil
+	return command.NewAQLCommand(rendered.Query, rendered.BindVars)
 }
 
 func previewCoveringIndexSpec(plan ir.PhysicalPlan) *PreviewCoveringIndexSpec {
@@ -84,11 +82,6 @@ func previewCoveringIndexSpec(plan ir.PhysicalPlan) *PreviewCoveringIndexSpec {
 	return nil
 }
 
-// streamingMissingCategoryPivotIndexSpec describes the narrowly-scoped
-// covering index used by the direct-root streaming Pivot renderer. The key
-// fields retain the existing project, generation, and authorization filters;
-// payload values are stored as projections so a non-forcing hinted scan can
-// avoid document materialization when ArangoDB can cover the query.
 func streamingMissingCategoryPivotIndexSpec(plan ir.PhysicalPlan) *PreviewCoveringIndexSpec {
 	sequence := plan.StageSequence
 	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
@@ -229,10 +222,6 @@ func previewCoveringDirectScalarProjectionPath(projection ir.PhysicalProjection,
 	return previewCoveringProjectionPath(projection, rootVariable)
 }
 
-// streamingPivotPresenceParentPath proves that the missing-category marker is
-// a direct nested property and that its parent object can be retained whole in
-// storedValues. Keeping that object preserves an explicit null leaf separately
-// from an absent leaf; storing only the leaf would encode both as null.
 func streamingPivotPresenceParentPath(projections []ir.PhysicalProjection, pivot ir.PhysicalGroupedPivot, rootVariable string) ([]string, bool) {
 	var categoryPath []string
 	var presence *ir.PhysicalProjectionPresence
@@ -291,16 +280,22 @@ func previewGroupScanSpec(plan ir.PhysicalPlan, covering *PreviewCoveringIndexSp
 	if err != nil {
 		return nil
 	}
+	scopeCountCommand, err := command.NewAQLCommand(scopeCount.Query, scopeCount.BindVars)
+	if err != nil {
+		return nil
+	}
 	sequential, err := aql.RenderPhysicalPlanWithRootIndexDisabled(plan)
 	if err != nil {
 		return nil
 	}
+	sequentialCommand, err := command.NewAQLCommand(sequential.Query, sequential.BindVars)
+	if err != nil {
+		return nil
+	}
 	return &PreviewGroupScanSpec{
-		Collection:         covering.Collection,
-		SequentialQuery:    sequential.Query,
-		SequentialBindVars: sequential.BindVars,
-		ScopeCountQuery:    scopeCount.Query,
-		ScopeCountBindVars: scopeCount.BindVars,
+		Collection: covering.Collection,
+		Sequential: sequentialCommand,
+		ScopeCount: scopeCountCommand,
 	}
 }
 

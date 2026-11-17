@@ -1,6 +1,3 @@
-// Package compilation translates semantic Builder intent into the persistence-
-// neutral recipe understood by the dataframe compiler. It deliberately has no
-// HTTP, store, or server dependencies: a capability snapshot is its authority.
 package compilation
 
 import (
@@ -22,8 +19,6 @@ import (
 
 const TranslationVersion = "authoring-v2-native-10"
 
-// Error is a structured translation failure. Stage, Code, Path, and Details
-// remain transport-neutral so adapters never parse error strings.
 type Error struct {
 	Stage   string
 	Code    string
@@ -54,8 +49,6 @@ func fail(stage, code, path, message string, details map[string]any, cause error
 	return &Error{Stage: stage, Code: code, Path: path, Message: message, Details: details, Cause: cause}
 }
 
-// PresentationConfig is compiler-owned presentation data. The Builder may
-// provide labels, visibility, and order, but never executable selectors.
 type PresentationConfig struct {
 	OutputID string               `json:"outputId"`
 	Title    string               `json:"title"`
@@ -77,7 +70,6 @@ type PresentationColumn struct {
 	ChartOrder    int    `json:"chartOrder,omitempty"`
 }
 
-// Result is one deterministic semantic document compilation.
 type Result struct {
 	Bundle           recipe.Bundle
 	RecipeDigest     string
@@ -87,8 +79,6 @@ type Result struct {
 	OutputContract   explorer.PublicOutputContract
 }
 
-// WorkspaceResult combines independently compiled table documents into one
-// recipe and one public Explorer configuration.
 type WorkspaceResult struct {
 	Bundle               recipe.Bundle
 	RecipeDigest         string
@@ -100,9 +90,6 @@ type WorkspaceResult struct {
 	Workspace            authoringv2.Workspace
 }
 
-// ResolvedPopulation is the immutable, checked external input for one output.
-// It is kept separate from the authoring workspace so changing a selection
-// revision can never mutate draft intent in place.
 type ResolvedPopulation struct {
 	OutputID            string                            `json:"outputId"`
 	SelectionRevisionID string                            `json:"selectionRevisionId"`
@@ -112,9 +99,6 @@ type ResolvedPopulation struct {
 	Route               []authoringv2.PopulationRouteStep `json:"route,omitempty"`
 }
 
-// ResolvedInterpretation is an alias of the receipt-safe explorer domain
-// value. Keeping the canonical value in explorer avoids a package cycle while
-// preserving a single shape for lifecycle, compilation, and receipts.
 type ResolvedInterpretation = explorer.ResolvedInterpretation
 
 func CompileWorkspace(ctx context.Context, project, explorerID string, workspace authoringv2.Workspace, snapshot capability.Snapshot, resolvedInputs ResolvedInputs) (WorkspaceResult, error) {
@@ -140,10 +124,6 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 	if err != nil {
 		return WorkspaceResult{}, fail("intent", "RESOLVED_INPUTS_DIGEST_FAILED", "$.workspace", "resolved input identity could not be calculated", nil, err)
 	}
-	// Keep the authored workspace (including exact PINNED references) in the
-	// result and receipt. Effective definitions are applied only to this clone;
-	// the source suggestion and inline anchor can therefore never win over a
-	// resolved human definition during compilation.
 	effectiveWorkspace := applyResolvedInterpretations(workspace, resolvedInputs)
 	if err := (authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Workspace: &effectiveWorkspace, Catalog: wire}).Validate(); err != nil {
 		return WorkspaceResult{}, fail("intent", "INVALID_RESOLVED_INTERPRETATION", "$.resolvedInputs.interpretations", err.Error(), nil, err)
@@ -275,10 +255,6 @@ func validateResolvedPopulation(document authoringv2.Document, resolved Resolved
 	return nil
 }
 
-// populationRouteDirectionFromSnapshot proves a compile-only direction
-// enrichment against the current authorized capability, following the exact
-// saved route to the step being enriched. It deliberately does not rewrite
-// authoring intent or accept a direction that conflicts with the catalog.
 func populationRouteDirectionFromSnapshot(document authoringv2.Document, route []authoringv2.PopulationRouteStep, targetIndex int, snapshot capability.Snapshot) (string, bool) {
 	if targetIndex < 0 || targetIndex >= len(route) {
 		return "", false
@@ -500,19 +476,12 @@ func applyResolvedInterpretations(workspace authoringv2.Workspace, inputs Resolv
 				value := input.Definition.Contributor.Normalized()
 				column.Contributor = &value
 			}
-			// The effective clone is inline by construction. The authored result
-			// retains the PINNED reference; keeping it here would make validation
-			// mistake the resolved human definition for an inline override.
 			column.Interpretation = nil
 		}
 	}
 	return effective
 }
 
-// ResolvedInputs is the explicit compile-only seam for resolved external
-// values. B01 has no external values, so callers pass the zero value. The
-// normalized workspace meaning is supplied separately to the digest function;
-// it is not duplicated inside this seam.
 type ResolvedInputs struct {
 	Populations     []ResolvedPopulation     `json:"populations,omitempty"`
 	Interpretations []ResolvedInterpretation `json:"interpretations,omitempty"`
@@ -538,8 +507,6 @@ func recipePopulation(input ResolvedPopulation) *recipe.PopulationConstraint {
 	return &recipe.PopulationConstraint{SelectionRevisionID: input.SelectionRevisionID, MembershipDigest: input.MembershipDigest, MemberCount: input.MemberCount, ResourceType: input.ResourceType, Route: route}
 }
 
-// ResolvedInputsDigest returns a stable digest for normalized authoring
-// meaning plus the capability identity used to resolve it.
 func ResolvedInputsDigest(workspace authoringv2.Workspace, snapshot capability.Snapshot, resolvedInputs ResolvedInputs) (string, error) {
 	resolvedInputs = resolvedInputs.Canonical()
 	normalized, err := workspace.CanonicalJSON()
@@ -593,8 +560,6 @@ func (r ResolvedInputs) Canonical() ResolvedInputs {
 	return copy
 }
 
-// Compile translates one semantic V2 document against the exact capability
-// snapshot. It performs no discovery, profiling, or recipe execution.
 func Compile(ctx context.Context, project, explorerID string, document authoringv2.Document, snapshot capability.Snapshot) (Result, error) {
 	return compileWithWorkspaceOutputs(ctx, project, explorerID, document, snapshot, nil)
 }

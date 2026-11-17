@@ -108,9 +108,6 @@ func buildAggregatePlan(dataset Materialization, req AggregateBatchRequest) aggr
 			plan.statements = append(plan.statements, aggregateStatementPlan{kind: kind, jobs: jobs, filters: jobs[0].filters})
 		}
 	}
-	// Terms buckets need a missing count. Fold those expressions into the
-	// compatible scalar scan (or create one scalar scan for the filter group)
-	// instead of issuing a second query per terms specification.
 	for _, job := range plan.jobs {
 		if job.job.ResponseMode != AggregateResponseTerms {
 			continue

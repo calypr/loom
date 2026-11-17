@@ -14,11 +14,11 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	postgresrender "github.com/calypr/loom/internal/dataframe/compiler/render/postgres"
 )
 
-// PopulationMappingStatus is deliberately closed. Exact counts are only
-// meaningful for COMPLETE results.
 type PopulationMappingStatus string
 
 const (
@@ -26,24 +26,16 @@ const (
 	PopulationMappingIncomplete PopulationMappingStatus = "INCOMPLETE"
 )
 
-// PopulationMemberReader is the smallest reader needed by the mapping
-// operation. Lifecycle owns paging and authorization; execution only needs
-// the immutable member IDs to compare with witness rows.
 type PopulationMemberReader interface {
 	VisitMembers(context.Context, func(string) error) error
 }
 
-// PopulationMemberReaderFunc adapts a lifecycle-owned member stream without
-// exposing its persistence details to execution.
 type PopulationMemberReaderFunc func(context.Context, func(string) error) error
 
 func (f PopulationMemberReaderFunc) VisitMembers(ctx context.Context, visit func(string) error) error {
 	return f(ctx, visit)
 }
 
-// PopulationMappingRequest bounds one request-scoped mapping computation.
-// AfterMemberID is an opaque lifecycle cursor position; it is never sent to
-// the compiler or backend.
 type PopulationMappingRequest struct {
 	Output             string
 	AfterMemberID      string
@@ -52,15 +44,11 @@ type PopulationMappingRequest struct {
 	MaxWitnessRows     int64
 }
 
-// PopulationMappingDiagnostic contains only safe, transport-neutral
-// diagnostics. It deliberately excludes query text and storage details.
 type PopulationMappingDiagnostic struct {
 	Code    string
 	Message string
 }
 
-// PopulationMappingResult is the concrete execution result. Lifecycle turns
-// its bounded IDs into authorized ResourceRefs and adds the receipt binding.
 type PopulationMappingResult struct {
 	Status            PopulationMappingStatus
 	SelectedCount     int64
@@ -74,6 +62,8 @@ type PopulationMappingResult struct {
 
 var errPopulationMappingLimit = errors.New("population mapping resource limit exceeded")
 
+var ErrPopulationMappingPostgresUnsupported = errors.New("population mapping unsupported on the selected PostgreSQL composition")
+
 const (
 	defaultPopulationMappingUnmapped = 100
 	maxPopulationMappingUnmapped     = 1000
@@ -81,31 +71,37 @@ const (
 	defaultPopulationMappingWitness  = 1_000_000
 )
 
-// PopulationMapping compiles the dedicated witness terminal from the same
-// resolved output used by ordinary dataframe execution, then streams its
-// rows through the existing query executor. It never exposes compiler fields
-// or adds provenance to ordinary dataframe rows.
 func (e *Engine) PopulationMapping(ctx context.Context, resolved Resolved, request PopulationMappingRequest, reader PopulationMemberReader) (PopulationMappingResult, error) {
 	if strings.TrimSpace(request.Output) == "" {
 		return PopulationMappingResult{}, fmt.Errorf("population mapping output is required")
 	}
-	compiled, err := compilePopulationMappingOutput(resolved, request.Output)
+	compiled, err := compilePopulationMappingOutput(e.compileTarget, resolved, request.Output)
 	if err != nil {
+		if errors.Is(err, postgresrender.ErrUnsupportedPostgresPlan) {
+			return PopulationMappingResult{}, fmt.Errorf("%w: %v", ErrPopulationMappingPostgresUnsupported, err)
+		}
 		return PopulationMappingResult{}, err
 	}
 	return e.populationMappingCompiled(ctx, compiled, request, reader)
 }
 
-// PopulationMappingCompiled is the execution seam for callers that already
-// hold the dedicated compiler result. The resolved-output method above is the
-// normal lifecycle entry point; this method keeps tests and specialized
-// execution adapters from rebuilding compiler state.
 func (e *Engine) PopulationMappingCompiled(ctx context.Context, compiled compiler.CompiledPopulationMappingQuery, request PopulationMappingRequest, reader PopulationMemberReader) (PopulationMappingResult, error) {
 	return e.populationMappingCompiled(ctx, compiled, request, reader)
 }
 
 func (e *Engine) populationMappingCompiled(ctx context.Context, compiled compiler.CompiledPopulationMappingQuery, request PopulationMappingRequest, reader PopulationMemberReader) (PopulationMappingResult, error) {
-	if e == nil || e.queryRows == nil {
+	isPostgreSQL := false
+	switch compiled.Command.Backend() {
+	case command.CompiledBackendAQL:
+	case command.CompiledBackendPostgreSQL:
+		isPostgreSQL = true
+	default:
+		return PopulationMappingResult{}, fmt.Errorf("population mapping command has unsupported backend %q", string(compiled.Command.Backend()))
+	}
+	if e == nil || e.sourceRows == nil {
+		if isPostgreSQL {
+			return PopulationMappingResult{}, fmt.Errorf("%w: no row port serves the selected PostgreSQL composition", ErrPopulationMappingPostgresUnsupported)
+		}
 		return PopulationMappingResult{}, fmt.Errorf("population mapping query executor is required")
 	}
 	if reader == nil {
@@ -154,11 +150,22 @@ func (e *Engine) populationMappingCompiled(ctx context.Context, compiled compile
 	if compiled.MemberColumn == "" || (compiled.IdentityPartsColumn == "" && compiled.ExplicitIdentityColumn == "") {
 		return PopulationMappingResult{}, fmt.Errorf("population mapping query is missing typed witness columns")
 	}
+	stream := RowsRequest{Command: compiled.Command, BatchSize: e.batchSize}
+	if isPostgreSQL {
+		if compiled.IdentityPartsColumn != "" && compiled.ExplicitIdentityColumn != "" {
+			return PopulationMappingResult{}, fmt.Errorf("population mapping PostgreSQL witness requires exactly one identity column")
+		}
+		identityColumn := compiled.IdentityPartsColumn
+		if identityColumn == "" {
+			identityColumn = compiled.ExplicitIdentityColumn
+		}
+		stream.DeclaredColumns = []string{compiled.MemberColumn, identityColumn}
+	}
 
 	mapped := make(map[string]struct{})
 	emitted := make(map[string]struct{})
 	witnessRows := int64(0)
-	err := e.queryRows(ctx, compiled.Query, e.batchSize, compiled.BindVars, func(row map[string]any) error {
+	err := e.sourceRows(ctx, stream, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -185,6 +192,9 @@ func (e *Engine) populationMappingCompiled(ctx context.Context, compiled compile
 	if err != nil {
 		if populationMappingIncomplete(err) {
 			return incompletePopulationMappingResult(), nil
+		}
+		if isPostgreSQL && errors.Is(err, command.ErrCompiledCommandBackendNotRegistered) {
+			return PopulationMappingResult{}, fmt.Errorf("%w: PostgreSQL row adapter is not registered for the mapping command", ErrPopulationMappingPostgresUnsupported)
 		}
 		return PopulationMappingResult{}, fmt.Errorf("execute population mapping: %w", err)
 	}
@@ -221,12 +231,12 @@ func (e *Engine) populationMappingCompiled(ctx context.Context, compiled compile
 	}, nil
 }
 
-func compilePopulationMappingOutput(resolved Resolved, name string) (compiler.CompiledPopulationMappingQuery, error) {
+func compilePopulationMappingOutput(target compiler.Target, resolved Resolved, name string) (compiler.CompiledPopulationMappingQuery, error) {
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name != name {
 			continue
 		}
-		return compiler.CompilePopulationMappingOutputWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, ir.DefaultPhysicalOptimizationPolicy())
+		return compiler.CompilePopulationMappingOutput(target, output, resolved.Semantic.SemanticPlan.Bindings, ir.DefaultPhysicalOptimizationPolicy())
 	}
 	return compiler.CompiledPopulationMappingQuery{}, fmt.Errorf("population mapping output %q was not found", name)
 }
@@ -235,8 +245,11 @@ func populationWitnessIdentity(query compiler.CompiledPopulationMappingQuery, ro
 	if query.ExplicitIdentityColumn != "" {
 		return populationExplicitIdentity(row[query.ExplicitIdentityColumn])
 	}
-	value, ok := row[query.IdentityPartsColumn].([]any)
-	if !ok || len(value) == 0 || query.RowIdentity == nil || len(value) != len(query.RowIdentity.Fields) {
+	value, err := populationIdentityParts(row[query.IdentityPartsColumn])
+	if err != nil {
+		return "", err
+	}
+	if len(value) == 0 || query.RowIdentity == nil || len(value) != len(query.RowIdentity.Fields) {
 		return "", fmt.Errorf("population mapping witness has an invalid row identity shape")
 	}
 	for _, part := range value {
@@ -250,6 +263,28 @@ func populationWitnessIdentity(query compiler.CompiledPopulationMappingQuery, ro
 	}
 	digest := sha256.Sum256(encoded)
 	return "default:" + hex.EncodeToString(digest[:]), nil
+}
+
+func populationIdentityParts(value any) ([]any, error) {
+	switch typed := value.(type) {
+	case []any:
+		return typed, nil
+	case json.RawMessage:
+		if len(typed) == 0 || !json.Valid(typed) {
+			return nil, fmt.Errorf("population mapping witness has an invalid row identity shape")
+		}
+		var decoded any
+		if err := json.Unmarshal(typed, &decoded); err != nil {
+			return nil, fmt.Errorf("population mapping witness has an invalid row identity shape: %w", err)
+		}
+		items, ok := decoded.([]any)
+		if !ok {
+			return nil, fmt.Errorf("population mapping witness has an invalid row identity shape")
+		}
+		return items, nil
+	default:
+		return nil, fmt.Errorf("population mapping witness has an invalid row identity shape")
+	}
 }
 
 func populationExplicitIdentity(value any) (string, error) {

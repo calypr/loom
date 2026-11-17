@@ -1,5 +1,4 @@
 import { z } from 'zod';
-/** Selector identity for published dataframe reads. */
 export interface DataframeSelector {
   readonly recipe: string;
   readonly translationVersion: string;
@@ -1751,9 +1750,6 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
       outputColumnId: opaqueIdSchema,
       ordinalColumnId: opaqueIdSchema.optional(),
       emptyPolicy: z.enum(['ERROR', 'EXCLUDE', 'PRESERVE_PARENT']).optional(),
-      // Server-signed root array facts for a signed expand input. The client
-      // never authors it (the lane strips client values server-side); it must
-      // parses so saved drafts survive reload.
       expandedField: z.object({
         path: z.string().min(1),
         cardinality: z.literal('many'),
@@ -1994,7 +1990,6 @@ const constructionScalarSourceInputSchema = z.object({
 
 const constructionFilterSourceChoiceSchema = z.object({
   choiceId: z.string().min(1),
-  // '' means no live server materialization for this choice (deliberate, not missing); the client normalizes it away. Request-side selection keeps a required non-empty columnId.
   columnId: z.string().optional(),
   fieldPath: z.string().min(1),
   label: z.string().min(1),
@@ -2012,7 +2007,6 @@ const constructionFilterSourceInputSchema = z.object({
 
 const constructionDeriveSourceChoiceSchema = z.object({
   choiceId: z.string().min(1),
-  // '' means no live server materialization for this choice (deliberate, not missing); the client normalizes it away. Request-side selection keeps a required non-empty columnId.
   columnId: z.string().optional(),
   fieldPath: z.string().min(1),
   label: z.string().min(1),
@@ -2055,7 +2049,6 @@ export type ConstructionDeriveSourceSelection = z.infer<typeof constructionDeriv
 
 const constructionUnpivotSourceChoiceSchema = z.object({
   choiceId: z.string().min(1),
-  // '' means no live server materialization for this choice (deliberate, not missing); the client normalizes it away. Request-side selection keeps a required non-empty columnId.
   columnId: z.string().optional(),
   fieldPath: z.string().min(1),
   label: z.string().min(1),
@@ -2077,12 +2070,8 @@ export const constructionUnpivotSourceSelectionSchema = z.object({
 }).strict();
 export type ConstructionUnpivotSourceSelection = z.infer<typeof constructionUnpivotSourceSelectionSchema>;
 
-// Signed EXPAND source choices advertise populated direct-root primitive
-// arrays. logicalType is the ELEMENT type (e.g. string), and columnId '' (no
-// live materialization) is normalized away client-side, same as unpivot.
 const constructionExpandSourceChoiceSchema = z.object({
   choiceId: z.string().min(1),
-  // '' means no live server materialization for this choice (deliberate, not missing); the client normalizes it away. Request-side selection keeps a required non-empty columnId.
   columnId: z.string().optional(),
   fieldPath: z.string().min(1),
   label: z.string().min(1),
@@ -3345,7 +3334,6 @@ export const explorerBuilderContractColumnSchema = z
 export type ExplorerBuilderContractColumn = z.infer<
   typeof explorerBuilderContractColumnSchema
 >;
-// Local Builder view-model identities are not part of Loom's wire contract.
 export interface ExplorerBuilderSelection {
   readonly candidateId: string;
   readonly occurrenceId: string;
@@ -3583,7 +3571,6 @@ const semanticInventoryItemFields = {
   valueSelector: z.string(),
   valueType: z.string(),
   owningScope: z.string(),
-  // Counts observed source occurrences/events; one source record may contribute more than once.
   occurrences: z.number().int().nonnegative(),
   examples: z.array(z.string()).max(32).optional(),
   examplesTruncated: z.boolean(),
@@ -3840,7 +3827,6 @@ export const assertExplorerBuilderPreviewResult = (value: unknown) =>
 export const assertExplorerBuilderPublishResult = (value: unknown) =>
   explorerBuilderPublishResultSchema.parse(value);
 
-/** Server-owned runtime projection retained for viewer/ETL consumers. */
 export interface PublicationMetadata {
   readonly state: string;
   readonly generation?: string;
@@ -3899,7 +3885,6 @@ export interface ExplorerRuntimeOutputV1 {
   readonly materialization?: Readonly<Record<string, unknown>>;
 }
 export interface ExplorerRuntimeV1 {
-  /** Client-side identity derived from the enclosing response for legacy runtimes. */
   readonly responseIdentity?: string;
   readonly status?: string;
   readonly generation?: string;
@@ -3977,7 +3962,6 @@ export interface ExplorerQualityReportV1 {
   readonly omissions?: ReadonlyArray<{ readonly code: string; readonly detail: string }>;
 }
 
-/** Opaque generated metadata retained only for the runtime compatibility adapter. */
 export type ExplorerStateAuthoringBundleV1 = Readonly<Record<string, unknown>>;
 export interface ExplorerStateEmittedColumnV1 {
   readonly emissionId: string;
@@ -4018,7 +4002,6 @@ export interface ExplorerStateMaterializationV1 {
   readonly columns: ReadonlyArray<ExplorerStatePhysicalColumnV1>;
 }
 
-/** Runtime-only selected Explorer response. Editable state is never read here. */
 export interface ExplorerStateV1 {
   readonly apiVersion: 'loom.calypr.org/explorer-state/v1';
   readonly kind: 'ExplorerState';
@@ -4059,7 +4042,6 @@ export interface ExplorerStateV1 {
   readonly activeUrl: string;
   readonly updatedBy?: string;
   readonly updatedAt?: string;
-  /** Runtime is null when Loom has no valid published runtime to serve. */
   readonly runtime?: ExplorerRuntimeV1 | null;
 }
 
@@ -4317,8 +4299,6 @@ const normalizeExplorerStateV1 = (value: unknown): unknown => {
   if (!isRecord(value) || !isRecord(value.runtime)) return value;
   if (value.runtime.diagnostics !== null) return value;
 
-  // Go encodes a nil diagnostics slice as null. Treat that wire-level empty
-  // value as the empty collection promised by ExplorerRuntimeV1.
   return {
     ...value,
     runtime: {

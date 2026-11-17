@@ -3,12 +3,15 @@ package execution
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"sort"
 	"time"
 )
 
-func (s *Service) runQuery(ctx context.Context, compiled CompiledQuery) (*Result, error) {
+var now = time.Now
+
+func (s *Service) runQuery(ctx context.Context, compiled compiler.CompiledQuery) (*Result, error) {
 	var rows []map[string]any
 	streamed, err := s.streamQuery(ctx, compiled, func(row map[string]any) error {
 		rows = append(rows, row)
@@ -25,12 +28,7 @@ func (s *Service) runQuery(ctx context.Context, compiled CompiledQuery) (*Result
 	}, nil
 }
 
-// RunCompiled executes an already canonical-compiled query. It is the shared
-// execution seam for non-GraphQL frontends (for example an ephemeral recipe
-// produced by GraphQL); compilation and scope resolution remain the caller's
-// responsibility. The query still uses the same cursor, row flattening, and
-// diagnostics path as the ordinary recipe-backed Run.
-func (s *Service) RunCompiled(ctx context.Context, compiled CompiledQuery) (*Result, error) {
+func (s *Service) RunCompiled(ctx context.Context, compiled compiler.CompiledQuery) (*Result, error) {
 	started := time.Now()
 	result, err := s.runQuery(ctx, compiled)
 	if err != nil {
@@ -41,11 +39,10 @@ func (s *Service) RunCompiled(ctx context.Context, compiled CompiledQuery) (*Res
 	return result, nil
 }
 
-func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit func(map[string]any) error) (streamResult, error) {
+func (s *Service) streamQuery(ctx context.Context, compiled compiler.CompiledQuery, visit func(map[string]any) error) (streamResult, error) {
 	if visit == nil {
 		return streamResult{}, fmt.Errorf("row visitor is required")
 	}
-	// A request the caller already abandoned must not open a backend cursor.
 	if err := contextError(ctx); err != nil {
 		return streamResult{}, err
 	}
@@ -58,18 +55,16 @@ func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit
 	extraColumns := map[string]struct{}{}
 	rowCount := 0
 	var rowMaterialization time.Duration
-	queryStarted := time.Now()
-	if s.queryRows == nil {
+	queryStarted := now()
+	if s.sourceRows == nil {
 		return streamResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
-	err := s.queryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
-		// A backend adapter can keep visiting rows after the caller cancels;
-		// stop before materializing or delivering any further public row.
+	err := s.sourceRows(ctx, RowsRequest{Command: compiled.Command, DeclaredColumns: append([]string(nil), compiled.Columns...), BatchSize: 1000}, func(row map[string]any) error {
 		if err := contextError(ctx); err != nil {
 			return err
 		}
-		rowStarted := time.Now()
-		defer func() { rowMaterialization += time.Since(rowStarted) }()
+		rowStarted := now()
+		defer func() { rowMaterialization += now().Sub(rowStarted) }()
 		flatRow := flattenPivotFields(cloneRow(row), compiled.PivotFields)
 		for key := range flatRow {
 			if _, ok := seenColumns[key]; ok {
@@ -84,10 +79,9 @@ func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit
 		rowCount++
 		return nil
 	})
-	queryElapsed := time.Since(queryStarted)
-	arangoQuery := queryElapsed - rowMaterialization
-	if arangoQuery < 0 {
-		arangoQuery = 0
+	sourceQuery := now().Sub(queryStarted) - rowMaterialization
+	if sourceQuery < 0 {
+		sourceQuery = 0
 	}
 	assemblyStarted := time.Now()
 	newColumns := make([]string, 0, len(extraColumns))
@@ -100,7 +94,8 @@ func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit
 		Columns:  columns,
 		RowCount: rowCount,
 		Diagnostics: QueryDiagnostics{
-			ArangoQuery:        arangoQuery,
+			SourceQuery:        sourceQuery,
+			SourceBackend:      compiled.Command.Backend(),
 			RowMaterialization: rowMaterialization,
 			ResultAssembly:     time.Since(assemblyStarted),
 		},
@@ -108,8 +103,6 @@ func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit
 	if err != nil {
 		return result, err
 	}
-	// An adapter can report a clean end of stream after losing its context;
-	// completion is only a success while the caller is still waiting.
 	if err := contextError(ctx); err != nil {
 		return result, err
 	}

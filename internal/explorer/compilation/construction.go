@@ -11,9 +11,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-// recipeConstruction maps durable construction intent into the recipe's
-// resolved compiler contract. Source names come from the resolved public
-// emissions, while IDs and labels come from authored projection slots.
 func recipeConstruction(authored *authoringv2.Construction, columns []authoringv2.Column, emitted []explorer.EmittedColumn) (*recipe.Construction, error) {
 	if authored == nil {
 		return nil, nil
@@ -672,8 +669,6 @@ func recipeConstructionGroupFieldSource(
 	}
 	input := field.Input
 	if input == nil {
-		// Flat saved bindings are accepted at the authoring boundary and
-		// normalized to the compiler's explicit input sum.
 		input = &authoringv2.ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: &authoringv2.ConstructionGroupFieldCurrentStage{
 			SourceRole: field.SourceRole, OccurrenceID: field.OccurrenceID,
 			OwnerResourceType: field.OwnerResourceType, ResourceType: field.ResourceType,

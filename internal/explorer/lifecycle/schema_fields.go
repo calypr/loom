@@ -25,8 +25,6 @@ const (
 	schemaFieldMaxCursor    = 4096
 )
 
-// SearchSchemaFieldsRequest lists generated primitive paths for one populated
-// node in the current authorized capability snapshot.
 type SearchSchemaFieldsRequest struct {
 	Project       string
 	ExplorerID    string
@@ -37,8 +35,6 @@ type SearchSchemaFieldsRequest struct {
 	Limit         int
 }
 
-// SchemaFieldOption carries generated-schema metadata and a proved default
-// projection choice, without observed counts, examples, or suggestions.
 type SchemaFieldOption struct {
 	Origin             string                         `json:"origin"`
 	NodeID             string                         `json:"nodeId"`
@@ -50,9 +46,6 @@ type SchemaFieldOption struct {
 	ConstructionChoice *capability.ConstructionChoice `json:"constructionChoice,omitempty"`
 }
 
-// SchemaFieldSearchResponse pages generated paths separately from the
-// evidence-backed capability snapshot. SchemaDigest is copied from the active
-// schema identity already pinned into that authorized snapshot.
 type SchemaFieldSearchResponse struct {
 	SnapshotToken string              `json:"snapshotToken"`
 	SchemaDigest  string              `json:"schemaDigest"`
@@ -80,10 +73,6 @@ type schemaFieldCursor struct {
 	LastPath                 string `json:"lastPath"`
 }
 
-// SearchSchemaFields returns a stable depth-first, then lexicographic page of generated
-// primitive paths. The path list is derived from generated FHIR schema
-// metadata, then bound to the exact snapshot, populated node, generation,
-// schema digest, authorization scope, query, and page size.
 func (s *Service) SearchSchemaFields(ctx context.Context, request SearchSchemaFieldsRequest) (SchemaFieldSearchResponse, error) {
 	result := SchemaFieldSearchResponse{
 		SnapshotToken: request.SnapshotToken,

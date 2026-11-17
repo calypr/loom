@@ -555,9 +555,7 @@ export const populationMemberRemovalProposalResponseSchema = z.object({
 export type PopulationMemberRemovalProposalResponse = z.infer<typeof populationMemberRemovalProposalResponseSchema>;
 
 export interface LoomClientOptions {
-  /** URL prefix for the Loom service. `/` is the standalone no-auth default. */
   readonly baseUrl?: string;
-  /** Inject Calypr's authenticated fetch implementation when embedded. */
   readonly fetch?: typeof globalThis.fetch;
   readonly headers?: HeadersInit;
   readonly credentials?: RequestCredentials;
@@ -588,13 +586,6 @@ export type LoomOutputFilterOperator =
 export interface LoomOutputFilter {
   readonly column: string;
   readonly op: LoomOutputFilterOperator;
-  /**
-   * The reader ignores this value for `IS_NULL`, but the transports disagree
-   * about it: the `dataframeRows` GraphQL input declares `value: JSON!` and so
-   * rejects a null, while `ValidateTypedFilters` on the selection path rejects
-   * `IS_NULL` carrying any value at all. See the missingness contract in
-   * `features/ExplorerViewer/serialization.ts` for the encoding the Viewer uses.
-   */
   readonly value: unknown;
 }
 
@@ -790,7 +781,6 @@ export interface LoomClient {
     args: PrepareArtifactArgs,
     signal?: AbortSignal,
   ) => Promise<Artifact>;
-  /** Native-download URL for a completed artifact. */
   readonly artifactDownloadURL: (args: DownloadArtifactArgs) => string;
   readonly listInterpretationLibraries: (
     args: ExplorerAuthoringProjectArgs,
@@ -854,7 +844,6 @@ export const canonicalProject = (project: string): string => {
   try {
     value = decodeURIComponent(value);
   } catch {
-    // Leave malformed URL input for the server to reject with its contract.
   }
   value = value.replace(/^\/+|\/+$/g, '');
   if (value.includes('/')) {

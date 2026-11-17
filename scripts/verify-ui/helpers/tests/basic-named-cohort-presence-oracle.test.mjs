@@ -57,9 +57,6 @@ test('row assertion requires exact group membership and Boolean results', () => 
   ], { memberColumn: 'Members', presenceColumn: 'Presence', oracle, phase: 'mutated presence' }), /exact Boolean false/);
 });
 
-// The former browser workflow's call-order/source-regex checks are retired.
-// These assertions cover the retained oracle and route helpers, not browser
-// creation, selection requests, or fresh UI reload after API seeding.
 test('browser Explorer collection paths encode the canonical project identity', () => {
   const project = 'loom_dev_verify_example/cda-fhir-v1';
   assert.equal(fixtureProjectExplorerCollectionPath(project), '/api/v1/projects/loom_dev_verify_example%252Fcda-fhir-v1/explorers');

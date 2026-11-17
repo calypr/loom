@@ -11,14 +11,12 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 )
 
 const (
-	groupScanAssessmentTimeout    = 500 * time.Millisecond
-	groupScanFullCollectionCutoff = 0.90
-	// Projection assessment and execution use a fixed per-query cap; admission
-	// leaves most of that cap available to other query state.
+	groupScanAssessmentTimeout                = 500 * time.Millisecond
+	groupScanFullCollectionCutoff             = 0.90
 	groupPreviewQueryMemoryLimitBytes   int64 = 256 << 20
 	groupPreviewProjectionMemoryShare         = 4
 	groupPreviewProjectionSafetyFactor        = 8
@@ -27,7 +25,10 @@ const (
 )
 
 func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.CompiledQuery, stream *OutputStream) error {
-	if query == nil || stream == nil || stream.stream == nil ||
+	if stream != nil && stream.command.Backend() == command.CompiledBackendPostgreSQL {
+		return contextError(ctx)
+	}
+	if query == nil || stream == nil || stream.sourceRows == nil ||
 		(query.PreviewGroupScan == nil && query.PreviewGroupProjection == nil) {
 		return contextError(ctx)
 	}
@@ -37,15 +38,14 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 
 	assessmentCtx, cancel := context.WithTimeout(ctx, groupScanAssessmentTimeout)
 	defer cancel()
-	ordinaryQuery := query.Query
-	ordinaryBinds := cloneBindVars(query.BindVars)
+	ordinaryCommand := query.Command
 	disableIndex := false
-	var selectedProjectionIndex *arango.PreviewCoveringIndex
+	var selectedProjectionIndex *PreviewCollectionIndex
 	var assessedScopeCount int64
 	assessedScopeCountKnown := false
 	assessedScopeCountAttempted := false
 	coveringIndexSelected := false
-	if query.PreviewGroupScan != nil && e.previewExplainQuery != nil && query.PreviewCoveringIndex != nil && e.previewCoveringIndexes != nil {
+	if query.PreviewGroupScan != nil && e.previewCollectionScans != nil && query.PreviewCoveringIndex != nil && e.previewCoveringIndexes != nil {
 		indexes, indexErr := e.previewCoveringIndexes(assessmentCtx, query.PreviewGroupScan.Collection)
 		if err := contextError(ctx); err != nil {
 			return err
@@ -55,15 +55,15 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 				if assessmentCtx.Err() != nil {
 					return contextError(ctx)
 				}
-				indexedQuery, indexedBinds, renderErr := compiler.RenderPreviewPhysicalPlanWithRootIndexHint(query.PhysicalPlan, index.Name)
+				indexedCommand, renderErr := compiler.RenderPreviewPhysicalPlanWithRootIndexHint(query.PhysicalPlan, index.Name)
 				if renderErr != nil {
 					continue
 				}
-				plan, explainErr := e.previewExplainQuery(assessmentCtx, indexedQuery, indexedBinds)
+				scans, scansErr := e.previewCollectionScans(assessmentCtx, indexedCommand, query.PreviewGroupScan.Collection)
 				if assessmentCtx.Err() != nil {
 					return contextError(ctx)
 				}
-				if explainErr != nil || !hasCoveringRootIndexNamed(plan, query.PreviewGroupScan.Collection, index.Name) {
+				if scansErr != nil || !hasCoveringRootIndexNamed(scans, query.PreviewGroupScan.Collection, index.Name) {
 					continue
 				}
 				selected := *query.PreviewCoveringIndex
@@ -78,28 +78,28 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 				selectedDefinition.Fields = append([]string(nil), index.Fields...)
 				selectedDefinition.StoredValues = append([]string(nil), index.StoredValues...)
 				selectedProjectionIndex = &selectedDefinition
-				query.Query = indexedQuery
-				query.BindVars = indexedBinds
-				stream.query = indexedQuery
-				stream.bindVars = indexedBinds
+				query.Command = indexedCommand
+				stream.command = indexedCommand
 				coveringIndexSelected = true
 				break
 			}
 		}
 	}
-	if !coveringIndexSelected && query.PreviewGroupScan != nil && e.previewExplainQuery != nil && assessmentCtx.Err() == nil {
-		plan, err := e.previewExplainQuery(assessmentCtx, query.Query, query.BindVars)
-		if err == nil && assessmentCtx.Err() == nil && hasNonCoveringRootIndex(plan, query.PreviewGroupScan.Collection) {
+	if !coveringIndexSelected && query.PreviewGroupScan != nil && e.previewCollectionScans != nil && assessmentCtx.Err() == nil {
+		if _, _, dispatchErr := query.Command.AQLParameters(); dispatchErr != nil {
+			return dispatchErr
+		}
+		scans, err := e.previewCollectionScans(assessmentCtx, query.Command, query.PreviewGroupScan.Collection)
+		if err == nil && assessmentCtx.Err() == nil && hasNonCoveringRootIndex(scans, query.PreviewGroupScan.Collection) {
 			if e.previewCollectionCount == nil && query.PreviewGroupProjection == nil {
-				// Keep the canonical indexed query when the broad-scan decision lacks exact evidence.
 			} else {
 				projectionScopeCount := scopeCountMatchesProjection(query)
 				assessedScopeCountAttempted = projectionScopeCount
 				countCtx := assessmentCtx
 				if projectionScopeCount {
-					countCtx = arango.WithQueryMemoryLimit(assessmentCtx, groupPreviewQueryMemoryLimitBytes)
+					countCtx = WithQueryMemoryBudget(assessmentCtx, groupPreviewQueryMemoryLimitBytes)
 				}
-				scanScopeCount, scanScopeCountKnown := readGroupPreviewCount(countCtx, stream, query.PreviewGroupScan.ScopeCountQuery, query.PreviewGroupScan.ScopeCountBindVars)
+				scanScopeCount, scanScopeCountKnown := readGroupPreviewCount(countCtx, stream, query.PreviewGroupScan.ScopeCount)
 				if projectionScopeCount && scanScopeCountKnown {
 					assessedScopeCount = scanScopeCount
 					assessedScopeCountKnown = true
@@ -108,10 +108,8 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 					totalCount, countErr := e.previewCollectionCount(assessmentCtx, query.PreviewGroupScan.Collection)
 					if countErr == nil && assessmentCtx.Err() == nil && totalCount > 0 && scanScopeCount >= 0 && scanScopeCount <= totalCount &&
 						float64(scanScopeCount)/float64(totalCount) >= groupScanFullCollectionCutoff {
-						query.Query = query.PreviewGroupScan.SequentialQuery
-						query.BindVars = query.PreviewGroupScan.SequentialBindVars
-						stream.query = query.Query
-						stream.bindVars = query.BindVars
+						query.Command = query.PreviewGroupScan.Sequential
+						stream.command = query.Command
 						disableIndex = true
 					}
 				}
@@ -123,7 +121,7 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 	}
 	if query.PreviewGroupProjection != nil && !disableIndex {
 		if selectedIndex, selected := e.selectGroupProjectionIndex(assessmentCtx, query, selectedProjectionIndex); selected {
-			if err := e.chooseGroupProjectionFactorization(assessmentCtx, query, stream, ordinaryQuery, ordinaryBinds, selectedIndex,
+			if err := e.chooseGroupProjectionFactorization(assessmentCtx, query, stream, ordinaryCommand, selectedIndex,
 				assessedScopeCount, assessedScopeCountKnown, assessedScopeCountAttempted); err != nil {
 				return err
 			}
@@ -132,13 +130,13 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 	return contextError(ctx)
 }
 
-func readGroupPreviewCount(ctx context.Context, stream *OutputStream, query string, bindVars map[string]any) (int64, bool) {
-	if stream == nil || stream.stream == nil || query == "" {
+func readGroupPreviewCount(ctx context.Context, stream *OutputStream, scopeCount command.CompiledCommand) (int64, bool) {
+	if stream == nil || stream.sourceRows == nil || scopeCount.Backend() != command.CompiledBackendAQL {
 		return 0, false
 	}
 	var count int64
 	seen := false
-	err := stream.stream(ctx, query, 1, bindVars, func(row map[string]any) error {
+	err := stream.sourceRows(ctx, RowsRequest{Command: scopeCount, BatchSize: 1}, func(row map[string]any) error {
 		if seen {
 			return errors.New("root scope count returned more than one row")
 		}
@@ -157,50 +155,50 @@ func scopeCountMatchesProjection(query *compiler.CompiledQuery) bool {
 	if query == nil || query.PreviewGroupScan == nil || query.PreviewGroupProjection == nil {
 		return false
 	}
-	return query.PreviewGroupScan.ScopeCountQuery == query.PreviewGroupProjection.ScopeCountQuery &&
-		reflect.DeepEqual(query.PreviewGroupScan.ScopeCountBindVars, query.PreviewGroupProjection.ScopeCountBindVars)
+	return reflect.DeepEqual(query.PreviewGroupScan.ScopeCount, query.PreviewGroupProjection.ScopeCount)
 }
 
-func (e *Engine) selectGroupProjectionIndex(ctx context.Context, query *compiler.CompiledQuery, preferred *arango.PreviewCoveringIndex) (arango.PreviewCoveringIndex, bool) {
+func (e *Engine) selectGroupProjectionIndex(ctx context.Context, query *compiler.CompiledQuery, preferred *PreviewCollectionIndex) (PreviewCollectionIndex, bool) {
 	if query == nil || query.PreviewGroupProjection == nil || query.PreviewGroupProjection.ReadOnlyIndex == nil ||
-		query.PreviewGroupProjection.Collection == "" || query.PreviewGroupProjection.ScopeCountQuery == "" ||
-		e.previewExplainQuery == nil || ctx.Err() != nil {
-		return arango.PreviewCoveringIndex{}, false
+		query.PreviewGroupProjection.Collection == "" ||
+		query.PreviewGroupProjection.ScopeCount.Backend() != command.CompiledBackendAQL ||
+		e.previewCollectionScans == nil || ctx.Err() != nil {
+		return PreviewCollectionIndex{}, false
 	}
 	spec := query.PreviewGroupProjection
-	var indexes []arango.PreviewCoveringIndex
+	var indexes []PreviewCollectionIndex
 	if preferred != nil {
-		indexes = []arango.PreviewCoveringIndex{*preferred}
+		indexes = []PreviewCollectionIndex{*preferred}
 	} else {
 		if e.previewCoveringIndexes == nil {
-			return arango.PreviewCoveringIndex{}, false
+			return PreviewCollectionIndex{}, false
 		}
 		var err error
 		indexes, err = e.previewCoveringIndexes(ctx, spec.Collection)
 		if err != nil || ctx.Err() != nil {
-			return arango.PreviewCoveringIndex{}, false
+			return PreviewCollectionIndex{}, false
 		}
 	}
 	for _, index := range compatibleGroupProjectionIndexes(spec.Collection, spec.ReadOnlyIndex, indexes) {
 		if ctx.Err() != nil {
-			return arango.PreviewCoveringIndex{}, false
+			return PreviewCollectionIndex{}, false
 		}
-		factoredQuery, factoredBinds, renderErr := compiler.RenderPreviewGroupProjectionFactorization(query.PhysicalPlan, index.Name, false)
-		if renderErr != nil || factoredQuery == "" {
+		factoredCommand, renderErr := compiler.RenderPreviewGroupProjectionFactorization(query.PhysicalPlan, index.Name, false)
+		if renderErr != nil {
 			continue
 		}
-		plan, explainErr := e.previewExplainQuery(ctx, factoredQuery, factoredBinds)
-		if explainErr != nil || ctx.Err() != nil || !hasCoveringRootIndexNamed(plan, spec.Collection, index.Name) {
+		scans, scansErr := e.previewCollectionScans(ctx, factoredCommand, spec.Collection)
+		if scansErr != nil || ctx.Err() != nil || !hasCoveringRootIndexNamed(scans, spec.Collection, index.Name) {
 			continue
 		}
 		index.Fields = append([]string(nil), index.Fields...)
 		index.StoredValues = append([]string(nil), index.StoredValues...)
 		return index, true
 	}
-	return arango.PreviewCoveringIndex{}, false
+	return PreviewCollectionIndex{}, false
 }
 
-func compatibleGroupProjectionIndexes(collection string, required *compiler.PreviewGroupProjectionIndexSpec, indexes []arango.PreviewCoveringIndex) []arango.PreviewCoveringIndex {
+func compatibleGroupProjectionIndexes(collection string, required *compiler.PreviewGroupProjectionIndexSpec, indexes []PreviewCollectionIndex) []PreviewCollectionIndex {
 	if required == nil || len(required.RequiredFields) == 0 || required.ProjectionPath == "" {
 		return nil
 	}
@@ -211,7 +209,7 @@ func compatibleGroupProjectionIndexes(collection string, required *compiler.Prev
 		}
 		requiredFields[field] = struct{}{}
 	}
-	compatible := make([]arango.PreviewCoveringIndex, 0, len(indexes))
+	compatible := make([]PreviewCollectionIndex, 0, len(indexes))
 	for _, index := range indexes {
 		if index.Collection != collection || !strings.HasPrefix(index.Name, "loom_pivot_preview_") || len(index.Fields) == 0 {
 			continue
@@ -271,45 +269,30 @@ func compatibleGroupProjectionIndexes(collection string, required *compiler.Prev
 	return compatible
 }
 
-func hasCoveringRootIndexNamed(result arango.ExplainResult, collection, indexName string) bool {
-	plan := singleExplainPlan(result)
-	if plan == nil || collection == "" || indexName == "" {
+func hasCoveringRootIndexNamed(evidence PreviewCollectionScanEvidence, collection, indexName string) bool {
+	if collection == "" || indexName == "" {
 		return false
 	}
-	rootIndexes := 0
-	for _, node := range plan.Nodes {
-		if node.Collection != collection {
-			continue
-		}
-		switch node.Type {
-		case "EnumerateCollectionNode":
-			return false
-		case "IndexNode":
-			rootIndexes++
-			if node.IndexCoversProjections == nil || !*node.IndexCoversProjections ||
-				node.IndexCoversOutProjections == nil || !*node.IndexCoversOutProjections {
-				return false
-			}
-			found := false
-			for _, index := range node.Indexes {
-				if index.Name == indexName && (index.Collection == "" || index.Collection == collection) {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return false
-			}
+	if evidence.FullCollectionEnumeration || len(evidence.IndexNodes) != 1 {
+		return false
+	}
+	node := evidence.IndexNodes[0]
+	if node.Coverage != PreviewIndexCoverageCovering {
+		return false
+	}
+	for _, name := range node.IndexNames {
+		if name == indexName {
+			return true
 		}
 	}
-	return rootIndexes == 1
+	return false
 }
 
 func (e *Engine) chooseGroupProjectionFactorization(ctx context.Context, query *compiler.CompiledQuery, stream *OutputStream,
-	ordinaryQuery string, ordinaryBinds map[string]any, selectedIndex arango.PreviewCoveringIndex,
+	ordinaryCommand command.CompiledCommand, selectedIndex PreviewCollectionIndex,
 	assessedScopeCount int64, assessedScopeCountKnown, assessedScopeCountAttempted bool) error {
 	spec := query.PreviewGroupProjection
-	if spec == nil || spec.Collection == "" || spec.ScopeCountQuery == "" || e.previewCollectionRevision == nil {
+	if spec == nil || spec.Collection == "" || spec.ScopeCount.Backend() != command.CompiledBackendAQL || e.previewCollectionRevision == nil {
 		return nil
 	}
 	if ctx.Err() != nil {
@@ -324,7 +307,7 @@ func (e *Engine) chooseGroupProjectionFactorization(ctx context.Context, query *
 	}
 	indexName := selectedIndex.Name
 	indexIdentity := groupProjectionIndexIdentity(selectedIndex)
-	decisionKey, _, keyOK := newGroupPreviewProjectionDecisionKey(ordinaryQuery, ordinaryBinds, spec.Collection, revision, indexIdentity)
+	decisionKey, _, keyOK := newGroupPreviewProjectionDecisionKey(ordinaryCommand, spec.Collection, revision, indexIdentity)
 	if !keyOK {
 		return nil
 	}
@@ -337,20 +320,20 @@ func (e *Engine) chooseGroupProjectionFactorization(ctx context.Context, query *
 	}
 
 	if !assessedScopeCountKnown && !assessedScopeCountAttempted {
-		countCtx := arango.WithQueryMemoryLimit(ctx, groupPreviewQueryMemoryLimitBytes)
-		assessedScopeCount, assessedScopeCountKnown = readGroupPreviewCount(countCtx, stream, spec.ScopeCountQuery, spec.ScopeCountBindVars)
+		countCtx := WithQueryMemoryBudget(ctx, groupPreviewQueryMemoryLimitBytes)
+		assessedScopeCount, assessedScopeCountKnown = readGroupPreviewCount(countCtx, stream, spec.ScopeCount)
 	}
 	if !assessedScopeCountKnown || assessedScopeCount <= 0 {
 		return nil
 	}
-	assessmentQuery, assessmentBinds, renderErr := compiler.RenderPreviewGroupProjectionAssessment(query.PhysicalPlan, indexName, false)
-	if renderErr != nil || assessmentQuery == "" {
+	assessmentCommand, renderErr := compiler.RenderPreviewGroupProjectionAssessment(query.PhysicalPlan, indexName, false)
+	if renderErr != nil || assessmentCommand.Backend() != command.CompiledBackendAQL {
 		return nil
 	}
-	assessmentCtx := arango.WithQueryMemoryLimit(ctx, groupPreviewQueryMemoryLimitBytes)
+	assessmentCtx := WithQueryMemoryBudget(ctx, groupPreviewQueryMemoryLimitBytes)
 	var sample groupProjectionSample
 	seen := false
-	err := stream.stream(assessmentCtx, assessmentQuery, 1, assessmentBinds, func(row map[string]any) error {
+	err := stream.sourceRows(assessmentCtx, RowsRequest{Command: assessmentCommand, BatchSize: 1}, func(row map[string]any) error {
 		if seen {
 			return errors.New("Group projection sample returned more than one row")
 		}
@@ -455,7 +438,7 @@ func estimateGroupProjectionDictionaryBytes(sample groupProjectionSample, scoped
 	return base * entryBytes, true
 }
 
-func groupProjectionIndexIdentity(selected arango.PreviewCoveringIndex) string {
+func groupProjectionIndexIdentity(selected PreviewCollectionIndex) string {
 	encoded, err := json.Marshal(selected)
 	if err == nil {
 		return "index:" + string(encoded)
@@ -464,19 +447,17 @@ func groupProjectionIndexIdentity(selected arango.PreviewCoveringIndex) string {
 }
 
 func applyGroupProjectionFactorization(query *compiler.CompiledQuery, stream *OutputStream, indexName string) bool {
-	factoredQuery, factoredBinds, err := compiler.RenderPreviewGroupProjectionFactorization(query.PhysicalPlan, indexName, false)
-	if err != nil || factoredQuery == "" {
+	factoredCommand, err := compiler.RenderPreviewGroupProjectionFactorization(query.PhysicalPlan, indexName, false)
+	if err != nil || factoredCommand.Backend() != command.CompiledBackendAQL {
 		return false
 	}
-	query.Query = factoredQuery
-	query.BindVars = factoredBinds
-	stream.query = factoredQuery
-	stream.bindVars = factoredBinds
+	query.Command = factoredCommand
+	stream.command = factoredCommand
 	stream.queryMemoryLimit = groupPreviewQueryMemoryLimitBytes
 	return true
 }
 
-func compatibleGroupPreviewIndexes(required *compiler.PreviewCoveringIndexSpec, indexes []arango.PreviewCoveringIndex) []arango.PreviewCoveringIndex {
+func compatibleGroupPreviewIndexes(required *compiler.PreviewCoveringIndexSpec, indexes []PreviewCollectionIndex) []PreviewCollectionIndex {
 	if required == nil || len(required.Fields) == 0 {
 		return nil
 	}
@@ -487,7 +468,7 @@ func compatibleGroupPreviewIndexes(required *compiler.PreviewCoveringIndexSpec, 
 		}
 		requiredFields[field] = struct{}{}
 	}
-	compatible := make([]arango.PreviewCoveringIndex, 0, len(indexes))
+	compatible := make([]PreviewCollectionIndex, 0, len(indexes))
 	for _, index := range indexes {
 		if index.Collection != required.Collection || !strings.HasPrefix(index.Name, "loom_pivot_preview_") ||
 			len(index.Fields) < len(requiredFields) {
@@ -523,39 +504,11 @@ func compatibleGroupPreviewIndexes(required *compiler.PreviewCoveringIndexSpec, 
 	return compatible
 }
 
-func hasNonCoveringRootIndex(result arango.ExplainResult, collection string) bool {
-	plan := singleExplainPlan(result)
-	if plan == nil {
+func hasNonCoveringRootIndex(evidence PreviewCollectionScanEvidence, collection string) bool {
+	if evidence.FullCollectionEnumeration || len(evidence.IndexNodes) != 1 {
 		return false
 	}
-	rootIndexes := 0
-	for _, node := range plan.Nodes {
-		if node.Collection != collection {
-			continue
-		}
-		switch node.Type {
-		case "EnumerateCollectionNode":
-			return false
-		case "IndexNode":
-			rootIndexes++
-			if node.IndexCoversProjections == nil || *node.IndexCoversProjections ||
-				node.IndexCoversOutProjections == nil || *node.IndexCoversOutProjections {
-				return false
-			}
-		}
-	}
-	return rootIndexes == 1
-}
-
-func singleExplainPlan(result arango.ExplainResult) *arango.ExplainPlan {
-	switch {
-	case result.Plan != nil && len(result.Plans) == 0:
-		return result.Plan
-	case result.Plan == nil && len(result.Plans) == 1:
-		return &result.Plans[0]
-	default:
-		return nil
-	}
+	return evidence.IndexNodes[0].Coverage == PreviewIndexCoverageNotCovering
 }
 
 func previewCountValue(value any) (int64, bool) {

@@ -144,8 +144,6 @@ type SemanticCoverageSourceIdentity struct {
 	ResourceType      string
 }
 
-// SemanticCoverageSourceContribution is aggregated by source, canonical path,
-// and Resource boundary signature. It contains a source sentinel even when Paths is empty.
 type SemanticCoverageSourceContribution struct {
 	Identity                    SemanticCoverageSourceIdentity
 	BuildID                     string
@@ -169,8 +167,6 @@ type SemanticCoverageOwnerLocator struct {
 	OwnerPath     string
 }
 
-// SemanticCoverageEmissionEvidence is ephemeral reconciliation evidence. Key
-// values are excluded from JSON and must not be persisted.
 type SemanticCoverageEmissionEvidence struct {
 	Owner                 SemanticCoverageOwnerLocator
 	ConceptOwner          SemanticCoverageOwnerLocator
@@ -298,7 +294,6 @@ func canonicalizeSemanticCoverageOwnerPath(path string) string {
 }
 
 type SemanticCoverageCounts struct {
-	// Owner and occurrence counts include explicit null/empty schema slots.
 	CodeableConceptOwners               int64
 	PopulatedCodeableConceptValues      int64
 	NullCodeableConceptOwners           int64
@@ -352,9 +347,6 @@ type SemanticCodeableConceptTemplate struct {
 	RecursivePath       string
 }
 
-// SemanticCoveragePathAggregate keeps the durable census shape aggregated by
-// generated canonical path and subtype boundary signature. Concrete owner paths
-// are bounded witnesses for diagnostics and tests; source values are never retained.
 type SemanticCoveragePathAggregate struct {
 	CanonicalPath             string
 	Kind                      SemanticCoverageOccurrenceKind
@@ -410,9 +402,6 @@ const semanticCoverageMaxReferencesPerPath = 64
 const semanticCoverageMaxDiagnostics = 64
 const semanticCoverageMaxResourceBoundaries = fhirsemantic.WalkMembersWithResourceTypesMaxFacts
 
-// DiscoverSemanticCodeableConceptTemplates walks every generated concrete
-// resource root. Recursive definitions are recorded as cycle witnesses instead
-// of expanding an unbounded path.
 func DiscoverSemanticCodeableConceptTemplates(index *schema.Index) ([]SemanticCodeableConceptTemplate, error) {
 	if index == nil {
 		return nil, fmt.Errorf("discover CodeableConcept templates: schema index is nil")
@@ -578,8 +567,6 @@ func semanticCoveragePayloadWithoutLoomRootMetadata(payload []byte) ([]byte, err
 	return filteredPayload, nil
 }
 
-// CensusSemanticCoverage counts concrete CodeableConcept and Coding owners
-// from generated schema facts. It runs independently of semantic emission.
 func CensusSemanticCoverage(index *schema.Index, resourceType, sourceID string, payload []byte) (SemanticCoverageCensus, error) {
 	if index == nil {
 		return SemanticCoverageCensus{}, fmt.Errorf("census semantic coverage for %q: schema index is nil", resourceType)
@@ -1147,9 +1134,6 @@ func incrementSemanticCoverageFacetCount(counts *SemanticCoverageCounts, presenc
 	}
 }
 
-// ReconcileSemanticCoverage combines the independent schema census with exact
-// emission owner locators and paths that remain executable in the raw source.
-// It never infers a match from code labels or values.
 func ReconcileSemanticCoverage(
 	census SemanticCoverageCensus,
 	emissions []SemanticCoverageEmissionEvidence,

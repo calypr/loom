@@ -3,6 +3,7 @@ package queryapi
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"reflect"
 	"strings"
 	"testing"
@@ -10,12 +11,6 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
-
-// F-B22 Tier-1 durable control for the resolver-less read-scope fallback:
-// client- and IdP-supplied paths become \x00-joined scope digests
-// downstream (fhirReadScopeDigest, explorer capability digests), so they
-// must traverse ingest normalization first. Archived CONFIRMED wording is
-// preserved verbatim as the REGRESSION branch of each case.
 
 func errorcode(t *testing.T, err error) string {
 	t.Helper()
@@ -30,7 +25,7 @@ func errorcode(t *testing.T, err error) string {
 }
 
 func TestClientSuppliedControlCharPathRefused(t *testing.T) {
-	svc := NewService(Config{})
+	svc := NewService(Config{CompileTarget: compiler.ArangoTarget()})
 	scope, err := svc.resolveReadScopeForGeneration(context.Background(), nil, "proj-a", "gen-1", []string{"x\x00y"})
 	if scope.Mode == authscope.ReadScopeRestricted && reflect.DeepEqual(scope.AuthResourcePaths, []string{"x\x00y"}) && err == nil {
 		t.Fatalf("VERDICT=CONFIRMED (pre-fix archived shape): client-supplied path with NUL was copied raw into a restricted scope (AuthResourcePaths=%q); the \x00-join digest fold of distinct restricted grants remains constructible from request bytes", scope.AuthResourcePaths)
@@ -45,7 +40,7 @@ func TestClientSuppliedControlCharPathRefused(t *testing.T) {
 }
 
 func TestClientSuppliedMixedPathsNormalized(t *testing.T) {
-	svc := NewService(Config{})
+	svc := NewService(Config{CompileTarget: compiler.ArangoTarget()})
 	scope, err := svc.resolveReadScopeForGeneration(context.Background(), nil, "proj-a", "gen-1", []string{"/c-d/", "a-b", "junk\x01x", "a-b"})
 	if err != nil {
 		t.Fatalf("VERDICT=UNEXPECTED err=%v", err)
@@ -60,7 +55,7 @@ func TestClientSuppliedMixedPathsNormalized(t *testing.T) {
 }
 
 func TestPrincipalGarbageOnlyPathsFailClosed(t *testing.T) {
-	svc := NewService(Config{})
+	svc := NewService(Config{CompileTarget: compiler.ArangoTarget()})
 	principal := &authscope.Principal{AuthResourcePaths: []string{"a\x00b"}}
 	scope, err := svc.resolveReadScopeForGeneration(context.Background(), principal, "proj-a", "gen-1", nil)
 	if scope.Mode == authscope.ReadScopeRestricted && reflect.DeepEqual(scope.AuthResourcePaths, []string{"a\x00b"}) && err == nil {
@@ -76,7 +71,7 @@ func TestPrincipalGarbageOnlyPathsFailClosed(t *testing.T) {
 }
 
 func TestMembershipComparedInNormalizedSpace(t *testing.T) {
-	svc := NewService(Config{})
+	svc := NewService(Config{CompileTarget: compiler.ArangoTarget()})
 	principal := &authscope.Principal{AuthResourcePaths: []string{"a-b"}}
 	scope, err := svc.resolveReadScopeForGeneration(context.Background(), principal, "proj-a", "gen-1", []string{"/a-b/"})
 	if err != nil && strings.HasPrefix(errorcode(t, err), string(dataframeerrors.CodeForbidden)) {

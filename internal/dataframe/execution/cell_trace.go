@@ -11,15 +11,13 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 const defaultCellTraceWitnessRows int64 = 1_000_000
 
-// CellTraceStatus describes what the canonical output plan established for
-// one published cell. Incomplete is reserved for a bounded trace that could
-// not reach the requested row; it must never be presented as absence.
 type CellTraceStatus string
 
 const (
@@ -71,34 +69,25 @@ type CellTraceResult struct {
 var errCellTraceFound = errors.New("cell trace row found")
 var errCellTraceWitnessLimit = errors.New("cell trace witness limit exceeded")
 
-// ErrCellTraceRowNotFound marks a client-supplied row ID that matched no
-// published row in an existing output; the authoring transport presents it as
-// a typed not-found, and only drift between bundle and compiled outputs can
-// keep it from being resolved upstream.
 var ErrCellTraceRowNotFound = errors.New("published cell trace row was not found")
 
-// CellTrace executes a diagnostic terminal compiled from the same resolved
-// output as publication. It locates a published row by its stable opaque ID;
-// callers never submit FHIR paths or expressions for interpretation here.
 func (e *Engine) CellTrace(ctx context.Context, resolved Resolved, request CellTraceRequest) (CellTraceResult, error) {
 	if strings.TrimSpace(request.Output) == "" {
 		return CellTraceResult{}, fmt.Errorf("cell trace output is required")
 	}
-	compiled, err := compileCellTraceOutput(resolved, request)
+	compiled, err := compileCellTraceOutput(e.compileTarget, resolved, request)
 	if err != nil {
 		return CellTraceResult{}, err
 	}
 	return e.cellTraceCompiled(ctx, compiled, request)
 }
 
-// CellTraceCompiled is the narrow execution seam used by focused tests and
-// specialized adapters that already hold the compiler result.
 func (e *Engine) CellTraceCompiled(ctx context.Context, compiled compiler.CompiledCellTraceQuery, request CellTraceRequest) (CellTraceResult, error) {
 	return e.cellTraceCompiled(ctx, compiled, request)
 }
 
 func (e *Engine) cellTraceCompiled(ctx context.Context, compiled compiler.CompiledCellTraceQuery, request CellTraceRequest) (CellTraceResult, error) {
-	if e == nil || e.queryRows == nil {
+	if e == nil || e.sourceRows == nil {
 		return CellTraceResult{}, fmt.Errorf("cell trace query executor is required")
 	}
 	rowID := strings.TrimSpace(request.RowID)
@@ -122,9 +111,45 @@ func (e *Engine) cellTraceCompiled(ctx context.Context, compiled compiler.Compil
 		return CellTraceResult{}, fmt.Errorf("cell trace query is missing typed result columns")
 	}
 
+	dialect := cellTraceAQLDialect
+	var declaredColumns []string
+	switch compiled.Command.Backend() {
+	case command.CompiledBackendPostgreSQL:
+		identityColumn := compiled.IdentityPartsColumn
+		if compiled.ExplicitIdentityColumn != "" {
+			identityColumn = compiled.ExplicitIdentityColumn
+		}
+		declaredColumns = []string{compiled.ValueColumn, compiled.ContributionsColumn, identityColumn,
+			compiled.StatusColumn, compiled.HasMoreColumn, compiled.OmissionColumn}
+		for i := range declaredColumns {
+			for j := i + 1; j < len(declaredColumns); j++ {
+				if declaredColumns[i] == declaredColumns[j] {
+					return CellTraceResult{}, fmt.Errorf("cell trace query is missing typed result columns")
+				}
+			}
+		}
+		dialect = cellTracePostgreSQLDialect
+	case command.CompiledBackendAQL:
+	default:
+		return CellTraceResult{}, fmt.Errorf("%w: cell trace command backend %q is not registered",
+			command.ErrCompiledCommandBackendNotRegistered, compiled.Command.Backend())
+	}
+	return e.scanCellTraceEvidence(ctx, compiled, request, rowID, column, maxWitness, declaredColumns, dialect)
+}
+
+type cellTraceDialect struct {
+	identity func(compiler.CompiledCellTraceQuery, map[string]any) (string, error)
+	parse    func(compiler.CompiledCellTraceQuery, CellTraceRequest, map[string]any) (CellTraceResult, error)
+}
+
+var cellTraceAQLDialect = cellTraceDialect{identity: cellTraceRowIdentity, parse: parseCellTraceRow}
+
+var cellTracePostgreSQLDialect = cellTraceDialect{identity: cellTracePostgreSQLIdentity, parse: parseCellTracePostgreSQLRow}
+
+func (e *Engine) scanCellTraceEvidence(ctx context.Context, compiled compiler.CompiledCellTraceQuery, request CellTraceRequest, rowID, column string, maxWitness int64, declaredColumns []string, dialect cellTraceDialect) (CellTraceResult, error) {
 	var result CellTraceResult
 	witnessRows := int64(0)
-	err := e.queryRows(ctx, compiled.Query, e.batchSize, compiled.BindVars, func(row map[string]any) error {
+	err := e.sourceRows(ctx, RowsRequest{Command: compiled.Command, DeclaredColumns: declaredColumns, BatchSize: e.batchSize}, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -132,14 +157,14 @@ func (e *Engine) cellTraceCompiled(ctx context.Context, compiled compiler.Compil
 		if witnessRows > maxWitness {
 			return errCellTraceWitnessLimit
 		}
-		identity, identityErr := cellTraceRowIdentity(compiled, row)
+		identity, identityErr := dialect.identity(compiled, row)
 		if identityErr != nil {
 			return identityErr
 		}
 		if identity != rowID {
 			return nil
 		}
-		parsed, parseErr := parseCellTraceRow(compiled, request, row)
+		parsed, parseErr := dialect.parse(compiled, request, row)
 		if parseErr != nil {
 			return parseErr
 		}
@@ -161,10 +186,10 @@ func (e *Engine) cellTraceCompiled(ctx context.Context, compiled compiler.Compil
 	return CellTraceResult{}, dataframeerrors.Wrap(ErrCellTraceRowNotFound, dataframeerrors.CodeInvalidRequest, fmt.Sprintf("published row %q was not found in output %q", rowID, request.Output), dataframeerrors.WithDetails(map[string]any{"rowId": rowID, "output": request.Output}))
 }
 
-func compileCellTraceOutput(resolved Resolved, request CellTraceRequest) (compiler.CompiledCellTraceQuery, error) {
+func compileCellTraceOutput(target compiler.Target, resolved Resolved, request CellTraceRequest) (compiler.CompiledCellTraceQuery, error) {
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name == request.Output {
-			return compiler.CompileCellTraceOutputWithPolicy(output, request.Column, request.Offset, request.Limit, ir.DefaultPhysicalOptimizationPolicy())
+			return compiler.CompileCellTraceOutput(target, output, request.Column, request.Offset, request.Limit, ir.DefaultPhysicalOptimizationPolicy())
 		}
 	}
 	return compiler.CompiledCellTraceQuery{}, fmt.Errorf("cell trace output %q was not found", request.Output)
@@ -185,7 +210,14 @@ func cellTraceRowIdentity(query compiler.CompiledCellTraceQuery, row map[string]
 		return fmt.Sprint(value), nil
 	}
 	parts, ok := row[query.IdentityPartsColumn].([]any)
-	if !ok || query.RowIdentity == nil || len(parts) == 0 || len(parts) != len(query.RowIdentity.Fields) {
+	if !ok {
+		return "", fmt.Errorf("cell trace row has an invalid default identity shape")
+	}
+	return cellTraceIdentityPartsDigest(parts, query)
+}
+
+func cellTraceIdentityPartsDigest(parts []any, query compiler.CompiledCellTraceQuery) (string, error) {
+	if query.RowIdentity == nil || len(parts) == 0 || len(parts) != len(query.RowIdentity.Fields) {
 		return "", fmt.Errorf("cell trace row has an invalid default identity shape")
 	}
 	for _, part := range parts {
@@ -201,9 +233,64 @@ func cellTraceRowIdentity(query compiler.CompiledCellTraceQuery, row map[string]
 	return hex.EncodeToString(digest[:]), nil
 }
 
-// The compiler publishes a singleton __loom_row_id for composed cohort
-// outputs; its cohort stage defines that identity as a required object. Other
-// construction identities retain their scalar or identity-parts metadata.
+func cellTracePostgreSQLIdentity(query compiler.CompiledCellTraceQuery, row map[string]any) (string, error) {
+	if query.ExplicitIdentityColumn != "" {
+		value, ok := row[query.ExplicitIdentityColumn]
+		if raw, isRaw := value.(json.RawMessage); isRaw {
+			decoded, err := decodePostgreSQLCellTraceJSON(raw)
+			if err != nil {
+				return "", fmt.Errorf("cell trace row has an invalid explicit identity: %w", err)
+			}
+			value, ok = decoded, true
+		}
+		if !ok || value == nil {
+			return "", fmt.Errorf("cell trace row has an invalid explicit identity")
+		}
+		if query.ExplicitIdentityObject {
+			return canonicalCellTraceObjectValue(value)
+		}
+		if strings.TrimSpace(fmt.Sprint(value)) == "" {
+			return "", fmt.Errorf("cell trace row has an invalid explicit identity")
+		}
+		return fmt.Sprint(value), nil
+	}
+	parts, err := cellTracePostgreSQLJSONParts(row[query.IdentityPartsColumn])
+	if err != nil {
+		return "", fmt.Errorf("cell trace row has an invalid default identity shape")
+	}
+	return cellTraceIdentityPartsDigest(parts, query)
+}
+
+func cellTracePostgreSQLJSONParts(value any) ([]any, error) {
+	switch typed := value.(type) {
+	case []any:
+		return typed, nil
+	case json.RawMessage:
+		decoded, err := decodePostgreSQLCellTraceJSON(typed)
+		if err != nil {
+			return nil, err
+		}
+		items, ok := decoded.([]any)
+		if !ok {
+			return nil, fmt.Errorf("cell trace row carries a non-array JSON value where an array page is published")
+		}
+		return items, nil
+	default:
+		return nil, fmt.Errorf("cell trace row is missing its published JSON array")
+	}
+}
+
+func decodePostgreSQLCellTraceJSON(raw json.RawMessage) (any, error) {
+	if len(raw) == 0 || !json.Valid(raw) {
+		return nil, fmt.Errorf("cell trace row carries invalid raw JSON bytes")
+	}
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil, fmt.Errorf("cell trace row carries invalid raw JSON bytes: %w", err)
+	}
+	return decoded, nil
+}
+
 func canonicalCellTraceObjectValue(value any) (string, error) {
 	encoded, err := json.Marshal(value)
 	if err != nil {
@@ -266,12 +353,21 @@ func canonicalCellTraceIdentityJSON(raw string) (string, error) {
 	return string(canonical), nil
 }
 
-func parseCellTraceRow(query compiler.CompiledCellTraceQuery, request CellTraceRequest, row map[string]any) (CellTraceResult, error) {
+type cellTraceDecodedRow struct {
+	value         any
+	contributions []CellTraceContribution
+}
+
+func cellTraceRowStatus(query compiler.CompiledCellTraceQuery, row map[string]any) (CellTraceStatus, error) {
 	status, ok := row[query.StatusColumn].(string)
 	if !ok || !validCellTraceStatus(CellTraceStatus(status)) {
-		return CellTraceResult{}, fmt.Errorf("cell trace row has an invalid status")
+		return "", fmt.Errorf("cell trace row has an invalid status")
 	}
-	contributions, err := parseCellTraceContributions(row[query.ContributionsColumn])
+	return CellTraceStatus(status), nil
+}
+
+func assembleCellTraceResult(query compiler.CompiledCellTraceQuery, request CellTraceRequest, row map[string]any, decoded cellTraceDecodedRow) (CellTraceResult, error) {
+	status, err := cellTraceRowStatus(query, row)
 	if err != nil {
 		return CellTraceResult{}, err
 	}
@@ -279,13 +375,47 @@ func parseCellTraceRow(query compiler.CompiledCellTraceQuery, request CellTraceR
 	omission, _ := row[query.OmissionColumn].(string)
 	nextOffset := 0
 	if hasMore {
-		nextOffset = request.Offset + len(contributions)
+		nextOffset = request.Offset + len(decoded.contributions)
 	}
 	return CellTraceResult{
-		RowID: strings.TrimSpace(request.RowID), Column: strings.TrimSpace(request.Column), Value: row[query.ValueColumn],
-		Status: CellTraceStatus(status), Contributions: contributions, HasMore: hasMore, NextOffset: nextOffset,
+		RowID: strings.TrimSpace(request.RowID), Column: strings.TrimSpace(request.Column), Value: decoded.value,
+		Status: status, Contributions: decoded.contributions, HasMore: hasMore, NextOffset: nextOffset,
 		OmissionCode: omission, Complete: true,
 	}, nil
+}
+
+func parseCellTraceRow(query compiler.CompiledCellTraceQuery, request CellTraceRequest, row map[string]any) (CellTraceResult, error) {
+	if _, err := cellTraceRowStatus(query, row); err != nil {
+		return CellTraceResult{}, err
+	}
+	contributions, err := parseCellTraceContributions(row[query.ContributionsColumn])
+	if err != nil {
+		return CellTraceResult{}, err
+	}
+	return assembleCellTraceResult(query, request, row, cellTraceDecodedRow{value: row[query.ValueColumn], contributions: contributions})
+}
+
+func parseCellTracePostgreSQLRow(query compiler.CompiledCellTraceQuery, request CellTraceRequest, row map[string]any) (CellTraceResult, error) {
+	if _, err := cellTraceRowStatus(query, row); err != nil {
+		return CellTraceResult{}, err
+	}
+	items, err := cellTracePostgreSQLJSONParts(row[query.ContributionsColumn])
+	if err != nil {
+		return CellTraceResult{}, fmt.Errorf("cell trace row has invalid contributions: %w", err)
+	}
+	contributions, err := cellTraceContributionsFromItems(items)
+	if err != nil {
+		return CellTraceResult{}, err
+	}
+	value := row[query.ValueColumn]
+	if raw, isRaw := value.(json.RawMessage); isRaw {
+		decoded, decodeErr := decodePostgreSQLCellTraceJSON(raw)
+		if decodeErr != nil {
+			return CellTraceResult{}, fmt.Errorf("cell trace row has an invalid traced value: %w", decodeErr)
+		}
+		value = decoded
+	}
+	return assembleCellTraceResult(query, request, row, cellTraceDecodedRow{value: value, contributions: contributions})
 }
 
 func parseCellTraceContributions(value any) ([]CellTraceContribution, error) {
@@ -296,6 +426,10 @@ func parseCellTraceContributions(value any) ([]CellTraceContribution, error) {
 	if !ok {
 		return nil, fmt.Errorf("cell trace row has invalid contributions")
 	}
+	return cellTraceContributionsFromItems(items)
+}
+
+func cellTraceContributionsFromItems(items []any) ([]CellTraceContribution, error) {
 	result := make([]CellTraceContribution, 0, len(items))
 	for _, item := range items {
 		object, ok := item.(map[string]any)

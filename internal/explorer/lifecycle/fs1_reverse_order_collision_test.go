@@ -1,29 +1,5 @@
 package lifecycle
 
-// fs1_reverse_order_collision_test.go — BS-62-6 durable locks for the F-DS1
-// signed-slot collision boundary under arrival-order reversal:
-//
-//   - The shared collision predicate (constructionRootFieldAlreadyProjected,
-//     construction_pivot_source.go:658) compares SETS of signed-slot vs
-//     committed field identities and never the step/projection order: a
-//     carrier-owned collision is refused with its named *_FIELD_ALREADY_
-//     PROJECTED code in both forward and reverse arrival order.
-//   - The pivot-first ("reverse") direction disclosed by the 62f627fb commit
-//     body ("reverse-order pivot collision surfaces as
-//     FILTER_SOURCE_CANNOT_CROSS_STAGE (residual disclosed, not silently
-//     fixed)") is refused at the lane boundary for every signed lane —
-//     never a silent accept and never the catch-all
-//     CONSTRUCTION_RECEIPT_CONTRACT_INVALID 500.
-//   - The inverse arrangement (signed step inserted before the committed
-//     pivot) cannot be submitted at all: the step-order preservation guard
-//     refuses it as INVALID_CONSTRUCTION_CANDIDATE.
-//   - Pivot-owner exclusion from the carrier set is a shipped contract (the
-//     predicate comment: "a slot sharing its field with a Pivot-owned source
-//     input is legitimate state"), so the predicate itself is pinned false
-//     for pivot-owned fields in BOTH directions; refusal is pinned to the
-//     boundary/guard layers above.
-//   - Legit non-collision arrivals (distinct fields) keep flowing through.
-
 import (
 	"context"
 	"errors"
@@ -51,7 +27,6 @@ func fs1r6Projection(columnID, ownerStepID, fieldPath, logicalType string) autho
 	}
 }
 
-// P1 — predicate order invariance table at the root function.
 func TestFS1SignedSlotCollisionPredicateIsOrderInvariant(t *testing.T) {
 	doc := filterSourceDocument()
 	step := func(id string, kind authoringv2.ConstructionOperationKind) authoringv2.ConstructionStep {
@@ -94,8 +69,6 @@ func TestFS1SignedSlotCollisionPredicateIsOrderInvariant(t *testing.T) {
 	}
 }
 
-// P2/P6 — the disclosed reverse-direction (pivot-first) arrival is refused at
-// the lane boundary of both signed lanes with the named cross-stage codes.
 func TestFS1ReverseOrderSignedSlotRefusedAtPivotBoundary(t *testing.T) {
 	buildBase := func(t *testing.T, token string) (*Service, constructionBase, capability.Snapshot) {
 		t.Helper()
@@ -171,8 +144,6 @@ func TestFS1ReverseOrderSignedSlotRefusedAtPivotBoundary(t *testing.T) {
 	})
 }
 
-// P4 — the named collision code fires from the predicate in BOTH arrival
-// directions when the committed carrier is a signed-lane projection.
 func TestFS1ForwardAndReverseSignedCarrierCollisionRefusedNamed(t *testing.T) {
 	for _, row := range []struct {
 		order string
@@ -213,8 +184,6 @@ func TestFS1ForwardAndReverseSignedCarrierCollisionRefusedNamed(t *testing.T) {
 	}
 }
 
-// P5 — legit non-collision arrivals keep flowing through the lane in either
-// order.
 func TestFS1LegitNonCollisionReverseOrderStillAccepted(t *testing.T) {
 	snapshot := filterSourceSnapshot("fs1r6-legit")
 	service := filterSourceService(t)
@@ -238,8 +207,6 @@ func TestFS1LegitNonCollisionReverseOrderStillAccepted(t *testing.T) {
 		t.Fatalf("distinct-field reverse-order signed slot must stay accepted, got %v", err)
 	}
 }
-
-// --- full ProposeConstruction locks (real compiler, Patients harness) ---
 
 func fs1r6PivotPatientConstruction() (authoringv2.Document, authoringv2.Construction) {
 	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
@@ -324,10 +291,6 @@ func fs1r6SignedSlotRequest() ConstructionFilterSourceSelection {
 	return ConstructionFilterSourceSelection{ColumnID: "fs1r6_slot_b"}
 }
 
-// The inverse arrangement never reaches the collision predicate at all:
-// inserting a signed step before the committed pivot is refused by the step
-// order preservation guard, so no proposal can carry a signed slot in
-// reverse order of the committed field.
 func TestFS1FullProposeRefusesSignedStepInsertedBeforeCommittedPivot(t *testing.T) {
 	harness := newFilterSourceHarness(t)
 	_, durable := fs1r6PivotPatientConstruction()
@@ -347,9 +310,6 @@ func TestFS1FullProposeRefusesSignedStepInsertedBeforeCommittedPivot(t *testing.
 	}
 }
 
-// The recorded reverse direction (pivot committed first, signed slot added
-// after) is refused end to end with the named boundary code — never
-// PREVIEW_PENDING with two same-path projections, never the catch-all 500.
 func TestFS1FullProposeReverseDirectionRefusedAtBoundary(t *testing.T) {
 	harness := newFilterSourceHarness(t)
 	_, durable := fs1r6PivotPatientConstruction()

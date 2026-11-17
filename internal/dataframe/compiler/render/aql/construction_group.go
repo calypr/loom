@@ -38,9 +38,6 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 		}
 	}
 	if group.RootContributorInputColumn != "" {
-		// Root contributor collection needs the exact grouped rows. Keep the
-		// streaming COUNT_ROWS shortcut for ordinary Groups, but materialize
-		// this demanded-only lineage alongside the existing group collection.
 		countRowsOnly = false
 	}
 	aggregateRowValues := countRowsOnly && (input.RowsVariable != "" || input.SourceRowInScope) && constructionGroupRowValuesCanAggregate(group.RowValues)
@@ -529,8 +526,6 @@ func (r *physicalPlanRenderer) renderConstructionGroupRelatedOccurrenceInput(
 			NullBehavior: ir.PhysicalEmptyOnNull,
 			Value:        &ir.PhysicalValue{Variable: targetVariable, Path: []string{adapter.CodingArrayColumn}},
 		}
-		// Preserve one sentinel for both a missing route and an empty Coding
-		// array, then apply the Coding policy only when a target matched.
 		coding.EmptyPolicy = ir.PhysicalUnnestPreserveParent
 		codingLines, unnestErr := r.renderUnnest(coding, "  ", 0, 0)
 		if unnestErr != nil {
@@ -700,10 +695,6 @@ func (r *physicalPlanRenderer) renderConstructionGroupSemanticMembership(
 	return lines, memberships, nil
 }
 
-// renderConstructionGroupSemanticMembershipFromRaw applies the ordinary
-// semantic Coding matcher and per-input tuple dedup to one complete raw Coding
-// projection. The projection-factorization preview calls the same extractor
-// after COLLECT has collapsed identical arrays and retained their weight.
 func (r *physicalPlanRenderer) renderConstructionGroupSemanticMembershipFromRaw(
 	semantic *ir.PhysicalStageGroupSemanticKey,
 	rawCodings string,
@@ -739,9 +730,6 @@ func (r *physicalPlanRenderer) renderConstructionGroupSemanticMembershipFromRaw(
 		fmt.Sprintf("  LET %s = (LENGTH(%s) == 0 ? [{system: null, version: null, code: null, display: null}] : (FOR %s IN %s COLLECT %s = %s AGGREGATE %s = MIN(%s) RETURN {system: (%s != null ? @%s : null), version: (%s != null ? %s : null), code: %s, display: %s}))",
 			local, matched, matchedCoding, matched, code, localCode, display, localDisplay, code, codeSystemBind, code, matchedVersion, code, display),
 	)
-	// Local aggregation collapses duplicate semantic tuples within this
-	// projection. Ordinary Group supplies one source row at a time; factoring
-	// supplies each distinct projection with its occurrence weight.
 	return lines, local, nil
 }
 
@@ -807,8 +795,6 @@ func (r *physicalPlanRenderer) renderConstructionGroupAggregate(group *ir.Physic
 	if aggregate.Operation != "SUM" && aggregate.Operation != "MIN" && aggregate.Operation != "MAX" && aggregate.Operation != "MEAN" {
 		return "", fmt.Errorf("unsupported aggregate operation %q", aggregate.Operation)
 	}
-	// Materialize each group's typed values once, then apply null behavior:
-	// numeric reducers over no non-null values return null rather than zero.
 	reducer := aggregate.Operation
 	if reducer == "MEAN" {
 		reducer = "SUM"

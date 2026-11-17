@@ -1,23 +1,13 @@
 -------------------------- MODULE ReleaseBindingTrust --------------------------
-(*
-Models the F-B6 release-binding trust gap: the dataset release service binds a
-publication by name-latest lookup (FindExecutionBySelector, bundle_registry.go
-:174-182) echoed through the verifier (server/release_verifier.go:35-39) and written
-verbatim by release CAS (release_store.go:175-178), while the explorer revision
-records a distinct materialized execution. Recheck=TRUE models the proposed
-activation-time re-verification of the bound execution against the intended
-materialization.
-*)
 
 EXTENDS Naturals, Sequences
 
-CONSTANT Exec,               \* set of execution identities
-         Name,               \* single selector-visible name in contention
-         intended,           \* execution the revision actually materialized
-         Recheck,            \*_BOOLEAN: activation re-verifies binding identity
-         MaxStamps,          \* bound on publish timestamps
-         LegacyHas           \* SUBSET Exec: docs whose publish time is stored
-                              \* only under a capitalised PublishedAt key
+CONSTANT Exec,
+         Name,
+         intended,
+         Recheck,
+         MaxStamps,
+         LegacyHas
 
 ASSUME ExecOK == /\ Exec # {}
              /\ intended \in Exec
@@ -25,9 +15,9 @@ ASSUME ExecOK == /\ Exec # {}
              /\ MaxStamps \in Nat
              /\ LegacyHas \subseteq Exec
 
-VARIABLES published,        \* [Exec -> BOOLEAN]
-          publishedAt,      \* [Exec -> Nat], distinct among published
-          bindings,         \* << [name |-> Name, execution |-> e] >> or << >>
+VARIABLES published,
+          publishedAt,
+          bindings,
           activated
 
 DistinctTimestamps ==
@@ -54,23 +44,15 @@ Publish(e) ==
        /\ publishedAt' = [publishedAt EXCEPT ![e] = t]
        /\ UNCHANGED <<bindings, activated>>
 
-\* PrepareRelease+Create: name-latest selection (bundle_registry.go:174-182)
-\* echoed verbatim (server/release_verifier.go:35-39) and bound (release_store.go:175-178).
-\* SORT reads ONLY lowercase publishedAt (bundle_registry.go:179); a doc whose
-\* publish time lives under a capitalised PublishedAt key sorts as absent, so
-\* the name-latest predicate here zeroes its ordering key.
 OrderKey(e) == IF e \in LegacyHas THEN 0 ELSE publishedAt[e]
 
 PrepareRelease(e) ==
-  /\ ~activated   \* production: prepared release targets a not-yet-active revision
+  /\ ~activated
   /\ published[e]
   /\ \A g \in Exec: published[g] => OrderKey(g) <= OrderKey(e)
   /\ bindings' = << [name |-> Name, execution |-> e] >>
   /\ UNCHANGED <<published, publishedAt, activated>>
 
-\* PublishAuthoring activates the prepared release against the revision whose
-\* materialized execution is `intended`. Recheck models the proposed guard:
-\* activation aborts unless the bound execution IS the materialized one.
 Activate ==
   /\ bindings # << >>
   /\ ~activated

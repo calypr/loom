@@ -166,8 +166,6 @@ func (s *Service) compileConstructionCategoryCandidate(
 	if pivotIndex < 0 || candidate.Steps[pivotIndex].Operation.Pivot == nil {
 		return constructionBase{}, "", unprocessable("construction-category-discovery", "PIVOT_SOURCE_REQUIRES_PIVOT", "the candidate Pivot was not preserved", nil)
 	}
-	// Keep the Pivot as the owner of its hidden input columns, but stop its
-	// downstream chain and replace its categories with one compiler-valid probe.
 	candidate.Steps = append([]authoringv2.ConstructionStep(nil), candidate.Steps[:pivotIndex+1]...)
 	owners := make(map[string]bool, len(candidate.Steps))
 	for _, step := range candidate.Steps {
@@ -232,9 +230,6 @@ func (s *Service) compileConstructionCategoryCandidate(
 		ID: probeID, Name: "__category_discovery_probe", Label: "Category discovery probe", Type: value.Type,
 	})
 
-	// Category discovery compiles a temporary staged candidate just like a
-	// proposal. Materialize legacy public columns first so they have the stable
-	// ColumnIDs required by a staged construction.
 	document, err := authoringv2.UpgradeDocumentToConstruction(base.document)
 	if err != nil {
 		return constructionBase{}, "", unprocessable("construction-category-discovery", "INVALID_CONSTRUCTION_CANDIDATE", "the output cannot be upgraded for temporary category discovery", err)
@@ -517,14 +512,11 @@ func classifyConstructionCategoryScanError(ctx context.Context, err error) error
 			dataframeerrors.CodePreviewResponseTooLarge,
 			dataframeerrors.CodePlanTooExpensive,
 			dataframeerrors.CodeUnauthenticated:
-			// The HTTP adapter maps these status-specific codes directly.
 			return err
 		}
 		if dataframeerrors.IsRetryableCode(dataframeerrors.ErrorCode(code)) {
 			return failureDetails(ClassUnavailable, stage, code, message, details, cause)
 		}
-		// Keep other typed dataframe errors intact so the transport adapter can
-		// preserve their established code and status mapping.
 		return err
 	}
 	return internal(stage, "CATEGORY_DISCOVERY_FAILED", "category discovery failed unexpectedly while reading the catalog; inspect the server log for the request ID", cause)

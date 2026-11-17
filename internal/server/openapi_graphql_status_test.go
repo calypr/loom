@@ -16,16 +16,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// Undeclared escalated statuses used to exit through unexpectedResponseStatus
-// and surface as an opaque HTTP 500 {"error":{...}} service envelope, hiding
-// the typed GraphQL extension code (round-87 live repro: a ghost selector on
-// dataframeRows derived DATASET_NOT_FOUND, and the adapter collapsed it to
-// INTERNAL_ERROR). In addition, $ref-component response classes generated key
-// -wrapped embedded RawJSON structs, so even correctly-routed arms served
-// {"GraphQLNotFoundJSONResponse":{...}} instead of a GraphQL envelope. Each
-// documented GraphQL status must arrive on the wire — through the real strict
-// handler and production error handler — with the correct status and an intact
-// top-level data/errors envelope.
 func TestGraphQLRoutesServeDocumentedStatusesAsGraphQLEnvelopesOnTheWire(t *testing.T) {
 	cases := []struct {
 		code      string

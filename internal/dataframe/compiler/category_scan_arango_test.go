@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -25,12 +25,13 @@ func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Patient"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Patient"}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -126,7 +127,7 @@ func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing
 		if err != nil {
 			t.Fatal(err)
 		}
-		categoryScan, err := CompileCategoryScanStageWithPolicy(compiled.Outputs[0], stageID, "birth_date_id", "patient_id", 10, ir.DefaultPhysicalOptimizationPolicy())
+		categoryScan, err := CompileCategoryScanStage(ArangoTarget(), compiled.Outputs[0], stageID, "birth_date_id", "patient_id", 10, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -135,7 +136,7 @@ func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing
 
 	assertMissingAndNull := func(categoryScan CompiledCategoryScanQuery) {
 		t.Helper()
-		rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: categoryScan.Query, BindVars: categoryScan.BindVars})
+		rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: categoryScan.Command})
 		if len(rows) != 2 {
 			t.Fatalf("category scan returned %d categories, want distinct MISSING and NULL: %#v", len(rows), rows)
 		}
@@ -158,17 +159,17 @@ func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing
 	equalityScan := compileScan(makeOutput("construction_category_presence_equality", "keep_active_equality", recipe.FilterEquals), "keep_active_equality")
 	rootFilter := "FILTER root.payload.active == @construction_filter_value"
 	stageFilter := "FILTER __loom_construction_input_1.active == @construction_filter_value"
-	if !strings.Contains(equalityScan.Query, rootFilter) || !strings.Contains(equalityScan.Query, stageFilter) {
-		t.Fatalf("eligible equality should be copied to the root and retained on its stage:\n%s", equalityScan.Query)
+	if !strings.Contains(testAQLText(t, equalityScan.Command), rootFilter) || !strings.Contains(testAQLText(t, equalityScan.Command), stageFilter) {
+		t.Fatalf("eligible equality should be copied to the root and retained on its stage:\n%s", testAQLText(t, equalityScan.Command))
 	}
-	if strings.Contains(equalityScan.Query, "MERGE(") || !strings.Contains(equalityScan.Query, "__loom_category_scan_presence") {
-		t.Fatalf("category scan should carry presence in a scalar marker instead of merging row objects:\n%s", equalityScan.Query)
+	if strings.Contains(testAQLText(t, equalityScan.Command), "MERGE(") || !strings.Contains(testAQLText(t, equalityScan.Command), "__loom_category_scan_presence") {
+		t.Fatalf("category scan should carry presence in a scalar marker instead of merging row objects:\n%s", testAQLText(t, equalityScan.Command))
 	}
 	assertMissingAndNull(equalityScan)
 
 	existsScan := compileScan(makeOutput("construction_category_presence_exists", "keep_active_exists", recipe.FilterExists), "keep_active_exists")
-	if strings.Contains(existsScan.Query, "FILTER root.payload.active") || !strings.Contains(existsScan.Query, "FILTER __loom_construction_input_1.active != null") {
-		t.Fatalf("ineligible EXISTS scan must keep its original staged filter without source pushdown:\n%s", existsScan.Query)
+	if strings.Contains(testAQLText(t, existsScan.Command), "FILTER root.payload.active") || !strings.Contains(testAQLText(t, existsScan.Command), "FILTER __loom_construction_input_1.active != null") {
+		t.Fatalf("ineligible EXISTS scan must keep its original staged filter without source pushdown:\n%s", testAQLText(t, existsScan.Command))
 	}
 	assertMissingAndNull(existsScan)
 }
@@ -180,12 +181,13 @@ func TestRootQuantityCategoryScanAugmentsStoredParentIndexAgainstArango(t *testi
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -216,8 +218,6 @@ func TestRootQuantityCategoryScanAugmentsStoredParentIndexAgainstArango(t *testi
 		{id: "other-project", resourceType: "Observation", authPath: allowedPath, project: project + "_foreign", generation: generation, includeQuantity: true, quantity: map[string]any{"code": "foreign-project"}},
 		{id: "other-generation", resourceType: "Observation", authPath: allowedPath, project: project, generation: generation + "_foreign", includeQuantity: true, quantity: map[string]any{"code": "foreign-generation"}},
 		{id: "denied-scope", resourceType: "Observation", authPath: "/category/denied", project: project, generation: generation, includeQuantity: true, quantity: map[string]any{"code": "denied"}},
-		// ResourceType mismatches cannot be produced by the supported FHIR
-		// ingest path; this guard makes the shared type-ordered index explicit.
 		{id: "wrong-type", resourceType: "Patient", authPath: allowedPath, project: project, generation: generation, includeQuantity: true, quantity: map[string]any{"code": "wrong-type"}},
 	}
 	documents := make([]json.RawMessage, 0, len(fixtures))
@@ -272,7 +272,7 @@ func TestRootQuantityCategoryScanAugmentsStoredParentIndexAgainstArango(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	scan, err := CompileCategoryScanStageWithPolicy(compiled.Outputs[0], recipe.ConstructionSourceProjectionID, "category_id", "value_id", 10, ir.DefaultPhysicalOptimizationPolicy())
+	scan, err := CompileCategoryScanStage(ArangoTarget(), compiled.Outputs[0], recipe.ConstructionSourceProjectionID, "category_id", "value_id", 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,19 +285,19 @@ func TestRootQuantityCategoryScanAugmentsStoredParentIndexAgainstArango(t *testi
 		!reflect.DeepEqual(scan.CategoryIndex.Supersedes.Fields, wantLegacyFields) || !reflect.DeepEqual(scan.CategoryIndex.Supersedes.StoredValues, wantStoredValues) {
 		t.Fatalf("root quantity category index does not exactly augment its stored-parent Pivot index: %+v", scan.CategoryIndex)
 	}
-	if !strings.Contains(scan.Query, "root.resourceType == @__loom_category_resource_type") ||
-		scan.BindVars["__loom_category_resource_type"] != "Observation" {
-		t.Fatalf("root category query omitted exact resource type guard: %s\n%#v", scan.Query, scan.BindVars)
+	if !strings.Contains(testAQLText(t, scan.Command), "root.resourceType == @__loom_category_resource_type") ||
+		testAQLBinds(t, scan.Command)["__loom_category_resource_type"] != "Observation" {
+		t.Fatalf("root category query omitted exact resource type guard: %s\n%#v", testAQLText(t, scan.Command), testAQLBinds(t, scan.Command))
 	}
-	if strings.Contains(scan.Query, "UNION_DISTINCT") || !strings.Contains(scan.Query, "COLLECT ") ||
-		!strings.Contains(scan.Query, "IS_OBJECT(__loom_category_parent)") || !strings.Contains(scan.Query, "HAS(__loom_category_parent") {
-		t.Fatalf("stored-parent category scan did not use one object-presence grouping query:\n%s", scan.Query)
+	if strings.Contains(testAQLText(t, scan.Command), "UNION_DISTINCT") || !strings.Contains(testAQLText(t, scan.Command), "COLLECT ") ||
+		!strings.Contains(testAQLText(t, scan.Command), "IS_OBJECT(__loom_category_parent)") || !strings.Contains(testAQLText(t, scan.Command), "HAS(__loom_category_parent") {
+		t.Fatalf("stored-parent category scan did not use one object-presence grouping query:\n%s", testAQLText(t, scan.Command))
 	}
 	if scan.PreviewCoveringIndex != nil {
 		t.Fatalf("stored-parent category index should suppress the older field-only prewarm: %+v", scan.PreviewCoveringIndex)
 	}
 
-	rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: scan.Query, BindVars: scan.BindVars})
+	rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: scan.Command})
 	seen := map[string]bool{}
 	for _, row := range rows {
 		present, ok := row[scan.PresentColumn].(bool)

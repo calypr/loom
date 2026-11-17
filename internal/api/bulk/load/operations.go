@@ -32,14 +32,7 @@ func (h *Handler) GetDatasetGenerationStatus(ctx context.Context, project, gener
 	return status, nil
 }
 
-// CreateDatasetGeneration parses and stages a generated multipart request,
-// then runs the generation import operation.
 func (h *Handler) CreateDatasetGeneration(ctx context.Context, project, generation string, body *multipart.Reader, principal *authscope.Principal) (*GenerationLoadResult, error) {
-	// The stager writes each file part into the directory the loader consumes,
-	// so an uploaded byte is written to temporary storage once and there is no
-	// ReadForm spillover copy to dispose of. bundle.Cleanup is the only
-	// disposal, registered first so it runs after every consumer; it is a
-	// no-op on the nil bundle produced by an absent body.
 	bundle, err := stageGenerationBundle(body)
 	if bundle != nil {
 		defer bundle.Cleanup()
@@ -75,9 +68,6 @@ func (h *Handler) CreateDatasetGeneration(ctx context.Context, project, generati
 	if err := h.authz.AuthorizeWrite(ctx, principal, project, authResourcePath); err != nil {
 		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeForbidden, "")
 	}
-	// The file-part fault surfaces here, not during parsing: the replaced path
-	// ran ReadForm to completion and only then inspected names, so an invalid
-	// name never outranked a scalar fault or a denied request.
 	if err := bundle.ParseStagingError(); err != nil {
 		switch {
 		case errors.Is(err, os.ErrInvalid):

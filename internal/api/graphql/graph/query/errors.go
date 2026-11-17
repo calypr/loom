@@ -8,9 +8,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// classifyError is the one transport-neutral classification boundary for
-// query services. Drivers and Fence errors are kept as causes, while public
-// callers receive a stable code and never a driver message.
 func classifyError(err error) error {
 	if err == nil {
 		return nil

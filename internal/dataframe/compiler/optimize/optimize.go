@@ -9,13 +9,6 @@ import (
 
 const OptimizerRuleTraversalSharing = "share_identical_traversals"
 
-// OptimizePhysicalPlan applies semantics-preserving physical rewrites using
-// the conservative structural cost policy. An unshared plan is always
-// available as the correctness oracle, and the local policy switch can be used
-// to compare the two physical shapes without changing request semantics.
-// OptimizePhysicalPlanWithPolicy is the explicit form used by tests and
-// benchmarking tools. The policy decides only whether an optional rewrite is
-// enabled; it never relaxes physical-plan validation.
 func OptimizePhysicalPlanWithPolicy(plan ir.PhysicalPlan, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
 	if err := plan.Validate(); err != nil {
 		return ir.PhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
@@ -30,8 +23,6 @@ func OptimizePhysicalPlanWithPolicy(plan ir.PhysicalPlan, policy ir.PhysicalOpti
 		}
 		decomposition, err := ir.DecomposePhysicalTraversalPrefixAt(out, *op.Set, i)
 		if err != nil {
-			// Ineligibility is an expected optimizer outcome. The original plan
-			// remains the execution oracle.
 			continue
 		}
 		decompositions[i] = decomposition
@@ -51,7 +42,6 @@ func OptimizePhysicalPlanWithPolicy(plan ir.PhysicalPlan, policy ir.PhysicalOpti
 			Rule:          OptimizerRuleTraversalSharing,
 			CandidateSets: len(indices),
 		}
-		// Sharing is useful only when it removes target-type-specific traversals.
 		types := map[string]bool{}
 		for _, index := range indices {
 			t := decompositions[index].Subset.TargetTypeBindKey
@@ -124,9 +114,6 @@ func (route storageRoute) endpointLookupFields() (string, string, []string, bool
 
 func sharePhysicalSetGroup(plan *ir.PhysicalPlan, indices []int, types map[string]bool, decompositions map[int]ir.PhysicalTraversalPrefixDecomposition, policy ir.PhysicalOptimizationPolicy) error {
 	first := indices[0]
-	// The broad set changes its target bind from one type to a type list. Deep
-	// clone before that change: its first consumer must retain the original
-	// single target-type bind for the typed subset.
 	originalOperation := ir.ClonePhysicalOperation(plan.Operations[first])
 	original := *originalOperation.Set
 	t := *original.Subplan.Operations[0].Traversal
@@ -146,7 +133,6 @@ func sharePhysicalSetGroup(plan *ir.PhysicalPlan, indices []int, types map[strin
 	for typ := range types {
 		targetTypes = append(targetTypes, typ)
 	}
-	// Deterministic order is part of plan stability.
 	for i := 0; i < len(targetTypes); i++ {
 		for j := i + 1; j < len(targetTypes); j++ {
 			if targetTypes[j] < targetTypes[i] {
@@ -169,33 +155,14 @@ func sharePhysicalSetGroup(plan *ir.PhysicalPlan, indices []int, types map[strin
 		return fmt.Errorf("missing traversal prefix decomposition for set %d", first)
 	}
 	base.Subplan.Operations = ir.ClonePhysicalOperations(decomposition.PrefixOperations)
-	// Prefix decomposition preserves the original consumer's scalar type
-	// binding. Restore the broadened discriminator after cloning it so the
-	// shared traversal can collect every candidate type in this group.
 	base.Subplan.Operations[0].Traversal = &t
 	base.Variable = baseName
 	base.SourceSetVariable, base.ItemVariable = "", ""
-	// The broad source must remain a full node because sibling consumers may
-	// require different compact fields. Each typed subset retains its own
-	// proven output contract below; unioning those contracts into the broad
-	// traversal would make sharing resource/cardinality dependent.
 	base.Output = nil
-	// Prepared values belong to typed consumer sets. The broad shared neighbor
-	// set must contain raw nodes only; consumers prepare their own projections
-	// after resource-type filtering.
 	base.Prepared = nil
-	// Traversal-time selector projections are also consumer-specific. Keeping
-	// the first sibling's projection on the broad heterogeneous set evaluates
-	// selectors against the wrong resource payload and leaves typed subsets
-	// with empty values.
 	base.Projection = nil
-	// The heterogeneous shared neighbor set has no consumer-specific selector
-	// slots, so it must not retain a reduction belonging to the original typed
-	// set.
 	base.Reduction = nil
 	base.Subplan.Return = ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: t.TargetVariable}}
-	// Rebuild operation stream, inserting the broad traversal immediately before
-	// the first consumer and replacing each consumer with a typed subset.
 	indexSet := map[int]bool{}
 	for _, i := range indices {
 		indexSet[i] = true
@@ -226,9 +193,6 @@ func sharePhysicalSetGroup(plan *ir.PhysicalPlan, indices []int, types map[strin
 		set.SourceSetVariable, set.ItemVariable, set.Subplan = baseName, item, sub
 		set.Unique, set.SortByKey = true, true
 		if set.Prepared != nil {
-			// The typed consumer now reads the shared subset rather than the
-			// original traversal set. Rebind the prepared projection's source
-			// to the consumer set so rendering defines it in the same scope.
 			prepared := *set.Prepared
 			prepared.SourceSetVariable = set.Variable
 			set.Prepared = &prepared

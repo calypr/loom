@@ -15,10 +15,6 @@ const (
 	populationSourceCollectionBindKey  = "population_source_collection"
 )
 
-// configurePopulationRootSource changes the root access path from a complete
-// resource collection scan to an indexed selection-member scan. It joins the
-// selected FHIR resources by id, then traverses the population route in
-// reverse until it reaches the dataframe root type.
 func configurePopulationRootSource(physical *ir.PhysicalPlan, output semantic.SemanticNode, population *semantic.SemanticPopulation, context semantic.ExecutionContext, policy ir.PhysicalOptimizationPolicy) error {
 	if population == nil {
 		return nil

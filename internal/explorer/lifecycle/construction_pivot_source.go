@@ -147,13 +147,6 @@ func (s *Service) constructionPivotSourceCapability(
 	return result, nil
 }
 
-// rowSourceSkipClass categorizes one root field a signed source lane skipped
-// during its enumeration pass. When nothing is advertised after the full
-// assembly, the lane-level reasonCode names the class if, and only if, every
-// recorded skip shares one class; mixed or unmappable skips keep the existing
-// generic NO_ELIGIBLE_POPULATED_* verdict (ROW-SOURCE-03 clause: "precise
-// reasons for unsupported version, type, route, or stage" plus "distinguish
-// empty data ... inventory errors").
 type rowSourceSkipClass int
 
 const (
@@ -164,8 +157,6 @@ const (
 	rowSourceSkipInventory
 )
 
-// rowSourceEnumeration carries the gate facts each lane already holds at the
-// moment it silently continues, so an empty verdict can name its real cause.
 type rowSourceEnumeration struct {
 	rootReachable     bool
 	plannerConfigured bool
@@ -179,8 +170,6 @@ func (e *rowSourceEnumeration) skip(class rowSourceSkipClass) {
 	e.skips[class]++
 }
 
-// rowSourceLaneReasons is the per-lane wording bundle; the code strings are
-// derived from the stable lane stem so the four signed lanes stay parallel.
 type rowSourceLaneReasons struct {
 	codeStem        string
 	inventoryReason string
@@ -193,15 +182,6 @@ type rowSourceLaneReasons struct {
 	genericReason   string
 }
 
-// rowSourceInventoryFailure names the payload-distinguishable inventory-error
-// verdict when a lane's row-choice enumeration aborts because the planner
-// itself failed — the S-B split of the "distinguish ... inventory errors"
-// clause, so an unavailable inventory is never confused with the healthy
-// empty-data verdicts (NO_OBSERVED_VALUES_*/NO_ELIGIBLE_POPULATED_*). The
-// advertised text is static: planner error strings can carry internal detail
-// and must not cross into the payload (sanitizer boundary at the API edge).
-// Fail-CLOSED is preserved — callers still receive a non-nil typed error that
-// wraps the real cause for server-side logs and consumers.
 func rowSourceInventoryFailure(reasons rowSourceLaneReasons) (string, string) {
 	return reasons.codeStem + "_SOURCE_INVENTORY_UNAVAILABLE", reasons.inventoryReason
 }
@@ -228,11 +208,6 @@ func (e rowSourceEnumeration) decision(reasons rowSourceLaneReasons) (string, st
 	return reasons.genericCode, reasons.genericReason
 }
 
-// onlySkipClass reports the single reason class when every recorded skip
-// shares it. The inventory class (the planner advertised a choice whose
-// snapshot candidate is missing or duplicated) is intentionally not mapped to
-// a new code: per-lane inventory-error state is the separate S-B slice, and
-// mixed causes stay on the honest generic fallback.
 func (e rowSourceEnumeration) onlySkipClass() (rowSourceSkipClass, bool) {
 	if len(e.skips) != 1 {
 		return 0, false
@@ -246,10 +221,6 @@ func (e rowSourceEnumeration) onlySkipClass() (rowSourceSkipClass, bool) {
 	return 0, false
 }
 
-// rowSourceCandidateSkipClass mirrors the fused gates of
-// constructionGroupSourceCandidate for diagnosis only: the lane still decides
-// its advertised set with the fused helper, so this never changes which
-// fields are offered — only which reason an empty lane reports.
 func rowSourceCandidateSkipClass(snapshot capability.Snapshot, choice capability.RowChoice) rowSourceSkipClass {
 	var found *capability.Candidate
 	for index := range snapshot.Candidates {
@@ -278,11 +249,6 @@ func rowSourceCandidateSkipClass(snapshot capability.Snapshot, choice capability
 	}
 }
 
-// rowSourceChoiceIsStaleVersion reports a signed choice issued for a previous
-// dataset snapshot or schema digest. Undecodable ids are not flagged: the
-// advertised set must stay bit-identical to pre-S-A behavior for every other
-// input, and malformed ids remain refused at propose time by the
-// INVALID_{LANE}_SOURCE_CHOICE boundary.
 func rowSourceChoiceIsStaleVersion(choice capability.RowChoice, snapshot capability.Snapshot) bool {
 	identity, err := capability.DecodeRowChoiceID(choice.ChoiceID)
 	if err != nil {
@@ -453,24 +419,6 @@ func constructionFHIRPathLabel(resourceType, path string) string {
 	return resourceType + "." + path
 }
 
-// constructionFieldDisplayLabel is the single construction-lane label builder
-// shared by every signed source lane (Filter, Derive, Unpivot, Pivot). It
-// returns the first non-blank TrimSpace'd display candidate — the authorized
-// snapshot candidate's schema-Title label first, then the row choice's
-// display label at advertise sites — and only then falls back to the legacy
-// 'ResourceType.path' form produced by constructionFHIRPathLabel. Display
-// candidates must come only from the authorized snapshot or the planner's
-// generated FHIR schema truth, never from client input; a candidate carrying
-// any Unicode control character (NUL, ESC, other C0/C1) is refused outright
-// and falls through to the next candidate — advertised labels flow verbatim
-// to the wire and into durable claims, so the refusal mirrors the reason-text
-// sanitizer family at the API edge (reviewer witness: a Title with NUL/ESC
-// bytes must never ride the label). The result is always trimmed and non-blank so the receipt contract's pre-trimmed label gates
-// hold. Every one of the twelve lane label sites must go through this
-// builder: the durable claim and the compiled artifact copy its exact bytes,
-// so an out-of-band label writer would break the
-// explorer_output_reconcile.go compiled-slot equality that anti-drift
-// reconcile depends on.
 func constructionFieldDisplayLabel(resourceType, path string, displayCandidates ...string) string {
 	for _, candidate := range displayCandidates {
 		label := strings.TrimSpace(candidate)
@@ -490,9 +438,6 @@ type resolvedConstructionPivotSource struct {
 	label     string
 }
 
-// constructionCandidateWithPivotSources resolves the signed source choices,
-// moves them into the accepted Pivot's private input chain, and returns the
-// generated RELATED_FIELD steps that have already passed authorization.
 func (s *Service) constructionCandidateWithPivotSources(
 	ctx context.Context,
 	base constructionBase,
@@ -551,8 +496,6 @@ func (s *Service) constructionCandidateWithPivotSources(
 		return resolved[i].selection.ColumnID < resolved[j].selection.ColumnID
 	})
 
-	// Editing a saved Pivot starts from the first accepted input before its old
-	// owned RELATED_FIELD chain. The chain is rebuilt from signed choices.
 	oldOwned := make(map[string]bool)
 	for _, step := range base.construction.Steps {
 		if step.OwnerStepID == pivotID && step.Operation.Kind == authoringv2.ConstructionOperationRelatedField {
@@ -591,8 +534,6 @@ func (s *Service) constructionCandidateWithPivotSources(
 	}
 	candidate.SourceProjections = projections
 
-	// Source projections enter at the source stage. Preserve them through each
-	// row-preserving prefix stage that leads to this Pivot.
 	for index := 0; index < pivotIndex; index++ {
 		step := &steps[index]
 		if !authoringv2.ConstructionCanCarrySourceProjection(step.Operation.Kind) {
@@ -792,15 +733,6 @@ func preserveConstructionOwnedInputs(base authoringv2.Construction, candidate au
 	return candidate
 }
 
-// constructionOwnerInputsClearedFromCandidate reports whether the submitted
-// candidate intentionally removed every durable input the accepted base keeps
-// for ownerID. Under the shipped selection contract (nil never re-attaches,
-// [] clears), the candidate is a full replacement of the construction, so
-// dropping all of an owner's server-owned inputs in the proposal window is a
-// clear: no lane may re-import them from the base. A partial chain (the
-// client carried the helper but not its projection, or the reverse) is a
-// client omission of server-owned state, which preservation must still
-// repair.
 func constructionOwnerInputsClearedFromCandidate(base authoringv2.Construction, candidate authoringv2.Construction, ownerID string) bool {
 	baseInputs := 0
 	for _, step := range base.Steps {
@@ -829,29 +761,6 @@ func constructionOwnerInputsClearedFromCandidate(base authoringv2.Construction, 
 	return true
 }
 
-// constructionRootFieldAlreadyProjected reports whether materializing this
-// signed slot column would collide, in the compiler's per-output duplicate
-// semantic-path pass (lower/recipe_schema.go:205-224 suffixes BOTH columns
-// with #<name>), with another public column that carries the same compiled
-// semantic path. The receipt contract guard compares strings.TrimSpace of the
-// compiled column's SemanticPath against the authored projection FieldPath
-// verbatim (explorer_output_reconcile.go:497-512), so it fires exactly when a
-// second public column shares the slot's verbatim path string. Carriers are
-// therefore precisely the columns whose compiled SemanticPath is an authored
-// bare field-path string on the root occurrence: user-authored SourceField
-// columns (compilation/semantic_compile.go:220 emits FieldRef verbatim, and
-// lower.recipeSemanticPath keeps a non-empty fieldRef verbatim) and every
-// merged construction source projection — base-persisted, candidate-carried,
-// or request-resolved (compilation/semantic_compile.go:522-529 emits
-// FieldRef=projection.FieldPath verbatim into the same root node). A
-// root.-prefixed authored path is verbatim-distinct and never collides; a
-// projection under the slot's own ColumnID is the slot's re-bind entry, not a
-// second carrier. Columns whose compiled name is internal (_key/__loom_*) are
-// excluded together with the duplicate counter that skips internal columns.
-// Only projections owned by a Derive, Filter, or Unpivot step are slot
-// carriers: those are the entries the receipt contract guard actually compares at
-// :1022/:1156, and shipped lifecycle contracts establish that a slot sharing
-// its field with a Pivot-owned source input is legitimate state.
 func constructionRootFieldAlreadyProjected(document authoringv2.Document, steps []authoringv2.ConstructionStep, projections []authoringv2.ConstructionSourceProjection, slotColumnID, fieldPath string) bool {
 	slot := strings.TrimSpace(fieldPath)
 	if slot == "" {

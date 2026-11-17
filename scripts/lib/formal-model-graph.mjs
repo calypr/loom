@@ -6,7 +6,6 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { tools, digest, root } from './formal-tools.mjs';
-/** Dump the same checked bounded model; parse it with pstack's own IR frontend. */
 export async function modelGraph(modelDirectory, output) {
     const { scripts, jar } = tools();
     const directory = mkdtempSync(join(tmpdir(), 'loom-model-graph-'));

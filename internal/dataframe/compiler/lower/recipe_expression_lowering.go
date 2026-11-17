@@ -1,9 +1,5 @@
 package lower
 
-// This file contains the canonical recipe lowering boundary. Persisted
-// recipes are a frontend: after resolution each output is lowered to the same
-// ir.PhysicalPlan used by the GraphQL dataframe compiler.
-
 import (
 	"fmt"
 	"strings"
@@ -15,12 +11,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// recipeFieldProjectionLowerer lowers rich recipe expressions at the generic
-// plan boundary, where the traversal walk has established the physical value
-// for every lexical alias. Selector-bearing fields deliberately delegate to
-// the existing selector lowerer so projection modes, fallbacks, and prepared
-// selector behavior remain unchanged. Owner-relative siblings of a nested row
-// expansion bind through the exact captured repeated ancestor.
 func recipeFieldProjectionLowerer(output semantic.OutputPlan) semanticFieldProjectionLowerer {
 	contexts := recipeExpressionContexts(output)
 	return func(physical *ir.PhysicalPlan, node semantic.SemanticNode, index int, field semantic.SemanticField, source ir.PhysicalValue, bindings map[string]physicalSemanticBinding) (ir.PhysicalProjection, error) {
@@ -190,9 +180,6 @@ func recipeExpandedAncestorProjection(expansion *semantic.SemanticRowExpansion, 
 	return recipeExpandedAncestorSelector(expansion, context, projectionSelector)
 }
 
-// recipeExpandedAncestorSelector finds the nearest repeated item shared by an
-// expanded source and an owner-relative sibling selector, then returns the
-// sibling suffix relative to that captured item.
 func recipeExpandedAncestorSelector(expansion *semantic.SemanticRowExpansion, context string, projectionSelector spec.Selector) (ir.PhysicalUnnestAncestor, spec.Selector, string, bool) {
 	if expansion == nil || context != expansion.Owner.Alias || expansion.Source.Expression.Selector == nil {
 		return ir.PhysicalUnnestAncestor{}, spec.Selector{}, "", false
@@ -317,10 +304,6 @@ func rewriteRecipeExpressionVariable(value *ir.PhysicalExpression, from, to stri
 	}
 }
 
-// rewriteRecipeExpressionBinding applies a physical lexical binding to all
-// value-bearing nodes. Extracts also inherit a payload path when the binding
-// is a traversed document variable (as opposed to a materialized child set,
-// whose renderer intentionally handles set items through item.payload).
 func rewriteRecipeExpressionBinding(value *ir.PhysicalExpression, from string, source ir.PhysicalValue) {
 	if value == nil {
 		return
@@ -377,12 +360,6 @@ func recipeExpressionContexts(output semantic.OutputPlan) map[string]string {
 	return contexts
 }
 
-// lowerRecipeExpressionScoped is the recipe-expression counterpart to the
-// generic lowerer's selector classifier. A recipe expression may combine
-// selectors from several lexical bindings (root plus an expanded item), so a
-// single resourceType argument is insufficient. Each selector is lowered in
-// its binding's generated schema type and item selectors are rooted at the
-// item value rather than at a FHIR document payload.
 func lowerRecipeExpressionScoped(input expression.Expression, bindVars map[string]any, rootResourceType string, contexts map[string]string) (ir.PhysicalExpression, error) {
 	if input.Document != nil {
 		context := strings.TrimSpace(input.Document.Context)

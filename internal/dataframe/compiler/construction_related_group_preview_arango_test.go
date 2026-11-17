@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -26,7 +26,7 @@ func TestRelatedGroupPreviewReportsValidationWindow(t *testing.T) {
 				output.Construction.Steps = output.Construction.Steps[:3]
 			}
 			compiled := lowerConstructionOutput(t, output, bindings)
-			preview, err := CompileRecipeOutputWithPolicy(compiled, bindings, 2, ir.DefaultPhysicalOptimizationPolicy())
+			preview, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 2, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -78,7 +78,7 @@ func TestRelatedGroupPreviewPreservesProjectionAndScopeContracts(t *testing.T) {
 			bindings := recipe.RuntimeBindings{Project: "owned-project", DatasetGeneration: "owned-generation", IncludeRowIdentity: true}
 			compiled := lowerConstructionOutput(t, relatedGroupPreviewOutput(t, bindings), bindings)
 			test.change(&compiled.Plan)
-			preview, err := CompileRecipeOutputWithPolicy(compiled, bindings, 2, ir.DefaultPhysicalOptimizationPolicy())
+			preview, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 2, ir.DefaultPhysicalOptimizationPolicy())
 			if test.wantError != "" {
 				if err == nil || !strings.Contains(err.Error(), test.wantError) ||
 					!strings.Contains(err.Error(), "project scope filter at operation") || !strings.Contains(err.Error(), ".project == @project") {
@@ -104,7 +104,7 @@ func TestRelatedGroupPreviewPreservesProjectionAndScopeContracts(t *testing.T) {
 
 func TestRelatedGroupPreviewKeepsCompleteContributorsAgainstArango(t *testing.T) {
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Specimen"}, {Name: "Patient"}, {Name: "Observation"}, {Name: "fhir_edge", Edge: true},
 	}}); err != nil {
 		t.Fatal(err)
@@ -191,8 +191,6 @@ func TestRelatedGroupPreviewKeepsCompleteContributorsAgainstArango(t *testing.T)
 		{"blocked_root", "pa"}, {"wrong_generation_root", "pa"}, {"wrong_project_root", "pa"}} {
 		addEdge("Specimen", pair[0], pair[1])
 	}
-	// Canonical forward traversal does not check this redundant source-type field.
-	// A reverse optimization must not introduce that extra predicate.
 	addEdge("Specimen", "s2", "pa_duplicate")["from_type"] = "unexpected-source-type"
 	addEdge("Observation", "rogue_root", "pa")["from_type"] = "Specimen"
 	for _, pair := range [][2]string{{"o1", "pa"}, {"o1", "pa"}, {"o2", "pa"}, {"o3", "pa_duplicate"},
@@ -208,7 +206,7 @@ func TestRelatedGroupPreviewKeepsCompleteContributorsAgainstArango(t *testing.T)
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true}
 	output := relatedGroupPreviewOutput(t, bindings)
 	compiled := lowerConstructionOutput(t, output, bindings)
-	full, err := CompileRecipeOutputWithPolicy(compiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
+	full, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +227,7 @@ func TestRelatedGroupPreviewKeepsCompleteContributorsAgainstArango(t *testing.T)
 	}
 	comparePreview := func(t *testing.T, limit int) {
 		t.Helper()
-		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -246,7 +244,7 @@ func TestRelatedGroupPreviewKeepsCompleteContributorsAgainstArango(t *testing.T)
 		terminalOutput := relatedGroupPreviewOutput(t, bindings)
 		terminalOutput.Construction.Steps = terminalOutput.Construction.Steps[:3]
 		terminal := lowerConstructionOutput(t, terminalOutput, bindings)
-		fullQuery, err := CompileRecipeOutputWithPolicy(terminal, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
+		fullQuery, err := CompileRecipeOutput(ArangoTarget(), terminal, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -254,7 +252,7 @@ func TestRelatedGroupPreviewKeepsCompleteContributorsAgainstArango(t *testing.T)
 		sort.Slice(fullRows, func(i, j int) bool {
 			return fullRows[i]["__loom_row_id"].(string) < fullRows[j]["__loom_row_id"].(string)
 		})
-		previewQuery, err := CompileRecipeOutputWithPolicy(terminal, bindings, 2, ir.DefaultPhysicalOptimizationPolicy())
+		previewQuery, err := CompileRecipeOutput(ArangoTarget(), terminal, bindings, 2, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -263,8 +261,6 @@ func TestRelatedGroupPreviewKeepsCompleteContributorsAgainstArango(t *testing.T)
 			t.Fatalf("terminal Group changed complete groups: got %#v, want %#v", previewRows, fullRows[:2])
 		}
 	})
-	// A candidate prefix containing only unreferenced Patients must fall back;
-	// it must never turn a nonempty dataframe into an empty preview.
 	unreferenced := make([]map[string]any, 0, 20)
 	for i := range 20 {
 		unreferenced = append(unreferenced, resource("Patient", fmt.Sprintf("unused_%d", i), fmt.Sprintf("!unused_%02d", i)))

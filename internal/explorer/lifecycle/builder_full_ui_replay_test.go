@@ -27,9 +27,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// This replay consumes the state-space inventory and the exact UI observation
-// capture as separate inputs. It intentionally keys both by the stable
-// (caseId, entryId, actionIndex) tuple, never by a lossy affordance label.
 func TestBuilderFullUIRequestReplay(t *testing.T) {
 	phase := os.Getenv("BUILDER_FULL_UI_PHASE")
 	if phase == "" {
@@ -609,9 +606,6 @@ func mustJSONRawString(t *testing.T, body []byte) json.RawMessage {
 }
 
 func TestBuilderFullUIGroupFilterDeriveAggregateEditReplaysLifecycle(t *testing.T) {
-	// This backend-only diagnostic constructs its own candidate. It proves the
-	// real lifecycle/compiler path, but is not frontend payload evidence; the
-	// artifact replay below consumes the mounted editor's raw request unchanged.
 	fixture, workspace, _, err := builderFullUIGroupFilterDeriveFixture()
 	if err != nil {
 		t.Fatal(err)
@@ -1737,9 +1731,6 @@ func newBuilderFullUIHarness(fixture builderFullUICapabilityFixture, workspace a
 	config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt, compileErr := compileTraceReceipt(ctx, request, fixture.Snapshot, fixture.Catalog)
 		if compileErr == nil {
-			// compileTraceReceipt runs the real workspace compiler/lowering path;
-			// this test adapter mirrors the production receipt wrapper's exact
-			// proposal identity binding, which is not a compiler-derived field.
 			receipt.RowDefinitionProposal = cloneRowDefinitionProposalBinding(request.RowDefinitionProposal)
 			if request.RowDefinitionProposal != nil {
 				receipt.CompilationKey, compileErr = explorer.CompilationKey(*receipt)
@@ -2047,7 +2038,7 @@ func bindBuilderFullUIInventorySeeds(rows []builderFullUIInventoryRow, manifest 
 		row := &rows[index]
 		entry, exists := manifest[row.EntryID]
 		if !exists {
-			continue // A missing manifest entry is recorded as a row-local GAP during prepare.
+			continue
 		}
 		if entry.ID != row.EntryID {
 			return fmt.Errorf("manifest lookup key %q resolved entry id %q", row.EntryID, entry.ID)

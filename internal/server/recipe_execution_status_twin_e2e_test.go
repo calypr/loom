@@ -19,39 +19,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// This file is the REST twin of the GraphQL authorization control in
-// internal/api/graphql/graph/resolver/recipe_execution_reader_authz_e2e_test.go.
-//
-// History. The characterization phase recorded the shipped defect: when
-// HTTPRoutes.scopes was nil the handler served foreign-project execution
-// metadata to any principal with no project-membership assertion, and even
-// with scopes wired, restricted mode accepted on a held auth-path string
-// alone. Round 34 (Repair-6/F-B20) closed the twin: the handler now unconditionally
-// calls authscope.AuthorizeProject with the execution's project before the
-// scopes-conditional resolver block, and restricted mode uses the shared
-// normalized path-set rule (ReadScope.CoversExecutionPaths).
-//
-// The archived shipped-baseline verdict survives verbatim in each case's
-// FB20-TWIN REGRESSION message, so an accidental revert re-derives the
-// original defect wording. A principal-less (anonymous) request keeps its
-// shipped disclosure posture by design (the shipped authorizer allows a nil
-// principal); this is documented, not asserted as a defect.
-//
-// What "real handler stack" owns here. Requests enter through the generated
-// Fiber router registration (generated/loomapi/api.gen.go
-// GET /api/v1/dataframe/recipe-executions/:id), the generated strict adapter
-// (loomapi.NewStrictHandler + RegisterHandlersWithOptions, the same mounting
-// done by internal/server/routes.go), routes.GetRecipeExecution and
-// routes.recipeExecution. Only the collaborators behind HTTPRoutes.releases
-// (publication.BundleCatalog) and HTTPRoutes.scopes (*authscope.ScopeResolver,
-// driven through its declared ScopeResolverConfig seam, and — for case T-C's
-// drifted-result arms only — through the resolver-consultation variable seam
-// documented on recipeExecutionReadScope) are substituted.
-// Principal injection mirrors the production middleware seam exactly
-// (authscope.ContextWithPrincipal); the authenticator that turns headers into
-// principals is out of scope, so nothing here claims the shipped authenticator
-// produces per-project principals — it demonstrates handler behaviour once one
-// is present, which is the multi-tenant deployment shape.
 const (
 	twinForeignProject    = "Q"
 	twinForeignGeneration = "gQ"
@@ -80,9 +47,6 @@ const (
 	twinRoutePrefix = "/api/v1/dataframe/recipe-executions/"
 )
 
-// twinQuotedFacts are the exact repaired production fragments this control is
-// built on. Any disappearance is drift and must fail STEP 0 rather than let a
-// stale guarantee pass.
 var twinQuotedFacts = []struct {
 	name   string
 	source string
@@ -127,10 +91,6 @@ var twinQuotedFacts = []struct {
 	},
 }
 
-// twinExecutionStore is the smallest fake for publication.BundleCatalog, the
-// same embedding discipline as the existing recipeExecutionCatalog fake in
-// openapi_recipe_execution_test.go. Unknown ids yield the zero execution the
-// handler treats as missing.
 type twinExecutionStore struct {
 	publication.BundleCatalog
 	executions map[string]publication.BundleExecution
@@ -145,10 +105,6 @@ func (s *twinExecutionStore) GetExecution(_ context.Context, id string) (publica
 	return publication.BundleExecution{}, nil
 }
 
-// twinScopeProbe drives the declared authscope.ScopeResolverConfig seam
-// ListExistingAuthResourcePaths so the production resolver can resolve
-// restricted scopes without a live Fence or catalog, keyed by the project the
-// resolver actually asked about. The call log also proves gate ordering.
 type twinScopeProbe struct {
 	existingByProject map[string][]string
 	calls             []catalog.AuthResourcePathOptions
@@ -194,9 +150,6 @@ func twinLocalBundle() publication.BundleExecution {
 	}
 }
 
-// twinHTTPStack mounts the generated router the same way internal/server/
-// routes.go does, and injects the principal through the same fiber seam the
-// production authentication middleware uses.
 func twinHTTPStack(routes *HTTPRoutes, principal *authscope.Principal) *fiber.App {
 	app := fiber.New()
 	if principal != nil {
@@ -234,9 +187,6 @@ func twinGetExecution(t *testing.T, app *fiber.App, id string) (int, string, map
 	return response.StatusCode, body, fields
 }
 
-// twinRequireRepairedGuards is STEP 0. It pins the repaired fragments and
-// forbids both archived pre-fix shapes: the resolver-conditional-only
-// authorization block and the absence of any membership assertion.
 func twinRequireRepairedGuards(t *testing.T) {
 	t.Helper()
 	raw, err := os.ReadFile(twinHandlerFile)
@@ -308,9 +258,6 @@ func twinAssertAuthorizedForeignBody(t *testing.T, fields map[string]any) {
 	}
 }
 
-// twinAssertConcealment pins the contract that a refused read is
-// indistinguishable from a missing execution: 404, the missing-execution
-// phrase, and no foreign project/generation/digest/row-count leak.
 func twinAssertConcealment(t *testing.T, status int, body string) {
 	t.Helper()
 	if status != http.StatusNotFound || !strings.Contains(body, twinConcealedError) ||
@@ -362,11 +309,6 @@ func twinWiredRoutes() (*HTTPRoutes, *twinExecutionStore, *twinScopeProbe) {
 	return &HTTPRoutes{releases: store, scopes: resolver}, store, probe
 }
 
-// Case T-A: the archived primary defect arm. HTTPRoutes.scopes is nil
-// (routes.go leaves it nil whenever no *authscope.ScopeResolver is wired) and
-// the request carries a principal whose Projects hold only "P". Pre-fix this
-// returned 200 with full foreign metadata; the repaired handler must answer
-// with the exact concealed missing-execution envelope and no metadata leak.
 func TestFB20RESTTwinNilScopesRefusesForeignPrincipalOverHTTP(t *testing.T) {
 	twinRequireRepairedGuards(t)
 	store := twinForeignStore()
@@ -402,10 +344,6 @@ func TestFB20RESTTwinNilScopesRefusesForeignPrincipalOverHTTP(t *testing.T) {
 	}
 }
 
-// Case T-B1: the archived acceptance arm. A principal holds the execution's
-// auth-path string and its equal-count scope resolves against the FOREIGN
-// project/generation, while Projects excludes Q. Pre-fix the handler accepted
-// it; now membership refuses before any resolver consultation.
 func TestFB20RESTTwinWiredHeldPathAloneNoLongerAdmitsNonMember(t *testing.T) {
 	twinRequireRepairedGuards(t)
 	routes, _, probe := twinWiredRoutes()
@@ -443,9 +381,6 @@ func TestFB20RESTTwinWiredHeldPathAloneNoLongerAdmitsNonMember(t *testing.T) {
 		"held-path non-member refused with status="+twinItoa(status)+" and zero new catalog calls beyond the precondition probe")
 }
 
-// Case T-B2: uniform concealment with proven gate ordering. The missing-path
-// member arrives via the resolver (catalog consulted); the non-member arrives
-// via membership (catalog untouched) with the identical envelope.
 func TestFB20RESTTwinDeniedMemberAndNonMemberAreIndistinguishable(t *testing.T) {
 	twinRequireRepairedGuards(t)
 	memberPrincipal := &authscope.Principal{
@@ -460,18 +395,6 @@ func TestFB20RESTTwinDeniedMemberAndNonMemberAreIndistinguishable(t *testing.T) 
 		twinAssertAuthorizedForeignBody(t, memberFields)
 		t.Fatalf("FB20-TWIN REGRESSION: member without the execution path read the foreign execution: %s", memberBody)
 	}
-	// F-B32 unified concealment: a restricted caller whose read scope lacks one
-	// of the execution's auth_resource_paths (resolver returns ErrForbidden) is
-	// a nonexistent-or-unauthorized-to-see execution and must be 404, the exact
-	// twin of (a) the GraphQL reader recipe_execution_reader.go:39-41 ->
-	// recipeExecutionLookupError:94 -> authpolicy Classify(ErrForbidden,
-	// OperationConcealedLookup)=CodeRecipeExecutionNotFound (policy.go:40-41,47-52),
-	// (b) REST's own sibling branch openapi_recipe_execution.go:40-42 which
-	// already conceals the uncovered CoversExecutionPaths case to 404, and (c)
-	// the "recipe execution not found" body the 403 already emitted. A
-	// status-only 403-vs-404 split against those three sources is an existence
-	// oracle and is not permitted. Other authorization outcomes are unaffected:
-	// unauthenticated stays 401, authorization-backend failure stays 503.
 	if memberStatus != http.StatusNotFound || !strings.Contains(memberBody, twinConcealedError) ||
 		strings.Contains(memberBody, twinForeignGeneration) || strings.Contains(memberBody, twinRecipeDigest) ||
 		strings.Contains(memberBody, "7373737") {
@@ -504,41 +427,12 @@ func TestFB20RESTTwinDeniedMemberAndNonMemberAreIndistinguishable(t *testing.T) 
 		t.Fatalf("FB20-TWIN REGRESSION: the anonymous (single-operator) posture must keep working; got %d %s", anonStatus, anonBody)
 	}
 	twinAssertAuthorizedForeignBody(t, anonFields)
-	// A principal-less caller resolves unrestricted (documented dev posture),
-	// so the resolver short-circuits before the catalog seam by design.
 	t.Logf("FB20-TWIN CONTROL | anonymous-unrestricted-shortcut | catalog calls=%d (0 expected for nil principal)", len(probeU.calls))
 	twinVerdict(t, "case-T-B2", "REPAIRED (uniform concealment; documented anonymous posture)",
 		"member-missing path refused via resolver ("+twinItoa(memberStatus)+"), non-member refused via membership ("+twinItoa(nonMemberStatus)+
 			") with byte-identical envelopes; nil-principal disclosure preserved by design; body="+nonMemberBody)
 }
 
-// Case T-C (F-3, reviewer ses_e66757becffe8uCNimGXbEeIfc): the Covers subset
-// loop must be demonstrable as the sole gate preventing disclosure.
-// CoversExecutionPaths is the route's defense-in-depth gate against resolver
-// drift, and the twins' call pattern never lets it discriminate on its own:
-// ResolveReadScopeForGeneration echoes the requested declared set back on a
-// Restricted success (scope_resolver.go:200-205), so with requested equal to
-// declared the Covers check is always-pass. This case therefore feeds the
-// handler an otherwise fully authorized read (membership passes; the scope
-// consultation resolves successfully in Restricted mode) whose drifted result
-// is a proper subset of what the execution declares, injected at the
-// resolver-consultation seam recipeExecutionReadScope. The seam's default is
-// the authentic ResolveReadScopeForGeneration call, and the production
-// resolver can only DENY this read (proven by the precondition below), so the
-// concealed 404 below cannot come from a resolver denial, 401, or the
-// membership gate — it can only come from the Covers subset loop. Assertions
-// are behavioral only; no source text is pinned beyond STEP 0.
-//
-// (a) scope ⊇ declared (equal set)   -> 200 with the full foreign metadata.
-// (b) scope ⊊ declared (p-extra gone) -> concealed 404 whose status and body
-//
-//	are byte-identical to the missing-execution envelope.
-//
-// (c) Run-proven mutation control: the reviewer's Mutant C overlay (subset
-//
-//	membership loop removed from CoversExecutionPaths, /tmp copy of
-//	scope_resolver.go via go test -overlay, repo authscope untouched) makes
-//	arm (b) serve 200 and this test fail. Evidence: /tmp/opencode/fb16/.
 func TestFB20RESTTwinCoversSubsetGateIsSoleDisclosureGate(t *testing.T) {
 	twinRequireRepairedGuards(t)
 
@@ -569,7 +463,6 @@ func TestFB20RESTTwinCoversSubsetGateIsSoleDisclosureGate(t *testing.T) {
 	defer func() { recipeExecutionReadScope = original }()
 	app := twinHTTPStack(routes, principal)
 
-	// Arm (a): Restricted success whose scope covers the whole declared set.
 	recipeExecutionReadScope = func(context.Context, *authscope.ScopeResolver, *authscope.Principal, string, string, []string) (authscope.ReadScope, error) {
 		return authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{twinCallerPath, twinCoversExtraPath}}, nil
 	}
@@ -592,9 +485,6 @@ func TestFB20RESTTwinCoversSubsetGateIsSoleDisclosureGate(t *testing.T) {
 		t.Fatalf("case T-C(a): output[0].rowCount = %v, want 7373737", output["rowCount"])
 	}
 
-	// Arm (b): the only change is the proper-subset scope (p-extra dropped).
-	// Membership still passes and the consultation still "succeeds", so a
-	// refusal here can only be the Covers subset loop.
 	recipeExecutionReadScope = func(context.Context, *authscope.ScopeResolver, *authscope.Principal, string, string, []string) (authscope.ReadScope, error) {
 		return authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{twinCallerPath}}, nil
 	}

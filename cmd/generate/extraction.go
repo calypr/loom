@@ -26,7 +26,6 @@ func generateExtract(schema *Schema, path string) error {
 	sb.WriteString("\tfhirschema \"github.com/calypr/loom/internal/fhir/schema\"\n")
 	sb.WriteString(")\n\n")
 
-	// 1. Write EdgeDocument struct definition
 	sb.WriteString(`// EdgeDocument represents an edge in ArangoDB.
 type EdgeDocument struct {
 	Key      string ` + "`" + `json:"_key"` + "`" + `
@@ -188,15 +187,11 @@ func buildEdgeRawJSON(key, from, to, label, projectJSON, fromType, toType string
 	}
 	sort.Strings(keys)
 
-	// Keep track of which resource types are supported (those having links metadata in the schema)
 	supportedResources := []string{}
 
 	for _, k := range keys {
 		def := schema.Defs[k]
 
-		// Only concrete FHIR roots get graph loaders. Backbone definitions and
-		// abstract Resource remain available to field/selector generation but
-		// never become graph collections or row grains.
 		if !isFHIRRootResourceDefinition(k, def) {
 			continue
 		}
@@ -216,14 +211,12 @@ func buildEdgeRawJSON(key, from, to, label, projectJSON, fromType, toType string
 		sb.WriteString("\tvar seen map[string]struct{}\n")
 		sb.WriteString("\t_ = seen\n")
 
-		// Generate link extraction code statically!
 		for _, link := range def.Links {
 			ptr := link.TemplatePointers.ID
 			if ptr == "" {
 				continue
 			}
 
-			// We need to generate code to traverse to templatePointers
 			pathParts := strings.Split(ptr, "/")[1:]
 			traversalCode, err := generateTraversalCode(schema, k, pathParts, "x", k, link, "\t")
 			if err != nil {
@@ -236,7 +229,6 @@ func buildEdgeRawJSON(key, from, to, label, projectJSON, fromType, toType string
 		sb.WriteString("}\n\n")
 	}
 
-	// 2. Write the unified ValidateAndExtract entrypoint
 	sb.WriteString("// ValidateAndExtract parses, validates, and extracts edges for a FHIR resource.\n")
 	sb.WriteString("func ValidateAndExtract(raw []byte, resourceType string, project string) (Result, error) {\n")
 	sb.WriteString("\tswitch resourceType {\n")
@@ -272,8 +264,6 @@ func buildEdgeRawJSON(key, from, to, label, projectJSON, fromType, toType string
 
 func generateTraversalCode(schema *Schema, structName string, path []string, varName string, currentType string, link Link, indent string) (string, error) {
 	if len(path) == 0 {
-		// We have reached the string value (the reference).
-		// We emit the edge building code!
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("%srefVal := %s\n", indent, varName))
 		sb.WriteString(fmt.Sprintf("%srefType, targetID, ok := splitFHIRReference(refVal)\n", indent))
@@ -281,7 +271,6 @@ func generateTraversalCode(schema *Schema, structName string, path []string, var
 		sb.WriteString(fmt.Sprintf("%s\trefType, ok = fhirschema.ConcreteResourceType(refType)\n", indent))
 		sb.WriteString(fmt.Sprintf("%s\tif ok {\n", indent))
 
-		// Match prefix check
 		allowAnyMatch := false
 		matchPrefix := ""
 		for _, rx := range link.TargetHints.RegexMatch {
@@ -315,7 +304,6 @@ func generateTraversalCode(schema *Schema, structName string, path []string, var
 		sb.WriteString(fmt.Sprintf("%s\t))\n", bodyIndent))
 		sb.WriteString(fmt.Sprintf("%s}\n", bodyIndent))
 
-		// Check if backref exists
 		if len(link.TargetHints.Backref) > 0 && link.TargetHints.Backref[0] != "" {
 			backref := link.TargetHints.Backref[0]
 			sb.WriteString(fmt.Sprintf("%sbackrefKey := getEdgeUUID(id, targetID, %q)\n", bodyIndent, backref))
@@ -349,17 +337,9 @@ func generateTraversalCode(schema *Schema, structName string, path []string, var
 	part := path[0]
 
 	if part == "-" {
-		// VarName must be a slice. Loop over the elements.
-		// Wait, what is the item type?
-		// We need to look up the parent property to see what its items are.
-		// E.g. x.PartOf which is a slice. Let's find what the element type is.
-		// We can pass currentType down, but since we are iterating, we need to know the type of items.
-		// Let's pass the element type in currentType.
-		// If part is "-", then the type of item is currentType.
 		loopVar := fmt.Sprintf("item_%d_%s", len(path), strings.ReplaceAll(varName, ".", "_"))
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("%sfor _, %s := range %s {\n", indent, loopVar, varName))
-		// Check for nil if item is a pointer
 		sb.WriteString(fmt.Sprintf("%s\tif %s != nil {\n", indent+"\t", loopVar))
 		subCode, err := generateTraversalCode(schema, structName, path[1:], loopVar, currentType, link, indent+"\t\t")
 		if err != nil {
@@ -371,8 +351,6 @@ func generateTraversalCode(schema *Schema, structName string, path []string, var
 		return sb.String(), nil
 	}
 
-	// It's a field name!
-	// Look up in schema Defs[currentType] to find property named `part`.
 	def, ok := schema.Defs[currentType]
 	if !ok {
 		return "", fmt.Errorf("definition %s not found in schema while resolving path part %s", currentType, part)
@@ -380,8 +358,6 @@ func generateTraversalCode(schema *Schema, structName string, path []string, var
 
 	prop, ok := def.Properties[part]
 	if !ok {
-		// It could be that part is not a direct property, or it is in some other way.
-		// But in graph-fhir.json, they are always properties.
 		return "", fmt.Errorf("property %s not found in definition %s", part, currentType)
 	}
 
@@ -398,14 +374,12 @@ func generateTraversalCode(schema *Schema, structName string, path []string, var
 	}
 
 	var sb strings.Builder
-	// If it's a pointer type, check for nil
-	goType := getGoType(prop, true) // treat as optional to see if it has pointer prefix
+	goType := getGoType(prop, true)
 	isPointer := strings.HasPrefix(goType, "*")
 	isSlice := strings.HasPrefix(goType, "[]")
 
 	if isPointer {
 		sb.WriteString(fmt.Sprintf("%sif %s != nil {\n", indent, nextVarName))
-		// If it's a leaf string pointer (like *string), dereference it
 		actualVar := nextVarName
 		if nextType == "string" {
 			actualVar = "*" + nextVarName

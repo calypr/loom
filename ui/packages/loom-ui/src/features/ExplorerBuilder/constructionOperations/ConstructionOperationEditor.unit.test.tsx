@@ -738,10 +738,6 @@ describe('ConstructionOperationEditor', () => {
       return choice.choiceId;
     };
 
-    // audit07 public-column reuse: a signed choice whose root field is already
-    // carried by a live public column (server-signed canonicalPath + inputColumnId,
-    // i.e. authoringv2 Column.Source.Field) is deduplicated to that column, so it
-    // must drop out of the dataset-fields group instead of minting a new binding.
     const fieldsCarriedByPublicColumns = (capabilities: ConstructionCapabilitiesResponse): Set<string> => {
       const stage = capabilities.selectedStage;
       const carried = new Set<string>();
@@ -800,8 +796,6 @@ describe('ConstructionOperationEditor', () => {
       const group = sourceOptgroup(select);
       if (!group) throw new Error('Expected the dataset fields optgroup from the live payload.');
       expect(optgroupValues(group)).toEqual(expectedSignedValues(capabilities));
-      // The live stage carries Patient.id as an ordinary public column, so its
-      // signed twin must not be offered alongside it.
       const carriedIdColumnId = capabilities.selectedStage.columns[0]!.id;
       expect(fieldsCarriedByPublicColumns(capabilities)).toEqual(new Set(['id']));
       expect(optgroupValues(group)).not.toContain(`source:${liveChoiceIdByPath(capabilities, 'id')}`);
@@ -885,8 +879,6 @@ describe('ConstructionOperationEditor', () => {
       const select = filterSourceSelect();
       expect(select.value).toBe(identityColumnId);
       expect(Array.from(select.options).some((option) => option.value === '')).toBe(false);
-      // identityColumnId is the public Patient.id column, so the signed Patient.id
-      // choice is deduplicated to it (audit07) rather than offered as a duplicate.
       expect(identityColumnId).toBe('source_ef82eef4462a7f20fbcecfff');
       expect(optgroupValues(sourceOptgroup(select)!)).toEqual(expectedSignedValues(capabilities));
 
@@ -1255,12 +1247,6 @@ describe('ConstructionOperationEditor', () => {
     });
   });
 
-  // External audit 2026-11-03 (row-source-07): a normal PUBLIC column authored from
-  // authoringv2 Column.Source.Field is a legitimate carrier of the same root field
-  // a signed dataset choice names, yet it never appears in construction.sourceProjections
-  // (compilation/construction.go builds it separately). The picker must therefore offer
-  // ONE gender option and must never mint a filter-input_* binding for a field the
-  // stage already carries: the server refuses the duplicate name at compile time.
   describe('audit07 public-column reuse', () => {
     const AUDIT_GENDER_COLUMN = { id: 'gender-id', name: 'gender', label: 'Gender', type: 'string' };
     const AUDIT_STAGE_COLUMNS: ConstructionStageDescriptor['columns'] = [
@@ -1275,8 +1261,6 @@ describe('ConstructionOperationEditor', () => {
       isPopulated: true,
       columnId: '',
     };
-    // Server-signed public-field identity: capabilities pair the canonical root
-    // field path with the live public column that already carries it.
     const auditGenderPublicIdentity: GroupRowValueChoice = {
       kind: 'FIELD_SOURCE',
       valueKind: 'SCALAR',
@@ -1299,7 +1283,6 @@ describe('ConstructionOperationEditor', () => {
       const onCandidateChange = vi.fn();
       renderEditor({
         family: 'KEEP_ROWS',
-        // No sourceProjections at all: the public column is the only carrier.
         construction: { version: 1, steps: [] },
         selectedStage: { ...sourceStage, columns: AUDIT_STAGE_COLUMNS },
         filterSourceInput: { supported: true, stageId: 'source_projection', choices: [auditGenderChoice] },

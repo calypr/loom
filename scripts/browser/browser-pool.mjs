@@ -38,7 +38,7 @@ export async function openBrowserPool({ engine, concurrency, chrome, lightpanda,
       while (performance.now() < deadline) {
         if (spawnError) throw spawnError;
         assert.equal(child.exitCode, null, `Lightpanda exited: ${resource.stderr}`);
-        try { ready = (await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(500) })).ok; } catch { /* Starting. */ }
+        try { ready = (await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(500) })).ok; } catch { }
         if (ready) break;
         await delay(10);
       }
@@ -71,8 +71,6 @@ export async function openBrowserPool({ engine, concurrency, chrome, lightpanda,
       lightpandaStopped: resources.every(({ child }) => !child?.pid || child.exitCode !== null || child.signalCode !== null), errors };
   }
   try {
-    // Chromium already parallelizes renderers. Lightpanda needs independent V8
-    // processes to use several cores. Keep both alive across the entire batch.
     const chromiumBrowser = engine === 'chromium' ? await openBrowser() : undefined;
     const ready = await Promise.allSettled(Array.from({ length: concurrency }, async (_, id) => {
       const browser = chromiumBrowser ?? await openBrowser();

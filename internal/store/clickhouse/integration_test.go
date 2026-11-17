@@ -16,10 +16,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Run with LOOM_CLICKHOUSE_URL and optional LOOM_CLICKHOUSE_USERNAME/
-// LOOM_CLICKHOUSE_PASSWORD to exercise the native driver against a real
-// ClickHouse instance. The default unit suite remains hermetic when ClickHouse
-// is not running locally.
 func TestClickHouseNativeRoundTrip(t *testing.T) {
 	url := os.Getenv("LOOM_CLICKHOUSE_URL")
 	if url == "" {
@@ -216,10 +212,6 @@ func TestClickHouseNativeOWNERRecordsJSONRoundTrip(t *testing.T) {
 		if err := decoder.Decode(&input); err != nil {
 			t.Fatalf("decode OWNER_RECORDS fixture %d: %v", index, err)
 		}
-		// The materialized OWNER_RECORDS contract distinguishes an explicit
-		// null-valued object path from a path that was absent in the source.
-		// Preserve the exact source values here, including null object fields
-		// and null array elements, so this roundtrip catches either being lost.
 		want[index] = input
 		rows[index] = map[string]any{
 			"__loom_row_id": fmt.Sprintf("%d", index+1),

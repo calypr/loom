@@ -19,20 +19,11 @@ const (
 	constructionRouteMaxResults    = 4096
 )
 
-// ConstructionRouteSearch is an exact server-side route query. TargetNodeID
-// and SourceKey are derived from the selected, authorized source at the
-// lifecycle boundary; callers must not use this planner as a path authority.
 type ConstructionRouteSearch struct {
-	Snapshot     Snapshot
-	RootResource string
-	// RootNodeID pins traversal to an exact retained record type when the
-	// route starts from a compiler-proven related-record identity. Exactly one
-	// of RootResource and RootNodeID must be supplied.
-	RootNodeID   string
-	TargetNodeID string
-	// TargetNodeIDs supports route searches whose terminal is one of several
-	// equivalent capability nodes (for example a population's resource type).
-	// It is mutually exclusive with TargetNodeID.
+	Snapshot      Snapshot
+	RootResource  string
+	RootNodeID    string
+	TargetNodeID  string
 	TargetNodeIDs []string
 	SourceKey     string
 	Cursor        string
@@ -55,10 +46,6 @@ type constructionRouteCursor struct {
 	Offset     int    `json:"offset"`
 }
 
-// PlanConstructionRoutes enumerates directed, policy-allowed routes in
-// shortest-first, stable edge-identity order. The five-hop default is an
-// explicit search budget when policy is unbounded; reaching that horizon is
-// reported as truncated.
 func PlanConstructionRoutes(request ConstructionRouteSearch) (ConstructionRoutePage, error) {
 	page := ConstructionRoutePage{Routes: [][]ConstructionRouteStep{}}
 	snapshot := request.Snapshot
@@ -146,7 +133,6 @@ func PlanConstructionRoutes(request ConstructionRouteSearch) (ConstructionRouteP
 		nodeID string
 		path   []ConstructionRouteStep
 	}
-	// Stable-sorted adjacency and FIFO expansion keep hop layers in edge-key order.
 	states := []routeState{{nodeID: root.ID}}
 	expansions := 0
 	searchTruncated := false
@@ -201,8 +187,6 @@ func PlanConstructionRoutes(request ConstructionRouteSearch) (ConstructionRouteP
 			break
 		}
 		if expansionCapped {
-			// Count target routes already reached by the final allowed expansion.
-			// The pending states are still in hop and edge-identity order.
 			for _, pending := range states[stateIndex+1:] {
 				if targetSet[pending.nodeID] && !recordRoute(pending.path) {
 					break

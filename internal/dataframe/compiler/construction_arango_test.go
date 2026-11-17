@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -26,12 +26,13 @@ func TestConstructionPivotDeriveFilterUnpivotRowsAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -95,7 +96,7 @@ func TestConstructionPivotDeriveFilterUnpivotRowsAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,12 +136,13 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "Observation"}, {Name: "fhir_edge", Edge: true},
 	}}); err != nil {
 		t.Fatal(err)
@@ -149,7 +151,6 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	project := "loom_related_source_" + uuid.NewString()
 	generation := "generation-related-source"
 	patientKey := func(id string) string { return project + "_" + id }
-	// Root-grain traces preserve the same canonical project/key identity as Preview.
 	traceRootKey := func(row map[string]any, identityColumn string) string {
 		t.Helper()
 		parts, ok := row[identityColumn].([]any)
@@ -284,7 +285,7 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,11 +312,11 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	if !ok || len(gotSparse) != 0 {
 		t.Fatalf("sparse p2 observation statuses = %#v, want empty list", byPatient["p2"]["observation_status"])
 	}
-	trace, err := CompileCellTraceOutputWithPolicy(compiled.Outputs[0], "observation_status", 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := CompileCellTraceOutput(ArangoTarget(), compiled.Outputs[0], "observation_status", 0, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	traceRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: trace.Query, BindVars: trace.BindVars})
+	traceRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: trace.Command})
 	traces := make(map[string]map[string]any, len(traceRows))
 	for _, row := range traceRows {
 		traces[traceRootKey(row, trace.IdentityPartsColumn)] = row
@@ -348,7 +349,7 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	}
 
 	pageSize := 1
-	page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, pageSize, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled.Outputs[0], bindings, pageSize, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile paged related-source output: %v", err)
 	}
@@ -362,10 +363,10 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	pagedRows := make([]map[string]any, 0, len(patients))
 	afterKey := ""
 	for pageIndex := 0; pageIndex <= len(patients); pageIndex++ {
-		keyBinds := cloneBinds(page.RootKeysBindVars)
+		keyBinds := cloneBinds(testAQLBinds(t, page.RootKeys))
 		keyBinds[RootPageAfterKeyBind] = afterKey
 		rootKeys := make([]string, 0, pageSize)
-		if err := client.QueryRows(ctx, page.RootKeysQuery, 100, keyBinds, func(row map[string]any) error {
+		if err := client.QueryRows(ctx, testAQLText(t, page.RootKeys), 100, keyBinds, func(row map[string]any) error {
 			key, ok := row["_key"].(string)
 			if !ok || key == "" {
 				return fmt.Errorf("root-key page returned invalid _key %v", row["_key"])
@@ -373,7 +374,7 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 			rootKeys = append(rootKeys, key)
 			return nil
 		}); err != nil {
-			t.Fatalf("execute related-source root-key page %d: %v\n%s", pageIndex, err, page.RootKeysQuery)
+			t.Fatalf("execute related-source root-key page %d: %v\n%s", pageIndex, err, testAQLText(t, page.RootKeys))
 		}
 		if len(rootKeys) == 0 {
 			break
@@ -381,13 +382,13 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 		if len(rootKeys) > pageSize {
 			t.Fatalf("root-key page returned %d keys, want at most %d", len(rootKeys), pageSize)
 		}
-		rowBinds := cloneBinds(page.RowsBindVars)
+		rowBinds := cloneBinds(testAQLBinds(t, page.Rows))
 		rowBinds[RootPageKeysBind] = rootKeys
-		if err := client.QueryRows(ctx, page.RowsQuery, 100, rowBinds, func(row map[string]any) error {
+		if err := client.QueryRows(ctx, testAQLText(t, page.Rows), 100, rowBinds, func(row map[string]any) error {
 			pagedRows = append(pagedRows, row)
 			return nil
 		}); err != nil {
-			t.Fatalf("execute related-source selected-root page %d: %v\n%s", pageIndex, err, page.RowsQuery)
+			t.Fatalf("execute related-source selected-root page %d: %v\n%s", pageIndex, err, testAQLText(t, page.Rows))
 		}
 		afterKey = rootKeys[len(rootKeys)-1]
 	}
@@ -463,7 +464,7 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 			if !found {
 				t.Fatalf("%s output schema = %#v", form.name, columns)
 			}
-			query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+			query, err := CompileRecipeOutput(ArangoTarget(), compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -475,11 +476,11 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 			if values["p1"] != form.present || values["p2"] != form.absent {
 				t.Fatalf("%s values = %#v, want p1=%v p2=%v", form.name, values, form.present, form.absent)
 			}
-			trace, err := CompileCellTraceOutputWithPolicy(compiled.Outputs[0], form.column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+			trace, err := CompileCellTraceOutput(ArangoTarget(), compiled.Outputs[0], form.column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
-			traceRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: trace.Query, BindVars: trace.BindVars})
+			traceRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: trace.Command})
 			for _, row := range traceRows {
 				if traceRootKey(row, trace.IdentityPartsColumn) != patientKey("p1") {
 					continue
@@ -513,7 +514,7 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	existsQuery, err := CompileRecipeOutputWithPolicy(existsCompiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	existsQuery, err := CompileRecipeOutput(ArangoTarget(), existsCompiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -523,7 +524,6 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 		existsByPatient[fmt.Sprint(row["patient_id"])] = row
 	}
 	existsStatuses, ok := existsByPatient["p1"]["observation_status"].([]any)
-	// ALL retains distinct source records even when multiple edges reach one record.
 	if !ok || len(existsStatuses) != 2 {
 		t.Fatalf("EXISTS p1 statuses = %#v, want one status per distinct eligible source record", existsByPatient["p1"]["observation_status"])
 	}
@@ -538,11 +538,11 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	if !ok || len(existsSparse) != 0 {
 		t.Fatalf("EXISTS sparse p2 statuses = %#v, want empty list", existsByPatient["p2"]["observation_status"])
 	}
-	existsTrace, err := CompileCellTraceOutputWithPolicy(existsCompiled.Outputs[0], "observation_status", 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+	existsTrace, err := CompileCellTraceOutput(ArangoTarget(), existsCompiled.Outputs[0], "observation_status", 0, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	existsTraceRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: existsTrace.Query, BindVars: existsTrace.BindVars})
+	existsTraceRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: existsTrace.Command})
 	for _, row := range existsTraceRows {
 		if traceRootKey(row, existsTrace.IdentityPartsColumn) != patientKey("p1") {
 			continue
@@ -563,12 +563,13 @@ func TestPagedConstructionEqualsFilterReturnsMatchingSourceRootFromArango(t *tes
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Specimen"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Specimen"}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -621,12 +622,12 @@ func TestPagedConstructionEqualsFilterReturnsMatchingSourceRootFromArango(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	rootKeys := make([]string, 0, 1)
-	if err := client.QueryRows(ctx, page.RootKeysQuery, 100, page.RootKeysBindVars, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, page.RootKeys), 100, testAQLBinds(t, page.RootKeys), func(row map[string]any) error {
 		key, ok := row["_key"].(string)
 		if !ok {
 			return fmt.Errorf("root-key query returned invalid _key %#v", row["_key"])
@@ -634,24 +635,24 @@ func TestPagedConstructionEqualsFilterReturnsMatchingSourceRootFromArango(t *tes
 		rootKeys = append(rootKeys, key)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute construction EQUALS root-key query:\n%s\n%v", page.RootKeysQuery, err)
+		t.Fatalf("execute construction EQUALS root-key query:\n%s\n%v", testAQLText(t, page.RootKeys), err)
 	}
 	wantKey := fmt.Sprintf("%s_specimen_1", project)
 	if len(rootKeys) != 1 || rootKeys[0] != wantKey {
-		t.Fatalf("construction EQUALS root keys = %#v, want only %q\n%s", rootKeys, wantKey, page.RootKeysQuery)
+		t.Fatalf("construction EQUALS root keys = %#v, want only %q\n%s", rootKeys, wantKey, testAQLText(t, page.RootKeys))
 	}
 
-	rowBindVars := make(map[string]any, len(page.RowsBindVars)+1)
-	for key, value := range page.RowsBindVars {
+	rowBindVars := make(map[string]any, len(testAQLBinds(t, page.Rows))+1)
+	for key, value := range testAQLBinds(t, page.Rows) {
 		rowBindVars[key] = value
 	}
 	rowBindVars[RootPageKeysBind] = rootKeys
 	rows := make([]map[string]any, 0, 1)
-	if err := client.QueryRows(ctx, page.RowsQuery, 100, rowBindVars, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, page.Rows), 100, rowBindVars, func(row map[string]any) error {
 		rows = append(rows, row)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute selected construction rows query:\n%s\n%v", page.RowsQuery, err)
+		t.Fatalf("execute selected construction rows query:\n%s\n%v", testAQLText(t, page.Rows), err)
 	}
 	if len(rows) != 1 || rows[0]["specimen_id"] != targetID {
 		t.Fatalf("construction EQUALS rows = %#v, want one row with Specimen ID %q", rows, targetID)

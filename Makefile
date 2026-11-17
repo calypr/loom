@@ -18,8 +18,6 @@ DATAFRAME_VARIABLES ?= examples/meta_gdc_case_matrix.variables.json
 DATAFRAME_PROFILE_VARIABLES ?= examples/meta_gdc_case_matrix.variables.json
 DATAFRAME_PROFILE_LIMIT ?= 1000
 
-# Make treats the positional version as a second goal. Reject every ambiguous
-# form while parsing so no release recipe can start with the wrong version.
 ifneq ($(filter release-ui,$(MAKECMDGOALS)),)
 ifneq ($(firstword $(MAKECMDGOALS)),release-ui)
 $(error Usage: make release-ui X.Y.Z)
@@ -93,14 +91,10 @@ compiler-bench:
 	mkdir -p $(GOCACHE_DIR)
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./conformance/compiler -run '^$$' -bench '^BenchmarkCompilerOracle$$' -benchmem
 
-# Requires `arango-fhir-server --no-auth` and a loaded META project. Prints the
-# actual GraphQL dataframe response and per-request wall-clock timings.
 dataframe-demo:
 	mkdir -p $(GOCACHE_DIR)
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/dataframe-query -url $(GRAPHQL_URL) -query $(DATAFRAME_QUERY) -variables $(DATAFRAME_VARIABLES) -repeat $(DATAFRAME_REPEAT) -limit $(DATAFRAME_LIMIT) -timeout $(DATAFRAME_TIMEOUT) -print-response=$(DATAFRAME_PRINT_RESPONSE)
 
-# Requires a loaded META fixture database. Compiles the checked-in GDC fixture,
-# writes exact rendered AQL, then runs Arango EXPLAIN and PROFILE 2.
 dataframe-profile:
 	mkdir -p $(GOCACHE_DIR)
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/dataframe-profile -variables $(DATAFRAME_PROFILE_VARIABLES) -limit $(DATAFRAME_PROFILE_LIMIT)
@@ -122,9 +116,6 @@ docker-build:
 docker-run:
 	docker run --rm -p 8080:8080 $(IMAGE)
 
-# Full real-data acceptance path. Rebuild the canonical loom-demo deployment
-# without replacing its data, then verify the locked fixture in an isolated
-# Compose project that is removed after evidence capture.
 acceptance-real:
 	./scripts/acceptance-real.sh
 
@@ -146,8 +137,6 @@ demo-browser-smoke:
 repository-up:
 	./scripts/loom-repo-up.sh --repository "$(if $(REPOSITORY),$(REPOSITORY),$(CURDIR))"
 
-# Development-only Compose target. It has its own project, volumes, ports, and
-# fixture. Use dev-rebuild after dependency or toolchain changes.
 dev:
 	node scripts/loom-dev.mjs dev
 
@@ -164,7 +153,6 @@ dev-down:
 clean:
 	rm -rf bin
 
-# Builder checkpoints. Full repository coverage remains in tests.yaml.
 VERIFY_FEATURE ?= ownership
 API_FEATURE ?= all
 
@@ -185,7 +173,6 @@ verify-current: verify-fast verify-api verify-formal
 verify-full: verify-api verify-formal
 	CI=true node scripts/verify-builder-formal-core.mjs --phase behavior
 
-# Real Chromium component boundary, deliberately outside the fast default loop.
 BROWSER_FEATURE ?= all
 verify-browser:
 	node scripts/verify-builder-formal-core.mjs --phase browser --feature $(BROWSER_FEATURE)

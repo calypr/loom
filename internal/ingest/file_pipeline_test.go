@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/bmeg/jsonschemagraph/graph"
-	arangostore "github.com/calypr/loom/internal/store/arango"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 )
 
 func TestLoadFileSupportsGenerationAndCancellation(t *testing.T) {
@@ -29,7 +29,7 @@ func TestLoadFileSupportsGenerationAndCancellation(t *testing.T) {
 
 	result, err := loadFile(
 		context.Background(), opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0,
-		func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
+		func(context.Context, *arangofactory.Client, string, []json.RawMessage, bool, string) error {
 			return nil
 		},
 	)
@@ -42,7 +42,7 @@ func TestLoadFileSupportsGenerationAndCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = loadFile(ctx, opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0, func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
+	_, err = loadFile(ctx, opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0, func(context.Context, *arangofactory.Client, string, []json.RawMessage, bool, string) error {
 		return nil
 	})
 	if !errors.Is(err, context.Canceled) {
@@ -71,7 +71,7 @@ func TestLoadFilePreservesGenerationWrites(t *testing.T) {
 			var documents []json.RawMessage
 			var collections []string
 			var overwrites []bool
-			insert := func(_ context.Context, _ *arangostore.Client, collection string, docs []json.RawMessage, overwrite bool, _ string) error {
+			insert := func(_ context.Context, _ *arangofactory.Client, collection string, docs []json.RawMessage, overwrite bool, _ string) error {
 				mu.Lock()
 				defer mu.Unlock()
 				collections = append(collections, collection)
@@ -109,7 +109,9 @@ func TestLoadFileReportsPhysicalLinesAndBoundedErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts := normalizeLoadOptions(LoadOptions{Project: "project"})
-	insert := func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error { return nil }
+	insert := func(context.Context, *arangofactory.Client, string, []json.RawMessage, bool, string) error {
+		return nil
+	}
 
 	t.Run("fail fast physical line", func(t *testing.T) {
 		file := filepath.Join(t.TempDir(), "Patient.ndjson")
@@ -165,7 +167,7 @@ func TestLoadFileBatchesAndPropagatesWriterFailure(t *testing.T) {
 	}
 	opts := normalizeLoadOptions(LoadOptions{Project: "project", BatchSize: 1, WriterCount: 2})
 	var inserted int64
-	result, err := loadFile(context.Background(), opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0, func(_ context.Context, _ *arangostore.Client, _ string, docs []json.RawMessage, _ bool, _ string) error {
+	result, err := loadFile(context.Background(), opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0, func(_ context.Context, _ *arangofactory.Client, _ string, docs []json.RawMessage, _ bool, _ string) error {
 		atomic.AddInt64(&inserted, int64(len(docs)))
 		return nil
 	})
@@ -179,7 +181,7 @@ func TestLoadFileBatchesAndPropagatesWriterFailure(t *testing.T) {
 	writeErr := errors.New("writer failed")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	_, err = loadFile(ctx, opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0, func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
+	_, err = loadFile(ctx, opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0, func(context.Context, *arangofactory.Client, string, []json.RawMessage, bool, string) error {
 		return writeErr
 	})
 	if !errors.Is(err, writeErr) {

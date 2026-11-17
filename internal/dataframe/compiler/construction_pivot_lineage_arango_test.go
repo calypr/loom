@@ -67,23 +67,20 @@ func TestConstructionPivotRowLineageFailsWhenAnotherGroupViolatesGlobalPolicyAga
 			output := constructionPivotLineageOutput()
 			pivot := output.Construction.Steps[0].Operation.Pivot
 			pivot.DuplicatePolicy, pivot.MissingCellPolicy = test.duplicate, test.missing
-			if err := executeConstructionOutputError(t, ctx, client, output, project, generation); err == nil || !strings.Contains(err.Error(), test.wantErrorCode) {
-				t.Fatalf("full Pivot error = %v, want global error %s", err, test.wantErrorCode)
-			}
+			err := executeConstructionOutputError(t, ctx, client, output, project, generation)
+			requireStableRuntimeCode(t, err, test.wantErrorCode)
 
 			compiledOutput := lowerConstructionOutput(t, output, recipe.RuntimeBindings{Project: project, DatasetGeneration: generation})
 			rowID, err := json.Marshal([]any{"GROUPED_PIVOT", "row_lineage_pivot", []any{"STRING", "wanted"}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			lineage, err := CompileRowLineageOutput(compiledOutput, string(rowID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
+			lineage, err := CompileRowLineageOutput(ArangoTarget(), compiledOutput, string(rowID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatalf("compile Pivot row lineage: %v", err)
 			}
-			err = client.QueryRows(ctx, lineage.Query, 32, lineage.BindVars, func(map[string]any) error { return nil })
-			if err == nil || !strings.Contains(err.Error(), test.wantErrorCode) {
-				t.Fatalf("row lineage error = %v, want global Pivot policy error %s", err, test.wantErrorCode)
-			}
+			err = client.QueryRows(ctx, testAQLText(t, lineage.Command), 32, testAQLBinds(t, lineage.Command), func(map[string]any) error { return nil })
+			requireStableRuntimeCode(t, err, test.wantErrorCode)
 		})
 	}
 }
@@ -140,13 +137,13 @@ func TestConstructionPivotRowLineagePagesTypedGroupPreimageAgainstArango(t *test
 	rowID := string(rowIDBytes)
 	compilePage := func(requestedRowID string, offset int) CompiledRowLineageQuery {
 		t.Helper()
-		query, compileErr := CompileRowLineageOutput(compiledOutput, requestedRowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
+		query, compileErr := CompileRowLineageOutput(ArangoTarget(), compiledOutput, requestedRowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile Pivot row-lineage page at %d: %v", offset, compileErr)
 		}
 		for _, want := range []string{"root.project == @project", "root.dataset_generation == @dataset_generation", "LIMIT @row_lineage_offset, @row_lineage_fetch_limit"} {
-			if !strings.Contains(query.Query, want) {
-				t.Errorf("Pivot row-lineage query lost source scope or bounded paging contract %q:\n%s", want, query.Query)
+			if !strings.Contains(testAQLText(t, query.Command), want) {
+				t.Errorf("Pivot row-lineage query lost source scope or bounded paging contract %q:\n%s", want, testAQLText(t, query.Command))
 			}
 		}
 		return query

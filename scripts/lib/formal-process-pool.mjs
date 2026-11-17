@@ -59,9 +59,6 @@ export async function runProcessPool(jobs, { concurrency = 2, timeoutMs = 30000,
                 throw error;
             }
         }
-        // Some sandboxes deny negative-pid (process group) signals even for own children.
-        // Individual SIGKILL to each enumerated descendant is then attempted; blocked attempts
-        // are recorded and termination is proven below rather than assumed.
         if (blocked.length) for (const pid of descendantsOf(entry.child.pid)) {
             try { process.kill(pid, 'SIGKILL'); }
             catch (error) { if (error.code === 'ESRCH') continue; if (error.code === 'EPERM') { blocked.push(`pid ${pid}`); continue; } throw error; }

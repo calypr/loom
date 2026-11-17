@@ -17,9 +17,6 @@ const (
 	MaxPopulationMappingLimit     = 1000
 )
 
-// PopulationMapping performs one synchronous, receipt-bound coverage check.
-// It reruns the request-scoped mapping query for later pages; no report state
-// is persisted on a receipt, selection, or workspace.
 func (s *Service) PopulationMapping(ctx context.Context, request PopulationMappingRequest) (PopulationMappingResult, error) {
 	if strings.TrimSpace(request.ReceiptID) == "" || strings.TrimSpace(request.OutputID) == "" {
 		return PopulationMappingResult{}, malformed("populationMapping", "receiptId and outputId are required", nil)

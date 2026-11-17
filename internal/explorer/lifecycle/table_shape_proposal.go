@@ -267,8 +267,6 @@ type tableShapeProposalTimings struct {
 	receiptEvidence  time.Duration
 }
 
-// ServerTiming returns the proposal work breakdown for the HTTP response.
-// These measurements are deliberately excluded from the proposal JSON body.
 func (p TableShapeProposal) ServerTiming() string {
 	metrics := []struct {
 		name     string

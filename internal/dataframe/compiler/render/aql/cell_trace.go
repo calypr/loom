@@ -283,8 +283,6 @@ func (r *physicalPlanRenderer) renderReshapeTraceContributors(lineage ir.Physica
 				return "", "", false, "", queryErr
 			}
 			queries = append(queries, query)
-			// Each output row came from exactly one unpivot input. Do not
-			// duplicate its evidence once for every configured input column.
 			goto contributorsReady
 		default:
 			return "", "", false, "", fmt.Errorf("unsupported reshape trace source kind %q", source.Kind)

@@ -51,13 +51,13 @@ func TestConstructionPivotCellTraceUsesPreviewLiteralIdentity(t *testing.T) {
 	if !strings.Contains(preview.Query, `TO_STRING(["GROUPED_PIVOT"`) {
 		t.Fatalf("Preview query does not emit the compiler-generated string identity:\n%s", preview.Query)
 	}
-	trace, err := compiler.CompileCellTraceOutputWithPolicy(output, "alpha", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := compiler.CompileCellTraceOutput(compiler.ArangoTarget(), output, "alpha", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if trace.ExplicitIdentityColumn != ir.PhysicalCellTraceExplicitIdentityField || trace.IdentityPartsColumn != "" || trace.ExplicitIdentityObject ||
-		!strings.Contains(trace.Query, "__loom_construction_final_row.__loom_row_id") {
-		t.Fatalf("cell trace does not read Preview's explicit identity directly:\n%s\n%#v", trace.Query, trace)
+		!strings.Contains(commandText(t, trace.Command), "__loom_construction_final_row.__loom_row_id") {
+		t.Fatalf("cell trace does not read Preview's explicit identity directly:\n%s\n%#v", commandText(t, trace.Command), trace)
 	}
 
 	previewID := `["GROUPED_PIVOT","pivot_identity",["STRING","final"]]`
@@ -133,13 +133,13 @@ func TestComposedCohortCellTraceIdentityMismatchAgainstPreviewObject(t *testing.
 	if !strings.Contains(preview.Query, "__loom_row_id: {group_revision_id: revision._key, group_id:") {
 		t.Fatalf("ordinary Preview lowering does not emit its structured cohort identity:\n%s", preview.Query)
 	}
-	trace, err := compiler.CompileCellTraceOutputWithPolicy(output, "group_label", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := compiler.CompileCellTraceOutput(compiler.ArangoTarget(), output, "group_label", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if trace.ExplicitIdentityColumn != ir.PhysicalCellTraceExplicitIdentityField ||
-		!strings.Contains(trace.Query, ".__loom_row_id") {
-		t.Fatalf("ordinary CellTrace lowering does not read the same structured identity:\n%s\n%#v", trace.Query, trace)
+		!strings.Contains(commandText(t, trace.Command), ".__loom_row_id") {
+		t.Fatalf("ordinary CellTrace lowering does not read the same structured identity:\n%s\n%#v", commandText(t, trace.Command), trace)
 	}
 	if !trace.ExplicitIdentityObject || trace.RowIdentity == nil || trace.RowIdentity.Grain != spec.RowGrainGroups ||
 		len(trace.RowIdentity.Fields) != 1 || trace.RowIdentity.Fields[0] != "__loom_row_id" {
@@ -161,12 +161,18 @@ func TestComposedCohortCellTraceIdentityMismatchAgainstPreviewObject(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	previewRowID := string(previewIdentityBytes) // Preview GraphQL marshals row maps; the client later JSON.stringify's the parsed object.
+	previewRowID := string(previewIdentityBytes)
 	for _, rowID := range []string{
 		previewRowID,
 		`{"group_id":"cohort-a","group_revision_id":"grouprev_cell_trace_identity"}`,
 	} {
-		engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return visit(map[string]any{
 				trace.ExplicitIdentityColumn: previewRow["__loom_row_id"],
 				trace.ValueColumn:            "Pair",
@@ -187,7 +193,7 @@ func TestComposedCohortCellTraceIdentityMismatchAgainstPreviewObject(t *testing.
 
 func TestComposedCohortCellTraceObjectIdentityRejectsMalformedAndExtraKeys(t *testing.T) {
 	output := compileComposedCohortIdentityOutput(t)
-	trace, err := compiler.CompileCellTraceOutputWithPolicy(output, "group_label", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := compiler.CompileCellTraceOutput(compiler.ArangoTarget(), output, "group_label", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +210,13 @@ func TestComposedCohortCellTraceObjectIdentityRejectsMalformedAndExtraKeys(t *te
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			queried := false
-			engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+				command := request.Command
+				_, _, dispatchErr := command.AQLParameters()
+				if dispatchErr != nil {
+					return dispatchErr
+				}
+
 				queried = true
 				return visit(map[string]any{
 					trace.ExplicitIdentityColumn: map[string]any{
@@ -250,7 +262,7 @@ func TestSourceOnlyGroupRowsCellTraceMatchesPreviewObjectAndReturnsMemberField(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	trace, err := compiler.CompileCellTraceOutputWithPolicy(compiled.Outputs[0], "resourceType", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := compiler.CompileCellTraceOutput(compiler.ArangoTarget(), compiled.Outputs[0], "resourceType", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile ordinary group-row CellTrace: %v", err)
 	}
@@ -258,8 +270,14 @@ func TestSourceOnlyGroupRowsCellTraceMatchesPreviewObjectAndReturnsMemberField(t
 		t.Fatalf("group-row CellTrace identity = %#v, want Preview's typed object identity", trace)
 	}
 	rowIdentity := map[string]any{"group_revision_id": "grouprev_cell_trace", "group_id": "cohort-a"}
-	engine := &Engine{queryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
-		if query != trace.Query {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		query, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
+		if query != commandText(t, trace.Command) {
 			t.Fatalf("CellTrace executed a query other than its compiled terminal")
 		}
 		return visit(map[string]any{
@@ -291,7 +309,13 @@ func TestSourceOnlyGroupRowsCellTraceMatchesPreviewObjectAndReturnsMemberField(t
 		`["grouprev_cell_trace","cohort-a"]`,
 	} {
 		queried := false
-		malformedEngine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		malformedEngine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			queried = true
 			return visit(map[string]any{})
 		}}
@@ -320,7 +344,7 @@ func TestComposedCohortPivotKeepsCompilerProvenScalarIdentity(t *testing.T) {
 	if finalIdentity == nil || finalIdentity.Kind != "string" || finalIdentity.Cardinality != "required_one" || !finalIdentity.Internal || !finalIdentity.Identity {
 		t.Fatalf("cohort Pivot Preview identity schema = %#v, want a required compiler-owned scalar", finalIdentity)
 	}
-	trace, err := compiler.CompileCellTraceOutputWithPolicy(output, "ordinal_pair", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := compiler.CompileCellTraceOutput(compiler.ArangoTarget(), output, "ordinal_pair", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +353,13 @@ func TestComposedCohortPivotKeepsCompilerProvenScalarIdentity(t *testing.T) {
 		t.Fatalf("cohort Pivot CellTrace identity = %#v, want scalar explicit identity", trace)
 	}
 	rowID := `["GROUPED_PIVOT","cohort_pivot_identity",["STRING","pair"]]`
-	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		return visit(map[string]any{
 			trace.ExplicitIdentityColumn: rowID,
 			trace.ValueColumn:            int64(2),
@@ -431,11 +461,17 @@ func TestCellTraceCompiledFindsPublishedDefaultIdentityAndReturnsEvidence(t *tes
 	digest := sha256.Sum256(encoded)
 	rowID := hex.EncodeToString(digest[:])
 	query := compiler.CompiledCellTraceQuery{
-		Query: "trace", BindVars: map[string]any{"project": "p"}, ValueColumn: "value", ContributionsColumn: "contributors",
+		Command: mustAQLCommand("trace", map[string]any{"project": "p"}), ValueColumn: "value", ContributionsColumn: "contributors",
 		StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", IdentityPartsColumn: "identity",
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id", "generation"}}, ContributionLimit: 1,
 	}
-	engine := &Engine{queryRows: func(_ context.Context, queryText string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		queryText, bindVars, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		if queryText != "trace" || bindVars["project"] != "p" {
 			t.Fatalf("unexpected query invocation: %q %#v", queryText, bindVars)
 		}
@@ -467,7 +503,7 @@ func TestCellTraceCompiledFindsPublishedDefaultIdentityAndReturnsEvidence(t *tes
 
 func TestCellTraceRelatedSourcePreservesDuplicateOccurrencesAndNullValues(t *testing.T) {
 	query := compiler.CompiledCellTraceQuery{
-		Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors",
+		Command: mustAQLCommand("trace", nil), ValueColumn: "value", ContributionsColumn: "contributors",
 		StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity",
 	}
 	contributor := func(resourceID string, value any) map[string]any {
@@ -479,7 +515,13 @@ func TestCellTraceRelatedSourcePreservesDuplicateOccurrencesAndNullValues(t *tes
 		}
 	}
 	contributors := []any{contributor("observation-1", nil), contributor("observation-1", nil), contributor("observation-2", "final")}
-	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		return visit(map[string]any{
 			"identity": "patient-key", "value": []any{nil, nil, "final"}, "status": "VALUE",
 			"contributors": contributors, "hasMore": false, "omission": "",
@@ -502,8 +544,14 @@ func TestCellTraceRelatedSourcePreservesDuplicateOccurrencesAndNullValues(t *tes
 }
 
 func TestCellTraceCompiledMatchesExplicitPublishedIdentity(t *testing.T) {
-	query := compiler.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
-	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	query := compiler.CompiledCellTraceQuery{Command: mustAQLCommand("trace", nil), ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		return visit(map[string]any{"identity": "patient-7", "value": nil, "status": "NO_MATCH", "contributors": []any{}, "hasMore": false})
 	}}
 	result, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "patient-7", Column: "condition", Limit: 10})
@@ -513,8 +561,14 @@ func TestCellTraceCompiledMatchesExplicitPublishedIdentity(t *testing.T) {
 }
 
 func TestCellTraceCompiledReportsWitnessBoundAsIncomplete(t *testing.T) {
-	query := compiler.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
-	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	query := compiler.CompiledCellTraceQuery{Command: mustAQLCommand("trace", nil), ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		for _, id := range []string{"one", "two"} {
 			if err := visit(map[string]any{"identity": id}); err != nil {
 				return err
@@ -529,7 +583,7 @@ func TestCellTraceCompiledReportsWitnessBoundAsIncomplete(t *testing.T) {
 }
 
 func TestCellTraceCompiledReturnsTypedSemanticFailureStatuses(t *testing.T) {
-	query := compiler.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
+	query := compiler.CompiledCellTraceQuery{Command: mustAQLCommand("trace", nil), ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
 	for _, test := range []struct {
 		code   dataframeerrors.ErrorCode
 		status CellTraceStatus
@@ -539,7 +593,13 @@ func TestCellTraceCompiledReturnsTypedSemanticFailureStatuses(t *testing.T) {
 		{code: dataframeerrors.CodeInvalidData, status: CellTraceInvalidType},
 	} {
 		t.Run(string(test.code), func(t *testing.T) {
-			engine := &Engine{queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+			engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+				command := request.Command
+				_, _, dispatchErr := command.AQLParameters()
+				if dispatchErr != nil {
+					return dispatchErr
+				}
+
 				return dataframeerrors.NewError(test.code, "")
 			}}
 			result, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "row-1", Column: "feature"})
@@ -550,10 +610,61 @@ func TestCellTraceCompiledReturnsTypedSemanticFailureStatuses(t *testing.T) {
 	}
 }
 
+func TestCellTraceCompiledRejectsInvalidStatusBeforeEvidenceDecoding(t *testing.T) {
+	t.Run("aql", func(t *testing.T) {
+		query := compiler.CompiledCellTraceQuery{Command: mustAQLCommand("trace", nil), ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
+		engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
+			return visit(map[string]any{"identity": "row", "status": "MAYBE", "contributors": "not-an-array"})
+		}}
+		_, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "o", RowID: "row", Column: "c"})
+		if err == nil || !strings.Contains(err.Error(), "cell trace row has an invalid status") || strings.Contains(err.Error(), "invalid contributions") {
+			t.Fatalf("status error = %v, want the status refusal to precede contribution decoding", err)
+		}
+	})
+	t.Run("postgres", func(t *testing.T) {
+		query := compiler.CompiledCellTraceQuery{
+			Command: exec02PostgreSQLCommand(t), ValueColumn: ir.PhysicalCellTraceValueField, ContributionsColumn: ir.PhysicalCellTraceContributionsField,
+			StatusColumn: ir.PhysicalCellTraceStatusField, HasMoreColumn: ir.PhysicalCellTraceHasMoreField,
+			OmissionColumn: ir.PhysicalCellTraceOmissionField, IdentityPartsColumn: ir.PhysicalCellTraceIdentityPartsField,
+			RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
+		}
+		rowID := exec09PreviewRowID(t, query.RowIdentity, map[string]any{"id": "patient-one"})
+		spies := &dispatchSpies{}
+		engine, _ := exec02pgEngine(t, spies, []map[string]any{{
+			ir.PhysicalCellTraceIdentityPartsField: json.RawMessage(`["patient-one"]`),
+			ir.PhysicalCellTraceValueField:         json.RawMessage(`{bad`),
+			ir.PhysicalCellTraceStatusField:        "MAYBE",
+			ir.PhysicalCellTraceHasMoreField:       false,
+			ir.PhysicalCellTraceOmissionField:      "",
+			ir.PhysicalCellTraceContributionsField: json.RawMessage(`{bad`),
+		}})
+		result, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "resources", RowID: rowID, Column: "name", Limit: 2})
+		if err == nil || !strings.Contains(err.Error(), "cell trace row has an invalid status") ||
+			strings.Contains(err.Error(), "invalid contributions") || strings.Contains(err.Error(), "traced value") {
+			t.Fatalf("status error = %v, want the status refusal to precede JSONB decoding: %#v", err, result)
+		}
+		if errors.Is(err, ErrCellTraceRowNotFound) {
+			t.Fatalf("invalid status with malformed JSONB was classified as row absence: %v", err)
+		}
+	})
+}
+
 func TestCellTraceCompiledRejectsMalformedEvidenceAndMissingRows(t *testing.T) {
-	query := compiler.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
+	query := compiler.CompiledCellTraceQuery{Command: mustAQLCommand("trace", nil), ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
 	t.Run("malformed", func(t *testing.T) {
-		engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return visit(map[string]any{"identity": "row", "status": "MAYBE", "contributors": []any{}})
 		}}
 		if _, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "o", RowID: "row", Column: "c"}); err == nil {
@@ -561,7 +672,14 @@ func TestCellTraceCompiledRejectsMalformedEvidenceAndMissingRows(t *testing.T) {
 		}
 	})
 	t.Run("missing", func(t *testing.T) {
-		engine := &Engine{queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }}
+		engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+			return nil
+		}}
 		_, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "o", RowID: "row", Column: "c"})
 		if err == nil || errors.Is(err, errCellTraceFound) {
 			t.Fatalf("missing row error = %v", err)

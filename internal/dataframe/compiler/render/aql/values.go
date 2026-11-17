@@ -71,8 +71,6 @@ func (r *physicalPlanRenderer) renderRelatedField(expression ir.PhysicalExpressi
 	if err != nil {
 		return "", fmt.Errorf("related field document ID: %w", err)
 	}
-	// The FOR variable is scoped to this expression's subquery, so a stable
-	// compiler-owned name is safe across projections and construction stages.
 	document := "related_field_document"
 	collection := "[DOCUMENT(" + documentID + ")]"
 	field := document + ".payload"
@@ -94,9 +92,6 @@ func (r *physicalPlanRenderer) renderRelatedField(expression ir.PhysicalExpressi
 		if err != nil {
 			return "", fmt.Errorf("related field presence: %w", err)
 		}
-		// The value projection returns null when there is no visible terminal
-		// document. Keep that row present in the category domain; only an
-		// existing, exactly scoped terminal can contribute MISSING.
 		rows := fmt.Sprintf("(FOR %s IN %s FILTER %s != null AND %s.project == @project AND %s.dataset_generation == @dataset_generation AND %s.resourceType == @%s AND (@auth_resource_paths_unrestricted == true OR %s.auth_resource_path IN @auth_resource_paths) RETURN %s)",
 			document, collection, document, document, document, document, resourceTypeBind, document, present)
 		return "FIRST(APPEND(" + rows + ", [true]))", nil
@@ -156,10 +151,6 @@ func (r *physicalPlanRenderer) renderKeyedMap(expression ir.PhysicalExpression) 
 	if len(valueExpressions) > 1 {
 		valueExpression = "FIRST(FOR __loom_keyed_candidate IN [" + strings.Join(valueExpressions, ", ") + "] FILTER __loom_keyed_candidate != null RETURN __loom_keyed_candidate)"
 	}
-	// Selector extraction returns a subquery whose rows can themselves be
-	// arrays. Flatten that result directly so a keyed family iterates source
-	// items. Wrapping the subquery in another array leaves one array layer
-	// behind and makes item key/value selectors read from the array itself.
 	sourceLoop := source
 	if keyed.FlattenSource {
 		sourceLoop = "FLATTEN(" + source + ")"

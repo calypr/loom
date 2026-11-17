@@ -17,7 +17,6 @@ test('API checks select real named public handler tests', () => {
     assert.throws(() => selectApiChecks('missing'), /Unknown API feature/);
     for (const check of apiChecks) {
         const directory = new URL(`../../${check.package.replace(/^\.\//, '')}/`, import.meta.url);
-        // Discover declarations from the selected package, independent of registry IDs.
         const source = readdirSync(directory).filter(file => file.endsWith('_test.go'))
             .map(file => readFileSync(new URL(file, directory), 'utf8')).join('\n');
         for (const name of check.tests) assert.match(source, new RegExp(`func ${name}\\(t \\*testing\\.T\\)`));

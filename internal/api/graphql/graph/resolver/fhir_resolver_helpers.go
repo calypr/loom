@@ -12,10 +12,6 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
-// resolveFHIRField is used by gqlgen's generated autobind adapters for the
-// generated FHIR structs. It honors both JSON and gqlgen tags (including
-// primitive-extension names such as _birthDate) and keeps missing historical
-// fields nullable instead of panicking.
 func resolveFHIRField[T any](obj any, name string) (T, error) {
 	var zero T
 	v := reflect.ValueOf(obj)
@@ -51,9 +47,6 @@ func resolveFHIRField[T any](obj any, name string) (T, error) {
 	return zero, nil
 }
 
-// listFHIR is shared by the generated exact-capitalization root adapters. It
-// keeps generated methods as thin type-conversion wrappers while all query
-// planning and execution remains in queryapi.Service.
 func (r *queryResolver) listFHIR(ctx context.Context, project string, filters []*model.FhirFilterInput, requestedLimit *int, out any, resourceType string) error {
 	limit := 25
 	if requestedLimit != nil {

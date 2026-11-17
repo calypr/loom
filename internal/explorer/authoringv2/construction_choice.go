@@ -93,11 +93,6 @@ func validateResolvedConstructionChoiceSource(document Document, catalog Catalog
 		return validate(source)
 	}
 
-	// Route-level ALL is compiler-supported for scalar fields even though the
-	// terminal field candidate itself advertises only scalar VALUE. The choice
-	// has already been re-authorized against its exact route and form by the
-	// lifecycle; validate its underlying field identity using that advertised
-	// scalar mode while preserving ALL in the saved source.
 	valueSource := source
 	field := *source.Field
 	field.ProjectionMode = "VALUE"

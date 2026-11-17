@@ -106,9 +106,6 @@ func (r *physicalPlanRenderer) renderCall(expression ir.PhysicalExpression) (str
 		if err := require(2); err != nil {
 			return "", err
 		}
-		// AQL has no JOIN function.  Recipe expressions pass the value
-		// collection first and the delimiter second; CONCAT_SEPARATOR uses the
-		// inverse argument order and accepts an array as its value operand.
 		return "CONCAT_SEPARATOR(" + args[1] + ", " + args[0] + ")", nil
 	case "cast":
 		if err := require(1); err != nil {
@@ -160,9 +157,6 @@ func (r *physicalPlanRenderer) renderCall(expression ir.PhysicalExpression) (str
 		if len(args) < 2 {
 			return "", fmt.Errorf("%s requires a namespace and at least one name", name)
 		}
-		// AQL cannot reproduce namespace-byte hashing and RFC bit handling
-		// portably. Return a typed marker for the compiler-owned post-query
-		// stage instead of emitting a textual hash approximation.
 		return fmt.Sprintf("{\"__loom_exact_uuid_operation\": %q, \"__loom_exact_uuid_args\": [%s]}", name, strings.Join(args, ", ")), nil
 	case "if":
 		if err := require(3); err != nil {
@@ -240,12 +234,3 @@ func containsExactUUIDCall(expressions []ir.PhysicalExpression) bool {
 	}
 	return false
 }
-
-// renderObject renders a recursively typed object expression. Sorting a copy
-// gives equivalent physical plans stable AQL and bind-key allocation without
-// changing the semantic field order held by the plan.
-//
-// The compact dynamic-key literal is used when every field preserves nulls.
-// If any field requests OMIT_NULLS, fields are represented as a temporary
-// stream and merged so null-valued fields can be removed without evaluating
-// their expression twice.

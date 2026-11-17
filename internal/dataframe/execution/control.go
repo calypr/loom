@@ -6,20 +6,17 @@ import (
 	"fmt"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
-// Control adapts the production recipe engine to the backend-neutral
-// recipe control contract consumed by GraphQL and other transport adapters.
-// It resolves a recipe exactly once per operation and exposes only sanitized
-// physical diagnostics through ExplainPhysical; raw IR and AQL stay private.
 type Control struct {
-	Engine            *Engine
-	ExplainConnection func(context.Context, CompiledQuery) (ExplainAssessment, error)
+	Engine                      *Engine
+	ExplainConnection           func(context.Context, compiler.CompiledQuery) (ExplainAssessment, error)
+	ExplainPostgreSQLConnection func(context.Context, compiler.CompiledQuery) (PostgreSQLPlanAssessment, error)
 }
 
 func (c Control) Validate(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Validation, error) {
@@ -55,10 +52,6 @@ func (c Control) Explain(ctx context.Context, name string, bindings recipe.Runti
 	return validated.Plan.Explain(), nil
 }
 
-// ExplainPhysical compiles the same resolved canonical outputs consumed by
-// Preview and Materialize. The compiler-only path is always available; live
-// Arango assessment is opt-in and requires ExplainConnection. No AQL or bind
-// values cross the recipe control boundary.
 func (c Control) ExplainPhysical(ctx context.Context, name string, bindings recipe.RuntimeBindings, live bool) (PhysicalExplanation, error) {
 	if c.Engine == nil {
 		return PhysicalExplanation{}, fmt.Errorf("recipe engine is required")
@@ -67,29 +60,52 @@ func (c Control) ExplainPhysical(ctx context.Context, name string, bindings reci
 	if err != nil {
 		return PhysicalExplanation{}, err
 	}
-	limit := bindings.PreviewLimit
+	return c.ExplainResolved(ctx, resolved, live)
+}
+
+func (c Control) ExplainResolved(ctx context.Context, resolved Resolved, live bool) (PhysicalExplanation, error) {
+	if c.Engine == nil {
+		return PhysicalExplanation{}, fmt.Errorf("recipe engine is required")
+	}
+	limit := resolved.Semantic.SemanticPlan.Bindings.PreviewLimit
 	if limit <= 0 {
 		limit = 25
 	}
 	result := PhysicalExplanation{Outputs: make([]PhysicalOutputExplanation, 0, len(resolved.Compiled.Outputs))}
 	for _, output := range resolved.Compiled.Outputs {
-		compiled, err := compiler.CompileRecipeOutputWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
+		compiled, err := c.explainCompiledForOutput(ctx, resolved, output, limit)
 		if err != nil {
 			return PhysicalExplanation{}, fmt.Errorf("output %q: %w", output.Name, err)
 		}
+		fingerprint := SourcePlanFingerprint(compiled)
+		if err := requireProjectedPlanFingerprint(output.Name, fingerprint); err != nil {
+			return PhysicalExplanation{}, err
+		}
 		item := PhysicalOutputExplanation{
-			Name: output.Name, PlanFingerprint: CompiledQueryFingerprint(compiled),
+			Name: output.Name, PlanFingerprint: fingerprint,
 			Columns: append([]string(nil), compiled.PublicColumns...), Diagnostics: compiled.PlanDiagnostics,
 		}
 		if live {
-			if c.ExplainConnection == nil {
-				return PhysicalExplanation{}, fmt.Errorf("live physical recipe Explain requires an Arango connection")
+			switch compiled.Command.Backend() {
+			case command.CompiledBackendPostgreSQL:
+				if c.ExplainPostgreSQLConnection == nil {
+					return PhysicalExplanation{}, fmt.Errorf("live physical recipe Explain requires a PostgreSQL connection")
+				}
+				assessment, err := c.ExplainPostgreSQLConnection(ctx, compiled)
+				if err != nil {
+					return PhysicalExplanation{}, recipeControlBackend(fmt.Errorf("output %q live Explain: %w", output.Name, err))
+				}
+				item.LivePostgreSQL = &assessment
+			default:
+				if c.ExplainConnection == nil {
+					return PhysicalExplanation{}, fmt.Errorf("live physical recipe Explain requires an Arango connection")
+				}
+				assessment, err := c.ExplainConnection(ctx, compiled)
+				if err != nil {
+					return PhysicalExplanation{}, recipeControlBackend(fmt.Errorf("output %q live Explain: %w", output.Name, err))
+				}
+				item.Live = &assessment
 			}
-			assessment, err := c.ExplainConnection(ctx, compiled)
-			if err != nil {
-				return PhysicalExplanation{}, recipeControlBackend(fmt.Errorf("output %q live Explain: %w", output.Name, err))
-			}
-			item.Live = &assessment
 		}
 		result.Outputs = append(result.Outputs, item)
 	}
@@ -123,9 +139,6 @@ func (c Control) Preview(ctx context.Context, name string, bindings recipe.Runti
 	return Preview{Plan: resolved, Outputs: outputRows(full, rows)}, nil
 }
 
-// Run executes the complete resolved recipe without a preview limit. It is an
-// explicit, bounded-by-the-caller's-memory transport operation; production
-// bulk workflows should use Materialize instead.
 func (c Control) Run(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Preview, error) {
 	if c.Engine == nil {
 		return Preview{}, fmt.Errorf("recipe engine is required")

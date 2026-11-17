@@ -24,10 +24,6 @@ const (
 	defaultArtifactMaxBytes = int64(2 << 30)
 )
 
-// ArtifactRequest identifies the exact published revision and output that
-// should be copied into a durable, downloadable artifact. The capability
-// token is intentionally not transport-visible: lifecycle obtains the
-// immutable receipt token server-side and reauthorizes the current caller.
 type ArtifactRequest struct {
 	Project        string
 	ExplorerID     string
@@ -36,25 +32,16 @@ type ArtifactRequest struct {
 	IdempotencyKey string
 }
 
-// ArtifactResult returns the durable record. A PREPARING or FAILED record can
-// be returned for an idempotent retry; callers must only offer a download for
-// a COMPLETE record.
 type ArtifactResult struct {
 	Record *explorer.ArtifactRecord
 }
 
-// ArtifactOpenRequest identifies an artifact. Lifecycle reauthorizes the
-// current caller against the receipt token retained in the server-side
-// artifact record; capability internals never cross this request boundary.
 type ArtifactOpenRequest struct {
 	Project    string
 	ExplorerID string
 	ArtifactID string
 }
 
-// PrepareArtifact authorizes and streams one exact execution/output into an
-// ArtifactStore. The stage is committed only after WriteArtifact has closed
-// every member and the exact reader has completed without pin loss.
 func (s *Service) PrepareArtifact(ctx context.Context, request ArtifactRequest) (ArtifactResult, error) {
 	if s.config.ArtifactStore == nil || s.config.PublishedReader == nil {
 		return ArtifactResult{}, unavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact export is not configured", nil)
@@ -215,9 +202,6 @@ func (s *Service) PrepareArtifact(ctx context.Context, request ArtifactRequest) 
 	return ArtifactResult{Record: completed}, nil
 }
 
-// OpenArtifact performs all identity and current-capability checks before
-// returning the archive. The store itself is still required to enforce the
-// COMPLETE/expiry check at the final open operation.
 func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest) (io.ReadCloser, *explorer.ArtifactRecord, error) {
 	if s.config.ArtifactStore == nil {
 		return nil, nil, unavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact export is not configured", nil)

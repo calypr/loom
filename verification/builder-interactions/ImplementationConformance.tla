@@ -1,8 +1,6 @@
 ------------------------ MODULE ImplementationConformance ------------------------
 EXTENDS Naturals, Sequences, TLC
 
-(* Traces are fresh observations of mounted production hooks/components.      *)
-(* This checks their safety obligations, not full behavioral refinement.      *)
 CONSTANT Traces
 VARIABLES trace, position, observation, previousObservation
 vars == <<trace, position, observation, previousObservation>>
@@ -43,7 +41,6 @@ Inv_BeginApplyWasReviewed ==
     /\ Previous.canApply
     /\ observation.proposalId = Previous.proposalId
 
-(* Compare real rendered observations, not expected states from action labels. *)
 Visible == <<observation.status, observation.proposalId, observation.canApply,
   observation.previewReceipt, observation.previewOutput>>
 PreviousVisible == <<Previous.status, Previous.proposalId, Previous.canApply,

@@ -4,21 +4,26 @@ import (
 	"time"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 )
 
 func dataframeDiagnostics(in dataframeexecution.QueryDiagnostics) *model.DataframeQueryDiagnostics {
-	return &model.DataframeQueryDiagnostics{
+	out := &model.DataframeQueryDiagnostics{
 		InputResolutionMs:    milliseconds(in.InputResolution),
 		RequestPreparationMs: milliseconds(in.RequestPreparation),
 		CompilationMs:        milliseconds(in.Compilation),
-		ArangoQueryMs:        milliseconds(in.ArangoQuery),
+		SourceQueryMs:        milliseconds(in.SourceQuery),
 		RowMaterializationMs: milliseconds(in.RowMaterialization),
 		ResultAssemblyMs:     milliseconds(in.ResultAssembly),
 		TotalMs:              milliseconds(in.Total),
 		Plan:                 compilerPlanDiagnostics(in.Plan),
 	}
+	if in.SourceBackend == command.CompiledBackendAQL {
+		out.ArangoQueryMs = milliseconds(in.SourceQuery)
+	}
+	return out
 }
 
 func milliseconds(value time.Duration) float64 { return float64(value) / float64(time.Millisecond) }

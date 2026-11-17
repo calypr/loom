@@ -2,20 +2,25 @@ package execution
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	postgresrender "github.com/calypr/loom/internal/dataframe/compiler/render/postgres"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestPlanHasExecutionWindowRecognizesStandaloneGroupRowsLimit(t *testing.T) {
@@ -35,8 +40,15 @@ func TestPlanHasExecutionWindowRecognizesStandaloneGroupRowsLimit(t *testing.T) 
 
 func TestCompiledArtifactScopeKeepsBoundedGroupRowsPreviewWhole(t *testing.T) {
 	engine, err := New(Config{
-		Registry: invalidRecipeRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return nil
 		},
 	})
@@ -61,7 +73,7 @@ func TestCompiledArtifactScopeKeepsBoundedGroupRowsPreviewWhole(t *testing.T) {
 	if err != nil || unboundedMode != chartifact.ScopeModeWhole || unboundedEvidence == nil || unboundedIdentity == nil {
 		t.Fatalf("complete GroupRows source scope=(%q,%v,%v), err=%v; want whole-relation capture evidence", unboundedMode, unboundedEvidence != nil, unboundedIdentity != nil, err)
 	}
-	preview, err := compiler.CompileRecipeOutputWithPolicy(output, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	preview, err := compiler.CompileRecipeOutput(compiler.ArangoTarget(), output, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile bounded GroupRows preview: %v", err)
 	}
@@ -76,8 +88,15 @@ func TestCompiledArtifactScopeKeepsBoundedGroupRowsPreviewWhole(t *testing.T) {
 
 func TestCompiledArtifactScopeAcceptsAuthorizedProjectAliasesAndRejectsScopeDrift(t *testing.T) {
 	engine, err := New(Config{
-		Registry: invalidRecipeRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return nil
 		},
 	})
@@ -165,8 +184,15 @@ func (r invalidRecipeRegistry) LoadRecipeVersion(ctx context.Context, name, _ st
 
 func TestMaterializeMarksResolutionFailures(t *testing.T) {
 	engine, err := New(Config{
-		Registry: invalidRecipeRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return nil
 		},
 	})
@@ -207,9 +233,17 @@ func TestCohortPreviewDoesNotInventSingleSourceIdentityOrPageItsInput(t *testing
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			engine, err := New(Config{
-				Registry:     invalidRecipeRegistry{},
-				ScopeDigest:  func(recipe.RuntimeBindings) string { return "test-scope" },
-				QueryRows:    func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+				CompileTarget: compiler.ArangoTarget(),
+				Registry:      invalidRecipeRegistry{},
+				ScopeDigest:   func(recipe.RuntimeBindings) string { return "test-scope" },
+				SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+					command := request.Command
+					_, _, dispatchErr := command.AQLParameters()
+					if dispatchErr != nil {
+						return dispatchErr
+					}
+					return nil
+				},
 				RootPageRows: test.rootPageRows,
 			})
 			if err != nil {
@@ -233,17 +267,17 @@ func TestCohortPreviewDoesNotInventSingleSourceIdentityOrPageItsInput(t *testing
 			if !foundCohortStage {
 				t.Fatal("cohort output has no typed COHORT_GROUP stage")
 			}
-			stream, query, err := engine.streamForOutput(resolved, "Cohort", 25)
+			stream, query, err := engine.streamForOutput(context.Background(), resolved, "Cohort", 25)
 			if err != nil {
 				t.Fatalf("compile cohort preview plan: %v", err)
 			}
 			if stream.page != nil {
 				t.Fatal("cohort preview paged roots before completing the group aggregation")
 			}
-			if strings.Contains(query.Query, "__loom_source_resource_id") {
+			if strings.Contains(commandText(t, query.Command), "__loom_source_resource_id") {
 				t.Fatal("cohort preview assigned one scalar source identity to a multi-member group")
 			}
-			if !strings.Contains(query.Query, "group_revision_id") {
+			if !strings.Contains(commandText(t, query.Command), "group_revision_id") {
 				t.Fatal("cohort preview query omitted its grouped-row identity")
 			}
 		})
@@ -279,11 +313,11 @@ func testCohortCompositionBundle() recipe.Bundle {
 	}
 }
 
-func testEngine(queryRows QueryRows) *Engine {
-	engine, err := New(Config{
+func testEngine(queryRows SourceRows) *Engine {
+	engine, err := New(Config{CompileTarget: compiler.ArangoTarget(),
 		Registry:    invalidRecipeRegistry{},
 		ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
-		QueryRows:   queryRows,
+		SourceRows:  queryRows,
 	})
 	if err != nil {
 		panic(err)
@@ -292,7 +326,13 @@ func testEngine(queryRows QueryRows) *Engine {
 }
 
 func TestPreviewOutputFiltersInternalColumnsAndReturnsSafePlanSummary(t *testing.T) {
-	e := testEngine(func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	e := testEngine(func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		return visit(map[string]any{
 			"id":                          "p1",
 			"_key":                        "internal-key",
@@ -324,9 +364,16 @@ func TestPreviewOutputFiltersInternalColumnsAndReturnsSafePlanSummary(t *testing
 func TestPreviewOutputCarriesFHIRSourceWithoutVisibleRootID(t *testing.T) {
 	sourceIDProjected := false
 	e, err := New(Config{
-		Registry:    invalidRecipeRegistry{},
-		ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
-		QueryRows: func(_ context.Context, _ string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		ScopeDigest:   func(recipe.RuntimeBindings) string { return "test-scope" },
+		SourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
+			_, bindVars, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			if _, isSelectedRootQuery := bindVars[compiler.RootPageKeysBind]; isSelectedRootQuery {
 				for _, value := range bindVars {
 					if value == ir.PreviewSourceResourceIDColumn {
@@ -445,7 +492,15 @@ func TestCodedGroupPreviewRunsAgainstWholeInput(t *testing.T) {
 			}}},
 		}},
 	}
-	engine, err := New(Config{Registry: invalidRecipeRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }, ScopeDigest: func(recipe.RuntimeBindings) string { return "coded-group" }, RootPageRows: 1})
+	engine, err := New(Config{
+		CompileTarget: compiler.ArangoTarget(), Registry: invalidRecipeRegistry{}, SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+			return nil
+		}, ScopeDigest: func(recipe.RuntimeBindings) string { return "coded-group" }, RootPageRows: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,17 +508,17 @@ func TestCodedGroupPreviewRunsAgainstWholeInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, query, err := engine.streamForOutput(resolved, "body_structures", 25)
+	stream, query, err := engine.streamForOutput(context.Background(), resolved, "body_structures", 25)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if stream.page != nil {
 		t.Fatal("CODED_GROUP must scan the complete input before counting distinct source records")
 	}
-	groupAt := strings.Index(query.Query, "COLLECT __loom_construction_coded_group_system")
-	limitAt := strings.Index(query.Query, "LIMIT @limit")
-	if !strings.Contains(query.Query, "FOR root IN @@root_collection") || groupAt < 0 || limitAt <= groupAt {
-		t.Fatalf("full-input CODED_GROUP query has an unexpected row scope:\n%s", query.Query)
+	groupAt := strings.Index(commandText(t, query.Command), "COLLECT __loom_construction_coded_group_system")
+	limitAt := strings.Index(commandText(t, query.Command), "LIMIT @limit")
+	if !strings.Contains(commandText(t, query.Command), "FOR root IN @@root_collection") || groupAt < 0 || limitAt <= groupAt {
+		t.Fatalf("full-input CODED_GROUP query has an unexpected row scope:\n%s", commandText(t, query.Command))
 	}
 	if stream.sourceIdentityMode != previewSourceComposite {
 		t.Fatalf("CODED_GROUP source mode = %q, want COMPOSITE", stream.sourceIdentityMode)
@@ -472,19 +527,31 @@ func TestCodedGroupPreviewRunsAgainstWholeInput(t *testing.T) {
 
 func TestPreviewOutputUsesPreviewExecutorWithoutChangingOrdinaryStreams(t *testing.T) {
 	var ordinaryCalls, previewCalls int
-	ordinaryQuery := func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	ordinaryQuery := func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		ordinaryCalls++
 		return visit(map[string]any{"id": "ordinary", "_key": "ordinary-key"})
 	}
-	previewQuery := func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	previewQuery := func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		previewCalls++
 		return visit(map[string]any{"id": "preview"})
 	}
-	e, err := New(Config{
-		Registry:         invalidRecipeRegistry{},
-		ScopeDigest:      func(recipe.RuntimeBindings) string { return "test-scope" },
-		QueryRows:        ordinaryQuery,
-		PreviewQueryRows: previewQuery,
+	e, err := New(Config{CompileTarget: compiler.ArangoTarget(),
+		Registry:          invalidRecipeRegistry{},
+		ScopeDigest:       func(recipe.RuntimeBindings) string { return "test-scope" },
+		SourceRows:        ordinaryQuery,
+		PreviewSourceRows: previewQuery,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -499,7 +566,7 @@ func TestPreviewOutputUsesPreviewExecutorWithoutChangingOrdinaryStreams(t *testi
 	if previewCalls != 1 || ordinaryCalls != 0 {
 		t.Fatalf("after preview: preview calls=%d ordinary calls=%d", previewCalls, ordinaryCalls)
 	}
-	stream, _, err := e.streamForOutput(resolved, "Patient", 1)
+	stream, _, err := e.streamForOutput(context.Background(), resolved, "Patient", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,10 +583,24 @@ func TestPreviewOutputDefersOnlyGroupIndexPreparation(t *testing.T) {
 	queryFinished := make(chan struct{})
 	prepared := make(chan bool, 1)
 	groupEngine, err := New(Config{
-		Registry:    invalidRecipeRegistry{},
-		ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
-		QueryRows:   func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
-		PreviewQueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		ScopeDigest:   func(recipe.RuntimeBindings) string { return "test-scope" },
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+			return nil
+		},
+		PreviewSourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			defer close(queryFinished)
 			return visit(map[string]any{"status": "final", "rows": 1})
 		},
@@ -559,10 +640,16 @@ func TestPreviewOutputDefersOnlyGroupIndexPreparation(t *testing.T) {
 
 	for _, test := range []struct {
 		name              string
-		rows              QueryRows
+		rows              SourceRows
 		cancelDuringQuery bool
 	}{
-		{name: "query failure", rows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		{name: "query failure", rows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return errors.New("query failed")
 		}},
 		{name: "canceled", cancelDuringQuery: true},
@@ -573,16 +660,30 @@ func TestPreviewOutputDefersOnlyGroupIndexPreparation(t *testing.T) {
 			defer cancel()
 			rows := test.rows
 			if test.cancelDuringQuery {
-				rows = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+				rows = func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+					command := request.Command
+					_, _, dispatchErr := command.AQLParameters()
+					if dispatchErr != nil {
+						return dispatchErr
+					}
+
 					cancel()
 					return context.Canceled
 				}
 			}
 			engine, err := New(Config{
-				Registry:         invalidRecipeRegistry{},
-				ScopeDigest:      func(recipe.RuntimeBindings) string { return "test-scope" },
-				QueryRows:        func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
-				PreviewQueryRows: rows,
+				CompileTarget: compiler.ArangoTarget(),
+				Registry:      invalidRecipeRegistry{},
+				ScopeDigest:   func(recipe.RuntimeBindings) string { return "test-scope" },
+				SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+					command := request.Command
+					_, _, dispatchErr := command.AQLParameters()
+					if dispatchErr != nil {
+						return dispatchErr
+					}
+					return nil
+				},
+				PreviewSourceRows: rows,
 				PreparePreviewIndex: func(context.Context, compiler.PreviewCoveringIndexSpec) error {
 					prepareCalls <- struct{}{}
 					return nil
@@ -614,14 +715,28 @@ func TestPreviewOutputDefersOnlyGroupIndexPreparation(t *testing.T) {
 	pivotOutput := executionPivotPreviewOutput()
 	preparedBeforeQuery := false
 	pivotEngine, err := New(Config{
-		Registry:    invalidRecipeRegistry{},
-		ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
-		QueryRows:   func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		ScopeDigest:   func(recipe.RuntimeBindings) string { return "test-scope" },
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+			return nil
+		},
 		PreparePreviewIndex: func(context.Context, compiler.PreviewCoveringIndexSpec) error {
 			preparedBeforeQuery = true
 			return nil
 		},
-		PreviewQueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		PreviewSourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			if !preparedBeforeQuery {
 				return errors.New("Pivot query started before its index preparation")
 			}
@@ -695,7 +810,13 @@ func executionPivotPreviewOutput() recipe.Output {
 }
 
 func TestPreviewOutputCanExposeStableRowIdentityForComparisonSinks(t *testing.T) {
-	e := testEngine(func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	e := testEngine(func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		return visit(map[string]any{"id": "p1", "__loom_row_id": "stable-p1"})
 	})
 	resolved, err := e.CompileResolvedBundle(context.Background(), testResolvedBundle([]string{}), recipe.RuntimeBindings{Project: "P1", IncludeRowIdentity: true})
@@ -716,7 +837,13 @@ func TestPreviewOutputCanExposeStableRowIdentityForComparisonSinks(t *testing.T)
 
 func TestPreviewOutputExecutesOnlyRequestedOutputAndRejectsUnknownBeforeQuery(t *testing.T) {
 	queries := 0
-	e := testEngine(func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	e := testEngine(func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		queries++
 		return visit(map[string]any{"id": "p1"})
 	})
@@ -747,7 +874,13 @@ func TestPreviewOutputExecutesOnlyRequestedOutputAndRejectsUnknownBeforeQuery(t 
 
 func TestPreviewOutputEnforcesLimitAndCancellation(t *testing.T) {
 	rowsSeen := 0
-	e := testEngine(func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	e := testEngine(func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		for index := 0; index < 10; index++ {
 			rowsSeen++
 			if err := visit(map[string]any{"id": fmt.Sprintf("p%d", index)}); err != nil {
@@ -780,7 +913,13 @@ func TestPreviewOutputEnforcesLimitAndCancellation(t *testing.T) {
 		t.Fatalf("canceled preview error = %v, want CLIENT_CANCELED", err)
 	}
 
-	cancelEngine := testEngine(func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	cancelEngine := testEngine(func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		if err := visit(map[string]any{"id": "p1"}); err != nil {
 			return err
 		}
@@ -802,7 +941,13 @@ func TestPreviewOutputEnforcesLimitAndCancellation(t *testing.T) {
 }
 
 func TestPreviewOutputMarksNaturalExhaustionComplete(t *testing.T) {
-	e := testEngine(func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	e := testEngine(func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		return visit(map[string]any{"id": "p1"})
 	})
 	resolved, err := e.CompileResolvedBundle(context.Background(), testResolvedBundle([]string{}), recipe.RuntimeBindings{Project: "P1"})
@@ -822,7 +967,13 @@ func TestRootKeyPagingPreservesExpandedRowsAndAdvancesPastEmptyRoots(t *testing.
 	type calls struct{ keys, rows int }
 	newPagedEngine := func(observed *calls) *Engine {
 		t.Helper()
-		queryRows := func(_ context.Context, _ string, _ int, binds map[string]any, visit func(map[string]any) error) error {
+		queryRows := func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
+			_, binds, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			if afterValue, ok := binds[compiler.RootPageAfterKeyBind]; ok {
 				observed.keys++
 				after, _ := afterValue.(string)
@@ -860,7 +1011,7 @@ func TestRootKeyPagingPreservesExpandedRowsAndAdvancesPastEmptyRoots(t *testing.
 			}
 			return nil
 		}
-		engine, err := New(Config{Registry: invalidRecipeRegistry{}, QueryRows: queryRows, ScopeDigest: func(recipe.RuntimeBindings) string { return "scope" }, RootPageRows: 2})
+		engine, err := New(Config{CompileTarget: compiler.ArangoTarget(), Registry: invalidRecipeRegistry{}, SourceRows: queryRows, ScopeDigest: func(recipe.RuntimeBindings) string { return "scope" }, RootPageRows: 2})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -917,7 +1068,13 @@ func TestRootKeyPagingPreservesExpandedRowsAndAdvancesPastEmptyRoots(t *testing.
 
 func TestPreviewRootPageRowsAreClampedToRequestedLimit(t *testing.T) {
 	var pageSizes []int
-	queryRows := func(_ context.Context, _ string, _ int, binds map[string]any, visit func(map[string]any) error) error {
+	queryRows := func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		_, binds, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		if _, ok := binds[compiler.RootPageAfterKeyBind]; ok {
 			pageSize, ok := binds[compiler.RootPageSizeBind].(int)
 			if !ok {
@@ -944,8 +1101,8 @@ func TestPreviewRootPageRowsAreClampedToRequestedLimit(t *testing.T) {
 		}
 		return nil
 	}
-	engine, err := New(Config{
-		Registry: invalidRecipeRegistry{}, QueryRows: queryRows,
+	engine, err := New(Config{CompileTarget: compiler.ArangoTarget(),
+		Registry: invalidRecipeRegistry{}, SourceRows: queryRows,
 		ScopeDigest: func(recipe.RuntimeBindings) string { return "scope" }, RootPageRows: 250,
 	})
 	if err != nil {
@@ -969,7 +1126,13 @@ func TestPreviewRootPageRowsAreClampedToRequestedLimit(t *testing.T) {
 }
 
 func TestPreviewOutputNormalizesVisitorAndDynamicSchemaErrors(t *testing.T) {
-	driftEngine := testEngine(func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	driftEngine := testEngine(func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		return visit(map[string]any{
 			"id":                          "p1",
 			"value":                       "v",
@@ -987,7 +1150,13 @@ func TestPreviewOutputNormalizesVisitorAndDynamicSchemaErrors(t *testing.T) {
 	}
 
 	visitorErr := errors.New("visitor failed")
-	visitorEngine := testEngine(func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	visitorEngine := testEngine(func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		return visit(map[string]any{"id": "p1"})
 	})
 	resolved, err = visitorEngine.CompileResolvedBundle(context.Background(), testResolvedBundle([]string{}), recipe.RuntimeBindings{Project: "P1"})
@@ -1056,13 +1225,20 @@ func TestPreviewLimitsHaveStableDefaultAndMaximum(t *testing.T) {
 func TestCompileResolvedBundleSkipsCatalogResolverAndRetainsBundle(t *testing.T) {
 	resolverCalls := 0
 	e, err := New(Config{
-		Registry: invalidRecipeRegistry{},
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
 		ResolveBundle: func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error) {
 			resolverCalls++
 			return recipe.Bundle{}, errors.New("catalog resolver must not be called")
 		},
 		ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return nil
 		},
 	})
@@ -1095,13 +1271,20 @@ func TestCompileResolvedBundleSkipsCatalogResolverAndRetainsBundle(t *testing.T)
 func TestResolveBundleUsesResolverButResolvedPreviewAndMaterializeDoNot(t *testing.T) {
 	resolverCalls := 0
 	e, err := New(Config{
-		Registry: invalidRecipeRegistry{},
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
 		ResolveBundle: func(_ context.Context, bundle recipe.Bundle, _ recipe.RuntimeBindings) (recipe.Bundle, error) {
 			resolverCalls++
 			return bundle, nil
 		},
 		ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
-		QueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		SourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return visit(map[string]any{"id": "p1"})
 		},
 	})
@@ -1129,7 +1312,7 @@ func TestResolveBundleUsesResolverButResolvedPreviewAndMaterializeDoNot(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(normalStreams) != len(directStreams) || normalStreams[0].query != directStreams[0].query {
+	if len(normalStreams) != len(directStreams) || !reflect.DeepEqual(normalStreams[0].command, directStreams[0].command) {
 		t.Fatalf("resolved output differs from catalog-resolved output")
 	}
 	if _, err := e.PreviewResolvedBundle(context.Background(), bundle, bindings); err != nil {
@@ -1145,9 +1328,16 @@ func TestResolveBundleUsesResolverButResolvedPreviewAndMaterializeDoNot(t *testi
 
 func TestCompileResolvedBundleRejectsUnresolvedDynamicDeclarations(t *testing.T) {
 	e, err := New(Config{
-		Registry:    invalidRecipeRegistry{},
-		ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		ScopeDigest:   func(recipe.RuntimeBindings) string { return "test-scope" },
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return nil
 		},
 	})
@@ -1172,8 +1362,22 @@ func TestAdaptiveRelatedPreviewPagesPreserveSparseRoots(t *testing.T) {
 	keys := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
 	var sizes []int
 	var visited []string
-	stream := OutputStream{rootPageRows: 4, initialRootPageRows: 1, page: &compiler.CompiledOutputPage{}}
-	stream.stream = func(_ context.Context, _ string, _ int, binds map[string]any, visit func(map[string]any) error) error {
+	stream := OutputStream{
+		rootPageRows:        4,
+		initialRootPageRows: 1,
+		command:             mustAQLCommand("FOR root IN Observation RETURN root", nil),
+		page: &compiler.CompiledOutputPage{
+			RootKeys: mustAQLCommand("ROOT-KEYS", map[string]any{compiler.RootPageAfterKeyBind: "", compiler.RootPageSizeBind: 0}),
+			Rows:     mustAQLCommand("ROWS", map[string]any{compiler.RootPageKeysBind: []string{}}),
+		},
+	}
+	stream.sourceRows = func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		_, binds, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		if after, ok := binds[compiler.RootPageAfterKeyBind].(string); ok {
 			size := binds[compiler.RootPageSizeBind].(int)
 			sizes = append(sizes, size)
@@ -1206,4 +1410,708 @@ func TestAdaptiveRelatedPreviewPagesPreserveSparseRoots(t *testing.T) {
 	if fmt.Sprint(visited) != fmt.Sprint(keys) || fmt.Sprint(rows) != "[g h]" || fmt.Sprint(sizes) != "[1 2 4 1 1]" {
 		t.Fatalf("visited=%v rows=%v page sizes=%v", visited, rows, sizes)
 	}
+}
+
+func newExec05PageCommand(t *testing.T, sql string, args []command.PostgreSQLParameter) command.CompiledCommand {
+	t.Helper()
+	created, err := command.NewPostgreSQLCommand(sql, args)
+	if err != nil {
+		t.Fatalf("canonical page-step command: %v", err)
+	}
+	if created.Backend() != command.CompiledBackendPostgreSQL {
+		t.Fatalf("canonical page-step command tag = %q, want PostgreSQL", created.Backend())
+	}
+	return created
+}
+
+const (
+	exec05KeySQL  = "SELECT r.logical_id AS root_key FROM loom.fhir_resource r WHERE r.project = $1 AND r.logical_id > $2 ORDER BY r.logical_id ASC LIMIT $3"
+	exec05RowsSQL = "SELECT r.logical_id AS root_key, e.edge_seq AS child_seq, c.logical_id AS child_id FROM loom.fhir_resource r WHERE r.logical_id IN (SELECT k FROM jsonb_array_elements_text($2) AS k) ORDER BY r.logical_id ASC, e.edge_seq ASC, c.logical_id ASC"
+)
+
+func exec05KeyArgs(cursor string, size int64) []command.PostgreSQLParameter {
+	return []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterText, Value: "P1"},
+		{Type: command.PostgreSQLParameterText, Value: cursor},
+		{Type: command.PostgreSQLParameterBigint, Value: size},
+	}
+}
+
+func exec05RowsArgs() []command.PostgreSQLParameter {
+	return []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterText, Value: "P1"},
+		{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage(`[]`)},
+	}
+}
+
+func newExec05RootPageSteps(t *testing.T, pageSize int) *PostgreSQLRootPageSteps {
+	t.Helper()
+	return &PostgreSQLRootPageSteps{
+		RootKeys:         newExec05PageCommand(t, exec05KeySQL, exec05KeyArgs("", 2)),
+		Rows:             newExec05PageCommand(t, exec05RowsSQL, exec05RowsArgs()),
+		RootKeyColumn:    "root_key",
+		RowRootKeyColumn: "root_key",
+		CursorArgIndex:   1,
+		PageSizeArgIndex: 2,
+		PageKeysArgIndex: 1,
+		PageSize:         pageSize,
+	}
+}
+
+var exec05OfflineRoots = []string{"r1", "r2", "r3", "r4", "r5"}
+
+func exec05OfflineRowsFor(root string) []map[string]any {
+	switch root {
+	case "r1":
+		return []map[string]any{
+			{"root_key": "r1", "child_seq": int64(1), "child_id": "x1"},
+			{"root_key": "r1", "child_seq": int64(2), "child_id": "x2"},
+		}
+	case "r2":
+		return []map[string]any{{"root_key": "r2", "child_seq": int64(3), "child_id": "x2"}}
+	case "r3":
+		return []map[string]any{{"root_key": "r3", "child_seq": int64(4), "child_id": "x3"}}
+	case "r4":
+		return nil
+	case "r5":
+		return []map[string]any{
+			{"root_key": "r5", "child_seq": int64(5), "child_id": "x4"},
+			{"root_key": "r5", "child_seq": int64(6), "child_id": "x5"},
+		}
+	}
+	return nil
+}
+
+type exec05Recorder struct {
+	calls           []exec05PageCall
+	sabotageKeys    []string
+	sabotageRows    []map[string]any
+	cancelAfterKey  int
+	visitCount      int
+	cancel          context.CancelFunc
+	keyPageOverride func(keyCallIndex int, served []string) []string
+}
+
+type exec05PageCall struct {
+	kind    string
+	sql     string
+	args    []command.PostgreSQLParameter
+	columns []string
+}
+
+func (rec *exec05Recorder) port(ctx context.Context, request RowsRequest, visit RowVisitor) error {
+	sqlText, args, err := request.Command.PostgreSQLParameters()
+	if err != nil {
+		return err
+	}
+	single := len(request.DeclaredColumns) == 1 && request.DeclaredColumns[0] == "root_key" && !strings.Contains(sqlText, "child_seq")
+	kind := "rows"
+	if single {
+		kind = "keys"
+	}
+	rec.calls = append(rec.calls, exec05PageCall{kind: kind, sql: sqlText, args: args, columns: append([]string(nil), request.DeclaredColumns...)})
+	if kind == "keys" {
+		cursor, _ := args[1].Value.(string)
+		size, _ := args[2].Value.(int64)
+		served := rec.sabotageKeys
+		if served == nil {
+			for _, root := range exec05OfflineRoots {
+				if int64(len(served)) >= size {
+					break
+				}
+				if root > cursor {
+					served = append(served, root)
+				}
+			}
+		}
+		if rec.keyPageOverride != nil {
+			served = rec.keyPageOverride(countCalls(rec.calls, "keys"), served)
+		}
+		for _, key := range served {
+			if err := visit(map[string]any{"root_key": key}); err != nil {
+				return err
+			}
+		}
+		if rec.cancel != nil && rec.cancelAfterKey > 0 && countCalls(rec.calls, "keys") == rec.cancelAfterKey {
+			rec.cancel()
+		}
+		return nil
+	}
+	if ctx.Err() != nil {
+		return errors.New("row step ran after cancellation")
+	}
+	if rec.sabotageRows != nil {
+		for _, row := range rec.sabotageRows {
+			rec.visitCount++
+			if err := visit(row); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	var keys []string
+	if err := json.Unmarshal(args[1].Value.(json.RawMessage), &keys); err != nil {
+		return fmt.Errorf("row step keys argument: %w", err)
+	}
+	for _, key := range keys {
+		for _, row := range exec05OfflineRowsFor(key) {
+			rec.visitCount++
+			if err := visit(row); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func countCalls(calls []exec05PageCall, kind string) int {
+	count := 0
+	for _, call := range calls {
+		if call.kind == kind {
+			count++
+		}
+	}
+	return count
+}
+
+func exec05Stream(t *testing.T, steps *PostgreSQLRootPageSteps, port SourceRows) OutputStream {
+	t.Helper()
+	return OutputStream{
+		Name: "expanded", Columns: []string{"root_key", "child_seq", "child_id"},
+		RowIdentity:     &spec.RowIdentity{Fields: []string{"root_key", "child_seq", "child_id"}},
+		command:         newExec05PageCommand(t, "SELECT 1", nil),
+		expectedBackend: command.CompiledBackendPostgreSQL,
+		commandColumns:  []string{"root_key", "child_seq", "child_id"},
+		sourceRows:      port,
+		batchSize:       100,
+		pgRootPage:      steps,
+	}
+}
+
+func TestPostgreSQLRootPageLoopOfflineCore(t *testing.T) {
+	rec := &exec05Recorder{}
+	steps := newExec05RootPageSteps(t, 2)
+	stream := exec05Stream(t, steps, rec.port)
+	var visited []string
+	if err := stream.streamRaw(context.Background(), func(row map[string]any) error {
+		visited = append(visited, fmt.Sprintf("%v/%v/%v", row["root_key"], row["child_seq"], row["child_id"]))
+		return nil
+	}); err != nil {
+		t.Fatalf("paged streamRaw: %v", err)
+	}
+	want := []string{
+		"r1/1/x1", "r1/2/x2", "r2/3/x2",
+		"r3/4/x3",
+		"r5/5/x4", "r5/6/x5",
+	}
+	if fmt.Sprint(visited) != fmt.Sprint(want) {
+		t.Fatalf("visited=%v want=%v", visited, want)
+	}
+	if got := countCalls(rec.calls, "keys"); got != 3 {
+		t.Fatalf("key steps = %d, want 3 (one short final page)", got)
+	}
+	if got := countCalls(rec.calls, "rows"); got != 3 {
+		t.Fatalf("row steps = %d, want 3", got)
+	}
+	var cursors []string
+	var keyPages []string
+	for _, call := range rec.calls {
+		if call.kind == "keys" {
+			cursors = append(cursors, call.args[1].Value.(string))
+			if call.args[2].Value.(int64) != 2 {
+				t.Fatalf("key-step page size = %v, want the fixed 2", call.args[2].Value)
+			}
+			if call.sql != exec05KeySQL {
+				t.Fatalf("key-step SQL drifted from the parent template")
+			}
+			if call.args[0].Value != "P1" || call.args[0].Type != command.PostgreSQLParameterText {
+				t.Fatalf("key-step scope argument was rebound: %+v", call.args[0])
+			}
+			if call.columns[0] != "root_key" || len(call.columns) != 1 {
+				t.Fatalf("key-step declared contract = %v", call.columns)
+			}
+		} else {
+			keyPages = append(keyPages, string(call.args[1].Value.(json.RawMessage)))
+			if call.sql != exec05RowsSQL {
+				t.Fatalf("row-step SQL drifted from the parent template")
+			}
+			if call.args[0].Value != "P1" {
+				t.Fatalf("row-step scope argument was rebound: %+v", call.args[0])
+			}
+			if strings.Join(call.columns, ",") != "root_key,child_seq,child_id" {
+				t.Fatalf("row-step declared contract = %v", call.columns)
+			}
+		}
+	}
+	if fmt.Sprint(cursors) != fmt.Sprint([]string{"", "r2", "r4"}) {
+		t.Fatalf("cursors=%v want [ r2 r4]", cursors)
+	}
+	wantPages := []string{`["r1","r2"]`, `["r3","r4"]`, `["r5"]`}
+	if fmt.Sprint(keyPages) != fmt.Sprint(wantPages) {
+		t.Fatalf("key pages=%v want=%v", keyPages, wantPages)
+	}
+}
+
+func TestPostgreSQLRootPageTerminationOffline(t *testing.T) {
+	t.Run("short final page ends without another key query", func(t *testing.T) {
+		rec := &exec05Recorder{}
+		stream := exec05Stream(t, newExec05RootPageSteps(t, 2), rec.port)
+		if err := stream.streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+		if keys, rows := countCalls(rec.calls, "keys"), countCalls(rec.calls, "rows"); keys != 3 || rows != 3 {
+			t.Fatalf("calls keys=%d rows=%d, want 3/3 (no fourth key query after the short page)", keys, rows)
+		}
+	})
+	t.Run("empty final page ends without any row call", func(t *testing.T) {
+		rec := &exec05Recorder{}
+		steps := newExec05RootPageSteps(t, 5)
+		stream := exec05Stream(t, steps, rec.port)
+		if err := stream.streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+		if keys, rows := countCalls(rec.calls, "keys"), countCalls(rec.calls, "rows"); keys != 2 || rows != 1 {
+			t.Fatalf("calls keys=%d rows=%d, want 2/1 (empty key page issues no row query)", keys, rows)
+		}
+	})
+	t.Run("empty first page issues no row call at all", func(t *testing.T) {
+		rec := &exec05Recorder{sabotageKeys: []string{}}
+		stream := exec05Stream(t, newExec05RootPageSteps(t, 2), rec.port)
+		if err := stream.streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+		if keys, rows := countCalls(rec.calls, "keys"), countCalls(rec.calls, "rows"); keys != 1 || rows != 0 {
+			t.Fatalf("calls keys=%d rows=%d, want 1/0", keys, rows)
+		}
+	})
+}
+
+func TestPostgreSQLRootPageResultContractSabotageOffline(t *testing.T) {
+	newStream := func(t *testing.T, rec *exec05Recorder) OutputStream {
+		t.Helper()
+		return exec05Stream(t, newExec05RootPageSteps(t, 2), rec.port)
+	}
+	cases := []struct {
+		name     string
+		rec      *exec05Recorder
+		wantKeys int
+		wantRows int
+	}{
+		{"duplicate root key", &exec05Recorder{sabotageKeys: []string{"r1", "r1"}}, 1, 0},
+		{"non-monotone root keys", &exec05Recorder{sabotageKeys: []string{"r2", "r1"}}, 1, 0},
+		{"blank root key", &exec05Recorder{sabotageKeys: []string{"r1", ""}}, -1, -1},
+		{"key page larger than requested", &exec05Recorder{sabotageKeys: []string{"r1", "r2", "r3"}}, -1, -1},
+		{"row outside the requested page", &exec05Recorder{sabotageRows: []map[string]any{{"root_key": "r9", "child_seq": int64(1), "child_id": "x9"}}}, -1, -1},
+		{"row missing its root identity", &exec05Recorder{sabotageRows: []map[string]any{{"child_seq": int64(1), "child_id": "x1"}}}, -1, -1},
+		{"row root identity not a string", &exec05Recorder{sabotageRows: []map[string]any{{"root_key": 7, "child_seq": int64(1), "child_id": "x1"}}}, -1, -1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := newStream(t, tc.rec).streamRaw(context.Background(), func(map[string]any) error { return nil })
+			if !errors.Is(err, ErrPostgreSQLResultContract) {
+				t.Fatalf("error = %v, want ErrPostgreSQLResultContract", err)
+			}
+			if tc.wantKeys >= 0 {
+				if got := countCalls(tc.rec.calls, "keys"); got != tc.wantKeys {
+					t.Fatalf("key calls = %d, want %d: refusal must land during key collection", got, tc.wantKeys)
+				}
+			}
+			if tc.wantRows >= 0 {
+				if got := countCalls(tc.rec.calls, "rows"); got != tc.wantRows {
+					t.Fatalf("row calls = %d, want %d: the refusing page must never dispatch its row step", got, tc.wantRows)
+				}
+			}
+		})
+		t.Run(tc.name+" control proceeds", func(t *testing.T) {
+			rec := &exec05Recorder{}
+			if err := newStream(t, rec).streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
+				t.Fatalf("paired control must proceed: %v", err)
+			}
+			if rec.visitCount != 6 {
+				t.Fatalf("control visited %d rows, want 6", rec.visitCount)
+			}
+		})
+	}
+	t.Run("key page does not advance past the previous page tail", func(t *testing.T) {
+		rec := &exec05Recorder{keyPageOverride: func(keyCallIndex int, served []string) []string {
+			if keyCallIndex == 2 {
+				return []string{"r2", "r3"}
+			}
+			return served
+		}}
+		err := newStream(t, rec).streamRaw(context.Background(), func(map[string]any) error { return nil })
+		if !errors.Is(err, ErrPostgreSQLResultContract) {
+			t.Fatalf("error = %v, want ErrPostgreSQLResultContract for a page re-touching the previous tail", err)
+		}
+		if got := countCalls(rec.calls, "keys"); got != 2 {
+			t.Fatalf("key calls = %d, want 2 (refusal lands during collection of the second page)", got)
+		}
+		if got := countCalls(rec.calls, "rows"); got != 1 {
+			t.Fatalf("row calls = %d, want 1: the refusing page must never reach the row step", got)
+		}
+	})
+	t.Run("parent cursor ignored keeps re-serving the first page", func(t *testing.T) {
+		rec := &exec05Recorder{keyPageOverride: func(int, []string) []string { return []string{"r1", "r2"} }}
+		err := newStream(t, rec).streamRaw(context.Background(), func(map[string]any) error { return nil })
+		if !errors.Is(err, ErrPostgreSQLResultContract) {
+			t.Fatalf("error = %v, want ErrPostgreSQLResultContract for a cursor-ignoring parent key statement", err)
+		}
+		if got := countCalls(rec.calls, "keys"); got != 2 {
+			t.Fatalf("key calls = %d, want 2: overlapping full pages must not continue past the refusal", got)
+		}
+		if got := countCalls(rec.calls, "rows"); got != 1 {
+			t.Fatalf("row calls = %d, want 1: already-emitted rows must not be visited again", got)
+		}
+	})
+	t.Run("control: identity key-page override proceeds", func(t *testing.T) {
+		rec := &exec05Recorder{keyPageOverride: func(_ int, served []string) []string { return served }}
+		if err := newStream(t, rec).streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
+			t.Fatalf("paired control: %v", err)
+		}
+		if rec.visitCount != 6 {
+			t.Fatalf("control visited %d rows, want 6", rec.visitCount)
+		}
+	})
+}
+
+func TestPostgreSQLRootPageWithinPageStrictnessOffline(t *testing.T) {
+	cases := []struct {
+		name     string
+		override func(keyCallIndex int, served []string) []string
+		wantKeys int
+		wantRows int
+	}{
+		{
+			name: "unordered first page is refused before any row step",
+			override: func(keyCallIndex int, served []string) []string {
+				if keyCallIndex == 1 {
+					return []string{"r2", "r1"}
+				}
+				return served
+			},
+			wantKeys: 1,
+			wantRows: 0,
+		},
+		{
+			name: "unordered but advancing second page is refused before its row step",
+			override: func(keyCallIndex int, served []string) []string {
+				if keyCallIndex == 2 {
+					return []string{"r4", "r3"}
+				}
+				return served
+			},
+			wantKeys: 2,
+			wantRows: 1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := &exec05Recorder{keyPageOverride: tc.override}
+			err := exec05Stream(t, newExec05RootPageSteps(t, 2), rec.port).streamRaw(context.Background(), func(map[string]any) error { return nil })
+			if !errors.Is(err, ErrPostgreSQLResultContract) {
+				t.Fatalf("error = %v, want ErrPostgreSQLResultContract from the within-page strict-ordering guard", err)
+			}
+			if got := countCalls(rec.calls, "keys"); got != tc.wantKeys {
+				t.Fatalf("key calls = %d, want %d", got, tc.wantKeys)
+			}
+			if got := countCalls(rec.calls, "rows"); got != tc.wantRows {
+				t.Fatalf("row calls = %d, want %d: the refusing page must never dispatch its row step and emit duplicated or unordered rows", got, tc.wantRows)
+			}
+		})
+	}
+	t.Run("control proceeds", func(t *testing.T) {
+		rec := &exec05Recorder{keyPageOverride: func(_ int, served []string) []string { return served }}
+		if err := exec05Stream(t, newExec05RootPageSteps(t, 2), rec.port).streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
+			t.Fatalf("paired control: %v", err)
+		}
+		if rec.visitCount != 6 {
+			t.Fatalf("control visited %d rows, want 6", rec.visitCount)
+		}
+	})
+}
+
+func TestPostgreSQLRootPageCompositionRefusalOffline(t *testing.T) {
+	paired := func(t *testing.T, mutate func(*PostgreSQLRootPageSteps)) (*exec05Recorder, error) {
+		t.Helper()
+		steps := newExec05RootPageSteps(t, 2)
+		mutate(steps)
+		rec := &exec05Recorder{}
+		err := exec05Stream(t, steps, rec.port).streamRaw(context.Background(), func(map[string]any) error { return nil })
+		return rec, err
+	}
+	t.Run("AQL-tagged key step is refused before the port", func(t *testing.T) {
+		rec, err := paired(t, func(steps *PostgreSQLRootPageSteps) {
+			steps.RootKeys = mustAQLCommand("FOR d IN resource RETURN d._key", map[string]any{"loom_root_page_after_key": ""})
+		})
+		if !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
+			t.Fatalf("error = %v, want the compiler mismatch sentinel", err)
+		}
+		if len(rec.calls) != 0 {
+			t.Fatalf("refusal must touch no port call, got %d", len(rec.calls))
+		}
+	})
+	t.Run("zero-tag row step is refused before the port", func(t *testing.T) {
+		rec, err := paired(t, func(steps *PostgreSQLRootPageSteps) {
+			steps.Rows = command.CompiledCommand{}
+		})
+		if !errors.Is(err, command.ErrCompiledCommandBackendNotRegistered) {
+			t.Fatalf("error = %v, want the compiler unregistered sentinel", err)
+		}
+		if len(rec.calls) != 0 {
+			t.Fatalf("refusal must touch no port call, got %d", len(rec.calls))
+		}
+	})
+	shapes := []struct {
+		name   string
+		mutate func(*PostgreSQLRootPageSteps)
+	}{
+		{"cursor index out of range", func(s *PostgreSQLRootPageSteps) { s.CursorArgIndex = 9 }},
+		{"negative cursor index", func(s *PostgreSQLRootPageSteps) { s.CursorArgIndex = -1 }},
+		{"cursor declared as bigint", func(s *PostgreSQLRootPageSteps) {
+			s.RootKeys = newExec05PageCommand(t, exec05KeySQL, []command.PostgreSQLParameter{
+				{Type: command.PostgreSQLParameterText, Value: "P1"},
+				{Type: command.PostgreSQLParameterBigint, Value: 0},
+				{Type: command.PostgreSQLParameterBigint, Value: 2},
+			})
+		}},
+		{"page size declared as text", func(s *PostgreSQLRootPageSteps) {
+			s.RootKeys = newExec05PageCommand(t, exec05KeySQL, []command.PostgreSQLParameter{
+				{Type: command.PostgreSQLParameterText, Value: "P1"},
+				{Type: command.PostgreSQLParameterText, Value: ""},
+				{Type: command.PostgreSQLParameterText, Value: "2"},
+			})
+		}},
+		{"colliding cursor and size positions", func(s *PostgreSQLRootPageSteps) { s.PageSizeArgIndex = s.CursorArgIndex }},
+		{"key page declared as text", func(s *PostgreSQLRootPageSteps) {
+			s.Rows = newExec05PageCommand(t, exec05RowsSQL, []command.PostgreSQLParameter{
+				{Type: command.PostgreSQLParameterText, Value: "P1"},
+				{Type: command.PostgreSQLParameterText, Value: "[]"},
+			})
+		}},
+		{"non-positive page size", func(s *PostgreSQLRootPageSteps) { s.PageSize = 0 }},
+		{"page size beyond the sanity bound", func(s *PostgreSQLRootPageSteps) { s.PageSize = maxPostgreSQLRootPageSize + 1 }},
+		{"blank root key column", func(s *PostgreSQLRootPageSteps) { s.RootKeyColumn = "  " }},
+		{"blank row root key column", func(s *PostgreSQLRootPageSteps) { s.RowRootKeyColumn = "" }},
+		{"row root key outside the declared contract", func(s *PostgreSQLRootPageSteps) { s.RowRootKeyColumn = "not_declared" }},
+	}
+	for _, tc := range shapes {
+		t.Run(tc.name, func(t *testing.T) {
+			rec, err := paired(t, tc.mutate)
+			if !errors.Is(err, ErrPostgreSQLRootPageSteps) {
+				t.Fatalf("error = %v, want ErrPostgreSQLRootPageSteps", err)
+			}
+			if len(rec.calls) != 0 {
+				t.Fatalf("refusal must touch no port call, got %d", len(rec.calls))
+			}
+		})
+	}
+	t.Run("control: page size at the sanity bound is accepted", func(t *testing.T) {
+		steps := newExec05RootPageSteps(t, 2)
+		steps.PageSize = maxPostgreSQLRootPageSize
+		rec := &exec05Recorder{}
+		if err := exec05Stream(t, steps, rec.port).streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
+			t.Fatalf("paired control at the bound: %v", err)
+		}
+		if rec.visitCount != 6 {
+			t.Fatalf("control at the bound visited %d rows, want 6", rec.visitCount)
+		}
+	})
+	t.Run("control: valid steps attach and run", func(t *testing.T) {
+		rec := &exec05Recorder{}
+		if err := exec05Stream(t, newExec05RootPageSteps(t, 2), rec.port).streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
+			t.Fatalf("paired control: %v", err)
+		}
+		if len(rec.calls) == 0 {
+			t.Fatal("paired control must consult the port")
+		}
+	})
+}
+
+func TestPostgreSQLRootPageCancellationOffline(t *testing.T) {
+	t.Run("cancellation between key and row steps prevents later calls", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		rec := &exec05Recorder{cancelAfterKey: 1, cancel: cancel}
+		stream := exec05Stream(t, newExec05RootPageSteps(t, 2), rec.port)
+		_, err := stream.Stream(ctx, func(map[string]any) error { return nil })
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want context.Canceled; completion must never be reported", err)
+		}
+		if keys, rows := countCalls(rec.calls, "keys"), countCalls(rec.calls, "rows"); keys != 1 || rows != 0 {
+			t.Fatalf("calls keys=%d rows=%d, want 1/0 (row step must never run after cancellation)", keys, rows)
+		}
+	})
+	t.Run("cancellation before a later key step stops the loop", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		rec := &exec05Recorder{}
+		wrapped := func(ctx context.Context, request RowsRequest, visit RowVisitor) error {
+			if err := rec.port(ctx, request, visit); err != nil {
+				return err
+			}
+			if countCalls(rec.calls, "keys") == 1 && countCalls(rec.calls, "rows") == 1 {
+				cancel()
+			}
+			return nil
+		}
+		stream := exec05Stream(t, newExec05RootPageSteps(t, 2), wrapped)
+		_, err := stream.Stream(ctx, func(map[string]any) error { return nil })
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want context.Canceled after the first full page", err)
+		}
+		if keys, rows := countCalls(rec.calls, "keys"), countCalls(rec.calls, "rows"); keys != 1 || rows != 1 {
+			t.Fatalf("calls keys=%d rows=%d, want 1/1 (no call after cancellation)", keys, rows)
+		}
+	})
+	t.Run("control: uncancelled run completes", func(t *testing.T) {
+		rec := &exec05Recorder{}
+		stream := exec05Stream(t, newExec05RootPageSteps(t, 2), rec.port)
+		result, err := stream.Stream(context.Background(), func(map[string]any) error { return nil })
+		if err != nil {
+			t.Fatalf("paired control: %v", err)
+		}
+		if result.RowCount != 6 {
+			t.Fatalf("control RowCount = %d, want 6", result.RowCount)
+		}
+	})
+}
+
+func TestPostgreSQLRootPageProductionNeverAttaches(t *testing.T) {
+	t.Run("compiler still refuses PostgreSQL root-key output paging, AQL control compiles", func(t *testing.T) {
+		resolved := exec02TestResolved()
+		_, err := compiler.CompileRecipeOutputPage(exec02PostgreSQLTarget(t),
+			resolved.Compiled.Outputs[0],
+			resolved.Semantic.SemanticPlan.Bindings,
+			2, ir.DefaultPhysicalOptimizationPolicy())
+		if !errors.Is(err, postgresrender.ErrUnsupportedPostgresPlan) {
+			t.Fatalf("PostgreSQL page compile must stay refused with the typed unsupported-plan sentinel, got %v", err)
+		}
+		page, pageErr := compiler.CompileRecipeOutputPage(compiler.ArangoTarget(),
+			resolved.Compiled.Outputs[0],
+			resolved.Semantic.SemanticPlan.Bindings,
+			2, ir.DefaultPhysicalOptimizationPolicy())
+		if pageErr != nil {
+			t.Fatalf("AQL control page compile must proceed: %v", pageErr)
+		}
+		if page.RootKeys.Backend() != command.CompiledBackendAQL || page.Rows.Backend() != command.CompiledBackendAQL {
+			t.Fatalf("AQL control page tags = %q/%q, want AQL/AQL", page.RootKeys.Backend(), page.Rows.Backend())
+		}
+	})
+	t.Run("engine-built PostgreSQL streams never carry page fields", func(t *testing.T) {
+		spies := &dispatchSpies{}
+		engine, _ := exec02pgEngine(t, spies, exec02Rows())
+		engine.rootPageRows = 50
+		resolved := exec02TestResolved()
+		streams, err := engine.Streams(context.Background(), resolved)
+		if err != nil {
+			t.Fatalf("PG streams: %v", err)
+		}
+		if len(streams) != 1 {
+			t.Fatalf("streams = %d, want 1", len(streams))
+		}
+		if streams[0].page != nil || streams[0].pgRootPage != nil || streams[0].rootPageRows != 0 {
+			t.Fatalf("PostgreSQL stream carries page fields: page=%v pgRootPage=%v rootPageRows=%d",
+				streams[0].page, streams[0].pgRootPage, streams[0].rootPageRows)
+		}
+		if _, err := streams[0].Stream(context.Background(), func(map[string]any) error { return nil }); err != nil {
+			t.Fatalf("single-statement stream: %v", err)
+		}
+		if spies.pgRequests != 1 {
+			t.Fatalf("port calls = %d, want the single statement", spies.pgRequests)
+		}
+		exec02AssertUntouchedArango(t, spies)
+	})
+	t.Run("whole-input PostgreSQL output can never reach the root-page loop", func(t *testing.T) {
+		spies := &dispatchSpies{}
+		engine, _ := exec02pgEngine(t, spies, exec02Rows())
+		engine.rootPageRows = 50
+		resolved := exec02TestResolved()
+		output := resolved.Compiled.Outputs[0]
+		output.Name = "grouped"
+		groupBinds := exec02TestPlan(nil).BindVars
+		groupBinds["preview_limit"] = 25
+		output.Plan = ir.PhysicalPlan{
+			Version:  1,
+			Engine:   ir.PhysicalEngineAQL,
+			BindVars: groupBinds,
+			Operations: []ir.PhysicalOperation{{
+				Kind:      ir.PhysicalGroupRowsOp,
+				GroupRows: &ir.PhysicalGroupRows{LimitBindKey: "preview_limit"},
+			}},
+		}
+		resolved.Compiled.Outputs = []lower.CompiledRecipeOutput{output}
+		resolved.Semantic.SemanticPlan.Bindings.OutputNames = []string{"grouped"}
+		streams, err := engine.Streams(context.Background(), resolved)
+		if err != nil {
+			t.Logf("whole-input bypass arm: compile-refused before execution (%v)", err)
+			if len(spies.pgFull) != 0 {
+				t.Fatalf("refused whole-input plan still reached the port: %+v", spies.pgFull)
+			}
+			return
+		}
+		t.Logf("whole-input bypass arm: compiled, structurally single-statement")
+		if len(streams) != 1 || streams[0].page != nil || streams[0].pgRootPage != nil {
+			t.Fatalf("whole-input stream carries page shape: %+v", streams)
+		}
+		if _, err := streams[0].Stream(context.Background(), func(map[string]any) error { return nil }); err != nil {
+			t.Fatalf("whole-input single statement: %v", err)
+		}
+		if spies.pgRequests != 1 {
+			t.Fatalf("whole-input port calls = %d, want 1", spies.pgRequests)
+		}
+		exec02AssertUntouchedArango(t, spies)
+	})
+}
+
+func TestPostgreSQLRootPageLeakedFieldsStayInert(t *testing.T) {
+	t.Run("PostgreSQL stream with leaked AQL page fields stays single-statement", func(t *testing.T) {
+		calls := 0
+		stream := OutputStream{
+			Name: "resources", Columns: []string{"id"},
+			command:             newExec05PageCommand(t, "SELECT 1", nil),
+			expectedBackend:     command.CompiledBackendPostgreSQL,
+			commandColumns:      []string{"id"},
+			rootPageRows:        50,
+			initialRootPageRows: 1,
+			page: &compiler.CompiledOutputPage{
+				RootKeys: mustAQLCommand("ROOT-KEYS", map[string]any{compiler.RootPageAfterKeyBind: "", compiler.RootPageSizeBind: 0}),
+				Rows:     mustAQLCommand("ROWS", map[string]any{compiler.RootPageKeysBind: []string{}}),
+			},
+			sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+				calls++
+				if _, _, err := request.Command.PostgreSQLParameters(); err != nil {
+					return err
+				}
+				return visit(map[string]any{"id": "patient-one"})
+			},
+		}
+		if err := stream.streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
+			t.Fatalf("leaked-field PostgreSQL stream: %v", err)
+		}
+		if calls != 1 {
+			t.Fatalf("port calls = %d, want the single statement", calls)
+		}
+	})
+	t.Run("AQL stream with leaked pgRootPage never consults it", func(t *testing.T) {
+		calls := 0
+		stream := OutputStream{
+			Name: "resources", Columns: []string{"id"},
+			command:         mustAQLCommand("FOR d IN resource RETURN d", map[string]any{"project": "P1"}),
+			expectedBackend: command.CompiledBackendAQL,
+			pgRootPage:      newExec05RootPageSteps(t, 2),
+			sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+				calls++
+				if _, _, err := request.Command.AQLParameters(); err != nil {
+					return err
+				}
+				return visit(map[string]any{"id": "patient-one"})
+			},
+		}
+		if err := stream.streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
+			t.Fatalf("leaked-steps AQL stream: %v", err)
+		}
+		if calls != 1 {
+			t.Fatalf("port calls = %d, want the single AQL statement", calls)
+		}
+	})
 }
