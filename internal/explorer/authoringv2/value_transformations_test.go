@@ -21,7 +21,7 @@ func exactCategoryTransformation() columntransform.ValueTransformation {
 func TestUpdateColumnTransformationPreservesIdentityAndPersistsRoundTrip(t *testing.T) {
 	catalog := commandCatalog()
 	workspace := Workspace{
-		APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Patients"},
+		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion, Explorer: ExplorerMetadata{Title: "Patients"},
 		Documents: []Document{workspaceDocument("patients")},
 		Tabs:      []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
 	}
@@ -70,7 +70,7 @@ func TestUpdateColumnTransformationPreservesIdentityAndPersistsRoundTrip(t *test
 
 func TestUpdateColumnTransformationRejectsUnsupportedAndIncompleteMappings(t *testing.T) {
 	workspace := Workspace{
-		APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Patients"},
+		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion, Explorer: ExplorerMetadata{Title: "Patients"},
 		Documents: []Document{workspaceDocument("patients")},
 		Tabs:      []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
 	}

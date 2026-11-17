@@ -14,9 +14,10 @@ func rowChangeWorkspace() Workspace {
 	visible := true
 	order := 0
 	return Workspace{
-		APIVersion: APIVersion,
-		Kind:       WorkspaceKind,
-		Explorer:   ExplorerMetadata{Title: "Patients"},
+		APIVersion:       APIVersion,
+		Kind:             WorkspaceKind,
+		SemanticsVersion: CurrentSemanticsVersion,
+		Explorer:         ExplorerMetadata{Title: "Patients"},
 		Documents: []Document{{
 			Kind:             Kind,
 			Output:           Output{ID: "patients", Title: "Patients"},

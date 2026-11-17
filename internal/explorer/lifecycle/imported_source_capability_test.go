@@ -22,7 +22,7 @@ func TestImportedEmptyRootSkipsSourceChoicesButKeepsStageOperations(t *testing.T
 	document := authoringv2.Document{
 		RootResourceType: "MedicationAdministration",
 		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "MedicationAdministration"},
-		ImportedRecipe:   &authoringv2.ImportedRecipeRef{Name: "seed", TranslationVersion: "v1", Digest: "0000000000000000000000000000000000000000000000000000000000000000", Output: "MedicationAdministration"},
+		ImportedRecipe:   &authoringv2.ImportedRecipeRef{Name: "seed", TranslationVersion: "v1", Digest: "0000000000000000000000000000000000000000000000000000000000000000", Output: "MedicationAdministration"}, Rows: authoringv2.RecordsRowDefinition(),
 	}
 	base := constructionBase{document: document, snapshot: capability.Snapshot{Nodes: []capability.Node{}}}
 	stage := explorer.ReceiptConstructionStage{
@@ -77,7 +77,7 @@ func TestImportedEmptyRootSkipsSourceChoicesButKeepsStageOperations(t *testing.T
 
 func TestGenericEmptyRootStillFailsClosedForCodedGroupChoices(t *testing.T) {
 	base := constructionBase{
-		document: authoringv2.Document{RootResourceType: "MedicationAdministration", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "MedicationAdministration"}},
+		document: authoringv2.Document{RootResourceType: "MedicationAdministration", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "MedicationAdministration"}, Rows: authoringv2.RecordsRowDefinition()},
 		snapshot: capability.Snapshot{Nodes: []capability.Node{}},
 	}
 	stage := explorer.ReceiptConstructionStage{ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key", Capabilities: []explorer.ReceiptConstructionOperationChoice{{Kind: string(recipe.ConstructionCodedGroupOp), Supported: true}}}
@@ -122,7 +122,8 @@ func TestImportedSourceCapabilityHelpersSkipGenericRowChoicePlanner(t *testing.T
 			service := &Service{config: Config{RowChoicePlanner: planner}}
 			base := constructionBase{document: authoringv2.Document{ImportedRecipe: &authoringv2.ImportedRecipeRef{
 				Name: "seed", TranslationVersion: "v1", Digest: "0000000000000000000000000000000000000000000000000000000000000000", Output: "DocumentReference",
-			}}}
+			}, Rows: authoringv2.RecordsRowDefinition(),
+			}}
 			supported, code, reason, choices, err := test.call(service, base)
 			if err != nil {
 				t.Fatalf("capability helper: %v", err)

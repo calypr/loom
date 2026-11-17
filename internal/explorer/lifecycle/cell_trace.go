@@ -32,7 +32,7 @@ func (s *Service) CellTrace(ctx context.Context, request CellTraceRequest) (Cell
 	if err != nil {
 		return CellTraceResult{}, err
 	}
-	if err := s.validateReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
+	if err := s.validateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
 		return CellTraceResult{}, err
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, receipt.Project, receipt.SnapshotToken)

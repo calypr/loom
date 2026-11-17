@@ -53,7 +53,7 @@ func newCoreProtocolReceiptsFixture(t *testing.T) *coreProtocolReceiptsFixture {
 	t.Helper()
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		Explorer:  authoringv2.ExplorerMetadata{Title: "Patients"},
 		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(), Output: authoringv2.Output{ID: c1011OutputID, Title: "Patients", RowLabel: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{{ColumnID: "id", Column: c1011PublicColumn, Label: "Patient ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}},
 		Tabs:      []authoringv2.Tab{{ID: "patients-tab", Title: "Patients", OutputID: c1011OutputID, Order: 0, Visible: true}},

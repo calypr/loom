@@ -31,7 +31,7 @@ func (s *Service) Preview(ctx context.Context, request PreviewRequest) (PreviewR
 	if err != nil {
 		return PreviewResult{}, err
 	}
-	if err := s.validateReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
+	if err := s.validateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
 		return PreviewResult{}, err
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, receipt.Project, receipt.SnapshotToken)

@@ -1262,7 +1262,7 @@ func (h *filterSourceHarness) choice(t *testing.T, path string) capability.RowCh
 	t.Helper()
 	document := authoringv2.Document{
 		RootResourceType: "Patient",
-		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition(),
 	}
 	choices, err := filterSourceResolver(t).ListRowChoices(context.Background(), h.snapshot, document)
 	if err != nil {

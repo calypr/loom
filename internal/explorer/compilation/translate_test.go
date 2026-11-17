@@ -287,7 +287,7 @@ func TestRouteDepthUsesStableErrorAtCommandAndCompileBoundaries(t *testing.T) {
 	snapshot.Policy.Route.MaxHops = 1
 	catalog := authoringv2.CatalogFromCapability(snapshot, "explorer-a")
 	workspace, created, err := authoringv2.ApplyCommands(
-		authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}},
+		authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}, SemanticsVersion: authoringv2.CurrentSemanticsVersion},
 		catalog,
 		"create",
 		[]authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", RootNodeID: "n_patient"}},
@@ -353,7 +353,7 @@ func TestCompileRejectsCapabilityMismatchedLogicalTypeAndProjection(t *testing.T
 func TestCompileWorkspaceAcceptsCommandGeneratedCandidateSelection(t *testing.T) {
 	snapshot := fixtureSnapshot()
 	catalog := authoringv2.CatalogFromCapability(snapshot, "explorer-a")
-	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}}
+	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}, SemanticsVersion: authoringv2.CurrentSemanticsVersion}
 	var created []authoringv2.CommandResult
 	var err error
 	workspace, created, err = authoringv2.ApplyCommands(workspace, catalog, "create", []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", RootNodeID: "n_patient"}})
@@ -380,7 +380,7 @@ func TestCompileWorkspaceSetsCanonicalResolvedInputsIdentity(t *testing.T) {
 			Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
 			Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 	first, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, ResolvedInputs{})
 	if err != nil {
@@ -415,7 +415,7 @@ func TestCompileWorkspaceCarriesPopulationIntoRecipeAndReceiptIdentity(t *testin
 			Population: &authoringv2.Population{SelectionRevisionID: "selection-1", Route: []authoringv2.PopulationRouteStep{}},
 			Columns:    []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 	resolved := ResolvedInputs{Populations: []ResolvedPopulation{{
 		OutputID: "patients", SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 3,
@@ -459,7 +459,7 @@ func TestCompileWorkspaceAcceptsOnlyCapabilityProvenLegacyRouteDirection(t *test
 			Population: &authoringv2.Population{SelectionRevisionID: "selection-1", Route: []authoringv2.PopulationRouteStep{{ResourceType: "Patient", Relationship: "parent", CatalogEdgeID: "e_patient_parent"}}},
 			Columns:    []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 	resolved := ResolvedInputs{Populations: []ResolvedPopulation{{
 		OutputID: "patients", SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 3,

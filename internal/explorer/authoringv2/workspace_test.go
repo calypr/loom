@@ -19,8 +19,8 @@ func TestWorkspaceCanonicalizesDuplicateTableOrdersByStableColumnIdentity(t *tes
 		return Column{Column: name, Label: name, OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceProjectID}, Table: &TablePresentation{Visible: &visible, Order: &duplicateOrder}, Filter: &FilterPresentation{Order: &duplicateOrder}, Chart: &ChartPresentation{Type: "bar", Order: &duplicateOrder}}
 	}
 	workspace := Workspace{
-		APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Stable"},
-		Documents: []Document{{Kind: Kind, Output: Output{ID: "out", Title: "Out"}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"}, Columns: []Column{column("zeta"), column("alpha"), column("middle")}}},
+		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion, Explorer: ExplorerMetadata{Title: "Stable"},
+		Documents: []Document{{Kind: Kind, Rows: RecordsRowDefinition(), Output: Output{ID: "out", Title: "Out"}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"}, Columns: []Column{column("zeta"), column("alpha"), column("middle")}}},
 		Tabs:      []Tab{{ID: "tab", Title: "Out", OutputID: "out", Order: 0, Visible: true}},
 	}
 	reversed := workspace
@@ -54,7 +54,7 @@ func TestWorkspaceCanonicalizesDuplicateTableOrdersByStableColumnIdentity(t *tes
 }
 
 func fiveTableWorkspace() Workspace {
-	w := Workspace{APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Five tables"}, Documents: []Document{}, Tabs: []Tab{}}
+	w := Workspace{APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion, Explorer: ExplorerMetadata{Title: "Five tables"}, Documents: []Document{}, Tabs: []Tab{}}
 	for i := 0; i < 5; i++ {
 		id := fmt.Sprintf("output_%d", i)
 		w.Documents = append(w.Documents, workspaceDocument(id))
@@ -185,7 +185,7 @@ func TestDecodeWorkspaceRejectsDuplicateAndTrailingJSON(t *testing.T) {
 
 func TestDecodeWorkspaceRepairsPreviouslyOmittedEmptyColumns(t *testing.T) {
 	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","explorer":{"title":"Patients"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"}}],"tabs":[{"id":"tab-patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
-	workspace, err := DecodeWorkspace([]byte(raw))
+	workspace, err := DecodeStoredWorkspaceForMigration([]byte(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,12 @@ func TestDecodeWorkspacePreservesArrayProjectionModesAcrossPersistedVersions(t *
 			if err != nil {
 				t.Fatal(err)
 			}
-			decoded, err := DecodeWorkspace(raw)
+			var decoded Workspace
+			if semanticsVersion == CurrentSemanticsVersion {
+				decoded, err = DecodeWorkspace(raw)
+			} else {
+				decoded, err = DecodeStoredWorkspaceForMigration(raw)
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -236,7 +241,7 @@ func TestDecodeWorkspaceMigratesRetiredCodedLookupKinds(t *testing.T) {
 	for _, kind := range []string{"codingBySystem", "observationComponentByCode"} {
 		t.Run(kind, func(t *testing.T) {
 			raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":` + fmt.Sprint(CurrentSemanticsVersion) + `,"explorer":{"title":"Observations"},"documents":[{"kind":"` + Kind + `","output":{"id":"observations","title":"Observations"},"rootResourceType":"Observation","route":{"occurrenceId":"base","resourceType":"Observation"},"rows":{"kind":"RECORDS","records":{}},"columns":[{"column":"height","label":"Height","occurrenceId":"base","source":{"kind":"` + kind + `","lookup":{"binding":{"ownerPath":"","keyPath":"code.coding[]","systemPath":"system","codePath":"code","valuePath":"valueQuantity.value","choiceArms":["valueQuantity"],"logicalType":"decimal"},"key":{"system":"urn:study","code":"height"},"projectionMode":"VALUE"}}}]}],"tabs":[{"id":"observations","title":"Observations","outputId":"observations","order":0,"visible":true}]}`
-			workspace, err := DecodeWorkspace([]byte(raw))
+			workspace, err := DecodeStoredWorkspaceForMigration([]byte(raw))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -271,7 +276,7 @@ func TestDecodeWorkspaceRejectsUnknownNestedSourceFields(t *testing.T) {
 
 func TestDecodeWorkspaceRejectsLegacyAggregateWhereAtCurrentSemantics(t *testing.T) {
 	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":` + fmt.Sprint(CurrentSemanticsVersion) + `,"explorer":{"title":"Persisted"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"rows":{"kind":"RECORDS","records":{}},"columns":[{"column":"patient_count","label":"Patients","occurrenceId":"base","source":{"kind":"aggregate","aggregate":{"operation":"COUNT","where":{"path":"id","equals":"active"}}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","visible":true}]}`
-	if _, err := DecodeWorkspace([]byte(raw)); err == nil || !strings.Contains(err.Error(), "not writable") {
+	if _, err := DecodeWorkspace([]byte(raw)); err == nil || !strings.Contains(err.Error(), `unknown field "where"`) {
 		t.Fatalf("error=%v, want current semantics aggregate where rejection", err)
 	}
 }
@@ -283,14 +288,14 @@ func TestDecodeWorkspaceRejectsUnsupportedFutureSemanticsVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := DecodeWorkspace(raw); err == nil || !strings.Contains(err.Error(), "UNSUPPORTED_SEMANTICS_VERSION") {
+	if _, err := DecodeStoredWorkspaceForMigration(raw); err == nil || !strings.Contains(err.Error(), "UNSUPPORTED_SEMANTICS_VERSION") {
 		t.Fatalf("error=%v, want unsupported semantics version", err)
 	}
 }
 
 func TestDecodeLegacySourceMigratesIdempotentlyAndAddsRelatedDecision(t *testing.T) {
 	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":0,"explorer":{"title":"Persisted"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"columns":[{"column":"names","label":"Names","occurrenceId":"base","source":{"kind":"field","fieldPath":"name[].family","projectionMode":"FIRST"}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
-	decoded, err := DecodeWorkspace([]byte(raw))
+	decoded, err := DecodeStoredWorkspaceForMigration([]byte(raw))
 	if err != nil {
 		t.Fatal(err)
 	}

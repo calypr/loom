@@ -37,6 +37,7 @@ RESPONSIBILITIES = {
     "cmd/arango-fhir-server": "Start the explicit Loom HTTP server binary.",
     "cmd/arango-preview-index-audit": "Inventory exact superseded compiler-owned preview indexes without mutating Arango.",
     "cmd/arango-preview-index-migration": "Run the versioned local preview-index migration with dry-run and idempotent recovery.",
+    "cmd/arango-workspace-migration": "Run the explicit local workspace migration with dry-run, draft CAS, immutable projections, and receipt retirement.",
     "cmd/dataframe-profile": "Run and compare developer-facing dataframe profiling workloads.",
     "cmd/dataframe-query": "Execute a checked-in GraphQL dataframe request and report response timing and diagnostics.",
     "cmd/explorer-config-v2-convert": "Convert legacy Explorer configuration input into the V2 authoring representation offline.",
@@ -117,6 +118,15 @@ RESPONSIBILITIES = {
 # understand why a source disappeared; keep records pin the reviewed boundary
 # to a live package.
 COMPLETED_DECISIONS = (
+    {
+        "source": "cmd/arango-workspace-migration",
+        "disposition": "keep",
+        "destination": "cmd/arango-workspace-migration",
+        "rationale": "owns explicit versioned workspace migration orchestration and local target validation",
+        "contracts": "read-only dry-run; versioned idempotence; atomic owner/history/projection CAS; immutable receipt/revision identity; strict runtime cutover",
+        "verification": "CLI guards; real Arango legacy/current/mixed/rerun and rollback; current Builder and receipt execution checks; full package audit",
+        "status": "complete",
+    },
     {
         "source": "internal/api/graphql",
         "disposition": "merged",

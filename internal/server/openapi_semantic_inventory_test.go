@@ -162,7 +162,7 @@ func TestBrowseSemanticInventoryOutputScopeReturnsTypedNotFound(t *testing.T) {
 	if response.StatusCode != http.StatusNotFound || !strings.Contains(response.Body, "EXPLORER_NOT_FOUND") {
 		t.Fatalf("missing-workspace browse must be typed EXPLORER_NOT_FOUND 404: status=%d body=%s", response.StatusCode, response.Body)
 	}
-	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind}
+	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion}
 	workspace.Explorer.Title = "typed-not-found probe"
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {

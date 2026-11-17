@@ -141,7 +141,7 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 	project = projectid.Canonical(project)
 	wire := authoringv2.CatalogFromCapability(snapshot, explorerID)
 	var migrationErr error
-	workspace, migrationErr = authoringv2.MigrateWorkspaceForCompilation(workspace, wire)
+	workspace, migrationErr = authoringv2.CloneCurrentWorkspace(workspace)
 	if migrationErr != nil {
 		return WorkspaceResult{}, fail("intent", "LEGACY_CONTRIBUTOR_MIGRATION_FAILED", "$.workspace", migrationErr.Error(), nil, migrationErr)
 	}

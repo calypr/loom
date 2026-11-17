@@ -884,15 +884,10 @@ func (c Command) validate() error {
 // ApplyCommands is a pure reducer over canonical authoring state. It clones
 // the input and either returns one fully valid workspace or no mutation.
 func ApplyCommands(workspace Workspace, catalog CatalogSnapshot, commandID string, commands []Command) (Workspace, []CommandResult, error) {
-	working, err := cloneWorkspace(workspace)
+	working, err := CloneCurrentWorkspace(workspace)
 	if err != nil {
 		return Workspace{}, nil, err
 	}
-	working, err = MigrateLegacyContributors(working, catalog)
-	if err != nil {
-		return Workspace{}, nil, err
-	}
-	working = MigrateLosslessDefaults(working, catalog)
 	results := make([]CommandResult, 0, len(commands))
 	for index, command := range commands {
 		result, applyErr := applyCommand(&working, catalog, commandID, index, command)
@@ -1745,25 +1740,6 @@ func cloneWorkspace(value Workspace) (Workspace, error) {
 	var result Workspace
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return Workspace{}, err
-	}
-	// SourceWhere is a private persisted-draft compatibility payload and is
-	// intentionally omitted from current JSON. Preserve it for transactional
-	// legacy migration and frozen in-memory callers while keeping it unwritable.
-	for documentIndex := range value.Documents {
-		if documentIndex >= len(result.Documents) {
-			break
-		}
-		for columnIndex := range value.Documents[documentIndex].Columns {
-			if columnIndex >= len(result.Documents[documentIndex].Columns) {
-				break
-			}
-			where := value.Documents[documentIndex].Columns[columnIndex].Source.Aggregate
-			if where == nil || where.Where == nil || result.Documents[documentIndex].Columns[columnIndex].Source.Aggregate == nil {
-				continue
-			}
-			legacyWhere := *where.Where
-			result.Documents[documentIndex].Columns[columnIndex].Source.Aggregate.Where = &legacyWhere
-		}
 	}
 	return result, nil
 }

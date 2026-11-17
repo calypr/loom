@@ -15,7 +15,7 @@ import (
 )
 
 func emptyCommandWorkspace() Workspace {
-	return Workspace{APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Builder"}, Documents: []Document{}, Tabs: []Tab{}}
+	return Workspace{APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion, Explorer: ExplorerMetadata{Title: "Builder"}, Documents: []Document{}, Tabs: []Tab{}}
 }
 
 func commandCatalog() CatalogSnapshot {
@@ -290,8 +290,8 @@ func TestApplyCommandsAllowsIndependentOccurrencesThroughOneRelationship(t *test
 func TestApplyCommandsSetTableRootPreservesSameRootAndRejectsDestructiveRebase(t *testing.T) {
 	catalog := commandCatalog()
 	workspace := Workspace{
-		APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Patients"},
-		Documents: []Document{{Kind: Kind, Output: Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient", Children: []RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}}, Columns: []Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}},
+		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion, Explorer: ExplorerMetadata{Title: "Patients"},
+		Documents: []Document{{Kind: Kind, Rows: RecordsRowDefinition(), Output: Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient", Children: []RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}}, Columns: []Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}},
 		Tabs:      []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
 	}
 	preserved, _, err := ApplyCommands(workspace, catalog, "same-root", []Command{{Type: CommandSetTableRoot, OutputID: "patients", RootNodeID: "patient"}})
@@ -329,8 +329,8 @@ func TestApplyCommandsAcceptsCorrelatedLookupWithoutLegacyPath(t *testing.T) {
 		RoutePolicy: RoutePolicy{Unbounded: true},
 	}
 	workspace := Workspace{
-		APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Observations"},
-		Documents: []Document{{Kind: Kind, Output: Output{ID: "observations", Title: "Observations"}, RootResourceType: "Observation", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"}}},
+		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion, Explorer: ExplorerMetadata{Title: "Observations"},
+		Documents: []Document{{Kind: Kind, Rows: RecordsRowDefinition(), Output: Output{ID: "observations", Title: "Observations"}, RootResourceType: "Observation", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"}}},
 		Tabs:      []Tab{{ID: "observations", Title: "Observations", OutputID: "observations", Order: 0, Visible: true}},
 	}
 	source := &ColumnSource{Kind: SourceCodedValue, Lookup: &LookupSource{
@@ -488,7 +488,7 @@ func TestApplySemanticSelectionsPreservesExistingGraphAuthoredConfig(t *testing.
 	existingColumns := append([]Column(nil), document.Columns...)
 	existingFilters := append([]FixedFilter(nil), document.FixedFilters...)
 	existingActions := append([]Action(nil), document.Actions...)
-	workspace := Workspace{APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Builder"}, Documents: []Document{document}, Tabs: []Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}}
+	workspace := Workspace{APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion, Explorer: ExplorerMetadata{Title: "Builder"}, Documents: []Document{document}, Tabs: []Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}}
 	updated, _, err := ApplyCommands(workspace, catalogSnapshot, "semantic-add", []Command{{
 		Type: CommandAddSemanticSelections, OutputID: "patients", ContextToken: "context",
 		SemanticSelections: []SemanticSelection{{ConceptID: "concept", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("concept", "binding", "urn:system", "code", "")}},
@@ -559,8 +559,8 @@ func TestApplyCommandsAcceptsAncestorAwareExtensionAndRejectsLegacyWrite(t *test
 		Nodes: []CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}}, RoutePolicy: RoutePolicy{Unbounded: true},
 	}
 	workspace := Workspace{
-		APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Observations"},
-		Documents: []Document{{Kind: Kind, Output: Output{ID: "observations", Title: "Observations"}, RootResourceType: "Observation", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"}}},
+		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion, Explorer: ExplorerMetadata{Title: "Observations"},
+		Documents: []Document{{Kind: Kind, Rows: RecordsRowDefinition(), Output: Output{ID: "observations", Title: "Observations"}, RootResourceType: "Observation", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"}}},
 		Tabs:      []Tab{{ID: "observations", Title: "Observations", OutputID: "observations", Order: 0, Visible: true}},
 	}
 	typed := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Extension: &fhirschema.ExtensionBinding{
@@ -605,7 +605,7 @@ func TestApplyCommandsRequestRequiresSemanticsV3(t *testing.T) {
 func TestRestoreDraftRevisionCommandIsStrictAndRestoresServerResolvedWorkspace(t *testing.T) {
 	base := emptyCommandWorkspace()
 	base.Explorer.Title = "Before edit"
-	base.Documents = []Document{{Kind: Kind, Output: Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"}}}
+	base.Documents = []Document{{Kind: Kind, Output: Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"}, Rows: RecordsRowDefinition()}}
 	base.Tabs = []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}
 	command := Command{Type: CommandRestoreDraftRevision, DraftRevisionID: "draft_revision_1"}
 	if err := command.ResolveDraftRevision(base); err != nil {

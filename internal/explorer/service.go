@@ -37,41 +37,6 @@ func (s *Service) Get(ctx context.Context, project, id string) (*Explorer, error
 	return s.store.Get(ctx, projectid.Legacy(project), id)
 }
 
-// MigrateLegacyConstructionSteps normalizes drafts written when a nil empty
-// construction sequence serialized as null. It verifies that the stored
-// digest matches that exact legacy representation, then records the canonical
-// array representation through the normal draft compare-and-swap path.
-func (s *Service) MigrateLegacyConstructionSteps(ctx context.Context, project, id string, expectedVersion int64, expectedDigest string) (*Explorer, error) {
-	owner, err := s.Get(ctx, project, id)
-	if err != nil {
-		return nil, err
-	}
-	if owner == nil || owner.DraftVersion != expectedVersion || owner.DraftDigest != expectedDigest {
-		return nil, ErrDraftConflict
-	}
-	workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
-	if err != nil {
-		return nil, fmt.Errorf("decode legacy Explorer draft: %w", err)
-	}
-	currentDigest, err := workspace.Digest()
-	if err != nil {
-		return nil, fmt.Errorf("digest normalized Explorer draft: %w", err)
-	}
-	legacyDigest, err := workspace.LegacyNilConstructionStepsDigest()
-	if err != nil {
-		return nil, fmt.Errorf("digest legacy Explorer draft encoding: %w", err)
-	}
-	if currentDigest == expectedDigest || legacyDigest == "" || legacyDigest != expectedDigest {
-		return nil, ErrDraftConflict
-	}
-	owner.DraftConfig, err = workspace.CanonicalJSON()
-	if err != nil {
-		return nil, fmt.Errorf("encode normalized Explorer draft: %w", err)
-	}
-	owner.DraftDigest = currentDigest
-	return s.store.SaveDraft(ctx, *owner, expectedVersion, expectedDigest)
-}
-
 // LoadExplorerState returns the one canonical response for the public
 // Explorer GET route. It loads the identity and immutable active revision
 // together, then derives the renderer-facing projection from that revision.
@@ -188,7 +153,14 @@ func (s *Service) CreateInteractiveFrom(ctx context.Context, project, id, title,
 		if revisionErr != nil {
 			return nil, revisionErr
 		}
-		raw = revision.AuthoringBundle
+		projected, projectionErr := s.RevisionWorkspace(ctx, *revision)
+		if projectionErr != nil {
+			return nil, projectionErr
+		}
+		raw, err = projected.CanonicalJSON()
+		if err != nil {
+			return nil, err
+		}
 	}
 	if len(raw) == 0 {
 		return s.createEmptyInteractive(ctx, project, id, title, actor)
@@ -284,14 +256,14 @@ func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string
 		return nil, ErrDraftConflict
 	}
 
-	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: owner.Title}, Documents: []authoringv2.Document{}, Tabs: []authoringv2.Tab{}}
+	workspace := authoringv2.NewWorkspace(owner.Title)
 	if len(owner.DraftConfig) != 0 {
 		workspace, err = authoringv2.DecodeWorkspace(owner.DraftConfig)
 	} else if owner.ActiveRevisionID != "" {
 		var revision *Revision
 		revision, err = s.store.GetRevision(ctx, owner.ActiveRevisionID)
 		if err == nil {
-			workspace, err = authoringv2.DecodeWorkspace(revision.AuthoringBundle)
+			workspace, err = s.RevisionWorkspace(ctx, *revision)
 		}
 	}
 	if err != nil {

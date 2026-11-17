@@ -141,6 +141,16 @@ func (s *Service) validateReceiptRoute(receipt *explorer.CompilationReceipt, pro
 	return nil
 }
 
+func (s *Service) validateExecutableReceiptRoute(receipt *explorer.CompilationReceipt, project, explorerID string) error {
+	if err := s.validateReceiptRoute(receipt, project, explorerID); err != nil {
+		return err
+	}
+	if _, err := receipt.CurrentWorkspace(); err != nil {
+		return conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt contains historical or inconsistent authoring intent and must be recompiled", nil, err)
+	}
+	return nil
+}
+
 func validateReceiptCapability(receipt *explorer.CompilationReceipt, snapshot capability.Snapshot) error {
 	if receipt == nil {
 		return fmt.Errorf("compilation receipt is required")

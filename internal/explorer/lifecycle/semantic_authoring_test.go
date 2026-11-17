@@ -253,9 +253,9 @@ func semanticAuthoringStore(t *testing.T) *fakeStore {
 			Route:        authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "encounter-authored", ResourceType: "Encounter", Relationship: "encounters"}}},
 			Columns:      []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: boolPointer(true), Order: intPointer(0)}}},
 			FixedFilters: []authoringv2.FixedFilter{{Column: "patient_id", Values: []string{"active"}}},
-			Actions:      []authoringv2.Action{{Type: "export", Title: "Export", Columns: []authoringv2.ActionColumn{{Column: "patient_id"}}}},
+			Actions:      []authoringv2.Action{{Type: "export", Title: "Export", Columns: []authoringv2.ActionColumn{{Column: "patient_id"}}}}, Rows: authoringv2.RecordsRowDefinition(),
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
+		Tabs: []authoringv2.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 	encoded, err := workspace.CanonicalJSON()
 	if err != nil {

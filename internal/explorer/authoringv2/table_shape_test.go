@@ -56,7 +56,7 @@ func TestTableShapeV9WorkspacePreservesDigestOnDecode(t *testing.T) {
 	legacyBytes := []byte(legacy)
 	legacySum := sha256.Sum256(legacyBytes)
 	legacyDigest := "sha256:" + hex.EncodeToString(legacySum[:])
-	after, err := DecodeWorkspace(legacyBytes)
+	after, err := DecodeStoredWorkspaceForMigration(legacyBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestTableShapeV8WorkspaceMigratesToSemantics9(t *testing.T) {
 		t.Fatal(err)
 	}
 	legacy := strings.Replace(string(raw), fmt.Sprintf(`"semanticsVersion":%d`, CurrentSemanticsVersion), fmt.Sprintf(`"semanticsVersion":%d`, aggregateTemporalPolicySemanticsVersion-1), 1)
-	after, err := DecodeWorkspace([]byte(legacy))
+	after, err := DecodeStoredWorkspaceForMigration([]byte(legacy))
 	if err != nil {
 		t.Fatal(err)
 	}

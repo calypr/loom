@@ -2026,6 +2026,23 @@ func TestBuilderHTTPSerializesEmptyConstructionStepsAsArray(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// Explicit offline migration precedes runtime access; Builder must only serialize current storage.
+	migration, err := authoringv2.MigrateStoredWorkspace(draft, authoringV2Catalog(snapshot, "custom"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migration.MigratedCanonicalDigest != digest {
+		t.Fatal("offline migration changed expected canonical digest")
+	}
+	owner, err := store.Get(context.Background(), "project-a", "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner.DraftConfig = migration.CanonicalJSON
+	owner.DraftDigest = migration.MigratedCanonicalDigest
+	if _, err := store.SaveDraft(context.Background(), *owner, 1, legacyDigest); err != nil {
+		t.Fatal(err)
+	}
 	service, err := explorer.NewService(store)
 	if err != nil {
 		t.Fatal(err)

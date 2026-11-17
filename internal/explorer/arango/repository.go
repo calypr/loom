@@ -51,14 +51,44 @@ func (s *Store) MigrateLegacyRepositoryConfigs(ctx context.Context) error {
 			return fmt.Errorf("migrate legacy Explorer %q revision %q: %w", project, value.ActiveRevisionID, err)
 		}
 		draft := value.Workspace
+		digest := value.IntentDigest
 		if len(draft) == 0 {
-			draft = revision.AuthoringBundle
+			draft = revision.AuthoringWorkspaceBytes()
+			if len(revision.AuthoringBundle) == 0 {
+				object, _ := auditObject(revision.Config)
+				if !auditWorkspaceShape(object) {
+					draft = nil
+				}
+			}
+			if len(draft) != 0 {
+				domain, err := explorer.NewService(s)
+				if err != nil {
+					return err
+				}
+				workspace, err := domain.RevisionWorkspace(ctx, *revision)
+				if err != nil {
+					return fmt.Errorf("legacy repository authoring state requires explicit workspace migration: %w", err)
+				}
+				draft, err = workspace.CanonicalJSON()
+				if err != nil {
+					return err
+				}
+				digest, err = workspace.Digest()
+				if err != nil {
+					return err
+				}
+			}
 		}
 		title := "Default"
-		if workspace, decodeErr := authoringv2.DecodeWorkspace(draft); decodeErr == nil && strings.TrimSpace(workspace.Explorer.Title) != "" {
-			title = workspace.Explorer.Title
+		if len(draft) != 0 {
+			workspace, decodeErr := authoringv2.DecodeCurrentWorkspace(draft)
+			if decodeErr != nil {
+				return fmt.Errorf("legacy repository draft requires explicit workspace migration: %w", decodeErr)
+			}
+			if strings.TrimSpace(workspace.Explorer.Title) != "" {
+				title = workspace.Explorer.Title
+			}
 		}
-		digest := value.IntentDigest
 		if digest == "" {
 			digest = revision.IntentDigest
 		}

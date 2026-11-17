@@ -95,7 +95,7 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 	}
 	base := constructionBase{
 		explorerID: "explorer-a",
-		document:   authoringv2.Document{Output: authoringv2.Output{ID: "out-observation"}, RootResourceType: "Observation"},
+		document:   authoringv2.Document{Output: authoringv2.Output{ID: "out-observation"}, RootResourceType: "Observation", Rows: authoringv2.RecordsRowDefinition()},
 		construction: authoringv2.Construction{Steps: []authoringv2.ConstructionStep{{
 			ID: "coded-pivot", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
 			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationCodedPivot, CodedPivot: &prior},

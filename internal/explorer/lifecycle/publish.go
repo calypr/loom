@@ -26,7 +26,7 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 	if err != nil {
 		return PublishResult{}, err
 	}
-	if err := s.validateReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
+	if err := s.validateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
 		return PublishResult{}, err
 	}
 	authorized, snapshot, err := s.resolveExecutionCapability(ctx, receipt.Project, receipt.SnapshotToken)

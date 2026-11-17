@@ -88,7 +88,7 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 					Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
 			},
 		},
-		Tabs: []authoringv2.Tab{{ID: "consumer-tab", Title: "Consumer", OutputID: "consumer", Order: 0, Visible: true}, {ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 1, Visible: true}, {ID: "other-tab", Title: "Other", OutputID: "other", Order: 2, Visible: true}},
+		Tabs: []authoringv2.Tab{{ID: "consumer-tab", Title: "Consumer", OutputID: "consumer", Order: 0, Visible: true}, {ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 1, Visible: true}, {ID: "other-tab", Title: "Other", OutputID: "other", Order: 2, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 	compile := func(ws authoringv2.Workspace) (explorercompilation.WorkspaceResult, error) {
 		compiled, err := explorercompilation.CompileWorkspace(context.Background(), "project-a", "patients", ws, snapshot, explorercompilation.ResolvedInputs{})
@@ -420,7 +420,7 @@ func testOutputColumnProvenance(workspace authoringv2.Workspace) map[string]map[
 
 func TestWorkspaceOutputClosureIncludesTransitiveInputsButExcludesConsumers(t *testing.T) {
 	document := func(outputID string, inputs ...string) authoringv2.Document {
-		value := authoringv2.Document{Output: authoringv2.Output{ID: outputID, Title: outputID}}
+		value := authoringv2.Document{Output: authoringv2.Output{ID: outputID, Title: outputID}, Rows: authoringv2.RecordsRowDefinition()}
 		if len(inputs) == 0 {
 			return value
 		}
@@ -441,7 +441,7 @@ func TestWorkspaceOutputClosureIncludesTransitiveInputsButExcludesConsumers(t *t
 		},
 		SharedFilters: map[string][]authoringv2.SharedFilterBinding{
 			"status": {{OutputID: "target", Column: "status"}, {OutputID: "consumer", Column: "status"}, {OutputID: "source", Column: "status"}},
-		},
+		}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 	projected, err := workspaceOutputClosure(workspace, "target")
 	if err != nil {
@@ -484,7 +484,7 @@ func TestSelectedReconcileValidatesFullWorkspaceCycleBeforeScoping(t *testing.T)
 	workspace := authoringv2.Workspace{
 		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Cycle"},
 		Documents: []authoringv2.Document{a, b, source},
-		Tabs:      []authoringv2.Tab{{ID: "a", Title: "a", OutputID: "a", Order: 0}, {ID: "b", Title: "b", OutputID: "b", Order: 1}, {ID: "source", Title: "source", OutputID: "source", Order: 2}},
+		Tabs:      []authoringv2.Tab{{ID: "a", Title: "a", OutputID: "a", Order: 0}, {ID: "b", Title: "b", OutputID: "b", Order: 1}, {ID: "source", Title: "source", OutputID: "source", Order: 2}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 	if err := workspace.Validate(); err == nil || !strings.Contains(err.Error(), "WORKSPACE_OUTPUT_CYCLE") {
 		t.Fatalf("full workspace validation error = %v, want WORKSPACE_OUTPUT_CYCLE", err)
@@ -569,9 +569,9 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 		Documents: []authoringv2.Document{{
 			Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
 			Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}},
-			Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
+			Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}, Rows: authoringv2.RecordsRowDefinition(),
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {

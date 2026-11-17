@@ -64,6 +64,7 @@ func CollectionSpecs() []store.CollectionSpec {
 		{Name: LegacyRepositoryConfigsCollection, Indexes: [][]string{{"project"}}},
 		CapabilitySnapshotCollectionSpec(),
 		TableShapeCapabilitiesCollectionSpec(),
+		workspaceProjectionCollectionSpec(),
 	}
 }
 func BootstrapSpec() store.BootstrapSpec { return store.BootstrapSpec{Collections: CollectionSpecs()} }

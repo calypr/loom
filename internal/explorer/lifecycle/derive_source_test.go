@@ -146,7 +146,7 @@ func deriveSourceRowChoice(t *testing.T, snapshot capability.Snapshot, resourceT
 	}
 	document := authoringv2.Document{
 		RootResourceType: resourceType,
-		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: resourceType},
+		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: resourceType}, Rows: authoringv2.RecordsRowDefinition(),
 	}
 	choices, err := resolver.ListRowChoices(context.Background(), snapshot, document)
 	if err != nil {

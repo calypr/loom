@@ -230,7 +230,7 @@ func tableShapeCatalogRequest(owner *explorer.Explorer, snapshot capability.Snap
 		ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest, OutputID: "patients"}
 }
 
-func persistV9TableShapeDraft(t *testing.T, store *fakeStore) string {
+func persistMigratedV9TableShapeDraft(t *testing.T, store *fakeStore, snapshot capability.Snapshot) string {
 	t.Helper()
 	current, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
@@ -244,7 +244,7 @@ func persistV9TableShapeDraft(t *testing.T, store *fakeStore) string {
 	if bytes.Equal(v9Wire, currentCanonical) {
 		t.Fatal("fixture did not encode the current semantics version")
 	}
-	v9, err := authoringv2.DecodeWorkspace(v9Wire)
+	v9, err := authoringv2.DecodeStoredWorkspaceForMigration(v9Wire)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,9 +262,13 @@ func persistV9TableShapeDraft(t *testing.T, store *fakeStore) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.created.DraftConfig = canonicalV9
-	store.created.DraftDigest = digest
-	return digest
+	migration := migrateStoredWorkspaceFixture(t, canonicalV9, authoringv2.CatalogFromCapability(snapshot, store.created.ExplorerID))
+	if migration.OriginalCanonicalDigest != digest {
+		t.Fatalf("offline original digest = %q, want %q", migration.OriginalCanonicalDigest, digest)
+	}
+	store.created.DraftConfig = migration.CanonicalJSON
+	store.created.DraftDigest = migration.MigratedCanonicalDigest
+	return migration.MigratedCanonicalDigest
 }
 
 func catalogColumnChoice(t *testing.T, catalog tableshapecap.CatalogReceipt, role tableshapecap.ChoiceRole, key string) string {
@@ -308,7 +312,7 @@ func lifecycleErrorCode(err error) string {
 	return ""
 }
 
-func TestTableShapeCapabilitiesRejectInconsistentOwnerDigestAndAcceptCanonicalV9(t *testing.T) {
+func TestTableShapeCapabilitiesRejectInconsistentOwnerDigestAfterStoredV9Migration(t *testing.T) {
 	shape := &authoringv2.TableShape{Reshape: &authoringv2.TableReshape{Kind: "PIVOT", Pivot: &authoringv2.PivotConstruction{
 		ConstructionID: "pivot_saved", GroupKeys: []string{"patient_id"}, CategoryColumn: "category", ValueColumn: "value",
 		Categories:      []authoringv2.PivotCategory{{Key: authoringv2.TableScalar{Kind: authoringv2.TableScalarString, String: tableShapeTestPtr("")}, Output: authoringv2.ColumnOutput{Column: "empty_bucket", Label: "Empty bucket"}}},
@@ -317,7 +321,7 @@ func TestTableShapeCapabilitiesRejectInconsistentOwnerDigestAndAcceptCanonicalV9
 
 	t.Run("inconsistent stored owner digest conflicts even when request echoes it", func(t *testing.T) {
 		service, store, snapshot, _, _ := lifecycleTableShapeService(t, shape)
-		canonicalDigest := persistV9TableShapeDraft(t, store)
+		canonicalDigest := persistMigratedV9TableShapeDraft(t, store, snapshot)
 		inconsistentDigest := "sha256:" + strings.Repeat("0", 64)
 		if inconsistentDigest == canonicalDigest {
 			inconsistentDigest = "sha256:" + strings.Repeat("1", 64)
@@ -340,7 +344,7 @@ func TestTableShapeCapabilitiesRejectInconsistentOwnerDigestAndAcceptCanonicalV9
 
 	t.Run("canonical v9 table-shape digest reaches capabilities", func(t *testing.T) {
 		service, store, snapshot, _, _ := lifecycleTableShapeService(t, shape)
-		canonicalDigest := persistV9TableShapeDraft(t, store)
+		canonicalDigest := persistMigratedV9TableShapeDraft(t, store, snapshot)
 		request := tableShapeCatalogRequest(store.created, snapshot)
 		if request.ExpectedDraftDigest != canonicalDigest {
 			t.Fatalf("request digest=%q, want canonical v9 digest %q", request.ExpectedDraftDigest, canonicalDigest)

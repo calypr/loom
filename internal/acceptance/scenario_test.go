@@ -23,7 +23,7 @@ func TestAcceptanceWorkspaceDefinesPatientCohortContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, err := authoringv2.DecodeWorkspace(raw)
+	workspace, err := authoringv2.DecodeStoredWorkspaceForMigration(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestAcceptanceWorkspaceMigratesLegacyContributorPredicatesAgainstPinnedCata
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy, err := authoringv2.DecodeWorkspace(raw)
+	legacy, err := authoringv2.DecodeStoredWorkspaceForMigration(raw)
 	if err != nil {
 		t.Fatal(err)
 	}

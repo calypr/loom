@@ -265,25 +265,14 @@ func c19Workspace(t *testing.T, snapshot capability.Snapshot) authoringv2.Worksp
 	return prepared
 }
 
-// c19AuthoredWorkspace is the literal authored contract. It is deliberately NOT what the
-// fixture seeds: a first head created outside the command surface must already be in the
-// compilation-prepared form that every command save produces (authoring v2 PrepareWorkspace-
-// ForCompilation = MigrateLegacyContributors + MigrateLosslessDefaults +
-// NormalizePresentationOrders, internal/explorer/authoringv2/migration.go:88-99, applied as a
-// pair in internal/server/construction_proposal_zero_column_test.go:71-75). Seeding raw bytes
-// instead leaves SemanticsVersion unset, so the compile prepare fills defaults the stored
-// bytes never got and the receipt intent (digest of the prepared form,
-// internal/server/explorer_receipt_contract.go:142) legitimately diverges from the stored CAS
-// digests — observed in a capture at
-// /tmp/opencode/loom-core-protocol/evidence/c19/run-08-arango-localizer.log (intent
-// sha256:5a83... vs CAS sha256:af5a..., response identical to the persisted Arango doc, so
-// NOT a store-parity finding).
+// c19AuthoredWorkspace is an explicit current authored contract. Runtime compilation
+// validates this packet without applying stored-workspace migrations.
 func c19AuthoredWorkspace() authoringv2.Workspace {
 	scalar := func(path string) *authoringv2.FieldSource {
 		return &authoringv2.FieldSource{Path: path, ProjectionMode: "VALUE"}
 	}
 	return authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
 		Documents: []authoringv2.Document{{
 			Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(),
@@ -1176,20 +1165,9 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 	_, headAfterEdit := fixture.getBuilder()
 	restoredVersion, restoredDigest, undoRevision := fixture.MustRestoreRevision("c19-arango-restore", headAfterEdit)
 	restoredReceipt := fixture.decodeCompile(fixture.MustReconcile(restoredVersion, restoredDigest, "c19-arango-reconcile-restored"))
-	// Digest provenance on a RESTORED head, traced to the write and compile paths:
-	//   - the CAS head digest is the restored revision's own digest, because the restore
-	//     republishes those stored bytes (draft_restore.go:66-68 admits the revision only when
-	//     its re-derived digest matches; service.go:296-301/324 stores them), so it equals the
-	//     baseline head digest this fixture started from, NOT a freshly derived value;
-	//   - the receipt intent is the digest of the compilation-prepare form,
-	//     PrepareWorkspaceForCompilation = migrations followed by NormalizePresentationOrders
-	//     (internal/explorer/authoringv2/migration.go:97, canonical.go:95-107), digested at
-	//     internal/server/explorer_receipt_contract.go:142. Because this fixture seeds its
-	//     first head through that same preparation (see c19Workspace), preparing an already
-	//     prepared head is a no-op, so intent and CAS name the same value here and both digests
-	//     are pinned. Seeding raw bytes instead splits them (the migration fills defaults the
-	//     stored bytes never received) — that harness artifact, not a store difference, was the
-	//     original failure.
+	// A restored current head keeps its recorded canonical digest. Runtime preparation
+	// only normalizes presentation, so receipt intent and stored CAS identify the
+	// same authored content without applying historical migrations.
 	if restoredDigest != hydrated.DraftDigest {
 		t.Fatalf("restored head CAS digest=%q must republish the restored-from revision digest %q", restoredDigest, hydrated.DraftDigest)
 	}

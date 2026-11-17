@@ -81,7 +81,7 @@ func TestResolveConstructionGroupFieldSourcesRejectsChoiceFromChangedSourceShape
 		authorized: AuthorizedCapability{Snapshot: snapshot, Scope: scope},
 		document: authoringv2.Document{
 			RootResourceType: "Observation",
-			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
+			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"}, Rows: authoringv2.RecordsRowDefinition(),
 		},
 		stages: []explorer.ReceiptConstructionStage{{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
@@ -258,7 +258,7 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 		snapshot: snapshot, authorized: AuthorizedCapability{Snapshot: snapshot, Scope: scope},
 		document: authoringv2.Document{
 			RootResourceType: "Patient",
-			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition(),
 		},
 	}
 	stage := explorer.ReceiptConstructionStage{

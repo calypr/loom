@@ -935,7 +935,7 @@ func TestConstructionChoiceSearchRejectsOccurrenceOutsideOutputOrWrongTerminal(t
 				workspace.Documents = append(workspace.Documents, authoringv2.Document{
 					Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "other", Title: "Other"}, RootResourceType: "Patient",
 					Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "outside-output", ResourceType: "Observation", Relationship: "subject_Patient"}}},
-					Columns: []authoringv2.Column{},
+					Columns: []authoringv2.Column{}, Rows: authoringv2.RecordsRowDefinition(),
 				})
 				workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: "other-tab", Title: "Other", OutputID: "other", Order: len(workspace.Tabs), Visible: true})
 				persistTestWorkspace(t, store, workspace)

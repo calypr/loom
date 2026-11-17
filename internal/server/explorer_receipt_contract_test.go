@@ -2156,7 +2156,7 @@ func TestPreviewSourceIdentityDoesNotChangeUnpivotReceiptArtifacts(t *testing.T)
 func TestCompiledExplorerWorkspaceConfigPreservesSemanticOrderForPresentationTies(t *testing.T) {
 	compiled := explorercompilation.WorkspaceResult{
 		Workspace: authoringv2.Workspace{
-			APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
+			APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 			Explorer:  authoringv2.ExplorerMetadata{Title: "Stable"},
 			Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Out"}}},
 			Tabs:      []authoringv2.Tab{{ID: "tab", Title: "Out", OutputID: "out", Order: 0, Visible: true}},
@@ -2598,7 +2598,7 @@ func TestCompileExplorerReceiptReconcilesSparsePublishedAppendWithExactSourceSch
 	documents := append(sourceDocuments, document)
 	tabs = append(tabs, authoringv2.Tab{ID: "combined-tab", Title: "Combined", OutputID: "combined", Order: len(tabs), Visible: true})
 	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		Explorer:  authoringv2.ExplorerMetadata{Title: "Combined"},
 		Documents: documents,
 		Tabs:      tabs,

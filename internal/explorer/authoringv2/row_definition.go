@@ -269,29 +269,3 @@ func cloneRowDefinition(rows RowDefinition) (RowDefinition, error) {
 func missingRowDefinition(rows RowDefinition) bool {
 	return rows.Kind == "" && rows.Records == nil && rows.Groups == nil && rows.Expanded == nil
 }
-
-// migrateMissingRowsBeforeCurrent installs the historical root-record behavior only
-// across the semantics-version boundary. It copies the document slice before
-// editing and deliberately leaves the version bump to its migration owner.
-func migrateMissingRowsBeforeCurrent(workspace Workspace) Workspace {
-	if workspace.SemanticsVersion >= explicitRowsSemanticsVersion {
-		return workspace
-	}
-	needsMigration := false
-	for _, document := range workspace.Documents {
-		if missingRowDefinition(document.Rows) {
-			needsMigration = true
-			break
-		}
-	}
-	if !needsMigration {
-		return workspace
-	}
-	workspace.Documents = append([]Document(nil), workspace.Documents...)
-	for index := range workspace.Documents {
-		if missingRowDefinition(workspace.Documents[index].Rows) {
-			workspace.Documents[index].Rows = RecordsRowDefinition()
-		}
-	}
-	return workspace
-}

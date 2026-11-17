@@ -339,7 +339,7 @@ func TestBrowseSemanticInventoryUsesOutputToResolveDuplicateFrameIDs(t *testing.
 	workspace := authoringv2.Workspace{
 		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"},
 		Documents: []authoringv2.Document{document("out_a"), document("out_b")},
-		Tabs:      []authoringv2.Tab{{ID: "tab_a", Title: "out_a", OutputID: "out_a", Visible: true}, {ID: "tab_b", Title: "out_b", OutputID: "out_b", Order: 1, Visible: true}},
+		Tabs:      []authoringv2.Tab{{ID: "tab_a", Title: "out_a", OutputID: "out_a", Visible: true}, {ID: "tab_b", Title: "out_b", OutputID: "out_b", Order: 1, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 	config, err := workspace.CanonicalJSON()
 	if err != nil {

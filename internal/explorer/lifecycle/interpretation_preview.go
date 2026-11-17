@@ -155,9 +155,9 @@ func previewWorkspace(ctx context.Context, store *explorer.Service, owner *explo
 		if err != nil {
 			return authoringv2.Workspace{}, err
 		}
-		return authoringv2.DecodeWorkspace(revision.AuthoringBundle)
+		return store.RevisionWorkspace(ctx, *revision)
 	}
-	return authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: owner.Title}, Documents: []authoringv2.Document{}, Tabs: []authoringv2.Tab{}}, nil
+	return authoringv2.NewWorkspace(owner.Title), nil
 }
 
 type interpretationPreviewRows struct {

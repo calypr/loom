@@ -67,7 +67,7 @@ func main() {
 }
 
 func convert(source string, config explorer.ConfigV2, bundle recipe.Bundle) (authoringv2.Workspace, report, error) {
-	result := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: config.Explorer.Title, Description: config.Explorer.Description}, Documents: []authoringv2.Document{}, Tabs: []authoringv2.Tab{}, SharedFilters: map[string][]authoringv2.SharedFilterBinding{}}
+	result := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion, Explorer: authoringv2.ExplorerMetadata{Title: config.Explorer.Title, Description: config.Explorer.Description}, Documents: []authoringv2.Document{}, Tabs: []authoringv2.Tab{}, SharedFilters: map[string][]authoringv2.SharedFilterBinding{}}
 	conversionReport := report{Source: source, Outputs: map[string]int{}, DroppedFeatures: []string{"unreferenced discovery-expanded columns", "unreferenced recipe outputs"}}
 	outputs := map[string]recipe.Output{}
 	for _, output := range bundle.Outputs {
@@ -82,7 +82,7 @@ func convert(source string, config explorer.ConfigV2, bundle recipe.Bundle) (aut
 		visibleOutputs[view.Output] = true
 		referenced := referencedColumns(config, view)
 		paths := routePaths(legacyOutput)
-		document := authoringv2.Document{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: view.Output, Title: view.Title, RowLabel: view.RowLabel}, RootResourceType: legacyOutput.RootResourceType, Columns: []authoringv2.Column{}, FixedFilters: []authoringv2.FixedFilter{}, Actions: []authoringv2.Action{}}
+		document := authoringv2.Document{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: view.Output, Title: view.Title, RowLabel: view.RowLabel}, RootResourceType: legacyOutput.RootResourceType, Rows: authoringv2.RecordsRowDefinition(), Columns: []authoringv2.Column{}, FixedFilters: []authoringv2.FixedFilter{}, Actions: []authoringv2.Action{}}
 		usedOccurrences := map[string]bool{authoringv2.RootOccurrenceID: true}
 		for _, name := range referenced {
 			occurrenceID, leaf := occurrenceForColumn(name, paths)

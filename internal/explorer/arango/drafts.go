@@ -15,6 +15,16 @@ import (
 )
 
 func (s *Store) SaveDraft(ctx context.Context, e explorer.Explorer, expected int64, expectedDigest ...string) (*explorer.Explorer, error) {
+	return s.saveDraft(ctx, e, expected, expectedDigest, nil)
+}
+
+type draftMigrationWrite struct {
+	collections   []string
+	revision      string
+	beforeHistory func(context.Context, store.RowQueryer, explorer.Explorer, explorer.DraftRevision) error
+}
+
+func (s *Store) saveDraft(ctx context.Context, e explorer.Explorer, expected int64, expectedDigest []string, migration *draftMigrationWrite) (*explorer.Explorer, error) {
 	e.UpdatedAt = time.Now().UTC()
 	draftPatch, err := draftPatchDocument(e)
 	if err != nil {
@@ -30,17 +40,27 @@ func (s *Store) SaveDraft(ctx context.Context, e explorer.Explorer, expected int
 		"key": key, "project": e.Project, "explorerId": e.ExplorerID,
 		"expected": expected, "expectedDigest": digest,
 	}
+	expectedRevision := ""
+	if migration != nil {
+		expectedRevision = migration.revision
+	}
+	writeCollections := []string{ExplorersCollection, DraftRevisionsCollection}
+	if migration != nil {
+		writeCollections = append(writeCollections, migration.collections...)
+	}
 	err = s.client.WithTransaction(ctx, store.TransactionCollections{
-		Write: []string{ExplorersCollection, DraftRevisionsCollection},
+		Write: writeCollections,
 	}, func(txCtx context.Context, tx store.RowQueryer) error {
 		var previous *explorer.Explorer
 		if err := tx.QueryRows(txCtx, `FOR d IN @@c
 FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorerId
   AND (d.draftVersion == @expected OR (!HAS(d, "draftVersion") AND @expected == 0))
   AND (@expectedDigest == "" OR d.draftDigest == @expectedDigest)
+  AND (@expectedRevision == "" OR d._rev == @expectedRevision)
 RETURN d`, 1, map[string]any{
 			"@c": ExplorersCollection, "key": key, "project": e.Project, "explorerId": e.ExplorerID,
 			"expected": expected, "expectedDigest": digest,
+			"expectedRevision": expectedRevision,
 		}, func(row map[string]any) error {
 			value, decodeErr := decode[explorer.Explorer](row)
 			previous = &value
@@ -54,6 +74,11 @@ RETURN d`, 1, map[string]any{
 
 		revision := draftRevisionFromExplorer(*previous)
 		revision.ID = draftRevisionKey(previous.Project, previous.ExplorerID, previous.DraftVersion)
+		if migration != nil {
+			if err := migration.beforeHistory(txCtx, tx, *previous, revision); err != nil {
+				return err
+			}
+		}
 		revisionDoc, err := document(revision, revision.ID)
 		if err != nil {
 			return fmt.Errorf("encode prior Explorer draft revision: %w", err)
@@ -69,6 +94,7 @@ RETURN d`, 1, map[string]any{
 FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorerId
   AND (d.draftVersion == @expected OR (!HAS(d, "draftVersion") AND @expected == 0))
   AND (@expectedDigest == "" OR d.draftDigest == @expectedDigest)
+  AND (@expectedRevision == "" OR d._rev == @expectedRevision)
 LET base = @clearDraftConfig ? UNSET(d, "draftConfig") : d
 UPDATE d WITH MERGE(base, @doc, {
   draftVersion: @nextVersion,
@@ -76,7 +102,8 @@ UPDATE d WITH MERGE(base, @doc, {
 }) IN @@c RETURN NEW`, 1, map[string]any{
 			"@c": ExplorersCollection, "key": cas["key"], "project": cas["project"], "explorerId": cas["explorerId"],
 			"expected": cas["expected"], "expectedDigest": cas["expectedDigest"],
-			"nextVersion": expected + 1, "revisionId": revision.ID, "doc": draftPatch,
+			"expectedRevision": expectedRevision,
+			"nextVersion":      expected + 1, "revisionId": revision.ID, "doc": draftPatch,
 			"clearDraftConfig": e.DraftConfig == nil,
 		}, func(row map[string]any) error {
 			value, decodeErr := decode[explorer.Explorer](row)

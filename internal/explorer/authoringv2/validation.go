@@ -49,7 +49,6 @@ func (d Document) Validate() error {
 }
 
 func (w Workspace) Validate() error {
-	w = migrateMissingRowsBeforeCurrent(w)
 	if w.APIVersion != APIVersion || w.Kind != WorkspaceKind {
 		return fmt.Errorf("unsupported V2 workspace protocol or kind")
 	}

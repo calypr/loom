@@ -39,7 +39,7 @@ func (s *Service) validateRowValuePolicyCandidate(
 	if err := verifyPreviewReceiptIntent(receipt, workspace); err != nil {
 		return conflict("commands", "INVALID_COMPILATION_RECEIPT", "the row-value policy receipt does not represent the candidate workspace", nil, err)
 	}
-	if err := s.validateReceiptRoute(receipt, project, explorerID); err != nil {
+	if err := s.validateExecutableReceiptRoute(receipt, project, explorerID); err != nil {
 		return err
 	}
 	if !receiptHasOutput(receipt.Bundle, command.OutputID) || validateReceiptOutputContract(receipt, command.OutputID) != nil {

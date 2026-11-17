@@ -10,7 +10,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-func TestApplyConstructionProposalFromPersistedV9UsesRawOwnerCAS(t *testing.T) {
+func TestApplyConstructionProposalAfterStoredV9MigrationUsesCurrentOwnerCAS(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
 	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
@@ -25,6 +25,8 @@ func TestApplyConstructionProposalFromPersistedV9UsesRawOwnerCAS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	migration := migrateStoredWorkspaceFixture(t, draft, service.catalog(snapshot, store.created.ExplorerID))
+	workspace, draft, digest = migration.Workspace, migration.CanonicalJSON, migration.MigratedCanonicalDigest
 	store.created.DraftConfig, store.created.DraftDigest = draft, digest
 	originalConfig, version := append([]byte(nil), draft...), store.created.DraftVersion
 

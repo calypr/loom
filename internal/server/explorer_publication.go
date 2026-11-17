@@ -10,7 +10,6 @@ import (
 	materializationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
@@ -26,7 +25,7 @@ func explorerReceiptMaterializer(recipeEngine *dataframeexecution.Engine, target
 		if target == nil {
 			return lifecycle.Execution{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "materialize", Code: "MATERIALIZATION_UNAVAILABLE", Message: "Explorer publication is not configured", Cause: degradation}
 		}
-		workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+		workspace, err := receipt.CurrentWorkspace()
 		if err != nil {
 			return lifecycle.Execution{}, fmt.Errorf("publication workspace: %w", err)
 		}

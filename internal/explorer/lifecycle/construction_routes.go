@@ -1192,7 +1192,7 @@ func (s *Service) currentWorkspace(ctx context.Context, project, explorerID stri
 		if activeErr != nil {
 			return authoringv2.Workspace{}, persistenceFailure("construction-choices", "the active Explorer workspace could not be loaded", activeErr)
 		}
-		workspace, decodeErr := authoringv2.DecodeWorkspace(active.AuthoringBundle)
+		workspace, decodeErr := s.store.RevisionWorkspace(ctx, *active)
 		if decodeErr != nil {
 			return authoringv2.Workspace{}, conflict("construction-choices", "AUTHORING_STATE_MISSING", "the active Explorer workspace is invalid", nil, decodeErr)
 		}

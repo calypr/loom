@@ -7,14 +7,15 @@ import (
 
 func TestCollectionSpecsArePersistentAndIndexed(t *testing.T) {
 	s := CollectionSpecs()
-	if len(s) != 15 {
+	if len(s) != 16 {
 		t.Fatalf("specs=%#v", s)
 	}
 	for _, spec := range s {
 		if spec.Truncate {
 			t.Fatalf("%s truncates persisted Explorer state", spec.Name)
 		}
-		if len(spec.Indexes) == 0 {
+		// Projections are addressed only by their source-derived primary key.
+		if len(spec.Indexes) == 0 && spec.Name != workspaceProjectionCollection {
 			t.Fatalf("%s has no indexes", spec.Name)
 		}
 	}

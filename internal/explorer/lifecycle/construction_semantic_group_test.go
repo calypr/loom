@@ -176,7 +176,7 @@ func semanticGroupChoicesTestSetup(t *testing.T) (capability.Snapshot, construct
 		authorized: AuthorizedCapability{Snapshot: snapshot, Scope: scope},
 		document: authoringv2.Document{
 			RootResourceType: "Observation",
-			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
+			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"}, Rows: authoringv2.RecordsRowDefinition(),
 		},
 	}
 	stage := explorer.ReceiptConstructionStage{

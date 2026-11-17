@@ -382,7 +382,7 @@ func publishWorkspace(ctx context.Context, cfg ScenarioConfig, client *http.Clie
 }
 
 func migrateLegacyWorkspaceForCurrentAPI(ctx context.Context, cfg ScenarioConfig, client *http.Client, raw []byte) ([]byte, map[string]any, error) {
-	workspace, err := authoringv2.DecodeWorkspace(raw)
+	workspace, err := authoringv2.DecodeStoredWorkspaceForMigration(raw)
 	if err != nil {
 		return nil, nil, fmt.Errorf("decode acceptance workspace for publication: %w", err)
 	}
@@ -436,10 +436,11 @@ func migrateLegacyAcceptanceWorkspace(workspace authoringv2.Workspace, catalog a
 	if err := validatePinnedContributorCatalog(catalog); err != nil {
 		return authoringv2.Workspace{}, fmt.Errorf("validate pinned acceptance catalog: %w", err)
 	}
-	migrated, err := authoringv2.PrepareWorkspaceForCompilation(workspace, catalog)
+	migrated, err := authoringv2.MigrateWorkspaceForCompilation(workspace, catalog)
 	if err != nil {
 		return authoringv2.Workspace{}, fmt.Errorf("migrate acceptance contributor predicates: %w", err)
 	}
+	migrated = migrated.NormalizePresentationOrders()
 	if err := migrated.ValidateForPublication(); err != nil {
 		return authoringv2.Workspace{}, fmt.Errorf("validate migrated acceptance workspace: %w", err)
 	}

@@ -473,7 +473,7 @@ func TestConstructionSourceProjectionAvailabilityUsesAuthoringCarryPolicy(t *tes
 	}
 }
 
-func TestConstructionCapabilitiesNormalizePersistedV9ReceiptWithoutChangingOwnerDraft(t *testing.T) {
+func TestConstructionCapabilitiesAfterStoredV9MigrationPreserveOwnerAndVerifyReceipt(t *testing.T) {
 	for _, forged := range []bool{false, true} {
 		t.Run(map[bool]string{false: "matching", true: "mismatched"}[forged], func(t *testing.T) {
 			service, store, snapshot := constructionProposalService(t)
@@ -490,16 +490,18 @@ func TestConstructionCapabilitiesNormalizePersistedV9ReceiptWithoutChangingOwner
 			if err != nil {
 				t.Fatal(err)
 			}
+			migration := migrateStoredWorkspaceFixture(t, draft, service.catalog(snapshot, store.created.ExplorerID))
+			draft, digest = migration.CanonicalJSON, migration.MigratedCanonicalDigest
 			store.created.DraftConfig, store.created.DraftDigest = draft, digest
 			originalConfig, originalVersion, originalDigest := string(draft), store.created.DraftVersion, digest
 			compileReceipt := service.config.CompileReceipt
 			catalog := service.config.Capability.Catalog(snapshot, store.created.ExplorerID)
 			service.config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-				prepared, migrateErr := authoringv2.MigrateLegacyContributors(request.Workspace, catalog)
+				prepared, migrateErr := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, catalog)
 				if migrateErr != nil {
 					return nil, migrateErr
 				}
-				prepared = authoringv2.MigrateLosslessDefaults(prepared, catalog).NormalizePresentationOrders()
+				prepared = prepared.NormalizePresentationOrders()
 				if forged {
 					prepared.Explorer.Title += " forged"
 				}
@@ -548,7 +550,7 @@ func TestConstructionCodedGroupChoicesRequirePopulatedCodeAndShowPathBreadcrumb(
 		snapshot: snapshot,
 		document: authoringv2.Document{
 			RootResourceType: "BodyStructure",
-			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "BodyStructure"},
+			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "BodyStructure"}, Rows: authoringv2.RecordsRowDefinition(),
 		},
 	}
 	stage := explorer.ReceiptConstructionStage{
@@ -599,7 +601,7 @@ func TestConstructionGroupSourceExposesPopulatedGeneratedScalarWhenObserved(t *t
 		snapshot: snapshot,
 		document: authoringv2.Document{
 			RootResourceType: "BodyStructure",
-			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "BodyStructure"},
+			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "BodyStructure"}, Rows: authoringv2.RecordsRowDefinition(),
 		},
 	}
 	capability, err := service.constructionGroupSourceCapability(context.Background(), base, "body-structures", recipe.ConstructionSourceProjectionID)
@@ -652,7 +654,7 @@ func TestConstructionGroupSourceChoicesExcludeConstantResourceTypeMetadata(t *te
 	}
 	document := authoringv2.Document{
 		RootResourceType: "BodyStructure",
-		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "BodyStructure"},
+		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "BodyStructure"}, Rows: authoringv2.RecordsRowDefinition(),
 	}
 	rowChoices, err := resolver.ListRowChoices(context.Background(), snapshot, document)
 	if err != nil {
@@ -1024,19 +1026,20 @@ func TestConstructionGroupEditCannotIntroduceUnsignedSourceProjection(t *testing
 
 func TestConstructionWorkspaceInputsUseFinalSchemasAndExcludeTargetDependents(t *testing.T) {
 	workspaceOutput := func(id string, steps ...authoringv2.ConstructionStep) authoringv2.Document {
-		return authoringv2.Document{Output: authoringv2.Output{ID: id, Title: "Table " + id}, Construction: &authoringv2.Construction{Version: 1, Steps: steps}}
+		return authoringv2.Document{Output: authoringv2.Output{ID: id, Title: "Table " + id}, Construction: &authoringv2.Construction{Version: 1, Steps: steps}, Rows: authoringv2.RecordsRowDefinition()}
 	}
 	combineInput := func(outputID string) authoringv2.ConstructionStep {
 		return authoringv2.ConstructionStep{Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputWorkspaceOutput, OutputID: outputID}}}
 	}
 	base := constructionBase{
 		workspace: authoringv2.Workspace{Documents: []authoringv2.Document{
-			{Output: authoringv2.Output{ID: "upstream", Title: "Upstream"}},
+			{Output: authoringv2.Output{ID: "upstream", Title: "Upstream"}, Rows: authoringv2.RecordsRowDefinition()},
 			workspaceOutput("target"),
 			workspaceOutput("depends-on-target", combineInput("target")),
 			workspaceOutput("transitive-dependent", combineInput("depends-on-target")),
-			{Output: authoringv2.Output{ID: "independent", Title: "Independent"}},
-		}},
+			{Output: authoringv2.Output{ID: "independent", Title: "Independent"}, Rows: authoringv2.RecordsRowDefinition()},
+		}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		},
 		receipt: &explorer.CompilationReceipt{CompiledOutputSchemas: map[string][]explorer.ReceiptCompiledOutputColumn{
 			"upstream": {
 				{ID: "patient-id", Name: "patient_id", Label: "Patient ID", LogicalType: "string", Cardinality: "required_one"},
@@ -1076,9 +1079,10 @@ func TestConstructionWorkspaceInputsUseFinalSchemasAndExcludeTargetDependents(t 
 func TestConstructionWorkspaceInputsRejectMissingFinalSiblingSchema(t *testing.T) {
 	base := constructionBase{
 		workspace: authoringv2.Workspace{Documents: []authoringv2.Document{
-			{Output: authoringv2.Output{ID: "target"}},
-			{Output: authoringv2.Output{ID: "sibling"}},
-		}},
+			{Output: authoringv2.Output{ID: "target"}, Rows: authoringv2.RecordsRowDefinition()},
+			{Output: authoringv2.Output{ID: "sibling"}, Rows: authoringv2.RecordsRowDefinition()},
+		}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		},
 		receipt: &explorer.CompilationReceipt{CompiledOutputSchemas: map[string][]explorer.ReceiptCompiledOutputColumn{
 			"target": {{ID: "target-id", Name: "target", Label: "Target", LogicalType: "string", Cardinality: "required_one"}},
 		}},

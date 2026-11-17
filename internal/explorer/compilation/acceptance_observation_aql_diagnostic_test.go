@@ -33,7 +33,7 @@ func TestAcceptanceObservationContributorAQLAndBinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, err := authoringv2.DecodeWorkspace(raw)
+	workspace, err := authoringv2.DecodeStoredWorkspaceForMigration(raw)
 	if err != nil {
 		t.Fatalf("decode locked acceptance workspace: %v", err)
 	}

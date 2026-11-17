@@ -32,7 +32,7 @@ func (s *Service) RowLineage(ctx context.Context, request RowLineageRequest) (Ro
 	if err != nil {
 		return RowLineageResult{}, err
 	}
-	if err := s.validateReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
+	if err := s.validateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
 		return RowLineageResult{}, err
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, receipt.Project, receipt.SnapshotToken)

@@ -25,7 +25,7 @@ func MigrateLegacyContributors(workspace Workspace, catalog CatalogSnapshot) (Wo
 	if !workspaceHasLegacyContributors(workspace) {
 		return workspace, nil
 	}
-	migrated, err := cloneWorkspace(workspace)
+	migrated, err := cloneStoredWorkspace(workspace)
 	if err != nil {
 		return workspace, err
 	}
@@ -82,22 +82,11 @@ func MigrateLegacyContributors(workspace Workspace, catalog CatalogSnapshot) (Wo
 	return migrated, nil
 }
 
-// PrepareWorkspaceForCompilation returns the canonical workspace representation
-// used to bind compilation receipts. It works on a detached copy so callers can
-// retain the exact persisted draft and its compare-and-swap digest.
-func PrepareWorkspaceForCompilation(workspace Workspace, catalog CatalogSnapshot) (Workspace, error) {
-	prepared, err := MigrateWorkspaceForCompilation(workspace, catalog)
-	if err != nil {
-		return Workspace{}, err
-	}
-	return prepared.NormalizePresentationOrders(), nil
-}
-
 // MigrateWorkspaceForCompilation applies compilation migrations to a detached
 // copy without normalizing presentation orders, so callers can validate the
 // original authored values before canonicalizing them.
 func MigrateWorkspaceForCompilation(workspace Workspace, catalog CatalogSnapshot) (Workspace, error) {
-	prepared, err := cloneWorkspace(workspace)
+	prepared, err := cloneStoredWorkspace(workspace)
 	if err != nil {
 		return Workspace{}, err
 	}
@@ -107,17 +96,6 @@ func MigrateWorkspaceForCompilation(workspace Workspace, catalog CatalogSnapshot
 	}
 	prepared = MigrateLosslessDefaults(prepared, catalog)
 	return prepared, nil
-}
-
-func workspaceHasLegacyContributors(workspace Workspace) bool {
-	for _, document := range workspace.Documents {
-		for _, column := range document.Columns {
-			if column.Source.Kind == SourceAggregate && column.Source.Aggregate != nil && column.Source.Aggregate.Where != nil {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func legacyContributorCandidate(catalog CatalogSnapshot, resourceType, path string) (CatalogCandidate, bool, bool) {
@@ -233,6 +211,59 @@ func MigrateLosslessDefaults(workspace Workspace, catalog CatalogSnapshot) Works
 	// not silently claim v4 while retaining the private v3 meaning.
 	if !legacyContributors {
 		workspace.SemanticsVersion = CurrentSemanticsVersion
+	}
+	return workspace
+}
+
+func cloneStoredWorkspace(value Workspace) (Workspace, error) {
+	result, err := cloneWorkspace(value)
+	if err != nil {
+		return Workspace{}, err
+	}
+	// SourceWhere is a private persisted-draft compatibility payload and is
+	// intentionally omitted from current JSON. Preserve it for transactional
+	// legacy migration and frozen in-memory callers while keeping it unwritable.
+	for documentIndex := range value.Documents {
+		if documentIndex >= len(result.Documents) {
+			break
+		}
+		for columnIndex := range value.Documents[documentIndex].Columns {
+			if columnIndex >= len(result.Documents[documentIndex].Columns) {
+				break
+			}
+			where := value.Documents[documentIndex].Columns[columnIndex].Source.Aggregate
+			if where == nil || where.Where == nil || result.Documents[documentIndex].Columns[columnIndex].Source.Aggregate == nil {
+				continue
+			}
+			legacyWhere := *where.Where
+			result.Documents[documentIndex].Columns[columnIndex].Source.Aggregate.Where = &legacyWhere
+		}
+	}
+	return result, nil
+}
+
+// migrateMissingRowsBeforeCurrent installs the historical root-record behavior only
+// across the semantics-version boundary. It copies the document slice before
+// editing and deliberately leaves the version bump to its migration owner.
+func migrateMissingRowsBeforeCurrent(workspace Workspace) Workspace {
+	if workspace.SemanticsVersion >= explicitRowsSemanticsVersion {
+		return workspace
+	}
+	needsMigration := false
+	for _, document := range workspace.Documents {
+		if missingRowDefinition(document.Rows) {
+			needsMigration = true
+			break
+		}
+	}
+	if !needsMigration {
+		return workspace
+	}
+	workspace.Documents = append([]Document(nil), workspace.Documents...)
+	for index := range workspace.Documents {
+		if missingRowDefinition(workspace.Documents[index].Rows) {
+			workspace.Documents[index].Rows = RecordsRowDefinition()
+		}
 	}
 	return workspace
 }

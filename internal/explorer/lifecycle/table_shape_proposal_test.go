@@ -431,9 +431,9 @@ func TestDiscardingTableShapeProposalDoesNotApplyIt(t *testing.T) {
 	}
 }
 
-func TestApplyTableShapeProposalMigratesV9CandidateAndKeepsBaseCAS(t *testing.T) {
+func TestApplyTableShapeProposalAfterStoredV9MigrationKeepsBaseCAS(t *testing.T) {
 	service, store, snapshot, _ := tableShapeProposalService(t)
-	baseDigest := persistV9TableShapeDraft(t, store)
+	baseDigest := persistMigratedV9TableShapeDraft(t, store, snapshot)
 	compile := service.config.CompileReceipt
 	service.config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		prepared, err := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, service.catalog(snapshot, "patients"))

@@ -733,7 +733,7 @@ func (s *Service) reuseTableShapeCatalogBase(ctx context.Context, request TableS
 	if err != nil || receipt == nil || receipt.ID != catalog.Binding.BaseCompilationReceiptID {
 		return tableShapeBase{}, false
 	}
-	if err := s.validateReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
+	if err := s.validateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
 		return tableShapeBase{}, false
 	}
 	if _, err := s.verifyProposalReceipt(ctx, "table-shape-capabilities", receipt, request.Project, request.ExplorerID, request.SnapshotToken, current.snapshot, &current.workspace); err != nil {

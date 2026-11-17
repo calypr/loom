@@ -56,7 +56,7 @@ func (s *Service) PopulationMapping(ctx context.Context, request PopulationMappi
 	if err != nil {
 		return PopulationMappingResult{}, err
 	}
-	if err := s.validateReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
+	if err := s.validateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
 		return PopulationMappingResult{}, err
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, receipt.Project, receipt.SnapshotToken)
