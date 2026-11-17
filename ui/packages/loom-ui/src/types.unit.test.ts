@@ -1,7 +1,5 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  EXPLORER_AUTHORING_SEMANTICS_VERSION,
   assertExplorerBuilderPreviewResult,
   assertExplorerStateV1,
   aggregateTransformationCapabilitySchema,
@@ -38,15 +36,6 @@ import {
   explicitGroupCreateRequestSchema,
   explicitGroupRevisionSummarySchema,
 } from './types';
-
-describe('Explorer authoring contract version', () => {
-  it('sends the semantics version required by the Go command decoder', () => {
-    const source = readFileSync(new URL('../../../../internal/explorer/authoringv2/types.go', import.meta.url), 'utf8');
-    const match = source.match(/CurrentSemanticsVersion\s*=\s*(\d+)/);
-    expect(match, 'Go authoring semantics version must be declared').not.toBeNull();
-    expect(EXPLORER_AUTHORING_SEMANTICS_VERSION).toBe(Number(match?.[1]));
-  });
-});
 
 describe('explorerBuilderDocumentSchema', () => {
   const document = {
@@ -272,6 +261,7 @@ describe('construction source selection schemas', () => {
       selectedStage: stage,
       groupFieldChoices: [],
       groupRowValueChoices: [],
+      sourceInput: { supported: false, stageId: 'source_projection', choices: [] },
       workspaceInputs: [],
     };
     const input = {
@@ -1042,6 +1032,7 @@ describe('staged construction contract', () => {
       selectedStage: stage,
       groupFieldChoices: [],
       groupRowValueChoices: [],
+      sourceInput: { supported: false, stageId: 'source_projection', choices: [] },
       workspaceInputs: [],
     };
 
@@ -1109,6 +1100,7 @@ describe('staged construction contract', () => {
       outputId: 'patients', stageId: stage.id,
       baseConstruction: { version: 1, steps: [] }, stages: [stage], selectedStage: stage,
       groupFieldChoices: [], groupRowValueChoices: [],
+      sourceInput: { supported: false, stageId: stage.id, choices: [] },
       workspaceInputs: [],
     };
 

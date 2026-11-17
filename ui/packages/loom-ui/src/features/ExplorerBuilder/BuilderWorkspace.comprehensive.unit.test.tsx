@@ -3,6 +3,7 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { builderWorkspaceNullMocks } from '../../../testSupport/builderWorkspaceMocks';
 import { createLoomClient, type LoomClient, type ApplyExplorerBuilderCommandsArgs } from '../../api';
 import type {
   Construction,
@@ -89,10 +90,10 @@ vi.mock('./components/PreviewTable', async (importOriginal) => ({
   ...await importOriginal<typeof import('./components/PreviewTable')>(),
   PreviewTable: () => null,
 }));
-vi.mock('./components/DataframeContractPanel', () => ({ DataframeContractPanel: () => null }));
-vi.mock('./components/PopulationPanel', () => ({ PopulationPanel: () => null }));
+vi.mock('./components/DataframeContractPanel', () => builderWorkspaceNullMocks.DataframeContractPanel);
+vi.mock('./components/PopulationPanel', () => builderWorkspaceNullMocks.PopulationPanel);
 vi.mock('./components/RowChangePreviewPanel', () => ({ RowChangePreviewPanel: () => null }));
-vi.mock('./components/InterpretationPanel', () => ({ InterpretationPanel: () => null }));
+vi.mock('./components/InterpretationPanel', () => builderWorkspaceNullMocks.InterpretationPanel);
 
 const apiVersion = 'loom.calypr.org/explorer-authoring/v2' as const;
 const outputId = 'patients';
@@ -165,6 +166,7 @@ const sourceStage: ConstructionStageDescriptor = {
 };
 
 const capabilities: ConstructionCapabilitiesResponse = constructionCapabilitiesResponseSchema.parse({
+  sourceInput: { supported: false, stageId: sourceStage.id, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
   snapshotToken: 'snapshot-ui-contract-capture',
   draftVersion: 1,
   draftDigest: 'sha256:accepted-group-count',

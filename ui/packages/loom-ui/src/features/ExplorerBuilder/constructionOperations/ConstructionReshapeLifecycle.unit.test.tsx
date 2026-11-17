@@ -69,6 +69,7 @@ const capabilities: ConstructionCapabilitiesResponse = {
   draftDigest: request.expectedDraftDigest,
   outputId: request.outputId,
   stageId: request.stageId,
+  sourceInput: { supported: false, stageId: request.stageId, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
   baseConstruction: construction,
   stages: [sourceStage, intermediateStage],
   selectedStage: intermediateStage,

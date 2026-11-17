@@ -33,6 +33,7 @@ const capabilitiesFor = (
   draftDigest: 'draft-digest-1',
   outputId: 'table-1',
   stageId: stage.id,
+  sourceInput: { supported: false, stageId: stage.id, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
   baseConstruction: { version: 1, steps: [] },
   stages: [stage],
   selectedStage: stage,

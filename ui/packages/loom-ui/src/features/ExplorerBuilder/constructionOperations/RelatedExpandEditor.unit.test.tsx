@@ -78,6 +78,7 @@ const catalog: ExplorerBuilderCatalog = {
 const capabilities: ConstructionCapabilitiesResponse = {
   snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients',
   stageId: 'source_projection',
+  sourceInput: { supported: false, stageId: 'source_projection', reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
   baseConstruction: { version: 1, steps: [] },
   stages: [],
   groupFieldChoices: [],

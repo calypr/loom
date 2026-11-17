@@ -17,8 +17,11 @@ import {
   liveFilterSourceUnmaterializedProvenance,
   liveFilterSourceUnmaterializedResponse,
   liveFilterSourceUnmaterializedResponseJson,
-} from '../../../../testSupport/liveConstructionCapabilitiesFixtures';
+} from './liveConstructionCapabilitiesFixtures';
 import { ConstructionOperationEditor } from './ConstructionOperationEditor';
+import { capabilitiesFor as makeCapabilities, sourceStage as makeSourceStage } from '../../../../testSupport/constructionFixtures';
+import { sourceStage as reviewSourceStage } from '../../../../testSupport/constructionFixtures';
+import { type ConstructionDeriveSourceSelection } from '../../../types';
 
 type CandidateIntent = Pick<
   ConstructionProposalRequest,
@@ -36,18 +39,9 @@ const columns: ConstructionStageDescriptor['columns'] = [
   { id: 'status-id', name: 'status', label: 'Status', type: 'string' },
 ];
 
-const sourceStage: ConstructionStageDescriptor = {
-  id: 'source_projection',
-  inputStageId: '',
-  operation: 'SOURCE_PROJECTION',
-  columns,
-  capabilities: [
-    { kind: 'FILTER', supported: true },
-    { kind: 'DERIVE', supported: true },
-    { kind: 'PIVOT', supported: false, reason: 'Not needed by this editor test.' },
-    { kind: 'UNPIVOT', supported: false, reason: 'Not needed by this editor test.' },
-  ],
-};
+const sourceStage: ConstructionStageDescriptor = makeSourceStage(columns, {
+  unavailableReason: 'Not needed by this editor test.',
+});
 
 type GroupFieldChoice = ConstructionCapabilitiesResponse['groupFieldChoices'][number];
 type GroupRowValueChoice = ConstructionCapabilitiesResponse['groupRowValueChoices'][number];
@@ -60,20 +54,16 @@ const capabilitiesFor = (
   deriveSourceInput?: DeriveSourceInput,
   groupFieldChoices: ReadonlyArray<GroupFieldChoice> = [],
   groupRowValueChoices: ReadonlyArray<GroupRowValueChoice> = [],
-): ConstructionCapabilitiesResponse => ({
-  snapshotToken: 'snapshot-1',
-  draftVersion: 1,
-  draftDigest: 'draft-digest-1',
-  outputId: 'table-1',
-  stageId: selectedStage.id,
-  baseConstruction: construction,
-  stages: [...stages],
+): ConstructionCapabilitiesResponse => makeCapabilities({
   selectedStage,
-  groupFieldChoices: [...groupFieldChoices],
-  groupRowValueChoices: [...groupRowValueChoices],
-  workspaceInputs: [],
-  ...(filterSourceInput ? { filterSourceInput } : {}),
-  ...(deriveSourceInput ? { deriveSourceInput } : {}),
+  stages,
+  baseConstruction: construction,
+  groupFieldChoices,
+  groupRowValueChoices,
+  overrides: {
+    ...(filterSourceInput ? { filterSourceInput } : {}),
+    ...(deriveSourceInput ? { deriveSourceInput } : {}),
+  },
 });
 
 const renderEditor = (args: {
@@ -1338,3 +1328,1014 @@ describe('ConstructionOperationEditor', () => {
     });
   });
 });
+
+// Migrated from row06_round2_attacks.unit.test.tsx.
+{
+type CandidateIntent = Pick<
+  ConstructionProposalRequest,
+  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'filterSources' | 'deriveSources'
+>;
+
+type FilterSourceInput = NonNullable<ConstructionCapabilitiesResponse['filterSourceInput']>;
+
+type DeriveSourceInput = NonNullable<ConstructionCapabilitiesResponse['deriveSourceInput']>;
+
+const columns: ConstructionStageDescriptor['columns'] = [
+  { id: 'age-id', name: 'age', label: 'Age', type: 'integer' },
+  { id: 'weight-id', name: 'weight', label: 'Weight', type: 'decimal' },
+  { id: 'status-id', name: 'status', label: 'Status', type: 'string' },
+];
+
+const renderEditor = (args: {
+  readonly family: 'KEEP_ROWS' | 'CALCULATE';
+  readonly construction?: Construction;
+  readonly selectedStage?: ConstructionStageDescriptor;
+  readonly editingStep?: ConstructionStep;
+  readonly selectedColumns?: ReadonlyArray<string>;
+  readonly filterSourceInput?: FilterSourceInput;
+  readonly deriveSourceInput?: DeriveSourceInput;
+  readonly onCandidateChange?: (candidate: CandidateIntent | undefined) => void;
+}) => {
+  const selectedStage = args.selectedStage ?? reviewSourceStage(columns);
+  const construction = args.construction ?? { version: 1, steps: [] };
+  render(
+    <ConstructionOperationEditor
+      family={args.family}
+      construction={construction}
+      capabilities={{
+        snapshotToken: 'snapshot-1',
+        draftVersion: 1,
+        draftDigest: 'draft-digest-1',
+        outputId: 'table-1',
+        stageId: selectedStage.id,
+        sourceInput: { supported: false, stageId: selectedStage.id, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
+        baseConstruction: construction,
+        stages: [selectedStage],
+        selectedStage,
+        groupFieldChoices: [],
+        groupRowValueChoices: [],
+        workspaceInputs: [],
+        ...(args.filterSourceInput ? { filterSourceInput: args.filterSourceInput } : {}),
+        ...(args.deriveSourceInput ? { deriveSourceInput: args.deriveSourceInput } : {}),
+      }}
+      editingStep={args.editingStep}
+      selectedColumns={args.selectedColumns}
+      disabled={false}
+      onCandidateChange={args.onCandidateChange ?? vi.fn()}
+      onEditStep={vi.fn()}
+    />,
+  );
+};
+
+const sourceOptgroup = (select: HTMLSelectElement): HTMLOptGroupElement | null =>
+  select.querySelector('optgroup[label="Dataset fields (not in output)"]');
+
+const filterColumn = (): HTMLSelectElement => screen.getByRole('combobox', { name: 'Column' }) as HTMLSelectElement;
+
+const operandColumn = (label: string): HTMLSelectElement =>
+  screen.getByRole('combobox', { name: `${label} column` }) as HTMLSelectElement;
+
+const setKind = (label: string, value: 'column' | 'literal' | 'unset') => {
+  fireEvent.change(screen.getByRole('combobox', { name: `${label} kind` }), { target: { value } });
+};
+
+const numericChoice = (choiceId: string, fieldPath: string, columnId: string) => ({
+  choiceId,
+  fieldPath,
+  label: fieldPath,
+  logicalType: 'decimal' as const,
+  isPopulated: true,
+  columnId,
+});
+
+describe('ROW-SOURCE-06 round-2 attacks (ConstructionOperationEditor)', () => {
+  it('A1 CONTRACT: explains when the only populated derive field is bound but not listable in the picker', () => {
+    renderEditor({
+      family: 'CALCULATE',
+      selectedStage: reviewSourceStage([{ id: 'status-id', name: 'status', label: 'Status', type: 'string' }]),
+      deriveSourceInput: {
+        supported: true,
+        stageId: 'source_projection',
+        choices: [{ choiceId: 'choice-note', fieldPath: 'root.note.text', label: 'Note', logicalType: 'string', isPopulated: true, columnId: 'derive-input_note' }],
+      },
+    });
+    setKind('First value', 'column');
+
+    const left = operandColumn('First value');
+    expect(left.options).toHaveLength(0);
+    expect(sourceOptgroup(left)).toBeNull();
+    expect(screen.getByTestId('source-picker-explanation').textContent).toContain('dataset field');
+  });
+
+  it('A2 both derive operands keep every live signed field selectable, so the all-bound pair needs no banner', () => {
+    renderEditor({
+      family: 'CALCULATE',
+      selectedStage: reviewSourceStage([{ id: 'status-id', name: 'status', label: 'Status', type: 'string' }]),
+      deriveSourceInput: {
+        supported: true,
+        stageId: 'source_projection',
+        choices: [numericChoice('choice-a', 'root.a.value', 'derive-input_a'), numericChoice('choice-b', 'root.b.value', 'derive-input_b')],
+      },
+    });
+    setKind('First value', 'column');
+    setKind('Second value', 'column');
+    // The kind shortcut reuses the numeric column it just materialized, so each lane
+    // explicitly re-picks a distinct dataset field.
+    fireEvent.change(operandColumn('Second value'), { target: { value: 'source:choice-b' } });
+
+    const offers = (select: HTMLSelectElement, choiceId: string, columnId: string) =>
+      [...select.options].some((o) => o.value === columnId || o.value === `source:${choiceId}`);
+    const first = operandColumn('First value');
+    const second = operandColumn('Second value');
+    expect(offers(first, 'choice-a', 'derive-input_a')).toBe(true);
+    expect(offers(first, 'choice-b', 'derive-input_b')).toBe(true);
+    expect(offers(second, 'choice-a', 'derive-input_a')).toBe(true);
+    expect(offers(second, 'choice-b', 'derive-input_b')).toBe(true);
+  });
+
+  it('A3 a released operand binding is pruned, so the freed field returns to the picker instead of staying silently bound', () => {
+    renderEditor({
+      family: 'CALCULATE',
+      selectedStage: reviewSourceStage([{ id: 'status-id', name: 'status', label: 'Status', type: 'string' }]),
+      deriveSourceInput: {
+        supported: true,
+        stageId: 'source_projection',
+        choices: [numericChoice('choice-a', 'root.a.value', 'derive-input_a'), numericChoice('choice-b', 'root.b.value', 'derive-input_b')],
+      },
+    });
+    setKind('Second value', 'column');
+    setKind('First value', 'column');
+    setKind('First value', 'literal');
+
+    const right = operandColumn('Second value');
+    expect([...right.options].map((o) => o.value)).toEqual(['derive-input_a', 'source:choice-b']);
+    expect(sourceOptgroup(right)?.querySelectorAll('option').length).toBe(1);
+  });
+
+  it('A4 CONTRACT: two live filter bindings on one column leave no invisible field unexplained', () => {
+    const onCandidateChange = vi.fn();
+    renderEditor({
+      family: 'KEEP_ROWS',
+      onCandidateChange,
+      filterSourceInput: {
+        supported: true,
+        stageId: 'source_projection',
+        // zod allows two choices sharing one materialized columnId; server proposal paths reject duplicates.
+        choices: [numericChoice('choice-a', 'root.a', 'shared-column'), numericChoice('choice-b', 'root.b', 'shared-column')],
+      },
+    });
+    fireEvent.change(filterColumn(), { target: { value: 'source:choice-a' } });
+    fireEvent.change(filterColumn(), { target: { value: 'source:choice-b' } });
+
+    const control = filterColumn();
+    expect(sourceOptgroup(control)).toBeNull();
+    // Evidence: both bindings live on one columnId, but only one bound option renders,
+    // so root.b is neither selectable nor explained.
+    expect([...control.options].filter((o) => o.value === 'shared-column')).toHaveLength(1);
+    expect(screen.getByTestId('source-picker-explanation').textContent)
+      .toContain('already used by another source selection');
+  });
+
+  it('A5a mechanism: the zero-column stage path replaces the picker with a column notice', () => {
+    renderEditor({
+      family: 'KEEP_ROWS',
+      selectedStage: reviewSourceStage([]),
+      filterSourceInput: {
+        supported: true,
+        stageId: 'source_projection',
+        choices: [{ choiceId: 'choice-status', fieldPath: 'root.status', label: 'Status', logicalType: 'string', isPopulated: false, columnId: '' }],
+      },
+    });
+    // Two status surfaces coexist legitimately here (column notice + zero-eligible explanation).
+    expect(screen.getAllByRole('status').some((node) => (node.textContent ?? '').includes('no columns'))).toBe(true);
+    expect(screen.queryByRole('combobox', { name: 'Column' })).toBeNull();
+  });
+
+  it('A5 CONTRACT: a filter lane with no stage columns still distinguishes unpopulated dataset fields', () => {
+    renderEditor({
+      family: 'KEEP_ROWS',
+      selectedStage: reviewSourceStage([]),
+      filterSourceInput: {
+        supported: true,
+        stageId: 'source_projection',
+        choices: [{ choiceId: 'choice-status', fieldPath: 'root.status', label: 'Status', logicalType: 'string', isPopulated: false, columnId: '' }],
+      },
+    });
+    expect(screen.getByTestId('source-picker-explanation').textContent)
+      .toContain('contains values in this dataset yet');
+  });
+
+  it('A7 regression: derive lane with one populated field bound by the saved operand explains or keeps it selectable', () => {
+    const saved: ConstructionStep = {
+      id: 'derive-source-saved',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: {
+        kind: 'DERIVE',
+        derive: {
+          constructionId: 'derive-source-saved',
+          outputColumnId: 'calculated-id',
+          operation: 'ADD',
+          left: { kind: 'COLUMN', columnId: 'derive-input_saved' },
+          right: { kind: 'LITERAL', literal: { kind: 'INTEGER', integer: 2 } },
+          missingInputPolicy: 'PROPAGATE_NULL',
+        },
+      },
+      outputs: [...columns, { id: 'calculated-id', name: 'derived', label: 'Derived', type: 'integer' }],
+    };
+    renderEditor({
+      family: 'CALCULATE',
+      construction: { version: 1, steps: [saved] },
+      editingStep: saved,
+      deriveSourceInput: {
+        supported: true,
+        stageId: 'source_projection',
+        choices: [{ choiceId: 'choice-a', fieldPath: 'root.a', label: 'Root a', logicalType: 'decimal', isPopulated: true, columnId: 'derive-input_saved' }],
+      },
+    });
+    const first = operandColumn('First value');
+    const selectable = [...first.options].some((o) => o.value === 'derive-input_saved' || o.value === 'source:choice-a');
+    const explained = screen.queryByTestId('source-picker-explanation') !== null;
+    expect(selectable || explained).toBe(true);
+  });
+
+  // Coordinator addendum (self-review of round-2 delta): when the first
+  // operand has no source section (literal kind), a zero-field second operand
+  // must still explain itself rather than render an unexplained empty picker.
+  it('hosts the explanation on the second operand when the first operand is literal', () => {
+    renderEditor({
+      family: 'CALCULATE',
+      selectedStage: reviewSourceStage([{ id: 'status-id', name: 'status', label: 'Status', type: 'string' }]),
+      deriveSourceInput: {
+        supported: true,
+        stageId: 'source_projection',
+        choices: [{ choiceId: 'choice-note', fieldPath: 'root.note.text', label: 'Note', logicalType: 'string', isPopulated: true, columnId: 'derive-input_note' }],
+      },
+    });
+    setKind('First value', 'literal');
+    setKind('Second value', 'column');
+    expect([...operandColumn('Second value').options]).toHaveLength(0);
+    expect(screen.getByTestId('source-picker-explanation').textContent).toContain('dataset field');
+  });
+
+  // Coordinator addendum: pins the visibility-aware self-exclusion that keeps a
+  // still-selectable sole binding from falsely producing the all-bound banner.
+  it('renders no banner while the sole bound derive field stays selectable as its materialized column', () => {
+    renderEditor({
+      family: 'CALCULATE',
+      selectedStage: reviewSourceStage([{ id: 'status-id', name: 'status', label: 'Status', type: 'string' }]),
+      deriveSourceInput: {
+        supported: true,
+        stageId: 'source_projection',
+        choices: [numericChoice('choice-a', 'root.a.value', 'derive-input_a')],
+      },
+    });
+    setKind('First value', 'column');
+    expect([...operandColumn('First value').options].map((option) => option.value)).toContain('derive-input_a');
+    expect(screen.queryByTestId('source-picker-explanation')).toBeNull();
+  });
+
+  it('A8 switching the condition column off the bound private column returns that field to the picker', () => {
+    const saved: ConstructionStep = {
+      id: 'filter-source-saved',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: { kind: 'FILTER', filter: { columnId: 'filter-input_saved', operator: 'EXISTS' } },
+      outputs: [...columns, { id: 'filter-input_saved', name: 'root_a', label: 'Root a', type: 'decimal' }],
+    };
+    renderEditor({
+      family: 'KEEP_ROWS',
+      construction: { version: 1, steps: [saved] },
+      editingStep: saved,
+      selectedColumns: ['age-id'],
+      filterSourceInput: {
+        supported: true,
+        stageId: 'source_projection',
+        choices: [{ choiceId: 'choice-a', fieldPath: 'root.a', label: 'Root a', logicalType: 'decimal', isPopulated: true, columnId: 'filter-input_saved' }],
+      },
+    });
+    // Drive the condition column to a different stage column than the bound private column.
+    fireEvent.change(filterColumn(), { target: { value: 'age-id' } });
+
+    const control = filterColumn();
+    const showsBoundField = [...control.options].some((o) => o.value === 'filter-input_saved' || o.value === 'source:choice-a');
+    expect(showsBoundField).toBe(true);
+  });
+
+  it('A6 a second saved condition does not produce a false all-bound banner in the editing lane', () => {
+    const otherSaved: ConstructionStep = {
+      id: 'filter-other',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: { kind: 'FILTER', filter: { columnId: 'filter-input_a', operator: 'EXISTS' } },
+      outputs: [...columns, { id: 'filter-input_a', name: 'root_a', label: 'Root a', type: 'decimal' }],
+    };
+    renderEditor({
+      family: 'KEEP_ROWS',
+      construction: { version: 1, steps: [otherSaved] },
+      filterSourceInput: {
+        supported: true,
+        stageId: 'source_projection',
+        choices: [numericChoice('choice-a', 'root.a', 'filter-input_a')],
+      },
+    });
+    expect(sourceOptgroup(filterColumn())?.querySelectorAll('option').length).toBe(1);
+    expect(screen.queryByTestId('source-picker-explanation')).toBeNull();
+  });
+});
+}
+
+// Migrated from row07_round2_attacks.unit.test.tsx.
+{
+type CandidateIntent = Pick<
+  ConstructionProposalRequest,
+  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'filterSources' | 'deriveSources'
+>;
+
+const projection = (columnId: string, fieldPath: string): NonNullable<Construction['sourceProjections']>[number] => ({
+  columnId,
+  occurrenceId: `occ-${columnId}`,
+  fieldPath,
+  fhirType: 'string',
+  logicalType: 'string',
+  label: fieldPath,
+});
+
+const renderEditor = (args: {
+  readonly family: 'KEEP_ROWS' | 'CALCULATE';
+  readonly construction?: Construction;
+  readonly stageColumns: ConstructionStageDescriptor['columns'];
+  readonly filterSourceInput?: ConstructionCapabilitiesResponse['filterSourceInput'];
+  readonly deriveSourceInput?: ConstructionCapabilitiesResponse['deriveSourceInput'];
+  readonly editingStep?: ConstructionStep;
+  readonly onCandidateChange?: (candidate: CandidateIntent | undefined) => void;
+}) => {
+  const selectedStage = reviewSourceStage(args.stageColumns, { unavailableReason: 'Not needed in this test.' });
+  const onCandidateChange = args.onCandidateChange ?? vi.fn();
+  render(
+    <ConstructionOperationEditor
+      family={args.family}
+      construction={args.construction ?? { version: 1, steps: [] }}
+      capabilities={{
+        snapshotToken: 'snapshot-1',
+        draftVersion: 1,
+        draftDigest: 'draft-digest-1',
+        outputId: 'table-1',
+        stageId: selectedStage.id,
+        sourceInput: { supported: false, stageId: selectedStage.id, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
+        baseConstruction: { version: 1, steps: [] },
+        stages: [selectedStage],
+        selectedStage,
+        groupFieldChoices: [],
+        groupRowValueChoices: [],
+        workspaceInputs: [],
+        ...(args.filterSourceInput ? { filterSourceInput: args.filterSourceInput } : {}),
+        ...(args.deriveSourceInput ? { deriveSourceInput: args.deriveSourceInput } : {}),
+      }}
+      editingStep={args.editingStep}
+      disabled={false}
+      onCandidateChange={onCandidateChange}
+      onEditStep={vi.fn()}
+    />,
+  );
+  return onCandidateChange;
+};
+
+const filterColumnSelect = (): HTMLSelectElement =>
+  screen.getByRole('combobox', { name: 'Column' }) as HTMLSelectElement;
+
+const operandColumn = (label: string): HTMLSelectElement =>
+  screen.getByRole('combobox', { name: `${label} column` }) as HTMLSelectElement;
+
+const operandKind = (label: string): HTMLSelectElement =>
+  screen.getByRole('combobox', { name: `${label} kind` }) as HTMLSelectElement;
+
+const stringCol = (id: string, label: string) => ({ id, name: id, label, type: 'string' });
+
+const intCol = (id: string, label: string) => ({ id, name: id, label, type: 'integer' });
+
+const decCol = (id: string, label: string) => ({ id, name: id, label, type: 'decimal' });
+
+const filterChoice = (choiceId: string, fieldPath: string, label: string, isPopulated = true, columnId?: string) => ({
+  choiceId,
+  fieldPath,
+  label,
+  logicalType: 'integer' as const,
+  isPopulated,
+  ...(columnId ? { columnId } : {}),
+});
+
+const deriveChoice = (choiceId: string, fieldPath: string, label: string, isPopulated = true, columnId?: string) => ({
+  choiceId,
+  fieldPath,
+  label,
+  logicalType: 'decimal' as const,
+  isPopulated,
+  ...(columnId ? { columnId } : {}),
+});
+
+const withProjections = (projections: Construction['sourceProjections']): Construction => ({
+  version: 1,
+  steps: [],
+  ...(projections ? { sourceProjections: projections } : {}),
+});
+
+const optionValues = (select: HTMLSelectElement) => [...select.options].map((option) => option.value);
+
+const explanationNodes = () => screen.queryAllByTestId('source-picker-explanation');
+
+const allBoundText = () =>
+  screen.queryByText('Every eligible dataset field that contains values is already used by another source selection here. Remove one to choose a different field.');
+
+const nonePopulatedText = () =>
+  screen.queryByText('No eligible dataset field contains values in this dataset yet.');
+
+function renderPair(args: {
+  readonly stageColumns: ConstructionStageDescriptor['columns'];
+  readonly choices: ReturnType<typeof deriveChoice>[];
+  readonly projections?: Construction['sourceProjections'];
+}) {
+  const selectedStage = reviewSourceStage(args.stageColumns);
+  const capabilities: ConstructionCapabilitiesResponse = {
+    snapshotToken: 'snapshot-1',
+    draftVersion: 1,
+    draftDigest: 'draft-digest-1',
+    outputId: 'table-1',
+    stageId: selectedStage.id,
+    sourceInput: { supported: false, stageId: selectedStage.id, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
+    baseConstruction: { version: 1, steps: [] },
+    stages: [selectedStage],
+    selectedStage,
+    groupFieldChoices: [],
+    groupRowValueChoices: [],
+    workspaceInputs: [],
+    deriveSourceInput: { supported: true, stageId: 'source_projection', choices: args.choices },
+  };
+  const initial = (
+    <ConstructionOperationEditor
+      family="CALCULATE"
+      construction={withProjections(args.projections)}
+      capabilities={capabilities}
+      editingStep={undefined}
+      disabled={false}
+      onCandidateChange={vi.fn()}
+      onEditStep={vi.fn()}
+    />
+  );
+  const view = render(initial);
+  return {
+    rerender: () => undefined,
+    rerenderPair: (next: { stageColumns: ConstructionStageDescriptor['columns']; choices: ReturnType<typeof deriveChoice>[]; projections?: Construction['sourceProjections'] }) => {
+      const stage = reviewSourceStage(next.stageColumns);
+      view.rerender(
+        <ConstructionOperationEditor
+          family="CALCULATE"
+          construction={withProjections(next.projections)}
+          capabilities={{ ...capabilities, stages: [stage], selectedStage: stage }}
+          editingStep={undefined}
+          disabled={false}
+          onCandidateChange={vi.fn()}
+          onEditStep={vi.fn()}
+        />,
+      );
+    },
+  };
+}
+
+describe('ATTACK 1 label-matching cannot cross-suppress', () => {
+  const choiceA = filterChoice('choice-a', 'root.age', 'Age');
+  const choiceB = filterChoice('choice-b', 'root.note', 'Note');
+
+  it('suppression follows projection fieldPath only, never column labels', () => {
+    renderEditor({
+      family: 'KEEP_ROWS',
+      construction: withProjections([projection('col-age', 'root.age')]),
+      // col-age deliberately labelled with choice B's fieldPath; col-note labelled like choice A.
+      stageColumns: [intCol('col-age', 'root.note'), intCol('col-note', 'Age')],
+      filterSourceInput: { supported: true, stageId: 'source_projection', choices: [choiceA, choiceB] },
+    });
+    const values = optionValues(filterColumnSelect());
+    expect(values).not.toContain('source:choice-a'); // its fieldPath is projected → reused
+    expect(values).toContain('source:choice-b'); // root.note NOT projected → must stay offered
+  });
+
+  it('mirrored: label-equals-fieldPath on an unprojected column does not suppress the projected field choice', () => {
+    renderEditor({
+      family: 'KEEP_ROWS',
+      construction: withProjections([projection('col-note', 'root.note')]),
+      stageColumns: [intCol('col-age', 'root.note'), intCol('col-note', 'Age')],
+      filterSourceInput: { supported: true, stageId: 'source_projection', choices: [choiceA, choiceB] },
+    });
+    const values = optionValues(filterColumnSelect());
+    expect(values).toContain('source:choice-a'); // root.age never projected
+    expect(values).not.toContain('source:choice-b'); // its exact fieldPath IS projected
+  });
+});
+
+describe('ATTACK 2 ambiguity: 3-way and duplicate-columnId payloads', () => {
+  const choiceA = filterChoice('choice-a', 'root.age', 'Age');
+
+  it('two live + one stale projection for one fieldPath keeps the signed choice (usable==2)', () => {
+    renderEditor({
+      family: 'KEEP_ROWS',
+      construction: withProjections([
+        projection('col-a', 'root.age'),
+        projection('col-b', 'root.age'),
+        projection('col-gone', 'root.age'),
+      ]),
+      stageColumns: [intCol('col-a', 'Age'), intCol('col-b', 'Age copy'), stringCol('other', 'Other')],
+      filterSourceInput: { supported: true, stageId: 'source_projection', choices: [choiceA] },
+    });
+    expect(optionValues(filterColumnSelect())).toContain('source:choice-a');
+  });
+
+  it('two live projection entries sharing ONE columnId value: falls back to signed (reported behaviour)', () => {
+    renderEditor({
+      family: 'KEEP_ROWS',
+      construction: withProjections([
+        projection('col-dup', 'root.age'),
+        projection('col-dup', 'root.age'),
+      ]),
+      stageColumns: [intCol('col-dup', 'Age'), stringCol('other', 'Other')],
+      filterSourceInput: { supported: true, stageId: 'source_projection', choices: [choiceA] },
+    });
+    // Entry-count ambiguity → usable.length === 2 → no reuse → signed kept, nothing suppressed.
+    const values = optionValues(filterColumnSelect());
+    expect(values).toContain('source:choice-a');
+    expect(values).toContain('col-dup'); // the column is merely an ordinary stage column
+  });
+});
+
+describe("ATTACK 3 banner honesty with reused choices", () => {
+it('filter lane: all reused, none bound → no banner anywhere', () => {
+    const choiceA = filterChoice('choice-a', 'root.age', 'Age');
+    const choiceB = filterChoice('choice-b', 'root.note', 'Note');
+    renderEditor({
+      family: 'KEEP_ROWS',
+      construction: withProjections([projection('col-age', 'root.age'), projection('col-note', 'root.note')]),
+      stageColumns: [intCol('col-age', 'Age'), intCol('col-note', 'Note')],
+      filterSourceInput: { supported: true, stageId: 'source_projection', choices: [choiceA, choiceB] },
+    });
+    expect(explanationNodes()).toHaveLength(0);
+    expect(allBoundText()).toBeNull();
+    expect(nonePopulatedText()).toBeNull();
+  });
+
+it('filter lane: all reused + one stale unpopulated choice → still no dishonest banner', () => {
+    const choiceA = filterChoice('choice-a', 'root.age', 'Age');
+    const choiceB = filterChoice('choice-b', 'root.note', 'Note');
+    const stale = filterChoice('choice-c', 'root.dead', 'Dead', false);
+    renderEditor({
+      family: 'KEEP_ROWS',
+      construction: withProjections([projection('col-age', 'root.age'), projection('col-note', 'root.note')]),
+      stageColumns: [intCol('col-age', 'Age'), intCol('col-note', 'Note')],
+      filterSourceInput: { supported: true, stageId: 'source_projection', choices: [choiceA, choiceB, stale] },
+    });
+    // 'all-bound' would be a lie (nothing bound); 'none-populated' would be a lie (A,B populated).
+    expect(allBoundText()).toBeNull();
+    expect(nonePopulatedText()).toBeNull();
+    expect(explanationNodes()).toHaveLength(0);
+  });
+
+it('derive lane: all reused, column-kind operand, no bindings → no banner', () => {
+    const a = deriveChoice('choice-a', 'root.age', 'Age');
+    const b = deriveChoice('choice-b', 'root.note', 'Note');
+    renderEditor({
+      family: 'CALCULATE',
+      construction: withProjections([projection('w-age', 'root.age'), projection('w-note', 'root.note')]),
+      stageColumns: [decCol('w-age', 'AgeN'), decCol('w-note', 'NoteN')],
+      deriveSourceInput: { supported: true, stageId: 'source_projection', choices: [a, b] },
+    });
+    fireEvent.change(operandKind('First value'), { target: { value: 'column' } });
+    fireEvent.change(operandKind('Second value'), { target: { value: 'column' } });
+    expect(explanationNodes()).toHaveLength(0);
+    expect(allBoundText()).toBeNull();
+    expect(nonePopulatedText()).toBeNull();
+  });
+});
+
+describe('ATTACK 4 derive operand pair consistency', () => {
+  it('both operands open on the SAME reused existing column: no source option anywhere', () => {
+    const a = deriveChoice('choice-a', 'root.age', 'Age');
+    renderEditor({
+      family: 'CALCULATE',
+      construction: withProjections([projection('weight-id', 'root.age')]),
+      stageColumns: [intCol('weight-id', 'Weight'), stringCol('status-id', 'Status')],
+      deriveSourceInput: { supported: true, stageId: 'source_projection', choices: [a] },
+    });
+    fireEvent.change(operandKind('First value'), { target: { value: 'column' } });
+    fireEvent.change(operandKind('Second value'), { target: { value: 'column' } });
+    const left = optionValues(operandColumn('First value'));
+    const right = optionValues(operandColumn('Second value'));
+    expect(left).toEqual(['weight-id']);
+    expect(right).toEqual(['weight-id']);
+    expect(left.some((v) => v.startsWith('source:'))).toBe(false);
+    expect(right.some((v) => v.startsWith('source:'))).toBe(false);
+    expect(allBoundText()).toBeNull();
+  });
+
+  it('left reuses column while right binds a DIFFERENT choice: suppression identical, no false all-bound', () => {
+    const a = deriveChoice('choice-a', 'root.age', 'Age');
+    const b = deriveChoice('choice-b', 'root.weight', 'Weight', true, 'derive-input_weight');
+    const onCandidateChange = renderEditor({
+      family: 'CALCULATE',
+      construction: withProjections([projection('age-col', 'root.age')]),
+      stageColumns: [intCol('age-col', 'Age')],
+      deriveSourceInput: { supported: true, stageId: 'source_projection', choices: [a, b] },
+    });
+    fireEvent.change(operandKind('First value'), { target: { value: 'column' } });
+    fireEvent.change(operandKind('Second value'), { target: { value: 'column' } });
+    fireEvent.change(operandColumn('Second value'), { target: { value: 'source:choice-b' } });
+    const left = optionValues(operandColumn('First value'));
+    const right = optionValues(operandColumn('Second value'));
+    // Neither operand may present the signed choice for the projected field.
+    expect(left).not.toContain('source:choice-a');
+    expect(right).not.toContain('source:choice-a');
+    expect(right).toContain('derive-input_weight'); // right keeps its materialized input
+    expect(allBoundText()).toBeNull();
+    const calls = (onCandidateChange as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
+    const candidate = [...calls].reverse().find((entry) => entry !== undefined);
+    const bindings = candidate?.deriveSources ?? [];
+    expect(bindings.map((binding: ConstructionDeriveSourceSelection) => binding.choiceId)).toEqual(['choice-b']);
+    expect(bindings.every((binding: ConstructionDeriveSourceSelection) => binding.columnId !== 'age-col')).toBe(true);
+  });
+
+  it('reverse: bind first via source, then the projection lands — pair stays consistent, selection not rewritten', () => {
+    const a = deriveChoice('choice-a', 'root.age', 'Age', true, 'derive-input_age');
+    const stageColumns = [decCol('plain-n', 'PlainN')];
+    // Render #1: no projection yet → signed choice is offered; bind Second value via source.
+    const { rerenderPair } = renderPair({ stageColumns, choices: [a], projections: undefined });
+    fireEvent.change(operandKind('Second value'), { target: { value: 'column' } });
+    fireEvent.change(operandColumn('Second value'), { target: { value: 'source:choice-a' } });
+    expect((screen.getByRole('combobox', { name: 'Second value column' }) as HTMLSelectElement).value)
+      .toBe('derive-input_age');
+    // Render #2: same session, capabilities unchanged, server has now recorded the projection
+    // onto the operand's own materialized column.
+    rerenderPair({ stageColumns, choices: [a], projections: [projection('derive-input_age', 'root.age')] });
+    const left = optionValues(operandColumn('First value'));
+    const right = optionValues(operandColumn('Second value')) ;
+    expect((screen.getByRole('combobox', { name: 'Second value column' }) as HTMLSelectElement).value)
+      .toBe('derive-input_age'); // selection never silently rewritten
+    expect(left.some((v) => v.startsWith('source:'))).toBe(false);
+    expect(right).not.toContain('source:choice-a');
+  });
+
+  it('pair symmetry single-open-lane: identical option sets for left and right with mixed choices', () => {
+    const a = deriveChoice('choice-a', 'root.age', 'Age');
+    const b = deriveChoice('choice-b', 'root.weight', 'Weight');
+    renderEditor({
+      family: 'CALCULATE',
+      construction: withProjections([projection('age-col', 'root.age')]),
+      stageColumns: [intCol('age-col', 'Age')],
+      deriveSourceInput: { supported: true, stageId: 'source_projection', choices: [a, b] },
+    });
+    fireEvent.change(operandKind('First value'), { target: { value: 'column' } });
+    fireEvent.change(operandKind('Second value'), { target: { value: 'column' } });
+    expect(optionValues(operandColumn('First value'))).toEqual(optionValues(operandColumn('Second value')));
+  });
+
+  it('no numeric column AND all choices reused → Numeric-column shortcut cannot materialize, no crash', () => {
+    const a = deriveChoice('choice-a', 'root.age', 'Age', true, 'derive-input_age');
+    const onCandidateChange = renderEditor({
+      family: 'CALCULATE',
+      construction: withProjections([projection('status-id', 'root.age')]),
+      stageColumns: [stringCol('status-id', 'Status')],
+      deriveSourceInput: { supported: true, stageId: 'source_projection', choices: [a] },
+    });
+    // status-id is string → not a usable numeric operand → reuse must NOT fire; signed kept.
+    fireEvent.change(operandKind('First value'), { target: { value: 'column' } });
+    // With no numeric column, the kind shortcut materializes the still-offered signed choice:
+    // the fallback signed flow is intact (not suppressed away) and materializes exactly once.
+    const signedFirst = optionValues(operandColumn('First value'));
+    expect(signedFirst).toEqual(['derive-input_age']);
+    expect(signedFirst.some((v) => v.startsWith('source:'))).toBe(false);
+    fireEvent.change(operandKind('Second value'), { target: { value: 'column' } });
+    const signedCalls = (onCandidateChange as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
+    const signedCandidate = [...signedCalls].reverse().find((entry) => entry !== undefined);
+    expect((signedCandidate?.deriveSources ?? []).map((binding: ConstructionDeriveSourceSelection) => binding.choiceId)).toEqual(['choice-a']);
+    // Now make the column numeric: reuse fires → nothing numeric selectable + nothing offered.
+    cleanup();
+    const on2 = renderEditor({
+      family: 'CALCULATE',
+      construction: withProjections([projection('age-num', 'root.age')]),
+      stageColumns: [decCol('age-num', 'AgeN')],
+      deriveSourceInput: { supported: true, stageId: 'source_projection', choices: [a] },
+    });
+    const kind = operandKind('First value');
+    const numericOption = [...kind.options].find((option) => option.value === 'column');
+    // firstNumeric exists → shortcut enabled; select it and confirm single reuse column, no source materialization.
+    expect(numericOption?.disabled).toBe(false);
+    fireEvent.change(kind, { target: { value: 'column' } });
+    expect(optionValues(operandColumn('First value'))).toEqual(['age-num']);
+    const calls = (on2 as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
+    const candidate = [...calls].reverse().find((entry) => entry !== undefined);
+    expect(candidate?.deriveSources ?? []).toEqual([]); // column reuse must not bind a source
+    void onCandidateChange;
+  });
+});
+
+describe('ATTACK 4c chooseSourceOperand kept-filter (REV4)', () => {
+  it('switching the shared operand keeps BOTH bindings when the other slot still consumes the old column', () => {
+    const c1 = deriveChoice('choice-c1', 'root.a', 'Alpha', true, 'x-col');
+    const c2 = deriveChoice('choice-c2', 'root.b', 'Beta', true, 'y-col');
+    const onCandidateChange = renderEditor({
+      family: 'CALCULATE',
+      construction: withProjections(undefined),
+      stageColumns: [],
+      deriveSourceInput: { supported: true, stageId: 'source_projection', choices: [c1, c2] },
+    });
+    // No numeric columns → kind shortcut materializes the first signed choice.
+    fireEvent.change(operandKind('First value'), { target: { value: 'column' } });
+    expect(operandColumn('First value').value).toBe('x-col');
+    fireEvent.change(operandKind('Second value'), { target: { value: 'column' } });
+    expect(operandColumn('Second value').value).toBe('x-col'); // shares the one materialized column
+    // Re-point the FIRST operand at another signed choice; the second still uses x-col.
+    fireEvent.change(operandColumn('First value'), { target: { value: 'source:choice-c2' } });
+    const calls = (onCandidateChange as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
+    const candidate = [...calls].reverse().find((entry) => entry !== undefined);
+    const bindings = candidate?.deriveSources ?? [];
+    expect(bindings.map((binding: ConstructionDeriveSourceSelection) => `${binding.choiceId}@${binding.columnId}`).sort())
+      .toEqual(['choice-c1@x-col', 'choice-c2@y-col']);
+  });
+});
+
+describe('ATTACK 4d REV4 pickerEmptinessHost ownVisible', () => {
+  it('sole source choice bound as a virtual materialization → no false all-bound banner', () => {
+    const c1 = deriveChoice('choice-c1', 'root.a', 'Alpha', true, 'x-col');
+    renderEditor({
+      family: 'CALCULATE',
+      construction: withProjections(undefined),
+      stageColumns: [],
+      deriveSourceInput: { supported: true, stageId: 'source_projection', choices: [c1] },
+    });
+    fireEvent.change(operandKind('First value'), { target: { value: 'column' } }); // materializes x-col
+    fireEvent.change(operandKind('Second value'), { target: { value: 'column' } }); // shares x-col
+    expect(explanationNodes()).toHaveLength(0);
+    expect(allBoundText()).toBeNull();
+  });
+
+  it('foreign stage column reusing the materialization id cannot silence the explanation', () => {
+    const c1 = deriveChoice('choice-c1', 'root.a', 'Alpha', true, 'x-col');
+    renderEditor({
+      family: 'CALCULATE',
+      construction: withProjections(undefined),
+      stageColumns: [decCol('x-col', 'Foreign numeric with same id')],
+      deriveSourceInput: { supported: true, stageId: 'source_projection', choices: [c1] },
+    });
+    fireEvent.change(operandKind('First value'), { target: { value: 'column' } }); // picks foreign x-col
+    fireEvent.change(operandColumn('First value'), { target: { value: 'source:choice-c1' } }); // binds C1@x-col
+    // All populated choices are now bound and the picker's own entry is a FOREIGN column,
+    // so the honest all-bound explanation must stay visible (REV4: id collision must not silence it).
+    expect(allBoundText()).not.toBeNull();
+  });
+});
+
+describe('ATTACK 2c contradictory same-column dual-field projection', () => {
+  it('documents: both signed choices are suppressed and one column carries both', () => {
+    const a = filterChoice('choice-a', 'root.age', 'Age');
+    const b = filterChoice('choice-b', 'root.note', 'Note');
+    renderEditor({
+      family: 'KEEP_ROWS',
+      construction: withProjections([
+        projection('col-x', 'root.age'),
+        projection('col-x', 'root.note'),
+      ]),
+      stageColumns: [intCol('col-x', 'X'), stringCol('other', 'Other')],
+      filterSourceInput: { supported: true, stageId: 'source_projection', choices: [a, b] },
+    });
+    const values = optionValues(filterColumnSelect());
+    // Reported (not asserted-good): per-fieldPath uniqueness lets BOTH fields reuse col-x.
+    expect(values).not.toContain('source:choice-a');
+    expect(values).not.toContain('source:choice-b');
+    expect(values).toContain('col-x');
+  });
+});
+}
+
+// Migrated from row07_existing_column_reuse.unit.test.tsx.
+{
+type CandidateIntent = Pick<
+  ConstructionProposalRequest,
+  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'filterSources' | 'deriveSources'
+>;
+
+const projection = (columnId: string, fieldPath: string): NonNullable<Construction['sourceProjections']>[number] => ({
+  columnId,
+  occurrenceId: `occ-${columnId}`,
+  fieldPath,
+  fhirType: 'string',
+  logicalType: 'string',
+  label: fieldPath,
+});
+
+const renderEditor = (args: {
+  readonly family: 'KEEP_ROWS' | 'CALCULATE';
+  readonly construction?: Construction;
+  readonly stageColumns: ConstructionStageDescriptor['columns'];
+  readonly filterSourceInput?: ConstructionCapabilitiesResponse['filterSourceInput'];
+  readonly deriveSourceInput?: ConstructionCapabilitiesResponse['deriveSourceInput'];
+  readonly editingStep?: ConstructionStep;
+  readonly onCandidateChange?: (candidate: CandidateIntent | undefined) => void;
+}) => {
+  const selectedStage = reviewSourceStage(args.stageColumns, { unavailableReason: 'Not needed in this test.' });
+  const onCandidateChange = args.onCandidateChange ?? vi.fn();
+  render(
+    <ConstructionOperationEditor
+      family={args.family}
+      construction={args.construction ?? { version: 1, steps: [] }}
+      capabilities={{
+        snapshotToken: 'snapshot-1',
+        draftVersion: 1,
+        draftDigest: 'draft-digest-1',
+        outputId: 'table-1',
+        stageId: selectedStage.id,
+        sourceInput: { supported: false, stageId: selectedStage.id, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
+        baseConstruction: { version: 1, steps: [] },
+        stages: [selectedStage],
+        selectedStage,
+        groupFieldChoices: [],
+        groupRowValueChoices: [],
+        workspaceInputs: [],
+        ...(args.filterSourceInput ? { filterSourceInput: args.filterSourceInput } : {}),
+        ...(args.deriveSourceInput ? { deriveSourceInput: args.deriveSourceInput } : {}),
+      }}
+      editingStep={args.editingStep}
+      disabled={false}
+      onCandidateChange={onCandidateChange}
+      onEditStep={vi.fn()}
+    />,
+  );
+  return onCandidateChange;
+};
+
+const renderEditorWithStage = (
+  construction: Construction,
+  stage: ConstructionStageDescriptor,
+  editingStep: ConstructionStep,
+) => {
+  render(
+    <ConstructionOperationEditor
+      family="KEEP_ROWS"
+      construction={construction}
+      capabilities={{
+        snapshotToken: 'snapshot-1',
+        draftVersion: 1,
+        draftDigest: 'draft-digest-1',
+        outputId: 'table-1',
+        stageId: stage.id,
+        sourceInput: { supported: false, stageId: stage.id, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
+        baseConstruction: construction,
+        stages: [stage],
+        selectedStage: stage,
+        groupFieldChoices: [],
+        groupRowValueChoices: [],
+        workspaceInputs: [],
+        filterSourceInput: {
+          supported: true,
+          stageId: 'source_projection',
+          choices: [{
+            choiceId: 'choice-age',
+            fieldPath: 'root.age',
+            label: 'Age',
+            logicalType: 'integer' as const,
+            isPopulated: true,
+            columnId: 'filter-input_age',
+          }],
+        },
+      }}
+      editingStep={editingStep}
+      disabled={false}
+      onCandidateChange={vi.fn()}
+      onEditStep={vi.fn()}
+    />,
+  );
+};
+
+const filterColumnSelect = (): HTMLSelectElement =>
+  screen.getByRole('combobox', { name: 'Column' }) as HTMLSelectElement;
+
+const operandColumn = (label: string): HTMLSelectElement =>
+  screen.getByRole('combobox', { name: `${label} column` }) as HTMLSelectElement;
+
+const stringCol = (id: string, label: string) => ({ id, name: id, label, type: 'string' });
+
+const intCol = (id: string, label: string) => ({ id, name: id, label, type: 'integer' });
+
+const withProjections = (projections: Construction['sourceProjections']): Construction => ({
+  version: 1,
+  steps: [],
+  ...(projections ? { sourceProjections: projections } : {}),
+});
+
+describe('ROW-SOURCE-07 filter lane', () => {
+  const ageChoice = {
+    choiceId: 'choice-age',
+    fieldPath: 'root.age',
+    label: 'Age',
+    logicalType: 'integer' as const,
+    isPopulated: true,
+    columnId: 'filter-input_age',
+  };
+
+  it('suppresses the duplicate signed choice when the field is already projected and offers the existing column', () => {
+    renderEditor({
+      family: 'KEEP_ROWS',
+      construction: withProjections([projection('age-col', 'root.age')]),
+      stageColumns: [intCol('age-col', 'Age (table)'), stringCol('status-id', 'Status')],
+      filterSourceInput: { supported: true, stageId: 'source_projection', choices: [ageChoice] },
+    });
+    const select = filterColumnSelect();
+    expect([...select.options].some((option) => option.value === 'source:choice-age')).toBe(false);
+    expect([...select.options].some((option) => option.value === 'age-col')).toBe(true);
+  });
+
+  it('selecting the reused field submits the existing column ID without a source binding', () => {
+    const onCandidateChange = renderEditor({
+      family: 'KEEP_ROWS',
+      construction: withProjections([projection('age-col', 'root.age')]),
+      stageColumns: [intCol('age-col', 'Age (table)'), stringCol('status-id', 'Status')],
+      filterSourceInput: { supported: true, stageId: 'source_projection', choices: [ageChoice] },
+    });
+    fireEvent.change(filterColumnSelect(), { target: { value: 'age-col' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Condition' }), { target: { value: 'EXISTS' } });
+    const calls = (onCandidateChange as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
+    const candidate = [...calls].reverse().find((entry) => entry !== undefined);
+    expect(candidate).toBeDefined();
+    expect(candidate.filterSources ?? []).toEqual([]);
+    const step = candidate.candidateConstruction.steps.at(-1);
+    expect(step?.operation.kind).toBe('FILTER');
+    expect(step?.operation.kind === 'FILTER' ? step.operation.filter.columnId : undefined).toBe('age-col');
+  });
+
+  it('brings the signed choice back when the projected column is stale', () => {
+    renderEditor({
+      family: 'KEEP_ROWS',
+      construction: withProjections([projection('removed-col', 'root.age')]),
+      stageColumns: [intCol('age-col', 'Age (table)'), stringCol('status-id', 'Status')],
+      filterSourceInput: { supported: true, stageId: 'source_projection', choices: [ageChoice] },
+    });
+    expect([...filterColumnSelect().options].some((option) => option.value === 'source:choice-age')).toBe(true);
+  });
+
+  it('keeps the reused existing-column selection across a reload of the saved step', () => {
+    const saved = withProjections([projection('age-col', 'root.age')]);
+    const savedStep = {
+      id: 'filter-reuse-saved',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: { kind: 'FILTER', filter: { columnId: 'age-col', operator: 'EXISTS' } },
+      outputs: [intCol('age-col', 'Age (table)'), stringCol('status-id', 'Status')],
+    } as unknown as ConstructionStep;
+    const editingStage: ConstructionStageDescriptor = {
+      ...reviewSourceStage([intCol('age-col', 'Age (table)'), stringCol('status-id', 'Status')], { unavailableReason: 'Not needed in this test.' }),
+      id: savedStep.id,
+      inputStageId: 'source_projection',
+      operation: 'FILTER',
+    };
+    renderEditorWithStage(saved, editingStage, savedStep);
+    expect(filterColumnSelect().value).toBe('age-col');
+    expect([...filterColumnSelect().options].some((option) => option.value === 'source:choice-age')).toBe(false);
+  });
+
+  it('keeps the signed choice when two live columns share the field path', () => {
+    renderEditor({
+      family: 'KEEP_ROWS',
+      construction: withProjections([projection('age-col', 'root.age'), projection('age-copy', 'root.age')]),
+      stageColumns: [intCol('age-col', 'Age'), intCol('age-copy', 'Age (copy)')],
+      filterSourceInput: { supported: true, stageId: 'source_projection', choices: [ageChoice] },
+    });
+    expect([...filterColumnSelect().options].some((option) => option.value === 'source:choice-age')).toBe(true);
+  });
+});
+
+describe('ROW-SOURCE-07 derive lane', () => {
+  const ageChoice = {
+    choiceId: 'choice-age',
+    fieldPath: 'root.age',
+    label: 'Age',
+    logicalType: 'decimal' as const,
+    isPopulated: true,
+    columnId: 'derive-input_age',
+  };
+
+  it('suppresses the signed choice when the projected column is a usable numeric operand', () => {
+    renderEditor({
+      family: 'CALCULATE',
+      construction: withProjections([projection('weight-id', 'root.age')]),
+      stageColumns: [intCol('weight-id', 'Weight'), stringCol('status-id', 'Status')],
+      deriveSourceInput: { supported: true, stageId: 'source_projection', choices: [ageChoice] },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'First value kind' }), { target: { value: 'column' } });
+    expect([...operandColumn('First value').options].map((option) => option.value))
+      .toEqual(expect.arrayContaining(['weight-id']));
+    expect([...operandColumn('First value').options].some((option) => option.value.startsWith('source:'))).toBe(false);
+  });
+
+  it('keeps the signed choice when the projected column cannot serve as a numeric operand', () => {
+    renderEditor({
+      family: 'CALCULATE',
+      construction: withProjections([projection('status-id', 'root.age')]),
+      stageColumns: [intCol('w-id', 'Weight'), stringCol('status-id', 'Status')],
+      deriveSourceInput: { supported: true, stageId: 'source_projection', choices: [ageChoice] },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'First value kind' }), { target: { value: 'column' } });
+    expect([...operandColumn('First value').options].some((option) => option.value === 'source:choice-age')).toBe(true);
+  });
+});
+}

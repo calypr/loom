@@ -36,6 +36,7 @@ import type { RelatedExpandQueryOwner } from './constructionOperations/RelatedEx
 import type { ConstructionCandidateIntent } from './constructionWorkspace/useConstructionLifecycle';
 import { createLoomClient } from '../../api';
 import type { LoomClient } from '../../api';
+import { createLoomClientMock } from '../../../testSupport/loomClientMock';
 import type {
   ApplyExplorerBuilderCommandsArgs,
   PreviewExplorerBuilderArgs,
@@ -47,23 +48,11 @@ import type {
 
 
 
-const mockLoomClient = vi.hoisted(() => ({
-  describeAuthoringNetwork: vi.fn(),
-  getBuilder: vi.fn(),
-  getSelection: vi.fn(),
-  listRowDefinitionChoices: vi.fn(),
-  searchPopulationRoutes: vi.fn(),
-  createSelection: vi.fn(),
+const mockLoomClientReference = vi.hoisted(() => ({
+  current: undefined as unknown,
+  fallback: undefined as unknown,
   configuredColumnContextsQuery: vi.fn(),
-  getConstructionCapabilities: vi.fn(),
-  getConstructionInputs: vi.fn(),
-  discoverConstructionCategories: vi.fn(),
-  proposeConstruction: vi.fn(),
-  proposeConstructionChoices: vi.fn(),
-  preview: vi.fn(),
-  browseSemanticInventory: vi.fn(),
 }));
-const mockLoomClientReference = vi.hoisted(() => ({ current: undefined as unknown }));
 const mockRelatedExpandOwnerState = vi.hoisted(() => ({
   enabled: false,
   owner: null as null | {
@@ -98,7 +87,8 @@ vi.mock('../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../react')>();
   return {
     ...actual,
-    useLoomClient: () => (mockLoomClientReference.current as typeof mockLoomClient | undefined) ?? mockLoomClient,
+    useLoomClient: () => (mockLoomClientReference.current as LoomClient | undefined)
+      ?? (mockLoomClientReference.fallback as LoomClient),
     useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
     useAssessExplorerRowChangeMutation: vi.fn(),
     useCreateExplorerAuthoringMutation: vi.fn(),
@@ -116,10 +106,14 @@ vi.mock('../../react', async (importOriginal) => {
       mockUseActualReconcile.isLoading = result[1].isLoading;
       return result;
     },
-    useResolveConfiguredColumnContextsQuery: mockLoomClient.configuredColumnContextsQuery,
+    useResolveConfiguredColumnContextsQuery: mockLoomClientReference.configuredColumnContextsQuery,
   };
 });
 
+const mockLoomClient = Object.assign(createLoomClientMock(), {
+  configuredColumnContextsQuery: mockLoomClientReference.configuredColumnContextsQuery,
+});
+mockLoomClientReference.fallback = mockLoomClient;
 
 const render = (
   ui: React.ReactNode,
@@ -1650,6 +1644,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       draftDigest: 'sha256:draft-1',
       outputId: 'specimens',
       stageId: 'source_projection',
+      sourceInput: { supported: false, stageId: 'source_projection', reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
       baseConstruction: { version: 1, steps: [] },
       stages: [stage],
       selectedStage: stage,
@@ -2092,6 +2087,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       draftDigest: 'sha256:draft-1',
       outputId: 'specimens',
       stageId: 'source_projection',
+      sourceInput: { supported: false, stageId: 'source_projection', reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
       baseConstruction: { version: 1, steps: [] },
       stages: [sourceStage],
       selectedStage: sourceStage,
@@ -4996,6 +4992,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       draftDigest: 'sha256:draft-1',
       outputId: 'specimens',
       stageId: 'source_projection',
+      sourceInput: { supported: false, stageId: 'source_projection', reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
       baseConstruction: { version: 1, steps: [] },
       stages: [sourceStage],
       selectedStage: sourceStage,

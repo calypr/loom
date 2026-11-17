@@ -3,6 +3,7 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { builderWorkspaceNullMocks } from '../../../testSupport/builderWorkspaceMocks';
 import {
   explorerBuilderCommandsResultSchema,
   explorerBuilderCompileResultSchema,
@@ -227,12 +228,12 @@ vi.mock('./components/DatasetReviewPanel', () => ({ DatasetReviewPanel: () => nu
 vi.mock('./components/GuidedGraphWorkspace', () => ({ GuidedGraphWorkspace: () => null }));
 vi.mock('./components/ConceptCatalog', () => ({ ConceptCatalog: () => null }));
 vi.mock('./components/RowRootPicker', () => ({ RowRootPicker: () => null }));
-vi.mock('./components/DataframeContractPanel', () => ({ DataframeContractPanel: () => null }));
-vi.mock('./components/PopulationPanel', () => ({ PopulationPanel: () => null }));
+vi.mock('./components/DataframeContractPanel', () => builderWorkspaceNullMocks.DataframeContractPanel);
+vi.mock('./components/PopulationPanel', () => builderWorkspaceNullMocks.PopulationPanel);
 vi.mock('./components/RowChangePreviewPanel', () => ({ RowChangePreviewPanel: () => null }));
 vi.mock('./components/RowDefinitionPanel', () => ({ RowDefinitionPanel: () => null }));
 vi.mock('./components/RowDefinitionSettingsPanel', () => ({ RowDefinitionSettingsPanel: () => null, rowScopeLabel: () => '' }));
-vi.mock('./components/InterpretationPanel', () => ({ InterpretationPanel: () => null }));
+vi.mock('./components/InterpretationPanel', () => builderWorkspaceNullMocks.InterpretationPanel);
 vi.mock('./constructionWorkspace/FrameSourcePanel', () => ({ FrameSourcePanel: () => null }));
 vi.mock('./constructionWorkspace/ConstructionColumnSelection', () => ({ ConstructionColumnSelection: () => null }));
 vi.mock('./constructionOperations/ConstructionOperationEditor', () => ({ ConstructionOperationEditor: () => null }));

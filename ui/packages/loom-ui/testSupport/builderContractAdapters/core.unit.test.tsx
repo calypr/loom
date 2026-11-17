@@ -145,6 +145,7 @@ const stage: ConstructionStageDescriptor = {
 };
 
 const capabilities = constructionCapabilitiesResponseSchema.parse({
+  sourceInput: { supported: false, stageId: stage.id, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
   snapshotToken: 'snapshot-core-driver-probe',
   draftVersion: 1,
   draftDigest: 'sha256:core-driver-probe',

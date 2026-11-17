@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { builderWorkspaceNullMocks } from '../../../testSupport/builderWorkspaceMocks';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type {
@@ -102,8 +103,8 @@ vi.mock('./components/PreviewTable', async (importOriginal) => ({
   ...await importOriginal<typeof import('./components/PreviewTable')>(),
   PreviewTable: () => null,
 }));
-vi.mock('./components/DataframeContractPanel', () => ({ DataframeContractPanel: () => null }));
-vi.mock('./components/PopulationPanel', () => ({ PopulationPanel: () => null }));
+vi.mock('./components/DataframeContractPanel', () => builderWorkspaceNullMocks.DataframeContractPanel);
+vi.mock('./components/PopulationPanel', () => builderWorkspaceNullMocks.PopulationPanel);
 vi.mock('./components/RowChangePreviewPanel', () => ({ RowChangePreviewPanel: () => null }));
 vi.mock('./components/RowDefinitionPanel', () => ({ RowDefinitionPanel: () => null }));
 vi.mock('./components/RowDefinitionSettingsPanel', () => ({
@@ -114,7 +115,7 @@ vi.mock('./components/RowDefinitionSettingsPanel', () => ({
   },
   rowScopeLabel: () => '',
 }));
-vi.mock('./components/InterpretationPanel', () => ({ InterpretationPanel: () => null }));
+vi.mock('./components/InterpretationPanel', () => builderWorkspaceNullMocks.InterpretationPanel);
 vi.mock('./constructionWorkspace/FrameSourcePanel', () => ({ FrameSourcePanel: () => null }));
 vi.mock('./constructionWorkspace/ConstructionColumnSelection', () => ({ ConstructionColumnSelection: () => null }));
 vi.mock('./constructionOperations/ConstructionOperationEditor', () => ({ ConstructionOperationEditor: () => null }));
@@ -518,6 +519,7 @@ const capabilitiesForTrace = (
     draftDigest: seedIdentity.acceptedDigest,
     outputId: seedIdentity.outputId,
     stageId: selectedStage.id,
+    sourceInput: { supported: false, stageId: selectedStage.id, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
     baseConstruction: construction,
     stages: [selectedStage],
     selectedStage,
@@ -654,6 +656,7 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
         draftDigest: args.expectedDraftDigest,
         outputId: args.outputId,
         stageId: args.stageId,
+        sourceInput: { supported: false, stageId: args.stageId, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
         baseConstruction: acceptedConstruction,
         stages: [sourceStage],
         selectedStage: sourceStage,
@@ -804,7 +807,7 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
     localConstruction.steps[0].operation.group.aggregates = [{ operation: 'MEAN', inputColumnId: 'multiple-birth-integer-id', outputColumnId: aggregateOutputId }];
     for (const step of localConstruction.steps) for (const column of step.outputs) if (column.id === aggregateOutputId) column.type = 'decimal';
     const localSaved = { ...acceptedState, draftVersion: 2, draftDigest: `sha256:${'a'.repeat(64)}`, workspace: localWorkspace };
-    const localCapabilities = { snapshotToken: catalog.snapshotToken, draftVersion: 2, draftDigest: localSaved.draftDigest, outputId: 'patients', stageId: sourceStage.id, baseConstruction: localConstruction, stages: [sourceStage], selectedStage: sourceStage, semanticGroupChoices: [], groupFieldChoices: [], groupRowValueChoices: [], workspaceInputs: [] };
+    const localCapabilities = { snapshotToken: catalog.snapshotToken, draftVersion: 2, draftDigest: localSaved.draftDigest, outputId: 'patients', stageId: sourceStage.id, sourceInput: { supported: false, stageId: sourceStage.id, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] }, baseConstruction: localConstruction, stages: [sourceStage], selectedStage: sourceStage, semanticGroupChoices: [], groupFieldChoices: [], groupRowValueChoices: [], workspaceInputs: [] };
     const record = { id: 'local-saved-group', actionIndex: 3, outputId: 'patients', stageId: sourceStage.id, before: localBefore, after: localSaved, storedWorkspace: localWorkspace, capabilities: localCapabilities };
     const saved = record.after, caps = record.capabilities;
     expect(saved.draftVersion).toBe(record.before.draftVersion + 1);

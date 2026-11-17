@@ -22,6 +22,7 @@ import {
   reconcileRecoveryAction,
   reconcileResultIsCurrent,
 } from '../authoring/reconcileRecovery';
+import { capabilitiesFor as makeCapabilities, sourceStage } from '../../../../testSupport/constructionFixtures';
 
 type Lifecycle = ReturnType<typeof useConstructionLifecycle>;
 type ReadyProposal = Awaited<ReturnType<Lifecycle['proposeCandidateAndWait']>>;
@@ -87,31 +88,27 @@ const baseRequest: GetConstructionCapabilitiesArgs = {
 const capabilitiesFor = (
   args: GetConstructionCapabilitiesArgs,
 ): ConstructionCapabilitiesResponse => {
-  const stage: ConstructionCapabilitiesResponse['selectedStage'] = {
-    id: args.stageId,
-    inputStageId: '',
-    rowIdentityColumn: 'source-row-id',
-    columns: [{ id: 'value-id', name: 'value', label: 'Value', type: 'decimal' }],
-    capabilities: [
+  const stage: ConstructionCapabilitiesResponse['selectedStage'] = sourceStage(
+    [{ id: 'value-id', name: 'value', label: 'Value', type: 'decimal' }],
+    {
+      id: args.stageId,
+      omitOperation: true,
+      rowIdentityColumn: 'source-row-id',
+      capabilities: [
       { kind: 'FILTER', supported: true },
       { kind: 'DERIVE', supported: true },
       { kind: 'PIVOT', supported: false, reason: 'Not available.' },
       { kind: 'UNPIVOT', supported: false, reason: 'Not available.' },
-    ],
-  };
-  return {
+      ],
+    },
+  );
+  return makeCapabilities({
+    selectedStage: stage,
     snapshotToken: args.snapshotToken,
     draftVersion: args.expectedDraftVersion,
     draftDigest: args.expectedDraftDigest,
     outputId: args.outputId,
-    stageId: args.stageId,
-    baseConstruction: { version: 1, steps: [] },
-    stages: [stage],
-    selectedStage: stage,
-    groupFieldChoices: [],
-    groupRowValueChoices: [],
-    workspaceInputs: [],
-  };
+  });
 };
 
 const deferred = <T,>(): Deferred<T> => {

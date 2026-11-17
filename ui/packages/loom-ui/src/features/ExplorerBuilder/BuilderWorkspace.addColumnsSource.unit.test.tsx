@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { builderWorkspaceNullMocks } from '../../../testSupport/builderWorkspaceMocks';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
@@ -35,29 +36,18 @@ import type {
 } from '../../types';
 import BuilderWorkspace from './BuilderWorkspace';
 import { ordinaryNetworkFixture } from '../../../testSupport/ordinaryNetworkFixture';
+import { createLoomClientMock } from '../../../testSupport/loomClientMock';
 
-const mockLoomClient = vi.hoisted(() => ({
-  describeAuthoringNetwork: vi.fn(),
-  proposeSourceRelationship: vi.fn(),
-  browseFrameSourceOptions: vi.fn(),
-  browseSemanticInventory: vi.fn(),
-  getConstructionCapabilities: vi.fn(),
-  getSelection: vi.fn(),
-  listRowDefinitionChoices: vi.fn(),
-  preview: vi.fn(),
-  proposeConstruction: vi.fn(),
-  proposeConstructionChoices: vi.fn(),
-  proposeColumnPolicy: vi.fn(),
-  searchRelatedFieldChoices: vi.fn(),
+const mockLoomClientReference = vi.hoisted(() => ({
+  current: undefined as unknown,
   configuredColumnContextsQuery: vi.fn(),
-  searchConstructionChoices: vi.fn(),
 }));
 
 vi.mock('../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../react')>();
   return {
     ...actual,
-    useLoomClient: () => mockLoomClient,
+    useLoomClient: () => mockLoomClientReference.current as LoomClient,
     useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
     useAssessExplorerRowChangeMutation: vi.fn(),
     useCreateExplorerAuthoringMutation: vi.fn(),
@@ -70,7 +60,7 @@ vi.mock('../../react', async (importOriginal) => {
     usePopulationMappingMutation: vi.fn(),
     usePublishExplorerAuthoringV2Mutation: vi.fn(),
     useReconcileExplorerBuilderV2Mutation: vi.fn(),
-    useResolveConfiguredColumnContextsQuery: mockLoomClient.configuredColumnContextsQuery,
+    useResolveConfiguredColumnContextsQuery: mockLoomClientReference.configuredColumnContextsQuery,
     useResolvePopulationSelectionQuery: vi.fn(() => ({
       data: undefined,
       error: undefined,
@@ -80,6 +70,11 @@ vi.mock('../../react', async (importOriginal) => {
     })),
   };
 });
+
+const mockLoomClient = Object.assign(createLoomClientMock(), {
+  configuredColumnContextsQuery: mockLoomClientReference.configuredColumnContextsQuery,
+});
+mockLoomClientReference.current = mockLoomClient;
 
 vi.mock('./components/BuilderToolbar', () => ({
   BuilderToolbar: ({ onPreview }: { readonly onPreview: () => void }) => (
@@ -117,11 +112,11 @@ vi.mock('./components/GuidedGraphWorkspace', () => ({
     </>
   ),
 }));
-vi.mock('./components/DataframeContractPanel', () => ({ DataframeContractPanel: () => null }));
-vi.mock('./components/PopulationPanel', () => ({ PopulationPanel: () => null }));
+vi.mock('./components/DataframeContractPanel', () => builderWorkspaceNullMocks.DataframeContractPanel);
+vi.mock('./components/PopulationPanel', () => builderWorkspaceNullMocks.PopulationPanel);
 vi.mock('./components/RowDefinitionPanel', () => ({ RowDefinitionPanel: () => null }));
 vi.mock('./components/RowDefinitionSettingsPanel', () => ({ RowDefinitionSettingsPanel: () => null }));
-vi.mock('./components/InterpretationPanel', () => ({ InterpretationPanel: () => null }));
+vi.mock('./components/InterpretationPanel', () => builderWorkspaceNullMocks.InterpretationPanel);
 
 const apiVersion = 'loom.calypr.org/explorer-authoring/v2' as const;
 const choiceOption: ConstructionChoice['options'][number] = {
@@ -1134,6 +1129,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
       draftDigest: args.expectedDraftDigest,
       outputId: args.outputId,
       stageId: args.stageId,
+      sourceInput: { supported: false, stageId: args.stageId, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
       baseConstruction: groupConstruction,
       stages: [sourceStage, groupStage],
       selectedStage: args.stageId === sourceStage.id ? sourceStage : groupStage,

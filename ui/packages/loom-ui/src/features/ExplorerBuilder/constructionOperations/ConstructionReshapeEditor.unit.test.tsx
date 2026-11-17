@@ -12,6 +12,10 @@ import {
 import { ConstructionHistory, type ConstructionHistorySelection } from '../constructionWorkspace/ConstructionWorkspace';
 import { constructionCapabilitiesResponseSchema, constructionProposalRequestSchema, constructionSchema } from '../../../types';
 import { ConstructionReshapeEditor, createReshapeEditorEntry, publicScalarListColumnIds } from './ConstructionReshapeEditor';
+import { capabilitiesFor as makeCapabilities, sourceStage as makeSourceStage } from '../../../../testSupport/constructionFixtures';
+import { sourceStage as reviewSourceStage } from '../../../../testSupport/constructionFixtures';
+import { type Construction } from '../../../types';
+import { type Mock } from 'vitest';
 
 const sourceColumns: ConstructionReshapeEditorProps['capabilities']['selectedStage']['columns'] = [
   { id: 'site-id', name: 'site', label: 'Site', type: 'string', cardinality: 'required_one' },
@@ -19,37 +23,21 @@ const sourceColumns: ConstructionReshapeEditorProps['capabilities']['selectedSta
   { id: 'tags-id', name: 'tags', label: 'Tags', type: 'string', cardinality: 'many' },
 ];
 
-const sourceStage: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = {
-  id: 'source_projection',
-  inputStageId: '',
-  operation: 'SOURCE_PROJECTION',
-  columns: sourceColumns,
-  capabilities: [
+const sourceStage: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = makeSourceStage(sourceColumns, {
+    capabilities: [
     { kind: 'FILTER', supported: true },
     { kind: 'DERIVE', supported: true },
     { kind: 'PIVOT', supported: false, reason: 'Not needed in this test.' },
     { kind: 'UNPIVOT', supported: false, reason: 'Not needed in this test.' },
     { kind: 'GROUP', supported: true },
     { kind: 'EXPAND', supported: true },
-  ],
-};
+    ],
+  });
 
 const capabilitiesFor = (
   stages: ConstructionReshapeEditorProps['capabilities']['stages'] = [sourceStage],
   selectedStage = sourceStage,
-): ConstructionReshapeEditorProps['capabilities'] => ({
-  snapshotToken: 'snapshot-1',
-  draftVersion: 1,
-  draftDigest: 'draft-digest-1',
-  outputId: 'table-1',
-  stageId: selectedStage.id,
-  baseConstruction: { version: 1, steps: [] },
-  stages,
-  selectedStage,
-  groupFieldChoices: [],
-  groupRowValueChoices: [],
-  workspaceInputs: [],
-});
+): ConstructionReshapeEditorProps['capabilities'] => makeCapabilities({ selectedStage, stages, copyStages: false });
 
 const renderEditor = (args: {
   readonly construction?: ConstructionReshapeEditorProps['construction'];
@@ -5116,3 +5104,585 @@ describe('unpivot signed unselected-field melt inputs', () => {
     expect(onCandidateChange).toHaveBeenCalled();
   });
 });
+
+// Migrated from row06_round2_reshape_attacks.unit.test.tsx.
+{
+const unpivotColumns: ConstructionReshapeEditorProps['capabilities']['selectedStage']['columns'] = [
+  { id: 'opaque-a', name: 'col_opaque_a', label: 'Patient reference', type: 'string', cardinality: 'required_one' },
+  { id: 'opaque-b', name: 'col_opaque_b', label: 'Melt two', type: 'string', cardinality: 'required_one' },
+];
+
+const unpivotStage: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = reviewSourceStage(unpivotColumns, {
+  capabilities: [
+    { kind: 'FILTER', supported: false, reason: 'Not needed in this test.' },
+    { kind: 'DERIVE', supported: false, reason: 'Not needed in this test.' },
+    { kind: 'PIVOT', supported: false, reason: 'Not needed in this test.' },
+    { kind: 'UNPIVOT', supported: true },
+    { kind: 'GROUP', supported: false, reason: 'Not needed in this test.' },
+    { kind: 'EXPAND', supported: false, reason: 'Not needed in this test.' },
+  ],
+});
+
+const capabilitiesFor = (
+  unpivotSourceInput: ConstructionReshapeEditorProps['capabilities']['unpivotSourceInput'],
+): ConstructionReshapeEditorProps['capabilities'] => makeCapabilities({
+  selectedStage: unpivotStage,
+  stages: [unpivotStage],
+  overrides: { ...(unpivotSourceInput ? { unpivotSourceInput } : {}) },
+});
+
+const populated = (choiceId: string, fieldPath: string, columnId: string) => ({
+  choiceId,
+  fieldPath,
+  label: fieldPath,
+  logicalType: 'decimal' as const,
+  isPopulated: true,
+  columnId,
+});
+
+const renderUnpivot = (args: {
+  readonly choices: ReturnType<typeof populated>[];
+  readonly selectedColumns?: ReadonlyArray<string>;
+}) => {
+  render(
+    <ConstructionReshapeEditor
+      construction={{ version: 1, steps: [] }}
+      capabilities={capabilitiesFor({ supported: true, stageId: 'source_projection', choices: args.choices })}
+      selectedColumns={args.selectedColumns}
+      initialKind="unpivot"
+      disabled={false}
+      onCandidateChange={vi.fn()}
+      onEditStep={vi.fn()}
+    />,
+  );
+  const details = screen.queryByTestId('construction-unpivot-advanced');
+  if (details && !details.querySelector('[open]') && !(details instanceof HTMLDetailsElement && details.open)) {
+    fireEvent.click(screen.getByText('Advanced options: field names and missing values'));
+  }
+};
+
+const openAdvanced = () => {
+  const summary = screen.queryByText('Advanced options: field names and missing values');
+  if (summary) fireEvent.click(summary);
+};
+
+const addSourceField = () => {
+  fireEvent.click(screen.getByTestId('construction-reshape-unpivot-add-source-field'));
+};
+
+const sourceGroup = (index: number): HTMLOptGroupElement | null => {
+  const select = screen.getByTestId(`construction-reshape-unpivot-input-${index}-column`) as HTMLSelectElement;
+  return select.querySelector('optgroup[label="Fields from your data"]');
+};
+
+describe('ROW-SOURCE-06 round-2 attacks (ConstructionReshapeEditor unpivot)', () => {
+  it('B1 all-bound melt rows still explain once (shared across rows)', () => {
+    renderUnpivot({
+      choices: [populated('choice-a', 'root.a', 'unpivot-a'), populated('choice-b', 'root.b', 'unpivot-b')],
+      selectedColumns: ['opaque-a'],
+    });
+    openAdvanced();
+    addSourceField();
+    addSourceField();
+
+    expect(screen.getByTestId('construction-reshape-unpivot-input-2-column')).toBeTruthy();
+    expect(sourceGroup(0)?.querySelectorAll('option').length ?? 0).toBe(0);
+    expect(screen.getAllByTestId('source-picker-explanation')).toHaveLength(1);
+    expect(screen.getByTestId('source-picker-explanation').textContent)
+      .toContain('already used by another source selection');
+  });
+
+  it('B2 CONTRACT: when the first melt row itself holds one of the two bound fields, the empty picker still explains', () => {
+    renderUnpivot({
+      choices: [populated('choice-a', 'root.a', 'unpivot-a'), populated('choice-b', 'root.b', 'unpivot-b')],
+      selectedColumns: [],
+    });
+    addSourceField();
+    addSourceField();
+
+    expect(screen.getByTestId('construction-reshape-unpivot-input-1-column')).toBeTruthy();
+    expect(sourceGroup(0)?.querySelectorAll('option').length ?? 0).toBe(0);
+    expect(sourceGroup(1)?.querySelectorAll('option').length ?? 0).toBe(0);
+    expect(screen.queryByTestId('construction-reshape-unpivot-add-source-field')).toBeNull();
+    expect(screen.getByTestId('source-picker-explanation').textContent)
+      .toContain('already used by another source selection');
+  });
+
+  it('B3 a single melt row holding the only populated field stays silent but keeps that field selectable', () => {
+    renderUnpivot({
+      choices: [populated('choice-a', 'root.a', 'unpivot-a')],
+      selectedColumns: [],
+    });
+    addSourceField();
+
+    const select = screen.getByTestId('construction-reshape-unpivot-input-0-column') as HTMLSelectElement;
+    expect([...select.options].map((option) => option.value)).toContain('unpivot-a');
+    expect(screen.queryByTestId('source-picker-explanation')).toBeNull();
+  });
+});
+}
+
+// Migrated from row07_round2_attacks.unit.test.tsx.
+{
+const projection = (columnId: string, fieldPath: string): NonNullable<Construction['sourceProjections']>[number] => ({
+  columnId,
+  occurrenceId: `occ-${columnId}`,
+  fieldPath,
+  fhirType: 'string',
+  logicalType: 'string',
+  label: fieldPath,
+});
+
+const withProjections = (projections: Construction['sourceProjections']): Construction => ({
+  version: 1,
+  steps: [],
+  ...(projections ? { sourceProjections: projections } : {}),
+});
+
+const explanationNodes = () => screen.queryAllByTestId('source-picker-explanation');
+
+const allBoundText = () =>
+  screen.queryByText('Every eligible dataset field that contains values is already used by another source selection here. Remove one to choose a different field.');
+
+const unpivotStageFor = (cols: ConstructionReshapeEditorProps['capabilities']['selectedStage']['columns']): ConstructionReshapeEditorProps['capabilities']['selectedStage'] => ({
+  id: 'source_projection',
+  inputStageId: '',
+  operation: 'SOURCE_PROJECTION',
+  columns: cols,
+  capabilities: [
+    { kind: 'FILTER', supported: false, reason: 'Not needed in this test.' },
+    { kind: 'DERIVE', supported: false, reason: 'Not needed in this test.' },
+    { kind: 'PIVOT', supported: false, reason: 'Not needed in this test.' },
+    { kind: 'UNPIVOT', supported: true },
+    { kind: 'GROUP', supported: false, reason: 'Not needed in this test.' },
+    { kind: 'EXPAND', supported: false, reason: 'Not needed in this test.' },
+  ],
+});
+
+const populatedChoice = (choiceId: string, fieldPath: string, columnId: string, isPopulated = true) => ({
+  choiceId,
+  fieldPath,
+  label: fieldPath.split('.').at(-1) ?? fieldPath,
+  logicalType: 'decimal' as const,
+  isPopulated,
+  columnId,
+});
+
+const renderUnpivot = (args: {
+  readonly construction: Construction;
+  readonly choices: ReturnType<typeof populatedChoice>[];
+  readonly columns?: ConstructionReshapeEditorProps['capabilities']['selectedStage']['columns'];
+  readonly selectedColumns?: ReadonlyArray<string>;
+}) => {
+  const cols = args.columns ?? [
+    { id: 'opaque-a', name: 'col_opaque_a', label: 'Patient reference', type: 'string' as const, cardinality: 'required_one' as const },
+    { id: 'opaque-b', name: 'col_opaque_b', label: 'Melt two', type: 'string' as const, cardinality: 'required_one' as const },
+  ];
+  const stage = unpivotStageFor(cols);
+  render(
+    <ConstructionReshapeEditor
+      construction={args.construction}
+      capabilities={{
+        snapshotToken: 'snapshot-1',
+        draftVersion: 1,
+        draftDigest: 'draft-digest-1',
+        outputId: 'table-1',
+        stageId: stage.id,
+        sourceInput: { supported: false, stageId: stage.id, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
+        baseConstruction: { version: 1, steps: [] },
+        stages: [stage],
+        selectedStage: stage,
+        groupFieldChoices: [],
+        groupRowValueChoices: [],
+        workspaceInputs: [],
+        unpivotSourceInput: { supported: true, stageId: 'source_projection', choices: args.choices },
+      }}
+      selectedColumns={args.selectedColumns ?? ['opaque-a']}
+      initialKind="unpivot"
+      disabled={false}
+      onCandidateChange={vi.fn()}
+      onEditStep={vi.fn()}
+    />,
+  );
+  const summary = screen.queryByText('Advanced options: field names and missing values');
+  if (summary) fireEvent.click(summary);
+};
+
+const unpivotSourceGroup = (index: number): HTMLOptGroupElement | null => {
+  const select = screen.getByTestId(`construction-reshape-unpivot-input-${index}-column`) as HTMLSelectElement;
+  return select.querySelector('optgroup[label="Fields from your data"]');
+};
+
+const unpivotTableGroup = (index: number): HTMLOptGroupElement | null => {
+  const select = screen.getByTestId(`construction-reshape-unpivot-input-${index}-column`) as HTMLSelectElement;
+  return select.querySelector('optgroup[label="Fields in this table"]');
+};
+
+describe("ATTACK 3 banner honesty with reused choices", () => {
+it('unpivot lane: reused column as the only input → no banner, source group empty', () => {
+    renderUnpivot({
+      construction: withProjections([projection('opaque-a', 'root.value')]),
+      choices: [populatedChoice('choice-a', 'root.value', 'unpivot-input')],
+      selectedColumns: [],
+    });
+    fireEvent.click(screen.getByLabelText('Unpivot Patient reference'));
+    expect(explanationNodes()).toHaveLength(0);
+    expect(allBoundText()).toBeNull();
+    expect(unpivotSourceGroup(0)?.querySelectorAll('option').length ?? 0).toBe(0);
+    expect([...(unpivotTableGroup(0)?.querySelectorAll('option') ?? [])]
+      .some((option) => option.value === 'opaque-a')).toBe(true);
+  });
+});
+
+describe('ATTACK 5 unpivot add-source-field under full suppression', () => {
+  it('button not rendered at all when every choice is reused; inputs unchanged, no crash', () => {
+    renderUnpivot({
+      construction: withProjections([projection('opaque-a', 'root.value')]),
+      choices: [populatedChoice('choice-a', 'root.value', 'unpivot-input')],
+      selectedColumns: [],
+    });
+    // Pre-toggle: button hidden because availableSourceChoices is empty.
+    expect(screen.queryByTestId('construction-reshape-unpivot-add-source-field')).toBeNull();
+    fireEvent.click(screen.getByLabelText('Unpivot Patient reference'));
+    fireEvent.click(screen.getByLabelText('Unpivot Melt two'));
+    expect(screen.queryByTestId('construction-reshape-unpivot-add-source-field')).toBeNull();
+    // Both inputs are ordinary table columns; nothing got a second materialization path.
+    expect(unpivotSourceGroup(0)?.querySelectorAll('option').length ?? 0).toBe(0);
+    expect(unpivotSourceGroup(1)?.querySelectorAll('option').length ?? 0).toBe(0);
+    const selects = [0, 1].map((index) => screen.getByTestId(`construction-reshape-unpivot-input-${index}-column`) as HTMLSelectElement);
+    expect(selects.map((select) => select.value)).toEqual(['opaque-a', 'opaque-b']);
+    expect(screen.queryByText(/has no values in this dataset yet/)).toBeNull();
+    // Nothing to click → clicking the (absent) target is provably a no-op.
+    const button = screen.queryByTestId('construction-reshape-unpivot-add-source-field');
+    expect(button).toBeNull();
+  });
+});
+}
+
+// Migrated from row07_existing_column_reuse.unit.test.tsx.
+{
+const projection = (columnId: string, fieldPath: string): NonNullable<Construction['sourceProjections']>[number] => ({
+  columnId,
+  occurrenceId: `occ-${columnId}`,
+  fieldPath,
+  fhirType: 'string',
+  logicalType: 'string',
+  label: fieldPath,
+});
+
+const unpivotColumns: ConstructionReshapeEditorProps['capabilities']['selectedStage']['columns'] = [
+  { id: 'opaque-a', name: 'col_opaque_a', label: 'Patient reference', type: 'string', cardinality: 'required_one' },
+  { id: 'opaque-b', name: 'col_opaque_b', label: 'Melt two', type: 'string', cardinality: 'required_one' },
+];
+
+const unpivotStage: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = {
+  id: 'source_projection',
+  inputStageId: '',
+  operation: 'SOURCE_PROJECTION',
+  columns: unpivotColumns,
+  capabilities: [
+    { kind: 'FILTER', supported: false, reason: 'Not needed in this test.' },
+    { kind: 'DERIVE', supported: false, reason: 'Not needed in this test.' },
+    { kind: 'PIVOT', supported: false, reason: 'Not needed in this test.' },
+    { kind: 'UNPIVOT', supported: true },
+    { kind: 'GROUP', supported: false, reason: 'Not needed in this test.' },
+    { kind: 'EXPAND', supported: false, reason: 'Not needed in this test.' },
+  ],
+};
+
+const populatedChoice = (choiceId: string, fieldPath: string, columnId: string) => ({
+  choiceId,
+  fieldPath,
+  label: fieldPath,
+  logicalType: 'decimal' as const,
+  isPopulated: true,
+  columnId,
+});
+
+const renderUnpivot = (args: {
+  readonly construction: Construction;
+  readonly choices: ReturnType<typeof populatedChoice>[];
+}) => {
+  render(
+    <ConstructionReshapeEditor
+      construction={args.construction}
+      capabilities={{
+        snapshotToken: 'snapshot-1',
+        draftVersion: 1,
+        draftDigest: 'draft-digest-1',
+        outputId: 'table-1',
+        stageId: unpivotStage.id,
+        sourceInput: { supported: false, stageId: unpivotStage.id, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
+        baseConstruction: { version: 1, steps: [] },
+        stages: [unpivotStage],
+        selectedStage: unpivotStage,
+        groupFieldChoices: [],
+        groupRowValueChoices: [],
+        workspaceInputs: [],
+        unpivotSourceInput: { supported: true, stageId: 'source_projection', choices: args.choices },
+      }}
+      selectedColumns={['opaque-a']}
+      initialKind="unpivot"
+      disabled={false}
+      onCandidateChange={vi.fn()}
+      onEditStep={vi.fn()}
+    />,
+  );
+  const summary = screen.queryByText('Advanced options: field names and missing values');
+  if (summary) fireEvent.click(summary);
+};
+
+const unpivotSourceGroup = (index: number): HTMLOptGroupElement | null => {
+  const select = screen.getByTestId(`construction-reshape-unpivot-input-${index}-column`) as HTMLSelectElement;
+  return select.querySelector('optgroup[label="Fields from your data"]');
+};
+
+const unpivotTableGroup = (index: number): HTMLOptGroupElement | null => {
+  const select = screen.getByTestId(`construction-reshape-unpivot-input-${index}-column`) as HTMLSelectElement;
+  return select.querySelector('optgroup[label="Fields in this table"]');
+};
+
+const withProjections = (projections: Construction['sourceProjections']): Construction => ({
+  version: 1,
+  steps: [],
+  ...(projections ? { sourceProjections: projections } : {}),
+});
+
+describe('ROW-SOURCE-07 unpivot lane', () => {
+  it('suppresses the duplicate signed choice for an already-projected field across melt rows', () => {
+    renderUnpivot({
+      construction: withProjections([projection('opaque-a', 'root.a')]),
+      choices: [populatedChoice('choice-a', 'root.a', 'unpivot-a')],
+    });
+    expect(unpivotSourceGroup(0)?.querySelectorAll('option').length ?? 0).toBe(0);
+    expect([...(unpivotTableGroup(0)?.querySelectorAll('option') ?? [])]
+      .some((option) => option.value === 'opaque-a')).toBe(true);
+  });
+
+  it('brings the signed choice back when the projected column is stale', () => {
+    renderUnpivot({
+      construction: withProjections([projection('gone-column', 'root.a')]),
+      choices: [populatedChoice('choice-a', 'root.a', 'unpivot-a')],
+    });
+    expect(unpivotSourceGroup(0)?.querySelectorAll('option').length ?? 0).toBe(1);
+  });
+});
+}
+
+// Migrated from row08_signed_expand.unit.test.tsx.
+{
+const baseColumns: ConstructionReshapeEditorProps['capabilities']['selectedStage']['columns'] = [
+  { id: 'site-id', name: 'site', label: 'Site', type: 'string', cardinality: 'required_one' },
+  { id: 'tags-id', name: 'tags', label: 'Tags', type: 'string', cardinality: 'many' },
+];
+
+const baseStage: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = reviewSourceStage(baseColumns, {
+  capabilities: [
+    { kind: 'FILTER', supported: true },
+    { kind: 'DERIVE', supported: true },
+    { kind: 'PIVOT', supported: false, reason: 'not needed' },
+    { kind: 'UNPIVOT', supported: false, reason: 'not needed' },
+    { kind: 'GROUP', supported: true },
+    // Server gate closed: the signed lane must still open on its own.
+    { kind: 'EXPAND', supported: false, reason: 'no public array columns' },
+  ],
+});
+
+const capabilitiesFor = (
+  overrides: Partial<ConstructionReshapeEditorProps['capabilities']> = {},
+): ConstructionReshapeEditorProps['capabilities'] => makeCapabilities({
+  selectedStage: overrides.selectedStage ?? baseStage,
+  stages: overrides.stages ?? [baseStage],
+  stageId: overrides.stageId ?? baseStage.id,
+  copyStages: false,
+  overrides,
+});
+
+const signedChannel: ConstructionReshapeEditorProps['capabilities']['expandSourceInput'] = {
+  supported: true,
+  stageId: baseStage.id,
+  choices: [
+    { choiceId: 'choice-photo', fieldPath: 'photo', label: 'Photo', logicalType: 'string', isPopulated: true },
+  ],
+};
+
+const renderEditor = (args: {
+  readonly construction?: ConstructionReshapeEditorProps['construction'];
+  readonly capabilities?: ConstructionReshapeEditorProps['capabilities'];
+  readonly editingStep?: ConstructionReshapeStep;
+  readonly onCandidateChange?: ConstructionReshapeEditorProps['onCandidateChange'];
+}) => {
+  const onCandidateChange = (args.onCandidateChange ?? vi.fn()) as Mock<ConstructionReshapeEditorProps['onCandidateChange']>;
+  render(
+    <ConstructionReshapeEditor
+      construction={args.construction ?? { version: 1, steps: [] }}
+      capabilities={args.capabilities ?? capabilitiesFor()}
+      editingStep={args.editingStep}
+      initialKind="expand"
+      disabled={false}
+      onCandidateChange={onCandidateChange}
+      onEditStep={vi.fn()}
+    />,
+  );
+  return { onCandidateChange };
+};
+
+const selectRepeatedField = (): HTMLSelectElement => {
+  const control = screen.getByLabelText('Repeated field');
+  expect(control instanceof HTMLSelectElement).toBe(true);
+  return control as HTMLSelectElement;
+};
+
+describe('signed EXPAND source lane', () => {
+  it('offers a populated signed array choice even when the server says EXPAND is unsupported', () => {
+    const capabilities = capabilitiesFor({ expandSourceInput: signedChannel });
+    constructionCapabilitiesResponseSchema.parse(JSON.parse(JSON.stringify(capabilities)));
+    renderEditor({ capabilities });
+    const options = [...selectRepeatedField().querySelectorAll('option')].map((option) => option.value);
+    expect(options).toContain('source:choice-photo');
+    expect(options).toContain('tags-id');
+  });
+
+  it('hides signed choices when the channel is unsupported and shows the honest empty state when no list columns either', () => {
+    const stage: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = {
+      ...baseStage,
+      columns: [baseColumns[0]!],
+    };
+    renderEditor({ capabilities: capabilitiesFor({ expandSourceInput: { supported: false, stageId: baseStage.id, reasonCode: 'NO_ELIGIBLE_POPULATED_EXPAND_SOURCE_FIELDS', reason: 'Nothing populated.', choices: [] }, selectedStage: stage, stages: [stage] }) });
+    expect(screen.queryByLabelText('Repeated field')).toBeNull();
+    expect(screen.getByText('Loom has not returned any list-valued columns for this stage.')).toBeTruthy();
+  });
+
+  it('materializes a fresh signed column id and emits the request-parseable expandSources binding', () => {
+    const capabilities = capabilitiesFor({ expandSourceInput: signedChannel });
+    const { onCandidateChange } = renderEditor({ capabilities });
+    fireEvent.change(selectRepeatedField(), { target: { value: 'source:choice-photo' } });
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent?.expandSources).toEqual([{ choiceId: 'choice-photo', columnId: expect.stringMatching(/\S/) }]);
+    constructionSchema.parse(intent?.candidateConstruction);
+    constructionProposalRequestSchema.parse({
+      snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'draft-digest-1',
+      outputId: 'table-1', changedStepId: intent?.changedStepId,
+      candidateConstruction: intent?.candidateConstruction, expandSources: intent?.expandSources,
+    });
+    const step = intent?.candidateConstruction?.steps?.[0];
+    expect(step?.operation.kind).toBe('EXPAND');
+    if (step?.operation.kind !== 'EXPAND') throw new Error('expected expand step');
+    expect(step.operation.expand.inputColumnId).toBe(intent?.expandSources?.[0]?.columnId);
+    // The client never authors the trusted payload; the server signs it.
+    expect(step.operation.expand.expandedField).toBeUndefined();
+  });
+
+  it('reuses the durable server columnId for an already-materialized signed choice', () => {
+    const capabilities = capabilitiesFor({
+      expandSourceInput: {
+        supported: true,
+        stageId: baseStage.id,
+        choices: [{ choiceId: 'choice-photo', fieldPath: 'photo', label: 'Photo', logicalType: 'string', isPopulated: true, columnId: 'materialized-photo' }],
+      },
+    });
+    const { onCandidateChange } = renderEditor({ capabilities });
+    fireEvent.change(selectRepeatedField(), { target: { value: 'source:choice-photo' } });
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent?.expandSources).toEqual([{ choiceId: 'choice-photo', columnId: 'materialized-photo' }]);
+  });
+
+  it('drops the signed binding when the input switches back to a plain list column', () => {
+    const capabilities = capabilitiesFor({ expandSourceInput: signedChannel });
+    const { onCandidateChange } = renderEditor({ capabilities });
+    fireEvent.change(selectRepeatedField(), { target: { value: 'source:choice-photo' } });
+    fireEvent.change(selectRepeatedField(), { target: { value: 'tags-id' } });
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent?.expandSources).toBeUndefined();
+    const step = intent?.candidateConstruction?.steps?.[0];
+    if (step?.operation.kind !== 'EXPAND') throw new Error('expected expand step');
+    expect(step.operation.expand.inputColumnId).toBe('tags-id');
+  });
+
+  it('suppresses a signed choice whose field is already a list column of this stage (ROW-SOURCE-07 reuse)', () => {
+    const capabilities = capabilitiesFor({ expandSourceInput: signedChannel });
+    const construction: ConstructionReshapeEditorProps['construction'] = {
+      version: 1,
+      steps: [],
+      sourceProjections: [{
+        columnId: 'photo-col', ownerStepId: 'owner-step', occurrenceId: 'root',
+        fieldPath: 'photo', fhirType: 'string', logicalType: 'string', label: 'Photo',
+      }],
+    };
+    const stage: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = {
+      ...baseStage,
+      columns: [...baseColumns, { id: 'photo-col', name: 'photo', label: 'Photo', type: 'string', cardinality: 'many' }],
+    };
+    renderEditor({
+      construction,
+      capabilities: capabilitiesFor({ expandSourceInput: signedChannel, selectedStage: stage, stages: [stage] }),
+    });
+    const options = [...selectRepeatedField().querySelectorAll('option')].map((option) => option.value);
+    expect(options).not.toContain('source:choice-photo');
+    expect(options).toContain('photo-col');
+  });
+
+  it('keeps the signed choice offered when the same-field column exists but is not a list column', () => {
+    const capabilities = capabilitiesFor({ expandSourceInput: signedChannel });
+    const construction: ConstructionReshapeEditorProps['construction'] = {
+      version: 1,
+      steps: [],
+      sourceProjections: [{
+        columnId: 'photo-scalar', ownerStepId: 'owner-step', occurrenceId: 'root',
+        fieldPath: 'photo', fhirType: 'string', logicalType: 'string', label: 'Photo',
+      }],
+    };
+    const stage: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = {
+      ...baseStage,
+      columns: [...baseColumns, { id: 'photo-scalar', name: 'photo_scalar', label: 'Photo scalar', type: 'string', cardinality: 'optional_one' }],
+    };
+    renderEditor({
+      construction,
+      capabilities: capabilitiesFor({ expandSourceInput: signedChannel, selectedStage: stage, stages: [stage] }),
+    });
+    const options = [...selectRepeatedField().querySelectorAll('option')].map((option) => option.value);
+    expect(options).toContain('source:choice-photo');
+  });
+
+  it('restores the durable binding when editing a saved signed expand step', () => {
+    const savedStep: ConstructionReshapeStep = {
+      id: 'saved-expand',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: { kind: 'EXPAND', expand: {
+        constructionId: 'saved-expand', inputColumnId: 'stored-photo-col', outputColumnId: 'photo_item',
+        emptyPolicy: 'EXCLUDE',
+        expandedField: { path: 'photo', cardinality: 'many', fhirType: 'string', logicalType: 'string' },
+      } },
+      outputs: [
+        { id: 'site-id', name: 'site', label: 'Site', type: 'string' },
+        { id: 'photo_item', name: 'photo_item', label: 'Photo item', type: 'string' },
+      ],
+    };
+    const stage: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = {
+      ...baseStage,
+      columns: [...baseColumns, { id: 'stored-photo-col', name: 'photo', label: 'Photo', type: 'string', cardinality: 'many' }],
+    };
+    const construction: ConstructionReshapeEditorProps['construction'] = {
+      version: 1,
+      steps: [savedStep],
+      sourceProjections: [{
+        columnId: 'stored-photo-col', ownerStepId: 'saved-expand', occurrenceId: 'root',
+        fieldPath: 'photo', fhirType: 'string', logicalType: 'string', label: 'Photo',
+      }],
+    };
+    const capabilities = capabilitiesFor({
+      expandSourceInput: {
+        supported: true,
+        stageId: baseStage.id,
+        choices: [{ choiceId: 'choice-photo', fieldPath: 'photo', label: 'Photo', logicalType: 'string', isPopulated: true, columnId: 'stored-photo-col' }],
+      },
+      selectedStage: stage,
+      stages: [stage],
+    });
+    const { onCandidateChange } = renderEditor({ construction, capabilities, editingStep: savedStep });
+    expect(screen.getByLabelText('Repeated field')).toBeTruthy();
+    const intent = onCandidateChange.mock.calls.map((call) => call[0]).find((candidate) => candidate?.expandSources !== undefined);
+    expect(intent?.expandSources).toEqual([{ choiceId: 'choice-photo', columnId: 'stored-photo-col' }]);
+  });
+});
+}

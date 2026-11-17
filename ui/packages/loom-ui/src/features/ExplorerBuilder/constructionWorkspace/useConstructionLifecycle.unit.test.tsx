@@ -17,35 +17,32 @@ import {
   useConstructionLifecycle,
   type ConstructionLifecycleClient,
 } from './useConstructionLifecycle';
+import { capabilitiesFor as makeCapabilities, sourceStage } from '../../../../testSupport/constructionFixtures';
 
 const capabilitiesFor = (
   args: GetConstructionCapabilitiesArgs,
 ): ConstructionCapabilitiesResponse => {
-  const stage = {
-    id: args.stageId,
-    inputStageId: '',
-    rowIdentityColumn: 'source-row-id',
-    columns: [{ id: 'value-id', name: 'value', label: 'Value', type: 'decimal' }],
-    capabilities: [
+  const stage = sourceStage(
+    [{ id: 'value-id', name: 'value', label: 'Value', type: 'decimal' }],
+    {
+      id: args.stageId,
+      omitOperation: true,
+      rowIdentityColumn: 'source-row-id',
+      capabilities: [
       { kind: 'FILTER' as const, supported: true },
       { kind: 'DERIVE' as const, supported: true },
       { kind: 'PIVOT' as const, supported: false, reason: 'Not available.' },
       { kind: 'UNPIVOT' as const, supported: false, reason: 'Not available.' },
-    ],
-  };
-  return {
+      ],
+    },
+  );
+  return makeCapabilities({
+    selectedStage: stage,
     snapshotToken: args.snapshotToken,
     draftVersion: args.expectedDraftVersion,
     draftDigest: args.expectedDraftDigest,
     outputId: args.outputId,
-    stageId: args.stageId,
-    baseConstruction: { version: 1, steps: [] },
-    stages: [stage],
-    selectedStage: stage,
-    groupFieldChoices: [],
-    groupRowValueChoices: [],
-    workspaceInputs: [],
-  };
+  });
 };
 
 const proposalResponse = (): ConstructionProposalResponse => ({

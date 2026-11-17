@@ -1621,7 +1621,7 @@ export const constructionCapabilitiesResponseSchema = z.object({
   groupFieldChoicesIncomplete: z.boolean().optional(),
   sourceProjectionAvailability: constructionSourceProjectionAvailabilitySchema.optional(),
   nodeOccurrences: z.record(z.string(), z.string()).optional(),
-  sourceInput: constructionScalarSourceInputSchema.optional(),
+  sourceInput: constructionScalarSourceInputSchema,
   pivotSourceInput: constructionScalarSourceInputSchema.optional(),
   filterSourceInput: constructionFilterSourceInputSchema.optional(),
   deriveSourceInput: constructionDeriveSourceInputSchema.optional(),

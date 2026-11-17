@@ -22,6 +22,7 @@ const constructionCapabilitiesResponse = {
   draftDigest: 'draft-7',
   outputId: 'patients',
   stageId: 'source_projection',
+  sourceInput: { supported: false, stageId: 'source_projection', reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
   baseConstruction: { version: 1, steps: [] },
   stages: [{
     id: 'source_projection',
@@ -264,6 +265,7 @@ describe('Loom project paths', () => {
       draftDigest: 'draft-7',
       outputId: 'patients',
       stageId: 'source_projection',
+      sourceInput: { supported: false, stageId: 'source_projection', reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
       baseConstruction: construction,
       stages: [selectedStage],
       selectedStage,

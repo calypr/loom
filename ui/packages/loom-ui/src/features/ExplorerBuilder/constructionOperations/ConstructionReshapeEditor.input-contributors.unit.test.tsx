@@ -27,6 +27,7 @@ const savedGroup: ConstructionReshapeStep = {
 const capabilities = (rowChoices: Capabilities['groupRowValueChoices'] = []): Capabilities => ({
   snapshotToken: 'snapshot', draftVersion: 4, draftDigest: 'digest', outputId: 'ResearchSubject',
   stageId: sourceStage.id, selectedStage: sourceStage, stages: [sourceStage],
+  sourceInput: { supported: false, stageId: sourceStage.id, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
   baseConstruction: { version: 1, steps: [savedGroup] }, groupFieldChoices: [], groupRowValueChoices: rowChoices, workspaceInputs: [],
 });
 const propsFor = (caps = capabilities(), onCandidateChange = vi.fn()): ConstructionReshapeEditorProps => ({
