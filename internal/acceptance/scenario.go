@@ -151,14 +151,14 @@ func RunScenario(ctx context.Context, cfg ScenarioConfig) (result ScenarioResult
 		return result, err
 	}
 	started = time.Now()
-	graphql, err := verifyGraphQL(ctx, cfg, pub, oracle)
+	dataframes, err := verifyPublishedDataframe(ctx, cfg, pub, oracle)
 	if err != nil {
 		return result, err
 	}
-	if err := writeArtifact(cfg.ArtifactDir, "graphql.json", graphql); err != nil {
+	if err := writeArtifact(cfg.ArtifactDir, "dataframe_rest.json", dataframes); err != nil {
 		return result, err
 	}
-	stage("graphql", started, graphql)
+	stage("dataframe_rest", started, dataframes)
 	started = time.Now()
 	second, err := publishWorkspace(ctx, cfg, cfg.HTTPClient, publishBody)
 	if err != nil {
@@ -770,74 +770,70 @@ func verifyViewer(viewer map[string]any, pub publication) error {
 	return nil
 }
 
-func verifyGraphQL(ctx context.Context, cfg ScenarioConfig, pub publication, oracle Oracle) (map[string]any, error) {
+func verifyPublishedDataframe(ctx context.Context, cfg ScenarioConfig, pub publication, oracle Oracle) (map[string]any, error) {
 	selector := map[string]any{"recipe": pub.Recipe, "translationVersion": pub.TranslationVersion, "output": pub.Output}
-	query := `query($input:DataframeDatasetInput!){dataframeDataset(input:$input){id name projectId datasetGeneration state rowCount selector{recipe translationVersion output} columns{name}}}`
-	dataset, err := graphql(ctx, cfg, query, map[string]any{"input": map[string]any{"projectId": cfg.Namespace.Project, "selector": selector}})
+	input := map[string]any{"selector": selector, "first": oracle.RowCount}
+	if len(oracle.Columns) > 0 {
+		sortColumn := oracle.Columns[0]
+		for _, column := range oracle.Columns {
+			if column == "patient_id" {
+				sortColumn = column
+				break
+			}
+		}
+		input["sort"] = map[string]any{"column": sortColumn, "desc": false}
+	}
+	connection, err := postDataframe(ctx, cfg, "rows", input)
 	if err != nil {
 		return nil, err
 	}
-	data, _ := dataset["data"].(map[string]any)
-	materialization, _ := data["dataframeDataset"].(map[string]any)
+	materialization, _ := connection["materialization"].(map[string]any)
 	if materialization == nil {
-		return nil, errors.New("GraphQL dataset metadata is null")
+		return nil, errors.New("published dataframe dataset metadata is null")
 	}
 	if state, _ := materialization["state"].(string); state != "READY" {
-		return nil, fmt.Errorf("GraphQL dataset state=%q want READY", state)
+		return nil, fmt.Errorf("published dataframe dataset state=%q want READY", state)
 	}
-	if err := compareGraphQLColumns(materialization, oracle.Columns); err != nil {
+	if err := comparePublishedColumns(materialization, oracle.Columns); err != nil {
 		return nil, err
 	}
 	count, ok := numeric(materialization["rowCount"])
 	if !ok {
-		return nil, errors.New("GraphQL dataset rowCount is missing or has the wrong shape")
+		return nil, errors.New("published dataframe dataset rowCount is missing or has the wrong shape")
 	}
 	if count != int64(oracle.RowCount) {
-		return nil, fmt.Errorf("GraphQL dataset rowCount=%d want %d", count, oracle.RowCount)
-	}
-	rowsQuery := `query($input:DataframeRowsInput!){dataframeRows(input:$input){columns rows totalCount pageInfo{hasNextPage}}}`
-	rows, err := graphql(ctx, cfg, rowsQuery, map[string]any{"input": map[string]any{"projectId": cfg.Namespace.Project, "selector": selector, "first": oracle.RowCount, "sort": map[string]any{"column": patientColumn(materialization), "desc": false}}})
-	if err != nil {
-		return nil, err
-	}
-	rowsData, ok := rows["data"].(map[string]any)
-	if !ok {
-		return nil, errors.New("GraphQL rows data is missing or has the wrong shape")
-	}
-	connection, ok := rowsData["dataframeRows"].(map[string]any)
-	if !ok {
-		return nil, errors.New("GraphQL dataframeRows is missing or has the wrong shape")
+		return nil, fmt.Errorf("published dataframe dataset rowCount=%d want %d", count, oracle.RowCount)
 	}
 	total, ok := numeric(connection["totalCount"])
 	if !ok {
-		return nil, errors.New("GraphQL dataframeRows totalCount is missing or has the wrong shape")
+		return nil, errors.New("published dataframe totalCount is missing or has the wrong shape")
 	}
 	if total != int64(oracle.RowCount) {
-		return nil, fmt.Errorf("GraphQL rows totalCount=%d want %d", total, oracle.RowCount)
+		return nil, fmt.Errorf("published dataframe rows totalCount=%d want %d", total, oracle.RowCount)
 	}
 	rowValues, ok := connection["rows"].([]any)
 	if !ok {
-		return nil, errors.New("GraphQL dataframeRows rows is missing or has the wrong shape")
+		return nil, errors.New("published dataframe rows is missing or has the wrong shape")
 	}
 	if err := verifyRowProfiles(rowValues, oracle); err != nil {
 		return nil, err
 	}
 	if oracle.RowDigest != "" {
 		if got := normalizedRowsDigest(rowValues); got != oracle.RowDigest {
-			return nil, fmt.Errorf("GraphQL normalized row digest=%s want %s", got, oracle.RowDigest)
+			return nil, fmt.Errorf("published dataframe normalized row digest=%s want %s", got, oracle.RowDigest)
 		}
 	}
-	countQuery := `query($input:DataframeAggregateInput!){dataframeAggregate(input:$input){columns rows}}`
-	_, err = graphql(ctx, cfg, countQuery, map[string]any{"input": map[string]any{"projectId": cfg.Namespace.Project, "selector": selector, "operation": "COUNT"}})
+	facets, err := postDataframe(ctx, cfg, "aggregations", map[string]any{
+		"selector": selector,
+		"specs":    []any{map[string]any{"name": "patient_values", "kind": "TERMS", "column": firstColumn(materialization), "size": 10}},
+	})
 	if err != nil {
 		return nil, err
 	}
-	facetQuery := `query($input:DataframeAggregationsInput!){dataframeAggregations(input:$input){aggregations}}`
-	_, err = graphql(ctx, cfg, facetQuery, map[string]any{"input": map[string]any{"projectId": cfg.Namespace.Project, "selector": selector, "specs": []any{map[string]any{"name": "patient_values", "kind": "TERMS", "column": firstColumn(materialization), "size": 10}}}})
-	if err != nil {
-		return nil, err
+	if values, ok := facets["aggregations"].([]any); !ok || len(values) != 1 {
+		return nil, fmt.Errorf("published dataframe aggregations have the wrong shape")
 	}
-	return map[string]any{"dataset": materialization, "rows": rows["data"], "row_digest": graphqlRowsDigest(rows)}, nil
+	return map[string]any{"dataset": materialization, "rows": connection, "row_digest": normalizedRowsDigest(rowValues)}, nil
 }
 
 func verifyRowProfiles(rows []any, oracle Oracle) error {
@@ -846,7 +842,7 @@ func verifyRowProfiles(rows []any, oracle Oracle) error {
 	for index, raw := range rows {
 		row, ok := raw.(map[string]any)
 		if !ok {
-			return fmt.Errorf("GraphQL row %d has the wrong shape", index)
+			return fmt.Errorf("published dataframe row %d has the wrong shape", index)
 		}
 		for column := range oracle.NonNullCounts {
 			if value, exists := row[column]; exists && value != nil {
@@ -863,21 +859,15 @@ func verifyRowProfiles(rows []any, oracle Oracle) error {
 	}
 	for column, want := range oracle.NonNullCounts {
 		if got := nonNull[column]; got != want {
-			return fmt.Errorf("GraphQL column %s non-null rows=%d want %d", column, got, want)
+			return fmt.Errorf("published dataframe column %s non-null rows=%d want %d", column, got, want)
 		}
 	}
 	for column, want := range oracle.TrueCounts {
 		if got := trueValues[column]; got != want {
-			return fmt.Errorf("GraphQL column %s true rows=%d want %d", column, got, want)
+			return fmt.Errorf("published dataframe column %s true rows=%d want %d", column, got, want)
 		}
 	}
 	return nil
-}
-
-func graphqlRowsDigest(response map[string]any) string {
-	data, _ := response["data"].(map[string]any)
-	connection, _ := data["dataframeRows"].(map[string]any)
-	return normalizedRowsDigest(connection["rows"])
 }
 
 func firstColumn(materialization map[string]any) string {
@@ -893,20 +883,7 @@ func firstColumn(materialization map[string]any) string {
 	return "patient_id"
 }
 
-func patientColumn(materialization map[string]any) string {
-	cols, _ := materialization["columns"].([]any)
-	for _, raw := range cols {
-		if col, ok := raw.(map[string]any); ok {
-			name, _ := col["name"].(string)
-			if name == "patient_id" {
-				return name
-			}
-		}
-	}
-	return firstColumn(materialization)
-}
-
-func compareGraphQLColumns(materialization map[string]any, want []string) error {
+func comparePublishedColumns(materialization map[string]any, want []string) error {
 	cols, _ := materialization["columns"].([]any)
 	available := make(map[string]bool, len(cols))
 	for _, raw := range cols {
@@ -917,23 +894,19 @@ func compareGraphQLColumns(materialization map[string]any, want []string) error 
 	}
 	for _, name := range want {
 		if !available[name] {
-			return fmt.Errorf("GraphQL dataset omitted expected column %q", name)
+			return fmt.Errorf("published dataframe dataset omitted expected column %q", name)
 		}
 	}
 	return nil
 }
 
-func graphql(ctx context.Context, cfg ScenarioConfig, query string, variables map[string]any) (map[string]any, error) {
-	payload := map[string]any{"query": query, "variables": variables}
-	raw, _ := json.Marshal(payload)
-	value, err := doJSON(ctx, cfg.HTTPClient, http.MethodPost, cfg.Connections.LoomURL+"/graphql/graph", bytes.NewReader(raw), "application/json", nil)
+func postDataframe(ctx context.Context, cfg ScenarioConfig, operation string, input map[string]any) (map[string]any, error) {
+	raw, err := json.Marshal(input)
 	if err != nil {
 		return nil, err
 	}
-	if errorsValue, ok := value["errors"]; ok && errorsValue != nil {
-		return nil, fmt.Errorf("GraphQL errors: %v", errorsValue)
-	}
-	return value, nil
+	path := "/api/v1/projects/" + url.PathEscape(url.PathEscape(cfg.Namespace.Project)) + "/dataframes/" + operation
+	return doJSON(ctx, cfg.HTTPClient, http.MethodPost, cfg.Connections.LoomURL+path, bytes.NewReader(raw), "application/json", nil)
 }
 
 func getJSON(ctx context.Context, client *http.Client, target string) (map[string]any, error) {

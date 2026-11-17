@@ -113,7 +113,6 @@ import {
   type InterpretationRevision,
 } from './interpretation';
 import { z } from 'zod';
-import { dataframeOutputQuery } from './dataframeOutputQuery.mjs';
 import { cellTraceResponseSchema, type CellTraceResponse } from './cellTrace';
 import {
   selectionPageSchema,
@@ -586,13 +585,7 @@ export type LoomOutputFilterOperator =
 export interface LoomOutputFilter {
   readonly column: string;
   readonly op: LoomOutputFilterOperator;
-  /**
-   * The reader ignores this value for `IS_NULL`, but the transports disagree
-   * about it: the `dataframeRows` GraphQL input declares `value: JSON!` and so
-   * rejects a null, while `ValidateTypedFilters` on the selection path rejects
-   * `IS_NULL` carrying any value at all. See the missingness contract in
-   * `features/ExplorerViewer/serialization.ts` for the encoding the Viewer uses.
-   */
+  /** The published reader ignores this value for existence and missingness filters. */
   readonly value: unknown;
 }
 
@@ -822,11 +815,6 @@ export interface LoomClient {
     args: DeleteExplorerArgs,
     signal?: AbortSignal,
   ) => Promise<null>;
-  readonly fetchGraphQL: (
-    query: string,
-    variables?: Readonly<Record<string, unknown>>,
-    signal?: AbortSignal,
-  ) => Promise<unknown>;
   readonly rows: (
     selector: ExplorerRuntimeV1['outputs'][number]['selector'],
     columns: ReadonlyArray<string>,
@@ -976,21 +964,21 @@ export class LoomRequestError extends Error implements ExplorerAuthoringApiError
   }
 }
 
-const graphQLRowSchema = z.union([
+const dataframeRowSchema = z.union([
   z.array(z.unknown()),
   z.record(z.string(), z.unknown()),
 ]);
-type GraphQLRow = z.infer<typeof graphQLRowSchema>;
-const graphQLFacetSchema = z.object({
+type DataframeRow = z.infer<typeof dataframeRowSchema>;
+const dataframeFacetSchema = z.object({
   name: z.string(),
   kind: z.string(),
   columns: z.array(z.string()),
-  rows: z.array(graphQLRowSchema),
+  rows: z.array(dataframeRowSchema),
   missingCount: z.number().finite().nullable().optional(),
   truncated: z.boolean().optional(),
 }).passthrough();
-type GraphQLFacet = z.infer<typeof graphQLFacetSchema>;
-const graphQLMaterializationSchema = z.object({
+type DataframeFacet = z.infer<typeof dataframeFacetSchema>;
+const dataframeMaterializationSchema = z.object({
   id: z.string().optional(),
   name: z.string().optional(),
   revision: z.string().optional(),
@@ -1004,10 +992,10 @@ const graphQLMaterializationSchema = z.object({
     output: z.string(),
   }).strict().nullable().optional(),
 }).passthrough();
-const graphQLConnectionSchema = z.object({
-  materialization: graphQLMaterializationSchema.optional(),
+const dataframeConnectionSchema = z.object({
+  materialization: dataframeMaterializationSchema.optional(),
   columns: z.array(z.string()),
-  rows: z.array(graphQLRowSchema),
+  rows: z.array(dataframeRowSchema),
   rowIds: z.array(z.string()).optional().transform((value) => value ?? []),
   totalCount: z.number().int().nonnegative().nullable(),
   pageInfo: z.object({
@@ -1015,12 +1003,12 @@ const graphQLConnectionSchema = z.object({
     endCursor: z.string().nullable().optional(),
   }).strict(),
 }).passthrough();
-const graphQLOutputDataSchema = z.object({
-  dataframeRows: graphQLConnectionSchema,
-  dataframeAggregations: z.object({ aggregations: z.array(graphQLFacetSchema) }).passthrough().optional(),
+const dataframeAggregationsSchema = z.object({
+  materialization: dataframeMaterializationSchema,
+  aggregations: z.array(dataframeFacetSchema),
 }).passthrough();
 
-const shapeRows = (rows: ReadonlyArray<GraphQLRow>, columns: ReadonlyArray<string>): Array<Record<string, unknown>> => {
+const shapeRows = (rows: ReadonlyArray<DataframeRow>, columns: ReadonlyArray<string>): Array<Record<string, unknown>> => {
   return rows.map((row) => {
     const source = Array.isArray(row)
       ? Object.fromEntries(columns.map((column, index) => [column, row[index]]))
@@ -1052,7 +1040,7 @@ const shapeRows = (rows: ReadonlyArray<GraphQLRow>, columns: ReadonlyArray<strin
 const numberOrNull = (value: unknown): number | null =>
   typeof value === 'number' && Number.isFinite(value) ? value : null;
 
-const normalizedFacet = (value: GraphQLFacet): LoomFacetResult => {
+const normalizedFacet = (value: DataframeFacet): LoomFacetResult => {
   const columns = value.columns;
   const rows = shapeRows(value.rows, columns);
   const missingCount = numberOrNull(value.missingCount);
@@ -1064,33 +1052,6 @@ const normalizedFacet = (value: GraphQLFacet): LoomFacetResult => {
     ...(missingCount === null ? {} : { missingCount }),
     ...(typeof value.truncated === 'boolean' ? { truncated: value.truncated } : {}),
   };
-};
-
-const outputQuery = (request: LoomOutputRequest): {
-  readonly query: string;
-  readonly variables: Readonly<Record<string, unknown>>;
-} => {
-  const hasFacets = (request.facets?.length ?? 0) > 0;
-  const input: Record<string, unknown> = {
-    projectId: canonicalProject(request.project),
-    selector: request.selector,
-    ...(request.columns && request.columns.length > 0 ? { columns: [...request.columns] } : {}),
-    ...(request.filters && request.filters.length > 0 ? { filters: request.filters.map((filter) => ({ column: filter.column, op: filter.op, value: filter.value })) } : {}),
-    ...(request.sort ? { sort: { column: request.sort.column, desc: request.sort.desc ?? false } } : {}),
-    ...(request.first === undefined ? {} : { first: request.first }),
-    ...(request.after ? { after: request.after } : {}),
-  };
-  const query = dataframeOutputQuery('LoomOutput', hasFacets);
-  const variables: Record<string, unknown> = { input };
-  if (hasFacets) {
-    variables.facetInput = {
-      projectId: canonicalProject(request.project),
-      selector: request.selector,
-      ...(request.filters && request.filters.length > 0 ? { filters: request.filters.map((filter) => ({ column: filter.column, op: filter.op, value: filter.value })) } : {}),
-      specs: [...(request.facets ?? [])],
-    };
-  }
-  return { query, variables };
 };
 
 const materializationIdentity = (
@@ -1908,35 +1869,42 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     evictCached(`builder:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}:${args.explorerId}`);
     return null;
   };
-  const fetchGraphQL = async (query: string, variables?: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<unknown> => {
-    const payload = await request('/graphql/graph', { method: 'POST', signal, body: JSON.stringify({ query, variables }) });
-    if (!isRecord(payload)) throw new LoomRequestError({ status: 502, code: 'INVALID_GRAPHQL_RESPONSE', message: 'Loom returned an invalid GraphQL response.', retryable: false });
-    if (Array.isArray(payload.errors) && payload.errors.length > 0) {
-      const firstError = isRecord(payload.errors[0]) ? payload.errors[0] : {};
-      const message = typeof firstError.message === 'string' ? firstError.message : 'Loom GraphQL request failed.';
-      const extensions = isRecord(firstError.extensions) ? firstError.extensions : {};
-      const code = typeof extensions.code === 'string' ? extensions.code : 'GRAPHQL_ERROR';
-      throw new LoomRequestError({
-        status: code === 'STALE_CURSOR' ? 409 : 'CUSTOM_ERROR',
-        code,
-        message,
-        retryable: extensions.retryable === true,
-        details: extensions,
-      });
-    }
-    return payload.data;
-  };
   const queryOutput = async (outputRequest: LoomOutputRequest, signal?: AbortSignal): Promise<LoomOutputResult> => {
-    const prepared = outputQuery(outputRequest);
-    const data = await fetchGraphQL(prepared.query, prepared.variables, signal);
-    const parsed = graphQLOutputDataSchema.safeParse(data);
-    if (!parsed.success || (prepared.variables.facetInput !== undefined && !parsed.data?.dataframeAggregations)) {
+    const path = `/api/v1/projects/${encodedProject(outputRequest.project)}/dataframes`;
+    const { selector, columns: requestedColumns, filters, sort, first, after, facets: requestedFacets } = outputRequest;
+    const selection = {
+      selector,
+      ...(filters?.length ? { filters: filters.map(({ column, op, value }) => ({ column, op, value })) } : {}),
+    };
+    const [rowsResponse, facetResponse] = await Promise.all([
+      request(`${path}/rows`, withJson({
+        ...selection,
+        ...(requestedColumns?.length ? { columns: requestedColumns } : {}),
+        ...(sort ? { sort: { column: sort.column, desc: sort.desc ?? false } } : {}),
+        ...(first === undefined ? {} : { first }),
+        ...(after ? { after } : {}),
+      }, signal)),
+      requestedFacets?.length
+        ? request(`${path}/aggregations`, withJson({ ...selection, specs: requestedFacets }, signal)).then(
+            (value) => dataframeAggregationsSchema.safeParse(value),
+          )
+        : undefined,
+    ]);
+    const rows = dataframeConnectionSchema.safeParse(rowsResponse);
+    if (!rows.success || (facetResponse && !facetResponse.success)) {
       throw new LoomRequestError({ status: 502, code: 'INVALID_OUTPUT_RESPONSE', message: 'Loom returned an invalid output response.', retryable: false });
     }
-    const connection = parsed.data.dataframeRows;
+    const connection = rows.data;
+    const aggregationResult = facetResponse?.data;
+    if (aggregationResult) {
+      const rowIdentity = connection.materialization && materializationIdentity(connection.materialization);
+      if (!rowIdentity || rowIdentity !== materializationIdentity(aggregationResult.materialization)) {
+        throw new LoomRequestError({ status: 409, code: 'STALE_CURSOR', message: 'The published dataframe changed while its facets were loading.', retryable: false });
+      }
+    }
     const columns = connection.columns;
     const pageInfo = connection.pageInfo;
-    const facets = parsed.data.dataframeAggregations?.aggregations.map(normalizedFacet) ?? [];
+    const facets = aggregationResult?.aggregations.map(normalizedFacet) ?? [];
     const materialization = connection.materialization;
     const endCursor = pageInfo.endCursor ?? undefined;
     return {
@@ -2047,7 +2015,6 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     publish,
     createExplorer,
     deleteExplorer,
-    fetchGraphQL,
     rows,
     queryOutput,
     exportOutput,

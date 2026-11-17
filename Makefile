@@ -8,14 +8,13 @@ GOFLAGS ?=
 SCHEMA_PATH ?= schemas/graph-fhir.json
 OAPI_CODEGEN_VERSION ?= v2.8.0
 IMAGE ?= arango-fhir-proto:local
-GRAPHQL_URL ?= http://127.0.0.1:8080/graphql/dataframe
+LOOM_URL ?= http://127.0.0.1:8080
 DATAFRAME_REPEAT ?= 1
 DATAFRAME_LIMIT ?= 0
 DATAFRAME_TIMEOUT ?= 5m
 DATAFRAME_PRINT_RESPONSE ?= false
-DATAFRAME_QUERY ?= examples/meta_gdc_case_matrix.graphql
-DATAFRAME_VARIABLES ?= examples/meta_gdc_case_matrix.variables.json
-DATAFRAME_PROFILE_VARIABLES ?= examples/meta_gdc_case_matrix.variables.json
+DATAFRAME_REQUEST ?= examples/meta_gdc_case_matrix.json
+DATAFRAME_PROFILE_VARIABLES ?= examples/meta_gdc_case_matrix.json
 DATAFRAME_PROFILE_LIMIT ?= 1000
 
 # Make treats the positional version as a second goal. Reject every ambiguous
@@ -94,10 +93,10 @@ compiler-bench:
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./conformance/compiler -run '^$$' -bench '^BenchmarkCompilerOracle$$' -benchmem
 
 # Requires `arango-fhir-server --no-auth` and a loaded META project. Prints the
-# actual GraphQL dataframe response and per-request wall-clock timings.
+# actual REST dataframe response and per-request wall-clock timings.
 dataframe-demo:
 	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/dataframe-query -url $(GRAPHQL_URL) -query $(DATAFRAME_QUERY) -variables $(DATAFRAME_VARIABLES) -repeat $(DATAFRAME_REPEAT) -limit $(DATAFRAME_LIMIT) -timeout $(DATAFRAME_TIMEOUT) -print-response=$(DATAFRAME_PRINT_RESPONSE)
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/dataframe-query -url $(LOOM_URL) -request $(DATAFRAME_REQUEST) -repeat $(DATAFRAME_REPEAT) -limit $(DATAFRAME_LIMIT) -timeout $(DATAFRAME_TIMEOUT) -print-response=$(DATAFRAME_PRINT_RESPONSE)
 
 # Requires a loaded META fixture database. Compiles the checked-in GDC fixture,
 # writes exact rendered AQL, then runs Arango EXPLAIN and PROFILE 2.

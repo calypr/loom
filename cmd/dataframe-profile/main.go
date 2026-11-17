@@ -1,6 +1,6 @@
 // dataframe-profile compiles one checked-in dataframe fixture and profiles
 // the exact rendered AQL directly against ArangoDB. It is intentionally a
-// diagnostic command: normal GraphQL execution never enables PROFILE.
+// diagnostic command: normal dataframe execution never enables PROFILE.
 package main
 
 import (
@@ -78,7 +78,7 @@ func main() {
 	var (
 		fixtureDir  = flag.String("fixtures", "conformance/compiler/fixtures", "compiler fixture directory")
 		fixtureID   = flag.String("fixture", "gdc-case-matrix", "fixture ID to compile")
-		variables   = flag.String("variables", "", "GraphQL variables JSON; when set, compile its input instead of the fixture builder")
+		variables   = flag.String("variables", "", "dataframe request JSON; when set, compile its input instead of the fixture builder")
 		limit       = flag.Int("limit", 1000, "root row limit")
 		url         = flag.String("url", "http://127.0.0.1:8529", "ArangoDB URL")
 		database    = flag.String("database", "fhir_proto", "ArangoDB database")
@@ -111,14 +111,14 @@ func main() {
 			Input dataframemodel.FhirDataframeInput `json:"input"`
 		}
 		if err := json.Unmarshal(data, &payload); err != nil {
-			fatalf("decode GraphQL variables %q: %v", *variables, err)
+			fatalf("decode dataframe request %q: %v", *variables, err)
 		}
 		if payload.Input.Project == "" || payload.Input.RootResourceType == "" {
-			fatalf("GraphQL variables %q do not contain a complete input", *variables)
+			fatalf("dataframe request %q do not contain a complete input", *variables)
 		}
 		bundle, err = queryapi.RecipeBundleFromInput(payload.Input)
 		if err != nil {
-			fatalf("convert GraphQL variables to recipe: %v", err)
+			fatalf("convert dataframe request to recipe: %v", err)
 		}
 		bindings = recipe.RuntimeBindings{Project: payload.Input.Project, AuthResourcePaths: payload.Input.AuthResourcePaths}
 		label = filepath.Base(*variables)

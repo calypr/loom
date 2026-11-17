@@ -67,7 +67,6 @@ const defaults = {
   publish: pending(),
   createExplorer: pending(),
   deleteExplorer: pending(),
-  fetchGraphQL: pending(),
   rows: pending(),
   queryOutput: pending(),
   exportOutput: pending(),
