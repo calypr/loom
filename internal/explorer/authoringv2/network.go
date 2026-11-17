@@ -9,13 +9,44 @@ import (
 // Route/Rows for ordinary documents and the immutable pin plus source overlay
 // for imported documents. It must never be saved as a second canvas model.
 type AuthoringNetwork struct {
-	Owner       string                 `json:"owner"`
-	OutputID    string                 `json:"outputId"`
-	SourceRows  RowDefinition          `json:"sourceRows"`
-	Occurrences []NetworkOccurrence    `json:"occurrences"`
-	Bindings    []NetworkColumnBinding `json:"bindings"`
-	Operations  []NetworkOperation     `json:"operations"`
+	Owner           string                 `json:"owner"`
+	OutputID        string                 `json:"outputId"`
+	SourceRows      RowDefinition          `json:"sourceRows"`
+	Occurrences     []NetworkOccurrence    `json:"occurrences"`
+	Bindings        []NetworkColumnBinding `json:"bindings"`
+	ProjectedFields []ProjectedField       `json:"projectedFields"`
+	Operations      []NetworkOperation     `json:"operations"`
 }
+
+// ProjectedField is the unified, ordered inventory of the persisted document's
+// output columns. Owner and Removal are server-derived capabilities; clients
+// must not send either value as mutation intent.
+type ProjectedField struct {
+	ColumnID        string `json:"columnId,omitempty"`
+	Column          string `json:"column"`
+	Label           string `json:"label"`
+	OccurrenceID    string `json:"occurrenceId,omitempty"`
+	Owner           string `json:"owner"`
+	Removal         string `json:"removal"`
+	Status          string `json:"status"`
+	SourceStepID    string `json:"sourceStepId,omitempty"`
+	SourceFieldID   string `json:"sourceFieldId,omitempty"`
+	SourceOutputKey string `json:"sourceOutputKey,omitempty"`
+}
+
+const (
+	ProjectedFieldOwnerPinned   = "PINNED_SOURCE"
+	ProjectedFieldOwnerAuthored = "AUTHORED"
+	ProjectedFieldOwnerUnknown  = "UNKNOWN"
+
+	ProjectedFieldRemovalDisablePinned       = "DISABLE_PINNED_FIELD"
+	ProjectedFieldRemovalDisablePinnedOutput = "DISABLE_PINNED_OUTPUT"
+	ProjectedFieldRemovalColumn              = "REMOVE_COLUMN"
+	ProjectedFieldRemovalUnavailable         = "UNAVAILABLE"
+
+	ProjectedFieldStatusExact   = "EXACT"
+	ProjectedFieldStatusUnknown = "UNKNOWN"
+)
 
 type NetworkOccurrence struct {
 	OccurrenceID       string         `json:"occurrenceId"`
@@ -202,22 +233,77 @@ func NetworkForDocument(d Document, catalog CatalogSnapshot) (AuthoringNetwork, 
 		return AuthoringNetwork{}, err
 	}
 	for _, c := range d.Columns {
-		if c.ColumnID == "" {
-			continue
+		if c.ColumnID != "" {
+			binding := NetworkColumnBinding{ColumnID: c.ColumnID, OccurrenceID: c.OccurrenceID, Status: "EXACT"}
+			if c.Source.Field != nil {
+				binding.ValueMode = c.Source.Field.ProjectionMode
+			}
+			n.Bindings = append(n.Bindings, binding)
 		}
-		binding := NetworkColumnBinding{ColumnID: c.ColumnID, OccurrenceID: c.OccurrenceID, Status: "EXACT"}
-		if c.Source.Field != nil {
-			binding.ValueMode = c.Source.Field.ProjectionMode
-		}
-		n.Bindings = append(n.Bindings, binding)
 	}
+	n.ProjectedFields = ProjectedFieldsForDocument(d, n)
 	return n, nil
+}
+
+// ProjectedFieldsForDocument preserves every persisted output column in the
+// read model. Stable IDs and source bindings are copied only when present; the
+// caller may enrich pinned source ownership after compiler provenance has been
+// resolved.
+func ProjectedFieldsForDocument(d Document, network AuthoringNetwork) []ProjectedField {
+	bindings := make(map[string]NetworkColumnBinding, len(network.Bindings))
+	for _, binding := range network.Bindings {
+		if binding.ColumnID != "" {
+			bindings[binding.ColumnID] = binding
+		}
+	}
+	columnIDCounts := make(map[string]int, len(d.Columns))
+	for _, column := range d.Columns {
+		if column.ColumnID != "" {
+			columnIDCounts[column.ColumnID]++
+		}
+	}
+	fields := make([]ProjectedField, 0, len(d.Columns))
+	for _, column := range d.Columns {
+		field := ProjectedField{
+			ColumnID: column.ColumnID, Column: column.Column, Label: column.Label,
+			OccurrenceID: column.OccurrenceID, Owner: ProjectedFieldOwnerUnknown,
+			Removal: ProjectedFieldRemovalUnavailable, Status: ProjectedFieldStatusUnknown,
+		}
+		if field.Label == "" {
+			field.Label = column.Column
+		}
+		if column.Source.Kind == SourceImported {
+			field.Owner = ProjectedFieldOwnerPinned
+			field.OccurrenceID = ""
+		} else if column.Source.Kind != "" {
+			field.Owner = ProjectedFieldOwnerAuthored
+			if column.ColumnID != "" && column.Column != "" {
+				field.Status = ProjectedFieldStatusExact
+				field.Removal = ProjectedFieldRemovalUnavailable
+			}
+		}
+		if column.ColumnID != "" {
+			if binding, ok := bindings[column.ColumnID]; ok && binding.Status == "EXACT" {
+				field.Status = ProjectedFieldStatusExact
+				if binding.OccurrenceID != "" {
+					field.OccurrenceID = binding.OccurrenceID
+				}
+				field.SourceStepID = binding.SourceStepID
+			}
+		}
+		if column.ColumnID == "" || column.Column == "" || columnIDCounts[column.ColumnID] != 1 {
+			field.Status = ProjectedFieldStatusUnknown
+			field.Removal = ProjectedFieldRemovalUnavailable
+		}
+		fields = append(fields, field)
+	}
+	return fields
 }
 
 // NewAuthoringNetwork initializes ordered operation ownership. Anchor columns
 // stay explicit and are never inferred from the currently selected graph node.
 func NewAuthoringNetwork(d Document, owner string) AuthoringNetwork {
-	n := AuthoringNetwork{Owner: owner, OutputID: d.Output.ID, SourceRows: d.Rows, Occurrences: []NetworkOccurrence{}, Bindings: []NetworkColumnBinding{}, Operations: []NetworkOperation{}}
+	n := AuthoringNetwork{Owner: owner, OutputID: d.Output.ID, SourceRows: d.Rows, Occurrences: []NetworkOccurrence{}, Bindings: []NetworkColumnBinding{}, ProjectedFields: []ProjectedField{}, Operations: []NetworkOperation{}}
 	if d.Construction != nil {
 		for _, s := range d.Construction.Steps {
 			op := NetworkOperation{OperationID: s.ID, Kind: s.Operation.Kind, InputStepIDs: []string{}}

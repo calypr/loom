@@ -30,7 +30,12 @@ func (r importedRecipeSources) Network(ctx context.Context, project string, auth
 					if err != nil {
 						return authoringv2.AuthoringNetwork{}, err
 					}
-					return recipeimport.BindCompiledNetwork(network, compiled.OutputSchema, &plan)
+					network, err = recipeimport.BindCompiledNetwork(network, compiled.OutputSchema, &plan)
+					if err != nil {
+						return authoringv2.AuthoringNetwork{}, err
+					}
+					network.ProjectedFields = authoringv2.ProjectedFieldsForDocument(document, network)
+					return network, nil
 				}
 			}
 			return authoringv2.AuthoringNetwork{}, fmt.Errorf("compiled source output was not found")

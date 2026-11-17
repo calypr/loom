@@ -2795,6 +2795,30 @@ components:
         kind: {type: string, minLength: 1}
         inputStepIds: {type: array, items: {type: string, minLength: 1}}
         anchorColumnId: {type: string, minLength: 1}
+    ProjectedField:
+      type: object
+      additionalProperties: false
+      required: [column, label, owner, removal, status]
+      properties:
+        columnId: {type: string, minLength: 1}
+        column: {type: string, minLength: 1}
+        label: {type: string}
+        occurrenceId: {type: string, minLength: 1}
+        owner:
+          type: string
+          enum: [PINNED_SOURCE, AUTHORED, UNKNOWN]
+          x-enum-varnames: [PROJECTED_FIELD_PINNED_SOURCE, PROJECTED_FIELD_AUTHORED, PROJECTED_FIELD_UNKNOWN_OWNER]
+        removal:
+          type: string
+          enum: [DISABLE_PINNED_FIELD, DISABLE_PINNED_OUTPUT, REMOVE_COLUMN, UNAVAILABLE]
+          x-enum-varnames: [PROJECTED_FIELD_DISABLE_PINNED, PROJECTED_FIELD_DISABLE_PINNED_OUTPUT, PROJECTED_FIELD_REMOVE_COLUMN, PROJECTED_FIELD_UNAVAILABLE]
+        status:
+          type: string
+          enum: [EXACT, UNKNOWN]
+          x-enum-varnames: [PROJECTED_FIELD_EXACT, PROJECTED_FIELD_UNKNOWN_STATUS]
+        sourceStepId: {type: string, minLength: 1}
+        sourceFieldId: {type: string, minLength: 1}
+        sourceOutputKey: {type: string, minLength: 1}
     AuthoringNetwork:
       type: object
       additionalProperties: false
@@ -2805,6 +2829,7 @@ components:
         sourceRows: {$ref: '#/components/schemas/RowDefinition'}
         occurrences: {type: array, items: {$ref: '#/components/schemas/NetworkOccurrence'}}
         bindings: {type: array, items: {$ref: '#/components/schemas/NetworkColumnBinding'}}
+        projectedFields: {type: array, items: {$ref: '#/components/schemas/ProjectedField'}}
         operations: {type: array, items: {$ref: '#/components/schemas/NetworkOperation'}}
     RowIdentity:
       type: object

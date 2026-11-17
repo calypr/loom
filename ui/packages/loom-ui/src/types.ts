@@ -1736,6 +1736,26 @@ const importedRelationshipOverlaySchema = z.object({
   removals: z.array(opaqueIdSchema).optional(),
   matchOverrides: z.array(z.object({ occurrenceId: opaqueIdSchema, matchMode: z.enum(['OPTIONAL', 'REQUIRED']) }).strict()).optional(),
 }).strict();
+export const projectedFieldSchema = z.object({
+  columnId: opaqueIdSchema.optional(), column: z.string().min(1), label: z.string().min(1), occurrenceId: opaqueIdSchema.optional(),
+  owner: z.enum(['PINNED_SOURCE', 'AUTHORED', 'UNKNOWN']),
+  removal: z.enum(['DISABLE_PINNED_FIELD', 'DISABLE_PINNED_OUTPUT', 'REMOVE_COLUMN', 'UNAVAILABLE']),
+  status: z.enum(['EXACT', 'UNKNOWN']), sourceStepId: opaqueIdSchema.optional(), sourceFieldId: opaqueIdSchema.optional(), sourceOutputKey: z.string().min(1).optional(),
+}).strict().superRefine((field, context) => {
+  if (field.removal === 'DISABLE_PINNED_FIELD' && (field.owner !== 'PINNED_SOURCE' || field.status !== 'EXACT' ||
+      !field.columnId || !field.sourceStepId || !field.sourceFieldId)) {
+    context.addIssue({ code: 'custom', message: 'Disabling a projected field requires an exact pinned source slot.' });
+  }
+  if (field.removal === 'DISABLE_PINNED_OUTPUT' && (field.owner !== 'PINNED_SOURCE' || field.status !== 'EXACT' ||
+      !field.columnId || !field.sourceStepId || !field.sourceOutputKey)) {
+    context.addIssue({ code: 'custom', message: 'Disabling a projected output requires an exact pinned source key.' });
+  }
+  if (field.removal === 'REMOVE_COLUMN' && (field.owner !== 'AUTHORED' || field.status !== 'EXACT' || !field.columnId)) {
+    context.addIssue({ code: 'custom', message: 'Removing a projected column requires an exact authored column ID.' });
+  }
+});
+export type ProjectedField = z.infer<typeof projectedFieldSchema>;
+
 export const authoringNetworkSchema = z.object({
   owner: z.enum(['DOCUMENT', 'IMPORTED_SOURCE']), outputId: opaqueIdSchema, sourceRows: explorerRowDefinitionSchema,
   occurrences: z.array(z.object({
@@ -1744,6 +1764,7 @@ export const authoringNetworkSchema = z.object({
     relationship: z.string().optional(), storageDirection: z.enum(['INBOUND', 'OUTBOUND']).optional(),
     matchMode: z.enum(['OPTIONAL', 'REQUIRED']).optional(), enabled: z.boolean(), preservesRowIdentity: z.boolean(), canExcludeRows: z.boolean(),
   }).strict()),
+  projectedFields: z.array(projectedFieldSchema).optional(),
   bindings: z.array(z.object({ columnId: opaqueIdSchema, occurrenceId: opaqueIdSchema.optional(), sourceStepId: opaqueIdSchema.optional(), outputKey: z.string().min(1).max(2048).optional(), valueMode: z.string().optional(), status: z.enum(['EXACT', 'UNKNOWN']) }).strict()),
   operations: z.array(z.object({ operationId: opaqueIdSchema, kind: z.string().min(1), inputStepIds: z.array(opaqueIdSchema), anchorColumnId: opaqueIdSchema.optional() }).strict()),
 }).strict();
