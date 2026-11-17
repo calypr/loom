@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+
 ui_host=${LOOM_DEMO_UI_HOST:-127.0.0.1}
 [[ $ui_host == *:* ]] && ui_host="[$ui_host]"
 ui_url=${LOOM_DEMO_UI_URL:-http://$ui_host:${LOOM_DEMO_UI_PORT:-3080}}
@@ -37,10 +39,12 @@ chrome=$(find_chrome)
 if [[ -n ${LOOM_BROWSER_ARTIFACT_DIR:-} ]]; then
   work_dir=$LOOM_BROWSER_ARTIFACT_DIR
   mkdir -p "$work_dir"
+  caller_owned_work_dir=true
 else
   work_dir=$(mktemp -d "${TMPDIR:-/tmp}/loom-browser-smoke.XXXXXX")
-  trap 'rm -rf -- "$work_dir"' EXIT
+  caller_owned_work_dir=false
 fi
+trap 'status=$?; if [[ $status -ne 0 ]]; then echo "Browser smoke evidence retained at $work_dir" >&2; elif [[ $caller_owned_work_dir != true ]]; then rm -rf -- "$work_dir"; fi' EXIT
 
 dump_page() {
   local mode=$1
@@ -130,13 +134,8 @@ assert_contains "$viewer_dom" "$output_title"
 assert_contains "$viewer_dom" "$expected_column"
 assert_contains "$viewer_dom" "$expected_cell"
 
-dump_page builder "$builder_dom" "Publish"
+node "$repo_root/scripts/demo-builder-resource-smoke.mjs" "$browser_url&mode=builder" "$chrome" "$work_dir" $expected_resources
 assert_no_ui_error "$builder_dom"
 assert_contains "$builder_dom" "FHIR Explorer Studio"
-assert_contains "$builder_dom" "Preview"
 assert_contains "$builder_dom" "Publish"
-for resource in $expected_resources; do
-  assert_contains "$builder_dom" "$resource"
-done
-
-echo "Standalone Viewer and Builder rendered the seeded Explorer in headless Chrome"
+echo "Standalone Viewer and Builder rendered the seeded Explorer in headless Chrome; Builder New table exposed all expected resource choices"

@@ -102,3 +102,8 @@ The following test-only helpers were also unreachable even from tests. Their rem
 - `internal/explorer/lifecycle/derive_source_test.go: deriveSourceIdentityColumns`: unused derive-source test helper.
 
 `PhysicalSetKind`, `PhysicalNodeSetKind`, and `PhysicalNodePathSetKind` had no production writers or readers. The enum and constants were removed, but `PhysicalSet.Kind` remains a serialized string because `physicalPlanFingerprint` hashes JSON-encoded plans. The two renderer fixtures retain the original `"NODE_SET"` string value. `TestPhysicalPlanFingerprintRetainsSetKind` pins the fingerprint for a representative nonzero kind (`27e8342e…b1cec5e`) so this serialized digest input remains stable.
+
+
+## Standalone Builder smoke: current resource chooser
+
+Recovery point: `fd23b8255:scripts/demo-browser-smoke.sh`. Retired literal assertions required `Preview` and every expected FHIR resource name in the initial Builder HTML. The current UI loads its preview asynchronously and exposes root choices through New table. The replacement waits for the rendered preview, opens New table with a native browser click, and requires each expected resource choice to be visible and enabled. Viewer title/column/cell, stylesheet, and UI-error checks remain. Focused native proof: the seeded NCPI smoke passed with Patient, Condition, Specimen, Observation, and ResearchStudy; final full acceptance is recorded in the harness repair commit. Failure evidence is retained, and negative helper tests cover missing/disabled choices and cleanup failures.
