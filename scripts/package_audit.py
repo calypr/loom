@@ -31,18 +31,17 @@ EXCLUDED_PARTS = {
 # These sentences are deliberately curated. The generator refuses to emit a row
 # without one so a directory listing cannot masquerade as a semantic inventory.
 RESPONSIBILITIES = {
+    "internal/testkit/arangotest": "Provide isolated Arango and ClickHouse service clients, database ownership, and cleanup for integration tests.",
     ".": "Start the default Loom server process through the internal server composition root.",
     "client/ingest": "Upload versioned source files and publish durable Loom source loads through the HTTP client library.",
     "cmd/arango-fhir-proto": "Provide operator commands for FHIR loading, catalog diagnostics, generation repair, and activation.",
     "cmd/arango-fhir-server": "Start the explicit Loom HTTP server binary.",
     "cmd/dataframe-profile": "Run and compare developer-facing dataframe profiling workloads.",
     "cmd/dataframe-query": "Execute a checked-in GraphQL dataframe request and report response timing and diagnostics.",
-    "cmd/explorer-config-v2-convert": "Convert legacy Explorer configuration input into the V2 authoring representation offline.",
     "cmd/generate": "Generate FHIR models, schema metadata, validation, extraction, and GraphQL artifacts from source schemas.",
     "cmd/gqlgenfix": "Post-process gqlgen output to enforce Loom-specific generated-code invariants.",
     "cmd/loom-acceptance": "Run the locked real-data acceptance scenario and emit machine-readable verification artifacts.",
     "cmd/loom-repository": "Preflight a repository checkout and launch Loom against its META and CONFIG data with an owned Compose project.",
-    "cmd/preview-covering-index-artifact": "Recreate a captured Builder proposal offline and emit the exact compiler artifact for index-coverage analysis.",
     "conformance/compiler": "Load and exercise the canonical dataframe compiler oracle corpus for conformance and performance checks.",
     "generated/fhir": "Expose generated FHIR resource models and their extraction, validation, and GraphQL helpers.",
     "generated/fhirschema": "Expose generated raw FHIR schema metadata tables.",
@@ -115,6 +114,24 @@ RESPONSIBILITIES = {
 # understand why a source disappeared; keep records pin the reviewed boundary
 # to a live package.
 COMPLETED_DECISIONS = (
+    {
+        "source": "cmd/explorer-config-v2-convert",
+        "disposition": "removed",
+        "destination": "—",
+        "rationale": "Plan2 R-D4: orphaned offline command; no production, build, CI, skill or operational documentation caller; retire the closed preview wrapper with its command",
+        "contracts": "no served API or persisted format; historical command recoverable from45879f3b2",
+        "verification": "focused package audit before removal; full package audit after removal",
+        "status": "complete",
+    },
+    {
+        "source": "cmd/preview-covering-index-artifact",
+        "disposition": "removed",
+        "destination": "—",
+        "rationale": "Plan2 R-D4: orphaned offline command; no production, build, CI, skill or operational documentation caller; retire the closed preview wrapper with its command",
+        "contracts": "no served API or persisted format; historical command recoverable from45879f3b2",
+        "verification": "focused package audit before removal; full package audit after removal",
+        "status": "complete",
+    },
     {
         "source": "internal/api/graphql",
         "disposition": "merged",
@@ -269,6 +286,10 @@ def validate_completed_decisions(known_locations: set[str]) -> None:
             continue
         if source in known_locations:
             raise SystemExit(f"completed decision source still exists: {source}")
+        if disposition == "removed":
+            if destination != "—":
+                raise SystemExit(f"removed decision has a destination: {destination}")
+            continue
         if destination not in known_locations:
             raise SystemExit(f"completed decision destination missing: {destination}")
 

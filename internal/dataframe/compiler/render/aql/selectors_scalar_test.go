@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
 // Keep the previous loop renderer as the differential execution oracle.
@@ -114,10 +114,7 @@ func TestSelectorArrayBindsSingletonSourceWithoutEnumeratingOneItemArray(t *test
 }
 
 func TestScalarSelectorArrayMatchesLegacyAgainstArango(t *testing.T) {
-	endpoint := os.Getenv("LOOM_SELECTOR_ARANGO_URL")
-	if endpoint == "" {
-		t.Skip("set LOOM_SELECTOR_ARANGO_URL to an existing Arango database URL")
-	}
+	endpoint := arangotest.Shared(t).URL
 	records := []any{map[string]any{"fallbackValue": false}, map[string]any{"value": 0, "fallbackValue": "later"}, nil, map[string]any{}, map[string]any{"value": nil}, map[string]any{"value": false, "usage": "pivot"}, map[string]any{"value": 0}, map[string]any{"value": ""}, map[string]any{"value": []any{}}, map[string]any{"value": []any{false, 0, "", nil}}, map[string]any{"value": map[string]any{"leaf": false}}, map[string]any{"value": map[string]any{"leaf": 0}}, map[string]any{"value": map[string]any{"leaf": ""}}, map[string]any{"value": map[string]any{"leaf": []any{}}}, map[string]any{"value": map[string]any{"leaf": map[string]any{"x": 1}}}, map[string]any{"value": []any{map[string]any{"leaf": "one"}, map[string]any{"leaf": "two"}}}, map[string]any{"identifier": []any{map[string]any{"value": "one"}, map[string]any{"value": "two"}}}}
 	for _, path := range []string{"value", "value.leaf", "identifier[].value", "identifier[0].value", `value where usage contains "pivot"`, "fallback"} {
 		for _, first := range []bool{false, true} {

@@ -7,10 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +19,7 @@ import (
 	datasetstore "github.com/calypr/loom/internal/dataset/arango"
 	store "github.com/calypr/loom/internal/store/arango"
 	storeclickhouse "github.com/calypr/loom/internal/store/clickhouse"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
 )
 
@@ -33,130 +30,6 @@ const rrdTablePrefix = "ch_rrd"
 // rrdDatabasePrefix names the owned Arango database; nothing outside it is
 // created or dropped.
 const rrdDatabasePrefix = "loom_verify_rrd_"
-
-type rrdCitation struct {
-	file string
-	line int
-	want string
-}
-
-// rrdCitations pin the load-bearing source lines this test depends on. If a
-// refactor moves any of them the guard fails the test BEFORE the env gate, so
-// stale evidence cannot quietly survive a source change (mirrors the sibling
-// dangling_binding_e2e_test.go harness).
-var rrdCitations = []rrdCitation{
-	// The pointer guard reads the visibility pointer OUTSIDE the publish
-	// sequence and only skips the drop when the pointer already names the
-	// execution. An absent pointer (the two-doc publish window) proceeds.
-	{"internal/dataframe/publication/clickhouse/bundle_store.go", 1068, "pointer, pointerErr := s.catalog.GetPointer(cleanupCtx, execution.PointerName())"},
-	{"internal/dataframe/publication/clickhouse/bundle_store.go", 1069, "if pointerErr != nil && !errors.Is(pointerErr, publication.ErrBundleNotFound) {"},
-	{"internal/dataframe/publication/clickhouse/bundle_store.go", 1073, "if pointerErr == nil && pointer.ExecutionID == execution.ID {"},
-	// The physical drop and the FAILED demotion of the candidate.
-	{"internal/dataframe/publication/clickhouse/bundle_store.go", 1084, "if err := s.clickHouse.DropTable(leaseCtx, output.PhysicalTable); err != nil {"},
-	{"internal/dataframe/publication/clickhouse/bundle_store.go", 1089, "execution.State = publication.BundleFailed"},
-	{"internal/dataframe/publication/clickhouse/bundle_store.go", 1097, "if err := s.catalog.SaveExecution(leaseCtx, execution, reconcilerID); err != nil {"},
-	// The release read path resolves a binding via GetExecution and never
-	// consults the pointer; a demoted/non-successful execution is an ERROR.
-	{"internal/dataframe/published/current.go", 95, "execution, err := r.Catalog.GetExecution(ctx, binding.ExecutionID)"},
-	{"internal/dataframe/published/current.go", 99, "if execution.ID != binding.ExecutionID || execution.Project != release.Project || execution.DatasetGeneration != binding.Generation || !execution.State.Successful() {"},
-	{"internal/dataframe/published/current.go", 105, "return Materialization{}, fmt.Errorf(\"%w: active dataframe execution %q does not match release %q\", errReleaseBindingUnavailable, binding.ExecutionID, release.ID)"},
-	// One failing binding aborts the WHOLE CurrentProjectDatasets response.
-	{"internal/dataframe/published/current.go", 206, "value, err := r.releaseMaterialization(ctx, active.Release, binding)"},
-	{"internal/dataframe/published/current.go", 207, "if err != nil {"},
-	{"internal/dataframe/published/current.go", 208, "return nil, err"},
-	// The cleanup claim filters on pins/cleanup only, never a release binding.
-	{"internal/dataframe/publication/arango/bundle_registry.go", 431, "FILTER LENGTH(active) == 0 AND (cleanup == null OR cleanup.expiresAt < @now OR cleanup.ownerId == @owner)"},
-	// Release activation pins nothing: the only production read-pin callers.
-	{"internal/dataframe/published/read_pins.go", 63, "owned, err := pins.AcquireExecutionReadPin(ctx, id, owner, time.Now().UTC().Add(ttl))"},
-	{"internal/dataframe/published/export.go", 135, "acquired, err := pins.AcquireExecutionReadPin(ctx, result.ExecutionID, result.ReaderID, expires)"},
-}
-
-// rrdAbsentIdentifiers are names whose absence the hypothesis depends on.
-type rrdAbsent struct {
-	file       string
-	identifier string
-}
-
-var rrdAbsentIdentifiers = []rrdAbsent{
-	// release activation must not be a read-pin caller.
-	{"internal/dataset/arango/release_store.go", "AcquireExecutionReadPin"},
-	{"internal/dataset/arango/release_store.go", "ReadPin"},
-}
-
-func rrdRepoRoot(t *testing.T) string {
-	t.Helper()
-	dir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatalf("no go.mod above %s", dir)
-		}
-		dir = parent
-	}
-}
-
-func rrdCheckCitations(t *testing.T) {
-	t.Helper()
-	root := rrdRepoRoot(t)
-	contents := map[string][]string{}
-	for _, c := range rrdCitations {
-		lines, ok := contents[c.file]
-		if !ok {
-			raw, err := os.ReadFile(filepath.Join(root, c.file))
-			if err != nil {
-				t.Fatalf("citation source %s unreadable: %v", c.file, err)
-			}
-			lines = strings.Split(string(raw), "\n")
-			contents[c.file] = lines
-		}
-		if c.line < 1 || c.line > len(lines) {
-			t.Fatalf("citation drift: %s has %d lines, cited :%d == %q", c.file, len(lines), c.line, c.want)
-		}
-		// Drift-proof: the contract is the EXACT source text, not the pin. A
-		// repaired file shifts lines constantly; require the cited statement
-		// to still exist verbatim somewhere and only note pin drift.
-		found := false
-		for _, line := range lines {
-			if strings.TrimSpace(line) == strings.TrimSpace(c.want) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("citation drift: %s no longer contains %q (cited :%d)", c.file, c.want, c.line)
-		}
-	}
-	for _, a := range rrdAbsentIdentifiers {
-		raw, err := os.ReadFile(filepath.Join(root, a.file))
-		if err != nil {
-			t.Fatalf("citation source %s unreadable: %v", a.file, err)
-		}
-		if strings.Contains(string(raw), a.identifier) {
-			t.Fatalf("hypothesis invariant broken: %q unexpectedly present in %s (release activation must not read-pin)", a.identifier, a.file)
-		}
-	}
-	// ClaimExecutionCleanup body carries no release/lifecycle binding signal.
-	raw, err := os.ReadFile(filepath.Join(root, "internal/dataframe/publication/arango/bundle_registry.go"))
-	if err != nil {
-		t.Fatalf("citation source bundle_registry.go unreadable: %v", err)
-	}
-	body := strings.Split(string(raw), "\n")
-	if len(body) < 441 {
-		t.Fatalf("citation drift: bundle_registry.go shrank below the ClaimExecutionCleanup region")
-	}
-	region := strings.ToLower(strings.Join(body[424:441], "\n"))
-	for _, forbidden := range []string{"release", "lifecycle", "project_release"} {
-		if strings.Contains(region, forbidden) {
-			t.Fatalf("hypothesis invariant broken: ClaimExecutionCleanup region (:425-441) mentions %q, so a release-binding signal now guards the cleanup claim", forbidden)
-		}
-	}
-}
 
 // rrdDatasetDocumentKey replicates internal/dataset/arango/document_codec.go
 // documentKey (kind + sha256 over the loom.datasetstore.v1 salt) so this
@@ -200,16 +73,8 @@ type rrdHarness struct {
 // tables are genuinely created and genuinely dropped by production DropTable.
 func rrdOpen(t *testing.T) *rrdHarness {
 	t.Helper()
-	endpoint := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
-	if endpoint == "" {
-		t.Skip("set LOOM_TEST_ARANGO_URL to run the release-dangle reconcile e2e against a real ArangoDB")
-	}
-	chURL := strings.TrimSpace(os.Getenv("LOOM_CLICKHOUSE_URL"))
-	if chURL == "" {
-		t.Skip("set LOOM_CLICKHOUSE_URL to run the release-dangle reconcile e2e against a real ClickHouse")
-	}
-
-	h := &rrdHarness{suffix: rrdHex()}
+	database := arangotest.Owned(t, rrdDatabasePrefix)
+	h := &rrdHarness{suffix: database.Name[len(rrdDatabasePrefix):]}
 	h.project = "rrd-fb12-project"
 	h.generation = "rrd-gen-" + h.suffix
 	h.healthyTable = rrdTablePrefix + "h_" + h.suffix
@@ -220,82 +85,35 @@ func rrdOpen(t *testing.T) *rrdHarness {
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	t.Cleanup(cancel)
 	h.ctx = ctx
-
-	name := rrdDatabasePrefix + h.suffix
-	if !strings.HasPrefix(name, rrdDatabasePrefix) || len(name) > 63 {
-		t.Fatalf("verification database %q escapes the %s prefix or exceeds the Arango name limit", name, rrdDatabasePrefix)
-	}
-	client, err := store.Open(ctx, endpoint, name)
-	if err != nil {
-		t.Fatalf("open %s: %v", name, err)
-	}
-	t.Logf("RRD_DATABASE=%s", name)
-	t.Cleanup(func() {
-		_ = client.Close(context.Background())
-		cleanupCtx, stop := context.WithTimeout(context.Background(), 20*time.Second)
-		defer stop()
-		req, err := http.NewRequestWithContext(cleanupCtx, http.MethodDelete, strings.TrimRight(endpoint, "/")+"/_api/database/"+url.PathEscape(name), nil)
-		if err != nil {
-			t.Errorf("build cleanup request for %s: %v", name, err)
-			return
-		}
-		response, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Errorf("cleanup %s: %v", name, err)
-			return
-		}
-		defer response.Body.Close()
-		if response.StatusCode != http.StatusOK {
-			t.Errorf("cleanup %s status=%d", name, response.StatusCode)
-			return
-		}
-		t.Logf("RRD_DATABASE_REMOVED=%s", name)
-	})
-	if err := client.Bootstrap(ctx, BootstrapSpec()); err != nil {
+	h.client = database.Client
+	if err := h.client.Bootstrap(ctx, BootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap bundle collections: %v", err)
 	}
-	if err := client.Bootstrap(ctx, datasetstore.BootstrapSpec()); err != nil {
+	if err := h.client.Bootstrap(ctx, datasetstore.BootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap dataset lifecycle collections: %v", err)
 	}
-	registry, err := New(client)
+	registry, err := New(h.client)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
 	h.registry = registry
-	lifecycle, err := datasetstore.New(client)
+	lifecycle, err := datasetstore.New(h.client)
 	if err != nil {
 		t.Fatalf("new lifecycle store: %v", err)
 	}
 	h.lifecycle = lifecycle
-	h.client = client
-
-	ch, err := storeclickhouse.New(storeclickhouse.Options{
-		URL:      chURL,
-		Database: strings.TrimSpace(os.Getenv("LOOM_CLICKHOUSE_DATABASE")),
-		Username: os.Getenv("LOOM_CLICKHOUSE_USERNAME"),
-		Password: os.Getenv("LOOM_CLICKHOUSE_PASSWORD"),
-		Timeout:  60 * time.Second,
-	})
-	if err != nil {
-		t.Fatalf("open clickhouse: %v", err)
-	}
-	if err := ch.Ping(ctx); err != nil {
-		t.Fatalf("ping clickhouse: %v", err)
-	}
-	h.ch = ch
-	// Drop the two owned physical tables no matter how the test ends, and
-	// report exactly which tables are still present AFTER the drop.
+	h.ch = arangotest.ClickHouse(t)
+	// This runs before the ClickHouse client closes and before Arango cleanup.
 	t.Cleanup(func() {
 		cleanupCtx, stop := context.WithTimeout(context.Background(), 30*time.Second)
 		defer stop()
 		for _, table := range []string{h.dangleTable, h.healthyTable} {
-			if err := ch.DropTable(cleanupCtx, table); err != nil {
+			if err := h.ch.DropTable(cleanupCtx, table); err != nil {
 				t.Errorf("drop clickhouse table %s: %v", table, err)
 			} else {
 				t.Logf("RRD_CLICKHOUSE_DROPPED=%s", table)
 			}
 		}
-		_ = ch.Close()
 	})
 	return h
 }
@@ -412,7 +230,7 @@ func (h *rrdHarness) listRRDTables(t *testing.T) []string {
 
 // rrdActivateRelease saves an immutable release that binds BOTH executions and
 // activates it by patching the active_release placeholder SaveRelease created
-// (release_store.go saveReleaseAQL:132-142 / readActiveReleaseAQL:144-150). It
+// (release_store.go saveReleaseAQL / readActiveReleaseAQL). It
 // is validated by production ReadActiveRelease, so a bad key/round-trip fails.
 func (h *rrdHarness) activateRelease(t *testing.T, bindings []dataset.ReleasePublication) dataset.ProjectRelease {
 	t.Helper()
@@ -533,59 +351,9 @@ func rrdUserErrorCode(err error) string {
 	return ""
 }
 
-// TestReconcileDanglesActiveReleaseAgainstArangoClickHouse adjudicates
-// candidate F-B12 end-to-end against a real ArangoDB (fully owned
-// loom_verify_rrd_<uuid> database, HTTP-DELETE dropped) AND a real ClickHouse
-// (owned ch_rrd* MergeTree tables, physically dropped by production DropTable).
-//
-// HYPOTHESIS F-B12: a reconcile pass that enumerated a stale RUNNING execution
-// can physically DropTable its output rows and demote it to FAILED AFTER a
-// PUBLISHED state + release Create+Activate landed, because the pointer guard
-// (the reconcileExecution pre-claim pointer guard) reads the pointer outside the publish sequence,
-// PublishExecution writes exec-state and pointer as two docs (so the pointer
-// can be absent while the exec is visible), release activation pins nothing
-// (only read_pins.go:63 and export.go:135 call AcquireExecutionReadPin), and
-// ClaimExecutionCleanup (bundle_registry.go:431) has no release-binding signal.
-// The release read path (current.go:94-96 -> GetExecution) then total-fails
-// CurrentProjectDatasets (current.go:206-208).
-//
-// The interleaving is staged by ordering the docs by hand: the candidate enters
-// Reconcile as RUNNING (real enumerate via the exported VisitExecutionPages),
-// reconcileExecution reads the ABSENT pointer and decides to drop, and INSIDE
-// the exported ClaimExecutionCleanup seam the racing publish makes the exec doc
-// a queryable PUBLISHED row (pointer still absent - the two-doc window) and a
-// release binding BOTH the healthy and the candidate execution is Created +
-// Activated. Real production AQL then claims cleanup, DropTables the real CH
-// table, and demotes to FAILED.
-//
-// Pre-stated expectations (declared BEFORE running):
-//
-//	O-ENUM the exported RUNNING enumerate yields exactly {dangle} and NOT {healthy}.
-//	O-MID  mid-seam CurrentProjectDatasets = the 2 materializations, err == nil
-//	       (both PUBLISHED + queryable, both real tables present).
-//	O-CONF after Reconcile: candidate State == FAILED, Outputs == []; the candidate's
-//	       real CH table was physically DropTable'd (system.tables shows it gone);
-//	       the ACTIVE release STILL binds the candidate ExecutionID; and
-//	       CurrentProjectDatasets returns nil + error (the whole list, including
-//	       the still-healthy binding, is lost) => FAILED-ON-PURPOSE / CONFIRMED.
-//	O-DISP the drop is prevented (candidate still PUBLISHED, or its table still
-//	       present, or CurrentProjectDatasets still serves) => PASS, and we quote
-//	       the exact line that stopped it.
-//
-// STATUS after Repair-1 (Round 26): PublishExecution is now transactional, so
-// the intermediate state this artifact stages (PUBLISHED row with an ABSENT
-// pointer) is no longer product-reachable through the publish path itself —
-// it models (a) legacy rows written pre-repair and (b) non-lease-guarded
-// PUBLISHED writers (F-B13 activateReleaseAQL patch class), and the reconciler
-// holding the lease from the reconcileExecution claim prevents a lease-fenced racer
-// (model caveat in ReconcileDangleTrust.tla, m-dangle-atomic-current). The
-// drop path STILL lacks the release-binding re-check, so this artifact
-// legitimately remains FAILED-ON-PURPOSE: Repair-1b (re-check pointer AND
-// active-release bindings before DropTable/demote — the shape validated by
-// m-dangle-atomic-recheck) converts it through the O-DISP branch with no
-// assertion rewrite. Do not delete or skip this red; it is the open defect.
+// Active-release bindings must protect execution tables during reconciliation.
+// The controlled interleaving also covers retained non-lease-fenced records.
 func TestReconcileDanglesActiveReleaseAgainstArangoClickHouse(t *testing.T) {
-	rrdCheckCitations(t)
 	h := rrdOpen(t)
 
 	// Seed everything for real.

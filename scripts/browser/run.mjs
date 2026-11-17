@@ -26,13 +26,13 @@ for (let i = 2; i < process.argv.length; i++) {
         options[key] = process.argv[++i];
     }
 }
-assert.ok(['all', 'drag', 'download', 'route'].includes(options.feature), 'Unknown browser feature');
+assert.ok(['all', 'preview', 'download', 'route'].includes(options.feature), 'Unknown browser feature');
 for (const file of [fixture, options.chrome, 'ui/node_modules/esbuild/lib/main.js', 'ui/node_modules/postcss/lib/postcss.mjs', 'ui/node_modules/tailwindcss/lib/index.js'])
     assert.ok(existsSync(resolve(root, file)), `Missing browser prerequisite: ${file}`);
 const version = spawnSync(options.chrome, ['--version'], { encoding: 'utf8', timeout: 3000 });
 assert.equal(version.status, 0, version.stderr);
 if (options.doctor) {
-    console.log(JSON.stringify({ status: 'ready-for-browser-component-checks', chrome: version.stdout.trim(), features: ['drag', 'download', 'route'], boundary: 'real production components in real Chromium; test-owned caller/data/download HTTP response, not deployed Loom/backend or disk durability' }));
+    console.log(JSON.stringify({ status: 'ready-for-browser-component-checks', chrome: version.stdout.trim(), features: ['preview', 'download', 'route'], boundary: 'real production components in real Chromium; test-owned caller/data/download HTTP response, not deployed Loom/backend or disk durability' }));
     process.exit(0);
 }
 assert.ok(options.out, '--out is required');
@@ -59,7 +59,7 @@ const assets = join(temp, 'assets'), profile = join(temp, 'profile'), downloads 
 await mkdir(downloads);
 let server, chrome, client, browser, stopBuild, currentLoader;
 const started = performance.now(), requests = [], browserErrors = [], downloadStarts = [], downloadStates = new Map();
-const report = { schemaVersion: 1, status: 'running', feature: options.feature, sourceFingerprint: inputFingerprint, chrome: version.stdout.trim(), checks: [], boundary: 'Actual PreviewTable/OutputTable and saved-route editor/proposal lifecycle in Chromium with native input. Test-owned caller/API responses/sessionStorage and controlled attachment endpoint. No BuilderWorkspace, real API/store, published Viewer integration or disk durability claim.' };
+const report = { schemaVersion: 1, status: 'running', feature: options.feature, sourceFingerprint: inputFingerprint, chrome: version.stdout.trim(), checks: [], boundary: 'Actual PreviewTable/OutputTable and saved-route editor/proposal lifecycle in Chromium; DOM select change plus native pointer input. Test-owned caller/API responses/sessionStorage and controlled attachment endpoint. No BuilderWorkspace, real API/store, published Viewer integration or disk durability claim.' };
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(probe, message, milliseconds = 5000) {
     const deadline = performance.now() + milliseconds;
@@ -74,9 +74,6 @@ async function evaluate(expression) {
     const result = await client.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
     assert.ok(!result.exceptionDetails, JSON.stringify(result.exceptionDetails));
     return result.result.value;
-}
-async function position(selector) {
-    return evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if(!e) return null; const b=e.getBoundingClientRect(), x=b.x+b.width/2, y=b.y+b.height/2; if(!b.width || !b.height || !e.contains(document.elementFromPoint(x,y))) return null; return {x,y,top:b.top,height:b.height,width:b.width}; })()`);
 }
 async function click(selector) {
     const point = await until(() => evaluate(`(() => {
@@ -96,7 +93,7 @@ async function loadDocument(method, params, feature) {
     const result = await client.send(method, params);
     assert.ok(!result.errorText, result.errorText);
     await until(() => currentLoader && currentLoader !== previousLoader && (!result.loaderId || currentLoader === result.loaderId), 'new document committed');
-    await until(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(feature === 'route' ? '[data-testid="construction-related-expand-editor"]' : feature === 'drag' ? '[data-testid="preview-table-scroll"]' : 'a[aria-label="file_download"]')}))`), 'production component mounted');
+    await until(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(feature === 'route' ? '[data-testid="construction-related-expand-editor"]' : feature === 'preview' ? '[data-testid="preview-table-scroll"]' : 'a[aria-label="file_download"]')}))`), 'production component mounted');
     report.documentNavigations = (report.documentNavigations || 0) + 1;
 }
 async function navigate(feature) {
@@ -171,39 +168,37 @@ try {
     client.on('Runtime.exceptionThrown', event => browserErrors.push(event.exceptionDetails?.exception?.description || event.exceptionDetails?.text));
     client.on('Page.frameNavigated', ({ frame }) => { if (!frame.parentId) currentLoader = frame.loaderId; });
     await client.send('Runtime.enable'); await client.send('Page.enable');
-    if (['all', 'drag'].includes(options.feature)) {
-        const before = performance.now(); await navigate('drag');
+    if (['all', 'preview'].includes(options.feature)) {
+        const before = performance.now(); await navigate('preview');
         const headers = () => evaluate(`Array.from(document.querySelectorAll('[role="columnheader"]'),e=>e.textContent.trim())`);
+        const renderedRows = () => evaluate(`Array.from(document.querySelectorAll('[role="row"]'),row=>Array.from(row.querySelectorAll('[role="cell"]'),cell=>cell.textContent.trim()).filter(Boolean)).filter(row=>row.length)`);
+        const callerState = () => evaluate(`JSON.parse(document.querySelector('[data-testid="preview-limit-state"]').textContent)`);
+        const expectedRows = [['patient-A', 'observation-A'], ['patient-B', 'observation-B']];
         assert.deepEqual(await headers(), ['First', 'Second']);
-        const beforeHeaders = await headers();
+        assert.deepEqual(await renderedRows(), expectedRows);
+        assert.deepEqual(await callerState(), { limit: 25, changes: [] });
         const originalIdentities = await identities();
         assert.ok(originalIdentities[0].includes('canonical-row-A') && originalIdentities[1].includes('canonical-row-B'));
-        await click('[data-testid="preview-table-header-controls"] button');
-        await evaluate(`window.__nativeDragEvents = []; for (const type of ['dragstart','dragover','drop','dragend']) document.addEventListener(type, event => window.__nativeDragEvents.push({type:event.type,trusted:event.isTrusted}), true);`);
-        const source = await until(() => position('[aria-label="Drag Second"]'), 'drag handle');
-        const destination = await until(() => position('[data-column-name="first"]'), 'drag destination');
-        assert.ok(source.width > 0 && destination.height > 0);
-        await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: source.x, y: source.y });
-        await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: source.x, y: source.y, button: 'left', clickCount: 1 });
-        for (let step = 1; step <= 15; step++) {
-            await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: source.x + (destination.x - source.x) * step / 15, y: source.y + (destination.top + 3 - source.y) * step / 15, button: 'left', buttons: 1 }); await wait(15);
-        }
-        await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: destination.x, y: destination.top + 3, button: 'left', clickCount: 1 });
-        await until(async () => JSON.stringify(await headers()) === '["Second","First"]', 'native drag updated actual headers');
-        await click('[data-testid="preview-table-header-controls"] button');
-        const afterHeaders = await headers();
+        assert.deepEqual(await evaluate(`Array.from(document.querySelector('[aria-label="Preview row limit"]').options,option=>option.value)`), ['25','50','100','500','1000']);
+        await evaluate(`window.__previewLimitEvents = []; const select=document.querySelector('[aria-label="Preview row limit"]'); select.addEventListener('change',event=>window.__previewLimitEvents.push({value:event.target.value,trusted:event.isTrusted})); select.value='50'; select.dispatchEvent(new Event('input',{bubbles:true})); select.dispatchEvent(new Event('change',{bubbles:true}));`);
+        await until(async () => (await callerState()).limit === 50, 'DOM row-limit change reached component caller');
+        const changedState = await callerState();
+        assert.deepEqual(changedState, {limit:50,changes:[50]});
+        assert.equal(await evaluate(`document.querySelector('[aria-label="Preview row limit"]').value`), '50');
+        const controlEvents = await evaluate('window.__previewLimitEvents');
+        assert.deepEqual(controlEvents,[{value:'50',trusted:false}], 'DOM-dispatched change boundary recorded accurately');
+        assert.deepEqual(await headers(), ['First', 'Second']);
+        assert.deepEqual(await renderedRows(), expectedRows);
         const afterIdentities = await identities();
         assert.deepEqual(afterIdentities, originalIdentities);
-        const nativeEvents = await evaluate('window.__nativeDragEvents');
-        assert.ok(nativeEvents.some(event => event.type === 'dragstart' && event.trusted), 'Native browser dragstart observed');
-        assert.ok(nativeEvents.some(event => event.type === 'drop' && event.trusted), 'Native browser drop observed');
-        await navigate('drag');
-        assert.deepEqual(await headers(), ['Second', 'First']);
-        const reloadedHeaders = await headers(), reloadedIdentities = await identities();
+        await navigate('preview');
+        assert.deepEqual(await callerState(), { limit:25, changes:[] });
+        assert.deepEqual(await renderedRows(), expectedRows);
+        const reloadedIdentities = await identities();
         assert.deepEqual(reloadedIdentities, originalIdentities);
-        const screenshot = await client.send('Page.captureScreenshot', { format: 'png' });
-        await writeFile(join(out, 'drag.png'), Buffer.from(screenshot.data, 'base64'));
-        report.checks.push({ feature: 'drag', status: 'passed', beforeHeaders, afterHeaders, reloadedHeaders, originalIdentities, afterIdentities, reloadedIdentities, nativeEvents, persistence: 'test-owned sessionStorage presentation caller across component reload; not Loom API/store', seconds: (performance.now() - before) / 1000 });
+        const screenshot = await client.send('Page.captureScreenshot', { format:'png' });
+        await writeFile(join(out,'preview.png'),Buffer.from(screenshot.data,'base64'));
+        report.checks.push({feature:'preview',status:'passed',headers:['First','Second'],rows:expectedRows,initialLimit:25,changedState,controlEvents,inputBoundary:'DOM select value/input/change drives the actual production onChange; no native select popup guarantee',originalIdentities,afterIdentities,reloadedIdentities,reload:'test-owned callback state resets to 25; supplied row identities remain stable',unsupported:'Column drag/reordering is not supported by the current PreviewTable',seconds:(performance.now()-before)/1000});
     }
     if (['all', 'download'].includes(options.feature)) {
         const before = performance.now();
@@ -247,6 +242,11 @@ try {
             if (!(await evaluate(`Boolean(document.querySelector('input[aria-label*="${id}"]'))`))) await click('[data-testid="construction-related-expand-other-routes"] summary');
             await click(`input[aria-label*="${id}"]`);
         };
+        const cancelProposal = async () => {
+            await client.send('Input.dispatchKeyEvent', {type:'rawKeyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27,nativeVirtualKeyCode:process.platform === 'darwin' ? 53 : 27});
+            await client.send('Input.dispatchKeyEvent', {type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27,nativeVirtualKeyCode:process.platform === 'darwin' ? 53 : 27});
+            await until(()=>evaluate(`document.querySelector('[data-testid="route-proposal"]').textContent==='idle'`),'Escape canceled current proposal');
+        };
         const panelButton = async text => {
             const selector = await evaluate(`(() => {const e=Array.from(document.querySelectorAll('button')).find(e=>e.textContent.trim()===${JSON.stringify(text)}); if(!e)return null; e.setAttribute('data-browser-action','${text.replaceAll(' ', '-')}'); return '[data-browser-action="${text.replaceAll(' ', '-')}"]';})()`);
             assert.ok(selector, `Missing production button ${text}`); await click(selector);
@@ -256,7 +256,7 @@ try {
         assert.deepEqual(await saved(), {route:'route-A',version:1,writes:0});
         assert.deepEqual(await rows(), a);
         await choose('route-B'); await ready(); assert.deepEqual(await rows(),b);
-        await panelButton('Cancel'); assert.deepEqual(await saved(),{route:'route-A',version:1,writes:0}); assert.deepEqual(await rows(),a);
+        await cancelProposal(); assert.deepEqual(await saved(),{route:'route-A',version:1,writes:0}); assert.deepEqual(await rows(),a);
         await reloadRoute(); await until(()=>checkedRoute(), 'saved route remounted');
         assert.ok((await checkedRoute()).includes('route-A')); assert.deepEqual(await rows(),a);
         await choose('route-B'); await ready(); await panelButton('Apply change');
@@ -273,11 +273,11 @@ try {
         await click('[data-testid="route-release"]');
         await until(()=>evaluate(`document.querySelector('[data-testid="route-released"]').textContent==='1'`),'old response released');
         await wait(100); assert.deepEqual(await rows(),a); assert.deepEqual(await saved(),{route:'route-A',version:3,writes:2});
-        await panelButton('Cancel'); await reloadRoute(); await until(()=>checkedRoute(),'restored A remounted');
+        await cancelProposal(); await reloadRoute(); await until(()=>checkedRoute(),'restored A remounted');
         assert.deepEqual(await rows(),a); assert.deepEqual(await saved(),{route:'route-A',version:3,writes:2});
         report.checks.push({feature:'route',status:'passed',routeA:a,routeB:b,restored:a,versions:[1,2,3],writes:2,cancelWrites:0,lateResponseIgnored:true,seconds:(performance.now()-before)/1000,boundary:'Actual RelatedExpandEditor, proposal lifecycle, panel and PreviewTable; test-owned service responses and sessionStorage Apply caller. Not BuilderWorkspace or deployed API/database.'});
     }
-    assert.equal(report.documentNavigations, options.feature === 'all' ? 10 : { drag: 2, download: 4, route: 4 }[options.feature], 'Every required navigation/reload completed');
+    assert.equal(report.documentNavigations, options.feature === 'all' ? 10 : { preview: 2, download: 4, route: 4 }[options.feature], 'Every required navigation/reload completed');
     assert.deepEqual(browserErrors, [], 'Browser runtime exceptions');
     assert.equal(fingerprint(), inputFingerprint, 'Browser verification sources changed during run');
     const screenshot = await client.send('Page.captureScreenshot', { format: 'png' });

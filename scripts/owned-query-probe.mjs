@@ -6,7 +6,27 @@ import { open, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateOwnedArangoContainer } from './lib/local-preview-index-explain.mjs';
-import { buildArangoShellInvocation } from './verify-ui/helpers/owned-arangosh-command.mjs';
+const shellQuote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
+
+const ARANGOSH_PROCESS_PATH_MARKER = '__LOOM_ARANGOSH_SCRIPT__:';
+
+const buildArangoShellInvocation = ({ container, script, database = 'loom_dev', processIdMarker = null }) => {
+  if (processIdMarker !== null && (typeof processIdMarker !== 'string' || !/^[A-Z0-9_]+:$/.test(processIdMarker))) {
+    throw new TypeError('Arangosh process identity marker must be an uppercase protocol prefix ending in a colon.');
+  }
+  const execute = `arangosh --server.endpoint tcp://127.0.0.1:8529 --server.username root --server.password "$ARANGO_ROOT_PASSWORD" --server.database ${shellQuote(database)} --javascript.execute "$script_file"`;
+  const managedExecute = processIdMarker === null
+    ? execute
+    : `printf '%s%s\\n' ${shellQuote(ARANGOSH_PROCESS_PATH_MARKER)} "$script_file"; ${execute} & arangosh_pid=$!; printf '%s%s:%s\\n' ${shellQuote(processIdMarker)} "$arangosh_pid" "$script_file"; wait "$arangosh_pid"`;
+  return {
+    command: 'rtk',
+    args: [
+      'proxy', 'docker', 'exec', container, 'sh', '-lc',
+      `set -e; umask 077; script_file=$(mktemp /tmp/loom-arangosh.XXXXXX); trap 'rm -f "$script_file"' EXIT; printf '%s' ${shellQuote(script)} > "$script_file"; ${managedExecute}`,
+    ],
+  };
+};
+
 
 const COMPOSE_PROJECT = 'loom-dev-6d7df93d6a37';
 const CONTAINER = `${COMPOSE_PROJECT}-arangodb-1`;

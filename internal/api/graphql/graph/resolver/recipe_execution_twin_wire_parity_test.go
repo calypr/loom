@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 
@@ -24,9 +25,8 @@ import (
 // the generated strict-stack body against the same oracle, so any drift in
 // executionModel / dataframeapi.PersistedFailure /
 // errors.SanitizePersistedFailure breaks this file, and any REST divergence
-// breaks that one. Shapes and golden live in testdata/r20_failure_parity/
-// (canonical copy of the reviewer's /tmp/r20-out artifacts; the server test
-// carries the identical fixture pair).
+// breaks that one. Shapes and golden live in the shared
+// internal/server/testdata/r20_failure_parity/ fixture directory.
 
 type r20TwinStore struct {
 	byID map[string]materialization.BundleExecution
@@ -41,9 +41,10 @@ func (s *r20TwinStore) GetExecution(_ context.Context, id string) (materializati
 
 func r20ReadTestdata(t *testing.T, name string) []byte {
 	t.Helper()
-	raw, err := os.ReadFile("testdata/r20_failure_parity/" + name)
+	path := filepath.Join("..", "..", "..", "..", "server", "testdata", "r20_failure_parity", name)
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("reviewer twin fixture %s missing: %v", name, err)
+		t.Fatalf("shared R20 fixture %s missing: %v", path, err)
 	}
 	return raw
 }

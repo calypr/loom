@@ -18,25 +18,15 @@ import (
 
 	"github.com/calypr/loom/internal/catalog"
 	arangostore "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
 )
 
 func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
-	if os.Getenv("LOOM_C01_ARANGO_INTEGRATION") == "" {
-		t.Skip("set LOOM_C01_ARANGO_INTEGRATION=1 to run semantic inventory Arango proof")
-	}
-	endpoint := strings.TrimSpace(os.Getenv("LOOM_C01_ARANGO_URL"))
-	database := strings.TrimSpace(os.Getenv("LOOM_C01_ARANGO_DATABASE"))
-	if endpoint == "" || database == "" {
-		t.Fatal("LOOM_C01_ARANGO_URL and an isolated LOOM_C01_ARANGO_DATABASE are required")
-	}
+	owned := arangotest.Owned(t, "loom_test_semantic_inventory_")
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	client, err := arangostore.Open(ctx, endpoint, database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close(context.Background())
+	client := owned.Client
 	store, err := New(client)
 	if err != nil {
 		t.Fatal(err)
@@ -221,21 +211,10 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 }
 
 func TestSemanticInventoryFallbackPolicySurvivesMaterializationAndReadback(t *testing.T) {
-	if os.Getenv("LOOM_C01_ARANGO_INTEGRATION") == "" {
-		t.Skip("set LOOM_C01_ARANGO_INTEGRATION=1 to run semantic inventory Arango proof")
-	}
-	endpoint := strings.TrimSpace(os.Getenv("LOOM_C01_ARANGO_URL"))
-	database := strings.TrimSpace(os.Getenv("LOOM_C01_ARANGO_DATABASE"))
-	if endpoint == "" || database == "" {
-		t.Fatal("LOOM_C01_ARANGO_URL and an isolated LOOM_C01_ARANGO_DATABASE are required")
-	}
+	owned := arangotest.Owned(t, "loom_test_semantic_inventory_")
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	client, err := arangostore.Open(ctx, endpoint, database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close(context.Background())
+	client := owned.Client
 	store, err := New(client)
 	if err != nil {
 		t.Fatal(err)
@@ -416,21 +395,10 @@ func semanticBindingIDForIntegrationTest(observation catalog.SemanticObservation
 }
 
 func TestSemanticInventorySelectionResolverAggregatesAuthorizedIndexedRows(t *testing.T) {
-	if os.Getenv("LOOM_C01_ARANGO_INTEGRATION") == "" {
-		t.Skip("set LOOM_C01_ARANGO_INTEGRATION=1 to run semantic inventory Arango proof")
-	}
-	endpoint := strings.TrimSpace(os.Getenv("LOOM_C01_ARANGO_URL"))
-	database := strings.TrimSpace(os.Getenv("LOOM_C01_ARANGO_DATABASE"))
-	if endpoint == "" || database == "" {
-		t.Fatal("LOOM_C01_ARANGO_URL and an isolated LOOM_C01_ARANGO_DATABASE are required")
-	}
+	owned := arangotest.Owned(t, "loom_test_semantic_inventory_")
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	client, err := arangostore.Open(ctx, endpoint, database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close(context.Background())
+	client := owned.Client
 	store, err := New(client)
 	if err != nil {
 		t.Fatal(err)

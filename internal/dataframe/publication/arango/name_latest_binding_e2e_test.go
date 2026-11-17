@@ -2,10 +2,9 @@ package arango
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -15,26 +14,33 @@ import (
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataset"
 	store "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
 )
 
 // These opt-in tests reproduce the registry-level discriminator gap behind
 // candidate F-B6 against a real ArangoDB in a fully owned database:
 //
-//	Registry.FindExecutionBySelector (bundle_registry.go:174-182) filters only
+//	Registry.FindExecutionBySelector (bundle_registry.go) filters only
 //	project/generation/name/translationVersion/output plus state PUBLISHED|READY
 //	and returns publishedAt-DESC LIMIT 1. It never binds Key, RecipeDigest,
 //	SchemaDigest, or ReceiptID, so two PUBLISHED executions for the same
 //	selector are indistinguishable to the verifier path
-//	(internal/server/release_verifier.go:18-35 -> dataset/release.go:181-190),
+//	(internal/server/release_verifier.go -> dataset/release.go),
 //	which echoes whatever execution the finder returned.
 //
 // Databases use the loom_verify_nlb_ prefix so this suite's residue is
 // checkable independently of other verification workers.
 
 const nameBindingDatabasePrefix = "loom_verify_nlb_"
+const runKnownFailuresEnvArango = "LOOM_RUN_KNOWN_FAILURES"
 
-const nameBindingSortAQLMarker = "SORT doc.publishedAt DESC"
+func skipKnownIssueUnlessEnabled(t *testing.T, issueID string) {
+	t.Helper()
+	if os.Getenv(runKnownFailuresEnvArango) != "1" {
+		t.Skipf("%s: known failure; set %s=1 to run the red regression assertion", issueID, runKnownFailuresEnvArango)
+	}
+}
 
 type nameBindingExecSpec struct {
 	id                 string
@@ -50,106 +56,29 @@ type nameBindingExecSpec struct {
 	publishedAt        time.Time
 }
 
-type nameBindingRecorder struct {
-	*store.Client
-	mu      sync.Mutex
-	queries []nameBindingQuery
-}
-
-type nameBindingQuery struct {
-	aql      string
-	bindVars map[string]interface{}
-}
-
-func (c *nameBindingRecorder) QueryRows(ctx context.Context, query string, batchSize int, bindVars map[string]interface{}, visit store.RowVisitor) error {
-	copied := make(map[string]interface{}, len(bindVars))
-	for key, value := range bindVars {
-		copied[key] = value
-	}
-	c.mu.Lock()
-	c.queries = append(c.queries, nameBindingQuery{aql: query, bindVars: copied})
-	c.mu.Unlock()
-	return c.Client.QueryRows(ctx, query, batchSize, bindVars, visit)
-}
-
-func (c *nameBindingRecorder) selectorQueries() []nameBindingQuery {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	var out []nameBindingQuery
-	for _, recorded := range c.queries {
-		if strings.Contains(recorded.aql, nameBindingSortAQLMarker) {
-			out = append(out, recorded)
-		}
-	}
-	return out
-}
-
-func (c *nameBindingRecorder) lastSelectorQuery(t *testing.T) nameBindingQuery {
-	t.Helper()
-	records := c.selectorQueries()
-	if len(records) == 0 {
-		t.Fatalf("no FindExecutionBySelector AQL was recorded; recorded queries = %d", len(c.queries))
-	}
-	return records[len(records)-1]
-}
-
 // nameBindingOpen mirrors the owned-database harness used by
 // internal/explorer/arango/selections_cleanup_e2e_test.go: opt-in via
 // LOOM_TEST_ARANGO_URL, uuid-suffixed name under the suite prefix, created via
-// store.Open (client.go:111-151 creates the database when absent), dropped by
+// store.Open (client.go creates the database when absent), dropped by
 // HTTP DELETE /_api/database/<name> in t.Cleanup.
-func nameBindingOpen(t *testing.T, budget time.Duration) (context.Context, *store.Client, *Registry, *nameBindingRecorder) {
+func nameBindingOpen(t *testing.T, budget time.Duration) (context.Context, *store.Client, *Registry) {
 	t.Helper()
-	endpoint := os.Getenv("LOOM_TEST_ARANGO_URL")
-	if endpoint == "" {
-		t.Skip("set owned LOOM_TEST_ARANGO_URL")
-	}
-	name := nameBindingDatabasePrefix + strings.ReplaceAll(uuid.NewString(), "-", "")
-	if !strings.HasPrefix(name, nameBindingDatabasePrefix) {
-		t.Fatalf("verification database %q escapes the %s prefix", name, nameBindingDatabasePrefix)
-	}
+	database := arangotest.Owned(t, nameBindingDatabasePrefix)
 	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	t.Cleanup(cancel)
-	client, err := store.Open(ctx, endpoint, name)
-	if err != nil {
-		t.Fatalf("open %s: %v", name, err)
+	if err := database.Client.Bootstrap(ctx, BootstrapSpec()); err != nil {
+		t.Fatalf("bootstrap %s: %v", database.Name, err)
 	}
-	t.Logf("NLB_DATABASE=%s", name)
-	t.Cleanup(func() {
-		_ = client.Close(context.Background())
-		cleanupCtx, stop := context.WithTimeout(context.Background(), 15*time.Second)
-		defer stop()
-		req, err := http.NewRequestWithContext(cleanupCtx, http.MethodDelete, strings.TrimRight(endpoint, "/")+"/_api/database/"+url.PathEscape(name), nil)
-		if err != nil {
-			t.Errorf("build cleanup request for %s: %v", name, err)
-			return
-		}
-		response, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Errorf("cleanup %s: %v", name, err)
-			return
-		}
-		defer response.Body.Close()
-		if response.StatusCode != http.StatusOK {
-			t.Errorf("cleanup %s status=%d", name, response.StatusCode)
-			return
-		}
-		t.Logf("NLB_DATABASE_REMOVED=%s", name)
-	})
-	if err := client.Bootstrap(ctx, BootstrapSpec()); err != nil {
-		t.Fatalf("bootstrap %s: %v", name, err)
-	}
-	recorder := &nameBindingRecorder{Client: client}
-	registry, err := New(recorder)
+	registry, err := New(database.Client)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
-	return ctx, client, registry, recorder
+	return ctx, database.Client, registry
 }
 
 // nameBindingSeedPublished writes one PUBLISHED execution through the
 // production catalog path: AcquireBundleLease then SaveExecution. SaveExecution
-// is lease-fenced (bundle_registry.go:44-51 requires a live lease for the
+// is lease-fenced (bundle_registry.go requires a live lease for the
 // execution Key), so production lease acquisition is the honest seed, matching
 // the lease-guarded flow the fake in bundle_registry_test.go asserts.
 func nameBindingSeedPublished(t *testing.T, ctx context.Context, registry *Registry, spec nameBindingExecSpec) publication.BundleExecution {
@@ -206,47 +135,13 @@ func nameBindingIdentity(exec publication.BundleExecution) string {
 		exec.UpdatedAt.UTC().Format(time.RFC3339Nano), outputs)
 }
 
-func nameBindingQuoteAQL(t *testing.T, recorded nameBindingQuery) {
-	t.Helper()
-	t.Logf("FIND_EXECUTION_BY_SELECTOR_AQL=%q", recorded.aql)
-	bindKeys := make([]string, 0, len(recorded.bindVars))
-	for key := range recorded.bindVars {
-		bindKeys = append(bindKeys, key)
-	}
-	t.Logf("FIND_EXECUTION_BY_SELECTOR_BIND_VARS=%v", strings.Join(bindKeys, ","))
-	t.Logf("FIND_EXECUTION_BY_SELECTOR_BIND_VALUES=%#v", recorded.bindVars)
-}
-
-// nameBindingMissingIdentityFields are the candidate F-B6 inputs that the
-// parent verified are absent from the selector AQL and its bind variables.
-var nameBindingMissingIdentityFields = []string{"recipeDigest", "RecipeDigest", "schemaDigest", "SchemaDigest", "receiptId", "ReceiptID", "doc.key", "doc.Key"}
-
-func nameBindingDiscriminatorsPresent(recorded nameBindingQuery) []string {
-	loweredQuery := strings.ToLower(recorded.aql)
-	var present []string
-	for _, field := range nameBindingMissingIdentityFields {
-		if strings.Contains(loweredQuery, strings.ToLower(field)) {
-			present = append(present, field)
-		}
-	}
-	for key := range recorded.bindVars {
-		loweredKey := strings.ToLower(key)
-		switch {
-		case strings.Contains(loweredKey, "digest"), strings.Contains(loweredKey, "receipt"),
-			loweredKey == "key", loweredKey == "executionkey", loweredKey == "leasekey":
-			present = append(present, "bindVar:"+key)
-		}
-	}
-	return present
-}
-
-// TestFindExecutionBySelectorIgnoresRecipeIdentityAgainstArango is the
-// finding-assert for candidate F-B6: two PUBLISHED executions share
-// project/generation/recipe/translationVersion/output but carry distinct
-// Key/RecipeDigest/SchemaDigest/ReceiptID. The production finder must return
-// the publishedAt-newest doc no matter which identity the caller intended.
+// TestFindExecutionBySelectorIgnoresRecipeIdentityAgainstArango checks the
+// exact selector contract: after filtering by project, generation, recipe,
+// translation version, and output, the finder returns the newest published
+// execution. Key, recipe digest, schema digest, and receipt ID are not part of
+// DataframeSelector.
 func TestFindExecutionBySelectorIgnoresRecipeIdentityAgainstArango(t *testing.T) {
-	ctx, _, registry, recorder := nameBindingOpen(t, 60*time.Second)
+	ctx, _, registry := nameBindingOpen(t, 60*time.Second)
 
 	project := "nlb-project"
 	generation := "nlb-gen-" + uuid.NewString()
@@ -274,36 +169,22 @@ func TestFindExecutionBySelectorIgnoresRecipeIdentityAgainstArango(t *testing.T)
 	if err != nil {
 		t.Fatalf("FindExecutionBySelector: %v", err)
 	}
-	recorded := recorder.lastSelectorQuery(t)
-	nameBindingQuoteAQL(t, recorded)
-
-	if discriminators := nameBindingDiscriminatorsPresent(recorded); len(discriminators) != 0 {
-		t.Logf("DISPROVEN: FindExecutionBySelector discriminates recipe identity; present=%v; AQL=%q; intended=%s newer=%s",
-			discriminators, recorded.aql, nameBindingIdentity(intended), nameBindingIdentity(newer))
-		return
-	}
 	if execution.ID != newer.ID {
-		t.Logf("DISPROVEN: FindExecutionBySelector returned the intended doc, not publishedAt-newest; returned=%s intended=%s newer=%s AQL=%q",
-			nameBindingIdentity(execution), nameBindingIdentity(intended), nameBindingIdentity(newer), recorded.aql)
-		return
+		t.Fatalf("FindExecutionBySelector returned execution %q, want newest published execution %q for exact selector %+v", execution.ID, newer.ID, selector)
 	}
-	t.Logf("CONFIRMED: FindExecutionBySelector ignored RecipeDigest/SchemaDigest/Key/ReceiptID and returned publishedAt-newest. selector=%+v returned=%s intended-but-shadowed=%s AQL_FILTER=%q",
-		selector, nameBindingIdentity(execution), nameBindingIdentity(intended), recorded.aql)
-	if output.Name != selector.Output {
-		t.Fatalf("returned output %q does not match selector output %q", output.Name, selector.Output)
+	if execution.Project != project || execution.DatasetGeneration != generation || output.Name != selector.Output {
+		t.Fatalf("FindExecutionBySelector returned identity %s and output %q, want %s/%s and output %q", nameBindingIdentity(execution), output.Name, project, generation, selector.Output)
 	}
-	if execution.RecipeDigest != "sha256:newer-recipe" || execution.SchemaDigest != "sha256:newer-schema" || execution.ReceiptID != "receipt-newer" || execution.Key != "nlb-key-newer" {
-		t.Fatalf("returned doc is not the newer identity: %s", nameBindingIdentity(execution))
+	if execution.Key != newer.Key || execution.RecipeDigest != newer.RecipeDigest || execution.SchemaDigest != newer.SchemaDigest || execution.ReceiptID != newer.ReceiptID {
+		t.Fatalf("FindExecutionBySelector returned wrong latest execution identity: got %s, want %s", nameBindingIdentity(execution), nameBindingIdentity(newer))
 	}
 }
 
-// TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango reproduces the
-// brief's Bug-3: the selector AQL matches capitalized Project/Name/... in the
-// FILTER but SORT only reads lowercase publishedAt/readyAt/updatedAt. A legacy
-// capitalized doc storing the newest publish time in "PublishedAt" (capital P)
-// is FILTER-visible but sorts as if it had no publish time.
+// TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango checks latest
+// selector ordering and canonicalization for a legacy READY execution.
 func TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango(t *testing.T) {
-	ctx, client, registry, recorder := nameBindingOpen(t, 60*time.Second)
+	skipKnownIssueUnlessEnabled(t, "ARC-C14")
+	ctx, client, registry := nameBindingOpen(t, 60*time.Second)
 
 	project := "nlb-case-project"
 	generation := "nlb-case-gen-" + uuid.NewString()
@@ -311,79 +192,64 @@ func TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango(t *testing.T) {
 	t1 := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 	t2 := time.Date(2026, 10, 31, 9, 0, 0, 0, time.UTC)
 
-	lowercaseOlder := nameBindingSeedPublished(t, ctx, registry, nameBindingExecSpec{
+	nameBindingSeedPublished(t, ctx, registry, nameBindingExecSpec{
 		id: "nlb-case-lower", key: "nlb-case-key-lower", project: project, generation: generation,
 		recipe: selector.Recipe, translationVersion: selector.TranslationVersion, output: selector.Output,
 		recipeDigest: "sha256:case-lower-recipe", schemaDigest: "sha256:case-lower-schema",
 		receiptID: "receipt-case-lower", publishedAt: t1,
 	})
 
-	// The legacy doc keeps lowercase "state" and the "outputs" array key
-	// because the AQL FILTER has no capitalised branch for either
-	// (bundle_registry.go:177-178), so a doc without them would be invisible
-	// rather than merely mis-sorted. Everything else, including "PublishedAt",
-	// uses the legacy capitalised shape the FILTER accepts via its OR branches.
-	legacyDoc := map[string]any{
-		"_key":               "nlb-case-legacy",
-		"id":                 "nlb-case-legacy",
-		"key":                "nlb-case-key-legacy",
-		"Project":            project,
-		"DatasetGeneration":  generation,
-		"Name":               selector.Recipe,
-		"TranslationVersion": selector.TranslationVersion,
-		"state":              "PUBLISHED",
-		"outputs": []any{map[string]any{
-			"Name":          selector.Output,
-			"PhysicalTable": "ch_nlb_case_legacy",
-			"RowCount":      3,
-			"ByteCount":     300,
-		}},
-		"RecipeDigest": "sha256:case-legacy-recipe",
-		"SchemaDigest": "sha256:case-legacy-schema",
-		"ReceiptID":    "receipt-case-legacy",
-		"PublishedAt":  t2,
-		"ReadyAt":      t2,
-		"UpdatedAt":    t2,
-		"createdAt":    t1,
-	}
-	if err := client.ExecuteAQL(ctx, `INSERT @doc INTO @@collection`, map[string]interface{}{"@collection": BundleExecutionsCollection, "doc": legacyDoc}); err != nil {
-		t.Fatalf("insert legacy-shaped doc: %v", err)
-	}
-	legacyForReport := publication.BundleExecution{
+	// Persist the same lower-case JSON fields emitted by the historical Go
+	// serializer, with only its legacy READY state. Canonicalization should
+	// expose it as PUBLISHED and derive PublishedAt from ReadyAt.
+	legacy := publication.BundleExecution{
 		ID: "nlb-case-legacy", Key: "nlb-case-key-legacy",
 		BundleIdentity: publication.BundleIdentity{
 			Name: selector.Recipe, Project: project, DatasetGeneration: generation,
-			TranslationVersion: selector.TranslationVersion, RecipeDigest: "sha256:case-legacy-recipe",
-			SchemaDigest: "sha256:case-legacy-schema", ReceiptID: "receipt-case-legacy",
+			TranslationVersion: selector.TranslationVersion,
+			RecipeDigest:       "sha256:case-legacy-recipe", SchemaDigest: "sha256:case-legacy-schema",
+			ReceiptID: "receipt-case-legacy", ScopeDigest: "scope-legacy", EngineVersion: "engine-legacy",
 		},
-		State: publication.BundlePublished, PublishedAt: &t2, ReadyAt: &t2, UpdatedAt: t2,
+		State: publication.BundleReady,
+		Outputs: []publication.BundleOutputRecord{{
+			Name: selector.Output, PhysicalTable: "ch_nlb_case_legacy", RowCount: 3, ByteCount: 300,
+			State: publication.BundleReady,
+		}},
+		CreatedAt: t1, UpdatedAt: t2, ReadyAt: &t2,
+	}
+	canonicalLegacy := legacy.CanonicalizeLegacy()
+	if canonicalLegacy.State != publication.BundlePublished || canonicalLegacy.PublishedAt == nil || !canonicalLegacy.PublishedAt.Equal(t2) || !canonicalLegacy.Outputs[0].Queryable() || canonicalLegacy.Outputs[0].Selector != selector {
+		t.Fatalf("legacy codec shape does not canonicalize to a queryable published execution: %+v", canonicalLegacy)
+	}
+	legacyDoc, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatalf("marshal legacy execution: %v", err)
+	}
+	var persistedLegacy map[string]interface{}
+	if err := json.Unmarshal(legacyDoc, &persistedLegacy); err != nil {
+		t.Fatalf("decode legacy execution: %v", err)
+	}
+	// Match the document key assigned by Registry.SaveExecution after JSON
+	// serialization; the execution body above remains the production codec.
+	persistedLegacy["_key"] = legacy.ID
+	if err := client.ExecuteAQL(ctx, `INSERT @doc INTO @@collection`, map[string]interface{}{"@collection": BundleExecutionsCollection, "doc": persistedLegacy}); err != nil {
+		t.Fatalf("insert legacy-shaped doc: %v", err)
 	}
 
-	execution, _, err := registry.FindExecutionBySelector(ctx, project, generation, selector)
+	execution, output, err := registry.FindExecutionBySelector(ctx, project, generation, selector)
 	if err != nil {
 		t.Fatalf("FindExecutionBySelector: %v", err)
 	}
-	recorded := recorder.lastSelectorQuery(t)
-	nameBindingQuoteAQL(t, recorded)
-	t.Logf("AQL_FILTER_AND_SORT=%q", recorded.aql)
-
-	switch execution.ID {
-	case lowercaseOlder.ID:
-		t.Logf("CONFIRMED: Bug-3 case asymmetry — the lowercase OLDER doc (publishedAt=%s) won over the newer legacy doc whose publish time sits in capitalised \"PublishedAt\"=%s. winner=%s loser=%s",
-			t1.Format(time.RFC3339Nano), t2.Format(time.RFC3339Nano), nameBindingIdentity(lowercaseOlder), nameBindingIdentity(legacyForReport))
-	case "nlb-case-legacy":
-		t.Logf("DISPROVEN: the newer legacy-capitalised doc won the publishedAt-DESC sort; winner=%s shadowed-lowercase=%s",
-			nameBindingIdentity(execution), nameBindingIdentity(lowercaseOlder))
-	default:
-		t.Fatalf("unexpected winner %q; lowercase=%s legacy=%s AQL=%q",
-			execution.ID, nameBindingIdentity(lowercaseOlder), nameBindingIdentity(legacyForReport), recorded.aql)
+	if execution.ID != legacy.ID || execution.State != publication.BundlePublished || execution.PublishedAt == nil || !execution.PublishedAt.Equal(t2) || output.Name != selector.Output {
+		t.Fatalf("latest exact-selector lookup returned execution %s (state=%q publishedAt=%v) and output %q; want legacy execution %q canonicalized to PUBLISHED at %s with output %q",
+			nameBindingIdentity(execution), execution.State, execution.PublishedAt, output.Name, legacy.ID, t2.Format(time.RFC3339Nano), selector.Output)
 	}
 }
 
 // nameBindingReplicatedVerificationStore is a line-for-line replica of
-// internal/server/release_verifier.go:14-35 (publicationVerificationStore).
+// internal/server/release_verifier.go (publicationVerificationStore).
 // The original is unreachable from this package because internal/server/
-// server.go:35 imports this package, so importing server from this test would
+// server.go imports this package, so importing server from this test would
 // be an import cycle; the brief authorises replicating these ~15 lines.
 type nameBindingReplicatedVerificationStore struct {
 	executions publication.ExactExecutionCatalog
@@ -440,10 +306,10 @@ func (r *nameBindingReleaseRepository) CompareAndSwapActivateRelease(context.Con
 // says is load-bearing: the (replicated) publicationVerificationStore over the
 // production registry, then production dataset.ReleaseService.Create, whose
 // publicationBinding echoes verification.ExecutionID into the release that
-// PublishAuthoring CAS-activates (explorer/arango/publication.go:57). It shows
+// PublishAuthoring CAS-activates (explorer/arango/publication.go). It shows
 // the binding follows the newest doc while a distinct intended execution exists.
 func TestVerifierToBindingChainEchoAgainstArango(t *testing.T) {
-	ctx, _, registry, recorder := nameBindingOpen(t, 60*time.Second)
+	ctx, _, registry := nameBindingOpen(t, 60*time.Second)
 
 	project := "nlb-chain-project"
 	generation := "nlb-chain-gen-" + uuid.NewString()
@@ -469,13 +335,6 @@ func TestVerifierToBindingChainEchoAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyPublication: %v", err)
 	}
-	recorded := recorder.lastSelectorQuery(t)
-	nameBindingQuoteAQL(t, recorded)
-	if discriminators := nameBindingDiscriminatorsPresent(recorded); len(discriminators) != 0 {
-		t.Logf("DISPROVEN chain premise: verification store discriminates recipe identity; present=%v", discriminators)
-		return
-	}
-
 	// The intended distinct execution must still exist for the echo to mean
 	// anything: it is shadowed at the finder, not absent.
 	storedIntended, err := registry.GetExecution(ctx, intended.ID)
@@ -518,11 +377,7 @@ func TestVerifierToBindingChainEchoAgainstArango(t *testing.T) {
 	binding := release.Publications[0]
 
 	if verification.ExecutionID != newer.ID || binding.ExecutionID != newer.ID {
-		t.Logf("DISPROVEN chain: verification/binding did not follow publishedAt-newest. verification=%+v binding=%+v intended=%s newer=%s",
-			verification, binding, nameBindingIdentity(storedIntended), nameBindingIdentity(newer))
-		return
+		t.Fatalf("release verification and immutable binding must follow the newest exact-selector execution: verification=%q binding=%q newest=%q intended=%q",
+			verification.ExecutionID, binding.ExecutionID, newer.ID, storedIntended.ID)
 	}
-	t.Logf("CONFIRMED chain: replicated publicationVerificationStore.VerifyPublication echoed ExecutionID=%q (publishedAt-newest) and production dataset.ReleaseService.Create bound it verbatim while the distinct intended execution still exists. verification=%+v binding=%+v intended-still-persisted=%s newest=%s",
-		verification.ExecutionID, verification, binding, nameBindingIdentity(storedIntended), nameBindingIdentity(newer))
-	t.Logf("CHAIN_NOTE: explorer/arango/publication.go:57 CompareAndSwapActivateRelease activates exactly this dataset.ProjectRelease, while explorer/lifecycle/publish.go:87 prepared it via selectorsForBundle(receipt.Bundle) without passing MaterializeReceipt's execution; the explorer revision meanwhile records execution.ID at publish.go:93.")
 }

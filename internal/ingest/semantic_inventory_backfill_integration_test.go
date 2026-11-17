@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -13,25 +12,15 @@ import (
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publication "github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
 )
 
 func TestRetainedSemanticInventoryBackfillArangoIntegration(t *testing.T) {
-	if os.Getenv("LOOM_C01_ARANGO_INTEGRATION") == "" {
-		t.Skip("set LOOM_C01_ARANGO_INTEGRATION=1 to run retained semantic inventory Arango proof")
-	}
-	endpoint := strings.TrimSpace(os.Getenv("LOOM_C01_ARANGO_URL"))
-	database := strings.TrimSpace(os.Getenv("LOOM_C01_ARANGO_DATABASE"))
-	if endpoint == "" || database == "" {
-		t.Fatal("LOOM_C01_ARANGO_URL and an isolated LOOM_C01_ARANGO_DATABASE are required")
-	}
+	owned := arangotest.Owned(t, "loom_test_backfill_")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	client, err := arangostore.Open(ctx, endpoint, database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close(context.Background())
+	client := owned.Client
 	project := "c01-backfill-" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	generation := strings.ReplaceAll(uuid.NewString(), "-", "")
 	if err := client.Bootstrap(ctx, arangostore.BootstrapSpec{Collections: []arangostore.CollectionSpec{{Name: "Observation"}}}); err != nil {

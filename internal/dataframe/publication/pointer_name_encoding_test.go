@@ -92,12 +92,12 @@ func TestPointerNameOptionalComponentSemanticsAreShipPreserved(t *testing.T) {
 	// (TV blank, Out="x") occupy one 4-component namespace, matching the
 	// pre-repair bare join. That boundary cannot steal a pointer: a document
 	// publish REQUIRES a non-blank TranslationVersion
-	// (internal/dataframe/recipe/document_validation.go:39), so the blank-TV /
+	// (internal/dataframe/recipe/document_validation.go), so the blank-TV /
 	// Output-only twin of a blank-Output identity is never publishable; a
 	// blank-Output identity only arises from a multi-output publication —
 	// incrementalPublicationOutput returns "" unless there is exactly one
 	// binding and one stream
-	// (internal/server/recipe_publication.go:214-218) — and its 4 components
+	// (internal/server/recipe_publication.go) — and its 4 components
 	// never collide with a 5-component single-output name; Key() still
 	// distinguishes the executions themselves.
 	left := withTV("x", "")

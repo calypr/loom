@@ -11,16 +11,16 @@ import (
 	"github.com/calypr/loom/internal/store/clickhouse"
 )
 
-// Adversarial verification for reconcileExecution (bundle_store.go:1056-1102).
-// Hypothesis: the claim (:1076) and DropTable loop (:1084) never revalidate
+// Adversarial verification for reconcileExecution (bundle_store.go).
+// Hypothesis: the claim () and DropTable loop () never revalidate
 // the bundle-key lease or the pointer, and the cleanup-lease renewal tick
-// (cleanupLeaseRenewal = 30s, bundle_store.go:238) can never fire inside the
+// (cleanupLeaseRenewal = 30s, bundle_store.go) can never fire inside the
 // 10s boundedBundleCleanupContext region. If the reconciler's lease dies
-// before the region arms (stall between :1058 and :1066 counts against the
+// before the region arms (stall between  and  counts against the
 // 2-min lease but not the 10-s context), a runner retrying a retryable FAILED
-// execution (:1092) can publish between the fresh GetPointer (:1068) and the
+// execution () can publish between the fresh GetPointer () and the
 // drop, and the reconciler deletes the just-published tables. The fenced
-// SaveExecution (:1097) then fails AFTER the deletion.
+// SaveExecution () then fails AFTER the deletion.
 //
 // leaseTTL = -1s stages the identical DB state a >=leaseTTL stall produces
 // (lease doc expired at the moment the reconciler enters its region) without
@@ -71,7 +71,7 @@ func (f *tocFakeCatalog) state(execID string) *tocExecState {
 	return s
 }
 
-// AcquireBundleLease mirrors bundle_registry.go:315.
+// AcquireBundleLease mirrors bundle_registry.go.
 func (f *tocFakeCatalog) AcquireBundleLease(_ context.Context, key, owner string, expires time.Time) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -123,7 +123,7 @@ func (f *tocFakeCatalog) CompareAndSwapPointer(_ context.Context, name, expected
 	return nil
 }
 
-// PublishExecution mirrors the single-AQL guard set bundle_registry.go:287-291.
+// PublishExecution mirrors the single-AQL guard set bundle_registry.go.
 func (f *tocFakeCatalog) PublishExecution(_ context.Context, name, expected string, execution publication.BundleExecution) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -144,7 +144,7 @@ func (f *tocFakeCatalog) PublishExecution(_ context.Context, name, expected stri
 	return nil
 }
 
-// SaveExecution mirrors the fenced save bundle_registry.go:26-47.
+// SaveExecution mirrors the fenced save bundle_registry.go.
 func (f *tocFakeCatalog) SaveExecution(_ context.Context, execution publication.BundleExecution, fenceOwner string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -237,10 +237,10 @@ func (f *tocFakeCatalog) ReleaseExecutionReadPin(_ context.Context, execID, owne
 	return nil
 }
 
-// ClaimExecutionCleanup mirrors bundle_registry.go:414-422 exactly: no lease,
+// ClaimExecutionCleanup mirrors bundle_registry.go exactly: no lease,
 // state, or pointer check; pins must all be expired; slot free/expired/self.
 // The injected race commits before the claim is evaluated, modelling Arango
-// ordering where the publish lands after GetPointer (:1068) but before the
+// ordering where the publish lands after GetPointer () but before the
 // claim query executes.
 func (f *tocFakeCatalog) ClaimExecutionCleanup(_ context.Context, execID, owner string) (bool, error) {
 	if f.race != nil && !f.raceRan {
@@ -408,7 +408,7 @@ func TestReconcileDropsJustPublishedBundleStagesLeaseLoss(t *testing.T) {
 	}
 }
 
-// TestReconcileSkipsPointerNamedExecution is the control for the :1073 guard:
+// TestReconcileSkipsPointerNamedExecution is the control for the  guard:
 // publish lands BEFORE GetPointer, reconciler must leave tables alone.
 func TestReconcileSkipsPointerNamedExecution(t *testing.T) {
 	cat := newTOCCatalog()

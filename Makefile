@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test test-scripts dev-test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui dev dev-rebuild dev-doctor verify-current verify-fast verify-full dev-down verify-inventory verify-api verify-formal verify-browser test-ui test-go test-integration
+.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test test-scripts dev-test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui dev dev-rebuild dev-doctor verify-current verify-fast dev-down verify-api test-ui test-go test-integration e2e
 
 GO ?= go
 GO_VERSION ?= 1.26.5
@@ -179,26 +179,13 @@ test-integration:
 	$(GO) test -json -timeout=10m -count=1 -run '^(TestDraftCASConcurrentWritersAgainstArango|TestDraftCASAfterWinnerCommitAgainstArango|TestDraftCASPublicApplyConflictClassAgainstArango|TestDraftCASUpdateFailureRollsBackHistoryAgainstArango)$$' ./internal/explorer/arango | node scripts/assert-go-tests.mjs TestDraftCASConcurrentWritersAgainstArango TestDraftCASAfterWinnerCommitAgainstArango TestDraftCASPublicApplyConflictClassAgainstArango TestDraftCASUpdateFailureRollsBackHistoryAgainstArango
 	node scripts/run-arango-integration.mjs --out "$${RUNNER_TEMP:-/tmp}/loom-arango-integration-$$$$"
 
-# Builder checkpoints. Full repository coverage remains in tests.yaml.
-VERIFY_FEATURE ?= ownership
-API_FEATURE ?= all
-
-verify-inventory:
-	node scripts/verify-builder-formal-core.mjs --phase inventory
-
+# Direct Builder checkpoints. Full repository coverage remains in tests.yaml.
 verify-fast: test-ui
 
 verify-api: test-integration
 
-verify-formal:
-	node scripts/verify-builder-formal-core.mjs --self-test
+verify-current: test-ui test-go
 
-verify-current: test-ui test-go test-integration
-
-verify-full: verify-api verify-formal
-	CI=true node scripts/verify-builder-formal-core.mjs --phase behavior
-
-# Real Chromium component boundary, deliberately outside the fast default loop.
-BROWSER_FEATURE ?= all
-verify-browser:
-	node scripts/verify-builder-formal-core.mjs --phase browser --feature $(BROWSER_FEATURE)
+# Drive the running stack selected by this checkout; doctor rejects stale identity.
+e2e: dev-doctor
+	node scripts/e2e/run.mjs

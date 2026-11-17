@@ -1,5 +1,8 @@
 package server
 
+// These direct production-code witnesses enforce the C01–C19 authoring checks.
+// Frozen schedules run through ordinary Go tests without a separate harness.
+
 import (
 	"context"
 	"encoding/json"

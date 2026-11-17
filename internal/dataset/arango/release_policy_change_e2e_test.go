@@ -6,16 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
-	"github.com/google/uuid"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
 // R2 durable control: a required->optional reclassification of the SAME selector
@@ -65,42 +62,10 @@ func (v rpcVerifier) VerifyPublication(_ context.Context, project, generation st
 
 func rpcOpen(t *testing.T, budget time.Duration) (context.Context, *arangostore.Client, *Store) {
 	t.Helper()
-	endpoint := os.Getenv("LOOM_TEST_ARANGO_URL")
-	if endpoint == "" {
-		t.Skip("set owned LOOM_TEST_ARANGO_URL")
-	}
-	name := rpcDatabasePrefix + strings.ReplaceAll(uuid.NewString(), "-", "")
-	if !strings.HasPrefix(name, rpcDatabasePrefix) {
-		t.Fatalf("verification database %q escapes the %s prefix", name, rpcDatabasePrefix)
-	}
+	database := arangotest.Owned(t, rpcDatabasePrefix)
 	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	t.Cleanup(cancel)
-	client, err := arangostore.Open(ctx, endpoint, name)
-	if err != nil {
-		t.Fatalf("open owned verification database %s: %v", name, err)
-	}
-	t.Logf("RPC_DATABASE_CREATED=%s (via production store.Open)", name)
-	t.Cleanup(func() {
-		_ = client.Close(context.Background())
-		cleanupCtx, stop := context.WithTimeout(context.Background(), 15*time.Second)
-		defer stop()
-		req, err := http.NewRequestWithContext(cleanupCtx, http.MethodDelete, strings.TrimRight(endpoint, "/")+"/_api/database/"+url.PathEscape(name), nil)
-		if err != nil {
-			t.Errorf("build cleanup request for %s: %v", name, err)
-			return
-		}
-		response, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Errorf("cleanup %s: %v", name, err)
-			return
-		}
-		defer response.Body.Close()
-		if response.StatusCode != http.StatusOK {
-			t.Errorf("cleanup %s status=%d", name, response.StatusCode)
-			return
-		}
-		t.Logf("RPC_DATABASE_REMOVED=%s", name)
-	})
+	client := database.Client
 	if err := client.Bootstrap(ctx, BootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap dataset lifecycle collections: %v", err)
 	}

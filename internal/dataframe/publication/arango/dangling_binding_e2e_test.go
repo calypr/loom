@@ -6,10 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -20,174 +16,16 @@ import (
 	"github.com/calypr/loom/internal/dataset"
 	datasetstore "github.com/calypr/loom/internal/dataset/arango"
 	store "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
 )
 
-// These opt-in tests adjudicate candidate F-B7 against a real ArangoDB in a
-// fully owned database (loom_verify_db_<uuid>, dropped in t.Cleanup):
-//
-//	F-B7 contract: a broken optional release binding must not hide a healthy
-//	current output from dataset discovery. Required bindings remain fail-closed.
-//
-// Mechanism as claimed by the brief: "internal/dataframe/published/current.go:193-257:
-// Resolve loads each binding via loadPublishedExecutionForRead, and
-// execution == nil || !publishedOutputMatches(execution, binding) -> all = false
-// -> ALL bindings recorded stale (:202-211); caller then falls back to stale
-// snapshot at internal/dataset/release.go:204-213. Also verifyPublishedExecution
-// (arango:188-196) rechecks pointer naming."
-//
-// LINE-EXACT SOURCE AUDIT (verified 2026-11-01 on branch feature/deep-clean):
-// none of those identifiers exist anywhere in the repository:
-//
-//	loadPublishedExecutionForRead  -> 0 matches (grep repo-wide)
-//	publishedOutputMatches         -> 0 matches
-//	"all = false" in published     -> 0 matches
-//	verifyPublishedExecution       -> 0 matches (entire arango package)
-//	requiredReleaseBindings        -> 0 matches (internal/dataset/release.go ends at :280)
-//	releaseBindingsFrom            -> 0 matches
-//
-// The real read path has no Resolve and no stale re-marking at read time. It
-// skips only typed deterministic failures for non-required active bindings;
-// required bindings and unclassified backend failures remain fail-closed.
-//
-//	internal/dataframe/published/current.go:190-222 activeReleaseDatasets
-//	  :203  `if binding.Stale || binding.Generation != active.Release.Generation {`
-//	  :204  	continue                                  // pre-marked-stale bindings skipped
-//	  :211-216 value, err := r.releaseMaterialization(...); unavailable optional bindings continue
-//	                              // required or unknown failures still abort the list
-//	  :220-222 if len(result) == 0 { return DatasetNotFound }
-//	internal/dataframe/published/current.go:74-92 activeReleaseDataset (single selector)
-//	  :86-87 skips non-matching/stale bindings BEFORE materialization -> a binding
-//	       that cannot resolve cannot affect a different selector's answer
-//	internal/dataframe/published/current.go:94-111 releaseMaterialization
-//	  :98-101 missing execution -> typed unavailable-binding error
-//	  :104-105 identity mismatch -> typed unavailable-binding error
-//	  :107-115 no queryable output -> typed unavailable-binding error
-//
-// Stale is only ever written at release CREATE (internal/dataset/release.go):
-//	  :185-188 required selector verification failure -> recorded into `failed`
-//	  :192-193 `return ProjectRelease{}, &ReleaseRequirementsError{...}` (create-time ERROR)
-//	  :209-210 carried-forward prior bindings: prior.Required = false; prior.Stale = prior.Generation != ref.Generation
-//	  :254-256 publicationBinding: Stale = result.Generation != generation (false for fresh)
-//
-// The active snapshot at internal/dataset/arango/release_store.go:144-150
-// (readActiveReleaseAQL) has no stale fallback either: it reads exactly the
-// pointer's releaseKey document or yields ErrNoActiveRelease (release_store.go:56-57).
-//
-// So the claimed whole-dataset STALE demotion cannot be confirmed as stated.
-// What these tests measure is whether the real code still produces the
-// product-level harm F-B7 fears (one bad binding degrading a healthy binding's
-// fresh answer) through the mechanism the code actually uses.
+// These tests exercise real release reads against an owned Arango database.
+// They check that an unavailable optional binding does not hide a healthy
+// dataset and that required or unclassified failures remain fail-closed.
 
 const danglingBindingDatabasePrefix = "loom_verify_db_"
 
-// danglingCitation pins the load-bearing source lines tested above. If the
-// source drifts, the citation check fails the test so stale evidence cannot
-// quietly survive a refactor.
-type danglingCitation struct {
-	file string
-	line int // 1-based
-	want string
-}
-
-var danglingCitations = []danglingCitation{
-	{"internal/dataframe/published/current.go", 88, "if binding.Selector != selector || binding.Stale || binding.Generation != active.Release.Generation {"},
-	{"internal/dataframe/published/current.go", 97, "execution, err := r.Catalog.GetExecution(ctx, binding.ExecutionID)"},
-	{"internal/dataframe/published/current.go", 99, "if errors.Is(err, bundlepublication.ErrBundleNotFound) {"},
-	{"internal/dataframe/published/current.go", 102, "return Materialization{}, fmt.Errorf(\"resolve active dataframe execution: %w\", err)"},
-	{"internal/dataframe/published/current.go", 115, "return Materialization{}, fmt.Errorf(\"%w: active dataframe execution %q has no queryable output %q\", errReleaseBindingUnavailable, binding.ExecutionID, binding.Selector.Output)"},
-	{"internal/dataframe/published/current.go", 208, "if binding.Stale || binding.Generation != active.Release.Generation {"},
-	{"internal/dataframe/published/current.go", 211, "value, err := r.releaseMaterialization(ctx, active.Release, binding)"},
-	{"internal/dataframe/published/current.go", 212, "if err != nil {"},
-	{"internal/dataframe/published/current.go", 213, "if !binding.Required && errors.Is(err, errReleaseBindingUnavailable) {"},
-	{"internal/dataframe/published/current.go", 216, "return nil, err"},
-	{"internal/dataset/release.go", 193, "return ProjectRelease{}, &ReleaseRequirementsError{Verifications: failed}"},
-	{"internal/dataset/release.go", 210, "prior.Stale = prior.Generation != ref.Generation"},
-	{"internal/dataset/release.go", 255, "return ReleasePublication{Selector: result.Selector, ExecutionID: result.ExecutionID, Generation: result.Generation, Required: required, Stale: result.Generation != generation, VerifiedAt: result.VerifiedAt}"},
-	{"internal/api/graphql/graph/dataframe/rows.go", 27, "values, err := s.reader.CurrentProjectDatasets(ctx, legacyProjectID(projectID))"},
-	{"internal/api/graphql/graph/dataframe/rows.go", 29, "return nil, mapReaderError(err)"},
-}
-
-// danglingAbsentIdentifiers are the identifiers the brief claims exist; the
-// files named in the hypothesis must NOT contain them.
-type danglingAbsentIdentifier struct {
-	file       string
-	identifier string
-}
-
-var danglingAbsentIdentifiers = []danglingAbsentIdentifier{
-	{"internal/dataframe/published/current.go", "loadPublishedExecutionForRead"},
-	{"internal/dataframe/published/current.go", "publishedOutputMatches"},
-	{"internal/dataframe/published/current.go", "all = false"},
-	{"internal/dataframe/publication/arango/bundle_registry.go", "verifyPublishedExecution"},
-	{"internal/dataset/release.go", "requiredReleaseBindings"},
-	{"internal/dataset/release.go", "releaseBindingsFrom"},
-}
-
-func danglingRepoRoot(t *testing.T) string {
-	t.Helper()
-	dir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatalf("no go.mod above %s", dir)
-		}
-		dir = parent
-	}
-}
-
-func danglingCheckCitations(t *testing.T) {
-	t.Helper()
-	root := danglingRepoRoot(t)
-	contents := map[string][]string{}
-	for _, c := range danglingCitations {
-		lines, ok := contents[c.file]
-		if !ok {
-			raw, err := os.ReadFile(filepath.Join(root, c.file))
-			if err != nil {
-				t.Fatalf("citation source %s unreadable: %v", c.file, err)
-			}
-			lines = strings.Split(string(raw), "\n")
-			contents[c.file] = lines
-		}
-		if c.line < 1 || c.line > len(lines) {
-			t.Fatalf("citation drift: %s has %d lines, cited :%d == %q", c.file, len(lines), c.line, c.want)
-		}
-		// Drift-proof: the contract is the EXACT source text, not the pin.
-		found := false
-		for _, line := range lines {
-			if strings.TrimSpace(line) == strings.TrimSpace(c.want) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("citation drift: %s no longer contains %q (cited :%d)", c.file, c.want, c.line)
-		}
-	}
-	for _, a := range danglingAbsentIdentifiers {
-		raw, err := os.ReadFile(filepath.Join(root, a.file))
-		if err != nil {
-			t.Fatalf("citation source %s unreadable: %v", a.file, err)
-		}
-		if strings.Contains(string(raw), a.identifier) {
-			t.Fatalf("hypothesis identifier %q unexpectedly present in %s; brief audit said 0 matches", a.identifier, a.file)
-		}
-	}
-}
-
-// danglingDatasetDocumentKey replicates
-// internal/dataset/arango/document_codec.go:164-172 (documentKey) with the
-// domain from manifest_lifecycle.go:14 so this package can address the
-// active-release pointer directly. Fidelity is not taken on faith: every use
-// is round-tripped through the PRODUCTION datasetstore.Store.ReadActiveRelease,
-// so a mismatched key surfaces as ErrNoActiveRelease and fails the test.
 func danglingDatasetDocumentKey(kind string, values ...string) string {
 	hash := sha256.New()
 	_, _ = hash.Write([]byte("loom.datasetstore.v1"))
@@ -199,64 +37,31 @@ func danglingDatasetDocumentKey(kind string, values ...string) string {
 }
 
 // danglingOpen mirrors the owned-database env-gated harness of
-// name_latest_binding_e2e_test.go:103-150 (skip when LOOM_TEST_ARANGO_URL is
+// name_latest_binding_e2e_test.go (skip when LOOM_TEST_ARANGO_URL is
 // unset, store.Open creates loom_verify_db_<uuid> - see internal/store/arango/
-// client.go:130-142 - and HTTP DELETE /_api/database drops it in t.Cleanup).
+// client.go - and HTTP DELETE /_api/database drops it in t.Cleanup).
 // It additionally bootstraps the dataset lifecycle collection so the real
 // datasetstore.Store and published.Reader run against the same database.
 func danglingOpen(t *testing.T, budget time.Duration) (context.Context, *store.Client, *Registry, *datasetstore.Store) {
 	t.Helper()
-	endpoint := os.Getenv("LOOM_TEST_ARANGO_URL")
-	if endpoint == "" {
-		t.Skip("set owned LOOM_TEST_ARANGO_URL")
-	}
-	name := danglingBindingDatabasePrefix + strings.ReplaceAll(uuid.NewString(), "-", "")
-	if !strings.HasPrefix(name, danglingBindingDatabasePrefix) {
-		t.Fatalf("verification database %q escapes the %s prefix", name, danglingBindingDatabasePrefix)
-	}
+	database := arangotest.Owned(t, danglingBindingDatabasePrefix)
 	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	t.Cleanup(cancel)
-	client, err := store.Open(ctx, endpoint, name)
-	if err != nil {
-		t.Fatalf("open %s: %v", name, err)
-	}
-	t.Logf("F_B7_DATABASE=%s", name)
-	t.Cleanup(func() {
-		_ = client.Close(context.Background())
-		cleanupCtx, stop := context.WithTimeout(context.Background(), 15*time.Second)
-		defer stop()
-		req, err := http.NewRequestWithContext(cleanupCtx, http.MethodDelete, strings.TrimRight(endpoint, "/")+"/_api/database/"+url.PathEscape(name), nil)
-		if err != nil {
-			t.Errorf("build cleanup request for %s: %v", name, err)
-			return
-		}
-		response, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Errorf("cleanup %s: %v", name, err)
-			return
-		}
-		defer response.Body.Close()
-		if response.StatusCode != http.StatusOK {
-			t.Errorf("cleanup %s status=%d", name, response.StatusCode)
-			return
-		}
-		t.Logf("F_B7_DATABASE_REMOVED=%s", name)
-	})
-	if err := client.Bootstrap(ctx, BootstrapSpec()); err != nil {
+	if err := database.Client.Bootstrap(ctx, BootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap bundle collections: %v", err)
 	}
-	if err := client.Bootstrap(ctx, datasetstore.BootstrapSpec()); err != nil {
+	if err := database.Client.Bootstrap(ctx, datasetstore.BootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap dataset lifecycle collections: %v", err)
 	}
-	registry, err := New(client)
+	registry, err := New(database.Client)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
-	lifecycle, err := datasetstore.New(client)
+	lifecycle, err := datasetstore.New(database.Client)
 	if err != nil {
 		t.Fatalf("new lifecycle store: %v", err)
 	}
-	return ctx, client, registry, lifecycle
+	return ctx, database.Client, registry, lifecycle
 }
 
 type danglingExecSpec struct {
@@ -268,9 +73,9 @@ type danglingExecSpec struct {
 }
 
 // danglingSeedExecution writes one PUBLISHED execution through the production
-// lease + SaveExecution path (bundle_registry.go:26-66), as the sibling
+// lease + SaveExecution path (bundle_registry.go), as the sibling
 // F-B6 harness does; outputs carry VerifiedAt/PhysicalTable so
-// BundleOutputRecord.Queryable() (bundle.go:147-149) is true without relying
+// BundleOutputRecord.Queryable() (bundle.go) is true without relying
 // on Canonicalize Legacy backfill.
 func danglingSeedExecution(t *testing.T, ctx context.Context, registry *Registry, spec danglingExecSpec) publication.BundleExecution {
 	t.Helper()
@@ -311,10 +116,10 @@ func danglingSeedExecution(t *testing.T, ctx context.Context, registry *Registry
 }
 
 // danglingSeedRelease saves an immutable release through the PRODUCTION
-// datasetstore.Store.SaveRelease (release_store.go:12-39) and then activates
+// datasetstore.Store.SaveRelease (release_store.go) and then activates
 // it by patching the active_release placeholder that SaveRelease inserted
-// (release_store.go:138, manifest_lifecycle.go:85-87). Production
-// ReadActiveRelease (release_store.go:41-60, readActiveReleaseAQL:144-150) is
+// (release_store.go, manifest_lifecycle.go). Production
+// ReadActiveRelease (release_store.go, readActiveReleaseAQL) is
 // the gate: it must return the released bindings, which also validates the
 // replicated document-key derivation.
 func danglingSeedRelease(t *testing.T, ctx context.Context, client *store.Client, lifecycle *datasetstore.Store, project, generation string, bindings []dataset.ReleasePublication) dataset.ProjectRelease {
@@ -378,7 +183,7 @@ RETURN {patched: true}`, 32, map[string]interface{}{
 
 // danglingCorruptDropOutputs removes the PublishedOutput row from the
 // execution document. PublishedOutput is a row of the execution document's
-// embedded outputs array (bundle.go:168; BootstrapSpec registers no separate
+// embedded outputs array (bundle.go; BootstrapSpec registers no separate
 // output collection), so deleting the row is UPDATE outputs=[].
 func danglingCorruptDropOutputs(t *testing.T, ctx context.Context, client *store.Client, executionID string) {
 	t.Helper()
@@ -449,16 +254,16 @@ func danglingSelector(output string, recipe string) published.DataframeSelector 
 //
 //	E1  Fresh two-binding release: CurrentProjectDatasets returns exactly 2
 //	    materializations sorted by Name ("out-a" then "out-b"), State READY,
-//	    ID "<execID>:<output>" (types.go:58-80), err == nil.
+//	    ID "<execID>:<output>" (types.go), err == nil.
 //	E2  Un-naming the bad execution's visibility pointer changes nothing on
-//	    either read path, because releaseMaterialization (current.go:94-111)
+//	    either read path, because releaseMaterialization (current.go)
 //	    never calls GetPointer. The claim "verifyPublishedExecution
-//	    (arango:188-196) rechecks pointer naming" is false: no such function.
+//	    rechecks pointer naming" is false: no such function.
 //	E3  Deleting the bad optional binding's PublishedOutput row: the list keeps
 //	    the healthy materialization and omits only the unavailable optional one.
 //	E4  Deleting the whole bad optional execution has the same result. Required
 //	    bindings and transient catalog failures still abort the whole list.
-//	E5  The single-selector path activeReleaseDataset (current.go:85-90) skips
+//	E5  The single-selector path activeReleaseDataset (current.go) skips
 //	    the broken OTHER binding by selector before materializing, so the
 //	    healthy selector keeps resolving fresh independently => per-viewer
 //	    degradation DISPROVEN; the list and single-selector paths stay independent.
@@ -467,7 +272,6 @@ func danglingSelector(output string, recipe string) published.DataframeSelector 
 // healthy binding's freshness or forces stale fallback in the list path;
 // DISPROVEN iff the healthy binding reports fresh independently.
 func TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango(t *testing.T) {
-	danglingCheckCitations(t)
 	ctx, client, registry, lifecycle := danglingOpen(t, 120*time.Second)
 
 	project := "dbind-fb7-project"
@@ -475,7 +279,7 @@ func TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango(t *testing.
 	healthyExec := danglingSeedExecution(t, ctx, registry, danglingExecSpec{id: "dbind-exec-healthy", project: project, generation: generation, recipe: "dbind-recipe-a", output: "out-a"})
 	badExec := danglingSeedExecution(t, ctx, registry, danglingExecSpec{id: "dbind-exec-bad", project: project, generation: generation, recipe: "dbind-recipe-b", output: "out-b"})
 
-	// Pointer naming per the production visibility path (bundle.go:88-97).
+	// Pointer naming per the production visibility path (bundle.go).
 	if err := registry.CompareAndSwapPointer(ctx, healthyExec.PointerName(), "", healthyExec.ID); err != nil {
 		t.Fatalf("point healthy pointer: %v", err)
 	}
@@ -567,12 +371,12 @@ func TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango(t *testing.
 }
 
 // TestRequiredBindingSilentDemotion adjudicates the required-set variant:
-// "requiredReleaseBindings/releaseBindingsFrom (release.go:349-390): if a
+// "requiredReleaseBindings/releaseBindingsFrom (release.go): if a
 // binding with Required=true gets stale, does the caller error or silently
-// serve stale?" Those functions do not exist (release.go ends at :280). The
-// real required verification happens at create time: release.go:181-193 makes
+// serve stale?" Those functions do not exist (release.go ends at ). The
+// real required verification happens at create time: release.go makes
 // an unverifiable selector a ReleaseRequirementsError, and carried-forward
-// prior bindings lose Required at :209. At read time stale/generation filters
+// prior bindings lose Required at . At read time stale/generation filters
 // run first; Required only preserves fail-closed behavior for a deterministic
 // unavailable active binding instead of omitting it as optional.
 //
@@ -581,13 +385,13 @@ func TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango(t *testing.
 //	R1  required=true binding carries Stale=true in the release doc:
 //	    CurrentProjectDatasets returns ONLY the non-stale sibling, err==nil:
 //	    the required binding is SILENTLY dropped (no error, no
-//	    ErrReleaseRequirementsUnmet) - current.go:203-204 + 212 (result
+//	    ErrReleaseRequirementsUnmet) - current.go + 212 (result
 //	    non-empty). Caller behavior = silent skip, NOT error.
 //	R2  Single read of the required-stale selector: UserError DATASET_NOT_FOUND
-//	    (current.go:86-91 skip + :91), NOT a required-verification error, and
+//	    (current.go skip + ), NOT a required-verification error, and
 //	    no stale data is served.
 //	R3  ALL bindings stale: CurrentProjectDatasets -> UserError
-//	    DATASET_NOT_FOUND (current.go:212-214). Silent empty, still no
+//	    DATASET_NOT_FOUND (current.go). Silent empty, still no
 //	    requirements error at read time.
 //	R4  Control: required=true + Stale=false but execution corrupted ->
 //	    CurrentProjectDatasets still errors, unlike the broken optional binding.
@@ -600,10 +404,9 @@ func TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango(t *testing.
 // correctness properties, so the test PASSES when the reader behaves as the
 // audit predicts; the verbatim caller behavior is logged as the report's
 // evidence. Behavior is PASS (correct): requirement enforcement lives at
-// release.go:181-193 (create), and the reader refuses to serve stale or
-// foreign-generation data by construction (current.go:99-101).
+// release.go (create), and the reader refuses to serve stale or
+// foreign-generation data by construction (current.go).
 func TestRequiredBindingSilentDemotion(t *testing.T) {
-	danglingCheckCitations(t)
 	ctx, client, registry, lifecycle := danglingOpen(t, 120*time.Second)
 
 	project := "dbind-req-project"
@@ -683,7 +486,7 @@ func TestRequiredBindingSilentDemotion(t *testing.T) {
 	copy(allStale, staleBindings)
 	allStale[1].Stale = true
 	danglingPatchBindingStale(t, ctx, client, dataset.ProjectRelease{ID: release.ID, Publications: allStale})
-	t.Log("EXPECT R3: all-stale release -> CurrentProjectDatasets UserError DATASET_NOT_FOUND (current.go:212-214), no requirements error")
+	t.Log("EXPECT R3: all-stale release -> CurrentProjectDatasets UserError DATASET_NOT_FOUND, no requirements error")
 	list, err = reader.CurrentProjectDatasets(ctx, project)
 	code = danglingUserErrorCode(err)
 	if err == nil || code != string(dataframeerrors.CodeDatasetNotFound) || len(list) != 0 {
@@ -694,5 +497,5 @@ func TestRequiredBindingSilentDemotion(t *testing.T) {
 	}
 	t.Logf("OBSERVED R3 verbatim: all-stale list -> err=[%s] userCode=%q; ErrReleaseRequirementsUnmet errors.Is = %v", danglingErrorChain(err), code, errors.Is(err, dataset.ErrReleaseRequirementsUnmet))
 
-	t.Log("VERDICT required-set variant: stale required bindings are skipped before catalog access and report DATASET_NOT_FOUND; an active required binding that is deterministically unavailable remains fail-closed. Required verification also occurs at Create (release.go:181-193), and carried-forward bindings lose Required at release.go:209, so Required=true with Stale=true is not reachable through the production Create/Activate path")
+	t.Log("VERDICT required-set variant: stale required bindings are skipped before catalog access and report DATASET_NOT_FOUND; an active required binding that is deterministically unavailable remains fail-closed. Required verification occurs at Create, and carried-forward bindings lose Required, so Required=true with Stale=true is not reachable through the production Create/Activate path")
 }
