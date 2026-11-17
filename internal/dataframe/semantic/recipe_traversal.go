@@ -77,6 +77,10 @@ func qualifyTraversalLocals(input recipe.Traversal, alias string, visible map[st
 	for index := range copy.ExtensionColumns {
 		copy.ExtensionColumns[index].Source = qualifyRecipeExpression(copy.ExtensionColumns[index].Source, alias, visible)
 		copy.ExtensionColumns[index].Columns = append([]recipe.ExtensionColumnMapping(nil), input.ExtensionColumns[index].Columns...)
+		for columnIndex := range copy.ExtensionColumns[index].Columns {
+			copy.ExtensionColumns[index].Columns[columnIndex].URLPath = append([]string(nil), input.ExtensionColumns[index].Columns[columnIndex].URLPath...)
+		}
+		copy.ExtensionColumns[index].OutputOverrides = append([]recipe.ExtensionColumnOutputOverride(nil), input.ExtensionColumns[index].OutputOverrides...)
 	}
 	return copy
 }

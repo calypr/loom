@@ -351,17 +351,23 @@ func validatePhysicalCorrelationWithCodeBind(correlation PhysicalCorrelation, de
 				return fmt.Errorf("extension URL bind %q must be a string", key)
 			}
 		}
-		if err := validatePhysicalSelector(correlation.OwnerResource, correlation.ValueSelector); err != nil {
-			return fmt.Errorf("extension value selector: %w", err)
-		}
-		for index, fallback := range correlation.ValueFallbacks {
-			if err := validatePhysicalSelector(correlation.OwnerResource, fallback); err != nil {
-				return fmt.Errorf("extension value fallback %d: %w", index, err)
+		if correlation.CanonicalJSONValue {
+			if correlation.ValueSelector.CanonicalPath() != "" || len(correlation.ValueFallbacks) != 0 || len(correlation.ChoiceSelectors) != 0 {
+				return fmt.Errorf("canonical JSON extension correlation cannot contain value selectors")
 			}
-		}
-		for index, choice := range correlation.ChoiceSelectors {
-			if err := validatePhysicalSelector(correlation.OwnerResource, choice); err != nil {
-				return fmt.Errorf("extension choice selector %d: %w", index, err)
+		} else {
+			if err := validatePhysicalSelector(correlation.OwnerResource, correlation.ValueSelector); err != nil {
+				return fmt.Errorf("extension value selector: %w", err)
+			}
+			for index, fallback := range correlation.ValueFallbacks {
+				if err := validatePhysicalSelector(correlation.OwnerResource, fallback); err != nil {
+					return fmt.Errorf("extension value fallback %d: %w", index, err)
+				}
+			}
+			for index, choice := range correlation.ChoiceSelectors {
+				if err := validatePhysicalSelector(correlation.OwnerResource, choice); err != nil {
+					return fmt.Errorf("extension choice selector %d: %w", index, err)
+				}
 			}
 		}
 		if strings.TrimSpace(correlation.LogicalType) == "" {

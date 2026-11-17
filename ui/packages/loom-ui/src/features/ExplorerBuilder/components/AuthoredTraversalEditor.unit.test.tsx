@@ -172,7 +172,7 @@ it('keeps exact source policy editing in the traversal navigator across proposed
     ]},columns:[{columnId:'patient_names',column:'names',label:'Patient names',occurrenceId:'subjectPatient',source:{kind:'imported',imported:{outputColumn:'names'}}}],
   }};
   const network: import('../../../types').AuthoringNetworkResponse['network']={owner:'IMPORTED_SOURCE',outputId:'subjects',sourceRows:imported.document.rows,
-    occurrences:[],operations:[],bindings:[{columnId:'patient_names',occurrenceId:'subjectPatient',sourceStepId:'patient_fields',valueMode:'ALL',status:'EXACT'}]};
+    projectedFields:[],occurrences:[],operations:[],bindings:[{columnId:'patient_names',occurrenceId:'subjectPatient',sourceStepId:'patient_fields',valueMode:'ALL',status:'EXACT'}]};
   const values={...navigatorProps(imported),selectedOccurrenceId:'subjectPatient',network};
   const graph={...callbacks(),table:imported,catalog,disabled:false,projectionKind:'saved' as const,selectedOccurrenceId:'subjectPatient',network};
   const view=render(<><AuthoredTraversalEditor {...graph}/><TraversalScopeNavigator {...values}/></>);

@@ -69,10 +69,16 @@ func TestDefaultSourceParameterCoverageAndAtomicEdits(t *testing.T) {
 			p.Dynamic.Key = &recipe.Expression{Select: "item.system"}
 			prefix := "ident_"
 			p.Dynamic.ColumnPrefix = &prefix
+			p.Dynamic.Outputs = []authoringv2.ImportedDynamicOutput{{Key: "urn:disabled", Enabled: false}}
 		}, func(o recipe.Output) bool {
-			return o.DynamicColumns[0].Key.Select == "item.system" && *o.DynamicColumns[0].ColumnPrefix == "ident_"
+			return o.DynamicColumns[0].Key.Select == "item.system" && *o.DynamicColumns[0].ColumnPrefix == "ident_" && reflect.DeepEqual(o.DynamicColumns[0].OutputOverrides, []recipe.DynamicColumnOutputOverride{{Key: "urn:disabled", Enabled: false}})
 		}},
-		{"extension", "DocumentReference", "extensionColumns[1]", func(p *authoringv2.ImportedSourceParameters) { p.Extension.Source.Select = "root.extension[]" }, func(o recipe.Output) bool { return o.ExtensionColumns[1].Source.Select == "root.extension[]" }},
+		{"extension", "DocumentReference", "extensionColumns[1]", func(p *authoringv2.ImportedSourceParameters) {
+			p.Extension.Source.Select = "root.extension[]"
+			p.Extension.Outputs = []authoringv2.ImportedExtensionOutput{{Key: recipe.ExtensionColumnOutputKey(recipe.ExtensionColumnMapping{URL: "https://example.org/value", URLPath: []string{"https://example.org/parent"}, SourcePath: "extension[].extension[]"}), Enabled: false}}
+		}, func(o recipe.Output) bool {
+			return o.ExtensionColumns[1].Source.Select == "root.extension[]" && len(o.ExtensionColumns[1].OutputOverrides) == 1 && !o.ExtensionColumns[1].OutputOverrides[0].Enabled
+		}},
 		{"pivot", "ResearchSubject", "traversals[0].traversals[0].pivots[0]", func(p *authoringv2.ImportedSourceParameters) {
 			p.Pivot.Discovery.Path = "component[].code"
 			p.Pivot.Outputs = []authoringv2.ImportedPivotOutput{{Key: "http://loinc.org|8480-6", Enabled: false}}

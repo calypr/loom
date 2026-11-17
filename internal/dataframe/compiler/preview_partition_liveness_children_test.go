@@ -21,7 +21,7 @@ func TestPreviewLivenessPreservesCaptureBoundaryAndMetadata(t *testing.T) {
 		{Kind: ir.PhysicalObjectLookupExpression, ObjectLookup: &ir.PhysicalObjectLookup{ObjectVariable: "object"}},
 	}}}
 	uses := map[string]bool{}
-	if !collectPreviewNodeUses(&expression, uses) {
+	if !collectPreviewExpressionUses(expression, uses) {
 		t.Fatal("supported nested expression was not analyzable")
 	}
 	want := map[string]bool{"outer": true, "source": true, "fallback": true, "prepared": true, "object": true}
@@ -32,7 +32,7 @@ func TestPreviewLivenessPreservesCaptureBoundaryAndMetadata(t *testing.T) {
 
 func TestPreviewLivenessDeclinesUnknownNestedExpression(t *testing.T) {
 	expression := ir.PhysicalExpression{Kind: ir.PhysicalCallExpression, Call: &ir.PhysicalCall{Args: []ir.PhysicalExpression{{Kind: "FUTURE_EXPRESSION"}}}}
-	if collectPreviewNodeUses(&expression, map[string]bool{}) {
+	if collectPreviewExpressionUses(expression, map[string]bool{}) {
 		t.Fatal("unknown nested expression was treated as safe for pruning")
 	}
 }

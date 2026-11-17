@@ -1,6 +1,7 @@
 import {useCallback, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import { useCommitLifecycle } from '../hooks/useBrowserSubscription';
 import { resourceFor } from '../../../react';
+import { LoomRequestError } from '../../../api';
 import type {
   DiscoverConstructionCategoriesArgs,
   GetConstructionCapabilitiesArgs,
@@ -112,6 +113,13 @@ const capabilitiesIdentity = (
 
 const errorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error && error.message.trim() ? error.message : fallback;
+
+const categoryDiscoveryErrorMessage = (error: unknown): string => {
+  if (error instanceof LoomRequestError && error.code === 'CATEGORY_SCAN_TIMEOUT') {
+    return `Finding category values timed out. Try filtering the source rows and retrying.${error.requestId ? ` Request ID: ${error.requestId}` : ''}`;
+  }
+  return errorMessage(error, 'Loom could not find category values for this pair.');
+};
 
 const errorIsRetryable = (error: unknown): boolean =>
   typeof error === 'object' && error !== null && 'retryable' in error && Reflect.get(error, 'retryable') === true;
@@ -465,7 +473,7 @@ export const useConstructionLifecycle = ({
         state: {
           ...request,
           status: 'failed',
-          reason: errorMessage(error, 'Loom could not find category values for this pair.'),
+          reason: categoryDiscoveryErrorMessage(error),
         },
       });
       return;
@@ -505,7 +513,7 @@ export const useConstructionLifecycle = ({
         state: {
           ...request,
           status: 'failed',
-          reason: errorMessage(error, 'Loom could not find category values for this pair.'),
+          reason: categoryDiscoveryErrorMessage(error),
         },
       });
     });

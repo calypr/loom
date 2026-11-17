@@ -14,6 +14,7 @@ type Service struct {
 	config                Config
 	now                   func() time.Time
 	constructionBaseCache *constructionBaseCache
+	columnPopulationCache *columnPopulationCache
 }
 
 func New(store *explorer.Service, config Config) (*Service, error) {
@@ -30,5 +31,6 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 		config:                config,
 		now:                   now,
 		constructionBaseCache: newConstructionBaseCache(config.ConstructionBaseCacheTTL, config.ConstructionBaseCacheEntries, now),
+		columnPopulationCache: newColumnPopulationCache(columnPopulationCacheTTL, columnPopulationCacheMaxEntries, now),
 	}, nil
 }

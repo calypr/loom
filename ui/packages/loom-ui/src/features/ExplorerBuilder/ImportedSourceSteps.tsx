@@ -2,7 +2,7 @@ import { useRef, useState, type ReactNode } from 'react';
 import { useEscapeToClose } from './hooks/useEscapeToClose';
 import { createPortal } from 'react-dom';
 import { SourceStepParameterEditor } from './SourceStepParameterEditor';
-import type { ImportedSourceParameters, ExplorerBuilderCommand, ExplorerBuilderDocument } from '../../types';
+import type { ImportedSourceParameters, ExplorerBuilderCommand, ExplorerBuilderDocument, ProjectedField } from '../../types';
 
 type ImportedSourceStep = NonNullable<ExplorerBuilderDocument['importedSource']>['steps'][number];
 type ValueMode = 'AUTO' | 'VALUE' | 'FIRST' | 'ALL' | 'DISTINCT';
@@ -82,6 +82,7 @@ interface ImportedSourceStepEditorValues {
   readonly outputFocusRequest?: number;
 }
 interface ImportedSourceStepEditorState extends ImportedSourceStepEditorValues {
+  readonly inspectedValues?: ImportedSourceStepEditorValues;
   readonly activeStepId?: string;
   readonly dependentEdits?: ReadonlyArray<ImportedSourceStepEditorValues>;
 }
@@ -96,12 +97,22 @@ interface ImportedSourceStepsProps {
   readonly outputEditActionRef?: { current: ((stepId: string, outputKey: string) => void) | undefined };
   readonly catalogOutputsForStep?: (stepId: string) => ReadonlyArray<{ readonly outputKey: string; readonly columnId?: string; readonly defaultName: string; readonly enabled: boolean }>;
   readonly pivotOutputsForStep?: (stepId: string) => ReadonlyArray<{ readonly outputKey: string; readonly columnId?: string; readonly defaultName: string; readonly enabled: boolean }>;
+  readonly projectedFieldsForStep?: (stepId: string) => ReadonlyArray<ProjectedField>;
+  readonly onRemoveProjectedField?: (columnId: string) => void;
+  readonly onEditProjectedField?: (field: ProjectedField) => void;
+  readonly onRenameProjectedField?: (columnId: string, label: string) => void;
+  readonly editableProjectedFieldIds?: ReadonlySet<string>;
+  readonly projectedFieldRemovalDisabledReason?: string;
   readonly outputRevision?: string;
   readonly resourceTypeChoices?: ReadonlyArray<string>;
   readonly sourcePathChoices?: ReadonlyArray<string>;
   readonly fieldPathChoices?: ReadonlyArray<string>;
   readonly fieldKindChoices?: ReadonlyArray<string>;
   readonly editActionRef?: { current: ((stepId: string) => void) | undefined };
+  readonly cancelEditActionRef?: { current: (() => void) | undefined };
+  readonly switchOccurrenceActionRef?: { current: ((occurrenceId: string) => boolean) | undefined };
+  readonly occurrenceForStep?: (stepId: string) => string | undefined;
+  readonly onSuspendEdit?: () => boolean;
   readonly onBeginEdit?: (stepId: string) => boolean;
   readonly onActiveOperationChange?: (stepId: string) => void;
   readonly onCancelEdit?: () => void;
@@ -132,11 +143,12 @@ export const ImportedSourceSteps = ({
   onRefresh,
   onApply,
   renderReview,
-  editActionRef, fieldEditActionRef, outputEditActionRef, catalogOutputsForStep, pivotOutputsForStep, outputRevision, onBeginEdit, onActiveOperationChange, onCancelEdit, onDraftChange, editorHost, reviewHost, resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices,
+  editActionRef, cancelEditActionRef, switchOccurrenceActionRef, occurrenceForStep, onSuspendEdit, fieldEditActionRef, outputEditActionRef, catalogOutputsForStep, pivotOutputsForStep, projectedFieldsForStep, onRemoveProjectedField, onEditProjectedField, onRenameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason, outputRevision, onBeginEdit, onActiveOperationChange, onCancelEdit, onDraftChange, editorHost, reviewHost, resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices,
 }: ImportedSourceStepsProps) => {
   const presentEditor = (node: ReactNode) => editorHost ? createPortal(node, editorHost) : node;
   const presentReview = (node: ReactNode) => reviewHost ? createPortal(node, reviewHost) : node;
   const [editor, setEditor] = useState<ImportedSourceStepEditorState>();
+  const suspendedEditors = useRef(new Map<string, ImportedSourceStepEditorState>());
   const fieldFocusRequest = useRef(0);
   const [refreshing, setRefreshing] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -185,7 +197,8 @@ export const ImportedSourceSteps = ({
   const activeStepId = editor?.activeStepId ?? editor?.stepId;
   const activeStep = activeStepId === selectedStep?.id ? selectedStep : stepsById.get(activeStepId ?? '');
   const activeDependent = activeStepId === selectedStep?.id ? undefined : dependentEdits.find((change) => change.stepId === activeStepId);
-  const activeValues = activeDependent ?? editor;
+  const activeValues = activeStepId === selectedStep?.id ? editor : activeDependent
+    ?? (editor?.inspectedValues && editor.inspectedValues.stepId === activeStepId ? editor.inspectedValues : activeStep ? editorStateFor(activeStep) : undefined);
   const activeParent = activeStep?.parentId ? stepsById.get(activeStep.parentId) : undefined;
   const activeValueModes = activeStep ? valueModesForStep(activeStep) : undefined;
   const selectedParent = selectedStep?.parentId ? stepsById.get(selectedStep.parentId) : undefined;
@@ -236,6 +249,7 @@ export const ImportedSourceSteps = ({
   const dependentChanges = dependentEdits.flatMap((change): NonNullable<ExplorerBuilderCommand['sourceStep']>[] => {
     const step = stepsById.get(change.stepId);
     if (!step) return [];
+    if (!change.parametersChanged && change.enabled === step.enabled && change.maxColumns === (step.maxColumns === undefined ? '' : String(step.maxColumns)) && change.valueMode === (step.valueMode ?? '')) return [];
     return [{ stepId: step.id, enabled: change.enabled,
       ...(change.parametersChanged && change.parameters ? { parameters: change.parameters } : {}),
       ...(step.maxColumns !== undefined && change.maxColumns !== String(step.maxColumns) ? { maxColumns: Number(change.maxColumns) } : {}),
@@ -278,22 +292,38 @@ export const ImportedSourceSteps = ({
       return;
     }
     if (!step.parameters) return;
-    if (dependentEdits.length >= 127) {
-      setActionError('A shared preview can include up to 128 source operations. Remove one from this change before adding another.');
-      return;
-    }
-    onDraftChange?.();
     const staged = editorStateFor(step);
     onActiveOperationChange?.(step.id);
-    setEditor({ ...editor, activeStepId: step.id, dependentEdits: [...dependentEdits, {
+    setEditor({ ...editor, activeStepId: step.id, inspectedValues: {
       ...staged,
       ...(fieldId ? { selectedFieldId, fieldFocusRequest: fieldFocusRequestId } : {}),
       ...(outputKey ? { selectedOutputKey, outputFocusRequest: outputFocusRequestId } : {}),
-    }] });
+    } });
   };
   useEscapeToClose(Boolean(editor) && !sourceReview, closeEditor);
   if (editActionRef) editActionRef.current = (stepId) => editor && renderReview
     ? stageOrSelectOperation(stepId) : openEditor(stepId);
+  if (cancelEditActionRef) cancelEditActionRef.current = closeEditor;
+  if (switchOccurrenceActionRef) switchOccurrenceActionRef.current = (occurrenceId) => {
+    if (isDisabled) return false;
+    if (editor) {
+      const previousOccurrence = occurrenceForStep?.(editor.stepId);
+      if (previousOccurrence === occurrenceId) return true;
+      if (onSuspendEdit?.() === false) return false;
+      if (previousOccurrence) suspendedEditors.current.set(previousOccurrence, editor);
+      setEditor(undefined);
+    }
+    const restored = suspendedEditors.current.get(occurrenceId);
+    if (!restored || !stepsById.has(restored.stepId)) return false;
+    if (onBeginEdit?.(restored.stepId) === false) return false;
+    suspendedEditors.current.delete(occurrenceId);
+    setEditor(restored);
+    onActiveOperationChange?.(restored.activeStepId ?? restored.stepId);
+    const original = stepsById.get(restored.stepId);
+    if (restored.parametersChanged || restored.maxColumns !== (original?.maxColumns === undefined ? '' : String(original.maxColumns)) ||
+        restored.valueMode !== (original?.valueMode ?? '') || restored.dependentEdits?.length) onDraftChange?.();
+    return true;
+  };
   if (fieldEditActionRef) fieldEditActionRef.current = (stepId, fieldId) => editor && renderReview
     ? stageOrSelectOperation(stepId, fieldId) : openEditor(stepId, fieldId);
   if (outputEditActionRef) outputEditActionRef.current = (stepId, outputKey) => editor && renderReview
@@ -305,8 +335,16 @@ export const ImportedSourceSteps = ({
   };
   const updateDependent = (stepId: string, patch: Partial<ImportedSourceStepEditorValues>) => {
     if (!editor) return;
+    const existing = dependentEdits.find((change) => change.stepId === stepId);
+    const step = stepsById.get(stepId);
+    if (!step) return;
+    if (!existing && dependentEdits.length >= 127) {
+      setActionError('A shared preview can include up to 128 source operations. Remove one from this change before adding another.');
+      return;
+    }
     onDraftChange?.();
-    setEditor({ ...editor, dependentEdits: dependentEdits.map((change) => change.stepId === stepId ? { ...change, ...patch } : change) });
+    setEditor({ ...editor, dependentEdits: existing ? dependentEdits.map((change) => change.stepId === stepId ? { ...change, ...patch } : change)
+      : [...dependentEdits, { ...(editor.inspectedValues?.stepId === stepId ? editor.inspectedValues : editorStateFor(step)), ...patch }] });
   };
 
   const refresh = async () => {
@@ -491,11 +529,14 @@ export const ImportedSourceSteps = ({
               Inactive because {sourceStepLabel(disabledAncestorFor(activeStep)!)} is disabled. This step’s settings are retained and do not run until the parent is enabled.
             </p> : null}
             {activeStep.editable && activeValues.parameters ? <SourceStepParameterEditor key={activeStep.id} selectedFieldId={activeValues.selectedFieldId} fieldFocusRequest={activeValues.fieldFocusRequest}
+              view={activeStep.kind === 'FIELD_GROUP' ? 'fields' : 'settings'}
+              sourceStepId={activeStep.id} projectedFields={activeStep.kind === 'FIELD_GROUP' ? projectedFieldsForStep?.(activeStep.id) : undefined}
+              onRemoveProjectedField={onRemoveProjectedField} onEditProjectedField={onEditProjectedField} onRenameProjectedField={onRenameProjectedField} editableProjectedFieldIds={editableProjectedFieldIds} projectedFieldRemovalDisabledReason={projectedFieldRemovalDisabledReason}
               selectedOutputKey={activeValues.selectedOutputKey} outputFocusRequest={activeValues.outputFocusRequest}
               catalogOutputs={catalogOutputsForStep?.(activeStep.id) ?? []} pivotOutputs={pivotOutputsForStep?.(activeStep.id) ?? []}
               outputRevision={outputRevision}
               parameters={activeValues.parameters} disabled={isDisabled} resourceTypeChoices={resourceTypeChoices} sourcePathChoices={sourcePathChoices} fieldPathChoices={fieldPathChoices} fieldKindChoices={fieldKindChoices} onChange={(parameters) => updateActive({ parameters, parametersChanged: true })} /> : null}
-            {activeStep.editable ? <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+            {activeStep.editable && activeStep.kind !== 'FIELD_GROUP' ? <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
               {activeStep.maxColumns !== undefined ? <label className="grid gap-0.5 text-xs text-slate-700">Maximum columns
                 <input type="number" min={1} step={1} value={activeValues.maxColumns} disabled={isDisabled} aria-invalid={!validActiveMaxColumns}
                   data-testid="imported-source-max-columns" onChange={(event) => updateActive({ maxColumns: event.currentTarget.value })} className="rounded-md border border-slate-300 px-2 py-1 text-xs" />
@@ -506,10 +547,10 @@ export const ImportedSourceSteps = ({
                   {activeValueModes.map((mode) => <option key={mode} value={mode}>{valueModeLabels[mode]}</option>)}
                 </select>
               </label> : null}
-            </div> : <p className="text-sm text-slate-600">This source step is read-only.</p>}
+            </div> : !activeStep.editable ? <p className="text-sm text-slate-600">This source step is read-only.</p> : null}
             {activeStep.kind === 'CATALOG_PROJECTION' && activeParent?.kind === 'TRAVERSAL' && (activeValues.valueMode === 'FIRST' || activeValues.valueMode === 'ALL') ?
               <p className="text-xs text-slate-600">Related records are ordered by their original record key. Items inside each record keep their array order.</p> : null}
-            {activeDependent ? <button type="button" className="w-fit rounded-md px-1.5 py-0.5 text-[11px] font-medium text-blue-700 hover:bg-blue-50 hover:text-blue-900"
+            {activeDependent && dependentChanges.some((change) => change.stepId === activeStep.id) ? <button type="button" className="w-fit rounded-md px-1.5 py-0.5 text-[11px] font-medium text-blue-700 hover:bg-blue-50 hover:text-blue-900"
               aria-label={`Remove ${sourceStepLabel(activeStep)} from this change`} disabled={isDisabled}
               onClick={() => {
                 onDraftChange?.();

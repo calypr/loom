@@ -44,6 +44,7 @@ const defaults = {
   listRowDefinitionChoices: pending(),
   proposeRowDefinition: pending(),
   getConstructionCapabilities: pending(),
+  getConstructionColumnPopulation: pending(),
   discoverConstructionCategories: pending(),
   getConstructionInputs: pending(),
   describeAuthoringNetwork: pending(),

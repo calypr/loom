@@ -14,6 +14,7 @@ export const EXPLORER_AUTHORING_API_VERSION =
 export { EXPLORER_AUTHORING_SEMANTICS_VERSION } from './authoringSemanticsVersion.mjs';
 
 const opaqueIdSchema = z.string().trim().min(1);
+const exactOpaqueIdSchema = z.string().min(1).refine((value) => value === value.trim(), 'ID must not have surrounding whitespace.');
 const projectionModeSchema = z.enum([
   'VALUE',
   'INDEXED',
@@ -1613,6 +1614,33 @@ export const constructionCapabilitiesResponseSchema = z.object({
 }).strict();
 export type ConstructionCapabilitiesResponse = z.infer<typeof constructionCapabilitiesResponseSchema>;
 
+export const constructionColumnPopulationRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  columnIds: z.array(opaqueIdSchema).min(1).max(16),
+}).strict().superRefine((request, context) => {
+  if (new Set(request.columnIds).size !== request.columnIds.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Column IDs must be unique.', path: ['columnIds'] });
+  }
+});
+export type ConstructionColumnPopulationRequest = z.infer<typeof constructionColumnPopulationRequestSchema>;
+
+export const constructionColumnPopulationResponseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  columns: z.array(z.object({
+    columnId: opaqueIdSchema,
+    status: z.enum(['POPULATED', 'EMPTY', 'UNKNOWN']),
+  }).strict()),
+}).strict();
+export type ConstructionColumnPopulationResponse = z.infer<typeof constructionColumnPopulationResponseSchema>;
+
 export const constructionCategoryDiscoveryRequestSchema = z.object({
   groupKeyIds: z.array(opaqueIdSchema).optional(),
   pivotStepId: opaqueIdSchema.optional(),
@@ -1737,10 +1765,10 @@ const importedRelationshipOverlaySchema = z.object({
   matchOverrides: z.array(z.object({ occurrenceId: opaqueIdSchema, matchMode: z.enum(['OPTIONAL', 'REQUIRED']) }).strict()).optional(),
 }).strict();
 export const projectedFieldSchema = z.object({
-  columnId: opaqueIdSchema.optional(), column: z.string().min(1), label: z.string().min(1), occurrenceId: opaqueIdSchema.optional(),
+  columnId: exactOpaqueIdSchema.optional(), column: z.string().min(1), label: z.string().min(1), occurrenceId: exactOpaqueIdSchema.optional(),
   owner: z.enum(['PINNED_SOURCE', 'AUTHORED', 'UNKNOWN']),
   removal: z.enum(['DISABLE_PINNED_FIELD', 'DISABLE_PINNED_OUTPUT', 'REMOVE_COLUMN', 'UNAVAILABLE']),
-  status: z.enum(['EXACT', 'UNKNOWN']), sourceStepId: opaqueIdSchema.optional(), sourceFieldId: opaqueIdSchema.optional(), sourceOutputKey: z.string().min(1).optional(),
+  status: z.enum(['EXACT', 'UNKNOWN']), sourceStepId: exactOpaqueIdSchema.optional(), sourceFieldId: exactOpaqueIdSchema.optional(), sourceOutputKey: z.string().min(1).optional(),
 }).strict().superRefine((field, context) => {
   if (field.removal === 'DISABLE_PINNED_FIELD' && (field.owner !== 'PINNED_SOURCE' || field.status !== 'EXACT' ||
       !field.columnId || !field.sourceStepId || !field.sourceFieldId)) {
@@ -2827,12 +2855,14 @@ export const explorerBuilderCommandSchema = z
       'APPLY_ROW_DEFINITION_PROPOSAL',
       'APPLY_CONSTRUCTION_PROPOSAL',
       'UPDATE_IMPORTED_SOURCE_STEP',
+      'REMOVE_PROJECTED_FIELD',
       'REFRESH_IMPORTED_SOURCE',
       'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL',
       'APPLY_COLUMN_POLICY_PROPOSAL',
       'RESTORE_DRAFT_REVISION',
     ]),
-    outputId: opaqueIdSchema.optional(),
+    outputId: exactOpaqueIdSchema.optional(),
+    columnId: exactOpaqueIdSchema.optional(),
     frameId: opaqueIdSchema.optional(),
     frameChoiceId: z.string().optional(),
     form: frameFormSchema.optional(),
@@ -2879,6 +2909,20 @@ export const explorerBuilderCommandSchema = z
   })
   .strict()
   .superRefine((command, context) => {
+    if (command.type === 'REMOVE_PROJECTED_FIELD') {
+      if (!command.outputId || !command.columnId) {
+        context.addIssue({ code: 'custom', message: 'Projected field removal requires outputId and columnId.' });
+      }
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId', 'columnId'].includes(key) && value !== undefined) {
+          context.addIssue({ code: 'custom', path: [key], message: 'Projected field removal accepts only outputId and columnId.' });
+        }
+      }
+      return;
+    }
+    if (command.columnId !== undefined) {
+      context.addIssue({ code: 'custom', path: ['columnId'], message: 'columnId is only accepted by REMOVE_PROJECTED_FIELD.' });
+    }
     if (command.type === 'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL' || command.type === 'APPLY_COLUMN_POLICY_PROPOSAL') {
       if (!command.outputId || !command.proposalId) context.addIssue({ code: 'custom', message: 'Relationship Apply requires outputId and proposalId.' });
       for (const [key, value] of Object.entries(command)) {

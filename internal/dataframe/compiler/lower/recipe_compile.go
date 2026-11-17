@@ -365,6 +365,9 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	if err != nil {
 		return CompiledRecipeOutput{}, err
 	}
+	if output.Collision == "overwrite" {
+		overwritePublicReturnProjectionCollisions(&physical)
+	}
 	if output.GroupRows == nil || composedCohort {
 		if err := appendRecipeIdentity(&physical, output); err != nil {
 			return CompiledRecipeOutput{}, err
@@ -482,6 +485,31 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 		RowIdentity: (&identity).Clone(), DynamicColumns: dynamicMetadata, Stages: stageDescriptors, Plan: physical,
 		WorkspaceOutputSources: workspaceOutputSources, ScopeEvidence: scopeEvidence, ScopeEvidenceIdentity: scopeEvidenceIdentity,
 	}, nil
+}
+
+func overwritePublicReturnProjectionCollisions(plan *ir.PhysicalPlan) {
+	for operationIndex := range plan.Operations {
+		operation := &plan.Operations[operationIndex]
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		positions := make(map[string]int, len(operation.Return.Projections))
+		projections := make([]ir.PhysicalProjection, 0, len(operation.Return.Projections))
+		for _, projection := range operation.Return.Projections {
+			internal := projection.Hidden || projection.Name == "_key" || strings.HasPrefix(projection.Name, "__loom_")
+			if internal {
+				projections = append(projections, projection)
+				continue
+			}
+			if index, exists := positions[projection.Name]; exists {
+				projections[index] = projection
+				continue
+			}
+			positions[projection.Name] = len(projections)
+			projections = append(projections, projection)
+		}
+		operation.Return.Projections = projections
+	}
 }
 
 func groupRowValueColumnTransformations(output semantic.OutputPlan) []recipe.ColumnTransformation {

@@ -36,10 +36,18 @@ func sourceParameters(output recipe.Output) map[string]*authoringv2.ImportedSour
 			result[sourceIndexPath(parent, "catalogProjections", i)] = &authoringv2.ImportedSourceParameters{Catalog: &authoringv2.ImportedCatalogParameters{Name: x.Name, IncludePaths: x.IncludePaths, ExcludePaths: x.ExcludePaths, Outputs: outputs, Kinds: x.Kinds, Naming: x.Naming}}
 		}
 		for i, x := range dynamics {
-			result[sourceIndexPath(parent, "dynamicColumns", i)] = &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{Name: x.Name, ColumnPrefix: x.ColumnPrefix, Source: x.Source, Key: x.Key, Value: x.Value}}
+			var outputs []authoringv2.ImportedDynamicOutput
+			for _, override := range x.OutputOverrides {
+				outputs = append(outputs, authoringv2.ImportedDynamicOutput{Key: override.Key, Enabled: override.Enabled})
+			}
+			result[sourceIndexPath(parent, "dynamicColumns", i)] = &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{Name: x.Name, ColumnPrefix: x.ColumnPrefix, Source: x.Source, Key: x.Key, Value: x.Value, Outputs: outputs}}
 		}
 		for i, x := range extensions {
-			result[sourceIndexPath(parent, "extensionColumns", i)] = &authoringv2.ImportedSourceParameters{Extension: &authoringv2.ImportedExtensionParameters{Name: x.Name, ColumnPrefix: x.ColumnPrefix, Source: x.Source}}
+			var outputs []authoringv2.ImportedExtensionOutput
+			for _, override := range x.OutputOverrides {
+				outputs = append(outputs, authoringv2.ImportedExtensionOutput{Key: override.Key, Enabled: override.Enabled})
+			}
+			result[sourceIndexPath(parent, "extensionColumns", i)] = &authoringv2.ImportedSourceParameters{Extension: &authoringv2.ImportedExtensionParameters{Name: x.Name, ColumnPrefix: x.ColumnPrefix, Source: x.Source, Outputs: outputs}}
 		}
 		for i, x := range pivots {
 			var outputs []authoringv2.ImportedPivotOutput
@@ -148,6 +156,10 @@ func applyParameterOverrides(output *recipe.Output, steps map[string]authoringv2
 				dynamics[i].Source = x.Source
 				dynamics[i].Key = x.Key
 				dynamics[i].Value = x.Value
+				dynamics[i].OutputOverrides = nil
+				for _, override := range x.Outputs {
+					dynamics[i].OutputOverrides = append(dynamics[i].OutputOverrides, recipe.DynamicColumnOutputOverride{Key: override.Key, Enabled: override.Enabled})
+				}
 			}
 		}
 		for i := range extensions {
@@ -156,6 +168,10 @@ func applyParameterOverrides(output *recipe.Output, steps map[string]authoringv2
 				extensions[i].Name = x.Name
 				extensions[i].ColumnPrefix = x.ColumnPrefix
 				extensions[i].Source = x.Source
+				extensions[i].OutputOverrides = nil
+				for _, override := range x.Outputs {
+					extensions[i].OutputOverrides = append(extensions[i].OutputOverrides, recipe.ExtensionColumnOutputOverride{Key: override.Key, Enabled: override.Enabled})
+				}
 			}
 		}
 		for i := range pivots {

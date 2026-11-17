@@ -345,6 +345,14 @@ func previewQueryMaxRuntime(ctx context.Context) time.Duration {
 	return explorerPreviewTimeout
 }
 
+func withPreviewQueryTimeout(query dataframeexecution.QueryRows) dataframeexecution.QueryRows {
+	return func(ctx context.Context, text string, batchSize int, binds map[string]any, visit func(map[string]any) error) error {
+		queryCtx, cancel := context.WithTimeout(ctx, previewQueryMaxRuntime(ctx))
+		defer cancel()
+		return query(queryCtx, text, batchSize, binds, visit)
+	}
+}
+
 func configuredCategoryScanner(logger *slog.Logger, recipeEngine *dataframeexecution.Engine) lifecycle.CategoryScanner {
 	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		// Category discovery is Pivot-only and uses the extended query runtime limit.
@@ -373,6 +381,36 @@ func configuredCategoryScanner(logger *slog.Logger, recipeEngine *dataframeexecu
 			level = slog.LevelError
 		}
 		logServerDiagnostic(logger, level, "Explorer table-shape category scan", requestIDFromContext(ctx), "category_scan", time.Since(scanStarted), err, attrs...)
+		return result, err
+	}
+}
+
+func configuredColumnPopulationScanner(logger *slog.Logger, recipeEngine *dataframeexecution.Engine) lifecycle.ColumnPopulationScanner {
+	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.ColumnPopulationRequest) (dataframeexecution.ColumnPopulationResult, error) {
+		scanCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		started := time.Now()
+		attrs := []any{"output_id", request.Output, "stage_id", request.StageID, "column_ids", request.ColumnIDs}
+		if receipt == nil {
+			err := fmt.Errorf("compilation receipt is missing")
+			logServerDiagnostic(logger, slog.LevelError, "Explorer construction column population resolution", requestIDFromContext(ctx), "column_population_resolution", time.Since(started), err, attrs...)
+			return dataframeexecution.ColumnPopulationResult{}, err
+		}
+		resolved, err := compileValidatedReceiptResolution(scanCtx, recipeEngine, receipt, bindings)
+		if err != nil {
+			resultErr := categoryScanReceiptResolutionError(receipt.ID, err)
+			logServerDiagnostic(logger, slog.LevelError, "Explorer construction column population resolution", requestIDFromContext(ctx), "column_population_resolution", time.Since(started), resultErr, attrs...)
+			return dataframeexecution.ColumnPopulationResult{}, resultErr
+		}
+		logServerDiagnostic(logger, slog.LevelInfo, "Explorer construction column population resolution", requestIDFromContext(ctx), "column_population_resolution", time.Since(started), nil, attrs...)
+
+		scanStarted := time.Now()
+		result, err := recipeEngine.ScanColumnPopulation(scanCtx, resolved, request)
+		level := slog.LevelInfo
+		if err != nil {
+			level = slog.LevelError
+		}
+		logServerDiagnostic(logger, level, "Explorer construction column population", requestIDFromContext(ctx), "column_population", time.Since(scanStarted), err, attrs...)
 		return result, err
 	}
 }
@@ -601,6 +639,19 @@ func run(ctx context.Context, serverConfig Config) error {
 		PreviewQueryRows: configuredAQLQueryRows(logger, "preview_query_rows", func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
 			return lifecycleClient.QueryRowsWithMaxRuntime(ctx, query, batchSize, bindVars, previewQueryMaxRuntime(ctx), arangostore.RowVisitor(visit))
 		}),
+		WithPreviewReadSnapshot: func(ctx context.Context, run func(context.Context, dataframeexecution.QueryRows) error) error {
+			collections, err := lifecycleClient.ListReadSnapshotCollections(ctx)
+			if err != nil {
+				return err
+			}
+			return lifecycleClient.WithReadSnapshot(ctx, collections, func(snapshotCtx context.Context, reader arangostore.RowQueryer) error {
+				query := configuredAQLQueryRows(logger, "preview_query_rows", withPreviewQueryTimeout(func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+					ctx = arangostore.WithQueryMaxNumberOfPlans(ctx, 1)
+					return reader.QueryRows(ctx, query, batchSize, bindVars, arangostore.RowVisitor(visit))
+				}))
+				return run(snapshotCtx, query)
+			})
+		},
 		ResolveClickHouseInputs:    resolveClickHouseInputs,
 		WithExecutionReadPins:      withExecutionReadPins,
 		PrivateClickHouseArtifacts: privateClickHouseArtifacts,
@@ -862,6 +913,8 @@ func run(ctx context.Context, serverConfig Config) error {
 		DefaultDataframeWorkspace:          importedSources.DefaultWorkspace,
 		EditImportedSource:                 importedSources.Edit,
 		EditImportedSources:                importedSources.EditBatch,
+		RemoveImportedField:                importedSources.RemoveField,
+		RemoveImportedOutput:               importedSources.RemoveOutput,
 		EditImportedRelationship:           importedSources.EditRelationship,
 		AuthoringNetwork:                   importedSources.Network,
 		SemanticInventory:                  catalogStore.PageSemanticInventory,
@@ -877,6 +930,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		ExplicitGroupResolver:              explicitGroupResolver,
 		ExplicitGroupRepository:            explorerStore,
 		ScanCategories:                     configuredCategoryScanner(logger, recipeEngine),
+		ScanColumnPopulation:               configuredColumnPopulationScanner(logger, recipeEngine),
 		CompileReceipt:                     compileReceipt,
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 			return compileConstructionSourceStage(ctx, request, recipeEngine, importedSources)

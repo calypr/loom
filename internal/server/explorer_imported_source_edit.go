@@ -362,14 +362,48 @@ func rebuildImportedDocument(document authoringv2.Document, output recipe.Output
 	if err != nil {
 		return authoringv2.Document{}, err
 	}
-	previous := make(map[string]authoringv2.Column, len(document.Columns))
-	for _, column := range document.Columns {
-		previous[column.ColumnID] = column
+	previousImported := make(map[string]authoringv2.Column, len(document.Columns))
+	authoredIDs := make(map[string]struct{}, len(document.Columns))
+	seenPreviousIDs := make(map[string]struct{}, len(document.Columns))
+	for index, column := range document.Columns {
+		if column.ColumnID != "" {
+			if _, duplicate := seenPreviousIDs[column.ColumnID]; duplicate {
+				return authoringv2.Document{}, fmt.Errorf("document column %d duplicates stable column id %q", index, column.ColumnID)
+			}
+			seenPreviousIDs[column.ColumnID] = struct{}{}
+		}
+		if isImportedRecipeColumn(column) {
+			if column.ColumnID == "" {
+				return authoringv2.Document{}, fmt.Errorf("imported document column %d has no stable column id", index)
+			}
+			previousImported[column.ColumnID] = column
+			continue
+		}
+		if column.ColumnID != "" {
+			authoredIDs[column.ColumnID] = struct{}{}
+		}
 	}
-	document.Route = route
-	document.Rows = recipeimport.ImportRows(output)
-	document.Columns = make([]authoringv2.Column, 0, len(schema))
-	for _, source := range schema {
+
+	refreshed := make(map[string]authoringv2.Column, len(schema))
+	schemaOrder := make(map[string]int, len(schema))
+	seenSchemaIDs, seenSchemaNames := make(map[string]struct{}, len(schema)), make(map[string]struct{}, len(schema))
+	for index, source := range schema {
+		if strings.TrimSpace(source.ID) == "" || strings.TrimSpace(source.Name) == "" {
+			return authoringv2.Document{}, fmt.Errorf("imported source schema column %d requires a stable id and name", index)
+		}
+		if _, duplicate := seenSchemaIDs[source.ID]; duplicate {
+			return authoringv2.Document{}, fmt.Errorf("imported source schema duplicates column id %q", source.ID)
+		}
+		if _, duplicate := seenSchemaNames[source.Name]; duplicate {
+			return authoringv2.Document{}, fmt.Errorf("imported source schema duplicates column name %q", source.Name)
+		}
+		seenSchemaIDs[source.ID] = struct{}{}
+		seenSchemaNames[source.Name] = struct{}{}
+		if _, collides := authoredIDs[source.ID]; collides {
+			return authoringv2.Document{}, fmt.Errorf("imported source schema column id %q collides with an authored column", source.ID)
+		}
+		schemaOrder[source.ID] = index
+
 		visible := true
 		label := source.Label
 		if label == "" {
@@ -379,15 +413,16 @@ func rebuildImportedDocument(document authoringv2.Document, output recipe.Output
 			OccurrenceID: authoringv2.RootOccurrenceID,
 			Source:       authoringv2.ColumnSource{Kind: authoringv2.SourceImported, Imported: &authoringv2.ImportedSource{OutputColumn: source.Name}},
 			Table:        &authoringv2.TablePresentation{Visible: &visible}}
-		if old, ok := previous[source.ID]; ok {
+		if old, ok := previousImported[source.ID]; ok {
 			column = old
 			column.Column = source.Name
 			column.LogicalType = source.Type
-			if column.Source.Imported != nil {
-				sourceCopy := *column.Source.Imported
-				sourceCopy.OutputColumn = source.Name
-				column.Source.Imported = &sourceCopy
+			if column.Source.Imported == nil {
+				return authoringv2.Document{}, fmt.Errorf("imported source column id %q lost its imported source identity", source.ID)
 			}
+			sourceCopy := *column.Source.Imported
+			sourceCopy.OutputColumn = source.Name
+			column.Source.Imported = &sourceCopy
 			previousSourceLabel := ""
 			if len(previousLabels) > 0 {
 				previousSourceLabel = previousLabels[0][source.ID]
@@ -396,9 +431,62 @@ func rebuildImportedDocument(document authoringv2.Document, output recipe.Output
 				column.Label = label
 			}
 		}
-		document.Columns = append(document.Columns, column)
+		refreshed[source.ID] = column
 	}
-	return document, document.Validate()
+
+	columns := make([]authoringv2.Column, 0, len(schema)+len(document.Columns))
+	inserted := make(map[string]struct{}, len(schema))
+	for _, old := range document.Columns {
+		if isImportedRecipeColumn(old) {
+			if current, exists := refreshed[old.ColumnID]; exists {
+				columns = append(columns, current)
+				inserted[old.ColumnID] = struct{}{}
+			}
+			continue
+		}
+		columns = append(columns, old)
+	}
+	for index, source := range schema {
+		if _, exists := inserted[source.ID]; exists {
+			continue
+		}
+		column := refreshed[source.ID]
+		insertAt, nextPinned := len(columns), false
+		lastPinned := -1
+		for currentIndex, current := range columns {
+			if !isImportedRecipeColumn(current) {
+				continue
+			}
+			lastPinned = currentIndex
+			if schemaOrder[current.ColumnID] > index {
+				insertAt, nextPinned = currentIndex, true
+				break
+			}
+		}
+		if !nextPinned {
+			if lastPinned >= 0 {
+				insertAt = lastPinned + 1
+			} else {
+				insertAt = 0
+			}
+		}
+		columns = append(columns, authoringv2.Column{})
+		copy(columns[insertAt+1:], columns[insertAt:])
+		columns[insertAt] = column
+		inserted[source.ID] = struct{}{}
+	}
+
+	document.Route = route
+	document.Rows = recipeimport.ImportRows(output)
+	document.Columns = columns
+	if err := document.Validate(); err != nil {
+		return authoringv2.Document{}, err
+	}
+	return document, nil
+}
+
+func isImportedRecipeColumn(column authoringv2.Column) bool {
+	return column.Source.Kind == authoringv2.SourceImported && column.Source.Imported != nil
 }
 
 // pinnedFieldBindingIDs uses structural compiler provenance plus the exact
@@ -484,41 +572,60 @@ func importedProjectionFacts(document authoringv2.Document, original recipe.Outp
 		if owner == "" {
 			continue
 		}
-		key, semanticKey, leafKey, dynamicRuntimeName := "", column.SemanticPath, "", ""
+		key, semanticKey, leafKey := "", column.SemanticPath, ""
 		if suffix := "#" + column.Name; strings.HasSuffix(semanticKey, suffix) {
 			semanticKey = strings.TrimSuffix(semanticKey, suffix)
 		}
 		count := 0
-		if origin.SourceKind == "DYNAMIC_COLUMN" || origin.SourceKind == "EXTENSION_COLUMN" {
+		if origin.SourceKind == "EXTENSION_COLUMN" {
+			// Extension outputs are correlated pivots in the current compiler.
+			// Their native identity is the exact opaque mapping key carried by
+			// SourceOrigin, not a DynamicMap's sanitized URL leaf.
+			key = origin.OutputKey
+			scope, _ := recipeimport.SourceOriginScope(origin.SourcePath)
+			var walk func(semantic.SemanticNode, string, string)
+			walk = func(node semantic.SemanticNode, path, prefix string) {
+				occurrenceMatches := node.OccurrenceID == origin.OccurrenceID
+				if origin.OccurrenceID == "" {
+					occurrenceMatches = path == scope
+				}
+				if occurrenceMatches {
+					delimiter := prefix
+					if delimiter != "" {
+						delimiter += "__"
+					}
+					for _, pivot := range node.Pivots {
+						if pivot.SourceKind != "EXTENSION_COLUMN" || pivot.SourceKey != origin.SourceKey || pivot.OutputKey != origin.OutputKey || pivot.SourcePath != origin.SourcePath {
+							continue
+						}
+						for _, pivotColumn := range pivot.Columns {
+							if lower.NativePivotColumnName(delimiter, pivot.Name, pivotColumn, pivot.ColumnAliases) != column.Name {
+								continue
+							}
+							count++
+							leafKey = pivotColumn
+						}
+					}
+				}
+				for childIndex, child := range node.Children {
+					childPath := fmt.Sprintf("%straversals[%d]", path, childIndex)
+					if path != "" {
+						childPath = fmt.Sprintf("%s.traversals[%d]", path, childIndex)
+					}
+					childPrefix := lower.NativeTraversalColumnPrefix(native.TraversalColumnNaming, prefix, child.Alias)
+					walk(child, childPath, childPrefix)
+				}
+			}
+			walk(native.Root, "", "")
+			if count != 1 || key == "" || leafKey == "" {
+				return nil, fmt.Errorf("typed extension column %q requires one exact correlated native pivot", column.Name)
+			}
+		} else if origin.SourceKind == "DYNAMIC_COLUMN" {
 			for _, dynamic := range compiled.DynamicColumns {
 				if dynamic.Name == column.Name && dynamic.SourceOrigin != nil && *dynamic.SourceOrigin == *origin {
 					count++
 					key = dynamic.SourceKey
 					semanticKey = dynamic.SemanticPath
-					dynamicRuntimeName = dynamic.DynamicName
-				}
-			}
-			if origin.SourceKind == "EXTENSION_COLUMN" {
-				leafCount := 0
-				var leaves func(semantic.SemanticNode)
-				leaves = func(node semantic.SemanticNode) {
-					for _, dynamic := range node.DynamicMaps {
-						runtimeName := dynamic.Name
-						if dynamic.ScopeAlias != "" && dynamic.ScopeAlias != "root" {
-							runtimeName = dynamic.ScopeAlias + "__" + runtimeName
-						}
-						if strings.TrimSuffix(dynamic.Source.SourcePath, ".source") == origin.SourcePath && dynamic.SourceFamilyKey == origin.SourceKey && len(dynamic.Columns) == 1 && runtimeName == dynamicRuntimeName {
-							leafCount++
-							leafKey = dynamic.Columns[0]
-						}
-					}
-					for _, child := range node.Children {
-						leaves(child)
-					}
-				}
-				leaves(native.Root)
-				if leafCount != 1 || leafKey == "" {
-					return nil, fmt.Errorf("typed extension column %q requires one structural native leaf", column.Name)
 				}
 			}
 		} else {

@@ -32,6 +32,14 @@ const pivotOutputSchema = z.object({
   enabled: z.boolean(),
   name: z.string().max(128).regex(/^$|^[A-Za-z_][A-Za-z0-9_]*$/).optional(),
 }).strict();
+const dynamicOutputSchema = z.object({
+  key: z.string().max(2048).refine((key) => key.trim().length > 0, 'Dynamic key cannot be blank'),
+  enabled: z.boolean(),
+}).strict();
+const extensionOutputSchema = z.object({
+  key: z.string().regex(/^ext-v1:[0-9a-f]{64}$/),
+  enabled: z.boolean(),
+}).strict();
 export const importedSourceParametersSchema = z.object({
   output: z.object({ rowGrain: text.min(1), collisionPolicy: z.enum(['', 'error', 'overwrite', 'coalesce']).optional() }).strict().optional(),
   fieldGroup: z.object({ fields: z.array(z.object({
@@ -39,8 +47,8 @@ export const importedSourceParametersSchema = z.object({
     fallbacks: expressions.optional(), valueMode: z.enum(['', 'AUTO', 'FIRST', 'ALL', 'DISTINCT']).optional(),
   }).strict()).max(4096) }).strict().optional(),
   catalog: z.object({ name: text.min(1), includePaths: paths.optional(), excludePaths: paths.optional(), kinds: paths.optional(), naming: z.enum(['', 'PATH', 'PATH_SUFFIX']).optional(), outputs: z.array(catalogOutputSchema).max(4096).optional() }).strict().optional(),
-  dynamic: z.object({ name: text.min(1), columnPrefix: text.optional(), source: sourceRecipeExpressionSchema, key: sourceRecipeExpressionSchema.optional(), value: sourceRecipeExpressionSchema.optional() }).strict().optional(),
-  extension: z.object({ name: text.min(1), columnPrefix: text.optional(), source: sourceRecipeExpressionSchema }).strict().optional(),
+  dynamic: z.object({ name: text.min(1), columnPrefix: text.optional(), source: sourceRecipeExpressionSchema, key: sourceRecipeExpressionSchema.optional(), value: sourceRecipeExpressionSchema.optional(), outputs: z.array(dynamicOutputSchema).max(4096).optional() }).strict().optional(),
+  extension: z.object({ name: text.min(1), columnPrefix: text.optional(), source: sourceRecipeExpressionSchema, outputs: z.array(extensionOutputSchema).max(256).optional() }).strict().optional(),
   pivot: z.object({ name: text.min(1), discovery: z.object({ family: text.optional(), path: text.optional() }).strict().optional(),
     columnExpr: sourceRecipeExpressionSchema.optional(), valueExpr: sourceRecipeExpressionSchema.optional(), valueFallbacks: expressions.optional(),
     itemSource: sourceRecipeExpressionSchema.optional(), itemResourceType: text.optional(), columns: paths.optional(), columnAliases: z.record(z.string(), text).optional(),
@@ -55,6 +63,10 @@ export const importedSourceParametersSchema = z.object({
   if (new Set(outputPaths).size !== outputPaths.length) context.addIssue({ code: 'custom', path: ['catalog', 'outputs'], message: 'Catalog output overrides must use unique field paths.' });
   const pivotOutputKeys = value.pivot?.outputs?.map((output) => output.key) ?? [];
   if (new Set(pivotOutputKeys).size !== pivotOutputKeys.length) context.addIssue({ code: 'custom', path: ['pivot', 'outputs'], message: 'Pivot output overrides must use unique raw keys.' });
+  const dynamicOutputKeys = value.dynamic?.outputs?.map((output) => output.key) ?? [];
+  if (new Set(dynamicOutputKeys).size !== dynamicOutputKeys.length) context.addIssue({ code: 'custom', path: ['dynamic', 'outputs'], message: 'Dynamic output overrides must use unique keys.' });
+  const extensionOutputKeys = value.extension?.outputs?.map((output) => output.key) ?? [];
+  if (new Set(extensionOutputKeys).size !== extensionOutputKeys.length) context.addIssue({ code: 'custom', path: ['extension', 'outputs'], message: 'Extension output overrides must use unique keys.' });
 });
 export type ImportedSourceParameters = z.infer<typeof importedSourceParametersSchema>;
 

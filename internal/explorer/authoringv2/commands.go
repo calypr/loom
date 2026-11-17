@@ -48,6 +48,7 @@ const (
 	CommandApplyColumnPolicyProposal         = "APPLY_COLUMN_POLICY_PROPOSAL"
 	CommandUpdateColumnSource                = "UPDATE_COLUMN_SOURCE"
 	CommandRemoveColumn                      = "REMOVE_COLUMN"
+	CommandRemoveProjectedField              = "REMOVE_PROJECTED_FIELD"
 	CommandAddSemanticSelections             = "ADD_SEMANTIC_SELECTIONS"
 	CommandApplyConstructionChoice           = "APPLY_CONSTRUCTION_CHOICE"
 	CommandSetFrameSource                    = "SET_FRAME_SOURCE"
@@ -133,6 +134,7 @@ type Command struct {
 	ProjectionMode           string                            `json:"projectionMode,omitempty"`
 	InitialPresentation      string                            `json:"initialPresentation,omitempty"`
 	Column                   string                            `json:"column,omitempty"`
+	ColumnID                 string                            `json:"columnId,omitempty"`
 	RowValuePolicy           ConstructionRowValuePolicy        `json:"rowValuePolicy,omitempty"`
 	ColumnValue              *Column                           `json:"columnValue,omitempty"`
 	ConstructionOutput       *ConstructionOutputPresentation   `json:"constructionOutput,omitempty"`
@@ -345,6 +347,17 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 			}
 		}
 	}
+	if decoded.Type == CommandRemoveProjectedField {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return err
+		}
+		for name := range fields {
+			if name != "type" && name != "outputId" && name != "columnId" {
+				return fmt.Errorf("%s does not accept field %q", decoded.Type, name)
+			}
+		}
+	}
 	if decoded.Type == CommandUpdateColumnRowValuePolicy {
 		var fields map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &fields); err != nil {
@@ -543,6 +556,9 @@ func (r ApplyCommandsRequest) Validate() error {
 				return fmt.Errorf("source changes require one command and an exact expected draft version and digest")
 			}
 		}
+		if command.Type == CommandRemoveProjectedField && (len(r.Commands) != 1 || r.ExpectedDraftVersion < 1 || strings.TrimSpace(r.ExpectedDraftDigest) == "" || r.ExpectedDraftDigest != strings.TrimSpace(r.ExpectedDraftDigest)) {
+			return fmt.Errorf("REMOVE_PROJECTED_FIELD requires one command and an exact expected draft version and digest")
+		}
 		if command.Type == CommandAddSemanticSelections {
 			semanticCommandCount++
 		}
@@ -614,6 +630,9 @@ func (c Command) validate() error {
 	}
 	if c.Type != CommandUpdateColumnRowValuePolicy && c.RowValuePolicy != "" {
 		return fmt.Errorf("rowValuePolicy is only accepted by UPDATE_COLUMN_ROW_VALUE_POLICY")
+	}
+	if c.Type != CommandRemoveProjectedField && c.ColumnID != "" {
+		return fmt.Errorf("columnId is only accepted by REMOVE_PROJECTED_FIELD")
 	}
 	if c.Type != CommandUpdateImportedSourceStep && c.SourceStep != nil {
 		return fmt.Errorf("sourceStep is only accepted by UPDATE_IMPORTED_SOURCE_STEP")
@@ -805,6 +824,13 @@ func (c Command) validate() error {
 	case CommandRemoveColumn:
 		if !required(c.OutputID, c.Column) {
 			return fmt.Errorf("REMOVE_COLUMN requires outputId and column")
+		}
+	case CommandRemoveProjectedField:
+		if !required(c.OutputID, c.ColumnID) || c.OutputID != strings.TrimSpace(c.OutputID) || c.ColumnID != strings.TrimSpace(c.ColumnID) {
+			return fmt.Errorf("REMOVE_PROJECTED_FIELD requires exact outputId and columnId")
+		}
+		if !reflect.DeepEqual(c, Command{Type: c.Type, OutputID: c.OutputID, ColumnID: c.ColumnID}) {
+			return fmt.Errorf("REMOVE_PROJECTED_FIELD accepts only outputId and columnId")
 		}
 	case CommandAddSemanticSelections:
 		if !required(c.OutputID, c.ContextToken) || len(c.SemanticSelections) == 0 || len(c.SemanticSelections) > 100 {
@@ -1590,8 +1616,116 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		cleanupDocumentReferences(&workspace.Documents[document])
 		cleanupWorkspaceBindings(workspace)
 		return result, nil
+	case CommandRemoveProjectedField:
+		documentPos := documentIndex(workspace, command.OutputID)
+		if documentPos < 0 {
+			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		current := workspace.Documents[documentPos]
+		targetIndex := -1
+		for index := range current.Columns {
+			if current.Columns[index].ColumnID != command.ColumnID {
+				continue
+			}
+			if targetIndex >= 0 {
+				return result, fmt.Errorf("columnId %q is ambiguous", command.ColumnID)
+			}
+			targetIndex = index
+		}
+		if targetIndex < 0 {
+			return result, fmt.Errorf("columnId %q was not found", command.ColumnID)
+		}
+		if current.Columns[targetIndex].Source.Kind != SourceImported {
+			if command.resolvedImportedDocument != nil {
+				return result, fmt.Errorf("authored projected field removal cannot replace the document")
+			}
+			if err := removeDocumentColumnByID(workspace, documentPos, command.ColumnID); err != nil {
+				return result, err
+			}
+			return result, nil
+		}
+		if current.ImportedRecipe == nil {
+			return result, fmt.Errorf("pinned projected field removal requires an imported recipe")
+		}
+		if command.resolvedImportedDocument == nil {
+			return result, fmt.Errorf("pinned projected field removal requires a lifecycle-resolved source edit")
+		}
+		resolved := *command.resolvedImportedDocument
+		if current.ImportedRecipe == nil || resolved.ImportedRecipe == nil || *current.ImportedRecipe != *resolved.ImportedRecipe || resolved.Output.ID != current.Output.ID {
+			return result, fmt.Errorf("projected field removal does not match its pinned output")
+		}
+		if current.RootResourceType != resolved.RootResourceType || !reflect.DeepEqual(current.Output, resolved.Output) ||
+			!reflect.DeepEqual(current.Route, resolved.Route) || !reflect.DeepEqual(current.Rows, resolved.Rows) ||
+			!reflect.DeepEqual(current.Population, resolved.Population) || !reflect.DeepEqual(current.Frames, resolved.Frames) ||
+			!reflect.DeepEqual(current.Construction, resolved.Construction) ||
+			!reflect.DeepEqual(current.FixedFilters, resolved.FixedFilters) || !reflect.DeepEqual(current.Actions, resolved.Actions) {
+			return result, fmt.Errorf("projected field removal must preserve row identity and all downstream authored work")
+		}
+		if !reflect.DeepEqual(authoredColumns(current.Columns), authoredColumns(resolved.Columns)) {
+			return result, fmt.Errorf("projected field removal must preserve authored columns")
+		}
+		foundTarget := false
+		for _, column := range current.Columns {
+			if column.ColumnID == command.ColumnID && column.Source.Kind == SourceImported {
+				if foundTarget {
+					return result, fmt.Errorf("projected columnId %q is ambiguous", command.ColumnID)
+				}
+				foundTarget = true
+			}
+		}
+		if !foundTarget {
+			return result, fmt.Errorf("pinned projected field %q was not found", command.ColumnID)
+		}
+		for _, column := range resolved.Columns {
+			if column.ColumnID == command.ColumnID {
+				return result, fmt.Errorf("pinned projected field %q remains in the resolved source edit", command.ColumnID)
+			}
+		}
+		workspace.Documents[documentPos] = resolved
+		cleanupWorkspaceBindings(workspace)
+		return result, nil
 	}
 	return result, fmt.Errorf("unsupported command type %q", command.Type)
+}
+
+func authoredColumns(columns []Column) []Column {
+	result := make([]Column, 0, len(columns))
+	for _, column := range columns {
+		if column.Source.Kind != SourceImported {
+			result = append(result, column)
+		}
+	}
+	return result
+}
+
+func removeDocumentColumnByID(workspace *Workspace, documentPos int, columnID string) error {
+	if columnID == "" {
+		return fmt.Errorf("columnId is required")
+	}
+	document := &workspace.Documents[documentPos]
+	columnIndex := -1
+	for index := range document.Columns {
+		if document.Columns[index].ColumnID != columnID {
+			continue
+		}
+		if columnIndex >= 0 {
+			return fmt.Errorf("columnId %q is ambiguous", columnID)
+		}
+		columnIndex = index
+	}
+	if columnIndex < 0 {
+		return fmt.Errorf("columnId %q was not found", columnID)
+	}
+	column := document.Columns[columnIndex]
+	if column.Source.Kind == SourceImported {
+		return fmt.Errorf("pinned imported fields require a lifecycle-resolved source edit")
+	}
+	document.Columns = append(document.Columns[:columnIndex], document.Columns[columnIndex+1:]...)
+	removeConstructionColumnValues(document, column.ColumnID)
+	removeExplicitGroupRowValue(document, column.ColumnID)
+	cleanupDocumentReferences(document)
+	cleanupWorkspaceBindings(workspace)
+	return nil
 }
 
 func initializeEmptyConstructionBeforeSourceAdd(workspace *Workspace, outputID string) error {

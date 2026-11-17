@@ -107,6 +107,31 @@ func TestConstructionProposalPreviewBudgetExtendsOnlyPivot(t *testing.T) {
 	}
 }
 
+func TestConstructionColumnPopulationHTTPRouteMapsMalformedBody(t *testing.T) {
+	store, err := explorer.NewService(newTestExplorerStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	application, err := lifecycle.New(store, lifecycle.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	routes := &HTTPRoutes{explorer: &explorerHTTPHandlers{
+		application:   application,
+		authorizeRead: func(context.Context, *authscope.Principal, string) error { return nil },
+	}}
+	response, err := routes.GetExplorerConstructionColumnPopulation(context.Background(), loomapi.GetExplorerConstructionColumnPopulationRequestObject{
+		Project: loomapi.Project("project-a"), ExplorerId: loomapi.ExplorerId("explorer-a"),
+		Body: &loomapi.ConstructionColumnPopulationRequest{SnapshotToken: "snapshot", ExpectedDraftDigest: "digest", OutputId: "patients", StageId: "source_projection", ColumnIds: []string{"column"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := response.(loomapi.GetExplorerConstructionColumnPopulation400JSONResponse); !ok {
+		t.Fatalf("malformed request response = %T, want HTTP 400", response)
+	}
+}
+
 func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())

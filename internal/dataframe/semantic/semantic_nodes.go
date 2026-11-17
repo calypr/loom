@@ -44,20 +44,26 @@ type SemanticField struct {
 }
 
 type SemanticPivot struct {
-	Name             string
-	FieldRef         string
-	ColumnSelector   spec.Selector
-	ValueSelector    spec.Selector
-	ValueFallbacks   []spec.Selector
-	ValueKind        expression.ValueKind
-	StringifyValue   bool
-	ItemSource       spec.Selector
-	ItemResourceType string
-	Columns          []string
-	ColumnAliases    map[string]string
-	ProjectionMode   string
-	Family           string
-	Discovered       bool
+	Name                      string
+	SourceKind                string
+	SourceKey                 string
+	OutputKey                 string
+	SourcePath                string
+	ColumnIdentityPath        string
+	ExtensionProjectionPrefix string
+	FieldRef                  string
+	ColumnSelector            spec.Selector
+	ValueSelector             spec.Selector
+	ValueFallbacks            []spec.Selector
+	ValueKind                 expression.ValueKind
+	StringifyValue            bool
+	ItemSource                spec.Selector
+	ItemResourceType          string
+	Columns                   []string
+	ColumnAliases             map[string]string
+	ProjectionMode            string
+	Family                    string
+	Discovered                bool
 	// Correlation is the closed system+code/value binding used when a pivot
 	// must preserve one Coding and one owning repeated item. Nil retains the
 	// legacy validated pivot path.

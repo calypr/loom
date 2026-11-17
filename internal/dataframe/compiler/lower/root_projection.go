@@ -200,6 +200,9 @@ func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, so
 	if len(pivot.Columns) == 0 {
 		return nil, fmt.Errorf("pivot %q requires bounded columns", pivot.Name)
 	}
+	if pivot.SourceKind == "EXTENSION_COLUMN" {
+		prefix = pivot.ExtensionProjectionPrefix
+	}
 	projections := make([]ir.PhysicalProjection, 0, len(pivot.Columns))
 	columnsBindKey := "pivot_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(pivot.Name) + "_columns"
 	physical.BindVars[columnsBindKey] = append([]string(nil), pivot.Columns...)

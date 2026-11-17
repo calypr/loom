@@ -270,7 +270,7 @@ func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope, projection
 		plan.Root.Fields = append(plan.Root.Fields, normalized)
 	}
 	for index, traversal := range output.Traversals {
-		child, err := buildRecipeTraversal(traversal, scope, fmt.Sprintf("traversals[%d]", index), plan.RowExpansion)
+		child, err := buildRecipeTraversal(traversal, scope, fmt.Sprintf("traversals[%d]", index), plan.RowExpansion, output.TraversalColumnNaming.Normalized())
 		if err != nil {
 			return OutputPlan{}, err
 		}
@@ -299,16 +299,15 @@ func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope, projection
 	}
 	plan.DynamicMaps = append(plan.DynamicMaps, dynamicMaps...)
 	plan.Root.DynamicMaps = append(plan.Root.DynamicMaps, dynamicMaps...)
-	extensionMaps, err := buildRecipeExtensionMaps(output.ExtensionColumns, projectionScope, "extensionColumns", "", output.RootResourceType)
+	extensionPivots, err := buildRecipeExtensionPivots(output.ExtensionColumns, projectionScope, "extensionColumns", "", output.RootResourceType, output.TraversalColumnNaming.Normalized())
 	if err != nil {
 		return OutputPlan{}, err
 	}
-	plan.DynamicMaps = append(plan.DynamicMaps, extensionMaps...)
-	plan.Root.DynamicMaps = append(plan.Root.DynamicMaps, extensionMaps...)
+	plan.Root.Pivots = append(plan.Root.Pivots, extensionPivots...)
 	return plan, nil
 }
 
-func buildRecipeTraversal(input recipe.Traversal, parent scopeFrame, path string, expansion *SemanticRowExpansion) (SemanticNode, error) {
+func buildRecipeTraversal(input recipe.Traversal, parent scopeFrame, path string, expansion *SemanticRowExpansion, traversalColumnNaming recipe.TraversalColumnNaming) (SemanticNode, error) {
 	if !fhirschema.HasResource(input.ToResourceType) {
 		return SemanticNode{}, structuralUserRejection(fmt.Sprintf("%s: target resource type %q is not represented by the active generated FHIR schema", path, input.ToResourceType))
 	}
@@ -340,11 +339,10 @@ func buildRecipeTraversal(input recipe.Traversal, parent scopeFrame, path string
 		return SemanticNode{}, err
 	}
 	node.DynamicMaps = dynamicMaps
-	extensionMaps, err := buildRecipeExtensionMaps(input.ExtensionColumns, scope, path+".extensionColumns", alias, input.ToResourceType)
+	extensionPivots, err := buildRecipeExtensionPivots(input.ExtensionColumns, scope, path+".extensionColumns", alias, input.ToResourceType, traversalColumnNaming)
 	if err != nil {
 		return SemanticNode{}, err
 	}
-	node.DynamicMaps = append(node.DynamicMaps, extensionMaps...)
 	node.Filters, err = LowerRecipeFiltersForAlias(input.ToResourceType, alias, input.Filters)
 	if err != nil {
 		return SemanticNode{}, fmt.Errorf("%s.filters: %w", path, err)
@@ -353,6 +351,7 @@ func buildRecipeTraversal(input recipe.Traversal, parent scopeFrame, path string
 	if err != nil {
 		return SemanticNode{}, fmt.Errorf("%s rich shaping: %w", path, err)
 	}
+	node.Pivots = append(node.Pivots, extensionPivots...)
 	node.OwnerRecords, err = lowerRecipeOwnerRecords(input.ToResourceType, input.OwnerRecords)
 	if err != nil {
 		return SemanticNode{}, fmt.Errorf("%s owner records: %w", path, err)
@@ -372,7 +371,7 @@ func buildRecipeTraversal(input recipe.Traversal, parent scopeFrame, path string
 		node.Fields = append(node.Fields, normalized)
 	}
 	for index, child := range input.Traversals {
-		nested, err := buildRecipeTraversal(child, scope, fmt.Sprintf("%s.traversals[%d]", path, index), expansion)
+		nested, err := buildRecipeTraversal(child, scope, fmt.Sprintf("%s.traversals[%d]", path, index), expansion, traversalColumnNaming)
 		if err != nil {
 			return SemanticNode{}, err
 		}
@@ -381,8 +380,8 @@ func buildRecipeTraversal(input recipe.Traversal, parent scopeFrame, path string
 	return node, nil
 }
 
-func buildRecipeExtensionMaps(items []recipe.ExtensionColumn, scope scopeFrame, path, scopeAlias, resourceType string) ([]SemanticDynamicMap, error) {
-	result := make([]SemanticDynamicMap, 0)
+func buildRecipeExtensionPivots(items []recipe.ExtensionColumn, scope scopeFrame, path, scopeAlias, resourceType string, traversalColumnNaming recipe.TraversalColumnNaming) ([]SemanticPivot, error) {
+	result := make([]SemanticPivot, 0)
 	for index, item := range items {
 		if item.Columns == nil {
 			return nil, fmt.Errorf("%s[%d] extension column %q is unresolved; resolve it through schema discovery first", path, index, item.Name)
@@ -414,45 +413,62 @@ func buildRecipeExtensionMaps(items []recipe.ExtensionColumn, scope scopeFrame, 
 			return nil, fmt.Errorf("%s[%d].source must select a schema-valid repeated Extension", path, index)
 		}
 		for _, mapping := range item.Columns {
-			sourceExpr := item.Source
-			if mapping.SourcePath != "" {
-				prefix := "root"
-				if scopeAlias != "" {
-					prefix = scopeAlias
+			outputKey := recipe.ExtensionColumnOutputKey(mapping)
+			enabled := true
+			for _, override := range item.OutputOverrides {
+				if override.Key == outputKey {
+					enabled = override.Enabled
 				}
-				sourceExpr = recipe.Expression{Select: prefix + "." + strings.TrimPrefix(mapping.SourcePath, ".")}
 			}
-			value := recipe.Expression{Select: "item." + mapping.ValuePath}
-			if mapping.ValuePath == "" {
-				value = recipe.Expression{Call: "canonical_json", Args: []recipe.Expression{{Document: &recipe.DocumentRef{Context: "item"}}}}
+			if !enabled {
+				continue
 			}
-			key := recipe.Expression{Call: "sanitize_name", Args: []recipe.Expression{{Call: "last_segment", Args: []recipe.Expression{{Select: "item.url"}}}}}
-			rawSourceKey := strings.TrimRight(strings.TrimSpace(mapping.URL), "/")
-			if split := strings.LastIndexAny(rawSourceKey, "/#"); split >= 0 {
-				rawSourceKey = rawSourceKey[split+1:]
+			if strings.TrimSpace(mapping.SourcePath) == "" || strings.TrimSpace(mapping.URL) == "" {
+				return nil, fmt.Errorf("%s[%d] extension mapping must have exact sourcePath and URL", path, index)
 			}
-			sourceKey := sanitize(rawSourceKey)
-			if sourceKey == "" {
-				return nil, fmt.Errorf("%s[%d] extension URL %q has no usable column key", path, index, mapping.URL)
+			urlPath := append([]string(nil), mapping.URLPath...)
+			urlPath = append(urlPath, mapping.URL)
+			logicalType := mapping.ValueType
+			canonicalJSON := mapping.ValuePath == ""
+			if canonicalJSON {
+				logicalType = "string"
 			}
-			dynamic := recipe.DynamicColumn{
-				Name: item.Name + "__" + mapping.Name, ColumnPrefix: item.ColumnPrefix,
-				Source: sourceExpr, Key: &key, Value: &value, Columns: []string{mapping.Name}, MaxColumns: item.MaxColumns,
-				ColumnTypes: map[string]string{mapping.Name: mapping.ValueType}, ColumnSourceKeys: map[string]string{mapping.Name: sourceKey},
-				Discovered: true,
+			binding := &fhirschema.ExtensionBinding{
+				OwnerPath: mapping.SourcePath, URLPath: urlPath, ValuePath: mapping.ValuePath,
+				CanonicalJSONValue: canonicalJSON, LogicalType: logicalType,
 			}
-			maps, err := buildRecipeDynamicMaps([]recipe.DynamicColumn{dynamic}, scope, path, scopeAlias, resourceType)
-			if err != nil {
+			if _, err := fhirschema.ValidateExtensionBinding(resourceType, *binding); err != nil {
 				return nil, err
 			}
-			for index := range maps {
-				// Each extension mapping projects one URL from an Extension array.
-				// Other URLs in the same array are valid siblings and may have their
-				// own independently discovered mappings.
-				maps[index].AllowUnknownKeys = true
-				maps[index].SourceFamilyKey = item.Name
+			columnPrefix := item.Name + "__" + mapping.Name
+			if item.ColumnPrefix != nil {
+				columnPrefix = *item.ColumnPrefix
 			}
-			result = append(result, maps...)
+			columnName := mapping.Name
+			if columnPrefix != "" {
+				columnName = columnPrefix + "_" + sanitize(mapping.Name)
+			}
+			pivotName := item.Name + "__" + mapping.Name
+			// Imported column IDs predate correlated extraction. Each extension
+			// mapping was lowered through a singleton dynamic family (index 0).
+			// Keep that identity independent of the current extraction and origin.
+			identityKey := strings.TrimRight(strings.TrimSpace(mapping.URL), "/")
+			if split := strings.LastIndexAny(identityKey, "/#"); split >= 0 {
+				identityKey = identityKey[split+1:]
+			}
+			identityPath := fmt.Sprintf("%s.%s[0].source[%s]", resourceType, path, sanitize(identityKey))
+			extensionProjectionPrefix := ""
+			if traversalColumnNaming != recipe.TraversalColumnNamingExact && scopeAlias != "" && scopeAlias != "root" {
+				extensionProjectionPrefix = scopeAlias + "__"
+			}
+			result = append(result, SemanticPivot{
+				Name: pivotName, SourceKind: "EXTENSION_COLUMN", SourceKey: item.Name, OutputKey: outputKey, SourcePath: fmt.Sprintf("%s[%d]", path, index),
+				ColumnIdentityPath:        identityPath,
+				ExtensionProjectionPrefix: extensionProjectionPrefix,
+				FieldRef:                  mapping.SourcePath, Columns: []string{mapping.Name}, ColumnAliases: map[string]string{mapping.Name: columnName},
+				ProjectionMode: "FIRST", ValueKind: correlatedValueKind(logicalType), StringifyValue: logicalType == "string",
+				ExtensionCorrelation: binding, Discovered: true,
+			})
 		}
 	}
 	return result, nil
@@ -467,7 +483,7 @@ func buildRecipeDynamicMaps(items []recipe.DynamicColumn, scope scopeFrame, path
 			// to mark an optional family as resolved with zero discovered keys.
 			columns = append([]string{}, dynamic.Columns...)
 		}
-		item := SemanticDynamicMap{SourceFamilyKey: dynamic.Name, Name: dynamic.Name, ValueMode: dynamic.ValueMode, ScopeAlias: scopeAlias, ResourceType: resourceType, Columns: columns, MaxColumns: dynamic.MaxColumns, ColumnTypes: dynamic.ColumnTypes, ColumnSourceKeys: dynamic.ColumnSourceKeys, AllowUnknownKeys: len(dynamic.ColumnSourceKeys) > 0, Discovered: dynamic.Discovered}
+		item := SemanticDynamicMap{SourceFamilyKey: dynamic.Name, Name: dynamic.Name, ValueMode: dynamic.ValueMode, ScopeAlias: scopeAlias, ResourceType: resourceType, Columns: columns, OutputOverrides: append([]recipe.DynamicColumnOutputOverride(nil), dynamic.OutputOverrides...), MaxColumns: dynamic.MaxColumns, ColumnTypes: dynamic.ColumnTypes, ColumnSourceKeys: dynamic.ColumnSourceKeys, AllowUnknownKeys: len(dynamic.ColumnSourceKeys) > 0, Discovered: dynamic.Discovered}
 		if dynamic.ColumnPrefix != nil {
 			prefix := *dynamic.ColumnPrefix
 			item.ColumnPrefix = &prefix

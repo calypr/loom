@@ -592,6 +592,12 @@ export const useAddColumns = ({
     : undefined;
   return {
     selectedAddSource,
+    panel: { view: addColumnsView, source: addColumnsSource },
+    restorePanel: (panel: { view: typeof addColumnsView; source: typeof addColumnsSource } | undefined) => {
+      setAddColumnsView(panel?.view ?? 'fields');
+      setAddColumnsSource(panel?.source);
+      setAddColumnsViewRevision((revision) => revision + 1);
+    },
     concreteAddSources,
     setAddColumnsSource,
     addSourceContext,

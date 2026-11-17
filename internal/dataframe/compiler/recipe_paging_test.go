@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -12,6 +13,82 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
+
+func TestCompileRecipeOutputPagePartitionsWideSourceProjection(t *testing.T) {
+	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Patient",
+		Fields: []semantic.SemanticField{{
+			Name: "id", FieldRef: "Patient.id",
+			Expr: semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionScalar,
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminalIndex := len(plan.Operations) - 1
+	terminal := plan.Operations[terminalIndex].Return
+	if terminal == nil {
+		t.Fatal("generic source plan has no terminal return")
+	}
+	hasKey := false
+	for _, projection := range terminal.Projections {
+		hasKey = hasKey || projection.Name == "_key"
+	}
+	if !hasKey {
+		root := plan.Operations[0].RootScan.Variable
+		terminal.Projections = append(terminal.Projections, ir.PhysicalProjection{
+			Name: "_key", Hidden: true, Value: ir.PhysicalValue{Variable: root, Path: []string{"_key"}},
+		})
+	}
+	root := plan.Operations[0].RootScan.Variable
+	for index := 0; index < 160; index++ {
+		terminal.Projections = append(terminal.Projections, ir.PhysicalProjection{
+			Name:  fmt.Sprintf("wide_%03d", index),
+			Value: ir.PhysicalValue{Variable: root, Path: []string{"payload", fmt.Sprintf("wide_%03d", index)}},
+		})
+	}
+	fullProjectionCount := len(terminal.Projections)
+	page, err := CompileRecipeOutputPageWithPolicy(lower.CompiledRecipeOutput{
+		Name: "patients", RootResourceType: "Patient", Plan: plan,
+	}, recipe.RuntimeBindings{Project: "p", PreviewLimit: 25}, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.RowsPartitions) < 2 {
+		t.Fatalf("partition count = %d, want multiple partitions", len(page.RowsPartitions))
+	}
+	if len(plan.Operations[terminalIndex].Return.Projections) != fullProjectionCount {
+		t.Fatal("partition compilation mutated the caller's physical plan")
+	}
+	for index, partition := range page.RowsPartitions {
+		if !strings.Contains(partition.RowsQuery, "SORTED_UNIQUE(@"+RootPageKeysBind+")") {
+			t.Errorf("partition %d lost selected root-key window", index)
+		}
+		hasIdentity := false
+		for _, name := range partition.ProjectionNames {
+			hasIdentity = hasIdentity || name == "_key"
+		}
+		if !hasIdentity {
+			t.Errorf("partition %d does not return root identity: %#v", index, partition.ProjectionNames)
+		}
+	}
+	if !strings.Contains(page.RowsQuery, "wide_159") {
+		t.Fatal("full fallback query lost its complete projection")
+	}
+}
+
+func TestPreviewProjectionPartitionsRejectCardinalityChangingPlans(t *testing.T) {
+	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Patient",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.Operations = append(plan.Operations[:len(plan.Operations)-1], append([]ir.PhysicalOperation{{Kind: ir.PhysicalUnnestOp}}, plan.Operations[len(plan.Operations)-1:]...)...)
+	if previewProjectionPartitionEligible(plan) {
+		t.Fatal("cardinality-changing source plan was eligible for root-key partitions")
+	}
+}
 
 func TestCompileRecipeOutputPageSelectsRootsBeforeExpansion(t *testing.T) {
 	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{

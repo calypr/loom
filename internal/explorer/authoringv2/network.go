@@ -279,7 +279,7 @@ func ProjectedFieldsForDocument(d Document, network AuthoringNetwork) []Projecte
 			field.Owner = ProjectedFieldOwnerAuthored
 			if column.ColumnID != "" && column.Column != "" {
 				field.Status = ProjectedFieldStatusExact
-				field.Removal = ProjectedFieldRemovalUnavailable
+				field.Removal = ProjectedFieldRemovalColumn
 			}
 		}
 		if column.ColumnID != "" {

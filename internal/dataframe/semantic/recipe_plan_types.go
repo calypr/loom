@@ -169,6 +169,7 @@ func (u SemanticRowExpansion) Validate() error {
 
 type SemanticDynamicMap struct {
 	SourceFamilyKey  string
+	OutputKey        string
 	ValueMode        recipe.ValueMode
 	Name             string
 	ColumnPrefix     *string
@@ -178,6 +179,7 @@ type SemanticDynamicMap struct {
 	Key              *SemanticExpression
 	Value            *SemanticExpression
 	Columns          []string
+	OutputOverrides  []recipe.DynamicColumnOutputOverride
 	ColumnTypes      map[string]string
 	ColumnSourceKeys map[string]string
 	// AllowUnknownKeys is used by schema-aware projections that intentionally

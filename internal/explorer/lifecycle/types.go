@@ -84,6 +84,10 @@ type ConstructionSourceStageRequest struct {
 // already-validated receipt without exposing query details to lifecycle.
 type CategoryScanner func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error)
 
+// ColumnPopulationScanner reports whether exact scalar columns contain at least
+// one non-null value in an immutable construction stage.
+type ColumnPopulationScanner func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.ColumnPopulationRequest) (dataframeexecution.ColumnPopulationResult, error)
+
 // ArtifactPublishedReader is the exact-output surface lifecycle needs when
 // materializing a durable artifact. Keeping this contract narrow makes it
 // impossible for artifact orchestration to accidentally follow a moving
@@ -147,6 +151,8 @@ type Config struct {
 	EditImportedRelationship  func(context.Context, string, AuthorizedCapability, authoringv2.Document, authoringv2.ImportedRelationshipChange) (authoringv2.Document, error)
 	EditImportedSource        func(context.Context, string, AuthorizedCapability, authoringv2.Document, *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
 	EditImportedSources       func(context.Context, string, AuthorizedCapability, authoringv2.Document, []authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
+	RemoveImportedField       func(context.Context, string, AuthorizedCapability, authoringv2.Document, string, string) (authoringv2.Document, error)
+	RemoveImportedOutput      func(context.Context, string, AuthorizedCapability, authoringv2.Document, string, string) (authoringv2.Document, error)
 	// SelectionMembersCollection is a deployment-owned runtime binding. It is
 	// never copied into authoring intent, recipes, or receipt identity.
 	SelectionMembersCollection         string
@@ -172,6 +178,7 @@ type Config struct {
 	PreviewReceipt               ReceiptPreviewer
 	ValidateReceiptStream        ReceiptStreamValidator
 	ScanCategories               CategoryScanner
+	ScanColumnPopulation         ColumnPopulationScanner
 	PopulationMapping            PopulationMappingExecutor
 	PopulationMappingCursorCodec PopulationMappingCursorCodec
 	CellTrace                    CellTraceExecutor

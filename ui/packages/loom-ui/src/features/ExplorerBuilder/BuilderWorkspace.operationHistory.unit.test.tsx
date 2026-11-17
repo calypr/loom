@@ -692,13 +692,13 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
     harness.client.proposeSourceRelationship.mockResolvedValue({proposalId:'candidate-source',candidateReceiptId:'candidate-source',outputId:'table-1',snapshotToken:catalog.snapshotToken,draftVersion:1,draftDigest:acceptedState.draftDigest,baseDocumentDigest:'base',candidateWorkspaceDigest:'next-draft',previewStatus:'READY',sampledRows:1,sampled:false,affectedColumns:[],notices:[],candidateDocument:document,candidateNetwork:{owner:'IMPORTED_SOURCE',outputId:'table-1',sourceRows:document.rows,occurrences:[],bindings:[],operations:[]},candidateRowIdentity:{outputId:'table-1',sourceDefinition:document.rows,stages:[],relationships:[]},preview:previewFor('candidate-source','table-1')});
     harness.applyCommands.mockImplementation((args)=>({unwrap:async()=>({commandId:args.commandId,workspace:imported.workspace,draftVersion:2,draftDigest:'next-draft',results:[],diagnostics:[]})}));
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
-    const initiator=await screen.findByRole('button',{name:'Edit source operation 1: Patient fields'});initiator.focus();fireEvent.click(initiator);
+    const initiator=await screen.findByRole('button',{name:'Edit source operation 1: Fields from Patient'});initiator.focus();fireEvent.click(initiator);
     fireEvent.click(screen.getByRole('button',{name:'Preview source step'}));
     await waitFor(()=>expect(screen.getByRole('button',{name:'Apply source step'})).toBeEnabled());
     expect(harness.client.preview.mock.calls.filter(([args]) => args.receiptId === 'candidate-source')).toHaveLength(0);
     const apply=screen.getByRole('button',{name:'Apply source step'});apply.focus();fireEvent.click(apply);
     await waitFor(()=>expect(screen.queryByTestId('imported-source-step-editor')).toBeNull());
-    const replacement=screen.getByRole('button',{name:'Edit source operation 1: Patient fields'});
+    const replacement=screen.getByRole('button',{name:'Edit source operation 1: Fields from Patient'});
     await waitFor(()=>expect(globalThis.document.activeElement).toBe(replacement));
   });
 
@@ -781,7 +781,7 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
     await clickHistoryEdit('group-step');
     await screen.findByTestId('construction-reshape-editor');
     fireEvent.click(screen.getByRole('button',{name:'Close operation editor'}));
-    fireEvent.click(await screen.findByRole('button',{name:'Edit source operation 1: Patient fields'}));
+    fireEvent.click(await screen.findByRole('button',{name:'Edit source operation 1: Fields from Patient'}));
     expect(screen.getByTestId('imported-source-step-editor')).toBeTruthy();
     expect(screen.queryByTestId('construction-reshape-editor')).toBeNull();
   });

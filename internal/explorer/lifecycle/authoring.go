@@ -54,6 +54,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	restoreDraftRevisionCommand := request.Commands[0].Type == authoringv2.CommandRestoreDraftRevision
 	rowValuePolicyCommand := request.Commands[0].Type == authoringv2.CommandUpdateColumnRowValuePolicy
 	importedSourceCommand := authoringv2.IsImportedSourceCommand(request.Commands[0].Type)
+	projectedFieldRemovalCommand := request.Commands[0].Type == authoringv2.CommandRemoveProjectedField
 	for _, command := range request.Commands {
 		if command.Type == authoringv2.CommandUpdateColumnRowValuePolicy && len(request.Commands) != 1 {
 			return nil, malformed("commands", "UPDATE_COLUMN_ROW_VALUE_POLICY must be the only command in its atomic request", nil)
@@ -120,7 +121,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	var snapshot capability.Snapshot
 	var authorized AuthorizedCapability
 	var err error
-	if semanticCommand || constructionChoiceCommand || populationRouteCommand || constructionProposalCommand || populationMemberProposalCommand || restoreDraftRevisionCommand || frameSourceCommand || rowValuePolicyCommand || rowChangeReplacementCommand || importedSourceCommand || columnPolicyProposalCommand {
+	if semanticCommand || constructionChoiceCommand || populationRouteCommand || constructionProposalCommand || populationMemberProposalCommand || restoreDraftRevisionCommand || frameSourceCommand || rowValuePolicyCommand || rowChangeReplacementCommand || importedSourceCommand || columnPolicyProposalCommand || projectedFieldRemovalCommand {
 		if s.config.Capability.ForCompilation == nil {
 			return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 		}
@@ -163,6 +164,10 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	if columnPolicyProposalCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			return s.prepareColumnPolicyProposal(ctx, project, explorerID, request, authorized, workspace, commands)
+		}
+	} else if projectedFieldRemovalCommand {
+		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+			return s.prepareProjectedFieldRemoval(ctx, project, explorerID, request, authorized, workspace, catalog, commands)
 		}
 	} else if importedSourceCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {

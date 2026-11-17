@@ -31,6 +31,7 @@ import type {
   ExplorerBuilderPreviewResult,
   ExplorerBuilderState,
   ExplorerBuilderWorkspace,
+  AuthoringNetworkResponse,
   RelatedFieldChoiceSearchResponse,
   ExplorerRowDefinition,
 } from '../../types';
@@ -94,6 +95,7 @@ vi.mock('./components/GuidedGraphWorkspace', () => ({
     readonly importedRelationshipActions?: { readonly onAdd: (parentOccurrenceId: string, edgeId: string, nodeId: string) => void };
   }) => (
     <>
+      <button type="button" onClick={() => onSelectOccurrence('base')}>Select root occurrence</button>
       <button
         type="button"
         onClick={() => onSelectOccurrence('saved-report-occurrence')}
@@ -713,10 +715,15 @@ const configureInitialTableFlow = (
 };
 
 const clickNavigatorOperation = async (stepId: string) => {
-  const item = globalThis.document.querySelector<HTMLElement>(
+  const findOperation = () => globalThis.document.querySelector<HTMLElement>(
     `[data-testid="traversal-scope-navigator"] [data-operation-id="${stepId}"]`,
   );
-  if (!item) throw new Error(`Operation ${stepId} is not in the traversal navigator.`);
+  await waitFor(() => expect(findOperation() ?? screen.queryByTestId(`imported-source-step-${stepId}`)).not.toBeNull());
+  const item = findOperation();
+  if (!item) {
+    fireEvent.click(screen.getByTestId(`imported-source-step-${stepId}`));
+    return;
+  }
   const button = item.querySelector<HTMLButtonElement>('button[aria-label^="Edit "]');
   if (!button) throw new Error(`Operation ${stepId} has no edit action.`);
   fireEvent.click(button);
@@ -870,6 +877,165 @@ describe('BuilderWorkspace Add columns source selection', () => {
     });
     return render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
   };
+
+  const renderImportedFieldsBuilder = () => {
+    const document: ExplorerBuilderWorkspace['documents'][number] = {
+      ...importedDocument,
+      columns: [
+        { columnId: 'report-pin-column', column: 'report_status', label: 'Report status', logicalType: 'string', occurrenceId: 'saved-report-occurrence',
+          source: { kind: 'imported', imported: { outputColumn: 'report_status' } } },
+        { columnId: 'report-authored-column', column: 'report_category', label: 'Report category', logicalType: 'string', occurrenceId: 'saved-report-occurrence',
+          source: { kind: 'field', field: { path: 'category', projectionMode: 'VALUE' } } },
+      ],
+      importedSource: { steps: [
+        { id: 'report', kind: 'TRAVERSAL', occurrenceId: 'saved-report-occurrence', title: 'Related DiagnosticReport', summary: 'Reports', enabled: true, editable: true,
+          parameters: { traversal: { name: 'reports', toResourceType: 'DiagnosticReport', alias: 'report' } } },
+        { id: 'report-fields', parentId: 'report', kind: 'FIELD_GROUP', title: 'Pinned report fields', summary: 'Fields from each report', enabled: true, editable: true,
+          parameters: { fieldGroup: { fields: [{ fieldId: 'report-fields[0]', enabled: true, name: 'report_status', expr: { select: 'report.status' } }] } } },
+      ] },
+    };
+    const importedFieldsWorkspace: ExplorerBuilderWorkspace = { ...workspace, documents: [document] };
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: importedFieldsWorkspace }, isLoading: false, refetch: vi.fn(),
+    });
+    const network: AuthoringNetworkResponse['network'] = {
+      owner: 'IMPORTED_SOURCE', outputId: 'patients', sourceRows: document.rows, occurrences: [], bindings: [
+        { columnId: 'report-pin-column', occurrenceId: 'saved-report-occurrence', sourceStepId: 'report-fields', status: 'EXACT' },
+      ], operations: [], projectedFields: [
+        { columnId: 'report-pin-column', column: 'report_status', label: 'Report status', occurrenceId: 'saved-report-occurrence',
+          owner: 'PINNED_SOURCE', removal: 'DISABLE_PINNED_FIELD', status: 'EXACT', sourceStepId: 'report-fields', sourceFieldId: 'report-fields[0]' },
+        { columnId: 'report-authored-column', column: 'report_category', label: 'Report category', occurrenceId: 'saved-report-occurrence',
+          owner: 'AUTHORED', removal: 'REMOVE_COLUMN', status: 'EXACT' },
+      ],
+    };
+    mockLoomClient.describeAuthoringNetwork.mockResolvedValue({
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'sha256:draft-1', network,
+      rowIdentity: importedRelationshipProposal().candidateRowIdentity,
+    });
+    return render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+  };
+
+  it('does not repeat the operations controls inside the Add columns editor', async () => {
+    renderImportedFieldsBuilder();
+    fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
+    const editor = await screen.findByRole('region', { name: 'Add columns editor' });
+    expect(within(editor).queryByRole('button', { name: 'Expand related records into rows' })).toBeNull();
+    expect(within(editor).queryByRole('button', { name: 'Group resulting rows' })).toBeNull();
+    expect(within(editor).queryByTestId('construction-action-add-columns')).toBeNull();
+    expect(within(editor).queryByTestId('construction-action-keep-rows')).toBeNull();
+  });
+
+  it('keeps the pinned source field in the shared editor with staged removal', async () => {
+    renderImportedFieldsBuilder();
+    fireEvent.click(await screen.findByRole('button', { name: 'Select saved DiagnosticReport occurrence' }));
+    await clickNavigatorOperation('report-fields');
+    expect(screen.queryByRole('heading', { name: 'DiagnosticReport operations' })).toBeNull();
+    expect(screen.queryByRole('list', { name: 'Source operations in selected scope' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Expand related records into rows' })).toBeNull();
+    const fields = screen.getByRole('list', { name: 'Projected fields' });
+    expect(within(fields).getByText('Report status')).toBeInTheDocument();
+    expect(within(fields).getByText('Report category')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Current projected fields' })).toBeNull();
+    fireEvent.click(within(fields).getByRole('button', { name: 'Remove Report status' }));
+    expect(within(fields).getByText('Report status · disabled')).toBeInTheDocument();
+    expect(applyExplorerCommands).not.toHaveBeenCalled();
+  });
+
+  it('parks a node field draft while another node is selected and restores it on return', async () => {
+    renderImportedFieldsBuilder();
+    fireEvent.click(await screen.findByRole('button', { name: 'Select saved DiagnosticReport occurrence' }));
+    await clickNavigatorOperation('report-fields');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Report status' }));
+    expect(screen.getByText('Report status · disabled')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Select root occurrence' }));
+    expect(screen.queryByTestId('imported-source-step-editor')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Patient operations' })).toBeInTheDocument();
+    expect(applyExplorerCommands).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Select saved DiagnosticReport occurrence' }));
+    expect(await screen.findByTestId('imported-source-step-editor')).toBeInTheDocument();
+    expect(screen.getByText('Report status · disabled')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove Report category' })).toBeDisabled();
+    expect(applyExplorerCommands).not.toHaveBeenCalled();
+  });
+
+  it('remembers Add columns independently for each selected node', async () => {
+    renderImportedFieldsBuilder();
+    fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
+    expect(screen.getByRole('region', { name: 'Add columns editor' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Select saved DiagnosticReport occurrence' }));
+    expect(screen.queryByRole('region', { name: 'Add columns editor' })).toBeNull();
+    expect(screen.getByRole('heading', { name: 'DiagnosticReport operations' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Select root occurrence' }));
+    expect(screen.getByRole('region', { name: 'Add columns editor' })).toBeInTheDocument();
+  });
+
+  it('renames the displayed pinned field without changing its source or column name', async () => {
+    renderImportedFieldsBuilder();
+    fireEvent.click(await screen.findByRole('button', { name: 'Select saved DiagnosticReport occurrence' }));
+    await clickNavigatorOperation('report-fields');
+    fireEvent.click(screen.getByRole('button', { name: 'Rename Report status' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Display label for Report status' }), { target: { value: 'Report state' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save label' }));
+    await waitFor(() => expect(applyExplorerCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [expect.objectContaining({ type: 'UPDATE_COLUMN', outputId: 'patients', column: 'report_status',
+        columnValue: expect.objectContaining({ columnId: 'report-pin-column', column: 'report_status', label: 'Report state', source: expect.objectContaining({ kind: 'imported' }) }) })],
+    })));
+  });
+
+  it('shows authored columns with the projected fields and removes them through the same server-owned command', async () => {
+    renderImportedFieldsBuilder();
+    fireEvent.click(await screen.findByRole('button', { name: 'Select saved DiagnosticReport occurrence' }));
+    await clickNavigatorOperation('report-fields');
+    const addedFields = await screen.findByRole('list', { name: 'Projected fields' });
+    expect(within(addedFields).getByText('Report category')).toBeInTheDocument();
+    fireEvent.click(within(addedFields).getByRole('button', { name: 'Remove Report category' }));
+
+    await waitFor(() => expect(applyExplorerCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [{ type: 'REMOVE_PROJECTED_FIELD', outputId: 'patients', columnId: 'report-authored-column' }],
+    })));
+    expect(screen.queryByTestId('imported-source-step-editor')).not.toBeInTheDocument();
+  });
+
+  it('preserves dirty source edits and blocks a separate projected-field removal until Apply or Cancel', async () => {
+    renderImportedFieldsBuilder();
+    fireEvent.click(await screen.findByRole('button', { name: 'Select saved DiagnosticReport occurrence' }));
+    await clickNavigatorOperation('report-fields');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Report status' }));
+
+    const removeAuthored = screen.getByRole('button', { name: 'Remove Report category' });
+    expect(removeAuthored).toBeDisabled();
+    expect(screen.getByText('Apply or Cancel the pending source-step edits before removing a projected field.')).toBeInTheDocument();
+    expect(screen.getByTestId('imported-source-step-editor')).toBeInTheDocument();
+    expect(screen.getByText('Report status · disabled')).toBeInTheDocument();
+    fireEvent.click(removeAuthored);
+
+    expect(applyExplorerCommands).not.toHaveBeenCalled();
+    expect(screen.getByTestId('imported-source-step-editor')).toBeInTheDocument();
+    expect(screen.getByText('Report status · disabled')).toBeInTheDocument();
+  });
+
+  it('clears dirty state after Cancel and permits one removal after reopening the clean source editor', async () => {
+    renderImportedFieldsBuilder();
+    fireEvent.click(await screen.findByRole('button', { name: 'Select saved DiagnosticReport occurrence' }));
+    await clickNavigatorOperation('report-fields');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Report status' }));
+    expect(screen.getByRole('button', { name: 'Remove Report category' })).toBeDisabled();
+
+    fireEvent.click(within(screen.getByRole('region', { name: 'Proposed source step' })).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByTestId('imported-source-step-editor')).not.toBeInTheDocument());
+    expect(applyExplorerCommands).not.toHaveBeenCalled();
+
+    await clickNavigatorOperation('report-fields');
+    expect(screen.getByTestId('imported-source-step-editor')).toBeInTheDocument();
+    const remove = screen.getByRole('button', { name: 'Remove Report category' });
+    expect(remove).toBeEnabled();
+    fireEvent.click(remove);
+
+    await waitFor(() => expect(applyExplorerCommands).toHaveBeenCalledOnce());
+    expect(applyExplorerCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [{ type: 'REMOVE_PROJECTED_FIELD', outputId: 'patients', columnId: 'report-authored-column' }],
+    }));
+  });
 
   it('starts a cancellable Connect proposal immediately and enables explicit Apply after its exact preview', async () => {
     let resolveProposal!: (proposal: ReturnType<typeof importedRelationshipProposal>) => void;

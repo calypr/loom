@@ -70,6 +70,9 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 	fieldMetadata := make(map[string]struct{ id, label string })
 	dynamicOrigins := make(map[string]*CompiledSourceOrigin)
 	for _, dynamic := range dynamicMetadata {
+		if dynamic.Name == "" {
+			continue
+		}
 		dynamicOrigins[dynamic.Name] = dynamic.SourceOrigin
 		kind := dynamic.ValueType
 		if kind == "" || kind == "unknown" {
@@ -86,6 +89,10 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 			return
 		}
 		if existing, exists := logical[name]; exists {
+			if output.Collision == "overwrite" {
+				logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: cloneUnitIdentity(normalizedUnit), Discovered: discovered}
+				return
+			}
 			// Explicit declarations win collisions under overwrite policies.
 			if existing.Discovered && !discovered {
 				logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: cloneUnitIdentity(normalizedUnit), Discovered: false}
@@ -158,11 +165,27 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 			switch strings.ToUpper(strings.TrimSpace(pivot.ProjectionMode)) {
 			case "ALL", "DISTINCT":
 				cardinality = expression.Many
+			case "FIRST":
+				if pivot.SourceKind == "EXTENSION_COLUMN" {
+					cardinality = expression.OptionalOne
+				}
 			}
 			for _, column := range pivot.Columns {
-				name := NativePivotColumnName(prefix, pivot.Name, column, pivot.ColumnAliases)
-				origins[name] = &CompiledSourceOrigin{SourceKey: pivot.Name, OutputKey: column, SourceKind: "PIVOT", OccurrenceID: node.OccurrenceID, ResourceType: node.ResourceType, SourcePath: fmt.Sprintf("%spivots[%d]", sourcePath, pivotIndex), ValueMode: pivot.ProjectionMode}
-				addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, pivot.FieldRef, expression.Expression{})+"["+column+"]", string(kind), string(cardinality), true, pivot.Discovered, nil)
+				projectionPrefix := prefix
+				if pivot.SourceKind == "EXTENSION_COLUMN" {
+					projectionPrefix = pivot.ExtensionProjectionPrefix
+				}
+				name := NativePivotColumnName(projectionPrefix, pivot.Name, column, pivot.ColumnAliases)
+				sourceKind, sourceKey, outputKey, outputPath := pivot.SourceKind, pivot.SourceKey, pivot.OutputKey, pivot.SourcePath
+				if sourceKind == "" {
+					sourceKind, sourceKey, outputKey, outputPath = "PIVOT", pivot.Name, column, fmt.Sprintf("%spivots[%d]", sourcePath, pivotIndex)
+				}
+				origins[name] = &CompiledSourceOrigin{SourceKey: sourceKey, OutputKey: outputKey, SourceKind: sourceKind, OccurrenceID: node.OccurrenceID, ResourceType: node.ResourceType, SourcePath: outputPath, ValueMode: pivot.ProjectionMode}
+				identityPath := pivot.ColumnIdentityPath
+				if identityPath == "" {
+					identityPath = recipeSemanticPath(output.RootResourceType, node.ResourceType, pivot.FieldRef, expression.Expression{}) + "[" + column + "]"
+				}
+				addLogical(name, identityPath, string(kind), string(cardinality), true, pivot.Discovered, nil)
 			}
 		}
 		for _, ownerRecords := range node.OwnerRecords {

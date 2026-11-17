@@ -393,7 +393,7 @@ func TestCompiledNetworkFamilyKeysSurviveDiscoveryPruning(t *testing.T) {
 
 func TestCompiledExtensionFamiliesRetainNativeSourceStepKeys(t *testing.T) {
 	extension := func(name, key string) recipe.ExtensionColumn {
-		return recipe.ExtensionColumn{Name: name, Source: recipe.Expression{Select: "root.extension[]"}, MaxColumns: 1, Columns: []recipe.ExtensionColumnMapping{{Name: key, URL: "https://example.test/" + key, ValuePath: "valueString", ValueType: "string"}}}
+		return recipe.ExtensionColumn{Name: name, Source: recipe.Expression{Select: "root.extension[]"}, MaxColumns: 1, Columns: []recipe.ExtensionColumnMapping{{Name: key, URL: "https://example.test/" + key, SourcePath: "extension[]", ValuePath: "valueString", ValueType: "string"}}}
 	}
 	output := recipe.Output{Name: "patients", RootResourceType: "Patient", RootOccurrenceID: "base", RowGrain: "patient", ExtensionColumns: []recipe.ExtensionColumn{extension("first", "one"), extension("second", "two")}}
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "source-families", TranslationVersion: "v1", Outputs: []recipe.Output{output}}

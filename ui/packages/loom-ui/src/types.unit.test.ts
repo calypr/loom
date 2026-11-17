@@ -4,6 +4,7 @@ import {
   assertExplorerStateV1,
   aggregateTransformationCapabilitySchema,
   aggregateOperationCapabilitySchema,
+  authoringNetworkSchema,
   columnTransformationChangeSchema,
   columnValueTransformationCapabilitiesSchema,
   columnValueTransformationSchema,
@@ -313,6 +314,66 @@ describe('imported source step authoring commands', () => {
     expect(explorerBuilderCommandSchema.safeParse({
       type: 'UPDATE_IMPORTED_SOURCE_STEP',
       sourceStep: { stepId: 'pivot', enabled: true },
+    }).success).toBe(false);
+  });
+
+  it('accepts only output and stable field identity for unified projected-field removal', () => {
+    expect(explorerBuilderCommandSchema.parse({
+      type: 'REMOVE_PROJECTED_FIELD', outputId: 'patients', columnId: 'patient-id-column',
+    })).toEqual({ type: 'REMOVE_PROJECTED_FIELD', outputId: 'patients', columnId: 'patient-id-column' });
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'REMOVE_PROJECTED_FIELD', outputId: 'patients', columnId: 'patient-id-column', sourceStep: { stepId: 'fields', enabled: false },
+    }).success).toBe(false);
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'REMOVE_PROJECTED_FIELD', outputId: 'patients',
+    }).success).toBe(false);
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'REMOVE_COLUMN', outputId: 'patients', column: 'patient_id', columnId: 'unrelated-column',
+    }).success).toBe(false);
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'REMOVE_PROJECTED_FIELD', outputId: ' patients ', columnId: 'patient-id-column',
+    }).success).toBe(false);
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'REMOVE_PROJECTED_FIELD', outputId: 'patients', columnId: ' patient-id-column ',
+    }).success).toBe(false);
+  });
+});
+
+describe('unified projected field inventory', () => {
+  it('parses exact owner, removal, and stable source slot metadata from the network read', () => {
+    const value = authoringNetworkSchema.parse({
+      owner: 'IMPORTED_SOURCE', outputId: 'patients', sourceRows: { kind: 'RECORDS', records: {} },
+      projectedFields: [
+        { columnId: 'patient-id-column', column: 'patient_id', label: 'Patient ID', owner: 'PINNED_SOURCE',
+          removal: 'DISABLE_PINNED_FIELD', status: 'EXACT', sourceStepId: 'fields', sourceFieldId: 'fields[0]' },
+        { columnId: 'authored-status-column', column: 'status', label: 'Status', occurrenceId: 'base', owner: 'AUTHORED',
+          removal: 'REMOVE_COLUMN', status: 'EXACT' },
+        { columnId: 'generated-column', column: 'generated', label: 'Generated', owner: 'PINNED_SOURCE',
+          removal: 'DISABLE_PINNED_OUTPUT', status: 'EXACT', sourceStepId: 'dynamic[0]', sourceOutputKey: 'key with spaces' },
+        { column: 'legacy_value', label: 'Legacy value', owner: 'UNKNOWN', removal: 'UNAVAILABLE', status: 'UNKNOWN' },
+      ],
+      occurrences: [], bindings: [], operations: [],
+    });
+    expect(value.projectedFields?.map((field) => field.owner)).toEqual(['PINNED_SOURCE', 'AUTHORED', 'PINNED_SOURCE', 'UNKNOWN']);
+    expect(value.projectedFields?.[0]).toMatchObject({ sourceStepId: 'fields', sourceFieldId: 'fields[0]', removal: 'DISABLE_PINNED_FIELD' });
+    expect(value.projectedFields?.[2]).toMatchObject({ sourceOutputKey: 'key with spaces', removal: 'DISABLE_PINNED_OUTPUT' });
+    expect(value.projectedFields?.[3]).not.toHaveProperty('columnId');
+    expect(authoringNetworkSchema.safeParse({
+      owner: 'IMPORTED_SOURCE', outputId: 'patients', sourceRows: { kind: 'RECORDS', records: {} },
+      projectedFields: [{ columnId: 'generated-column', column: 'generated', label: 'Generated', owner: 'PINNED_SOURCE',
+        removal: 'DISABLE_PINNED_OUTPUT', status: 'EXACT', sourceStepId: 'dynamic[0]' }],
+      occurrences: [], bindings: [], operations: [],
+    }).success).toBe(false);
+    expect(authoringNetworkSchema.safeParse({
+      owner: 'IMPORTED_SOURCE', outputId: 'patients', sourceRows: { kind: 'RECORDS', records: {} },
+      projectedFields: [{ column: 'legacy_value', label: 'Legacy value', owner: 'UNKNOWN', removal: 'REMOVE_COLUMN', status: 'UNKNOWN' }],
+      occurrences: [], bindings: [], operations: [],
+    }).success).toBe(false);
+    expect(authoringNetworkSchema.safeParse({
+      owner: 'IMPORTED_SOURCE', outputId: 'patients', sourceRows: { kind: 'RECORDS', records: {} },
+      projectedFields: [{ columnId: ' patient-id-column ', column: 'patient_id', label: 'Patient ID', owner: 'PINNED_SOURCE',
+        removal: 'DISABLE_PINNED_FIELD', status: 'EXACT', sourceStepId: 'fields', sourceFieldId: 'fields[0]' }],
+      occurrences: [], bindings: [], operations: [],
     }).success).toBe(false);
   });
 });
@@ -1143,7 +1204,7 @@ describe('row-definition contract schemas', () => {
 
     const proposal = {
       candidateDocument: { kind: 'ExplorerBuilderDocument', output: { id: 'output', title: 'Output' }, rootResourceType: 'Patient', route: { occurrenceId: 'base', resourceType: 'Patient' }, rows: { kind: 'RECORDS', records: {} }, columns: [] },
-      candidateNetwork: { owner: 'DOCUMENT', outputId: 'output', sourceRows: { kind: 'RECORDS', records: {} }, occurrences: [], bindings: [], operations: [] },
+      candidateNetwork: { owner: 'DOCUMENT', outputId: 'output', sourceRows: { kind: 'RECORDS', records: {} }, projectedFields: [], occurrences: [], bindings: [], operations: [] },
       candidateRowIdentity: { outputId: 'output', sourceDefinition: { kind: 'RECORDS', records: {} }, stages: [], relationships: [] },
       proposalId: 'proposal-receipt',
       baseReceiptId: 'base-receipt',

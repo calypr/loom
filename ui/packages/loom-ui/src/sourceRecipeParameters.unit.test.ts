@@ -39,3 +39,12 @@ it('preserves raw pivot keys and enforces the backend override limit', () => {
     name: 'values', outputs: Array.from({ length: 257 }, (_, index) => ({ key: `key-${index}`, enabled: true })),
   } }).success).toBe(false);
 });
+
+it('accepts exact generated field overrides and rejects duplicate identities', () => {
+  const key = `ext-v1:${'a'.repeat(64)}`;
+  const extension = { name: 'extensions', source: { select: 'root.extension[]' } };
+  expect(importedSourceParametersSchema.safeParse({ extension: { ...extension, outputs: [{ key, enabled: false }] } }).success).toBe(true);
+  expect(importedSourceParametersSchema.safeParse({ extension: { ...extension, outputs: [{ key, enabled: false }, { key, enabled: true }] } }).success).toBe(false);
+  expect(importedSourceParametersSchema.safeParse({ extension: { ...extension, outputs: [{ key: 'extension-url', enabled: false }] } }).success).toBe(false);
+  expect(importedSourceParametersSchema.safeParse({ dynamic: { name: 'keys', source: { select: 'root.category[]' }, outputs: [{ key: 'key', enabled: false }] } }).success).toBe(true);
+});

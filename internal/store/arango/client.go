@@ -30,11 +30,18 @@ type Client struct {
 const previewCursorCleanupTimeout = time.Second
 
 type queryMemoryLimitContextKey struct{}
+type queryMaxNumberOfPlansContextKey struct{}
 
 // WithQueryMemoryLimit adds a per-query ArangoDB memory cap. Callers that do
 // not set this option keep the server's configured query behavior.
 func WithQueryMemoryLimit(ctx context.Context, bytes int64) context.Context {
 	return context.WithValue(ctx, queryMemoryLimitContextKey{}, bytes)
+}
+
+// WithQueryMaxNumberOfPlans limits optimizer enumeration for the query
+// adapters that send the Arango cursor request directly.
+func WithQueryMaxNumberOfPlans(ctx context.Context, maxPlans int) context.Context {
+	return context.WithValue(ctx, queryMaxNumberOfPlansContextKey{}, maxPlans)
 }
 
 // RowQueryer is the narrow row-query surface shared by Arango adapters. It is

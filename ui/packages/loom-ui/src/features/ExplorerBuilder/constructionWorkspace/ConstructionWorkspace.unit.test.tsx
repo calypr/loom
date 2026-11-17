@@ -1125,10 +1125,13 @@ it('uses one bounded shared fact slot and gives mutation editors precedence', ()
  expect(screen.getByLabelText('Change editor')).toHaveTextContent('Pending mutation');
 });
 
-it('keeps the existing operation navigator available while a source-step editor is open', () => {
+it('hides the operation navigator while an editor is open and restores it on close', () => {
  const navigation = <nav aria-label="Existing traversal operations"><button type="button">Fields from Patient</button></nav>;
  const props={preview:<p>Rows</p>,previewStatus:'ready' as const,draftVersion:1,draftDigest:'draft',tables:[{outputId:'subjects',title:'Subjects'}],selectedOutputId:'subjects',onSelectTable:vi.fn(),onNewTable:vi.fn(),onDuplicateTable:vi.fn(),onDeleteTable:vi.fn(),onRenameTable:vi.fn(),onSelectFamily:vi.fn()};
- render(<ConstructionWorkspace {...props} navigation={navigation} editor={<p>Source step editor</p>} showNavigationDuringEditor />);
+ const view = render(<ConstructionWorkspace {...props} navigation={navigation} editor={<p>Source step editor</p>} />);
+ expect(screen.queryByRole('navigation',{name:'Existing traversal operations'})).toBeNull();
+ expect(screen.getByRole('region', { name: 'Change editor' })).toHaveTextContent('Source step editor');
+ view.rerender(<ConstructionWorkspace {...props} navigation={navigation} />);
  expect(screen.getByRole('navigation',{name:'Existing traversal operations'})).toBeInTheDocument();
 });
 

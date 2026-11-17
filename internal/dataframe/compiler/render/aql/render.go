@@ -731,11 +731,31 @@ func (r *physicalPlanRenderer) renderRootScan(root ir.PhysicalRootScan) ([]strin
 func pruneUnusedRuntimeBindVars(bindVars map[string]any, query string) map[string]any {
 	pruned := make(map[string]any, len(bindVars))
 	for key, value := range bindVars {
-		if strings.Contains(query, "@"+key) {
+		if containsExactBind(query, "@"+key) {
 			pruned[key] = value
 		}
 	}
 	return pruned
+}
+
+func containsExactBind(query, token string) bool {
+	for offset := 0; offset < len(query); {
+		index := strings.Index(query[offset:], token)
+		if index < 0 {
+			return false
+		}
+		index += offset
+		end := index + len(token)
+		if (index == 0 || query[index-1] != '@') && (end == len(query) || !isBindNameByte(query[end])) {
+			return true
+		}
+		offset = index + 1
+	}
+	return false
+}
+
+func isBindNameByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_'
 }
 
 func (r *physicalPlanRenderer) renderRootWindowOperation(operation ir.PhysicalOperation, indent string) ([]string, error) {

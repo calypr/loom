@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LoomRequestError } from '../../../api';
 import type {
   DiscoverConstructionCategoriesArgs,
   GetConstructionCapabilitiesArgs,
@@ -545,12 +546,12 @@ describe('useConstructionLifecycle', () => {
 
   it('terminates a synchronous category discovery failure and permits a retry', async () => {
     const failureMessage = 'The category request could not be constructed.';
-    const rejectedMessage = 'The category service rejected the request.';
+    const rejectedMessage = 'Finding category values timed out. Try filtering the source rows and retrying. Request ID: category-timeout-request';
     let attempts = 0;
     const discoverConstructionCategories = vi.fn((args: DiscoverConstructionCategoriesArgs) => {
       attempts += 1;
       if (attempts === 1) throw new Error(failureMessage);
-      if (attempts === 2) return Promise.reject(new Error(rejectedMessage));
+      if (attempts === 2) return Promise.reject(new LoomRequestError({status: 503, code: 'CATEGORY_SCAN_TIMEOUT', message: 'Loom could not complete this request (HTTP 503).', requestId: 'category-timeout-request'}));
       return Promise.resolve(categoriesFor(args));
     });
     const client = {

@@ -253,6 +253,8 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 			// carries this exact root category unchanged.
 			physical.StageSequence = nil
 			physical = narrowSourceCategoryScanProjection(physical, column.Name)
+		} else if stageID == recipe.ConstructionSourceProjectionID && requireValue {
+			physical = narrowSourceCategoryScanProjection(physical, column.Name, valueColumn.Name, column.PresenceCompanionName)
 		} else {
 			physical = withCategoryScanSourceFilterPushdown(physical)
 		}
@@ -260,7 +262,7 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 		if err != nil {
 			return CompiledCategoryScanQuery{}, fmt.Errorf("apply category scan execution window: %w", err)
 		}
-		if sourceProjectionEquivalent && !requireValue {
+		if sourceProjectionEquivalent && (!requireValue || stageID == recipe.ConstructionSourceProjectionID) {
 			physical = withoutCategoryScanRootIdentitySort(physical)
 		}
 		streamRootCategories := sourceProjectionEquivalent && !requireValue && categoryScanDirectRootSource(physical, column)
@@ -767,7 +769,7 @@ func categoryScanPresenceMarkerColumn(plan ir.PhysicalPlan, schema []lower.Compi
 	}
 }
 
-func narrowSourceCategoryScanProjection(plan ir.PhysicalPlan, categoryColumn string) ir.PhysicalPlan {
+func narrowSourceCategoryScanProjection(plan ir.PhysicalPlan, columns ...string) ir.PhysicalPlan {
 	if plan.StageSequence != nil || len(plan.Operations) == 0 {
 		return plan
 	}
@@ -784,13 +786,23 @@ func narrowSourceCategoryScanProjection(plan ir.PhysicalPlan, categoryColumn str
 	if returnIndex < 0 {
 		return plan
 	}
-	for _, projection := range plan.Operations[returnIndex].Return.Projections {
-		if projection.Name != categoryColumn || projection.Hidden {
-			continue
+	needed := make(map[string]bool, len(columns))
+	for _, name := range columns {
+		if name != "" {
+			needed[name] = true
 		}
-		plan.Operations[returnIndex].Return.Projections = []ir.PhysicalProjection{projection}
+	}
+	var projections []ir.PhysicalProjection
+	for _, projection := range plan.Operations[returnIndex].Return.Projections {
+		if needed[projection.Name] {
+			projections = append(projections, projection)
+			delete(needed, projection.Name)
+		}
+	}
+	if len(needed) != 0 || len(projections) == 0 {
 		return plan
 	}
+	plan.Operations[returnIndex].Return.Projections = projections
 	return plan
 }
 

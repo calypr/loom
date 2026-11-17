@@ -122,7 +122,7 @@ func LowerExtensionBinding(resourceType string, binding fhirschema.ExtensionBind
 	}
 	return ir.PhysicalCorrelation{
 		Source: source, ResourceType: resourceType, OwnerResource: checked.OwnerResource, OwnerSelector: checked.OwnerSelector,
-		ValueSelector: checked.ValueSelector, ValueFallbacks: append([]spec.Selector(nil), checked.ValueFallbacks...), FallbackOnBlankString: checked.FallbackOnBlankString,
+		ValueSelector: checked.ValueSelector, CanonicalJSONValue: checked.CanonicalJSONValue, ValueFallbacks: append([]spec.Selector(nil), checked.ValueFallbacks...), FallbackOnBlankString: checked.FallbackOnBlankString,
 		ChoiceArms: choiceArms, ChoiceSelectors: choiceSelectors, LogicalType: checked.LogicalType, ValuePrimitive: string(checked.ValuePrimitive),
 		ExtensionURLSelectors: append([]spec.Selector(nil), checked.URLSelectors...), ExtensionURLBindKeys: append([]string(nil), urlBindKeys...),
 	}, nil

@@ -43,10 +43,11 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 	setVariables := recipeSetVariables(*plan)
 	for _, dynamic := range dynamics {
 		columns := resolvedColumns[recipeDynamicMapKey(output.Name, dynamic)]
+		excludedSourceKeys := lowerDynamicExcludedSourceKeys(dynamic)
 		if dynamic.MaxColumns > 0 && len(columns) > dynamic.MaxColumns {
 			return nil, fmt.Errorf("dynamic map %q resolved %d columns, exceeding max %d", dynamic.Name, len(columns), dynamic.MaxColumns)
 		}
-		if len(columns) == 0 {
+		if len(columns) == 0 && len(excludedSourceKeys) == 0 {
 			continue
 		}
 		resourceType := output.RootResourceType
@@ -90,6 +91,9 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 		runtimeName := dynamic.Name
 		if dynamic.ScopeAlias != "" && dynamic.ScopeAlias != "root" {
 			runtimeName = dynamic.ScopeAlias + "__" + dynamic.Name
+		}
+		for _, sourceKey := range excludedSourceKeys {
+			metadata = append(metadata, DynamicColumnMetadata{DynamicName: runtimeName, SourceKey: sourceKey, AllowUnknownKeys: dynamic.AllowUnknownKeys, Discovered: dynamic.Discovered})
 		}
 		familyVariable := dynamicFamilyVariable(*plan, runtimeName)
 		reduction := ir.PhysicalMapFirstSorted
@@ -135,7 +139,11 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 			if strings.Contains(dynamic.Source.SourcePath, "extensionColumns[") {
 				kind = "EXTENSION_COLUMN"
 			}
-			origin := &CompiledSourceOrigin{SourceKey: dynamic.SourceFamilyKey, SourceKind: kind, SourcePath: strings.TrimSuffix(dynamic.Source.SourcePath, ".source"), ValueMode: string(dynamic.ValueMode.Normalized())}
+			outputKey := dynamic.OutputKey
+			if outputKey == "" {
+				outputKey = column.Column.SourceKey
+			}
+			origin := &CompiledSourceOrigin{SourceKey: dynamic.SourceFamilyKey, OutputKey: outputKey, SourceKind: kind, SourcePath: strings.TrimSuffix(dynamic.Source.SourcePath, ".source"), ValueMode: string(dynamic.ValueMode.Normalized())}
 			var findOrigin func(semantic.SemanticNode)
 			findOrigin = func(node semantic.SemanticNode) {
 				for _, owned := range node.DynamicMaps {
@@ -174,6 +182,24 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 		plan.Operations[returnOp].Return.Projections = append(plan.Operations[returnOp].Return.Projections, ir.PhysicalProjection{Name: "__loom_dynamic_runtime_keys", Hidden: true, Expression: &runtime})
 	}
 	return metadata, nil
+}
+
+func lowerDynamicExcludedSourceKeys(dynamic semantic.SemanticDynamicMap) []string {
+	disabled := make(map[string]bool, len(dynamic.OutputOverrides))
+	for _, override := range dynamic.OutputOverrides {
+		disabled[override.Key] = !override.Enabled
+	}
+	excluded := make([]string, 0)
+	for _, key := range dynamic.Columns {
+		if disabled[key] {
+			runtimeKey := dynamic.ColumnSourceKeys[key]
+			if runtimeKey == "" {
+				runtimeKey = key
+			}
+			excluded = append(excluded, runtimeKey)
+		}
+	}
+	return excluded
 }
 
 func flattenRecipeDynamicMaps(root semantic.SemanticNode) []semantic.SemanticDynamicMap {

@@ -410,5 +410,5 @@ export const useConstructionNavigation = ({ ownerKey, state, latestState }: UseC
     showReshapeColumnSelection, hideGenericReshapeSelection };
   };
   return { activeConstructionFamily, setActiveConstructionFamily, setActiveConstructionSelection,
-    reshapeFormKind, setReshapeFormKind, actionsFor };
+    reshapeEntryKind, setReshapeEntryKind, reshapeFormKind, setReshapeFormKind, actionsFor };
 };

@@ -34,6 +34,8 @@ import (
 
 type QueryRows func(context.Context, string, int, map[string]any, func(map[string]any) error) error
 
+type WithPreviewReadSnapshot func(context.Context, func(context.Context, QueryRows) error) error
+
 // ClickHouseQueryRows executes a typed ClickHouse result query with a fixed
 // result column contract and positional values. SQL fragments never come from
 // recipe or request data.
@@ -89,6 +91,7 @@ type Config struct {
 	ResolveBundle              func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
 	QueryRows                  QueryRows
 	PreviewQueryRows           QueryRows
+	WithPreviewReadSnapshot    WithPreviewReadSnapshot
 	PreparePreviewIndex        func(context.Context, compiler.PreviewCoveringIndexSpec) error
 	PreviewCoveringIndexes     func(context.Context, string) ([]arango.PreviewCoveringIndex, error)
 	PreviewCollectionRevision  func(context.Context, string) (string, error)
@@ -111,6 +114,7 @@ type Engine struct {
 	resolveBundle              func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
 	queryRows                  QueryRows
 	previewQueryRows           QueryRows
+	withPreviewReadSnapshot    WithPreviewReadSnapshot
 	preparePreviewIndex        func(context.Context, compiler.PreviewCoveringIndexSpec) error
 	previewCoveringIndexes     func(context.Context, string) ([]arango.PreviewCoveringIndex, error)
 	previewCollectionRevision  func(context.Context, string) (string, error)
@@ -170,6 +174,7 @@ type OutputStream struct {
 	batchSize                int
 	rootPageRows             int
 	page                     *compiler.CompiledOutputPage
+	withPreviewReadSnapshot  WithPreviewReadSnapshot
 	physicalEngine           ir.PhysicalEngine
 	clickHouseCombine        *ir.PhysicalClickHouseCombine
 	project                  string
@@ -251,7 +256,7 @@ func New(cfg Config) (*Engine, error) {
 	}
 	return &Engine{
 		registry: cfg.Registry, revisions: cfg.Revisions, resolveBundle: cfg.ResolveBundle,
-		queryRows: cfg.QueryRows, previewQueryRows: cfg.PreviewQueryRows, preparePreviewIndex: cfg.PreparePreviewIndex,
+		queryRows: cfg.QueryRows, previewQueryRows: cfg.PreviewQueryRows, withPreviewReadSnapshot: cfg.WithPreviewReadSnapshot, preparePreviewIndex: cfg.PreparePreviewIndex,
 		previewCoveringIndexes:    cfg.PreviewCoveringIndexes,
 		previewCollectionRevision: cfg.PreviewCollectionRevision, previewExplainQuery: cfg.PreviewExplainQuery,
 		previewCollectionCount: cfg.PreviewCollectionCount, clickHouseQueryRows: cfg.ClickHouseQueryRows,
@@ -1051,6 +1056,7 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	if stream.physicalEngine != ir.PhysicalEngineClickHouse && e.previewQueryRows != nil {
 		stream.stream = e.previewQueryRows
 	}
+	stream.withPreviewReadSnapshot = e.withPreviewReadSnapshot
 	if err := e.chooseGroupPreviewScan(ctx, &query, &stream); err != nil {
 		return PreviewSummary{}, err
 	}
@@ -1389,6 +1395,15 @@ func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) 
 	if s.page == nil || s.rootPageRows == 0 {
 		return s.stream(ctx, s.query, s.batchSize, s.bindVars, visit)
 	}
+	if len(s.page.RowsPartitions) > 0 && s.withPreviewReadSnapshot != nil {
+		return s.withPreviewReadSnapshot(ctx, func(snapshotCtx context.Context, query QueryRows) error {
+			return s.streamRootPages(snapshotCtx, query, true, visit)
+		})
+	}
+	return s.streamRootPages(ctx, s.stream, false, visit)
+}
+
+func (s OutputStream) streamRootPages(ctx context.Context, query QueryRows, partitioned bool, visit func(map[string]any) error) error {
 	after := ""
 	pageRows := s.rootPageRows
 	for {
@@ -1396,7 +1411,7 @@ func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) 
 		keyBinds := cloneBindVars(s.page.RootKeysBindVars)
 		keyBinds[compiler.RootPageAfterKeyBind] = after
 		keyBinds[compiler.RootPageSizeBind] = pageRows
-		if err := s.stream(ctx, s.page.RootKeysQuery, s.batchSize, keyBinds, func(row map[string]any) error {
+		if err := query(ctx, s.page.RootKeysQuery, s.batchSize, keyBinds, func(row map[string]any) error {
 			key, ok := row["_key"].(string)
 			if !ok || key == "" {
 				return fmt.Errorf("root-key page returned an invalid _key")
@@ -1412,12 +1427,22 @@ func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) 
 		if len(keys) == 0 {
 			return nil
 		}
-		rowBinds := cloneBindVars(s.page.RowsBindVars)
-		rowBinds[compiler.RootPageKeysBind] = keys
-		if err := s.stream(ctx, s.page.RowsQuery, s.batchSize, rowBinds, func(row map[string]any) error {
-			return visit(row)
-		}); err != nil {
-			return err
+		if partitioned {
+			rows, err := previewProjectionRows(ctx, query, s.page.RowsPartitions, keys, s.batchSize)
+			if err != nil {
+				return err
+			}
+			for _, row := range rows {
+				if err := visit(row); err != nil {
+					return err
+				}
+			}
+		} else {
+			rowBinds := cloneBindVars(s.page.RowsBindVars)
+			rowBinds[compiler.RootPageKeysBind] = keys
+			if err := query(ctx, s.page.RowsQuery, s.batchSize, rowBinds, visit); err != nil {
+				return err
+			}
 		}
 		if s.sampledAggregate {
 			return nil

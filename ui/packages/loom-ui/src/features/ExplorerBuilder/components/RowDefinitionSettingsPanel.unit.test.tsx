@@ -35,7 +35,7 @@ const choices: RowDefinitionChoicesResponse = {
 
 const proposal: RowDefinitionProposal = {
   candidateDocument: { kind: 'ExplorerBuilderDocument', output: { id: 'patients', title: 'Patient' }, rootResourceType: 'Patient', route: { occurrenceId: 'base', resourceType: 'Patient' }, rows: { kind: 'RECORDS', records: {} }, columns: [] },
-  candidateNetwork: { owner: 'DOCUMENT', outputId: 'patients', sourceRows: { kind: 'RECORDS', records: {} }, occurrences: [], bindings: [], operations: [] },
+  candidateNetwork: { owner: 'DOCUMENT', outputId: 'patients', sourceRows: { kind: 'RECORDS', records: {} }, projectedFields: [], occurrences: [], bindings: [], operations: [] },
   candidateRowIdentity: { outputId: 'patients', sourceDefinition: { kind: 'RECORDS', records: {} }, stages: [], relationships: [] },
   proposalId: 'proposal-receipt-1',
   baseReceiptId: 'base-receipt-1',

@@ -601,19 +601,34 @@ type DynamicColumn struct {
 	// keyed-map lookup key. Extension columns use this for parent__child names
 	// while matching the leaf Extension.url segment inside its scoped source.
 	ColumnSourceKeys map[string]string `json:"columnSourceKeys,omitempty"`
-	Discovered       bool              `json:"-"`
+	// OutputOverrides edits one discovered key by its exact runtime key. The
+	// override is applied after key normalization and discovery, so it remains
+	// stable when output names or discovery ordering change.
+	OutputOverrides []DynamicColumnOutputOverride `json:"outputOverrides,omitempty"`
+	Discovered      bool                          `json:"-"`
+}
+
+type DynamicColumnOutputOverride struct {
+	Key     string `json:"key"`
+	Enabled bool   `json:"enabled"`
 }
 
 // ExtensionColumn is a bounded, URL-keyed projection of FHIR Extension
 // values. Unlike dynamicColumns, its resolver understands nested Extension
 // arrays and freezes both the URL mapping and the value representation.
 type ExtensionColumn struct {
-	Name         string                   `json:"name"`
-	Source       Expression               `json:"source"`
-	ColumnPrefix *string                  `json:"columnPrefix,omitempty"`
-	MaxColumns   int                      `json:"maxColumns"`
-	Columns      []ExtensionColumnMapping `json:"columns,omitzero"`
-	Discovered   bool                     `json:"-"`
+	Name            string                          `json:"name"`
+	Source          Expression                      `json:"source"`
+	ColumnPrefix    *string                         `json:"columnPrefix,omitempty"`
+	MaxColumns      int                             `json:"maxColumns"`
+	Columns         []ExtensionColumnMapping        `json:"columns,omitzero"`
+	OutputOverrides []ExtensionColumnOutputOverride `json:"outputOverrides,omitempty"`
+	Discovered      bool                            `json:"-"`
+}
+
+type ExtensionColumnOutputOverride struct {
+	Key     string `json:"key"`
+	Enabled bool   `json:"enabled"`
 }
 
 // ExtensionColumnMapping is immutable schema-discovery output. Name is the
@@ -621,11 +636,12 @@ type ExtensionColumn struct {
 // relative item selector for a single primitive value[x]. Empty ValuePath
 // means the extension object is represented by canonical JSON.
 type ExtensionColumnMapping struct {
-	Name       string `json:"name"`
-	URL        string `json:"url"`
-	SourcePath string `json:"sourcePath,omitempty"`
-	ValuePath  string `json:"valuePath,omitempty"`
-	ValueType  string `json:"valueType"`
+	Name       string   `json:"name"`
+	URL        string   `json:"url"`
+	URLPath    []string `json:"urlPath,omitempty"`
+	SourcePath string   `json:"sourcePath,omitempty"`
+	ValuePath  string   `json:"valuePath,omitempty"`
+	ValueType  string   `json:"valueType"`
 }
 
 // CatalogProjection describes a bounded family of populated FHIR paths. It

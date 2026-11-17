@@ -100,7 +100,7 @@ describe('semantic Builder hydration', () => {
     expect(workspaceFromState(state)).toEqual(workspace);
   });
 
-  it('repairs the historical all-caps coded-value label spacing for display', () => {
+  it('repairs historical all-caps generated label spacing for display', () => {
     const workspace = {
       ...ready.workspace!,
       documents: ready.workspace!.documents.map((document) => ({
@@ -111,11 +111,15 @@ describe('semantic Builder hydration', () => {
             binding: { ownerPath: 'category[]', keyPath: 'category[].coding[]', systemPath: 'system', codePath: 'code', versionPath: 'version', valuePath: 'display', valueFallback: ['code'], fallbackOnBlankString: true, logicalType: 'string', valueScope: 'CODING' as const, selectionScope: 'SYSTEM_VERSION' as const },
             key: { system: 'https://humantumoratlas.org/CYTASSIST_USED', code: '' }, projectionMode: 'ALL' as const,
           } },
+        }, {
+          columnId: 'direct_additive', column: 'cytassist_used', label: 'C y t a s s i s t u s e d', logicalType: 'string', occurrenceId: 'base',
+          source: { kind: 'field' as const, field: { path: 'extension.value' } },
         }],
       })),
     };
     const state = stateFromBuilder({ ...ready, workspace }, { project: 'project', explorerId: 'default' });
     expect(state.tables[0]?.document.columns.at(-1)?.label).toBe('Cytassist used');
+    expect(state.tables[0]?.document.columns.at(-2)?.label).toBe('Cytassist used');
   });
 
   it('reopens and recompiles the canonical workspace without reconstructing sources', () => {

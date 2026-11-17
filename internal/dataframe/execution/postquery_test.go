@@ -39,6 +39,43 @@ func TestMaterializePostQueryRejectsDynamicKeyDrift(t *testing.T) {
 	}
 }
 
+func TestMaterializePostQueryAllowsExcludedFrozenKeysButRejectsNewKeys(t *testing.T) {
+	checks := map[string]map[string]DynamicColumnCheck{
+		"category": {
+			"visible":  {ColumnName: "category_visible", ValueType: "string"},
+			"excluded": {ColumnName: ""},
+		},
+	}
+	row := map[string]any{
+		"category_visible":            "value",
+		"__loom_dynamic_runtime_keys": map[string]any{"category": []any{"visible", "excluded"}},
+	}
+	if _, err := materializePostQueryRowWithChecks(row, checks); err != nil {
+		t.Fatalf("known excluded key was treated as schema drift: %v", err)
+	}
+
+	row["__loom_dynamic_runtime_keys"] = map[string]any{"category": []any{"visible", "excluded", "new"}}
+	var drift *DynamicDriftError
+	if _, err := materializePostQueryRowWithChecks(row, checks); !errors.As(err, &drift) || drift.Key != "new" || drift.FrozenKeyCount != 2 {
+		t.Fatalf("new key drift = %#v, want new key with two frozen keys", err)
+	}
+}
+
+func TestMaterializePostQueryValidatesAllExcludedFamilyInventory(t *testing.T) {
+	checks := map[string]map[string]DynamicColumnCheck{
+		"category": {"a": {ColumnName: ""}, "b": {ColumnName: ""}},
+	}
+	row := map[string]any{"__loom_dynamic_runtime_keys": map[string]any{"category": []any{"a", "b"}}}
+	if _, err := materializePostQueryRowWithChecks(row, checks); err != nil {
+		t.Fatalf("all-excluded known keys were rejected: %v", err)
+	}
+	row["__loom_dynamic_runtime_keys"] = map[string]any{"category": []any{"new"}}
+	var drift *DynamicDriftError
+	if _, err := materializePostQueryRowWithChecks(row, checks); !errors.As(err, &drift) || drift.Key != "new" || drift.FrozenKeyCount != 2 {
+		t.Fatalf("all-excluded new key drift = %#v", err)
+	}
+}
+
 func TestMaterializePostQueryRejectsDynamicTypeDrift(t *testing.T) {
 	checks := map[string]map[string]DynamicColumnCheck{
 		"code": {"a": {ColumnName: "code_a", ValueType: "string"}},

@@ -196,10 +196,14 @@ const humanizeSystemKey = (value: string): string => {
 
 const displayColumnLabel = (column: ExplorerBuilderDocument['columns'][number]): string => {
   const parts = column.label.trim().split(/\s+/);
-  if (column.source.kind !== 'codedValue' || parts.length < 4 || parts.some((part) => part.length !== 1)) return column.label;
-  const system = column.source.lookup.key.system.trim().replace(/\/+$/, '');
-  const tail = system.slice(system.lastIndexOf('/') + 1);
-  return tail ? humanizeSystemKey(tail) || column.label : column.label;
+  if (parts.length < 4 || parts.some((part) => part.length !== 1)) return column.label;
+  if (column.source.kind === 'codedValue') {
+    const system = column.source.lookup.key.system.trim().replace(/\/+$/, '');
+    const tail = system.slice(system.lastIndexOf('/') + 1);
+    if (tail) return humanizeSystemKey(tail) || column.label;
+  }
+  if (column.column.toLowerCase().replace(/[^a-z0-9]/g, '') !== parts.join('').toLowerCase()) return column.label;
+  return humanizeSystemKey(column.column) || column.label;
 };
 
 const tableFromDocument = (

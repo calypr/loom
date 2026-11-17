@@ -37,6 +37,17 @@ func validateDynamicColumns(items []DynamicColumn, path string, budget *int) err
 			}
 			seenColumns[column] = true
 		}
+		if len(dynamic.OutputOverrides) > 256 {
+			return validationError("invalid_limit", dp+".outputOverrides", "must contain at most 256 entries")
+		}
+		seenOverrides := map[string]bool{}
+		for overrideIndex, override := range dynamic.OutputOverrides {
+			op := fmt.Sprintf("%s.outputOverrides[%d]", dp, overrideIndex)
+			if strings.TrimSpace(override.Key) == "" || override.Key != strings.TrimSpace(override.Key) || seenOverrides[override.Key] {
+				return validationError("invalid_output_override", op+".key", "keys must be nonempty, trimmed, and unique")
+			}
+			seenOverrides[override.Key] = true
+		}
 		if err := validateExpressionBudget(dynamic.Source, dp+".source", budget); err != nil {
 			return err
 		}
@@ -89,6 +100,17 @@ func validateExtensionColumns(items []ExtensionColumn, path string, budget *int)
 			if strings.TrimSpace(column.ValueType) == "" {
 				return validationError("required", cp+".valueType", "valueType is required")
 			}
+		}
+		if len(item.OutputOverrides) > 256 {
+			return validationError("invalid_limit", p+".outputOverrides", "must contain at most 256 entries")
+		}
+		seenOutputs := map[string]bool{}
+		for outputIndex, output := range item.OutputOverrides {
+			op := fmt.Sprintf("%s.outputOverrides[%d]", p, outputIndex)
+			if !ValidExtensionColumnOutputKey(output.Key) || seenOutputs[output.Key] {
+				return validationError("invalid_output_override", op+".key", "keys must be valid extension output IDs and unique")
+			}
+			seenOutputs[output.Key] = true
 		}
 	}
 	return nil

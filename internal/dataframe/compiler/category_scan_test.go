@@ -160,6 +160,56 @@ func TestCompileCategoryScanUsesExactConstructionStagePrefixAndBindsPivotPair(t 
 	}
 }
 
+func TestCompileColumnPopulationNarrowsSourceProjectionAndKeepsStagePrefix(t *testing.T) {
+	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
+	source, found := compiledStageByID(output.Stages, recipe.ConstructionSourceProjectionID)
+	if !found {
+		t.Fatal("source stage missing")
+	}
+	var sourceColumnID string
+	for _, column := range source.Columns {
+		if column.Name == "status" {
+			sourceColumnID = column.ID
+		}
+	}
+	compiledSource, err := CompileColumnPopulationScan(output, recipe.ConstructionSourceProjectionID, []string{sourceColumnID}, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(compiledSource.Query, "COLLECT AGGREGATE") || !strings.Contains(compiledSource.Query, "= SUM(") ||
+		!strings.Contains(compiledSource.Query, "root_scope_allowed") {
+		t.Fatalf("source population query must aggregate exact authorized source rows:\n%s", compiledSource.Query)
+	}
+	if strings.Contains(compiledSource.Query, "@__loom_population_column_1") {
+		t.Fatalf("source query should contain only requested population fields:\n%s", compiledSource.Query)
+	}
+
+	filtered, err := CompileColumnPopulationScan(output, "keep_positive", []string{"status_id", "total_id"}, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(filtered.Query, "LET __loom_construction_stage_") != 2 ||
+		!strings.Contains(filtered.Query, "FILTER __loom_construction_input_2.total > @construction_filter_value") ||
+		!strings.Contains(filtered.Query, "@__loom_population_column_1") {
+		t.Fatalf("filtered population scan must preserve the exact two-stage prefix and select requested fields:\n%s", filtered.Query)
+	}
+}
+
+func TestCompileColumnPopulationRejectsInvalidBatchesAndNonscalarColumns(t *testing.T) {
+	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
+	for _, ids := range [][]string{nil, {}, make([]string, MaxColumnPopulationBatch+1)} {
+		if _, err := CompileColumnPopulationScan(output, recipe.ConstructionSourceProjectionID, ids, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
+			t.Fatalf("accepted invalid population batch of length %d", len(ids))
+		}
+	}
+	if _, err := CompileColumnPopulationScan(output, "missing_stage", []string{"status_id"}, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
+		t.Fatal("accepted unknown stage")
+	}
+	if _, err := CompileColumnPopulationScan(output, "keep_positive", []string{"stale_column"}, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
+		t.Fatal("accepted unknown column")
+	}
+}
+
 func TestCompileCategoryScanRequiringValueBindsPresencePolicyAndStageSchema(t *testing.T) {
 	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
 	ordinary, err := CompileCategoryScanStageWithPolicy(output, "keep_positive", "status_id", "amount_id", 256, ir.DefaultPhysicalOptimizationPolicy())
@@ -792,5 +842,45 @@ func TestCompileCategoryScanRequiringValueFiltersEmptyPivotColumns(t *testing.T)
 	}
 	if !projected["total"] || !projected["status"] {
 		t.Fatalf("requiring-value terminal projection = %v, want both category status and value total by name:\n%s", projected, scanned.Query)
+	}
+}
+
+func TestSourceCategoryPairScanProjectsOnlyRequestedValuesAndPresence(t *testing.T) {
+	output := compilePopulationMappingOutput(t, recipe.Output{
+		Name: "pairs", RootResourceType: "Patient", RowGrain: "patient",
+		Fields: []recipe.Field{
+			{Name: "id", ColumnID: "id", Expr: recipe.Expression{Select: "root.id"}},
+			{Name: "category", ColumnID: "category", Expr: recipe.Expression{Select: "root.gender"}},
+			{Name: "value", ColumnID: "value", Expr: recipe.Expression{Select: "root.multipleBirthInteger"}},
+			{Name: "unrelated", ColumnID: "unrelated", Expr: recipe.Expression{Select: "root.birthDate"}},
+		},
+		Construction: &recipe.Construction{Version: 1, SourceColumns: []recipe.StageColumn{{ID: "id", Name: "id"}, {ID: "category", Name: "category"}, {ID: "value", Name: "value"}, {ID: "unrelated", Name: "unrelated"}}},
+	})
+	scan, err := CompileCategoryScanStageRequiringValue(output, recipe.ConstructionSourceProjectionID, "category", "value", 256, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for key, value := range scan.BindVars {
+		if strings.HasPrefix(key, "__loom_physical_projection_") && strings.HasSuffix(key, "_name") {
+			name, ok := value.(string)
+			if ok {
+				names[name] = true
+			}
+		}
+	}
+	if !names["category"] || !names["value"] || names["unrelated"] || names["id"] {
+		t.Fatalf("category pair projection = %#v", names)
+	}
+	for _, guard := range []string{"root.project == @project", "root.dataset_generation == @dataset_generation", "root.auth_resource_path IN @auth_resource_paths", "FILTER root_scope_allowed == @scope_allowed"} {
+		if !strings.Contains(scan.Query, guard) {
+			t.Fatalf("missing authorization/filter guard %s", guard)
+		}
+	}
+	if !scan.Proof.ValuePresenceRequired || !scan.Proof.PresenceTracked {
+		t.Fatalf("pair scan lost presence proof: %+v", scan.Proof)
+	}
+	if strings.Contains(scan.Query, "SORT root._key") {
+		t.Fatal("unbounded category scan retains unnecessary root ordering")
 	}
 }

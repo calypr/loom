@@ -71,6 +71,9 @@ func (s *Service) DescribeAuthoringNetwork(ctx context.Context, request Authorin
 		}
 		return empty, unprocessable("authoring-network", "INVALID_AUTHORING_NETWORK", err.Error(), err)
 	}
+	if network.ProjectedFields == nil {
+		network.ProjectedFields = authoringv2.ProjectedFieldsForDocument(*document, network)
+	}
 	rowIdentity := rowIdentityForNetwork(*document, network)
 	return AuthoringNetworkResponse{RowIdentity: rowIdentity, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, Network: network}, nil
 }

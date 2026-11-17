@@ -742,13 +742,18 @@ func (r *physicalPlanRenderer) renderExtensionCorrelatedPivot(correlation ir.Phy
 		lines = append(lines, fmt.Sprintf("    FILTER %s != null AND %s == @%s", url, url, correlation.ExtensionURLBindKeys[index]))
 		current = extension
 	}
-	values, err := r.renderCorrelationValues(current, correlation.ValueSelector, correlation.ValueFallbacks, correlation.FallbackOnBlankString)
-	if err != nil {
-		return "", err
-	}
-	unsupportedValues, err := r.renderCorrelationUnsupportedChoiceValues(current, correlation)
-	if err != nil {
-		return "", err
+	var values, unsupportedValues string
+	if correlation.CanonicalJSONValue {
+		values, unsupportedValues = "["+current+"]", "[]"
+	} else {
+		values, err = r.renderCorrelationValues(current, correlation.ValueSelector, correlation.ValueFallbacks, correlation.FallbackOnBlankString)
+		if err != nil {
+			return "", err
+		}
+		unsupportedValues, err = r.renderCorrelationUnsupportedChoiceValues(current, correlation)
+		if err != nil {
+			return "", err
+		}
 	}
 	lines = append(lines,
 		"    LET __correlation_values = "+values,
@@ -760,6 +765,9 @@ func (r *physicalPlanRenderer) renderExtensionCorrelatedPivot(correlation ir.Phy
 	value, err := renderCorrelatedReduction(projectionMode, stringify, correlation.ValuePrimitive)
 	if err != nil {
 		return "", err
+	}
+	if correlation.CanonicalJSONValue {
+		value = `{"__loom_postquery_call":"canonical_json","__loom_postquery_args":[FIRST(SORTED(__correlation_flat_values))]}`
 	}
 	// Aggregate every matched terminal extension before applying the declared
 	// reduction. Emitting one object per owner would make MERGE overwrite

@@ -447,6 +447,31 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-column-population:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: getExplorerConstructionColumnPopulation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConstructionColumnPopulationRequest'}
+      responses:
+        '200':
+          description: Exact non-null population summaries for a bounded batch of columns in the authorized current stage.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConstructionColumnPopulationResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-category-discoveries:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -2788,15 +2813,6 @@ components:
         outputKey: {type: string, minLength: 1}
         valueMode: {type: string, minLength: 1}
         status: {type: string, minLength: 1}
-    NetworkOperation:
-      type: object
-      additionalProperties: false
-      required: [operationId, kind, inputStepIds]
-      properties:
-        operationId: {type: string, minLength: 1}
-        kind: {type: string, minLength: 1}
-        inputStepIds: {type: array, items: {type: string, minLength: 1}}
-        anchorColumnId: {type: string, minLength: 1}
     ProjectedField:
       type: object
       additionalProperties: false
@@ -2821,6 +2837,15 @@ components:
         sourceStepId: {type: string, minLength: 1}
         sourceFieldId: {type: string, minLength: 1}
         sourceOutputKey: {type: string, minLength: 1}
+    NetworkOperation:
+      type: object
+      additionalProperties: false
+      required: [operationId, kind, inputStepIds]
+      properties:
+        operationId: {type: string, minLength: 1}
+        kind: {type: string, minLength: 1}
+        inputStepIds: {type: array, items: {type: string, minLength: 1}}
+        anchorColumnId: {type: string, minLength: 1}
     AuthoringNetwork:
       type: object
       additionalProperties: false
@@ -3364,7 +3389,7 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_CONSTRUCTION_OUTPUT, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, UPDATE_COLUMN_ROW_VALUE_POLICY, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, SET_FRAME_SOURCE, REPLACE_FRAME_SOURCE, REMOVE_FRAME_SOURCE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL, APPLY_POPULATION_MEMBER_PROPOSAL, UPDATE_IMPORTED_SOURCE_STEP, REFRESH_IMPORTED_SOURCE, APPLY_IMPORTED_RELATIONSHIP_PROPOSAL, APPLY_COLUMN_POLICY_PROPOSAL, RESTORE_DRAFT_REVISION]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_CONSTRUCTION_OUTPUT, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, UPDATE_COLUMN_ROW_VALUE_POLICY, REMOVE_COLUMN, REMOVE_PROJECTED_FIELD, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, SET_FRAME_SOURCE, REPLACE_FRAME_SOURCE, REMOVE_FRAME_SOURCE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL, APPLY_POPULATION_MEMBER_PROPOSAL, UPDATE_IMPORTED_SOURCE_STEP, REFRESH_IMPORTED_SOURCE, APPLY_IMPORTED_RELATIONSHIP_PROPOSAL, APPLY_COLUMN_POLICY_PROPOSAL, RESTORE_DRAFT_REVISION]
         outputId: {type: string, minLength: 1}
         proposalId: {type: string, minLength: 1}
         draftRevisionId: {type: string, minLength: 1}
@@ -3381,6 +3406,7 @@ components:
         projectionMode: {$ref: '#/components/schemas/ProjectionMode'}
         initialPresentation: {type: string, enum: [TABLE, FILTER, CHART]}
         column: {type: string, minLength: 1}
+        columnId: {type: string, minLength: 1}
         rowValuePolicy: {type: string, enum: [ALL, ONE]}
         columnValue: {$ref: '#/components/schemas/Column'}
         constructionOutput: {$ref: '#/components/schemas/ConstructionOutputPresentation'}
@@ -3668,6 +3694,16 @@ components:
           $ref: '#/components/schemas/SourceRecipeExpression'
         value:
           $ref: '#/components/schemas/SourceRecipeExpression'
+        outputs:
+          type: array
+          maxItems: 4096
+          items:
+            type: object
+            additionalProperties: false
+            required: [key, enabled]
+            properties:
+              key: {type: string, minLength: 1, maxLength: 2048}
+              enabled: {type: boolean}
       x-go-type: authoringv2.ImportedDynamicParameters
       x-go-type-import:
         name: authoringv2
@@ -3687,6 +3723,16 @@ components:
           maxLength: 2048
         source:
           $ref: '#/components/schemas/SourceRecipeExpression'
+        outputs:
+          type: array
+          maxItems: 256
+          items:
+            type: object
+            additionalProperties: false
+            required: [key, enabled]
+            properties:
+              key: {type: string, pattern: '^ext-v1:[0-9a-f]{64}$'}
+              enabled: {type: boolean}
       x-go-type: authoringv2.ImportedExtensionParameters
       x-go-type-import:
         name: authoringv2
@@ -5329,6 +5375,47 @@ components:
         stageId: {type: string, minLength: 1}
         groupStepId: {type: string, minLength: 1}
         includeGroupChoices: {type: boolean}
+    ConstructionColumnPopulationRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, stageId, columnIds]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        stageId: {type: string, minLength: 1}
+        columnIds:
+          type: array
+          minItems: 1
+          maxItems: 16
+          uniqueItems: true
+          items: {type: string, minLength: 1}
+    ColumnPopulationSummary:
+      type: object
+      additionalProperties: false
+      required: [columnId, status]
+      properties:
+        columnId: {type: string, minLength: 1}
+        status:
+          type: string
+          enum: [POPULATED, EMPTY, UNKNOWN]
+          x-enum-varnames: [COLUMN_POPULATION_POPULATED, COLUMN_POPULATION_EMPTY, COLUMN_POPULATION_UNKNOWN]
+    ConstructionColumnPopulationResponse:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, draftVersion, draftDigest, outputId, stageId, columns]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        stageId: {type: string, minLength: 1}
+        columns:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items: {$ref: '#/components/schemas/ColumnPopulationSummary'}
     ConstructionCategoryDiscoveryRequest:
       type: object
       additionalProperties: false

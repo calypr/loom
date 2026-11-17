@@ -298,8 +298,7 @@ func relativePivotPath(itemSource, selector string) string {
 func resolveDynamicColumns(ctx context.Context, scope Scope, discovery Discovery, resourceType, alias string, dynamics []recipe.DynamicColumn) error {
 	for index := range dynamics {
 		dynamic := &dynamics[index]
-		wasUnresolved := len(dynamic.Columns) == 0
-		if len(dynamic.Columns) > 0 {
+		if dynamic.Columns != nil {
 			continue
 		}
 		if dynamic.Key == nil {
@@ -339,9 +338,7 @@ func resolveDynamicColumns(ctx context.Context, scope Scope, discovery Discovery
 			return fmt.Errorf("dynamic column %q discovery found %d columns, exceeding maxColumns %d", dynamic.Name, len(values), dynamic.MaxColumns)
 		}
 		dynamic.Columns = sortedValues(values)
-		if wasUnresolved {
-			dynamic.Discovered = true
-		}
+		dynamic.Discovered = true
 		// A keyed family is optional: a valid FHIR dataset may have no values
 		// for an extension/identifier family at all. Keep the declaration with
 		// an empty frozen column set so resolution remains schema-stable and the

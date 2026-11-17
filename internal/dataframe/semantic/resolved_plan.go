@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 // ResolvedColumn is a discovered output column whose name and logical value
@@ -58,6 +60,9 @@ func ResolveRecipePlan(plan RecipePlan, scopeDigest, sourceGeneration string) (R
 		var walk func(SemanticNode) error
 		walk = func(node SemanticNode) error {
 			for _, dynamic := range node.DynamicMaps {
+				if len(dynamic.ColumnSourceKeys) > 0 && len(dynamic.OutputOverrides) > 0 && dynamic.OutputKey == "" {
+					return fmt.Errorf("output %q dynamic map %q cannot apply output overrides to mapped source keys", output.Name, dynamic.Name)
+				}
 				if dynamic.Columns == nil {
 					return fmt.Errorf("output %q dynamic map %q is unresolved; resolve it through the catalog-backed recipe resolver first", output.Name, dynamic.Name)
 				}
@@ -65,23 +70,31 @@ func ResolveRecipePlan(plan RecipePlan, scopeDigest, sourceGeneration string) (R
 					// An empty catalog result is a valid optional family. The
 					// resolver has already frozen it to zero columns, so there is
 					// no schema or physical lookup to attach to this node.
+					if len(dynamic.OutputOverrides) > 0 {
+						resolved.ResolvedColumns[dynamicMapKey(output.Name, dynamic)] = []ResolvedColumn{}
+					}
 					continue
 				}
-				candidates := make([]Candidate, 0, len(dynamic.Columns))
-				for _, column := range dynamic.Columns {
+				enabledKeys, _ := dynamicOutputSelection(dynamic.Columns, dynamic.OutputOverrides)
+				candidates := make([]Candidate, 0, len(enabledKeys))
+				for _, column := range enabledKeys {
 					valueType := dynamic.ColumnTypes[column]
 					if valueType == "" {
 						valueType = "unknown"
 					}
 					candidates = append(candidates, Candidate{Key: column, ValueType: valueType})
 				}
+				key := dynamicMapKey(output.Name, dynamic)
+				if len(enabledKeys) == 0 {
+					resolved.ResolvedColumns[key] = []ResolvedColumn{}
+					continue
+				}
 				schema, err := Freeze(DynamicSpec{
-					Name: dynamic.Name, ColumnPrefix: dynamic.ColumnPrefix, AllowedKeys: dynamic.Columns, MaxColumns: dynamic.MaxColumns, Collision: output.Collision,
+					Name: dynamic.Name, ColumnPrefix: dynamic.ColumnPrefix, AllowedKeys: enabledKeys, MaxColumns: dynamic.MaxColumns, Collision: output.Collision,
 				}, candidates)
 				if err != nil {
 					return fmt.Errorf("output %q dynamic map %q: %w", output.Name, dynamic.Name, err)
 				}
-				key := dynamicMapKey(output.Name, dynamic)
 				columns := make([]ResolvedColumn, 0, len(schema.Columns))
 				for _, column := range schema.Columns {
 					if sourceKey := dynamic.ColumnSourceKeys[column.SourceKey]; sourceKey != "" {
@@ -128,6 +141,21 @@ func ResolveRecipePlan(plan RecipePlan, scopeDigest, sourceGeneration string) (R
 	sum := sha256.Sum256(canonical)
 	resolved.ResolvedSchemaDigest = hex.EncodeToString(sum[:])
 	return resolved, nil
+}
+
+func dynamicOutputSelection(columns []string, overrides []recipe.DynamicColumnOutputOverride) (enabled, excluded []string) {
+	byKey := make(map[string]bool, len(overrides))
+	for _, override := range overrides {
+		byKey[override.Key] = override.Enabled
+	}
+	for _, key := range columns {
+		if isEnabled, exists := byKey[key]; exists && !isEnabled {
+			excluded = append(excluded, key)
+			continue
+		}
+		enabled = append(enabled, key)
+	}
+	return enabled, excluded
 }
 
 func dynamicMapKey(output string, dynamic SemanticDynamicMap) string {

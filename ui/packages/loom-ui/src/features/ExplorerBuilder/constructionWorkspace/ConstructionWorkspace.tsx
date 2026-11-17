@@ -510,7 +510,6 @@ export const ConstructionWorkspace = ({
   presentationActionRef,
   preview,
   editor,
-  showNavigationDuringEditor = false,
   inspection,
   changeReview,
   onChangeReviewHostChange,
@@ -549,7 +548,6 @@ export const ConstructionWorkspace = ({
   readonly presentationActionRef?: { current: ((view: 'both' | 'network' | 'row') => void) | undefined };
   readonly preview: React.ReactNode;
   readonly editor?: React.ReactNode;
-  readonly showNavigationDuringEditor?: boolean;
   readonly inspection?: React.ReactNode;
   readonly changeReview?: React.ReactNode;
   readonly onChangeReviewHostChange?: (node: HTMLDivElement | null) => void;
@@ -759,7 +757,7 @@ export const ConstructionWorkspace = ({
         <aside aria-label="Recipe editor" className="construction-side-panel">
           <div className="construction-source-controls">{rowSetup}{history?.sourceSteps}</div>
           {editor ? <section aria-label="Change editor" className="construction-active-editor min-h-0 min-w-0">{editor}</section> : null}
-          <div hidden={Boolean(editor) && !showNavigationDuringEditor} className="construction-scope-navigation">
+          <div hidden={Boolean(editor)} className="construction-scope-navigation">
             {navigation ?? (!editor ? <ConstructionActionBar
               activeFamily={activeFamily} disabled={actionsDisabled}
               addColumnsDisabled={addColumnsDisabled} addColumnsReason={addColumnsReason} combineDisabled={combineDisabled}

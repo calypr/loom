@@ -1,5 +1,6 @@
 import { createOpaqueId, normalizedName, uniqueName, editorContextKey, stageWithSourceInputs, type CodedPivotContext } from './editorShared';
 import React, { useCallback, useId, useReducer, useRef, useState } from 'react';
+import { useQuery } from '../../../react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type {
   Construction,
@@ -303,6 +304,56 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     ? pivotSupport
     : { supported: false, reason: pivotSupport.supported ? 'Stage-scoped category discovery is not available yet.' : pivotSupport.reason };
   const pivotDiscovery = formContextKey === contextKey ? props.pivotDiscovery : undefined;
+  const populationForm = form.kind === 'pivot' ? form : undefined;
+  const populationStage = populationForm
+    ? pivotInputStage(stage, populationForm, capabilities.pivotSourceInput?.choices ?? [])
+    : stage;
+  const populationColumns = scalarColumnsFor(populationStage).map((column) => column.id);
+  const populationIdentity = props.codedPivotContext && form.kind === 'pivot' && !form.pivotSources?.length
+    ? JSON.stringify([capabilities.snapshotToken, capabilities.draftVersion, capabilities.draftDigest,
+      capabilities.outputId, populationStage.id, populationColumns])
+    : undefined;
+  const populationQuery = useQuery(async (signal) => {
+    const context = props.codedPivotContext;
+    if (!context || !populationIdentity) return { identity: '', statuses: {} as Record<string, 'POPULATED' | 'EMPTY' | 'UNKNOWN'> };
+    const batches: string[][] = [];
+    for (let index = 0; index < populationColumns.length; index += 16) batches.push(populationColumns.slice(index, index + 16));
+    const statuses: Record<string, 'POPULATED' | 'EMPTY' | 'UNKNOWN'> = {};
+    await Promise.all(batches.map(async (columnIds) => {
+      try {
+        const response = await context.client.getConstructionColumnPopulation({
+          project: context.project,
+          explorerId: context.explorerId,
+          authResourcePath: context.authResourcePath,
+          snapshotToken: capabilities.snapshotToken,
+          expectedDraftVersion: capabilities.draftVersion,
+          expectedDraftDigest: capabilities.draftDigest,
+          outputId: capabilities.outputId,
+          stageId: populationStage.id,
+          columnIds,
+        }, signal);
+        if (signal.aborted || response.snapshotToken !== capabilities.snapshotToken || response.draftVersion !== capabilities.draftVersion ||
+          response.draftDigest !== capabilities.draftDigest || response.outputId !== capabilities.outputId || response.stageId !== populationStage.id) return;
+        for (const column of response.columns) statuses[column.columnId] = column.status;
+      } catch {
+        if (!signal.aborted) for (const columnId of columnIds) statuses[columnId] = 'UNKNOWN';
+      }
+    }));
+    const current = pivotStateRef.current.snapshot;
+    if (Object.values(statuses).includes('EMPTY') && current.form.kind === 'pivot' &&
+      current.formContextKey === contextKey && [current.form.categoryColumnId, current.form.valueColumnId]
+        .some((columnId) => columnId && statuses[columnId] === 'EMPTY')) {
+      const scheduled = pivotStateRef.current.scheduled;
+      if (scheduled) {
+        window.clearTimeout(scheduled.timer);
+        sendPivotAction({ type: 'schedule-canceled', identity: scheduled.identity, revision: scheduled.revision });
+      }
+      current.onCandidateChange(undefined);
+    }
+    return { identity: populationIdentity, statuses };
+  }, [props.codedPivotContext?.client, populationIdentity], Boolean(populationIdentity));
+  const populationStatuses = populationQuery.data?.identity === populationIdentity ? populationQuery.data?.statuses : undefined;
+  const populationStatusFor = (columnId: string): 'POPULATED' | 'EMPTY' | 'UNKNOWN' => populationStatuses?.[columnId] ?? 'UNKNOWN';
   const pivotEvaluationContextKey = JSON.stringify([
     groupSupport,
     groupCodedValuesSupported,
@@ -661,7 +712,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     if (!owner || !current.mounted || snapshot.disabled || snapshot.formContextKey !== snapshot.contextKey
         || !snapshot.pivotSupported || pivot.discovery
         || (pivot.pivotSources?.length && pivot.groupKeyIds.length === 0)
-        || pivot.categoryColumnId === '' || pivot.valueColumnId === '') return;
+        || pivot.categoryColumnId === '' || pivot.valueColumnId === ''
+        || [pivot.categoryColumnId, pivot.valueColumnId].some((columnId) => populationStatusFor(columnId) === 'EMPTY')) return;
 
     const identity = pivotDiscoveryRequestIdentity(pivot, snapshot.stageId, snapshot.contextKey);
     const revision = current.revision;
@@ -871,6 +923,10 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           requireEveryDiscoveredCategory={editingStep?.operation.kind !== 'PIVOT'}
           canDiscover={Boolean(props.onDiscoverCategories)}
           showRowSelection={!props.useExternalColumnSelection}
+          populationStatusFor={populationStatusFor}
+          populationChecking={populationQuery.isLoading && Boolean(populationIdentity)}
+          populationUnavailable={Boolean(populationIdentity) && !populationQuery.isLoading && (
+            populationQuery.data?.identity !== populationIdentity || Object.values(populationStatuses ?? {}).some((status) => status === 'UNKNOWN'))}
           onDiscover={() => requestPivotCategories(form, true)}
           onManualCategorySelection={rememberManualPivotSelection}
           onForgetPairSelection={forgetPivotPairSelection}

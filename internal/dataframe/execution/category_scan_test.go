@@ -25,6 +25,80 @@ func compiledCategoryScan(max int) compiler.CompiledCategoryScanQuery {
 	}
 }
 
+func TestScanColumnPopulationCompiledReturnsOnlyExactStatuses(t *testing.T) {
+	compiled := compiler.CompiledColumnPopulationScan{
+		Query: "population", BindVars: map[string]any{"scope": "authorized"}, ColumnIDs: []string{"zero", "false", "empty", "missing"},
+	}
+	engine := &Engine{queryRows: func(_ context.Context, query string, _ int, binds map[string]any, visit func(map[string]any) error) error {
+		if query != "population" || binds["scope"] != "authorized" {
+			t.Fatalf("wrong invocation: %q %#v", query, binds)
+		}
+		return visit(map[string]any{"populated_0": true, "populated_1": true, "populated_2": true, "populated_3": false})
+	}}
+	result, err := engine.ScanColumnPopulationCompiled(context.Background(), compiled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ColumnPopulation{
+		{ColumnID: "zero", Status: ColumnPopulationPopulated},
+		{ColumnID: "false", Status: ColumnPopulationPopulated},
+		{ColumnID: "empty", Status: ColumnPopulationPopulated},
+		{ColumnID: "missing", Status: ColumnPopulationEmpty},
+	}
+	if !reflect.DeepEqual(result.Columns, want) {
+		t.Fatalf("columns = %#v, want %#v", result.Columns, want)
+	}
+}
+
+func TestScanColumnPopulationCompiledRequiresCompleteSingleStatusRow(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		run  func(func(map[string]any) error) error
+	}{
+		{name: "zero rows", run: func(func(map[string]any) error) error { return nil }},
+		{name: "multiple rows", run: func(visit func(map[string]any) error) error {
+			if err := visit(map[string]any{"populated_0": false}); err != nil {
+				return err
+			}
+			return visit(map[string]any{"populated_0": true})
+		}},
+		{name: "invalid marker", run: func(visit func(map[string]any) error) error { return visit(map[string]any{"populated_0": 0}) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+				return test.run(visit)
+			}}
+			_, err := engine.ScanColumnPopulationCompiled(context.Background(), compiler.CompiledColumnPopulationScan{Query: "scan", ColumnIDs: []string{"field"}})
+			if err == nil {
+				t.Fatal("accepted incomplete or malformed population scan")
+			}
+		})
+	}
+}
+
+func TestScanColumnPopulationCompiledUsesPreviewExecutorAndHonorsCancellation(t *testing.T) {
+	var normalCalls, previewCalls atomic.Int32
+	engine := &Engine{
+		queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+			normalCalls.Add(1)
+			return nil
+		},
+		previewQueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			previewCalls.Add(1)
+			return visit(map[string]any{"populated_0": false})
+		},
+	}
+	_, err := engine.ScanColumnPopulationCompiled(context.Background(), compiler.CompiledColumnPopulationScan{Query: "scan", ColumnIDs: []string{"field"}})
+	if err != nil || normalCalls.Load() != 0 || previewCalls.Load() != 1 {
+		t.Fatalf("preview execution err=%v normal=%d preview=%d", err, normalCalls.Load(), previewCalls.Load())
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := engine.ScanColumnPopulationCompiled(ctx, compiler.CompiledColumnPopulationScan{Query: "scan", ColumnIDs: []string{"field"}}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled scan error = %v", err)
+	}
+}
+
 func TestScanCategoriesCompiledReportsCompleteAtBoundAndOverflowAtBoundPlusOne(t *testing.T) {
 	for _, test := range []struct {
 		rows, wantValues   int

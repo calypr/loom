@@ -146,6 +146,21 @@ describe('ImportedSourceSteps', () => {
     expect(screen.getByTestId('imported-source-step-editor')).toBeTruthy();
   });
 
+  it('exposes the same Cancel path for an owning panel to close a clean source editor', () => {
+    const cancelEditActionRef: { current: (() => void) | undefined } = { current: undefined };
+    const onBeginEdit = vi.fn(() => true);
+    const onCancelEdit = vi.fn();
+    renderSourceSteps({ cancelEditActionRef, onBeginEdit, onCancelEdit });
+
+    fireEvent.click(screen.getByTestId('imported-source-step-fields'));
+    expect(screen.getByTestId('imported-source-step-editor')).toBeTruthy();
+    act(() => cancelEditActionRef.current?.());
+
+    expect(onBeginEdit).toHaveBeenCalledOnce();
+    expect(onCancelEdit).toHaveBeenCalledOnce();
+    expect(screen.queryByTestId('imported-source-step-editor')).toBeNull();
+  });
+
   it('offers a refresh action only when an older imported document has no source plan', async () => {
     const { onRefresh } = renderSourceSteps({ importedSource: undefined });
 
@@ -189,6 +204,36 @@ it('keeps navigator-only parameter editing on the existing shared review and can
   expect(parameters.fieldGroup.fields[0].name).toBe('id');
   fireEvent.click(screen.getByRole('button',{name:'Close'}));
   expect(canceled).toHaveBeenCalledOnce();expect(screen.queryByTestId('imported-source-step-editor')).toBeNull();
+});
+
+it('previews field removal as a staged disable with the same slots and discards it on Cancel', () => {
+  const parameters = { fieldGroup: { fields: [
+    { fieldId: 'first', enabled: true, name: 'first', expr: { select: 'root.id' } },
+    { fieldId: 'second', enabled: true, name: 'second', expr: { select: 'root.status' } },
+  ] } };
+  const editActionRef: { current: ((stepId: string) => void) | undefined } = { current: undefined };
+  const canceled = vi.fn();
+  const source = { steps: [{ ...sourcePlan.steps[0], parameters }] };
+  const { onApply } = renderSourceSteps({ importedSource: source, navigatorOnly: true, editActionRef,
+    onCancelEdit: canceled,
+    renderReview: (change, onCancel) => <><pre data-testid="field-removal-review">{JSON.stringify(change)}</pre>
+      <button type="button" onClick={onCancel}>Cancel whole proposal</button></>,
+  });
+
+  act(() => editActionRef.current?.('fields'));
+  fireEvent.click(screen.getByRole('button', { name: 'Remove first' }));
+
+  const review = JSON.parse(screen.getByTestId('field-removal-review').textContent!);
+  const fields = review.parameters.fieldGroup.fields;
+  expect(fields.map((field: { fieldId: string }) => field.fieldId)).toEqual(['first', 'second']);
+  expect(fields.map((field: { enabled: boolean }) => field.enabled)).toEqual([false, true]);
+  expect(parameters.fieldGroup.fields.map((field) => field.enabled)).toEqual([true, true]);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel whole proposal' }));
+  expect(canceled).toHaveBeenCalledOnce();
+  expect(onApply).not.toHaveBeenCalled();
+  expect(screen.queryByTestId('imported-source-step-editor')).toBeNull();
+  expect(parameters.fieldGroup.fields.map((field) => field.enabled)).toEqual([true, true]);
 });
 
 it('stages an expansion alias and explicit dependent selector edits in one review without retargeting the primary owner', () => {
@@ -281,9 +326,14 @@ it('browses all recipe operations in order and disables inclusion at the 128-ope
   renderSourceSteps({ importedSource: { steps }, navigatorOnly: true, editActionRef,
     renderReview: (change, _close, batch) => <pre data-testid="batch">{JSON.stringify(batch ?? [change])}</pre> }, navigation);
   fireEvent.click(screen.getByRole('button', { name: 'Navigate Operation 0' }));
-  for (let index = 1; index <= 127; index += 1) fireEvent.click(screen.getByRole('button', { name: `Navigate Operation ${index}` }));
+  for (let index = 1; index <= 127; index += 1) {
+    fireEvent.click(screen.getByRole('button', { name: `Navigate Operation ${index}` }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Field 1 value policy' }), { target: { value: 'ALL' } });
+  }
   expect(JSON.parse(screen.getByTestId('batch').textContent!)).toHaveLength(128);
   fireEvent.click(screen.getByRole('button', { name: 'Navigate Operation 128' }));
+  expect(screen.queryByRole('alert')).toBeNull();
+  fireEvent.change(screen.getByRole('combobox', { name: 'Field 1 value policy' }), { target: { value: 'ALL' } });
   expect(screen.getByRole('alert').textContent).toContain('up to 128 source operations');
   expect(screen.queryByRole('region', { name: 'Recipe operations' })).toBeNull();
 }, 15000);
@@ -379,4 +429,66 @@ it('keeps an enabled-only primary available to edit after staging a parameterize
   fireEvent.click(screen.getByRole('button', { name: 'Row identity' }));
   fireEvent.click(screen.getByRole('button', { name: 'Patient fields' }));
   expect(screen.queryByRole('checkbox', { name: /Run operation/ })).toBeNull();
+});
+
+it('opens source operation settings directly and preserves actual edits across operations', () => {
+  const dirty = vi.fn();
+  const editActionRef: { current: ((id: string) => void) | undefined } = { current: undefined };
+  renderSourceSteps({ navigatorOnly: true, editActionRef, onDraftChange: dirty,
+    importedSource: { steps: [
+      { id: 'fields', kind: 'FIELD_GROUP', title: 'Fields from Patient', summary: '', enabled: true, editable: true, parameters: { fieldGroup: { fields: [{ fieldId: 'id', name: 'id', enabled: true, expr: { select: 'root.id' } }] } } },
+      { id: 'keys', kind: 'DYNAMIC_COLUMN', title: 'Keyed fields', summary: '', enabled: true, editable: true, maxColumns: 20, parameters: { dynamic: { name: 'keys', source: { select: 'root.identifier[]' } } } },
+    ] }, renderReview: (change, _cancel, batch) => <pre data-testid="tab-review">{JSON.stringify(batch ?? [change])}</pre> });
+  act(() => editActionRef.current?.('fields'));
+  const original = screen.getByTestId('tab-review').textContent;
+  act(() => editActionRef.current?.('keys'));
+  expect(dirty).not.toHaveBeenCalled();
+  expect(screen.getByTestId('tab-review').textContent).toBe(original);
+  expect(screen.queryByRole('list', { name: 'Projected fields' })).toBeNull();
+  fireEvent.change(screen.getByTestId('imported-source-max-columns'), { target: { value: '12' } });
+  expect(dirty).toHaveBeenCalledOnce();
+  expect(JSON.parse(screen.getByTestId('tab-review').textContent!)).toEqual([{ stepId: 'fields', enabled: true }, { stepId: 'keys', enabled: true, maxColumns: 12 }]);
+  act(() => editActionRef.current?.('fields'));
+  expect(screen.getByRole('list', { name: 'Projected fields' })).toBeInTheDocument();
+  act(() => editActionRef.current?.('keys'));
+  expect(screen.getByTestId('imported-source-max-columns')).toHaveProperty('value', '12');
+  expect(dirty).toHaveBeenCalledOnce();
+});
+
+it('omits the settings tab when the field source has no editable settings', () => {
+  const editActionRef: { current: ((id: string) => void) | undefined } = { current: undefined };
+  renderSourceSteps({ navigatorOnly: true, editActionRef, importedSource: { steps: [
+    { id: 'fields', kind: 'FIELD_GROUP', title: 'Fields from Patient', summary: '', enabled: true, editable: true,
+      parameters: { fieldGroup: { fields: [{ fieldId: 'id', name: 'id', enabled: true, expr: { select: 'root.id' } }] } } },
+  ] } });
+  act(() => editActionRef.current?.('fields'));
+  expect(screen.getByRole('list', { name: 'Projected fields' })).toBeInTheDocument();
+  expect(screen.queryByRole('tab', { name: 'Source settings' })).toBeNull();
+});
+
+it('keeps each occurrence source editor and pending values independently', () => {
+  const editActionRef: { current: ((id: string) => void) | undefined } = { current: undefined };
+  const switchOccurrenceActionRef: { current: ((id: string) => boolean) | undefined } = { current: undefined };
+  const dirty = vi.fn();
+  const begin = vi.fn(() => true);
+  const suspend = vi.fn(() => true);
+  renderSourceSteps({ navigatorOnly: true, editActionRef, switchOccurrenceActionRef, onDraftChange: dirty, onBeginEdit: begin, onSuspendEdit: suspend,
+    occurrenceForStep: (id) => id === 'a' ? 'first-patient' : 'second-patient',
+    importedSource: { steps: ['a', 'b'].map((id) => ({ id, kind: 'DYNAMIC_COLUMN', title: `${id} fields`, summary: '', enabled: true, editable: true,
+      maxColumns: 20, parameters: { dynamic: { name: id, source: { select: 'root.identifier[]' } } } })) },
+    renderReview: (change) => <pre data-testid="occurrence-review">{JSON.stringify(change)}</pre> });
+  act(() => editActionRef.current?.('a'));
+  fireEvent.change(screen.getByTestId('imported-source-max-columns'), { target: { value: '12' } });
+  act(() => { switchOccurrenceActionRef.current?.('second-patient'); });
+  expect(screen.queryByTestId('imported-source-step-editor')).toBeNull();
+  act(() => editActionRef.current?.('b'));
+  expect(screen.getByTestId('imported-source-max-columns')).toHaveProperty('value', '20');
+  act(() => { switchOccurrenceActionRef.current?.('first-patient'); });
+  expect(screen.queryByRole('tab', { name: 'Source settings' })).toBeNull();
+  expect(screen.getByTestId('imported-source-max-columns')).toHaveProperty('value', '12');
+  expect(JSON.parse(screen.getByTestId('occurrence-review').textContent!)).toMatchObject({ stepId: 'a', maxColumns: 12 });
+  act(() => { switchOccurrenceActionRef.current?.('second-patient'); });
+  expect(screen.getByTestId('imported-source-max-columns')).toHaveProperty('value', '20');
+  expect(JSON.parse(screen.getByTestId('occurrence-review').textContent!)).toEqual({ stepId: 'b', enabled: true });
+  expect(suspend).toHaveBeenCalledTimes(3);
 });

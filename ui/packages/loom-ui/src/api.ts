@@ -28,6 +28,8 @@ import {
   constructionInputsResponseSchema,
   constructionCapabilitiesRequestSchema,
   constructionCapabilitiesResponseSchema,
+  constructionColumnPopulationRequestSchema,
+  constructionColumnPopulationResponseSchema,
   constructionCategoryDiscoveryRequestSchema,
   constructionCategoryDiscoveryResponseSchema,
   authoringNetworkRequestSchema,
@@ -70,6 +72,7 @@ import {
   type RelatedFieldChoiceSearchResponse,
   type ConstructionInputsResponse,
   type ConstructionCapabilitiesResponse,
+  type ConstructionColumnPopulationResponse,
   type ConstructionCategoryDiscoveryResponse,
   type ConstructionProposalRequest,
   type ConstructionProposalResponse,
@@ -443,6 +446,11 @@ export interface GetConstructionCapabilitiesArgs extends ConstructionAuthoringSt
   readonly includeGroupChoices?: boolean;
 }
 
+export interface GetConstructionColumnPopulationArgs extends ConstructionAuthoringStateArgs {
+  readonly stageId: string;
+  readonly columnIds: string[];
+}
+
 export interface DiscoverConstructionCategoriesArgs extends ConstructionAuthoringStateArgs {
   readonly groupKeyIds?: string[];
   readonly pivotStepId?: string;
@@ -733,6 +741,10 @@ export interface LoomClient {
     args: GetConstructionCapabilitiesArgs,
     signal?: AbortSignal,
   ) => Promise<ConstructionCapabilitiesResponse>;
+  readonly getConstructionColumnPopulation: (
+    args: GetConstructionColumnPopulationArgs,
+    signal?: AbortSignal,
+  ) => Promise<ConstructionColumnPopulationResponse>;
   readonly discoverConstructionCategories: (
     args: DiscoverConstructionCategoriesArgs,
     signal?: AbortSignal,
@@ -1674,6 +1686,18 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
         ...(args.includeGroupChoices ? { includeGroupChoices: true } : {}),
       }), signal, args.requestId ?? `construction-capabilities-${globalThis.crypto.randomUUID()}`,
     )).then((value) => constructionCapabilitiesResponseSchema.parse(value));
+  const getConstructionColumnPopulation = (args: GetConstructionColumnPopulationArgs, signal?: AbortSignal) => {
+    const body = constructionColumnPopulationRequestSchema.parse({
+      snapshotToken: args.snapshotToken,
+      expectedDraftVersion: args.expectedDraftVersion,
+      expectedDraftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      stageId: args.stageId,
+      columnIds: args.columnIds,
+    });
+    return request(durableAuthoringPath(args, '/construction-column-population'), withJson(body, signal, args.requestId))
+      .then((value) => constructionColumnPopulationResponseSchema.parse(value));
+  };
   const discoverConstructionCategories = (args: DiscoverConstructionCategoriesArgs, signal?: AbortSignal) =>
     request(durableAuthoringPath(args, '/construction-category-discoveries'), withJson(
       constructionCategoryDiscoveryRequestSchema.parse({
@@ -2000,6 +2024,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     listRowDefinitionChoices,
     proposeRowDefinition,
     getConstructionCapabilities,
+    getConstructionColumnPopulation,
     discoverConstructionCategories,
     getConstructionInputs,
     describeAuthoringNetwork,

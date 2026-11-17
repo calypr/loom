@@ -67,6 +67,7 @@ type ExtensionBinding struct {
 	OwnerPath             string   `json:"ownerPath,omitempty"`
 	URLPath               []string `json:"urlPath"`
 	ValuePath             string   `json:"valuePath"`
+	CanonicalJSONValue    bool     `json:"canonicalJsonValue,omitempty"`
 	LogicalType           string   `json:"logicalType"`
 	ChoiceArms            []string `json:"choiceArms,omitempty"`
 	ValueFallback         []string `json:"valueFallback,omitempty"`
@@ -108,6 +109,7 @@ type ExtensionBindingSpec struct {
 	OwnerResource         string
 	URLSelectors          []Selector
 	ValueSelector         Selector
+	CanonicalJSONValue    bool
 	ValueFallbacks        []Selector
 	FallbackOnBlankString bool
 	ChoiceArms            []string
@@ -478,19 +480,31 @@ func ValidateExtensionBinding(resourceType string, binding ExtensionBinding) (Ex
 			return ExtensionBindingSpec{}, fmt.Errorf("ownerPath base: %w", err)
 		}
 		resolved, ok := ResolvePath(resourceType, basePath)
-		if !ok || resolved.Property.Kind != "array" || strings.TrimSpace(resolved.Property.ItemRef) == "" {
-			return ExtensionBindingSpec{}, fmt.Errorf("ownerPath base %q must resolve to a repeated object", basePath)
+		if !ok || !((resolved.Property.Kind == "array" && strings.TrimSpace(resolved.Property.ItemRef) != "") || (resolved.Property.Kind == "object" && strings.TrimSpace(resolved.Property.Ref) != "")) {
+			return ExtensionBindingSpec{}, fmt.Errorf("ownerPath base %q must resolve to an object or repeated object", basePath)
 		}
 	}
-	value, err := validateBindingValue("Extension", binding.ValuePath, binding.ValueFallback, binding.FallbackOnBlankString, binding.ChoiceArms, binding.LogicalType, binding.UnitPath)
-	if err != nil {
-		return ExtensionBindingSpec{}, err
+	value := checkedBindingValue{LogicalType: binding.LogicalType}
+	if binding.CanonicalJSONValue {
+		if strings.TrimSpace(binding.ValuePath) != "" || len(binding.ValueFallback) != 0 || len(binding.ChoiceArms) != 0 || binding.UnitPath != "" || binding.FallbackOnBlankString {
+			return ExtensionBindingSpec{}, fmt.Errorf("canonical JSON Extension values cannot also select a value[x] arm or fallback")
+		}
+		if logical := strings.TrimSpace(binding.LogicalType); logical != "" && !strings.EqualFold(logical, "string") {
+			return ExtensionBindingSpec{}, fmt.Errorf("canonical JSON Extension values must have string logical type")
+		}
+		value.LogicalType = "string"
+	} else {
+		var err error
+		value, err = validateBindingValue("Extension", binding.ValuePath, binding.ValueFallback, binding.FallbackOnBlankString, binding.ChoiceArms, binding.LogicalType, binding.UnitPath)
+		if err != nil {
+			return ExtensionBindingSpec{}, err
+		}
 	}
 	urlSelectors := make([]Selector, extensionDepth)
 	for index := range urlSelectors {
 		urlSelectors[index], _ = ParseSelector("url")
 	}
-	return ExtensionBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: "Extension", URLSelectors: urlSelectors, ValueSelector: value.ValueSelector, ValueFallbacks: value.ValueFallbacks, FallbackOnBlankString: value.FallbackOnBlankString, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, UnitSelector: value.UnitSelector}, nil
+	return ExtensionBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: "Extension", URLSelectors: urlSelectors, ValueSelector: value.ValueSelector, CanonicalJSONValue: binding.CanonicalJSONValue, ValueFallbacks: value.ValueFallbacks, FallbackOnBlankString: value.FallbackOnBlankString, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, UnitSelector: value.UnitSelector}, nil
 }
 
 func normalizeCorrelatedLogicalType(input string) (string, bool) {

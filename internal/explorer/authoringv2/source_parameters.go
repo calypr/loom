@@ -50,16 +50,26 @@ type ImportedCatalogOutput struct {
 	Name      string `json:"name,omitempty"`
 }
 type ImportedDynamicParameters struct {
-	Name         string             `json:"name"`
-	ColumnPrefix *string            `json:"columnPrefix,omitempty"`
-	Source       recipe.Expression  `json:"source"`
-	Key          *recipe.Expression `json:"key,omitempty"`
-	Value        *recipe.Expression `json:"value,omitempty"`
+	Name         string                  `json:"name"`
+	ColumnPrefix *string                 `json:"columnPrefix,omitempty"`
+	Source       recipe.Expression       `json:"source"`
+	Key          *recipe.Expression      `json:"key,omitempty"`
+	Value        *recipe.Expression      `json:"value,omitempty"`
+	Outputs      []ImportedDynamicOutput `json:"outputs,omitempty"`
+}
+type ImportedDynamicOutput struct {
+	Key     string `json:"key"`
+	Enabled bool   `json:"enabled"`
 }
 type ImportedExtensionParameters struct {
-	Name         string            `json:"name"`
-	ColumnPrefix *string           `json:"columnPrefix,omitempty"`
-	Source       recipe.Expression `json:"source"`
+	Name         string                    `json:"name"`
+	ColumnPrefix *string                   `json:"columnPrefix,omitempty"`
+	Source       recipe.Expression         `json:"source"`
+	Outputs      []ImportedExtensionOutput `json:"outputs,omitempty"`
+}
+type ImportedExtensionOutput struct {
+	Key     string `json:"key"`
+	Enabled bool   `json:"enabled"`
 }
 type ImportedPivotDiscoveryParameters struct {
 	Family string `json:"family,omitempty"`
@@ -240,6 +250,30 @@ func (p *ImportedSourceParameters) Validate(kind string) error {
 			if output.Name != nil && *output.Name != strings.TrimSpace(*output.Name) {
 				return fmt.Errorf("pivot output %q name must be trimmed", output.Key)
 			}
+		}
+	}
+	if p.Dynamic != nil {
+		if len(p.Dynamic.Outputs) > 256 {
+			return fmt.Errorf("dynamic outputs must contain at most 256 entries")
+		}
+		seen := map[string]bool{}
+		for _, output := range p.Dynamic.Outputs {
+			if strings.TrimSpace(output.Key) == "" || output.Key != strings.TrimSpace(output.Key) || seen[output.Key] {
+				return fmt.Errorf("dynamic output keys must be nonempty, trimmed, and unique")
+			}
+			seen[output.Key] = true
+		}
+	}
+	if p.Extension != nil {
+		if len(p.Extension.Outputs) > 256 {
+			return fmt.Errorf("extension outputs must contain at most 256 entries")
+		}
+		seen := map[string]bool{}
+		for _, output := range p.Extension.Outputs {
+			if !recipe.ValidExtensionColumnOutputKey(output.Key) || seen[output.Key] {
+				return fmt.Errorf("extension output keys must be nonempty, trimmed, bounded, and unique")
+			}
+			seen[output.Key] = true
 		}
 	}
 	if p.Expansion != nil && !p.Expansion.EmptyPolicy.Valid() {

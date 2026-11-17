@@ -678,7 +678,7 @@ describe('Loom project paths', () => {
     } as const;
     const proposal = {
       candidateDocument: { kind: 'ExplorerBuilderDocument', output: { id: 'output', title: 'Output' }, rootResourceType: 'Patient', route: { occurrenceId: 'base', resourceType: 'Patient' }, rows: { kind: 'RECORDS', records: {} }, columns: [] },
-      candidateNetwork: { owner: 'DOCUMENT', outputId: 'output', sourceRows: { kind: 'RECORDS', records: {} }, occurrences: [], bindings: [], operations: [] },
+      candidateNetwork: { owner: 'DOCUMENT', outputId: 'output', sourceRows: { kind: 'RECORDS', records: {} }, projectedFields: [], occurrences: [], bindings: [], operations: [] },
       candidateRowIdentity: { outputId: 'output', sourceDefinition: { kind: 'RECORDS', records: {} }, stages: [], relationships: [] },
       proposalId: 'proposal-receipt',
       baseReceiptId: 'base-receipt',

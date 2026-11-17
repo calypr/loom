@@ -66,6 +66,28 @@ func (c *Command) ResolveImportedDocument(document Document) error {
 	return nil
 }
 
+// ResolveProjectedFieldRemovalDocument binds a pinned-field removal to the
+// exact server-resolved document candidate. The browser supplies only the
+// stable projected column identity.
+func (c *Command) ResolveProjectedFieldRemovalDocument(document Document) error {
+	if c == nil || c.Type != CommandRemoveProjectedField || document.Output.ID != c.OutputID || document.ImportedRecipe == nil {
+		return fmt.Errorf("projected field removal requires a matching imported document")
+	}
+	if err := document.Validate(); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(document)
+	if err != nil {
+		return err
+	}
+	var cloned Document
+	if err := json.Unmarshal(raw, &cloned); err != nil {
+		return err
+	}
+	c.resolvedImportedDocument = &cloned
+	return nil
+}
+
 // IsImportedSourceCommand identifies commands whose source must be resolved
 // from the immutable recipe and its project-local overlays by lifecycle.
 func IsImportedSourceCommand(kind string) bool {

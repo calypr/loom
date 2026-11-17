@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ConstructionReshapeEditor,
@@ -48,22 +48,44 @@ const renderEditor = (args: {
   readonly editingStep?: ConstructionReshapeStep;
   readonly onCandidateChange?: ConstructionReshapeEditorProps['onCandidateChange'];
   readonly onDiscoverCategories?: ConstructionReshapeEditorProps['onDiscoverCategories'];
+  readonly populationStatuses?: Record<string, 'POPULATED' | 'EMPTY' | 'UNKNOWN'>;
+  readonly populationGate?: Promise<void>;
 }) => {
   const onCandidateChange = (args.onCandidateChange
     ?? vi.fn()) as ReturnType<typeof vi.fn<NonNullable<ConstructionReshapeEditorProps['onCandidateChange']>>>;
+  const capabilities = args.capabilities ?? capabilitiesFor();
+  const getConstructionColumnPopulation = vi.fn(async (request: { readonly columnIds: string[] }) => {
+    await args.populationGate;
+    return {
+      snapshotToken: capabilities.snapshotToken,
+      draftVersion: capabilities.draftVersion,
+      draftDigest: capabilities.draftDigest,
+      outputId: capabilities.outputId,
+      stageId: capabilities.selectedStage.id,
+      columns: request.columnIds.map((columnId) => ({
+        columnId,
+        status: args.populationStatuses?.[columnId] ?? 'POPULATED' as const,
+      })),
+    };
+  });
   const view = render(
     <ConstructionReshapeEditor
       construction={args.construction ?? { version: 1, steps: [] }}
-      capabilities={args.capabilities ?? capabilitiesFor()}
+      capabilities={capabilities}
       editingStep={args.editingStep}
       initialKind="pivot"
       disabled={false}
       onCandidateChange={onCandidateChange}
       onEditStep={vi.fn()}
       onDiscoverCategories={args.onDiscoverCategories ?? vi.fn()}
+      codedPivotContext={{
+        client: { browseFrameSourceOptions: vi.fn(), browseSemanticInventory: vi.fn(), getConstructionColumnPopulation },
+        project: 'project-1', explorerId: 'explorer-1', snapshotToken: capabilities.snapshotToken,
+        outputId: capabilities.outputId, rowRoot: 'Patient',
+      }}
     />,
   );
-  return { onCandidateChange, view };
+  return { onCandidateChange, getConstructionColumnPopulation, view };
 };
 
 const pivotFrom = (intent: CandidateIntent | undefined) => {
@@ -78,6 +100,32 @@ const isChecked = (label: string): boolean => (screen.getByLabelText(label) as H
 afterEach(cleanup);
 
 describe('ConstructionReshapeEditor pivot discovery opt-in', () => {
+  it('checks population in batches of at most 16 columns', async () => {
+    const columns = Array.from({ length: 33 }, (_, index) => ({
+      id: `column-${index}`, name: `column_${index}`, label: `Column ${index}`,
+      type: 'string', cardinality: 'optional_one' as const,
+    }));
+    const stage = { ...pivotStage, columns };
+    const { getConstructionColumnPopulation } = renderEditor({ capabilities: capabilitiesFor(stage) });
+    await waitFor(() => expect(getConstructionColumnPopulation).toHaveBeenCalledTimes(3));
+    const batches = getConstructionColumnPopulation.mock.calls.map(([request]) => request.columnIds);
+    expect(batches.every((batch) => batch.length <= 16)).toBe(true);
+    expect(batches.flat()).toEqual(columns.map((column) => column.id));
+  });
+
+  it('cancels a pending category lookup when a selected column is confirmed empty', async () => {
+    let release!: () => void;
+    const populationGate = new Promise<void>((resolve) => { release = resolve; });
+    const { onCandidateChange } = renderEditor({ populationGate, populationStatuses: { 'age-id': 'EMPTY' } });
+    fireEvent.click(screen.getByLabelText('Discover categories when proposing'));
+    fireEvent.click(screen.getByLabelText('Pivot group Site'));
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'age-id' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'flag-id' } });
+    expect(onCandidateChange.mock.lastCall?.[0]).toBeDefined();
+    release();
+    await waitFor(() => expect(screen.getByRole('option', { name: /Age — No populated values/ })).toBeDisabled());
+    expect(onCandidateChange.mock.lastCall?.[0]).toBeUndefined();
+  });
   it('emits empty categories with discovery.maxCategories when enabled', () => {
     const { onCandidateChange } = renderEditor({ onCandidateChange: vi.fn() });
 

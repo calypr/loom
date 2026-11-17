@@ -27,10 +27,14 @@ func TestProjectedFieldsPreserveSavedInventoryAndExactBindings(t *testing.T) {
 	if fields[2].ColumnID != "" || fields[2].Status != ProjectedFieldStatusUnknown {
 		t.Fatalf("legacy identity invented: %+v", fields[2])
 	}
-	for _, field := range fields {
-		if field.Removal != ProjectedFieldRemovalUnavailable {
-			t.Fatalf("unsupported projected-field mutation advertised: %+v", field)
-		}
+	if fields[0].Removal != ProjectedFieldRemovalUnavailable {
+		t.Fatalf("pinned removal without compiler proof was advertised: %+v", fields[0])
+	}
+	if fields[1].Removal != ProjectedFieldRemovalColumn {
+		t.Fatalf("authored removal was not advertised: %+v", fields[1])
+	}
+	if fields[2].Removal != ProjectedFieldRemovalUnavailable {
+		t.Fatalf("legacy removal without stable identity was advertised: %+v", fields[2])
 	}
 	after, _ := json.Marshal(document)
 	if !reflect.DeepEqual(before, after) {

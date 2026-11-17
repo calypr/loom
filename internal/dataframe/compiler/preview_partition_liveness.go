@@ -106,189 +106,310 @@ func noOtherExpressionPayload(expression ir.PhysicalExpression) bool {
 }
 
 func collectPreviewOperationUses(operation ir.PhysicalOperation, uses map[string]bool) bool {
-	return collectPreviewNodeUses(&operation, uses)
-}
-
-// collectPreviewNodeUses follows the typed physical child graph and extracts
-// the few variable-name fields that are not PhysicalValue nodes. Subplans are
-// deliberate traversal boundaries: their declared Captures summarize all
-// references to outer scopes, while their local operation variables must not
-// accidentally keep unrelated source LETs live.
-func collectPreviewNodeUses(root ir.Node, uses map[string]bool) bool {
-	active := make(map[ir.Node]bool)
-	var walk func(ir.Node) bool
-	walk = func(node ir.Node) bool {
-		if node == nil {
-			return true
+	value := func(value ir.PhysicalValue) {
+		if value.Variable != "" {
+			uses[value.Variable] = true
 		}
-		if active[node] {
-			return false
-		}
-		active[node] = true
-		defer delete(active, node)
-
-		continueChildren := true
-		switch value := node.(type) {
-		case *ir.PhysicalOperation:
-			if !previewOperationPayloadSupported(value) {
-				return false
-			}
-			switch value.Kind {
-			case ir.PhysicalTraversalOp:
-				markPreviewVariable(uses, value.Traversal.SourceVariable)
-			case ir.PhysicalSetOp:
-				markPreviewVariable(uses, value.Set.SourceSetVariable)
-				if value.Set.Prepared != nil {
-					markPreviewVariable(uses, value.Set.Prepared.SourceSetVariable)
-				}
-				if value.Set.Reduction != nil {
-					markPreviewVariable(uses, value.Set.Reduction.SourceSetVariable)
-				}
-			}
-		case *ir.PhysicalExpression:
-			if !previewExpressionPayloadSupported(value) {
-				return false
-			}
-			switch value.Kind {
-			case ir.PhysicalExtractExpression:
-				if value.Extract.Prepared != nil {
-					markPreviewVariable(uses, value.Extract.Prepared.SetVariable)
-				}
-			case ir.PhysicalPivotExpression:
-				if value.Pivot.PreparedKey != nil {
-					markPreviewVariable(uses, value.Pivot.PreparedKey.SetVariable)
-				}
-				if value.Pivot.PreparedValue != nil {
-					markPreviewVariable(uses, value.Pivot.PreparedValue.SetVariable)
-				}
-			case ir.PhysicalObjectLookupExpression:
-				markPreviewVariable(uses, value.ObjectLookup.ObjectVariable)
-			case ir.PhysicalObjectKeysExpression:
-				markPreviewVariable(uses, value.ObjectKeys.ObjectVariable)
-			}
-		case *ir.PhysicalPredicateExpression:
-			if !previewPredicatePayloadSupported(value) {
-				return false
-			}
-		case *ir.PhysicalSubplan:
-			collectPreviewCaptures(value.Captures, uses)
-			if value.Sort != nil {
-				markPreviewVariable(uses, value.Sort.Variable)
-			}
-			if value.DistinctBy != nil {
-				markPreviewVariable(uses, value.DistinctBy.Variable)
-			}
-			continueChildren = false
-		case *ir.PhysicalValue:
-			markPreviewVariable(uses, value.Variable)
-		default:
-			return false
-		}
-		if !continueChildren {
-			return true
-		}
-		for _, child := range ir.Children(node) {
-			if !walk(child) {
-				return false
-			}
-		}
-		return true
 	}
-	return walk(root)
-}
-
-func markPreviewVariable(uses map[string]bool, name string) {
-	if name != "" {
-		uses[name] = true
-	}
-}
-
-func previewOperationPayloadSupported(operation *ir.PhysicalOperation) bool {
-	if operation == nil {
-		return false
-	}
+	expression := func(value ir.PhysicalExpression) bool { return collectPreviewExpressionUses(value, uses) }
+	predicate := func(value ir.PhysicalPredicateExpression) bool { return collectPreviewPredicateUses(value, uses) }
 	switch operation.Kind {
 	case ir.PhysicalRootScanOp:
-		return operation.RootScan != nil
+		if operation.RootScan == nil {
+			return false
+		}
+		seed := operation.RootScan.PageCandidateSeed
+		if seed != nil {
+			collectPreviewSubplanUses(seed.Subplan, uses)
+		}
 	case ir.PhysicalTraversalOp:
-		return operation.Traversal != nil
+		if operation.Traversal == nil {
+			return false
+		}
+		if operation.Traversal.SourceVariable != "" {
+			uses[operation.Traversal.SourceVariable] = true
+		}
 	case ir.PhysicalFilterOp:
-		return operation.Filter != nil
+		if operation.Filter == nil {
+			return false
+		}
+		value(operation.Filter.Predicate.Left)
+		if operation.Filter.Predicate.LeftExpression != nil && !expression(*operation.Filter.Predicate.LeftExpression) {
+			return false
+		}
+		if operation.Filter.Predicate.Right != nil {
+			value(*operation.Filter.Predicate.Right)
+		}
+		if operation.Filter.Predicate.Correlation != nil {
+			value(operation.Filter.Predicate.Correlation.Source)
+		}
+		if operation.Filter.Expression != nil && !predicate(*operation.Filter.Expression) {
+			return false
+		}
 	case ir.PhysicalDerivedLetOp:
-		return operation.DerivedLet != nil
+		if operation.DerivedLet == nil {
+			return false
+		}
+		for _, input := range operation.DerivedLet.Inputs {
+			value(input)
+		}
 	case ir.PhysicalExpressionLetOp:
-		return operation.ExpressionLet != nil
+		if operation.ExpressionLet == nil || !expression(operation.ExpressionLet.Expression) {
+			return false
+		}
 	case ir.PhysicalSetOp:
-		return operation.Set != nil
+		if operation.Set == nil {
+			return false
+		}
+		if operation.Set.SourceSetVariable != "" {
+			uses[operation.Set.SourceSetVariable] = true
+		}
+		if operation.Set.Prepared != nil && operation.Set.Prepared.SourceSetVariable != "" {
+			uses[operation.Set.Prepared.SourceSetVariable] = true
+		}
+		if operation.Set.Reduction != nil && operation.Set.Reduction.SourceSetVariable != "" {
+			uses[operation.Set.Reduction.SourceSetVariable] = true
+		}
+		collectPreviewSubplanUses(operation.Set.Subplan, uses)
 	case ir.PhysicalSortOp:
-		return operation.Sort != nil
+		if operation.Sort == nil {
+			return false
+		}
+		for _, key := range operation.Sort.Keys {
+			value(key)
+		}
 	case ir.PhysicalLimitOp:
-		return operation.Limit != nil
+		if operation.Limit == nil {
+			return false
+		}
 	case ir.PhysicalReturnOp:
-		return operation.Return != nil
+		if operation.Return == nil {
+			return false
+		}
+		for _, projection := range operation.Return.Projections {
+			value(projection.Value)
+			if projection.Expression != nil && !expression(*projection.Expression) {
+				return false
+			}
+			if projection.Presence != nil {
+				value(projection.Presence.Source)
+			}
+		}
 	default:
 		return false
 	}
-}
-
-func previewExpressionPayloadSupported(expression *ir.PhysicalExpression) bool {
-	if expression == nil {
-		return false
-	}
-	switch expression.Kind {
-	case ir.PhysicalValueExpression:
-		return expression.Value != nil
-	case ir.PhysicalLiteralExpression:
-		return expression.Literal != nil
-	case ir.PhysicalExtractExpression:
-		return expression.Extract != nil
-	case ir.PhysicalAggregateExpression:
-		return expression.Aggregate != nil
-	case ir.PhysicalPivotExpression:
-		return expression.Pivot != nil
-	case ir.PhysicalOwnerRecordsExpression:
-		return expression.OwnerRecords != nil
-	case ir.PhysicalSliceExpression:
-		return expression.Slice != nil
-	case ir.PhysicalObjectLookupExpression:
-		return expression.ObjectLookup != nil
-	case ir.PhysicalKeyedMapExpression:
-		return expression.KeyedMap != nil
-	case ir.PhysicalObjectKeysExpression:
-		return expression.ObjectKeys != nil
-	case ir.PhysicalKeySetExpression:
-		return expression.KeySet != nil
-	case ir.PhysicalObjectExpression:
-		return expression.Object != nil
-	case ir.PhysicalSubplanExpression:
-		return expression.Subplan != nil
-	case ir.PhysicalCallExpression:
-		return expression.Call != nil
-	case ir.PhysicalRelatedFieldExpression:
-		return expression.RelatedField != nil
-	default:
-		return false
-	}
-}
-
-func previewPredicatePayloadSupported(predicate *ir.PhysicalPredicateExpression) bool {
-	if predicate == nil {
-		return false
-	}
-	switch predicate.Kind {
-	case ir.PhysicalComparisonPredicate:
-		return predicate.Comparison != nil
-	case ir.PhysicalAllPredicate, ir.PhysicalAnyPredicate, ir.PhysicalNotPredicate:
-		return true
-	case ir.PhysicalExistsPredicate:
-		return predicate.Exists != nil
-	default:
-		return false
-	}
+	return true
 }
 
 func collectPreviewCaptures(captures []string, uses map[string]bool) {
 	for _, capture := range captures {
-		markPreviewVariable(uses, capture)
+		if capture != "" {
+			uses[capture] = true
+		}
 	}
+}
+
+func collectPreviewSubplanUses(subplan ir.PhysicalSubplan, uses map[string]bool) {
+	collectPreviewCaptures(subplan.Captures, uses)
+	if subplan.Sort != nil && subplan.Sort.Variable != "" {
+		uses[subplan.Sort.Variable] = true
+	}
+	if subplan.DistinctBy != nil && subplan.DistinctBy.Variable != "" {
+		uses[subplan.DistinctBy.Variable] = true
+	}
+}
+
+func collectPreviewExpressionUses(expression ir.PhysicalExpression, uses map[string]bool) bool {
+	value := func(value ir.PhysicalValue) {
+		if value.Variable != "" {
+			uses[value.Variable] = true
+		}
+	}
+	predicate := func(value *ir.PhysicalPredicateExpression) bool {
+		return value == nil || collectPreviewPredicateUses(*value, uses)
+	}
+	// PhysicalPlan.Validate has already enforced the tagged-union payload. Still
+	// check the tag and selected payload explicitly so a future kind fails closed.
+	switch expression.Kind {
+	case ir.PhysicalValueExpression:
+		if expression.Value == nil {
+			return false
+		}
+		value(*expression.Value)
+	case ir.PhysicalLiteralExpression:
+		if expression.Literal == nil {
+			return false
+		}
+	case ir.PhysicalExtractExpression:
+		if expression.Extract == nil {
+			return false
+		}
+		value(expression.Extract.Source)
+		for _, fallback := range expression.Extract.Fallbacks {
+			value(fallback.Source)
+		}
+		if expression.Extract.Prepared != nil && expression.Extract.Prepared.SetVariable != "" {
+			uses[expression.Extract.Prepared.SetVariable] = true
+		}
+	case ir.PhysicalAggregateExpression:
+		item := expression.Aggregate
+		if item == nil {
+			return false
+		}
+		value(item.Source)
+		if item.Value != nil && !collectPreviewExpressionUses(*item.Value, uses) {
+			return false
+		}
+		if !predicate(item.Predicate) {
+			return false
+		}
+		if item.ContributorWindow != nil {
+			if !collectPreviewExpressionUses(item.ContributorWindow.Timestamp, uses) || !collectPreviewExpressionUses(item.ContributorWindow.Anchor, uses) {
+				return false
+			}
+		}
+		if item.Ordering != nil && !collectPreviewExpressionUses(item.Ordering.Timestamp, uses) {
+			return false
+		}
+	case ir.PhysicalPivotExpression:
+		item := expression.Pivot
+		if item == nil {
+			return false
+		}
+		value(item.Source)
+		if item.PreparedKey != nil && item.PreparedKey.SetVariable != "" {
+			uses[item.PreparedKey.SetVariable] = true
+		}
+		if item.PreparedValue != nil && item.PreparedValue.SetVariable != "" {
+			uses[item.PreparedValue.SetVariable] = true
+		}
+		if item.Correlation != nil {
+			value(item.Correlation.Source)
+		}
+	case ir.PhysicalOwnerRecordsExpression:
+		if expression.OwnerRecords == nil {
+			return false
+		}
+		value(expression.OwnerRecords.Correlation.Source)
+	case ir.PhysicalSliceExpression:
+		item := expression.Slice
+		if item == nil {
+			return false
+		}
+		value(item.Source)
+		if !predicate(item.Predicate) {
+			return false
+		}
+		if item.Sort != nil && !collectPreviewExpressionUses(*item.Sort, uses) {
+			return false
+		}
+		for _, projection := range item.Projections {
+			if !collectPreviewExpressionUses(projection.Expression, uses) {
+				return false
+			}
+		}
+	case ir.PhysicalObjectLookupExpression:
+		if expression.ObjectLookup == nil {
+			return false
+		}
+		if expression.ObjectLookup.ObjectVariable != "" {
+			uses[expression.ObjectLookup.ObjectVariable] = true
+		}
+	case ir.PhysicalKeyedMapExpression:
+		item := expression.KeyedMap
+		if item == nil {
+			return false
+		}
+		if !collectPreviewExpressionUses(item.Source, uses) || !collectPreviewExpressionUses(item.ItemKey, uses) || !collectPreviewExpressionUses(item.ItemValue, uses) {
+			return false
+		}
+		for _, fallback := range item.ValueFallbacks {
+			if !collectPreviewExpressionUses(fallback, uses) {
+				return false
+			}
+		}
+	case ir.PhysicalObjectKeysExpression:
+		if expression.ObjectKeys == nil {
+			return false
+		}
+		if expression.ObjectKeys.ObjectVariable != "" {
+			uses[expression.ObjectKeys.ObjectVariable] = true
+		}
+	case ir.PhysicalKeySetExpression:
+		item := expression.KeySet
+		if item == nil {
+			return false
+		}
+		if !collectPreviewExpressionUses(item.Source, uses) || !collectPreviewExpressionUses(item.ItemKey, uses) {
+			return false
+		}
+	case ir.PhysicalObjectExpression:
+		if expression.Object == nil {
+			return false
+		}
+		for _, field := range expression.Object.Fields {
+			if !collectPreviewExpressionUses(field.Expression, uses) {
+				return false
+			}
+		}
+	case ir.PhysicalSubplanExpression:
+		if expression.Subplan == nil {
+			return false
+		}
+		collectPreviewSubplanUses(*expression.Subplan, uses)
+	case ir.PhysicalCallExpression:
+		item := expression.Call
+		if item == nil {
+			return false
+		}
+		for _, argument := range item.Args {
+			if !collectPreviewExpressionUses(argument, uses) {
+				return false
+			}
+		}
+	case ir.PhysicalRelatedFieldExpression:
+		if expression.RelatedField == nil {
+			return false
+		}
+		value(expression.RelatedField.DocumentID)
+	default:
+		return false
+	}
+	return true
+}
+
+func collectPreviewPredicateUses(predicate ir.PhysicalPredicateExpression, uses map[string]bool) bool {
+	switch predicate.Kind {
+	case ir.PhysicalComparisonPredicate:
+		if predicate.Comparison == nil {
+			return false
+		}
+		comparison := predicate.Comparison
+		if comparison.Left.Variable != "" {
+			uses[comparison.Left.Variable] = true
+		}
+		if comparison.LeftExpression != nil && !collectPreviewExpressionUses(*comparison.LeftExpression, uses) {
+			return false
+		}
+		if comparison.Right != nil && comparison.Right.Variable != "" {
+			uses[comparison.Right.Variable] = true
+		}
+		if comparison.Correlation != nil && comparison.Correlation.Source.Variable != "" {
+			uses[comparison.Correlation.Source.Variable] = true
+		}
+	case ir.PhysicalAllPredicate, ir.PhysicalAnyPredicate, ir.PhysicalNotPredicate:
+		for _, child := range predicate.Children {
+			if !collectPreviewPredicateUses(child, uses) {
+				return false
+			}
+		}
+	case ir.PhysicalExistsPredicate:
+		if predicate.Exists == nil {
+			return false
+		}
+		collectPreviewSubplanUses(*predicate.Exists, uses)
+	default:
+		return false
+	}
+	return true
 }

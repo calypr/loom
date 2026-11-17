@@ -200,6 +200,9 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 		Source: ir.PhysicalSource{SemanticNode: output.Root.Alias, ResourceType: output.Root.ResourceType, SemanticField: "_key"},
 		Return: &ir.PhysicalReturn{Projections: projections},
 	})
+	if output.Collision == "overwrite" {
+		overwritePublicReturnProjectionCollisions(&physical)
+	}
 	if err := physical.Validate(); err != nil {
 		return ir.PhysicalPlan{}, fmt.Errorf("validate generic physical plan: %w", err)
 	}

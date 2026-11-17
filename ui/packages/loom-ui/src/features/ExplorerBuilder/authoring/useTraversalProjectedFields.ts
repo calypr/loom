@@ -1,5 +1,5 @@
 import { useRef, useState, type Dispatch } from 'react';
-import type { SourceRelationshipChange } from '../../../types';
+import type { ExplorerBuilderCommand, ProjectedField, SourceRelationshipChange } from '../../../types';
 import { routeNode, type BuilderAuthoringState, type DraftTable } from './model';
 import { fieldCatalogItems } from '../catalogItems';
 import type { BuilderAction } from './reducer';
@@ -23,15 +23,25 @@ type TraversalActionsOptions = {
   readonly recipeMutationAllowed: () => boolean;
   readonly rememberRecipeFocus: ReturnType<typeof useRecipeFocus>['rememberRecipeFocus'];
   readonly recipeEditToken: ReturnType<typeof useSourceRecipe>['recipeEditToken'];
+  readonly onSwitchSavedOccurrence: (occurrenceId: string, restoredEditor: boolean) => void;
+  readonly applyCommands: (commands: ExplorerBuilderCommand[]) => void;
+  readonly pendingCommands: number;
+  readonly publishing: boolean;
+  readonly setRecipeNotice: (notice: string | undefined) => void;
+  readonly sourceStepEditDirty?: { current: boolean };
+  readonly sourceStepEditCancelAction?: { current: (() => void) | undefined };
 };
 
 export const useTraversalProjectedFields = () => {
+  const defaultSourceStepEditDirty = useRef(false);
+  const defaultSourceStepEditCancelAction = useRef<(() => void) | undefined>(undefined);
   const [occurrenceInspectorHost, setOccurrenceInspectorHost] = useState<HTMLElement | null>(null);
   const [editingRecipeColumn, setEditingRecipeColumn] = useState<{ owner: string; columnId: string }>();
   const [sourceStepInspectorHost, setSourceStepInspectorHost] = useState<HTMLDivElement | null>(null);
   const [activeSourceStepId, setActiveSourceStepId] = useState<string>();
   const columnPolicyRequest = useRef<AbortController | undefined>(undefined);
   const sourceStepEditAction = useRef<((stepId: string) => void) | undefined>(undefined);
+  const sourceStepSwitchOccurrenceAction = useRef<((occurrenceId: string) => boolean) | undefined>(undefined);
   const sourceFieldEditAction = useRef<((stepId: string, fieldId: string) => void) | undefined>(undefined);
   const sourceOutputEditAction = useRef<((stepId: string, outputKey: string) => void) | undefined>(undefined);
   const rowSettingsOpenAction = useRef<(() => void) | undefined>(undefined);
@@ -40,8 +50,13 @@ export const useTraversalProjectedFields = () => {
   const actionsFor = ({
     state, table, sourceProposal, relationshipOwner, recipeOwner, constructionLifecycle,
     lastAcceptedOutputPreview, pendingRelationship, cancelRecipeRelationship, dispatch,
-    savedNetwork, recipeMutationAllowed, rememberRecipeFocus, recipeEditToken
+    savedNetwork, recipeMutationAllowed, rememberRecipeFocus, recipeEditToken,
+    applyCommands, pendingCommands, publishing, setRecipeNotice, onSwitchSavedOccurrence,
+    sourceStepEditDirty: sourceStepEditDirtyArg = defaultSourceStepEditDirty,
+    sourceStepEditCancelAction: sourceStepEditCancelActionArg = defaultSourceStepEditCancelAction,
   }: TraversalActionsOptions) => {
+    const sourceStepEditDirty = sourceStepEditDirtyArg;
+    const sourceStepEditCancelAction = sourceStepEditCancelActionArg;
     const populatedFieldItems = table
       ? fieldCatalogItems(state.catalog, table.document.rootResourceType ?? '', undefined, '', undefined, true)
         .filter((item) => item.kind === 'FIELD')
@@ -111,6 +126,10 @@ export const useTraversalProjectedFields = () => {
       } else if (candidateInspectionKey && proposalPresentationTable) {
         return;
       }
+      if (savedOccurrence && occurrenceId !== state.selectedOccurrenceId &&
+          (editing.status === 'saved' || editing.target?.kind === 'sourceStep')) {
+        onSwitchSavedOccurrence(occurrenceId, sourceStepSwitchOccurrenceAction.current?.(occurrenceId) ?? false);
+      }
       dispatch({ type: 'selectOccurrence', occurrenceId });
     };
     const editTraversalColumn = (columnId: string) => {
@@ -173,6 +192,77 @@ export const useTraversalProjectedFields = () => {
       const name = parameters?.dynamic?.name ?? parameters?.extension?.name ?? parameters?.pivot?.name ?? parameters?.catalog?.name ?? parameters?.identity?.name;
       return name ? [[step.id, `${step.kind === 'DYNAMIC_COLUMN' ? 'Keyed columns' : step.kind === 'PIVOT' ? 'Pivot' : step.kind === 'CATALOG_PROJECTION' ? 'Populated fields' : step.kind === 'IDENTITY' ? 'Row identity' : 'Extension columns'}: ${name}`] as const] : [];
     }));
+    const savedProjectedFieldInventory = savedNetwork?.owner === relationshipOwner && savedNetwork.result.network.outputId === table?.outputId
+      ? savedNetwork.result.network.projectedFields ?? [] : undefined;
+    const projectedFieldsForStep = (stepId: string) => {
+      const inventory = savedProjectedFieldInventory ?? [];
+      const occurrenceIds = new Set(inventory.filter((field) => field.sourceStepId === stepId && field.occurrenceId).map((field) => field.occurrenceId));
+      if (occurrenceIds.size === 1) {
+        const occurrenceId = [...occurrenceIds][0];
+        return inventory.filter((field) => field.occurrenceId === occurrenceId);
+      }
+      if (occurrenceIds.size > 1) return [];
+      const step = traversalSourceSteps.find((candidate) => candidate.id === stepId);
+      const matchingOccurrences = savedNetwork?.result.network.occurrences.filter((occurrence) => occurrence.sourceStepId === step?.parentId) ?? [];
+      const occurrenceId = matchingOccurrences.length === 1 ? matchingOccurrences[0].occurrenceId
+        : step && !step.parentId ? table?.document.route.occurrenceId : undefined;
+      return occurrenceId ? inventory.filter((field) => field.occurrenceId === occurrenceId) : [];
+    };
+    const occurrenceForStep = (stepId: string) => {
+      const step = traversalSourceSteps.find((candidate) => candidate.id === stepId);
+      if (!step) return undefined;
+      if (!step.parentId) return table?.document.route.occurrenceId;
+      const parents = traversalSourceSteps.filter((candidate) => candidate.id === step.parentId);
+      return parents.length === 1 ? parents[0].occurrenceId : undefined;
+    };
+    const projectedFieldRemovalDisabledReason = pendingCommands > 0
+      ? 'Wait for the current table update to finish before removing a projected field.'
+      : publishing ? 'Wait for publishing to finish before removing a projected field.'
+        : !savedProjectedFieldInventory ? 'Load the current table field inventory before removing a projected field.'
+          : recipeOwner.state.status === 'saved' ? undefined
+            : recipeOwner.state.status === 'editing' && recipeOwner.state.target?.kind === 'sourceStep' && !sourceStepEditDirty.current
+              ? undefined
+              : sourceStepEditDirty.current
+                ? 'Apply or Cancel the pending source-step edits before removing a projected field.'
+                : 'Apply or Cancel the active recipe change before removing a projected field.';
+    const editableProjectedFieldIds = new Set((table?.document.columns ?? []).flatMap((column) =>
+      column.source.kind === 'field' && column.columnId ? [column.columnId] : []));
+    const removeProjectedField = (columnId: string) => {
+      const matchingFields = savedProjectedFieldInventory?.filter((field) => field.columnId === columnId) ?? [];
+      if (matchingFields.length !== 1 || matchingFields[0]?.removal === 'UNAVAILABLE') {
+        setRecipeNotice('This field no longer has a supported removal action. Refresh the field inventory and try again.');
+        return;
+      }
+      if (projectedFieldRemovalDisabledReason || !table) return;
+      if (recipeOwner.state.status !== 'saved') sourceStepEditCancelAction.current?.();
+      if (recipeOwner.getState().status !== 'saved' || !recipeMutationAllowed()) return;
+      setRecipeNotice(undefined);
+      rememberRecipeFocus();
+      applyCommands([{ type: 'REMOVE_PROJECTED_FIELD', outputId: table.outputId, columnId }]);
+    };
+    const renameProjectedField = (columnId: string, label: string) => {
+      if (projectedFieldRemovalDisabledReason || !table || !label.trim()) return;
+      const matches = table.document.columns.filter((column) => column.columnId === columnId);
+      if (matches.length !== 1) return;
+      if (recipeOwner.state.status !== 'saved') {
+        if (recipeOwner.state.status !== 'editing' || recipeOwner.state.target?.kind !== 'sourceStep' || sourceStepEditDirty.current) return;
+        sourceStepEditCancelAction.current?.();
+      }
+      if (recipeOwner.getState().status !== 'saved' || !recipeMutationAllowed()) return;
+      const column = matches[0];
+      applyCommands([{ type: 'UPDATE_COLUMN', outputId: table.outputId, column: column.column,
+        columnValue: { ...column, label: label.trim() } }]);
+    };
+    const editProjectedField = (field: ProjectedField) => {
+      if (projectedFieldRemovalDisabledReason) return;
+      if (field.sourceStepId && field.sourceFieldId) {
+        sourceFieldEditAction.current?.(field.sourceStepId, field.sourceFieldId);
+        return;
+      }
+      if (!field.columnId || !editableProjectedFieldIds.has(field.columnId)) return;
+      if (recipeOwner.getState().status !== 'saved') sourceStepEditCancelAction.current?.();
+      if (recipeOwner.getState().status === 'saved') editTraversalColumn(field.columnId);
+    };
     const editTraversalRows = () => {
       if (!recipeMutationAllowed() || !table) return;
       rememberRecipeFocus();
@@ -183,10 +273,10 @@ export const useTraversalProjectedFields = () => {
       }
       rowSettingsOpenAction.current?.();
     };
-    return { sourceCandidate, sourceReviewColumnLabels, rootCandidate, candidatePreview, generatedOutputRevision, proposalResponse, proposalPresentationTable, inspectedOccurrenceId, selectTraversalScope, editTraversalColumn, traversalTable, traversalNetwork, traversalRowIdentity, resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices, catalogOutputsForStep, pivotOutputsForStep, traversalOperationLabels, editTraversalRows };
+    return { sourceCandidate, sourceReviewColumnLabels, rootCandidate, candidatePreview, generatedOutputRevision, proposalResponse, proposalPresentationTable, inspectedOccurrenceId, selectTraversalScope, editTraversalColumn, traversalTable, traversalNetwork, traversalRowIdentity, resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices, catalogOutputsForStep, pivotOutputsForStep, traversalOperationLabels, editTraversalRows, projectedFieldsForStep, occurrenceForStep, removeProjectedField, editProjectedField, renameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason };
   };
   return { occurrenceInspectorHost, setOccurrenceInspectorHost, editingRecipeColumn, setEditingRecipeColumn,
     sourceStepInspectorHost, setSourceStepInspectorHost, activeSourceStepId, setActiveSourceStepId,
-    columnPolicyRequest, sourceStepEditAction, sourceFieldEditAction, sourceOutputEditAction,
+    columnPolicyRequest, sourceStepEditAction, sourceStepSwitchOccurrenceAction, sourceFieldEditAction, sourceOutputEditAction,
     rowSettingsOpenAction, rowSettingsCloseAction, actionsFor };
 };

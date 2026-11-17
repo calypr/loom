@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -11,11 +12,20 @@ import (
 )
 
 const (
-	RootPageAfterKeyBind           = "loom_root_page_after_key"
-	RootPageSizeBind               = genericPhysicalExecutionLimitBind
-	RootPageKeysBind               = "loom_root_page_keys"
-	rootPageDatasetGenerationField = "dataset_generation"
-	rootPageDatasetGenerationBind  = "dataset_generation"
+	RootPageAfterKeyBind                  = "loom_root_page_after_key"
+	RootPageSizeBind                      = genericPhysicalExecutionLimitBind
+	RootPageKeysBind                      = "loom_root_page_keys"
+	rootPageDatasetGenerationField        = "dataset_generation"
+	rootPageDatasetGenerationBind         = "dataset_generation"
+	previewProjectionPartitionSize        = 24
+	minimumPreviewPartitionColumns        = 160
+	minimumPreviewPartitionQueryBytes     = 60 << 10
+	previewProjectionWeightBudget         = 30000
+	previewProjectionMaxPartitions        = 16
+	previewProjectionMaxQueryBytes        = 96 << 10
+	previewProjectionMaxPlanBytes         = 4 << 20
+	previewProjectionTotalCostMultiplier  = 16
+	previewProjectionMaxQueryRatioPercent = 75
 )
 
 // CompiledOutputPage contains immutable query templates for bounded root
@@ -26,7 +36,17 @@ type CompiledOutputPage struct {
 	RootKeysBindVars map[string]any
 	RowsQuery        string
 	RowsBindVars     map[string]any
+	RowsPartitions   []CompiledOutputPagePartition
 	RowsDiagnostics  ir.CompilerPlanDiagnostics
+}
+
+// CompiledOutputPagePartition is one projection of the same selected-root
+// preview rows. Every partition carries the root key so callers can merge
+// columns without relying on query result order.
+type CompiledOutputPagePartition struct {
+	ProjectionNames []string
+	RowsQuery       string
+	RowsBindVars    map[string]any
 }
 
 // CompileRecipeOutputPageWithPolicy builds typed key-discovery and selected-
@@ -73,12 +93,12 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("render root-key page: %w", err)
 	}
+	previewLimit := 0
+	if bindings.PreviewLimit > 0 {
+		previewLimit = bindings.PreviewLimit
+	}
 	var rows aql.RenderedPhysicalPlan
 	if keyWindow {
-		previewLimit := 0
-		if bindings.PreviewLimit > 0 {
-			previewLimit = bindings.PreviewLimit
-		}
 		rows, err = aql.RenderPhysicalPlanWithRootPageKeys(rowsPlan, RootPageKeysBind, previewLimit)
 	} else if bindings.PreviewLimit > 0 {
 		rows, err = aql.RenderPhysicalPlanWithRelatedExpandPreviewLimit(rowsPlan, bindings.PreviewLimit)
@@ -88,10 +108,290 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("render selected-root page: %w", err)
 	}
+	var partitions []CompiledOutputPagePartition
+	if keyWindow && bindings.PreviewLimit > 0 && previewProjectionPartitionEligible(rowsPlan) &&
+		(len(rows.Query) >= minimumPreviewPartitionQueryBytes || len(rowsPlan.Operations[len(rowsPlan.Operations)-1].Return.Projections) >= minimumPreviewPartitionColumns) {
+		partitions, err = renderSelectedRootProjectionPartitions(rowsPlan, rows, RootPageKeysBind, previewLimit)
+		if err != nil {
+			return CompiledOutputPage{}, fmt.Errorf("render selected-root projection partitions: %w", err)
+		}
+	}
 	return CompiledOutputPage{
 		RootKeysQuery: keys.Query, RootKeysBindVars: keys.BindVars,
-		RowsQuery: rows.Query, RowsBindVars: rows.BindVars, RowsDiagnostics: physicalPlanDiagnostics(rowsPlan),
+		RowsQuery: rows.Query, RowsBindVars: rows.BindVars, RowsPartitions: partitions,
+		RowsDiagnostics: physicalPlanDiagnostics(rowsPlan),
 	}, nil
+}
+
+func previewProjectionPartitionEligible(plan ir.PhysicalPlan) bool {
+	if plan.StageSequence != nil || !rootPageKeyLookupSafe(plan) || len(plan.Operations) == 0 {
+		return false
+	}
+	root := plan.Operations[0].RootScan
+	if root == nil {
+		return false
+	}
+	var terminal *ir.PhysicalReturn
+	for index := range plan.Operations {
+		operation := &plan.Operations[index]
+		switch operation.Kind {
+		case ir.PhysicalRootScanOp, ir.PhysicalTraversalOp, ir.PhysicalFilterOp,
+			ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp, ir.PhysicalSetOp,
+			ir.PhysicalSortOp, ir.PhysicalLimitOp:
+		case ir.PhysicalReturnOp:
+			if index != len(plan.Operations)-1 || operation.Return == nil {
+				return false
+			}
+			terminal = operation.Return
+		default:
+			// Cardinality-changing, grouped, and specialized terminals need an
+			// output-row identity proof beyond the source _key.
+			return false
+		}
+	}
+	if terminal == nil {
+		return false
+	}
+	publicProjectionCount := 0
+	for _, projection := range terminal.Projections {
+		if !projection.Hidden && projection.Name != "_key" {
+			publicProjectionCount++
+		}
+	}
+	if publicProjectionCount < 2 {
+		return false
+	}
+	for _, projection := range terminal.Projections {
+		if projection.Name == "_key" && projection.Expression == nil && projection.Value.Variable == root.Variable &&
+			len(projection.Value.Path) == 1 && projection.Value.Path[0] == "_key" {
+			return true
+		}
+	}
+	return false
+}
+
+func renderSelectedRootProjectionPartitions(plan ir.PhysicalPlan, fullRendered aql.RenderedPhysicalPlan, bindKey string, relatedExpandPreviewLimit int) ([]CompiledOutputPagePartition, error) {
+	if !previewProjectionPartitionEligible(plan) {
+		return nil, fmt.Errorf("plan is not eligible for source-row projection partitions")
+	}
+	terminalIndex := len(plan.Operations) - 1
+	projections := plan.Operations[terminalIndex].Return.Projections
+	identity := make([]ir.PhysicalProjection, 0, 1)
+	metadata := make([]ir.PhysicalProjection, 0)
+	columns := make([]ir.PhysicalProjection, 0, len(projections)-1)
+	for _, projection := range projections {
+		if projection.Name == "_key" {
+			identity = append(identity, projection)
+		} else if projection.Hidden {
+			metadata = append(metadata, projection)
+		} else {
+			columns = append(columns, projection)
+		}
+	}
+	if len(identity) != 1 {
+		return nil, fmt.Errorf("eligible source-row plan must return exactly one _key identity")
+	}
+	if len(plan.Operations) > 4096 || len(columns) > previewProjectionMaxPartitions*previewProjectionPartitionSize {
+		return nil, nil
+	}
+	fullCost, valid := previewPartitionCostFor(plan, fullRendered.Query, fullRendered.BindVars)
+	if !valid || fullCost.PlanBytes > previewProjectionMaxPlanBytes || fullCost.Nodes > 200000 {
+		return nil, nil
+	}
+	groups, ok := groupPreviewProjections(columns)
+	if !ok || len(groups) < 2 || len(groups)+boolInt(len(metadata) != 0) > previewProjectionMaxPartitions {
+		return nil, nil
+	}
+	selections := make([][]ir.PhysicalProjection, 0, len(groups)+boolInt(len(metadata) != 0))
+	if len(metadata) != 0 {
+		selections = append(selections, metadata)
+	}
+	selections = append(selections, groups...)
+	partitions := make([]CompiledOutputPagePartition, 0, len(selections))
+	var totalCost previewPartitionCost
+	for _, group := range selections {
+		selected := make([]ir.PhysicalProjection, 0, 1+len(group))
+		selected = append(selected, identity...)
+		selected = append(selected, group...)
+		partitionPlan := ir.ClonePhysicalPlan(plan)
+		partitionPlan.Operations[terminalIndex].Return.Projections = selected
+		partitionPlan, pruned := prunePreviewPartitionPlan(partitionPlan)
+		if !pruned {
+			return nil, nil
+		}
+		rendered, err := aql.RenderPhysicalPlanWithRootPageKeys(partitionPlan, bindKey, relatedExpandPreviewLimit)
+		if err != nil {
+			return nil, err
+		}
+		cost, valid := previewPartitionCostFor(partitionPlan, rendered.Query, rendered.BindVars)
+		if !valid || cost.QueryBytes > previewProjectionMaxQueryBytes || cost.PlanBytes > previewProjectionMaxPlanBytes {
+			return nil, nil
+		}
+		totalCost = totalCost.add(cost)
+		if totalCost.Operations > 4096 || totalCost.PlanBytes > 8<<20 || totalCost.QueryBytes > 4<<20 || totalCost.Nodes > 200000 {
+			return nil, nil
+		}
+		if len(partitions) == 0 {
+			totalCost.PeakQueryBytes = cost.QueryBytes
+		} else if cost.QueryBytes > totalCost.PeakQueryBytes {
+			totalCost.PeakQueryBytes = cost.QueryBytes
+		}
+		names := make([]string, len(selected))
+		for index, projection := range selected {
+			names[index] = projection.Name
+		}
+		partitions = append(partitions, CompiledOutputPagePartition{
+			ProjectionNames: names, RowsQuery: rendered.Query, RowsBindVars: rendered.BindVars,
+		})
+	}
+	if !partitionCostWithinTotalBudget(totalCost, fullCost, len(partitions)) {
+		return nil, nil
+	}
+	return partitions, nil
+}
+
+func groupPreviewProjections(columns []ir.PhysicalProjection) ([][]ir.PhysicalProjection, bool) {
+	groups := make([][]ir.PhysicalProjection, 0, len(columns)/previewProjectionPartitionSize+1)
+	current := make([]ir.PhysicalProjection, 0, previewProjectionPartitionSize)
+	var weight int
+	for _, projection := range columns {
+		encoded, err := json.Marshal(projection)
+		if err != nil {
+			return nil, false
+		}
+		projectionWeight := len(encoded)
+		if projectionWeight > previewProjectionWeightBudget {
+			if len(current) != 0 {
+				groups = append(groups, current)
+				current = nil
+				weight = 0
+			}
+			groups = append(groups, []ir.PhysicalProjection{projection})
+			continue
+		}
+		if len(current) >= previewProjectionPartitionSize || weight+projectionWeight > previewProjectionWeightBudget {
+			groups = append(groups, current)
+			current = make([]ir.PhysicalProjection, 0, previewProjectionPartitionSize)
+			weight = 0
+		}
+		current = append(current, projection)
+		weight += projectionWeight
+	}
+	if len(current) != 0 {
+		groups = append(groups, current)
+	}
+	return groups, len(groups) <= previewProjectionMaxPartitions
+}
+
+type previewPartitionCost struct {
+	QueryBytes     int
+	PlanBytes      int
+	Operations     int
+	Projections    int
+	Work           uint64
+	Nodes          uint64
+	PeakQueryBytes int
+}
+
+func previewPartitionCostFor(plan ir.PhysicalPlan, query string, bindVars map[string]any) (previewPartitionCost, bool) {
+	planBytes, err := json.Marshal(plan)
+	if err != nil {
+		return previewPartitionCost{}, false
+	}
+	bindBytes, err := json.Marshal(bindVars)
+	if err != nil {
+		return previewPartitionCost{}, false
+	}
+	cost := previewPartitionCost{QueryBytes: len(query) + len(bindBytes), PlanBytes: len(planBytes)}
+	cost.Operations, cost.Projections = countPreviewPlanWork(plan)
+	if cost.Operations < 0 || cost.Projections < 0 {
+		return previewPartitionCost{}, false
+	}
+	cost.Work = uint64(cost.Operations + cost.Projections)
+	cost.Nodes = countSerializedNodes(planBytes)
+	return cost, true
+}
+
+func countSerializedNodes(data []byte) uint64 {
+	var value any
+	if json.Unmarshal(data, &value) != nil {
+		return ^uint64(0)
+	}
+	var count func(any) uint64
+	count = func(value any) uint64 {
+		switch item := value.(type) {
+		case map[string]any:
+			total := uint64(1)
+			for _, child := range item {
+				total += count(child)
+			}
+			return total
+		case []any:
+			total := uint64(1)
+			for _, child := range item {
+				total += count(child)
+			}
+			return total
+		default:
+			return 1
+		}
+	}
+	return count(value)
+}
+
+func countPreviewPlanWork(plan ir.PhysicalPlan) (operations, projections int) {
+	var countOperations func([]ir.PhysicalOperation)
+	countOperations = func(ops []ir.PhysicalOperation) {
+		operations += len(ops)
+		for _, operation := range ops {
+			if operation.Return != nil {
+				projections += len(operation.Return.Projections)
+			}
+			if operation.Set != nil {
+				countOperations(operation.Set.Subplan.Operations)
+			}
+			if operation.RootScan != nil && operation.RootScan.PageCandidateSeed != nil {
+				countOperations(operation.RootScan.PageCandidateSeed.Subplan.Operations)
+			}
+		}
+	}
+	countOperations(plan.Operations)
+	return operations, projections
+}
+
+func (cost previewPartitionCost) add(other previewPartitionCost) previewPartitionCost {
+	return previewPartitionCost{
+		QueryBytes:     cost.QueryBytes + other.QueryBytes,
+		PlanBytes:      cost.PlanBytes + other.PlanBytes,
+		Operations:     cost.Operations + other.Operations,
+		Projections:    cost.Projections + other.Projections,
+		Work:           cost.Work + other.Work,
+		Nodes:          cost.Nodes + other.Nodes,
+		PeakQueryBytes: max(max(cost.PeakQueryBytes, other.PeakQueryBytes), other.QueryBytes),
+	}
+}
+
+func partitionCostWithinTotalBudget(partitions, full previewPartitionCost, partitionCount int) bool {
+	if full.QueryBytes <= 0 || full.PlanBytes <= 0 || full.Work == 0 || partitionCount < 2 {
+		return false
+	}
+	return partitions.QueryBytes <= full.QueryBytes*previewProjectionTotalCostMultiplier &&
+		partitions.PlanBytes <= full.PlanBytes*previewProjectionTotalCostMultiplier &&
+		partitions.Work <= full.Work*previewProjectionTotalCostMultiplier &&
+		partitions.Operations <= 4096 &&
+		partitions.PlanBytes <= 8<<20 &&
+		partitions.QueryBytes <= 4<<20 &&
+		partitions.Nodes <= 200000 &&
+		partitions.Operations <= full.Operations*previewProjectionTotalCostMultiplier &&
+		partitions.Nodes <= full.Nodes*previewProjectionTotalCostMultiplier &&
+		partitions.PeakQueryBytes*100 <= full.QueryBytes*previewProjectionMaxQueryRatioPercent
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func optimizedOutputPlan(output lower.CompiledRecipeOutput, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {

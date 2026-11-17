@@ -19,7 +19,7 @@ const document = (): ExplorerBuilderDocument => ({
     sourceStep('patient/obs/pivot', 'PIVOT', 'patient/obs'), sourceStep('performer', 'TRAVERSAL', undefined, 'patient_performer'),
     sourceStep('performer/fields', 'FIELD_GROUP', 'performer')] },
 });
-const network = (): AuthoringNetworkResponse['network'] => ({ owner: 'IMPORTED_SOURCE', outputId: 'subjects', sourceRows: { kind: 'RECORDS', records: {} }, occurrences: [], bindings: [], operations: [] });
+const network = (): AuthoringNetworkResponse['network'] => ({ owner: 'IMPORTED_SOURCE', outputId: 'subjects', sourceRows: { kind: 'RECORDS', records: {} }, projectedFields: [], occurrences: [], bindings: [], operations: [] });
 const filter = (id: string, input?: string): ConstructionStep => ({ id, inputs: [{ kind: input ? 'STEP_OUTPUT' : 'SOURCE_PROJECTION', ...(input ? { stepId: input } : {}) } as ConstructionStep['inputs'][number]],
   operation: { kind: 'FILTER', filter: { columnId: 'id', operator: 'EXISTS' } }, outputs: [{ id: 'id', name: 'id', label: 'ID', type: 'string' }] });
 

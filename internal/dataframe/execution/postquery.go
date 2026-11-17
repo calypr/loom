@@ -58,6 +58,9 @@ func validateDynamicDrift(row map[string]any, checks map[string]map[string]Dynam
 	// metadata may cover only another family.
 	for dynamicName, columns := range checks {
 		for _, column := range columns {
+			if column.ColumnName == "" {
+				continue
+			}
 			if actual, exists := row[column.ColumnName]; exists && !dynamicColumnValueMatches(actual, column) {
 				return fmt.Errorf("dynamic map %q column %q has incompatible value type %q", dynamicName, column.ColumnName, column.ValueType)
 			}

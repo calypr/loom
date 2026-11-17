@@ -98,13 +98,25 @@ describe('typed source step parameters', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Extension item source' }), { target: { value: 'root.modifierExtension[]' } });
     expect(changed).toHaveBeenLastCalledWith({ extension: { name: 'extensions', source: { select: 'root.modifierExtension[]' } } });
   });
-  it('deletes a projected field from its trash button without toggling the row', () => {
+  it('removes a projected field by disabling its stable slot and allows it to be restored', () => {
     const { changed } = parameterHarness({ fieldGroup: { fields: [
       { fieldId: 'first', enabled: true, name: 'first_field', expr: { select: 'root.first' } },
       { fieldId: 'second', enabled: true, name: 'second_field', expr: { select: 'root.second' } },
     ] } });
-    fireEvent.click(screen.getByRole('button', { name: 'Delete first_field' }));
-    expect(changed.mock.calls.at(-1)![0].fieldGroup.fields.map((field: { fieldId: string }) => field.fieldId)).toEqual(['second']);
+    expect(screen.getByText('Projected fields (2 included of 2)')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove first_field' }));
+    let fields = changed.mock.calls.at(-1)![0].fieldGroup.fields;
+    expect(fields.map((field: { fieldId: string }) => field.fieldId)).toEqual(['first', 'second']);
+    expect(fields.map((field: { enabled: boolean }) => field.enabled)).toEqual([false, true]);
+    expect(screen.getByText('Projected fields (1 included of 2)')).toBeInTheDocument();
+    expect(screen.getByText('first_field · disabled')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restore first_field' }));
+    fields = changed.mock.calls.at(-1)![0].fieldGroup.fields;
+    expect(fields.map((field: { fieldId: string }) => field.fieldId)).toEqual(['first', 'second']);
+    expect(fields.map((field: { enabled: boolean }) => field.enabled)).toEqual([true, true]);
+    expect(screen.getByText('Projected fields (2 included of 2)')).toBeInTheDocument();
   });
   it('distinguishes omitted prefix from an explicit empty prefix', () => {
     const { changed } = parameterHarness({ dynamic: { name: 'keys', source: { select: 'root.identifier[]' } } });
@@ -274,8 +286,6 @@ describe('typed source step parameters', () => {
     expect(screen.getByRole('textbox', { name: 'Pivot column 1 name' })).toHaveProperty('value', 'sex');
   });
   it.each([
-    [{ catalog: { name: 'fields', includePaths: ['identifier'], excludePaths: ['text'], kinds: ['string'], naming: 'PATH' } }, 'Projection name', 'renamed', 'catalog', 'name'],
-    [{ extension: { name: 'extensions', source: { select: 'root.extension[]' } } }, 'Extension column name', 'renamed', 'extension', 'name'],
     [{ traversal: { name: 'subject', toResourceType: 'Patient', alias: 'patient' } }, 'Related record alias', 'person', 'traversal', 'alias'],
   ] as const)('edits a scalar parameter in %s without altering its other canonical properties', (initial, label, value, arm, property) => {
     const { changed } = parameterHarness(initial as unknown as ImportedSourceParameters);
@@ -296,4 +306,31 @@ it('preserves unsupported read expressions without offering a query or JSON rewr
  const value:SourceRecipeExpression={document:{context:'root'}};const changed=vi.fn();
  render(<SourceExpressionEditor label="Legacy source" value={value} onChange={changed}/>);
  expect(screen.getByText(/preserved unchanged/)).toBeTruthy();expect(screen.queryByRole('textbox')).toBeNull();expect(changed).not.toHaveBeenCalled();expect(value).toEqual({document:{context:'root'}});
+});
+
+it('shows original, generated, and added fields together in the source editor', () => {
+  const remove = vi.fn();
+  const edit = vi.fn();
+  render(<SourceStepParameterEditor sourceStepId="fields" parameters={{ fieldGroup: { fields: [
+    { fieldId: 'fields[0]', enabled: true, name: 'status', expr: { select: 'root.status' } },
+  ] } }} onChange={vi.fn()} onRemoveProjectedField={remove} onEditProjectedField={edit} editableProjectedFieldIds={new Set(['added'])}
+    projectedFields={[
+      { columnId: 'base', column: 'status', label: 'Status', occurrenceId: 'base', owner: 'PINNED_SOURCE', removal: 'DISABLE_PINNED_FIELD', status: 'EXACT', sourceStepId: 'fields', sourceFieldId: 'fields[0]' },
+      { columnId: 'generated', column: 'type', label: 'Type', occurrenceId: 'base', owner: 'PINNED_SOURCE', removal: 'DISABLE_PINNED_OUTPUT', status: 'EXACT', sourceStepId: 'dynamic', sourceOutputKey: 'type' },
+      { columnId: 'added', column: 'category', label: 'Category', occurrenceId: 'base', owner: 'AUTHORED', removal: 'REMOVE_COLUMN', status: 'EXACT' },
+    ]} />);
+  const list = screen.getByRole('list', { name: 'Projected fields' });
+  expect(within(list).getAllByRole('listitem')).toHaveLength(3);
+  expect(within(list).getByText('Status')).toBeInTheDocument();
+  fireEvent.click(within(list).getByRole('button', { name: 'Remove Type' }));
+  fireEvent.click(within(list).getByRole('button', { name: 'Edit Category' }));
+  expect(remove).toHaveBeenCalledExactlyOnceWith('generated');
+  expect(edit).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ columnId: 'added' }));
+});
+
+it('keeps internal projection source names out of cosmetic field editing', () => {
+  const { rerender } = render(<SourceStepParameterEditor parameters={{ extension: { name: 'internal_extensions', source: { select: 'root.extension[]' } } }} onChange={vi.fn()} />);
+  expect(screen.queryByRole('textbox', { name: 'Extension column name' })).toBeNull();
+  rerender(<SourceStepParameterEditor parameters={{ dynamic: { name: 'internal_keys', source: { select: 'root.identifier[]' } } }} onChange={vi.fn()} />);
+  expect(screen.queryByRole('textbox', { name: 'Dynamic column name' })).toBeNull();
 });

@@ -299,6 +299,7 @@ type PhysicalCorrelation struct {
 	// nested extension. When non-empty, coding fields above are unused.
 	ExtensionURLSelectors []spec.Selector
 	ExtensionURLBindKeys  []string
+	CanonicalJSONValue    bool
 }
 
 type PhysicalObjectLookup struct {

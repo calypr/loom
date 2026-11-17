@@ -47,6 +47,9 @@ export const PivotEditor = (props: {
   readonly requireEveryDiscoveredCategory: boolean;
   readonly canDiscover: boolean;
   readonly showRowSelection: boolean;
+  readonly populationStatusFor: (columnId: string) => 'POPULATED' | 'EMPTY' | 'UNKNOWN';
+  readonly populationChecking: boolean;
+  readonly populationUnavailable: boolean;
   readonly onDiscover: () => void;
   readonly onManualCategorySelection: (form: PivotForm) => void;
   readonly onForgetPairSelection: (previous: PivotForm, next: PivotForm) => void;
@@ -55,6 +58,8 @@ export const PivotEditor = (props: {
   const discoveryHelpId = useId();
   const [categorySearch, setCategorySearch] = useState('');
   const columns = scalarColumnsFor(props.stage);
+  const emptyRole = [props.form.categoryColumnId, props.form.valueColumnId]
+    .some((columnId) => columnId && props.populationStatusFor(columnId) === 'EMPTY');
   const repeatedColumns = props.stage.columns.filter((column) => column.cardinality === 'many');
   const discoveryMatches = pivotDiscoveryMatches(props.form, props.stage.id, props.discovery);
   const discoveryComplete = discoveryMatches && props.discovery.status === 'complete';
@@ -67,6 +72,9 @@ export const PivotEditor = (props: {
     && (!props.form.pivotSources?.length || props.form.groupKeyIds.length > 0)
     && props.form.categoryColumnId !== ''
     && props.form.valueColumnId !== ''
+    && !emptyRole
+    && !props.populationChecking
+    && !props.populationUnavailable
     && !categoriesKnown;
   const hostDiscoveryPending = discoveryEligible
     && discoveryMatches
@@ -111,7 +119,8 @@ export const PivotEditor = (props: {
   };
   const pivotColumnLabel = (column: ReshapeColumn): string => {
     const sourceChoice = sourceChoiceForColumn(column.id);
-    return sourceChoice ? pivotSourceLabel(sourceChoice) : column.label;
+    const label = sourceChoice ? pivotSourceLabel(sourceChoice) : column.label;
+    return props.populationStatusFor(column.id) === 'EMPTY' ? `${label} — No populated values` : label;
   };
   const pivotColumnTitle = (column: ReshapeColumn): string => {
     const sourceChoice = sourceChoiceForColumn(column.id);
@@ -242,6 +251,9 @@ export const PivotEditor = (props: {
   return (
     <section aria-label="Pivot categories into columns" data-testid="construction-reshape-pivot" className="construction-reshape-pivot-editor grid content-start gap-3">
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
+      {props.populationChecking ? <p role="status" aria-live="polite" className="text-sm text-slate-600">Checking which fields contain values…</p> : null}
+      {props.populationUnavailable ? <p role="status" className="text-sm text-amber-900">Field population could not be confirmed. Category discovery is unavailable until the field status can be checked.</p> : null}
+      {emptyRole ? <p role="status" className="text-sm text-amber-900">Choose fields that contain values for both column names and cell values.</p> : null}
       {columns.length === 0 && props.sourceChoices.length === 0 ? (
         <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">Loom has not returned scalar fields for this stage.</p>
       ) : (
@@ -286,7 +298,7 @@ export const PivotEditor = (props: {
               New column names
               <select aria-label="Pivot category field" value={props.form.categoryColumnId} disabled={props.disabled || !props.supported} onChange={(event) => chooseInput('category', event.currentTarget.value)} className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm">
                 <option value="">Choose a column-name field</option>
-                {columns.filter((column) => !props.form.groupKeyIds.includes(column.id)).map((column) => <option key={column.id} value={column.id} title={pivotColumnTitle(column)}>{pivotColumnLabel(column)}</option>)}
+                {columns.filter((column) => !props.form.groupKeyIds.includes(column.id)).map((column) => <option key={column.id} value={column.id} disabled={props.populationStatusFor(column.id) === 'EMPTY'} title={pivotColumnTitle(column)}>{pivotColumnLabel(column)}</option>)}
                 {sourceOptions.length > 0 ? <optgroup label="Source fields">{sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`} title={choice.fieldPath}>{pivotSourceLabel(choice)}</option>)}</optgroup> : null}
               </select>
             </label>
@@ -294,7 +306,7 @@ export const PivotEditor = (props: {
               Cell values
               <select aria-label="Pivot values field" value={props.form.valueColumnId} disabled={props.disabled || !props.supported} onChange={(event) => chooseInput('value', event.currentTarget.value)} className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm">
                 <option value="">Choose a cell-values field</option>
-                {selectableValueColumns.map((column) => <option key={column.id} value={column.id} title={pivotColumnTitle(column)}>{pivotColumnLabel(column)} ({column.type ?? 'unknown type'})</option>)}
+                {selectableValueColumns.map((column) => <option key={column.id} value={column.id} disabled={props.populationStatusFor(column.id) === 'EMPTY'} title={pivotColumnTitle(column)}>{pivotColumnLabel(column)} ({column.type ?? 'unknown type'})</option>)}
                 {sourceOptions.length > 0 ? <optgroup label="Source fields">{sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`} title={choice.fieldPath}>{pivotSourceLabel(choice)} ({choice.logicalType})</option>)}</optgroup> : null}
               </select>
             </label>
@@ -309,7 +321,7 @@ export const PivotEditor = (props: {
                 aria-label="Discover categories when proposing"
                 aria-describedby={discoveryHelpId}
                 checked={discoveryMode}
-                disabled={props.disabled || !props.supported}
+                disabled={props.disabled || !props.supported || emptyRole || props.populationChecking || props.populationUnavailable}
                 onChange={(event) => props.onChange({
                   ...props.form,
                   discovery: event.currentTarget.checked ? { maxCategories: PIVOT_DISCOVERY_MAX_CATEGORIES } : undefined,

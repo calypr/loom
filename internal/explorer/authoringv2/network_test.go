@@ -1,6 +1,7 @@
 package authoringv2
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -44,5 +45,71 @@ func TestNetworkLegacyColumnsRemainInDocumentWithoutInventedBindingIdentity(t *t
 	}
 	if len(d.Columns) != 2 || d.Columns[0].ColumnID != "" || d.Columns[0].Column != "legacy_id" || d.Columns[0].Source.Field.Path != "id" || d.Columns[0].Source.Field.ProjectionMode != "VALUE" {
 		t.Fatal("read adapter rewrote or removed legacy source facts")
+	}
+}
+
+func TestNetworkProjectsOrderedFieldsWithExactRepeatedOccurrencesAndLegacyVisibility(t *testing.T) {
+	d := Document{
+		Output: Output{ID: "observations"},
+		Route:  RouteNode{OccurrenceID: "base", ResourceType: "Observation"},
+		Rows:   RecordsRowDefinition(),
+		Columns: []Column{
+			{ColumnID: "subject-id", Column: "subject_id", Label: "Subject ID", OccurrenceID: "patient_subject", Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}},
+			{ColumnID: "performer-id", Column: "performer_id", Label: "Performer ID", OccurrenceID: "patient_performer", Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}},
+			{Column: "legacy", Label: "Legacy", OccurrenceID: "base", Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "status", ProjectionMode: "VALUE"}}},
+		},
+	}
+	catalog := CatalogSnapshot{Nodes: []CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}}}
+	network, err := NetworkForDocument(d, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(network.ProjectedFields) != 3 {
+		t.Fatalf("projected field count = %d, want all three saved columns: %#v", len(network.ProjectedFields), network.ProjectedFields)
+	}
+	first, second, legacy := network.ProjectedFields[0], network.ProjectedFields[1], network.ProjectedFields[2]
+	if first.ColumnID != "subject-id" || first.Label != "Subject ID" || first.OccurrenceID != "patient_subject" || first.Owner != ProjectedFieldOwnerAuthored || first.Removal != ProjectedFieldRemovalColumn || first.Status != ProjectedFieldStatusExact {
+		t.Fatalf("first projected field lost its exact authored identity: %+v", first)
+	}
+	if second.ColumnID != "performer-id" || second.OccurrenceID != "patient_performer" || second.ColumnID == first.ColumnID {
+		t.Fatalf("repeated resource occurrences were conflated: first=%+v second=%+v", first, second)
+	}
+	if legacy.ColumnID != "" || legacy.Column != "legacy" || legacy.Owner != ProjectedFieldOwnerAuthored || legacy.Status != ProjectedFieldStatusUnknown || legacy.Removal != ProjectedFieldRemovalUnavailable {
+		t.Fatalf("legacy field must remain visible without a fabricated identity: %+v", legacy)
+	}
+}
+
+func TestImportedProjectedFieldOccurrenceRequiresCompilerBinding(t *testing.T) {
+	d := Document{
+		Output:         Output{ID: "patients"},
+		ImportedRecipe: &ImportedRecipeRef{Name: "pin", TranslationVersion: "v1", Digest: strings.Repeat("a", 64), Output: "patients"},
+		Columns:        []Column{{ColumnID: "imported-id", Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceImported, Imported: &ImportedSource{OutputColumn: "patient_id"}}}},
+	}
+	unknown := ProjectedFieldsForDocument(d, AuthoringNetwork{})[0]
+	if unknown.Owner != ProjectedFieldOwnerPinned || unknown.Status != ProjectedFieldStatusUnknown || unknown.OccurrenceID != "" || unknown.Removal != ProjectedFieldRemovalUnavailable {
+		t.Fatalf("imported base occurrence was treated as provenance: %+v", unknown)
+	}
+	exact := ProjectedFieldsForDocument(d, AuthoringNetwork{Bindings: []NetworkColumnBinding{{ColumnID: "imported-id", OccurrenceID: "patient_subject", SourceStepID: "traversals[0].fields", Status: "EXACT"}}})[0]
+	if exact.Owner != ProjectedFieldOwnerPinned || exact.Status != ProjectedFieldStatusExact || exact.OccurrenceID != "patient_subject" || exact.SourceStepID != "traversals[0].fields" || exact.Removal != ProjectedFieldRemovalUnavailable {
+		t.Fatalf("compiler binding was not reflected without inventing a field-level remove action: %+v", exact)
+	}
+}
+
+func TestAuthoringNetworkEmitsEmptyProjectedFieldsAsArray(t *testing.T) {
+	document := Document{Output: Output{ID: "patients"}, Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"}, Rows: RecordsRowDefinition()}
+	catalog := CatalogSnapshot{Nodes: []CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}}
+	network, err := NetworkForDocument(document, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if network.ProjectedFields == nil || len(network.ProjectedFields) != 0 {
+		t.Fatalf("empty projected field inventory must be a non-nil array: %#v", network.ProjectedFields)
+	}
+	raw, err := json.Marshal(network)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"projectedFields":[]`) {
+		t.Fatalf("empty projectedFields did not serialize as an array: %s", raw)
 	}
 }

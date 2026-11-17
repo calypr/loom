@@ -73,6 +73,17 @@ export function ordinaryNetworkFixture(document: ExplorerBuilderDocument, args: 
   }
   return { snapshotToken: args.snapshotToken, draftVersion: args.expectedDraftVersion, draftDigest: args.expectedDraftDigest,
     network: { owner: 'DOCUMENT', outputId: document.output.id, sourceRows: rows, occurrences,
+      projectedFields: document.columns.map((column) => {
+        const id = column.columnId;
+        const authored = column.source.kind !== 'imported';
+        return {
+          ...(id ? { columnId: id } : {}), column: column.column, label: column.label || column.column,
+          ...(authored && column.occurrenceId ? { occurrenceId: column.occurrenceId } : {}),
+          owner: authored ? 'AUTHORED' as const : 'UNKNOWN' as const,
+          removal: authored && id ? 'REMOVE_COLUMN' as const : 'UNAVAILABLE' as const,
+          status: authored && id && column.occurrenceId ? 'EXACT' as const : 'UNKNOWN' as const,
+        };
+      }),
       bindings: document.columns.filter((column) => column.columnId).map((column) => ({ columnId: column.columnId!, occurrenceId: column.occurrenceId,
         valueMode: column.source.kind === 'field' ? column.source.field.projectionMode : undefined, status: 'EXACT' })),
       operations: (document.construction?.steps ?? []).map((step) => ({ operationId: step.id, kind: step.operation.kind,

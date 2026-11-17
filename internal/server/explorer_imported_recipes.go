@@ -33,9 +33,10 @@ type importedRecipeSources struct {
 }
 
 type importedRecipeResolution struct {
-	bundle   recipe.Bundle
-	resolved dataframeexecution.Resolved
-	digest   string
+	bundle        recipe.Bundle
+	resolved      dataframeexecution.Resolved
+	digest        string
+	pinnedSchemas map[string][]lower.CompiledOutputColumn
 }
 
 func (r importedRecipeSources) load(ctx context.Context, project, name, version, digest string, authorized lifecycle.AuthorizedCapability, documents ...authoringv2.Document) (importedRecipeResolution, error) {
@@ -172,7 +173,7 @@ func (r importedRecipeSources) load(ctx context.Context, project, name, version,
 			}
 		}
 	}
-	return importedRecipeResolution{bundle: bundle, resolved: resolved, digest: actual}, nil
+	return importedRecipeResolution{bundle: bundle, resolved: resolved, digest: actual, pinnedSchemas: pinnedSchemas}, nil
 }
 
 func (r importedRecipeSources) DefaultWorkspace(ctx context.Context, project string, snapshot capability.Snapshot, catalog authoringv2.CatalogSnapshot) (authoringv2.Workspace, error) {
