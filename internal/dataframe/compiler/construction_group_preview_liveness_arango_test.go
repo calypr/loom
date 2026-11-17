@@ -211,7 +211,7 @@ func TestSourceGroupPruningKeepsCorrelatedPivotALLValuesAgainstArango(t *testing
 	// Render the same finalized typed GROUP plan without its preview window.
 	// This is the generic full-source reference for the optimized root-key
 	// frontier query above, independent of the fixture's hand-written oracle.
-	genericPlan := clonePhysicalPlan(preview.PhysicalPlan)
+	genericPlan := ir.ClonePhysicalPlan(preview.PhysicalPlan)
 	genericPlan.StageSequence.PreviewLimitBindKey = ""
 	genericRendered, err := aql.RenderPhysicalPlan(genericPlan)
 	if err != nil {

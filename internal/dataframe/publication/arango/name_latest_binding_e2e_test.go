@@ -436,12 +436,6 @@ func (r *nameBindingReleaseRepository) CompareAndSwapActivateRelease(context.Con
 	return dataset.ActiveRelease{}, errors.New("CompareAndSwapActivateRelease must not run during Create")
 }
 
-func (r *nameBindingReleaseRepository) savedRelease() dataset.ProjectRelease {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.saved
-}
-
 // TestVerifierToBindingChainEchoAgainstArango drives the seam the candidate
 // says is load-bearing: the (replicated) publicationVerificationStore over the
 // production registry, then production dataset.ReleaseService.Create, whose

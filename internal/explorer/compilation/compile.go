@@ -141,11 +141,10 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 	project = projectid.Canonical(project)
 	wire := catalogFromCapability(snapshot, explorerID)
 	var migrationErr error
-	workspace, migrationErr = authoringv2.MigrateLegacyContributors(workspace, wire)
+	workspace, migrationErr = authoringv2.MigrateWorkspaceForCompilation(workspace, wire)
 	if migrationErr != nil {
 		return WorkspaceResult{}, fail("intent", "LEGACY_CONTRIBUTOR_MIGRATION_FAILED", "$.workspace", migrationErr.Error(), nil, migrationErr)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, wire)
 	if err := (authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Workspace: &workspace, Catalog: wire}).Validate(); err != nil {
 		return WorkspaceResult{}, fail("intent", "INVALID_AUTHORING_INTENT", "$.workspace", err.Error(), nil, err)
 	}
@@ -355,14 +354,7 @@ func populationRouteDirectionFromSnapshot(document authoringv2.Document, route [
 
 func resolvePopulationRouteEdge(snapshot capability.Snapshot, currentID, currentType string, step authoringv2.PopulationRouteStep) (capability.Edge, capability.Node, bool) {
 	valid := func(edge capability.Edge) (capability.Node, bool) {
-		from, fromOK := snapshot.Node(edge.FromNodeID)
-		to, toOK := snapshot.Node(edge.ToNodeID)
-		direction := strings.ToUpper(strings.TrimSpace(edge.StorageDirection))
-		directionMatches := step.StorageDirection == "" || direction == step.StorageDirection
-		return to, edge.ID != "" && edge.BlockedReason == "" && edge.FromNodeID == currentID &&
-			fromOK && toOK && from.ResourceType == currentType && (edge.SourceResourceType == "" || edge.SourceResourceType == currentType) &&
-			to.ResourceType == step.ResourceType && (edge.TargetResourceType == "" || edge.TargetResourceType == step.ResourceType) && edge.Label == step.Relationship &&
-			(direction == "" || direction == "INBOUND" || direction == "OUTBOUND") && directionMatches
+		return snapshot.MatchPopulationRouteEdge(edge, currentID, currentType, step.ResourceType, step.Relationship, step.StorageDirection)
 	}
 	if step.CatalogEdgeID != "" {
 		edge, found := snapshot.Edge(step.CatalogEdgeID)

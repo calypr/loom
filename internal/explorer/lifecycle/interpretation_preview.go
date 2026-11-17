@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -199,7 +200,7 @@ func authoredInterpretationEmissions(receipt *explorer.CompilationReceipt, outpu
 	for _, emission := range receipt.EmittedColumns {
 		// Preview rows expose public column names. An internal emission ID is
 		// not a row key and must never leak into the comparison sample.
-		if emission.OutputID != outputID || emission.PublicColumn == "" || !containsString(emission.AuthoredColumns, column) {
+		if emission.OutputID != outputID || emission.PublicColumn == "" || !slices.Contains(emission.AuthoredColumns, column) {
 			continue
 		}
 		emissions = append(emissions, emission)
@@ -346,13 +347,4 @@ func verifyPreviewReceiptIntent(receipt *explorer.CompilationReceipt, workspace 
 		return fmt.Errorf("receipt intent digest %q does not match workspace digest %q", receipt.IntentDigest, digest)
 	}
 	return nil
-}
-
-func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }

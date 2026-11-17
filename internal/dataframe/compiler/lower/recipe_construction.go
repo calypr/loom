@@ -2617,7 +2617,3 @@ func constructionFirstNonEmpty(values ...string) string {
 	}
 	return ""
 }
-
-func constructionScalarKindsCompatible(output, input string) bool {
-	return output == input || output == "DECIMAL" && input == "INTEGER"
-}

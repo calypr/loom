@@ -104,14 +104,7 @@ func validatePopulationRoute(document authoringv2.Document, population authoring
 
 func resolvePopulationRouteEdge(snapshot capability.Snapshot, currentID, currentType string, step authoringv2.PopulationRouteStep) (capability.Edge, capability.Node, error) {
 	valid := func(edge capability.Edge) (capability.Node, bool) {
-		from, fromOK := snapshot.Node(edge.FromNodeID)
-		to, toOK := snapshot.Node(edge.ToNodeID)
-		direction := strings.ToUpper(strings.TrimSpace(edge.StorageDirection))
-		directionMatches := step.StorageDirection == "" || direction == step.StorageDirection
-		return to, edge.ID != "" && edge.BlockedReason == "" && edge.FromNodeID == currentID &&
-			fromOK && toOK && from.ResourceType == currentType && (edge.SourceResourceType == "" || edge.SourceResourceType == currentType) &&
-			to.ResourceType == step.ResourceType && (edge.TargetResourceType == "" || edge.TargetResourceType == step.ResourceType) && edge.Label == step.Relationship &&
-			(direction == "" || direction == "INBOUND" || direction == "OUTBOUND") && directionMatches
+		return snapshot.MatchPopulationRouteEdge(edge, currentID, currentType, step.ResourceType, step.Relationship, step.StorageDirection)
 	}
 	if step.CatalogEdgeID != "" {
 		edge, found := snapshot.Edge(step.CatalogEdgeID)

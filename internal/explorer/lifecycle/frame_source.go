@@ -290,13 +290,9 @@ func (s *Service) frameSourceOptionForRoute(
 		BindingID: family.Family.BindingID, OwningScope: family.Family.OwningScope,
 		KeyPath: family.Family.KeyPath, ValuePath: family.Family.ValuePath,
 		LogicalType: family.Family.LogicalType, ExampleConcept: example,
-		ObservedOccurrences: family.Entry.Observation.Population, Route: cloneConstructionRoute(resolvedRoute),
+		ObservedOccurrences: family.Entry.Observation.Population, Route: capability.CloneConstructionRoute(resolvedRoute),
 		Forms: forms, DefaultForm: defaultForm,
 	}, true
-}
-
-func frameSourceCommand(commands []authoringv2.Command) bool {
-	return len(commands) == 1 && (commands[0].Type == authoringv2.CommandSetFrameSource || commands[0].Type == authoringv2.CommandReplaceFrameSource)
 }
 
 func (s *Service) prepareFrameSourceCommand(

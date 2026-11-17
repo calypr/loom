@@ -697,7 +697,7 @@ func TestPopulationMappingRoutedGroupPivotCohortCompilesFinalIdentity(t *testing
 	for _, test := range invalidIdentityShapes {
 		t.Run(test.name, func(t *testing.T) {
 			candidate := outputPlan
-			candidate.Plan = clonePhysicalPlan(outputPlan.Plan)
+			candidate.Plan = ir.ClonePhysicalPlan(outputPlan.Plan)
 			candidate.OptimizedPlan = nil
 			test.mutate(candidate.Plan.StageSequence)
 			if _, _, err := finalConstructionPopulationMappingIdentity(candidate.Plan, candidate); err == nil {

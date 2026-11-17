@@ -3,16 +3,12 @@ package arango
 import (
 	"encoding/json"
 	"time"
+
+	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func decode[T any](value any) (T, error) {
-	var out T
-	raw, err := json.Marshal(normalizeUpdatedAt(value))
-	if err != nil {
-		return out, err
-	}
-	err = json.Unmarshal(raw, &out)
-	return out, err
+	return arangostore.DecodeValue[T](normalizeUpdatedAt(value))
 }
 
 // normalizeUpdatedAt keeps reads tolerant of the numeric Arango timestamp

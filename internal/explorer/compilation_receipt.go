@@ -151,26 +151,13 @@ type RowDefinitionProposalBinding struct {
 }
 
 func (b RowDefinitionProposalBinding) Validate(intentDigest, snapshotToken string) error {
-	if b.DraftVersion < 1 {
-		return fmt.Errorf("row-definition proposal draftVersion must be positive")
+	if err := validateDraftProposalFields("row-definition", b.DraftVersion, map[string]string{
+		"draftDigest": b.DraftDigest, "outputId": b.OutputID, "baseDocumentDigest": b.BaseDocumentDigest,
+		"candidateWorkspaceDigest": b.CandidateWorkspaceDigest, "snapshotToken": b.SnapshotToken,
+	}); err != nil {
+		return err
 	}
-	for name, value := range map[string]string{
-		"draftDigest": b.DraftDigest, "outputId": b.OutputID,
-		"baseDocumentDigest":       b.BaseDocumentDigest,
-		"candidateWorkspaceDigest": b.CandidateWorkspaceDigest,
-		"snapshotToken":            b.SnapshotToken,
-	} {
-		if strings.TrimSpace(value) == "" || value != strings.TrimSpace(value) {
-			return fmt.Errorf("row-definition proposal %s must be an exact non-empty value", name)
-		}
-	}
-	if b.CandidateWorkspaceDigest != intentDigest {
-		return fmt.Errorf("row-definition proposal candidate workspace digest does not match receipt intent")
-	}
-	if b.SnapshotToken != snapshotToken {
-		return fmt.Errorf("row-definition proposal snapshot token does not match receipt snapshot")
-	}
-	return nil
+	return validateDraftProposalDigests("row-definition", b.CandidateWorkspaceDigest, b.SnapshotToken, intentDigest, snapshotToken)
 }
 
 // TableShapeProposalBinding freezes the exact draft and output from which a
@@ -186,24 +173,33 @@ type TableShapeProposalBinding struct {
 }
 
 func (b TableShapeProposalBinding) Validate(intentDigest, snapshotToken string) error {
-	if b.DraftVersion < 1 {
-		return fmt.Errorf("table-shape proposal draftVersion must be positive")
+	if err := validateDraftProposalFields("table-shape", b.DraftVersion, map[string]string{
+		"draftDigest": b.DraftDigest, "outputId": b.OutputID, "baseDocumentDigest": b.BaseDocumentDigest,
+		"candidateWorkspaceDigest": b.CandidateWorkspaceDigest, "snapshotToken": b.SnapshotToken,
+	}); err != nil {
+		return err
 	}
-	for name, value := range map[string]string{
-		"draftDigest": b.DraftDigest, "outputId": b.OutputID,
-		"baseDocumentDigest":       b.BaseDocumentDigest,
-		"candidateWorkspaceDigest": b.CandidateWorkspaceDigest,
-		"snapshotToken":            b.SnapshotToken,
-	} {
+	return validateDraftProposalDigests("table-shape", b.CandidateWorkspaceDigest, b.SnapshotToken, intentDigest, snapshotToken)
+}
+
+func validateDraftProposalFields(kind string, draftVersion int64, fields map[string]string) error {
+	if draftVersion < 1 {
+		return fmt.Errorf("%s proposal draftVersion must be positive", kind)
+	}
+	for name, value := range fields {
 		if strings.TrimSpace(value) == "" || value != strings.TrimSpace(value) {
-			return fmt.Errorf("table-shape proposal %s must be an exact non-empty value", name)
+			return fmt.Errorf("%s proposal %s must be an exact non-empty value", kind, name)
 		}
 	}
-	if b.CandidateWorkspaceDigest != intentDigest {
-		return fmt.Errorf("table-shape proposal candidate workspace digest does not match receipt intent")
+	return nil
+}
+
+func validateDraftProposalDigests(kind, candidateWorkspaceDigest, bindingSnapshotToken, intentDigest, snapshotToken string) error {
+	if candidateWorkspaceDigest != intentDigest {
+		return fmt.Errorf("%s proposal candidate workspace digest does not match receipt intent", kind)
 	}
-	if b.SnapshotToken != snapshotToken {
-		return fmt.Errorf("table-shape proposal snapshot token does not match receipt snapshot")
+	if bindingSnapshotToken != snapshotToken {
+		return fmt.Errorf("%s proposal snapshot token does not match receipt snapshot", kind)
 	}
 	return nil
 }
@@ -230,19 +226,13 @@ type PopulationMemberRemovalProposalBinding struct {
 }
 
 func (b PopulationMemberRemovalProposalBinding) Validate(intentDigest, snapshotToken, project, generation string) error {
-	if b.DraftVersion < 1 {
-		return fmt.Errorf("population member proposal draftVersion must be positive")
-	}
-	for name, value := range map[string]string{
-		"draftDigest": b.DraftDigest, "outputId": b.OutputID,
-		"baseDocumentDigest": b.BaseDocumentDigest, "baseSelectionRevisionId": b.BaseSelectionRevisionID,
-		"baseMembershipDigest": b.BaseMembershipDigest, "candidateSelectionRevisionId": b.CandidateSelectionRevisionID,
-		"candidateMembershipDigest": b.CandidateMembershipDigest, "routeChoiceId": b.RouteChoiceID,
-		"candidateWorkspaceDigest": b.CandidateWorkspaceDigest, "snapshotToken": b.SnapshotToken,
-	} {
-		if strings.TrimSpace(value) == "" || value != strings.TrimSpace(value) {
-			return fmt.Errorf("population member proposal %s must be an exact non-empty value", name)
-		}
+	if err := validateDraftProposalFields("population member", b.DraftVersion, map[string]string{
+		"draftDigest": b.DraftDigest, "outputId": b.OutputID, "baseDocumentDigest": b.BaseDocumentDigest,
+		"baseSelectionRevisionId": b.BaseSelectionRevisionID, "baseMembershipDigest": b.BaseMembershipDigest,
+		"candidateSelectionRevisionId": b.CandidateSelectionRevisionID, "candidateMembershipDigest": b.CandidateMembershipDigest,
+		"routeChoiceId": b.RouteChoiceID, "candidateWorkspaceDigest": b.CandidateWorkspaceDigest, "snapshotToken": b.SnapshotToken,
+	}); err != nil {
+		return err
 	}
 	if b.BaseSelectionRevisionID == b.CandidateSelectionRevisionID || b.BaseMembershipDigest == b.CandidateMembershipDigest {
 		return fmt.Errorf("population member proposal must bind distinct immutable selections")
@@ -253,11 +243,8 @@ func (b PopulationMemberRemovalProposalBinding) Validate(intentDigest, snapshotT
 	if err := b.RemovedMember.Validate(project, generation, b.RemovedMember.ResourceType); err != nil {
 		return fmt.Errorf("population member proposal removed member is outside the receipt scope: %w", err)
 	}
-	if b.CandidateWorkspaceDigest != intentDigest {
-		return fmt.Errorf("population member proposal candidate workspace digest does not match receipt intent")
-	}
-	if b.SnapshotToken != snapshotToken {
-		return fmt.Errorf("population member proposal snapshot token does not match receipt snapshot")
+	if err := validateDraftProposalDigests("population member", b.CandidateWorkspaceDigest, b.SnapshotToken, intentDigest, snapshotToken); err != nil {
+		return err
 	}
 	if b.PreviewLimit < 1 {
 		return fmt.Errorf("population member proposal previewLimit must be positive")
@@ -281,17 +268,11 @@ type ConstructionProposalBinding struct {
 }
 
 func (b ConstructionProposalBinding) Validate(intentDigest, snapshotToken string) error {
-	if b.DraftVersion < 1 {
-		return fmt.Errorf("construction proposal draftVersion must be positive")
-	}
-	for name, value := range map[string]string{
-		"draftDigest": b.DraftDigest, "outputId": b.OutputID,
-		"baseDocumentDigest": b.BaseDocumentDigest, "candidateWorkspaceDigest": b.CandidateWorkspaceDigest,
-		"snapshotToken": b.SnapshotToken,
-	} {
-		if strings.TrimSpace(value) == "" || value != strings.TrimSpace(value) {
-			return fmt.Errorf("construction proposal %s must be an exact non-empty value", name)
-		}
+	if err := validateDraftProposalFields("construction", b.DraftVersion, map[string]string{
+		"draftDigest": b.DraftDigest, "outputId": b.OutputID, "baseDocumentDigest": b.BaseDocumentDigest,
+		"candidateWorkspaceDigest": b.CandidateWorkspaceDigest, "snapshotToken": b.SnapshotToken,
+	}); err != nil {
+		return err
 	}
 	if b.ChangedStepID == "" {
 		if len(b.RemoveStepIDs) == 0 {
@@ -300,11 +281,8 @@ func (b ConstructionProposalBinding) Validate(intentDigest, snapshotToken string
 	} else if strings.TrimSpace(b.ChangedStepID) != b.ChangedStepID {
 		return fmt.Errorf("construction proposal changedStepId must be exact")
 	}
-	if b.CandidateWorkspaceDigest != intentDigest {
-		return fmt.Errorf("construction proposal candidate workspace digest does not match receipt intent")
-	}
-	if b.SnapshotToken != snapshotToken {
-		return fmt.Errorf("construction proposal snapshot token does not match receipt snapshot")
+	if err := validateDraftProposalDigests("construction", b.CandidateWorkspaceDigest, b.SnapshotToken, intentDigest, snapshotToken); err != nil {
+		return err
 	}
 	if b.PreviewLimit < 1 {
 		return fmt.Errorf("construction proposal previewLimit must be positive")

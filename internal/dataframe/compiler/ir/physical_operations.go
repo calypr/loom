@@ -13,9 +13,10 @@ const PhysicalCodedPivotSourcePayloadColumn = "__loom_coded_pivot_source_payload
 // scope: an operation may reference only variables introduced before it.
 type PhysicalSet struct {
 	Variable string
-	Kind     PhysicalSetKind
-	Subplan  PhysicalSubplan
-	Unique   bool
+	// Kind remains serialized into plan fingerprints; current producers do not set it.
+	Kind    string
+	Subplan PhysicalSubplan
+	Unique  bool
 	// Output describes a compact, identity-safe projection of each set item.
 	// A nil output preserves the full stored document for shared traversal or
 	// other consumers that have not proved a smaller contract.
@@ -40,13 +41,6 @@ type PhysicalSet struct {
 	Reduction *PhysicalSetReduction
 	Prepared  *PhysicalPreparedSet
 }
-
-type PhysicalSetKind string
-
-const (
-	PhysicalNodeSetKind     PhysicalSetKind = "NODE_SET"
-	PhysicalNodePathSetKind PhysicalSetKind = "NODE_PATH"
-)
 
 // PhysicalPathNode is a public path node backed by a stored document. Value is
 // typed so path lowering cannot smuggle AQL text into the renderer.

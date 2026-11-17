@@ -341,7 +341,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		for _, candidate := range workspace.Documents[documentIndex].Frames {
 			if candidate.ID == req.FrameID {
 				copy := candidate
-				copy.Route = cloneConstructionRoute(candidate.Route)
+				copy.Route = capability.CloneConstructionRoute(candidate.Route)
 				copy.Source.ChoiceArms = append([]string(nil), candidate.Source.ChoiceArms...)
 				frame = &copy
 			}
@@ -700,7 +700,7 @@ func (s *Service) semanticInventoryPresentationForOutput(
 		ExplorerID: current.owner.ExplorerID, OutputID: outputID,
 		DraftVersion: current.owner.DraftVersion, DraftDigest: current.owner.DraftDigest,
 		SourceNodeID: request.SourceNodeID, OccurrenceID: request.OccurrenceID,
-		Route: cloneConstructionRoute(current.route), StageID: current.stageID,
+		Route: capability.CloneConstructionRoute(current.route), StageID: current.stageID,
 		PresentationRevision: semanticFieldPresentationRevision, CandidateBatchDigest: batchDigest,
 	}
 	decisions := make([]fieldPresentationDecision, 0, len(current.candidates))
@@ -900,7 +900,7 @@ func proveSemanticCandidateForRoute(
 	if proof, ok := cache[key]; ok {
 		return proof, nil
 	}
-	proof := semanticCandidateRouteProof{candidate: candidate, route: cloneConstructionRoute(route), ok: true}
+	proof := semanticCandidateRouteProof{candidate: candidate, route: capability.CloneConstructionRoute(route), ok: true}
 	if len(route) > 0 || strings.HasPrefix(candidate.ID, "schema_field.") {
 		proven, err := proveConstructionCandidate(ctx, authorized, rootResourceType, candidate, route)
 		if err != nil {
@@ -1738,10 +1738,6 @@ func semanticEntrySourceMatchesFrameFamily(observation catalog.SemanticObservati
 	return observation.Source.Type == family.ResourceType &&
 		observation.Source.Path == family.SourcePath && observation.Source.Canonical == family.SourceCanonical &&
 		observation.Source.Profile == family.SourceProfile
-}
-
-func proveOwnerRecords(ctx context.Context, authorized AuthorizedCapability, rootResourceType string, observation catalog.SemanticObservation) bool {
-	return proveOwnerRecordsForRoute(ctx, authorized, rootResourceType, observation, nil)
 }
 
 func proveOwnerRecordsForRoute(ctx context.Context, authorized AuthorizedCapability, rootResourceType string, observation catalog.SemanticObservation, route []capability.ConstructionRouteStep) bool {

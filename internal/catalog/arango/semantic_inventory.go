@@ -117,12 +117,8 @@ func (s *Store) retainedSourceFieldProfileExists(ctx context.Context, project, g
 	if err != nil || !exists {
 		return false, err
 	}
-	found := false
-	err = s.client.QueryRows(ctx, retainedSemanticInventoryFieldProfileAQL, 1, map[string]interface{}{
+	found, err := store.QueryHasRow(ctx, s.client, retainedSemanticInventoryFieldProfileAQL, 1, map[string]interface{}{
 		"project": project, "dataset_generation": catalog.NormalizeDatasetGeneration(generation), "resource_type": resourceType,
-	}, func(map[string]any) error {
-		found = true
-		return nil
 	})
 	return found, err
 }

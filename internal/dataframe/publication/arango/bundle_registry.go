@@ -40,8 +40,7 @@ func (r *Registry) SaveExecution(ctx context.Context, execution publication.Bund
 	if err != nil {
 		return err
 	}
-	saved := false
-	err = r.client.QueryRows(ctx, `LET lease = DOCUMENT(@@leases, @leaseKey)
+	saved, err := arangostore.QueryHasRow(ctx, r.client, `LET lease = DOCUMENT(@@leases, @leaseKey)
 FILTER lease != null
   AND lease.ownerId == @owner
   AND lease.expiresAt >= @now
@@ -52,9 +51,6 @@ RETURN {saved: true}`, r.batchSize, map[string]interface{}{
 		"@collection": BundleExecutionsCollection, "@leases": BundleLeasesCollection,
 		"leaseKey": execution.Key, "owner": fenceOwner, "now": time.Now().UTC(),
 		"executionKey": execution.ID, "execution": doc,
-	}, func(map[string]any) error {
-		saved = true
-		return nil
 	})
 	if err != nil {
 		return err
@@ -293,7 +289,7 @@ func (r *Registry) PublishExecution(ctx context.Context, name, expected string, 
 	err = txClient.WithTransaction(ctx, arangostore.TransactionCollections{
 		Write: []string{BundleExecutionsCollection, BundlePointersCollection, BundleLeasesCollection},
 	}, func(txCtx context.Context, tx arangostore.RowQueryer) error {
-		return tx.QueryRows(txCtx, `LET pointer = DOCUMENT(@@pointers, @pointerKey)
+		queryUpdated, queryErr := arangostore.QueryHasRow(txCtx, tx, `LET pointer = DOCUMENT(@@pointers, @pointerKey)
 LET execution = DOCUMENT(@@executions, @executionKey)
 LET lease = DOCUMENT(@@leases, @leaseKey)
 FILTER execution != null
@@ -311,7 +307,9 @@ RETURN {updated: true}`, r.batchSize, map[string]interface{}{
 			"pointerKey": pointerDocumentKey(name), "executionKey": execution.ID,
 			"leaseKey": execution.Key, "owner": execution.OwnerID, "now": time.Now().UTC(),
 			"name": name, "expected": expected, "updatedAt": execution.UpdatedAt, "execution": executionDoc,
-		}, func(map[string]any) error { updated = true; return nil })
+		})
+		updated = queryUpdated
+		return queryErr
 	})
 	if err != nil {
 		return err

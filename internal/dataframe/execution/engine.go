@@ -668,13 +668,6 @@ func compiledOutputFinalStageID(output lower.CompiledRecipeOutput) string {
 	return recipe.ConstructionSourceProjectionID
 }
 
-func compiledFinalStageID(plan ir.PhysicalPlan) string {
-	if plan.StageSequence != nil && plan.StageSequence.FinalStageID != "" {
-		return plan.StageSequence.FinalStageID
-	}
-	return recipe.ConstructionSourceProjectionID
-}
-
 func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.CompiledRecipeOutput, limit int, building map[string]bool, bindings recipe.RuntimeBindings) (OutputStream, compiler.CompiledQuery, error) {
 	physicalPlan := output.Plan
 	if output.OptimizedPlan != nil {

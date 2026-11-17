@@ -68,7 +68,6 @@ import { RowDefinitionPanel } from './components/RowDefinitionPanel';
 import { RowDefinitionSettingsPanel, rowScopeLabel } from './components/RowDefinitionSettingsPanel';
 import { useBrowserSubscription } from './hooks/useBrowserSubscription';
 import { FrameSourcePanel } from './constructionWorkspace/FrameSourcePanel';
-import { TableShapeSettingsPanel } from './components/TableShapeSettingsPanel';
 import { InterpretationPanel, type InterpretationContextState } from './components/InterpretationPanel';
 import {
   derivedOccurrences,

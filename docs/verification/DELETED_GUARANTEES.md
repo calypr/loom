@@ -63,3 +63,47 @@ For example, `git show 5646633e:verification/builder-interactions/BuilderOperati
 The [retained coverage decisions](RETAINED_COVERAGE_DECISIONS.md) record browser and database boundaries already recovered.
 The [feature map](../../.codex/skills/builder-interaction-formal-verification/features/README.md) names current execution routes.
 This reference is not a new runtime catalog or a pass gate. Update a disposition when the replacement has executable evidence.
+# FE-17 step 1 retired verification guarantees
+
+Recovery point: commit `45879f3b2` (the immutable source snapshot used for this isolated FE-17 worktree).
+
+Retired checks: `TableShapeSettingsPanel.unit.test.tsx`, `TableShapeEditor.unit.test.tsx`, `TableShapeComparison.unit.test.tsx`, and `tableShapeController.unit.test.ts` covered TableShape-specific stale catalog/epoch behavior, proposal preview/review state, and settings editing. Their source is recoverable with `git show 45879f3b2:<path>`.
+
+Replacement scope: production Builder reshape uses Construction; retain its `ConstructionReshapeEditor.*.unit.test.tsx` coverage. This is a scoped retirement record, not a claim that every prior TableShape assertion is behaviorally equivalent.
+
+Also retired stale automation/test scaffolding: the `legacy.table_shape.grouped_pivot` and `legacy.table_shape.unpivot` adapters in `testSupport/builderContractAdapters/shapeCombine.ts`, the derived TableShape adapter in `core.ts`, the orphan `ConstructionSourcePicker.unit.test.tsx` panel test, and TableShape-only mock setup in BuilderWorkspace tests. These all targeted a panel no production entry renders. Recover from the same commit if needed.
+
+Additional FE-17 step 1 retirements: `ConstructionOperationsPanel.unit.test.tsx` covered orphaned operation-panel selection and proposal interactions. Removed TableShape cases in `api.unit.test.ts` and `types.unit.test.ts` covered legacy endpoint request mapping, scalar/comparison evidence strictness, and proposal catalog/receipt identity validation. Recover these checks at `45879f3b2` using the original paths. These promises target the retired client layer; live Construction coverage remains separately maintained.
+# WP-1 retired helper guarantees
+
+Source recovery point: immutable base commit `45879f3b2` (`feature/default-recipe-authoring` HEAD used for the detached WP-1 worktree). The removed definitions can be recovered from that commit with `git show 45879f3b2:<path>`.
+
+The following unreachable production helpers had no runtime callers according to `deadcode -test ./...`; removing them retires no live behavior:
+
+- `internal/acceptance/performance.go: ComparePerformance`: legacy single-pass performance comparison API. The supported report-file comparison functions remain.
+- `internal/catalog/write_profiler.go: fieldCatalogStats.addExtensionValueWithLimits`: duplicate limits helper on the stats struct. The active `Profiler.addExtensionValueWithLimits` remains.
+- `internal/catalog/arango/semantic_coverage.go`: `semanticCoveragePathAggregateKey`, `containsSemanticCoverageResource`, `semanticCoverageBuildBindVars`, and `semanticCoverageCatalogReferenceFromCatalog`: unused semantic-coverage query/key helpers.
+- `internal/dataframe/compiler/lower/group_related_occurrence_lower.go: canonicalGroupRelatedPath`: unused path canonicalization helper.
+- `internal/dataframe/compiler/lower/recipe_construction.go: constructionScalarKindsCompatible`: unused scalar-kind compatibility helper.
+- `internal/dataframe/compiler/render/aql/render.go: RenderPhysicalPlanWithUnorderedTerminalProjection`: unused renderer entry point. The presence-marker variant remains.
+- `internal/dataframe/execution/engine.go: compiledFinalStageID`: unused final-stage identifier helper.
+- `internal/dataframe/published/read.go: encodeCursor`: unused cursor encoder.
+- `internal/explorer/interpretation.go: NewInterpretationRuleID`: unused interpretation ID constructor.
+- `internal/explorer/selection.go: SelectionRuleDigest`: unused digest variant. `SelectionRuleDigestWithMembers` remains.
+- `internal/explorer/authoringv2/construction_validation.go: validConstructionGroupSourceRole`: unused validation helper.
+- `internal/explorer/lifecycle/construction_choice.go: capabilityCandidateBelongsToRoot`, `frame_source.go: frameSourceCommand`, and `semantic_catalog.go: proveOwnerRecords`: unused lifecycle helpers.
+- `internal/explorer/tableshapecap/identity.go: categoriesAsScalars`: unused conversion helper.
+
+The following test-only helpers were also unreachable even from tests. Their removal retires only the helper's unexercised fixture or comparison path; surrounding test cases remain:
+
+- `internal/dataframe/execution/group_preview_scan_test.go: coveringGroupExplain`: unused group-preview explain fixture helper.
+- `internal/dataframe/publication/arango/name_latest_binding_e2e_test.go: nameBindingReleaseRepository.savedRelease`: unused saved-release fixture lookup.
+- `internal/dataframe/publication/clickhouse/unpinned_page_read_e2e_test.go: uprHarness.seedPublishedOutputRecord`: unused published-output fixture seeder.
+- `internal/explorer/lifecycle/derive_source_test.go: deriveSourceIdentityColumns`: unused derive-source test helper.
+
+`PhysicalSetKind`, `PhysicalNodeSetKind`, and `PhysicalNodePathSetKind` had no production writers or readers. The enum and constants were removed, but `PhysicalSet.Kind` remains a serialized string because `physicalPlanFingerprint` hashes JSON-encoded plans. The two renderer fixtures retain the original `"NODE_SET"` string value. `TestPhysicalPlanFingerprintRetainsSetKind` pins the fingerprint for a representative nonzero kind (`27e8342e…b1cec5e`) so this serialized digest input remains stable.
+
+
+## Standalone Builder smoke: current resource chooser
+
+Recovery point: `fd23b8255:scripts/demo-browser-smoke.sh`. Retired literal assertions required `Preview` and every expected FHIR resource name in the initial Builder HTML. The current UI loads its preview asynchronously and exposes root choices through New table. The replacement waits for the rendered preview, opens New table with a native browser click, and requires each expected resource choice to be visible and enabled. Viewer title/column/cell, stylesheet, and UI-error checks remain. Focused native proof: the seeded NCPI smoke passed with Patient, Condition, Specimen, Observation, and ResearchStudy; final full acceptance is recorded in the harness repair commit. Failure evidence is retained, and negative helper tests cover missing/disabled choices and cleanup failures.

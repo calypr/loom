@@ -258,10 +258,6 @@ func (s SelectionRevision) Validate() error {
 	return nil
 }
 
-func SelectionRuleDigest(rule SelectionRule, source SelectionSource, exclusions []ResourceRef) (string, error) {
-	return SelectionRuleDigestWithMembers(rule, source, exclusions, nil)
-}
-
 // SelectionRuleDigestWithMembers binds explicit request membership into the
 // immutable intent digest. It is intentionally separate from the final
 // MembershipDigest: exclusions can make two requests produce the same final

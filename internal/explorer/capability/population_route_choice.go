@@ -46,7 +46,7 @@ func NewPopulationRouteChoiceID(identity PopulationRouteChoiceIdentity) (string,
 	payload, err := json.Marshal(populationRouteChoiceToken{
 		Version: identity.Version, SnapshotToken: identity.SnapshotToken,
 		OutputID: identity.OutputID, SelectionRevisionID: identity.SelectionRevisionID,
-		Route: cloneConstructionRoute(identity.Route),
+		Route: CloneConstructionRoute(identity.Route),
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode population route choice: %w", err)
@@ -90,6 +90,6 @@ func DecodePopulationRouteChoiceID(value string) (PopulationRouteChoiceIdentity,
 	}
 	return PopulationRouteChoiceIdentity{
 		Version: token.Version, SnapshotToken: token.SnapshotToken, OutputID: token.OutputID,
-		SelectionRevisionID: token.SelectionRevisionID, Route: cloneConstructionRoute(token.Route),
+		SelectionRevisionID: token.SelectionRevisionID, Route: CloneConstructionRoute(token.Route),
 	}, nil
 }

@@ -457,31 +457,10 @@ func runtimePhysicalBindVars(bindVars map[string]any, collectionKeys map[string]
 	out := make(map[string]any, len(bindVars))
 	for key, value := range bindVars {
 		if _, collectionBinding := collectionKeys[key]; collectionBinding {
-			out["@"+key] = clonePhysicalBindValue(value)
+			out["@"+key] = ir.ClonePhysicalBindValue(value)
 			continue
 		}
-		out[key] = clonePhysicalBindValue(value)
+		out[key] = ir.ClonePhysicalBindValue(value)
 	}
 	return out
-}
-
-func clonePhysicalBindValue(value any) any {
-	switch typed := value.(type) {
-	case []string:
-		return append([]string(nil), typed...)
-	case []any:
-		out := make([]any, len(typed))
-		for index, item := range typed {
-			out[index] = clonePhysicalBindValue(item)
-		}
-		return out
-	case map[string]any:
-		out := make(map[string]any, len(typed))
-		for key, item := range typed {
-			out[key] = clonePhysicalBindValue(item)
-		}
-		return out
-	default:
-		return value
-	}
 }

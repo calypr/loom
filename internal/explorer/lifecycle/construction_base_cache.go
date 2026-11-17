@@ -54,80 +54,67 @@ type constructionBaseCacheValue struct {
 	stages  []explorer.ReceiptConstructionStage
 }
 
-type constructionBaseCacheEntry struct {
-	value     constructionBaseCacheValue
+type ttlCacheEntry[V any] struct {
+	value     V
 	expiresAt time.Time
 }
 
-type constructionBaseCache struct {
+type ttlCache[K comparable, V any] struct {
 	mu      sync.Mutex
-	entries map[constructionBaseCacheKey]constructionBaseCacheEntry
-	order   []constructionBaseCacheKey
+	entries map[K]ttlCacheEntry[V]
+	order   []K
 	max     int
 	ttl     time.Duration
 	now     func() time.Time
 }
 
-func newConstructionBaseCache(ttl time.Duration, maxEntries int, now func() time.Time) *constructionBaseCache {
+func newTTLCache[K comparable, V any](ttl time.Duration, maxEntries int, now func() time.Time, defaultTTL time.Duration, defaultMaxEntries int) *ttlCache[K, V] {
 	if ttl <= 0 {
-		ttl = defaultConstructionBaseCacheTTL
+		ttl = defaultTTL
 	}
 	if maxEntries <= 0 {
-		maxEntries = defaultConstructionBaseCacheEntries
+		maxEntries = defaultMaxEntries
 	}
 	if now == nil {
-		now = func() time.Time { return time.Now().UTC() }
+		now = time.Now
 	}
-	return &constructionBaseCache{
-		entries: make(map[constructionBaseCacheKey]constructionBaseCacheEntry, maxEntries),
+	return &ttlCache[K, V]{
+		entries: make(map[K]ttlCacheEntry[V], maxEntries),
 		max:     maxEntries,
 		ttl:     ttl,
 		now:     now,
 	}
 }
 
-func (c *constructionBaseCache) Get(key constructionBaseCacheKey) (constructionBaseCacheValue, bool) {
+func (c *ttlCache[K, V]) Get(key K) (V, bool) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	entry, ok := c.entries[key]
 	if !ok {
-		c.mu.Unlock()
-		return constructionBaseCacheValue{}, false
+		var zero V
+		return zero, false
 	}
 	if !c.now().Before(entry.expiresAt) {
 		c.deleteLocked(key)
-		c.mu.Unlock()
-		return constructionBaseCacheValue{}, false
+		var zero V
+		return zero, false
 	}
-	c.mu.Unlock()
-
-	receipt := cloneCachedCompilationReceipt(entry.value.receipt)
-	if entry.value.receipt != nil && receipt == nil {
-		c.mu.Lock()
-		c.deleteLocked(key)
-		c.mu.Unlock()
-		return constructionBaseCacheValue{}, false
-	}
-	return constructionBaseCacheValue{
-		receipt: receipt,
-		stages:  cloneCachedReceiptConstructionStages(entry.value.stages),
-	}, true
+	return entry.value, true
 }
 
-func (c *constructionBaseCache) Put(key constructionBaseCacheKey, value constructionBaseCacheValue) {
-	receipt := cloneCachedCompilationReceipt(value.receipt)
-	if value.receipt != nil && receipt == nil {
-		return
-	}
-	entry := constructionBaseCacheEntry{
-		value: constructionBaseCacheValue{
-			receipt: receipt,
-			stages:  cloneCachedReceiptConstructionStages(value.stages),
-		},
-		expiresAt: c.now().Add(c.ttl),
-	}
-
+func (c *ttlCache[K, V]) Put(key K, value V) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.putLocked(key, value, c.now().Add(c.ttl))
+}
+
+func (c *ttlCache[K, V]) putExpiringAt(key K, value V, expiresAt time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.putLocked(key, value, expiresAt)
+}
+
+func (c *ttlCache[K, V]) putLocked(key K, value V, expiresAt time.Time) {
 	if _, exists := c.entries[key]; !exists {
 		for len(c.entries) >= c.max && len(c.order) > 0 {
 			oldest := c.order[0]
@@ -136,10 +123,16 @@ func (c *constructionBaseCache) Put(key constructionBaseCacheKey, value construc
 		}
 		c.order = append(c.order, key)
 	}
-	c.entries[key] = entry
+	c.entries[key] = ttlCacheEntry[V]{value: value, expiresAt: expiresAt}
 }
 
-func (c *constructionBaseCache) deleteLocked(key constructionBaseCacheKey) {
+func (c *ttlCache[K, V]) Delete(key K) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.deleteLocked(key)
+}
+
+func (c *ttlCache[K, V]) deleteLocked(key K) {
 	delete(c.entries, key)
 	for index := range c.order {
 		if c.order[index] != key {
@@ -148,6 +141,44 @@ func (c *constructionBaseCache) deleteLocked(key constructionBaseCacheKey) {
 		c.order = append(c.order[:index], c.order[index+1:]...)
 		return
 	}
+}
+
+type constructionBaseCache struct {
+	entries *ttlCache[constructionBaseCacheKey, constructionBaseCacheValue]
+}
+
+func newConstructionBaseCache(ttl time.Duration, maxEntries int, now func() time.Time) *constructionBaseCache {
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
+	}
+	return &constructionBaseCache{entries: newTTLCache[constructionBaseCacheKey, constructionBaseCacheValue](ttl, maxEntries, now, defaultConstructionBaseCacheTTL, defaultConstructionBaseCacheEntries)}
+}
+
+func (c *constructionBaseCache) Get(key constructionBaseCacheKey) (constructionBaseCacheValue, bool) {
+	value, ok := c.entries.Get(key)
+	if !ok {
+		return constructionBaseCacheValue{}, false
+	}
+	receipt := cloneCachedCompilationReceipt(value.receipt)
+	if value.receipt != nil && receipt == nil {
+		c.entries.Delete(key)
+		return constructionBaseCacheValue{}, false
+	}
+	return constructionBaseCacheValue{
+		receipt: receipt,
+		stages:  cloneCachedReceiptConstructionStages(value.stages),
+	}, true
+}
+
+func (c *constructionBaseCache) Put(key constructionBaseCacheKey, value constructionBaseCacheValue) {
+	receipt := cloneCachedCompilationReceipt(value.receipt)
+	if value.receipt != nil && receipt == nil {
+		return
+	}
+	c.entries.putExpiringAt(key, constructionBaseCacheValue{
+		receipt: receipt,
+		stages:  cloneCachedReceiptConstructionStages(value.stages),
+	}, c.entries.now().Add(c.entries.ttl))
 }
 
 func cloneCachedCompilationReceipt(in *explorer.CompilationReceipt) *explorer.CompilationReceipt {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -242,7 +243,7 @@ func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []Em
 			expectedSuitability = "array"
 		}
 		for _, reason := range column.LossReasons {
-			if !containsString(expectedLossReasons, reason) {
+			if !slices.Contains(expectedLossReasons, reason) {
 				expectedLossReasons = append(expectedLossReasons, reason)
 			}
 		}
@@ -255,15 +256,6 @@ func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []Em
 		return invalidOutputContract("aggregate metadata does not match emitted columns: got lossless=%t mlReady=%t structuralSuitability=%q lossReasons=%#v, want lossless=%t mlReady=%t structuralSuitability=%q lossReasons=%#v", c.Lossless, c.MLReady, c.StructuralSuitability, c.LossReasons, expectedLossless, expectedMLReady, expectedSuitability, expectedLossReasons)
 	}
 	return nil
-}
-
-func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 func invalidOutputContract(format string, args ...any) error {

@@ -2,6 +2,7 @@ package compilation
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/calypr/loom/internal/explorer"
@@ -159,7 +160,7 @@ func ResolveInterpretationCandidate(document authoringv2.Document, column author
 	}
 	capabilities := make([]capability.Candidate, 0, 1)
 	for _, candidate := range snapshot.Candidates {
-		if candidate.NodeID != occurrence.graph.ID || candidate.ResourceType != resourceType || !containsString(paths, normalizeFieldPath(candidate.FieldPath)) {
+		if candidate.NodeID != occurrence.graph.ID || candidate.ResourceType != resourceType || !slices.Contains(paths, normalizeFieldPath(candidate.FieldPath)) {
 			continue
 		}
 		capabilities = append(capabilities, candidate)
@@ -231,7 +232,7 @@ func matchingConceptCandidates(values []capability.ConceptCandidate, source auth
 	extensionPath := sourceExtensionPath(source)
 	matched := make([]capability.ConceptCandidate, 0, len(values))
 	for _, value := range values {
-		if len(paths) > 0 && !containsString(paths, normalizeFieldPath(value.SourcePath)) {
+		if len(paths) > 0 && !slices.Contains(paths, normalizeFieldPath(value.SourcePath)) {
 			continue
 		}
 		if system != "" && value.System != system {
@@ -280,15 +281,6 @@ func sourceExtensionPath(source authoringv2.ColumnSource) []string {
 
 func normalizeFieldPath(value string) string {
 	return strings.TrimPrefix(strings.TrimSpace(value), "root.")
-}
-
-func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 func uniqueStrings(values []string) []string {

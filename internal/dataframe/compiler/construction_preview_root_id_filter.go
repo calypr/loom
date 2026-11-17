@@ -19,7 +19,7 @@ func withConstructionPreviewRootIDFilter(output lower.CompiledRecipeOutput, plan
 		return plan
 	}
 
-	out := clonePhysicalPlan(plan)
+	out := ir.ClonePhysicalPlan(plan)
 	insertAt := rootPageInsertionIndex(out.Operations)
 	if insertAt < 1 || insertAt >= len(out.Operations) {
 		return plan

@@ -29,7 +29,7 @@ func TestRowChoicePinsSchemaAndAuthorizedOccurrence(t *testing.T) {
 		t.Fatalf("decoded row choice identity = %#v, %v", decoded, err)
 	}
 
-	occurrences[0].Route = cloneConstructionRoute(occurrences[0].Route)
+	occurrences[0].Route = CloneConstructionRoute(occurrences[0].Route)
 	occurrences[0].Route[0].EdgeID = "mutated"
 	if choice.Route[0].EdgeID != "edge" {
 		t.Fatal("choice route aliases the caller's route")

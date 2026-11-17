@@ -12,6 +12,7 @@ import (
 
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func (p *RepositorySourceLoader) copyGenerationForward(ctx context.Context, record sourceLoadRecord) error {
@@ -336,7 +337,7 @@ RETURN {mismatch: true}`
 		if collection == catalog.FieldCatalogCollection || collection == catalog.SemanticInventoryCollection {
 			fieldName = "resource_type"
 		}
-		found, err := p.sourceLoadQueryHasRow(ctx, query, map[string]any{
+		found, err := arangostore.QueryHasRow(ctx, p.client, query, 1, map[string]any{
 			"@collection": collection, "project": project, "generation": base.Generation,
 			"scope_field": fieldName, "resource_type": collection,
 			"resource_types": selectedTypes, "auth_resource_path": authResourcePath,
@@ -351,13 +352,13 @@ RETURN {mismatch: true}`
 	if exists, err := p.client.CollectionExists(ctx, EdgeCollection); err != nil {
 		return err
 	} else if exists {
-		found, err := p.sourceLoadQueryHasRow(ctx, `FOR edge IN fhir_edge
+		found, err := arangostore.QueryHasRow(ctx, p.client, `FOR edge IN fhir_edge
 FILTER edge.project == @project
 FILTER (@generation == "" AND NOT_NULL(edge.dataset_generation, "") == "") OR edge.dataset_generation == @generation
 FILTER NOT_NULL(edge.source_file, "") IN @resource_types
 FILTER NOT_NULL(edge.auth_resource_path, "") != @auth_resource_path
 LIMIT 1
-RETURN {mismatch: true}`, map[string]any{
+RETURN {mismatch: true}`, 1, map[string]any{
 			"project": project, "generation": base.Generation, "resource_types": selectedTypes,
 			"auth_resource_path": authResourcePath,
 		})
@@ -400,9 +401,9 @@ func (p *RepositorySourceLoader) requireMutableSourceCopySafe(ctx context.Contex
 		} else if !exists {
 			continue
 		}
-		found, err := p.sourceLoadQueryHasRow(ctx, `FOR doc IN @@collection
+		found, err := arangostore.QueryHasRow(ctx, p.client, `FOR doc IN @@collection
 FILTER doc.project == @project AND NOT_NULL(doc.dataset_generation, "") == ""
-LIMIT 1 RETURN {found: true}`, map[string]any{"@collection": resourceType, "project": project})
+LIMIT 1 RETURN {found: true}`, 1, map[string]any{"@collection": resourceType, "project": project})
 		if err != nil {
 			return fmt.Errorf("inspect mutable-root %s rows: %w", resourceType, err)
 		}
@@ -416,10 +417,10 @@ LIMIT 1 RETURN {found: true}`, map[string]any{"@collection": resourceType, "proj
 		} else if !exists {
 			continue
 		}
-		found, err := p.sourceLoadQueryHasRow(ctx, `FOR doc IN @@collection
+		found, err := arangostore.QueryHasRow(ctx, p.client, `FOR doc IN @@collection
 FILTER doc.project == @project AND NOT_NULL(doc.dataset_generation, "") == ""
 FILTER doc.resource_type NOT IN @resource_types
-LIMIT 1 RETURN {found: true}`, map[string]any{"@collection": collection, "project": project, "resource_types": selectedTypes})
+LIMIT 1 RETURN {found: true}`, 1, map[string]any{"@collection": collection, "project": project, "resource_types": selectedTypes})
 		if err != nil {
 			return fmt.Errorf("inspect mutable-root %s rows: %w", collection, err)
 		}
@@ -430,10 +431,10 @@ LIMIT 1 RETURN {found: true}`, map[string]any{"@collection": collection, "projec
 	if exists, err := p.client.CollectionExists(ctx, EdgeCollection); err != nil {
 		return err
 	} else if exists {
-		found, err := p.sourceLoadQueryHasRow(ctx, `FOR edge IN fhir_edge
+		found, err := arangostore.QueryHasRow(ctx, p.client, `FOR edge IN fhir_edge
 FILTER edge.project == @project AND NOT_NULL(edge.dataset_generation, "") == ""
 FILTER (NOT_NULL(edge.source_file, "") == "" OR edge.source_file NOT IN @resource_types)
-LIMIT 1 RETURN {found: true}`, map[string]any{"project": project, "resource_types": selectedTypes})
+LIMIT 1 RETURN {found: true}`, 1, map[string]any{"project": project, "resource_types": selectedTypes})
 		if err != nil {
 			return fmt.Errorf("inspect mutable-root edge ownership: %w", err)
 		}
@@ -442,15 +443,6 @@ LIMIT 1 RETURN {found: true}`, map[string]any{"project": project, "resource_type
 		}
 	}
 	return nil
-}
-
-func (p *RepositorySourceLoader) sourceLoadQueryHasRow(ctx context.Context, query string, binds map[string]any) (bool, error) {
-	found := false
-	err := p.client.QueryRows(ctx, query, 1, binds, func(map[string]any) error {
-		found = true
-		return nil
-	})
-	return found, err
 }
 
 func sourceLoadString(value any) string {

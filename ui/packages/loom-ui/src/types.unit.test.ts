@@ -32,9 +32,6 @@ import {
   sourceRelationshipProposalRequestSchema,
   explicitGroupCreateRequestSchema,
   explicitGroupRevisionSummarySchema,
-  tableShapeComparisonSchema,
-  tableShapeProposalRequestSchema,
-  tableShapeTaggedScalarSchema,
 } from './types';
 
 describe('Explorer authoring contract version', () => {
@@ -2047,108 +2044,6 @@ describe('explorerBuilderCommandSchema', () => {
     }).success).toBe(false);
   });
 
-  it('keeps table-shape scalars and comparison presence/value evidence lossless and strict', () => {
-    const scalars = [
-      { kind: 'INTEGER', integer: 0 },
-      { kind: 'DECIMAL', decimal: 0 },
-      { kind: 'BOOLEAN', boolean: false },
-      { kind: 'STRING', string: '' },
-      { kind: 'NULL' },
-      { kind: 'MISSING' },
-    ] as const;
-    scalars.forEach((value) => expect(tableShapeTaggedScalarSchema.parse(value)).toEqual(value));
-    expect(tableShapeTaggedScalarSchema.safeParse({ kind: 'NULL', string: 'x' }).success).toBe(false);
-    expect(tableShapeTaggedScalarSchema.safeParse({ kind: 'INTEGER', integer: 0, resourceType: 'Patient' }).success).toBe(false);
-
-    const comparison = {
-      status: 'AVAILABLE',
-      base: { rowCount: 1, sampled: false },
-      candidate: { rowCount: 1, sampled: false },
-      changedColumns: ['measurement'],
-      changedRowCount: 1,
-      changedRowsSampled: false,
-      changedRows: [{
-        rowIdentity: 'row-1', basePresent: true, candidatePresent: true,
-        changedColumns: ['measurement'],
-        changedCells: [{
-          column: 'measurement', before: { present: false, value: null }, after: { present: true, value: false },
-          trace: { state: 'AVAILABLE', contributors: [{ resourceType: 'Observation', resourceId: 'obs-1', value: '' }], complete: true, sampled: false },
-        }],
-      }],
-      contributors: [{ resourceType: 'Observation', resourceId: 'obs-1' }],
-      contributorsSampled: false,
-      exclusions: {
-        status: 'INCOMPLETE',
-        records: [
-          {
-            sourceIdentity: { resourceType: 'Patient', resourceId: 'patient-1' },
-            category: { present: false, value: null }, categoryType: 'string',
-            outputRowId: 'row-missing', reason: 'The category value was missing.', omissionCode: 'MISSING_CATEGORY',
-          },
-          {
-            category: { present: true, value: null }, categoryType: 'null', outputRowId: 'row-null', reason: 'Null category.',
-          },
-          {
-            category: { present: true, value: false }, categoryType: 'boolean', outputRowId: 'row-false', reason: 'False category.',
-          },
-          {
-            category: { present: true, value: 0 }, categoryType: 'number', outputRowId: 'row-zero', reason: 'Zero category.',
-          },
-          {
-            category: { present: true, value: '' }, categoryType: 'string', outputRowId: 'row-empty', reason: 'Empty category.',
-          },
-        ],
-        complete: false,
-        sampled: true,
-      },
-      declaredInformationLoss: {
-        status: 'COMPLETE',
-        items: [{
-          code: 'DROPPED_COLUMNS', label: 'Dropped columns', detail: 'Columns were removed by the transformation.',
-          affectedColumns: ['legacy_measure', 'old_status'],
-        }],
-      },
-      evidenceLimitations: [{ code: 'SAMPLED_ROWS', message: 'Only sampled rows were compared.' }],
-      notices: [],
-    };
-    expect(tableShapeComparisonSchema.parse(comparison)).toEqual(comparison);
-    expect(tableShapeComparisonSchema.safeParse({ ...comparison, debug: true }).success).toBe(false);
-    expect(tableShapeComparisonSchema.safeParse({
-      ...comparison, evidenceLimitations: ['Only sampled rows were compared.'],
-    }).success).toBe(false);
-    expect(tableShapeComparisonSchema.safeParse({
-      ...comparison,
-      exclusions: { ...comparison.exclusions, records: [{ ...comparison.exclusions.records[0], debug: true }] },
-    }).success).toBe(false);
-    expect(tableShapeComparisonSchema.safeParse({
-      ...comparison,
-      declaredInformationLoss: {
-        ...comparison.declaredInformationLoss,
-        items: [{ ...comparison.declaredInformationLoss.items[0], affectedColumns: ['legacy_measure'], debug: true }],
-      },
-    }).success).toBe(false);
-    expect(tableShapeComparisonSchema.safeParse({
-      ...comparison,
-      changedRows: [{ ...comparison.changedRows[0], changedCells: [{
-        ...comparison.changedRows[0].changedCells[0], after: { present: true },
-      }] }],
-    }).success).toBe(false);
-
-    const unavailable = {
-      status: 'UNAVAILABLE',
-      reason: 'The comparison could not be produced.',
-      reasonCode: 'COMPARE_UNAVAILABLE',
-      changedColumns: [], changedRowCount: 0, changedRowsSampled: false, changedRows: [],
-      contributors: [], contributorsSampled: false,
-      exclusions: { status: 'UNAVAILABLE', records: [], complete: false, sampled: false },
-      declaredInformationLoss: { status: 'UNAVAILABLE', items: [] },
-      evidenceLimitations: [{ code: 'NO_COMPARISON', message: 'No preview was returned.' }],
-      notices: [],
-    };
-    expect(tableShapeComparisonSchema.parse(unavailable)).toEqual(unavailable);
-    expect(tableShapeComparisonSchema.safeParse({ ...unavailable, exclusions: undefined }).success).toBe(false);
-  });
-
   it('accepts only the opaque proposal receipt in the atomic Builder apply command', () => {
     expect(explorerBuilderCommandSchema.parse({
       type: 'APPLY_TABLE_SHAPE_PROPOSAL', outputId: 'table-1', proposalId: 'proposal-1',
@@ -2156,16 +2051,6 @@ describe('explorerBuilderCommandSchema', () => {
     expect(explorerBuilderCommandSchema.safeParse({
       type: 'APPLY_TABLE_SHAPE_PROPOSAL', outputId: 'table-1', proposalId: 'proposal-1', tableShape: { columns: [] },
     }).success).toBe(false);
-  });
-
-  it('requires the exact catalog and ordered resolution receipt IDs for proposals', () => {
-    const request = {
-      snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'digest-1',
-      outputId: 'table-1', mode: 'ADD', catalogId: 'catalog-1',
-      reshapeResolutionId: 'pivot-resolution', derivedResolutionIds: ['derived-1', 'derived-2'],
-    };
-    expect(tableShapeProposalRequestSchema.parse(request)).toEqual(request);
-    expect(tableShapeProposalRequestSchema.safeParse({ ...request, tableShape: {} }).success).toBe(false);
   });
 
   it('parses compiler-owned result units on Preview columns and preserves omission', () => {

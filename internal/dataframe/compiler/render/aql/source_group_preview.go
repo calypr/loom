@@ -162,13 +162,13 @@ func renderSourceGroupPreviewFrontier(
 	}
 	bindVars := make(map[string]any, len(source.BindVars)+len(collectionKeys)+8)
 	for key, value := range source.BindVars {
-		bindVars[key] = clonePhysicalBindValue(value)
+		bindVars[key] = ir.ClonePhysicalBindValue(value)
 	}
 	for key, value := range runtimePhysicalBindVars(frontierPlan.BindVars, collectionKeys) {
 		if existing, found := bindVars[key]; found && !sameRenderPhysicalBindValue(existing, value) {
 			return sourceGroupPreviewFrontier{}, fmt.Errorf("source Group frontier bind variable %q conflicts across scans", key)
 		}
-		bindVars[key] = clonePhysicalBindValue(value)
+		bindVars[key] = ir.ClonePhysicalBindValue(value)
 	}
 	reserved := stageSequenceVariableNames(ir.PhysicalPlan{Operations: frontierPlan.Operations, StageSequence: sequence})
 	for variable := range physicalPlanVariableNames(frontierPlan) {
@@ -211,7 +211,7 @@ func renderSourceGroupPreviewFrontier(
 		if !ok {
 			return sourceGroupPreviewFrontier{}, fmt.Errorf("preview Group limit bind %q is missing", sequence.PreviewLimitBindKey)
 		}
-		renderer.bindVars[sequence.PreviewLimitBindKey] = clonePhysicalBindValue(value)
+		renderer.bindVars[sequence.PreviewLimitBindKey] = ir.ClonePhysicalBindValue(value)
 	}
 	traversal := shape.unnest.Owner.Route[0].Traversal
 	routeForRoot := func(rootVariable string, indent string) ([]string, error) {

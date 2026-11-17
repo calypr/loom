@@ -126,11 +126,11 @@ func renderCombineWithResolvedInputs(plan ir.PhysicalClickHouseCombine, inputs [
 	var args []any
 	switch plan.Kind {
 	case ir.PhysicalCombineKeyJoin:
-		query, args = renderKeyJoin(plan, inputs)
+		query, args = renderKeyJoin(plan, inputs, scopeStrategy{})
 	case ir.PhysicalCombineAppend:
-		query, args = renderAppend(plan, inputs)
+		query, args = renderAppend(plan, inputs, scopeStrategy{})
 	case ir.PhysicalCombineMembership:
-		query, args = renderMembership(plan, inputs)
+		query, args = renderMembership(plan, inputs, scopeStrategy{})
 	default:
 		return RenderedCombine{}, fmt.Errorf("unsupported ClickHouse combine kind %q", plan.Kind)
 	}
@@ -382,7 +382,7 @@ func validateAppendProjectionTypes(plan ir.PhysicalClickHouseCombine, inputs []i
 	return nil
 }
 
-func renderKeyJoin(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable) (string, []any) {
+func renderKeyJoin(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable, scope scopeStrategy) (string, []any) {
 	left, right := inputs[0], inputs[1]
 	leftAlias, rightAlias := "__loom_left", "__loom_right"
 	selects := []string{keyJoinIdentity(leftAlias, rightAlias, plan.JoinType)}
@@ -394,7 +394,7 @@ func renderKeyJoin(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickH
 		column := resolvedColumnByID(inputs[projection.InputIndex], projection.InputColumnID)
 		selects = append(selects, fmt.Sprintf("%s.`%s` AS `%s`", alias, column.Name, outputColumn(plan, projection.OutputColumnID).Name))
 	}
-	selects = append(selects, authorizationPathExpression(left, leftAlias)+" AS `auth_resource_path`")
+	selects = append(selects, scope.authorizationPath(left, leftAlias)+" AS `auth_resource_path`")
 	joinType := "INNER"
 	if plan.JoinType == "LEFT" {
 		joinType = "LEFT"
@@ -406,16 +406,16 @@ func renderKeyJoin(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickH
 		rightColumn := resolvedColumnByID(right, key.RightColumnID)
 		conditions = append(conditions, fmt.Sprintf("%s.`%s` = %s.`%s`", leftAlias, leftColumn.Name, rightAlias, rightColumn.Name))
 	}
-	if !left.Unrestricted {
+	if scope.matchesResourcePath(left) {
 		conditions = append(conditions, leftAlias+".`auth_resource_path` = "+rightAlias+".`auth_resource_path`")
 	}
-	rightWhere, rightArgs := inputScopePredicate(right, rightAlias)
+	rightWhere, rightArgs := scope.predicate(right, rightAlias)
 	conditions = append(conditions, rightWhere...)
 	query := "SELECT " + strings.Join(selects, ", ") +
 		" FROM " + quoteIdentifier(left.PhysicalTable) + " AS " + leftAlias +
 		" " + joinType + " JOIN " + quoteIdentifier(right.PhysicalTable) + " AS " + rightAlias +
 		" ON " + strings.Join(conditions, " AND ")
-	where, leftArgs := inputScopePredicate(left, leftAlias)
+	where, leftArgs := scope.predicate(left, leftAlias)
 	args := append(rightArgs, leftArgs...)
 	if len(where) != 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
@@ -424,7 +424,7 @@ func renderKeyJoin(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickH
 	return query, args
 }
 
-func renderAppend(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable) (string, []any) {
+func renderAppend(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable, scope scopeStrategy) (string, []any) {
 	queries := make([]string, 0, len(inputs))
 	var args []any
 	for inputIndex, input := range inputs {
@@ -439,9 +439,9 @@ func renderAppend(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHo
 			column := resolvedColumnByID(input, projection.InputColumnID)
 			selects = append(selects, fmt.Sprintf("%s.`%s` AS `%s`", alias, column.Name, output.Name))
 		}
-		selects = append(selects, authorizationPathExpression(input, alias)+" AS `auth_resource_path`")
+		selects = append(selects, scope.authorizationPath(input, alias)+" AS `auth_resource_path`")
 		query := "SELECT " + strings.Join(selects, ", ") + " FROM " + quoteIdentifier(input.PhysicalTable) + " AS " + alias
-		if where, scopeArgs := inputScopePredicate(input, alias); len(where) != 0 {
+		if where, scopeArgs := scope.predicate(input, alias); len(where) != 0 {
 			query += " WHERE " + strings.Join(where, " AND ")
 			args = append(args, scopeArgs...)
 		}
@@ -450,7 +450,7 @@ func renderAppend(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHo
 	return strings.Join(queries, " UNION ALL ") + " ORDER BY `__loom_row_id` ASC", args
 }
 
-func renderMembership(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable) (string, []any) {
+func renderMembership(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable, scope scopeStrategy) (string, []any) {
 	left, right := inputs[0], inputs[1]
 	leftAlias, rightAlias, rightSourceAlias := "__loom_left", "__loom_members", "__loom_member_source"
 	selects := []string{leftAlias + ".`__loom_row_id` AS `__loom_row_id`"}
@@ -459,7 +459,7 @@ func renderMembership(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedCli
 		column := resolvedColumnByID(left, projection.InputColumnID)
 		selects = append(selects, fmt.Sprintf("%s.`%s` AS `%s`", leftAlias, column.Name, output.Name))
 	}
-	selects = append(selects, authorizationPathExpression(left, leftAlias)+" AS `auth_resource_path`")
+	selects = append(selects, scope.authorizationPath(left, leftAlias)+" AS `auth_resource_path`")
 	rightKeys := make([]string, 0, len(plan.Keys)+1)
 	conditions := make([]string, 0, len(plan.Keys)+1)
 	for index, key := range plan.Keys {
@@ -469,7 +469,7 @@ func renderMembership(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedCli
 		conditions = append(conditions, fmt.Sprintf("%s.`%s` = %s.`__loom_key_%d`", leftAlias, leftColumn.Name, rightAlias, index))
 	}
 	rightKeys = append(rightKeys, "1 AS `__loom_match`")
-	if !left.Unrestricted {
+	if scope.matchesResourcePath(left) {
 		rightKeys = append(rightKeys, rightSourceAlias+".`auth_resource_path` AS `auth_resource_path`")
 		conditions = append(conditions, leftAlias+".`auth_resource_path` = "+rightAlias+".`auth_resource_path`")
 	}
@@ -478,19 +478,42 @@ func renderMembership(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedCli
 		mode = "IS NULL"
 	}
 	rightQuery := "SELECT DISTINCT " + strings.Join(rightKeys, ", ") + " FROM " + quoteIdentifier(right.PhysicalTable) + " AS " + rightSourceAlias
-	rightWhere, args := inputScopePredicate(right, rightSourceAlias)
+	rightWhere, args := scope.predicate(right, rightSourceAlias)
 	if len(rightWhere) != 0 {
 		rightQuery += " WHERE " + strings.Join(rightWhere, " AND ")
 	}
 	query := "SELECT " + strings.Join(selects, ", ") +
 		" FROM " + quoteIdentifier(left.PhysicalTable) + " AS " + leftAlias +
 		" LEFT ANY JOIN (" + rightQuery + ") AS " + rightAlias + " ON " + strings.Join(conditions, " AND ")
-	leftWhere, leftArgs := inputScopePredicate(left, leftAlias)
+	leftWhere, leftArgs := scope.predicate(left, leftAlias)
 	where := append(leftWhere, rightAlias+".`__loom_match` "+mode)
 	query += " WHERE " + strings.Join(where, " AND ")
 	args = append(args, leftArgs...)
 	query += " ORDER BY `__loom_row_id` ASC SETTINGS join_use_nulls = 1"
 	return query, args
+}
+
+// scopeStrategy controls how combines propagate or seal authorization paths.
+type scopeStrategy struct {
+	sealsWholeScope bool
+}
+
+func (scope scopeStrategy) predicate(input ir.ResolvedClickHouseTable, alias string) ([]string, []any) {
+	if scope.sealsWholeScope && input.ScopeMode == ir.ClickHouseArtifactScopeWhole {
+		return nil, nil
+	}
+	return inputScopePredicate(input, alias)
+}
+
+func (scope scopeStrategy) authorizationPath(input ir.ResolvedClickHouseTable, alias string) string {
+	if scope.sealsWholeScope {
+		return "CAST(NULL, 'Nullable(String)')"
+	}
+	return authorizationPathExpression(input, alias)
+}
+
+func (scope scopeStrategy) matchesResourcePath(left ir.ResolvedClickHouseTable) bool {
+	return !scope.sealsWholeScope && !left.Unrestricted
 }
 
 func inputScopePredicate(input ir.ResolvedClickHouseTable, alias string) ([]string, []any) {

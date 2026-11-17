@@ -1398,10 +1398,10 @@ func categoryScanColumn(schema []lower.CompiledOutputColumn, name string) (lower
 
 func categoryScanPhysicalPlan(output lower.CompiledRecipeOutput, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
 	if len(output.Plan.Operations) == 1 && output.Plan.Operations[0].Kind == ir.PhysicalGroupRowsOp {
-		return clonePhysicalPlan(output.Plan), nil
+		return ir.ClonePhysicalPlan(output.Plan), nil
 	}
 	if output.OptimizedPlan != nil {
-		return clonePhysicalPlan(*output.OptimizedPlan), nil
+		return ir.ClonePhysicalPlan(*output.OptimizedPlan), nil
 	}
 	physical, err := optimize.OptimizePhysicalPlanWithPolicy(output.Plan, policy)
 	if err != nil {

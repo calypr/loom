@@ -1636,7 +1636,7 @@ func validateConstructionFilter(filter ConstructionFilter, path string) error {
 		if err := value.Validate(); err != nil {
 			return fmt.Errorf("%s values[%d]: %w", path, index, err)
 		}
-		if !filterOperatorSupportsKind(filter.Operator, value.Kind) {
+		if !spec.OperatorSupportsKind(filter.Operator, value.Kind) {
 			return fmt.Errorf("%s operator %s is incompatible with %s", path, filter.Operator, value.Kind)
 		}
 	}

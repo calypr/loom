@@ -273,6 +273,17 @@ func TestCompilationReceiptRejectsInvalidConstructionProposalBinding(t *testing.
 	}
 }
 
+func TestConstructionProposalValidationPreservesErrorOrder(t *testing.T) {
+	binding := ConstructionProposalBinding{
+		DraftVersion: 1, DraftDigest: "draft", OutputID: "out", BaseDocumentDigest: "base",
+		CandidateWorkspaceDigest: "stale", SnapshotToken: "snapshot", PreviewLimit: 10,
+	}
+	err := binding.Validate("intent", "snapshot")
+	if err == nil || err.Error() != "construction proposal requires changedStepId or removeStepIds" {
+		t.Fatalf("Validate() error = %v, want missing changed step before stale digest", err)
+	}
+}
+
 func TestCompilationReceiptIdentityIncludesConstructionStageDescriptors(t *testing.T) {
 	base := testReceipt()
 	base.ConstructionStages = map[string][]ReceiptConstructionStage{"out": {
@@ -795,5 +806,18 @@ func TestPopulationMemberRemovalBindingIsContentAddressedAndScopeBound(t *testin
 				t.Fatal("invalid binding passed validation")
 			}
 		})
+	}
+}
+
+func TestPopulationMemberProposalValidationPreservesErrorOrder(t *testing.T) {
+	binding := PopulationMemberRemovalProposalBinding{
+		DraftVersion: 1, DraftDigest: "draft", OutputID: "out", BaseDocumentDigest: "base",
+		BaseSelectionRevisionID: "same", BaseMembershipDigest: "base-members", BaseMemberCount: 2,
+		CandidateSelectionRevisionID: "same", CandidateMembershipDigest: "candidate-members", CandidateMemberCount: 1,
+		RouteChoiceID: "route", CandidateWorkspaceDigest: "stale", SnapshotToken: "snapshot", PreviewLimit: 10,
+	}
+	err := binding.Validate("intent", "snapshot", "project", "generation")
+	if err == nil || err.Error() != "population member proposal must bind distinct immutable selections" {
+		t.Fatalf("Validate() error = %v, want duplicate selection before stale digest", err)
 	}
 }

@@ -92,7 +92,6 @@ vi.mock('./components/PopulationPanel', () => ({ PopulationPanel: () => null }))
 vi.mock('./components/RowChangePreviewPanel', () => ({ RowChangePreviewPanel: () => null }));
 vi.mock('./components/RowDefinitionPanel', () => ({ RowDefinitionPanel: () => null }));
 vi.mock('./components/RowDefinitionSettingsPanel', () => ({ RowDefinitionSettingsPanel: () => null }));
-vi.mock('./components/TableShapeSettingsPanel', () => ({ TableShapeSettingsPanel: () => null }));
 vi.mock('./components/InterpretationPanel', () => ({ InterpretationPanel: () => null }));
 vi.mock('./constructionWorkspace/ConstructionColumnSelection', () => ({ ConstructionColumnSelection: () => null }));
 vi.mock('./constructionWorkspace/PairedColumnSuggestions', () => ({ PairedColumnSuggestions: () => null }));

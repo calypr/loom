@@ -66,10 +66,6 @@ func deriveSourceDocument() authoringv2.Document {
 	}
 }
 
-func deriveSourceIdentityColumns() []authoringv2.StageColumn {
-	return []authoringv2.StageColumn{{ID: deriveSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"}}
-}
-
 func deriveSourceInt(value int64) *int64 { return &value }
 
 func deriveSourceService(t *testing.T) *Service {

@@ -68,7 +68,7 @@ func CompilePopulationMappingOutputWithPolicy(output lower.CompiledRecipeOutput,
 func mappingPhysicalPlan(output lower.CompiledRecipeOutput, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
 	var physical ir.PhysicalPlan
 	if output.OptimizedPlan != nil {
-		physical = clonePhysicalPlan(*output.OptimizedPlan)
+		physical = ir.ClonePhysicalPlan(*output.OptimizedPlan)
 	} else {
 		optimized, err := optimize.OptimizePhysicalPlanWithPolicy(output.Plan, policy)
 		if err != nil {

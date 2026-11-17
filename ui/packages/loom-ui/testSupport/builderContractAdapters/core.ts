@@ -734,17 +734,6 @@ const driveWorkspaceHydration = async (input: CoreAdapterInput): Promise<void> =
   else if (!control.value) throw new CoreAdapterGapError(input.uiAction.affordanceId, 'mounted Builder has no selected explorer to observe.');
 };
 
-const driveTableShapeDerived = async (input: CoreAdapterInput): Promise<void> => {
-  const values = valuesOf(input);
-  const label = optionalString(values, 'outputLabel', 'output_label');
-  const shapeEditor = screen.queryByRole('region', { name: /table shape/i });
-  if (!shapeEditor) throw new CoreAdapterGapError(input.uiAction.affordanceId, 'the legacy TableShape settings editor is not mounted by this Builder workspace state.');
-  const outputName = optionalString(values, 'outputName', 'output_name');
-  if (outputName) await setText(input, 'Derived column 1 output name', outputName);
-  if (label) await setText(input, 'Derived column 1 output label', label);
-  if (!outputName && !label) throw new CoreAdapterGapError(input.uiAction.affordanceId, 'table-shape derived column requires outputName or outputLabel.');
-};
-
 const driveDemoEntryRoute = async (input: CoreAdapterInput): Promise<void> => {
   throw new CoreAdapterGapError(input.uiAction.affordanceId, 'demo entry routing belongs to the outer Builder/router; this adapter is invoked inside the mounted BuilderWorkspace and cannot observe that route boundary.');
 };
@@ -813,11 +802,6 @@ export const coreAdapters = {
     'builder.calculate.derive', 'core.calculate.derive', 'core.driveDerivedCalculation',
     ['ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4432', 'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1135', 'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1178'],
     driveCalculate,
-  ),
-  'builder.calculate.table_shape_derived_column': adapter(
-    'builder.calculate.table_shape_derived_column', 'core.calculate.table_shape_derived_column', 'core.driveTableShapeDerivedColumn',
-    ['ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4865', 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:242', 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:268'],
-    driveTableShapeDerived,
   ),
   'builder.column_filter_presentation': adapter(
     'builder.column_filter_presentation', 'core.column_filter_presentation', 'core.driveColumnFilterPresentation',

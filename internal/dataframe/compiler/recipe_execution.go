@@ -56,9 +56,9 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 	var physical ir.PhysicalPlan
 	groupRows := len(output.Plan.Operations) == 1 && output.Plan.Operations[0].Kind == ir.PhysicalGroupRowsOp
 	if groupRows {
-		physical = clonePhysicalPlan(output.Plan)
+		physical = ir.ClonePhysicalPlan(output.Plan)
 	} else if output.OptimizedPlan != nil {
-		physical = clonePhysicalPlan(*output.OptimizedPlan)
+		physical = ir.ClonePhysicalPlan(*output.OptimizedPlan)
 	} else {
 		var err error
 		physical, err = optimize.OptimizePhysicalPlanWithPolicy(output.Plan, policy)
@@ -145,12 +145,12 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		}
 	}
 	return CompiledQuery{
-		PhysicalPlan:       clonePhysicalPlan(physical),
+		PhysicalPlan:       ir.ClonePhysicalPlan(physical),
 		Project:            bindings.Project,
 		DatasetGeneration:  normalizeDatasetGeneration(bindings.DatasetGeneration),
 		RootResourceType:   output.RootResourceType,
 		TranslationVersion: output.TranslationVersion,
-		AuthResourcePaths:  cloneStrings(bindings.AuthResourcePaths),
+		AuthResourcePaths:  ir.CloneStrings(bindings.AuthResourcePaths),
 		PlanMode:           "physical",
 		PlanProfile:        "generic_fhir_graph_recipe",
 		TraversalCount:     physicalTraversalCount(physical),

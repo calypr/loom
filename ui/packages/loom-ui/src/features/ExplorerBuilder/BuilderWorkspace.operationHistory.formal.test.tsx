@@ -39,10 +39,6 @@ const harness = vi.hoisted(() => {
     searchPopulationRoutes: vi.fn(),
     createSelection: vi.fn(),
     configuredColumnContextsQuery: vi.fn(),
-    getTableShapeCapabilities: vi.fn(),
-    discoverTableShapeCategories: vi.fn(),
-    resolveTableShape: vi.fn(),
-    proposeTableShape: vi.fn(),
     getConstructionCapabilities: vi.fn<(args: GetConstructionCapabilitiesArgs, signal?: AbortSignal) => Promise<ConstructionCapabilitiesResponse>>(),
     getConstructionInputs: vi.fn(),
     discoverConstructionCategories: vi.fn<(args: DiscoverConstructionCategoriesArgs, signal?: AbortSignal) => Promise<ConstructionCategoryDiscoveryResponse>>(),
@@ -120,7 +116,6 @@ vi.mock('./components/RowDefinitionSettingsPanel', () => ({
   },
   rowScopeLabel: () => '',
 }));
-vi.mock('./components/TableShapeSettingsPanel', () => ({ TableShapeSettingsPanel: () => null }));
 vi.mock('./components/InterpretationPanel', () => ({ InterpretationPanel: () => null }));
 vi.mock('./constructionWorkspace/FrameSourcePanel', () => ({ FrameSourcePanel: () => null }));
 vi.mock('./constructionOperations/SourceCollectionExpandEditor', () => ({ SourceCollectionExpandEditor: () => null }));
@@ -805,10 +800,6 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
     harness.client.getSelection.mockReset();
     harness.client.listRowDefinitionChoices.mockReset().mockResolvedValue({ snapshotToken: catalog.snapshotToken, outputId: 'table-1', choices: [], explicitGroups: [] });
     harness.client.configuredColumnContextsQuery.mockReset().mockReturnValue({ data: undefined, error: undefined, isLoading: false, isFetching: false });
-    harness.client.getTableShapeCapabilities.mockReset().mockResolvedValue({});
-    harness.client.discoverTableShapeCategories.mockReset().mockResolvedValue({});
-    harness.client.resolveTableShape.mockReset().mockResolvedValue({});
-    harness.client.proposeTableShape.mockReset().mockResolvedValue({});
     harness.getSuggestions.mockReset().mockReturnValue({
       unwrap: vi.fn().mockResolvedValue({ snapshotToken: catalog.snapshotToken, candidates: [] }),
     });

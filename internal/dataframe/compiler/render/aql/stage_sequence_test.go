@@ -148,7 +148,7 @@ func TestSourceGroupPrunesUnusedRelatedSetAndKeepsFilters(t *testing.T) {
 				},
 			}}},
 			{Kind: ir.PhysicalSetOp, Set: &ir.PhysicalSet{
-				Variable: "unused_child_set", Kind: ir.PhysicalNodeSetKind,
+				Variable: "unused_child_set", Kind: "NODE_SET",
 				Subplan: ir.PhysicalSubplan{
 					Captures:   []string{"root"},
 					Operations: scopedTraversal(traversal("unused_child", "unused_edge", "child_edges", "child_label", "child_resource_type")),
@@ -308,7 +308,7 @@ func TestSourceGroupPrunesUnusedOptionalRouteBesideCorrelatedPivot(t *testing.T)
 			NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: variable}}
 	}
 	set := func(variable string, captures ...string) *ir.PhysicalSet {
-		return &ir.PhysicalSet{Variable: variable, Kind: ir.PhysicalNodeSetKind,
+		return &ir.PhysicalSet{Variable: variable, Kind: "NODE_SET",
 			Subplan: ir.PhysicalSubplan{Captures: captures, Return: value("root")}}
 	}
 	plan := ir.PhysicalPlan{Operations: []ir.PhysicalOperation{

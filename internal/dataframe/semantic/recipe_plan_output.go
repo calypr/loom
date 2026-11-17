@@ -112,36 +112,19 @@ func semanticTableReshape(input recipe.TableReshape) (*SemanticTableReshape, err
 	if err := input.Validate(); err != nil {
 		return nil, err
 	}
-	result := &SemanticTableReshape{Kind: input.Kind}
-	switch input.Kind {
-	case recipe.TableReshapeGroupedPivot:
-		pivot := input.GroupedPivot
-		semanticPivot := &SemanticGroupedPivot{
-			ConstructionID: pivot.ConstructionID, GroupKeys: append([]string(nil), pivot.GroupKeys...),
-			CategoryColumn: pivot.CategoryColumn, ValueColumn: pivot.ValueColumn,
-			DuplicatePolicy: pivot.DuplicatePolicy, MissingCellPolicy: pivot.MissingCellPolicy,
-			UnlistedCategoryPolicy: pivot.UnlistedCategoryPolicy,
-			Categories:             make([]SemanticGroupedPivotCategory, 0, len(pivot.Categories)),
-		}
-		for _, category := range pivot.Categories {
-			semanticPivot.Categories = append(semanticPivot.Categories, SemanticGroupedPivotCategory{Key: category.Key, Output: category.Output, Label: category.Label})
-		}
-		result.GroupedPivot = semanticPivot
-	case recipe.TableReshapeUnpivot:
-		unpivot := input.Unpivot
-		semanticUnpivot := &SemanticUnpivot{
-			ConstructionID: unpivot.ConstructionID, KeyOutput: unpivot.KeyOutput, KeyLabel: unpivot.KeyLabel,
-			ValueOutput: unpivot.ValueOutput, ValueLabel: unpivot.ValueLabel, NullRowPolicy: unpivot.NullRowPolicy,
-			Inputs: make([]SemanticUnpivotInput, 0, len(unpivot.Inputs)),
-		}
-		for _, selected := range unpivot.Inputs {
-			semanticUnpivot.Inputs = append(semanticUnpivot.Inputs, SemanticUnpivotInput{Column: selected.Column, Key: selected.Key})
-		}
-		result.Unpivot = semanticUnpivot
-	default:
-		return nil, fmt.Errorf("unsupported table reshape kind %q", input.Kind)
+	result := input
+	if input.GroupedPivot != nil {
+		pivot := *input.GroupedPivot
+		pivot.GroupKeys = append([]string(nil), input.GroupedPivot.GroupKeys...)
+		pivot.Categories = append([]recipe.GroupedPivotCategory(nil), input.GroupedPivot.Categories...)
+		result.GroupedPivot = &pivot
 	}
-	return result, nil
+	if input.Unpivot != nil {
+		unpivot := *input.Unpivot
+		unpivot.Inputs = append([]recipe.UnpivotInput(nil), input.Unpivot.Inputs...)
+		result.Unpivot = &unpivot
+	}
+	return &result, nil
 }
 
 type recipeOccurrenceBinding struct {

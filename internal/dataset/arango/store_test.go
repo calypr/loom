@@ -151,6 +151,21 @@ func TestNewAndMissingActive(t *testing.T) {
 	}
 }
 
+func TestManifestAndReferenceDecodersPreserveEncodeAndDecodeErrorLabels(t *testing.T) {
+	if _, err := manifestFromValue(map[string]any{"unsupported": make(chan int)}); err == nil || !strings.Contains(err.Error(), "encode manifest row") {
+		t.Fatalf("manifest encode error = %v, want encode label", err)
+	}
+	if _, err := manifestFromValue(map[string]any{"state": 42}); err == nil || !strings.Contains(err.Error(), "decode manifest row") {
+		t.Fatalf("manifest decode error = %v, want decode label", err)
+	}
+	if _, err := refFromValue(map[string]any{"project": make(chan int)}); err == nil || !strings.Contains(err.Error(), "encode generation reference row") {
+		t.Fatalf("reference encode error = %v, want encode label", err)
+	}
+	if _, err := refFromValue(map[string]any{"project": 42}); err == nil || !strings.Contains(err.Error(), "decode generation reference row") {
+		t.Fatalf("reference decode error = %v, want decode label", err)
+	}
+}
+
 func TestReleaseActivationAtomicallyUpdatesReleaseAndGenerationPointers(t *testing.T) {
 	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
 	release := publication.ProjectRelease{ID: "release-a", Project: "project-a", GitCommit: "commit-a", Generation: "commit-a", CreatedAt: now}

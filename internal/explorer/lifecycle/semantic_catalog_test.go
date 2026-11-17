@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strconv"
 	"testing"
 
@@ -236,7 +237,7 @@ func TestSemanticCandidateWithFallbackPreservesRepeatedCardinalityAndAuthorizati
 	combined, ok := semanticCandidateWithFallback(snapshot, observation, primary)
 	if !ok || combined.Cardinality != "many" || !capability.IsRepeatedCardinality(combined.Cardinality) ||
 		!reflect.DeepEqual(combined.RepeatedBoundaries, fallback.RepeatedBoundaries) ||
-		!containsProjectionMode(combined.ProjectionModes, capability.ProjectionScalar) || !containsProjectionMode(combined.ProjectionModes, capability.ProjectionArray) {
+		!slices.Contains(combined.ProjectionModes, capability.ProjectionScalar) || !slices.Contains(combined.ProjectionModes, capability.ProjectionArray) {
 		t.Fatalf("combined primary/fallback candidate = %#v, ok=%v", combined, ok)
 	}
 	fallback.Cardinality = "unknown_observed_many"
