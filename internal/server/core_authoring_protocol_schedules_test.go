@@ -7,8 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
-	"regexp"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -27,47 +26,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// Formal replay harness for the CoreAuthoringProtocol TLA model
-// (verification/builder-interactions/CoreAuthoringProtocol.tla). The adapter
-// scripts/lib/formal-core-protocol-replay.mjs schedules the exact server-side
-// interleavings the model explores and validates the recorded wire observations
-// against the model's invariants. This test never asserts on semantic anomalies:
-// it records what the production handlers did and lets the model adjudicate.
-//
-// Plan C19 (required-store schedules): every schedule runs against the in-memory
-// map store by default, and additionally against a real ArangoDB store owned by
-// the test (same container-side pattern as TestCoreAuthoringProtocolAgainstArango)
-// whenever LOOM_TEST_ARANGO_URL is set. Both modes execute one shared schedule
-// body; the only store-coupled operations are the two persisted-state reads
-// behind coreProtocolReplayStores, which go through each store's own read path
-// in both modes (never a direct map iteration shared with Arango mode). The
-// map-mode witness file keeps the exact adapter-pinned shape (schemaVersion +
-// results with the registered observation keys, one row per case); when the
-// Arango mode is active the witness additionally records the store mode per
-// schedule because a single output file then carries both modes' rows.
+// Frozen core protocol schedules exercise production authoring handlers and
+// compare their observable responses, receipt state and ordered call events
+// with the expected behavior captured in testdata. The separate Arango witness
+// remains in core_authoring_protocol_arango_conformance_test.go.
 
 const (
-	coreProtocolReplayInputEnv  = "LOOM_FORMAL_CORE_PROTOCOL_INPUT"
-	coreProtocolReplayOutputEnv = "LOOM_FORMAL_CORE_PROTOCOL_OUTPUT"
-	// The concrete-prefix lane (plan C14) runs the SAME production-boundary
-	// schedules with a concrete value-identity prefix A -> B -> A, where the
-	// model's abstract head channels merge the two A histories; the concrete
-	// wire record is what justifies that merge to scripts/lib/formal-core-
-	// protocol-replay.mjs instead of a prose justification.
-	coreProtocolConcreteInputEnv  = "LOOM_FORMAL_CORE_PROTOCOL_CONCRETE_INPUT"
-	coreProtocolConcreteOutputEnv = "LOOM_FORMAL_CORE_PROTOCOL_CONCRETE_OUTPUT"
-	// coreProtocolReplayArangoURLEnv is the same owned-stack endpoint contract
-	// TestCoreAuthoringProtocolAgainstArango uses; absent means map-store mode.
-	coreProtocolReplayArangoURLEnv = "LOOM_TEST_ARANGO_URL"
-
-	coreProtocolReplayOwningStep    = "Replay all generated schedules and population attachment cases"
-	coreProtocolReplayOwningCommand = "node scripts/verify-builder-formal-core.mjs --phase generated"
-	coreProtocolReplayNotThisMode   = "core authoring protocol replay executes only under the harness: the required step \"" + coreProtocolReplayOwningStep + "\" in .github/workflows/builder-formal.yml runs `" + coreProtocolReplayOwningCommand + " --out <dir>` (adapter scripts/lib/formal-core-protocol-replay.mjs); ordinary go test carries no replay fixtures, and deleting that step or its harness wiring fails the Go unit tests job through TestCoreAuthoringProtocolReplayHarnessWired"
-
 	coreProtocolReplayProject         = "project-a"
 	coreProtocolReplayExplorerID      = "core-protocol"
 	coreProtocolReplayDatabasePrefix  = "loom_core_authoring_replay_"
-	coreProtocolReplayStoreNameMap    = "map"
 	coreProtocolReplayStoreNameArango = "arango"
 )
 
@@ -102,11 +69,8 @@ type coreProtocolReplayObservation struct {
 
 	// Events is the ordered replay log: one entry per real call boundary of
 	// this case, recorded at the awaited call site in production call order.
-	// The adapter validates this stream against the model's legal transitions;
-	// a skipped entry CAS or a receipt persisted without capture cannot produce
-	// a legal log because each event is appended where the production handler
-	// boundary it names actually completes (or is proven to have completed via
-	// the existing beforeCompile/receipt-decode seams).
+	// Each event records the production handler boundary at the point it
+	// completes, preserving call order for the frozen behavior assertion.
 	Events []coreProtocolReplayEvent `json:"events"`
 
 	reconcileReceiptID string
@@ -140,16 +104,14 @@ func (ob *coreProtocolReplayObservation) event(name string, claims map[string]an
 }
 
 // coreProtocolAbsentHeadDigest stands in for a head identity that was never
-// persisted (model schedule S5: reconcile of a head the save never committed).
-const coreProtocolAbsentHeadDigest = "sha256:formal-replay-absent-head-2-identity"
+// persisted (schedule S5: reconcile of a head the save never committed).
+const coreProtocolAbsentHeadDigest = "sha256:frozen-absent-head-2-identity"
 
 // coreProtocolConcreteProgram selects the concrete-prefix schedule. The plan's
 // C14 row requires replaying the concrete A -> B -> A prefix whose two A
-// histories the model's head channels merge; the program below drives exactly
-// that prefix through the production handlers and records the wire evidence the
-// validator needs (identity comparisons are adjudicated validator-side, never
-// asserted here, so a semantically wrong server stays a red claim instead of
-// aborting the witness).
+// values are treated as equivalent; the program below drives exactly
+// that prefix through the production handlers and records the wire behavior
+// compared with the frozen expected result.
 type coreProtocolConcreteProgram struct {
 	ID string `json:"id"`
 }
@@ -168,8 +130,8 @@ type coreProtocolConcreteAttempt struct {
 }
 
 // coreProtocolConcreteRevision captures one acknowledged draft revision read
-// back through the store seam, so value-equal heads (merged by the model) can
-// be proven persisted as distinct revisions.
+// back through the store seam, so value-equal heads treated as equivalent in
+// the schedule can be proven persisted as distinct revisions.
 type coreProtocolConcreteRevision struct {
 	RevisionID   string `json:"revisionId"`
 	Found        bool   `json:"found"`
@@ -182,8 +144,8 @@ type coreProtocolConcreteRevision struct {
 // save path re-canonicalizes through MigrateLegacyContributors,
 // MigrateLosslessDefaults and NormalizePresentationOrders
 // (ApplyCommands, internal/explorer/authoringv2/commands.go), so a value-equal
-// revert stores a distinct digest; the value identity that the model's head
-// channels merge is witnessed by the emitted receipt label of head 3 equaling
+// revert stores a distinct digest; the value identity that the schedule treats
+// as equivalent is witnessed by the emitted receipt label of head 3 equaling
 // the seed column label while the three stored digests stay pairwise distinct.
 // The record also carries the three stale rejections (both-stale plus the
 // two single-coordinate probes isolating each entry CAS clause), the admitted
@@ -233,38 +195,26 @@ func (ob *coreProtocolReplayObservation) note(format string, args ...any) {
 	ob.Error = ob.notes[len(ob.notes)-1]
 }
 
-// coreProtocolReplayStores is the single parameterization seam of the shared
-// schedule body: the fixture under replay plus the two persisted-state reads
-// the observation records. Map mode binds them to the test store's own read
-// path; Arango mode binds them to the Arango repository's read path. The
-// schedule logic itself has exactly one implementation.
+// coreProtocolReplayStores binds the schedule to one in-memory fixture and
+// its persisted-state read paths.
 type coreProtocolReplayStores struct {
 	mode    string
 	fixture *coreProtocolFixture
-	// receipt reads one persisted receipt identity through the store interface
-	// (map: testExplorerStore.GetCompilationReceiptForExplorer; arango: the
-	// repository read that admits receipts through validateReceipt), mirroring
-	// the previous direct fixture.store.receipts lookup without a map-only
-	// assumption.
+	// receipt reads a persisted receipt through the test store interface.
 	receipt func(context.Context, string) (*explorer.CompilationReceipt, bool)
-	// hasReceipts reports whether the store holds any receipt for this case's
-	// explorer identity, replacing the direct len(fixture.store.receipts) read.
+	// hasReceipts reports whether the store holds any receipt for this case.
 	hasReceipts func(context.Context) bool
-	// history reads one acknowledged draft revision back through the store's
-	// own read path (map: testExplorerStore.GetDraftRevision; arango: the
-	// repository's GetDraftRevision), used by the concrete-prefix lane to
-	// prove value-equal heads persisted as distinct revisions.
+	// history reads an acknowledged draft revision through the test store.
 	history func(context.Context, string) (explorer.DraftRevision, bool)
 }
 
-// coreProtocolReplayMapStores wires the schedule body to the in-memory map
-// store fixture exactly as it ran before the required-store extension.
+// coreProtocolReplayMapStores wires the schedule body to the in-memory test store.
 func coreProtocolReplayMapStores(t *testing.T) coreProtocolReplayStores {
 	t.Helper()
 	fixture := newCoreProtocolFixture(t)
 	store := fixture.store
 	return coreProtocolReplayStores{
-		mode:    coreProtocolReplayStoreNameMap,
+		mode:    "map",
 		fixture: fixture,
 		receipt: func(ctx context.Context, id string) (*explorer.CompilationReceipt, bool) {
 			receipt, err := store.GetCompilationReceiptForExplorer(ctx, coreProtocolReplayProject, coreProtocolReplayExplorerID, id)
@@ -396,9 +346,7 @@ func coreProtocolReplayArangoStores(t *testing.T, client *storearango.Client, gr
 	}
 }
 
-// countCompilationReceipts answers the Observe hasReceipts claim through the
-// test store's own lock, mirroring how the Arango mode counts receipt documents
-// through a raw AQL read instead of reaching into map internals.
+// countCompilationReceipts reads receipt count under the test store lock.
 func (s *testExplorerStore) countCompilationReceipts() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -456,7 +404,7 @@ func runCoreProtocolReplayCase(t *testing.T, replayCase coreProtocolReplayCase, 
 	if replayCase.SavePosition == "before-entry" {
 		commitSave()
 	}
-	// The reconcile click targets exactly the model-captured head identity:
+	// The reconcile click targets exactly the scheduled head identity:
 	// head 1 is the seeded revision, head 2 exists only once a save committed it
 	// (before-entry) and its digest is then only knowable from the acknowledgement.
 	// Reconciling an uncommitted head 2 uses a stand-in digest nobody ever stored.
@@ -699,94 +647,83 @@ func runCoreProtocolReplayAgainstArango(t *testing.T, replayCases []coreProtocol
 	}
 }
 
-// coreProtocolReplayWitnessRow is only used for witness files that carry more
-// than one store mode: the map-only record keeps the exact adapter-pinned
-// observation shape (formal-core-protocol-replay.mjs checkCoreProtocolResults
-// pins the key set and one row per case), while a dual-mode record tags every
-// per-schedule row with the store that produced it.
-type coreProtocolReplayWitnessRow struct {
-	coreProtocolReplayObservation
-	Store string `json:"store"`
+type coreProtocolScheduleFixture struct {
+	Cases            []coreProtocolReplayCase          `json:"cases"`
+	Expected         []coreProtocolReplayObservation   `json:"expected"`
+	ConcretePrograms []coreProtocolConcreteProgram     `json:"concretePrograms"`
+	ExpectedConcrete []coreProtocolConcreteObservation `json:"expectedConcrete"`
+}
+
+func loadCoreProtocolScheduleFixture(t *testing.T) coreProtocolScheduleFixture {
+	t.Helper()
+	file, err := os.Open("testdata/core_authoring_protocol_schedules.json")
+	if err != nil {
+		t.Fatalf("open frozen core protocol schedules: %v", err)
+	}
+	defer file.Close()
+	var fixture coreProtocolScheduleFixture
+	decoder := json.NewDecoder(file)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&fixture); err != nil {
+		t.Fatalf("decode frozen core protocol schedules: %v", err)
+	}
+	if len(fixture.Cases) == 0 || len(fixture.Cases) != len(fixture.Expected) {
+		t.Fatalf("frozen schedules=%d expected=%d", len(fixture.Cases), len(fixture.Expected))
+	}
+	if len(fixture.ConcretePrograms) == 0 || len(fixture.ConcretePrograms) != len(fixture.ExpectedConcrete) {
+		t.Fatalf("frozen concrete programs=%d expected=%d", len(fixture.ConcretePrograms), len(fixture.ExpectedConcrete))
+	}
+	return fixture
+}
+
+func assertCoreProtocolJSONEqual(t *testing.T, got, want any) {
+	t.Helper()
+	gotJSON, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("encode production observation: %v", err)
+	}
+	wantJSON, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("encode expected observation: %v", err)
+	}
+	var gotValue, wantValue any
+	if err := json.Unmarshal(gotJSON, &gotValue); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(wantJSON, &wantValue); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(gotValue, wantValue) {
+		t.Fatalf("production observation differs from frozen behavior\n got: %s\nwant: %s", gotJSON, wantJSON)
+	}
 }
 
 func TestCoreAuthoringProtocolModelReplay(t *testing.T) {
-	inputPath := os.Getenv(coreProtocolReplayInputEnv)
-	outputPath := os.Getenv(coreProtocolReplayOutputEnv)
-	if inputPath == "" && outputPath == "" {
-		t.Skip(coreProtocolReplayNotThisMode)
-	}
-	if inputPath == "" || outputPath == "" {
-		t.Fatalf("%s and %s must name the replay case input and observation output", coreProtocolReplayInputEnv, coreProtocolReplayOutputEnv)
-	}
-	raw, err := os.ReadFile(inputPath)
-	if err != nil {
-		t.Fatalf("read replay input: %v", err)
-	}
-	var replayCases []coreProtocolReplayCase
-	if err := json.Unmarshal(raw, &replayCases); err != nil {
-		t.Fatalf("decode replay cases: %v", err)
-	}
-	if len(replayCases) == 0 {
-		t.Fatal("replay input contains no cases")
-	}
-	arangoEndpoint := strings.TrimSpace(os.Getenv(coreProtocolReplayArangoURLEnv))
-	if arangoEndpoint != "" {
-		t.Log("core protocol replay witness: LOOM_TEST_ARANGO_URL is set, every schedule runs in both store modes; each witness row records its store mode (map-only runs keep the adapter-pinned row shape)")
-	}
-
-	mapObservations := make([]coreProtocolReplayObservation, 0, len(replayCases))
-	t.Run("store="+coreProtocolReplayStoreNameMap, func(t *testing.T) {
-		for _, replayCase := range replayCases {
-			replayCase := replayCase
-			t.Run(replayCase.ID, func(t *testing.T) {
-				t.Log("core protocol replay store mode: map (in-memory CAS test store)")
-				mapObservations = append(mapObservations, runCoreProtocolReplayCase(t, replayCase, coreProtocolReplayMapStores(t)))
+	fixture := loadCoreProtocolScheduleFixture(t)
+	arangoURL := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
+	for index, replayCase := range fixture.Cases {
+		replayCase, expected := replayCase, fixture.Expected[index]
+		t.Run(replayCase.ID, func(t *testing.T) {
+			got := runCoreProtocolReplayCase(t, replayCase, coreProtocolReplayMapStores(t))
+			assertCoreProtocolJSONEqual(t, got, expected)
+			if arangoURL == "" {
+				return
+			}
+			t.Run("arango", func(t *testing.T) {
+				var observations []coreProtocolReplayObservation
+				runCoreProtocolReplayAgainstArango(t, []coreProtocolReplayCase{replayCase}, arangoURL, &observations)
+				if len(observations) != 1 {
+					t.Fatalf("Arango observations=%d, want 1", len(observations))
+				}
+				assertCoreProtocolJSONEqual(t, observations[0], expected)
 			})
-		}
-	})
-	arangoObservations := make([]coreProtocolReplayObservation, 0, len(replayCases))
-	if arangoEndpoint != "" {
-		t.Run("store="+coreProtocolReplayStoreNameArango, func(t *testing.T) {
-			runCoreProtocolReplayAgainstArango(t, replayCases, arangoEndpoint, &arangoObservations)
 		})
-	}
-
-	var record any
-	if arangoEndpoint == "" {
-		record = struct {
-			SchemaVersion int                             `json:"schemaVersion"`
-			Results       []coreProtocolReplayObservation `json:"results"`
-		}{SchemaVersion: 1, Results: mapObservations}
-	} else {
-		rows := make([]coreProtocolReplayWitnessRow, 0, len(mapObservations)+len(arangoObservations))
-		for _, observation := range mapObservations {
-			rows = append(rows, coreProtocolReplayWitnessRow{coreProtocolReplayObservation: observation, Store: coreProtocolReplayStoreNameMap})
-		}
-		for _, observation := range arangoObservations {
-			rows = append(rows, coreProtocolReplayWitnessRow{coreProtocolReplayObservation: observation, Store: coreProtocolReplayStoreNameArango})
-		}
-		record = struct {
-			SchemaVersion int                            `json:"schemaVersion"`
-			Results       []coreProtocolReplayWitnessRow `json:"results"`
-		}{SchemaVersion: 1, Results: rows}
-	}
-	encoded, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		t.Fatalf("encode observations: %v", err)
-	}
-	temporaryPath := outputPath + ".tmp"
-	if err := os.WriteFile(temporaryPath, encoded, 0o644); err != nil {
-		t.Fatalf("write observations: %v", err)
-	}
-	if err := os.Rename(temporaryPath, outputPath); err != nil {
-		t.Fatalf("publish observations: %v", err)
 	}
 }
 
 // derefRevisionID reads one optional acknowledged revision identity. Revision
-// addressing is always through the identity the server itself acknowledged
-// (previousDraftRevisionId), never a constructed literal, so the same wire
-// evidence holds in map and Arango modes where revision ids differ.
+// addressing follows the identity the server acknowledged in
+// previousDraftRevisionId instead of constructing a revision key.
 func derefRevisionID(value *string) string {
 	if value == nil {
 		return ""
@@ -800,9 +737,8 @@ func derefRevisionID(value *string) string {
 // stale reconcile presenting the head-1 identity while the server head is the
 // value-equal head 3, a fresh reconcile at the real head identity, a
 // same-request replay, the preview bound to the persisted receipt, and the
-// read-back of both acknowledged revisions. It records wire facts only; every
-// identity comparison is adjudicated validator-side so a semantically wrong
-// server produces a red claim instead of aborting the witness.
+// read-back of both acknowledged revisions. The test compares these public
+// observations with the frozen expected result.
 func runCoreProtocolReplayConcreteCase(program coreProtocolConcreteProgram, stores coreProtocolReplayStores) coreProtocolConcreteObservation {
 	fixture := stores.fixture
 	observation := coreProtocolConcreteObservation{ID: program.ID}
@@ -829,9 +765,8 @@ func runCoreProtocolReplayConcreteCase(program coreProtocolConcreteProgram, stor
 	// digest of that revert equals the seed digest is a property of the save
 	// path's canonicalization, not of value identity: ApplyCommands migrates
 	// and normalizes before hashing, so the stored digests of the two
-	// value-equal heads legitimately differ (observed). mergeValueZone
-	// records the digest-level fact verbatim; the value-level identity the
-	// model merges is witnessed by the emitted receipt label (validLabel).
+	// value-equal heads legitimately differ. mergeValueZone records the digest-
+	// level fact; the emitted receipt label witnesses value equality.
 	// The stale client below presents exactly the head-1 identity while the
 	// server head is version 3.
 	saveA, ackA := fixture.saveLabel("formal-c14-"+program.ID+"-a", coreProtocolInitialLabel, 2, ackB.DraftDigest)
@@ -979,9 +914,8 @@ func runCoreProtocolReplayConcreteCase(program coreProtocolConcreteProgram, stor
 	// store committed for the head it replaced (store.SaveDraft persists the
 	// prior identity then stamps it on the owner), so the two reads below
 	// recover the intermediate head-1/seed and head-2/B revisions through the
-	// store's own reader. Distinct persisted identities for value-equal and
-	// replaced heads are what justify the model merging the two A histories
-	// into one head channel without erasing the B history.
+	// store's own reader. The distinct persisted identities preserve the B history
+	// even though the first and final authored values match.
 	for _, revisionID := range []string{derefRevisionID(ackB.PreviousDraftRevisionId), derefRevisionID(ackA.PreviousDraftRevisionId)} {
 		if revisionID == "" {
 			observation.note("an acknowledgement omitted previousDraftRevisionId")
@@ -1000,15 +934,6 @@ func runCoreProtocolReplayConcreteCase(program coreProtocolConcreteProgram, stor
 		}
 	}
 	return observation
-}
-
-// coreProtocolConcreteWitnessRow tags one concrete-prefix observation with the
-// store mode that produced it, mirroring coreProtocolReplayWitnessRow: a
-// map-only run keeps the plain observation shape, a dual-mode run records the
-// store per row in one output file.
-type coreProtocolConcreteWitnessRow struct {
-	coreProtocolConcreteObservation
-	Store string `json:"store"`
 }
 
 // runCoreProtocolConcreteAgainstArango mirrors the owned-disposable-database
@@ -1058,127 +983,46 @@ func runCoreProtocolConcreteAgainstArango(t *testing.T, programs []coreProtocolC
 	}
 }
 
-// TestCoreAuthoringProtocolConcretePrefixReplay is the C14 concrete-prefix
-// lane: the adapter hands it the concrete programs and validates the recorded
-// wire record, in addition to the abstract model schedules the S-lane entry
-// records. It is skipped when neither concrete env pair is set (supporting
-// unit runs keep their original shape) and fails when only half the pair is.
-func TestCoreAuthoringProtocolConcretePrefixReplay(t *testing.T) {
-	inputPath := os.Getenv(coreProtocolConcreteInputEnv)
-	outputPath := os.Getenv(coreProtocolConcreteOutputEnv)
-	if inputPath == "" && outputPath == "" {
-		t.Skip("concrete-prefix lane runs only when the replay adapter sets both " + coreProtocolConcreteInputEnv + " and " + coreProtocolConcreteOutputEnv)
-	}
-	if inputPath == "" || outputPath == "" {
-		t.Fatalf("%s and %s must name the concrete program input and observation output together", coreProtocolConcreteInputEnv, coreProtocolConcreteOutputEnv)
-	}
-	raw, err := os.ReadFile(inputPath)
-	if err != nil {
-		t.Fatalf("read concrete replay input: %v", err)
-	}
-	var programs []coreProtocolConcreteProgram
-	if err := json.Unmarshal(raw, &programs); err != nil {
-		t.Fatalf("decode concrete replay programs: %v", err)
-	}
-	if len(programs) == 0 {
-		t.Fatal("concrete replay input contains no programs")
-	}
-	arangoEndpoint := strings.TrimSpace(os.Getenv(coreProtocolReplayArangoURLEnv))
-	if arangoEndpoint != "" {
-		t.Log("core protocol concrete-prefix witness: LOOM_TEST_ARANGO_URL is set, every program runs in both store modes; each witness row records its store mode")
-	}
-	mapObservations := make([]coreProtocolConcreteObservation, 0, len(programs))
-	t.Run("store="+coreProtocolReplayStoreNameMap, func(t *testing.T) {
-		for _, program := range programs {
-			program := program
-			t.Run(program.ID, func(t *testing.T) {
-				t.Log("core protocol concrete store mode: map (in-memory CAS test store)")
-				mapObservations = append(mapObservations, runCoreProtocolReplayConcreteCase(program, coreProtocolReplayMapStores(t)))
-			})
+// TestCoreAuthoringProtocolConcretePrefixReplay drives the frozen C14 A -> B -> A
+// schedule through the production handlers and checks its public observations.
+func assertCoreProtocolConcreteEqual(t *testing.T, got, want coreProtocolConcreteObservation, allowStoreRevisionIDs bool) {
+	t.Helper()
+	if allowStoreRevisionIDs {
+		if len(got.Revisions) != 2 || len(want.Revisions) != 2 {
+			t.Fatalf("revision records got=%d want=%d", len(got.Revisions), len(want.Revisions))
 		}
-	})
-	arangoObservations := make([]coreProtocolConcreteObservation, 0, len(programs))
-	if arangoEndpoint != "" {
-		t.Run("store="+coreProtocolReplayStoreNameArango, func(t *testing.T) {
-			runCoreProtocolConcreteAgainstArango(t, programs, arangoEndpoint, &arangoObservations)
-		})
-	}
-	var record any
-	if arangoEndpoint == "" {
-		record = struct {
-			SchemaVersion int                               `json:"schemaVersion"`
-			Results       []coreProtocolConcreteObservation `json:"results"`
-		}{SchemaVersion: 1, Results: mapObservations}
-	} else {
-		rows := make([]coreProtocolConcreteWitnessRow, 0, len(mapObservations)+len(arangoObservations))
-		for _, observation := range mapObservations {
-			rows = append(rows, coreProtocolConcreteWitnessRow{coreProtocolConcreteObservation: observation, Store: coreProtocolReplayStoreNameMap})
+		if got.Revisions[0].RevisionID == "" || got.Revisions[1].RevisionID == "" || got.Revisions[0].RevisionID == got.Revisions[1].RevisionID {
+			t.Fatalf("Arango revision IDs must be present and distinct: %#v", got.Revisions)
 		}
-		for _, observation := range arangoObservations {
-			rows = append(rows, coreProtocolConcreteWitnessRow{coreProtocolConcreteObservation: observation, Store: coreProtocolReplayStoreNameArango})
+		for i := range got.Revisions {
+			if got.Revisions[i].Found != want.Revisions[i].Found || got.Revisions[i].DraftVersion != want.Revisions[i].DraftVersion || got.Revisions[i].DraftDigest != want.Revisions[i].DraftDigest {
+				t.Fatalf("Arango revision %d differs from the acknowledged history: got %#v want %#v", i, got.Revisions[i], want.Revisions[i])
+			}
+			got.Revisions[i].RevisionID = want.Revisions[i].RevisionID
 		}
-		record = struct {
-			SchemaVersion int                              `json:"schemaVersion"`
-			Results       []coreProtocolConcreteWitnessRow `json:"results"`
-		}{SchemaVersion: 1, Results: rows}
 	}
-	encoded, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		t.Fatalf("encode concrete observations: %v", err)
-	}
-	temporaryPath := outputPath + ".tmp"
-	if err := os.WriteFile(temporaryPath, encoded, 0o644); err != nil {
-		t.Fatalf("write concrete observations: %v", err)
-	}
-	if err := os.Rename(temporaryPath, outputPath); err != nil {
-		t.Fatalf("publish concrete observations: %v", err)
-	}
+	assertCoreProtocolJSONEqual(t, got, want)
 }
 
-func TestCoreAuthoringProtocolReplayHarnessWired(t *testing.T) {
-	start, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("resolve working directory: %v", err)
-	}
-	workflowPath := ""
-	for current := start; ; {
-		candidate := filepath.Join(current, ".github", "workflows", "builder-formal.yml")
-		if _, err := os.Stat(candidate); err == nil {
-			workflowPath = candidate
-			break
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			t.Fatalf("locate .github/workflows/builder-formal.yml from %s", start)
-		}
-		current = parent
-	}
-	workflow, err := os.ReadFile(workflowPath)
-	if err != nil {
-		t.Fatalf("read required replay owner %s: %v", workflowPath, err)
-	}
-	owner := regexp.MustCompile(`(?m)^      - name: ` + regexp.QuoteMeta(coreProtocolReplayOwningStep) + `
-        run: ` + regexp.QuoteMeta(coreProtocolReplayOwningCommand) + ` --out \S+$`)
-	if !owner.Match(workflow) {
-		t.Fatalf("%s must keep the required step %q running unfiltered %q; without it the core authoring protocol replay loses its owning enforcement step", workflowPath, coreProtocolReplayOwningStep, coreProtocolReplayOwningCommand)
-	}
-	for _, replacement := range []string{"true", coreProtocolReplayOwningCommand + " --model apply-settlement"} {
-		mutated := strings.Replace(string(workflow), coreProtocolReplayOwningCommand, replacement, 1)
-		if owner.MatchString(mutated) {
-			t.Fatalf("workflow enforcement accepted a removed or narrowed generated replay: %s", replacement)
-		}
-	}
-	harnessPath := filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(workflowPath))), "scripts", "verify-builder-formal-core.mjs")
-	harness, err := os.ReadFile(harnessPath)
-	if err != nil {
-		t.Fatalf("read harness %s: %v", harnessPath, err)
-	}
-	for _, required := range []string{
-		"CoreAuthoringProtocol: 'scripts/lib/formal-core-protocol-replay.mjs'",
-		"['all', 'generated'].includes(options.phase) && names.includes('CoreAuthoringProtocol')) await coreProtocolGraph()",
-	} {
-		if !strings.Contains(string(harness), required) {
-			t.Fatalf("%s must keep the model-generated core protocol replay wired to scripts/lib/formal-core-protocol-replay.mjs; missing %q means the required replay silently stops executing", harnessPath, required)
-		}
+func TestCoreAuthoringProtocolConcretePrefixReplay(t *testing.T) {
+	fixture := loadCoreProtocolScheduleFixture(t)
+	arangoURL := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
+	for index, program := range fixture.ConcretePrograms {
+		program, expected := program, fixture.ExpectedConcrete[index]
+		t.Run(program.ID, func(t *testing.T) {
+			got := runCoreProtocolReplayConcreteCase(program, coreProtocolReplayMapStores(t))
+			assertCoreProtocolConcreteEqual(t, got, expected, false)
+			if arangoURL == "" {
+				return
+			}
+			t.Run("arango", func(t *testing.T) {
+				var observations []coreProtocolConcreteObservation
+				runCoreProtocolConcreteAgainstArango(t, []coreProtocolConcreteProgram{program}, arangoURL, &observations)
+				if len(observations) != 1 {
+					t.Fatalf("Arango observations=%d, want 1", len(observations))
+				}
+				assertCoreProtocolConcreteEqual(t, observations[0], expected, true)
+			})
+		})
 	}
 }

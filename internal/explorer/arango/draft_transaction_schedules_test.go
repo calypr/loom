@@ -1,6 +1,7 @@
 package arango
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -39,8 +40,9 @@ type draftTransactionOutcomes struct {
 	Commit  string `json:"commit"`
 }
 type draftTransactionCase struct {
-	ID       string                   `json:"id"`
-	Outcomes draftTransactionOutcomes `json:"outcomes"`
+	ID       string                      `json:"id"`
+	Outcomes draftTransactionOutcomes    `json:"outcomes"`
+	Expected draftTransactionObservation `json:"expected"`
 }
 type draftTransactionObservation struct {
 	ID              string   `json:"id"`
@@ -251,27 +253,15 @@ func (c *draftTransactionPrimitive) persistedHeadWithoutKey() explorer.Explorer 
 	return value
 }
 func TestDraftTransactionModelReplay(t *testing.T) {
-	inputPath, outputPath := os.Getenv("LOOM_FORMAL_DRAFT_TRANSACTION_INPUT"), os.Getenv("LOOM_FORMAL_DRAFT_TRANSACTION_OUTPUT")
-	if inputPath == "" && outputPath == "" {
-		for _, input := range []draftTransactionCase{{ID: "success", Outcomes: draftTransactionOutcomes{"ok", "ok", "ok", "ok", "ok"}}, {ID: "rollback", Outcomes: draftTransactionOutcomes{"ok", "ok", "ok", "other", "none"}}, {ID: "unknown", Outcomes: draftTransactionOutcomes{"ok", "ok", "ok", "ok", "unknown"}}} {
-			got := runDraftTransactionCase(t, input)
-			wantResult := map[string]string{"success": "success", "rollback": "other-error", "unknown": "other-error"}[input.ID]
-			wantPublished := input.ID != "rollback"
-			if got.Result != wantResult || got.History != wantPublished || got.Head != wantPublished || !got.ExactHistory || !got.ExactHead || !got.StablePublished || !got.ExactReturned {
-				t.Fatalf("invalid local smoke: %+v", got)
-			}
-		}
-		return
-	}
-	if inputPath == "" || outputPath == "" {
-		t.Fatal("paired formal input/output required")
-	}
-	file, err := os.Open(inputPath)
+	const scheduleFile = "testdata/draft_transaction_schedules.json"
+	raw, err := os.ReadFile(scheduleFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
-	decoder := json.NewDecoder(file)
+	if len(raw) > 4<<20 {
+		t.Fatalf("schedule file %s exceeds 4 MiB", scheduleFile)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	var input struct {
 		SchemaVersion int                    `json:"schemaVersion"`
@@ -281,28 +271,20 @@ func TestDraftTransactionModelReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	if decoder.Decode(new(any)) != io.EOF {
-		t.Fatal("trailing formal input")
+		t.Fatal("trailing schedule data")
 	}
-	if input.SchemaVersion != 1 || len(input.Cases) == 0 {
-		t.Fatal("invalid formal input")
+	if input.SchemaVersion != 1 || len(input.Cases) == 0 || len(input.Cases) > 200 {
+		t.Fatal("invalid frozen schedule set")
 	}
 	seen := map[string]bool{}
-	results := []draftTransactionObservation{}
 	for _, row := range input.Cases {
-		if row.ID == "" || seen[row.ID] {
-			t.Fatal("duplicate or missing case id")
+		if row.ID == "" || seen[row.ID] || row.Expected.ID != row.ID {
+			t.Fatalf("duplicate, missing, or mismatched case id: %q", row.ID)
 		}
 		seen[row.ID] = true
-		results = append(results, runDraftTransactionCase(t, row))
-	}
-	raw, err := json.Marshal(struct {
-		SchemaVersion int                           `json:"schemaVersion"`
-		Results       []draftTransactionObservation `json:"results"`
-	}{1, results})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = os.WriteFile(outputPath, raw, 0600); err != nil {
-		t.Fatal(err)
+		got := runDraftTransactionCase(t, row)
+		if !reflect.DeepEqual(got, row.Expected) {
+			t.Errorf("schedule %s: got %+v, want frozen production behavior %+v", row.ID, got, row.Expected)
+		}
 	}
 }

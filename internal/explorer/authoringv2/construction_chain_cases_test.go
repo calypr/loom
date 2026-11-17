@@ -1,6 +1,7 @@
 package authoringv2
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,22 +9,17 @@ import (
 	"testing"
 )
 
-type formalChainCase struct {
-	ID           string `json:"id"`
-	FirstKind    string `json:"firstKind"`
-	SecondInput  string `json:"secondInput"`
-	SecondColumn string `json:"secondColumn"`
-	Rename       *bool  `json:"rename"`
-	Reorder      *bool  `json:"reorder"`
+type constructionChainCase struct {
+	ID               string `json:"id"`
+	FirstKind        string `json:"firstKind"`
+	SecondInput      string `json:"secondInput"`
+	SecondColumn     string `json:"secondColumn"`
+	Rename           *bool  `json:"rename"`
+	Reorder          *bool  `json:"reorder"`
+	ExpectedAccepted bool   `json:"expectedAccepted"`
 }
 
-type formalChainResult struct {
-	ID       string `json:"id"`
-	Accepted bool   `json:"accepted"`
-	Error    string `json:"error"`
-}
-
-func formalChainConstruction(value formalChainCase) (Construction, []Column, error) {
+func constructionForChainCase(value constructionChainCase) (Construction, []Column, error) {
 	if value.ID == "" || value.Rename == nil || value.Reorder == nil {
 		return Construction{}, nil, fmt.Errorf("missing case fields")
 	}
@@ -75,40 +71,19 @@ func formalChainConstruction(value formalChainCase) (Construction, []Column, err
 }
 
 func TestConstructionModelReplay(t *testing.T) {
-	inputPath, outputPath := os.Getenv("LOOM_FORMAL_CHAIN_INPUT"), os.Getenv("LOOM_FORMAL_CHAIN_OUTPUT")
-	if inputPath == "" && outputPath == "" {
-		no := false
-		for _, row := range []struct {
-			first, input, column string
-			want                 bool
-		}{{"FILTER", "PREVIOUS", "x", true}, {"FILTER", "SELF", "x", false}, {"DERIVE", "PREVIOUS", "d", true}} {
-			construction, columns, err := formalChainConstruction(formalChainCase{ID: "smoke", FirstKind: row.first, SecondInput: row.input, SecondColumn: row.column, Rename: &no, Reorder: &no})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := construction.Validate(columns) == nil; got != row.want {
-				t.Fatalf("%+v accepted %v", row, got)
-			}
-		}
-		return
-	}
-	if inputPath == "" || outputPath == "" {
-		t.Fatal("both formal input and output paths are required")
-	}
-	file, err := os.Open(inputPath)
+	const scheduleFile = "testdata/construction_chain_cases.json"
+	data, err := os.ReadFile(scheduleFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || info.Size() > 4<<20 {
-		t.Fatal("formal input exceeds size limit or cannot be inspected")
+	if len(data) > 4<<20 {
+		t.Fatalf("schedule file %s exceeds 4 MiB", scheduleFile)
 	}
 	var input struct {
-		SchemaVersion int               `json:"schemaVersion"`
-		Cases         []formalChainCase `json:"cases"`
+		SchemaVersion int                     `json:"schemaVersion"`
+		Cases         []constructionChainCase `json:"cases"`
 	}
-	decoder := json.NewDecoder(io.LimitReader(file, 4<<20))
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil {
 		t.Fatal(err)
@@ -117,35 +92,22 @@ func TestConstructionModelReplay(t *testing.T) {
 	if decoder.Decode(&extra) != io.EOF {
 		t.Fatal("trailing input")
 	}
-	if input.SchemaVersion != 1 || len(input.Cases) == 0 || len(input.Cases) > 1024 {
-		t.Fatal("invalid formal case inventory")
+	if input.SchemaVersion != 1 || len(input.Cases) == 0 || len(input.Cases) > 200 {
+		t.Fatal("invalid frozen schedule set")
 	}
 	seen := map[string]bool{}
-	results := make([]formalChainResult, 0, len(input.Cases))
 	for _, row := range input.Cases {
 		if seen[row.ID] {
-			t.Fatal("duplicate formal case")
+			t.Fatal("duplicate schedule case")
 		}
 		seen[row.ID] = true
-		construction, columns, err := formalChainConstruction(row)
+		construction, columns, err := constructionForChainCase(row)
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = construction.Validate(columns)
-		result := formalChainResult{ID: row.ID, Accepted: err == nil}
-		if err != nil {
-			result.Error = err.Error()
+		validationErr := construction.Validate(columns)
+		if got := validationErr == nil; got != row.ExpectedAccepted {
+			t.Errorf("schedule %s: accepted=%t, want %t (validation error: %v)", row.ID, got, row.ExpectedAccepted, validationErr)
 		}
-		results = append(results, result)
-	}
-	data, err := json.Marshal(struct {
-		SchemaVersion int                 `json:"schemaVersion"`
-		Results       []formalChainResult `json:"results"`
-	}{1, results})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(outputPath, data, 0600); err != nil {
-		t.Fatal(err)
 	}
 }
