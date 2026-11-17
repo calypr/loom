@@ -537,7 +537,10 @@ func constructionNodeOccurrences(route authoringv2.RouteNode, snapshot capabilit
 	if !found {
 		return result
 	}
+	// The row root is canonical for its catalog node even when the authored
+	// route later reaches that same node through a relationship cycle.
 	result[root.ID] = route.OccurrenceID
+	ambiguous := map[string]struct{}{}
 	var walk func(parent capability.Node, node authoringv2.RouteNode)
 	walk = func(parent capability.Node, node authoringv2.RouteNode) {
 		for _, child := range node.Children {
@@ -566,10 +569,20 @@ func constructionNodeOccurrences(route authoringv2.RouteNode, snapshot capabilit
 					continue
 				}
 			}
-			if ok && target.ResourceType == child.ResourceType {
-				result[target.ID] = child.OccurrenceID
-				walk(target, child)
+			if !ok || target.ResourceType != child.ResourceType {
+				continue
 			}
+			if target.ID != root.ID {
+				if _, isAmbiguous := ambiguous[target.ID]; !isAmbiguous {
+					if _, exists := result[target.ID]; exists {
+						delete(result, target.ID)
+						ambiguous[target.ID] = struct{}{}
+					} else {
+						result[target.ID] = child.OccurrenceID
+					}
+				}
+			}
+			walk(target, child)
 		}
 	}
 	walk(root, route)
