@@ -1,3 +1,4 @@
+import { fieldPickerList, fieldPickerToggleRow } from '../components/fieldPickerStyles';
 import { createOpaqueId, normalizedName, uniqueName, editorContextKey, stageWithSourceInputs, type CodedPivotContext } from './editorShared';
 import React, { useCallback, useId, useReducer, useRef, useState } from 'react';
 import { useQuery } from '../../../react';
@@ -12,7 +13,7 @@ import type {
 import { RelatedExpandEditor, type RelatedExpandQueryOwner } from './RelatedExpandEditor';
 import { CodedPivotEditor } from './CodedPivotEditor';
 import { GroupEditor } from './GroupEditor';
-import { PivotEditor } from './PivotEditor';
+import { PivotEditor, type PivotListSelection } from './PivotEditor';
 import { ListColumnExpandChoices } from './ListColumnExpandChoices';
 import { classifySourcePickerEmptiness, sourcePickerBoundSet } from './sourcePickerExplanations';
 import { existingColumnForFieldPath } from './existingFieldReuse';
@@ -280,6 +281,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const [formContextKey, setFormContextKey] = useState(contextKey);
   const [contractUnavailable, setContractUnavailable] = useState(false);
   const [reshapeTab, setReshapeTab] = useState<'pivot' | 'unpivot'>('pivot');
+  const [pivotBeforeSplit, setPivotBeforeSplit] = useState<PivotForm>();
+  const [pivotListSelection, setPivotListSelection] = useState<PivotListSelection>();
   const [groupPurpose, setGroupPurpose] = useState<'group' | 'summarize' | undefined>();
   if (formContextKey !== contextKey) {
     const initialForm = editingStep
@@ -288,6 +291,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
         ?? formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind);
     setForm(initialForm);
     setFormContextKey(contextKey);
+    setPivotBeforeSplit(undefined);
+    setPivotListSelection(undefined);
     setContractUnavailable(false);
   }
   const groupSupport = savedGroupInputStageAvailable
@@ -593,6 +598,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const updateForm = (
     nextForm: ReshapeForm,
     discovery: ConstructionReshapePivotDiscovery | undefined = pivotStateRef.current.snapshot.discovery,
+    reviewingPivotSplit = Boolean(pivotBeforeSplit),
   ) => {
     const current = pivotStateRef.current;
     const previousForm = current.snapshot.form;
@@ -622,8 +628,10 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       sendPivotAction({ type: 'schedule-canceled' });
     }
     sendPivotAction({ type: 'form-changed', form: next, requestIdentityChanged });
+    if (next.kind !== 'expand') setPivotBeforeSplit(undefined);
+    if (next.kind !== 'pivot' && !(next.kind === 'expand' && reviewingPivotSplit)) setPivotListSelection(undefined);
     setForm(next);
-    current.snapshot.onFormKindChange?.(next.kind);
+    current.snapshot.onFormKindChange?.(reviewingPivotSplit && next.kind === 'expand' ? 'pivot' : next.kind);
     const evaluation = evaluate(next, discovery, pivotStateRef.current.snapshot);
     setContractUnavailable(evaluation.kind === 'schema-pending');
     current.snapshot.onCandidateChange(evaluation.kind === 'ready' ? evaluation.intent : undefined);
@@ -651,9 +659,9 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     return true;
   };
 
-  const expandListColumn = (columnId: string) => {
+  const expandListColumn = (columnId: string, reviewingPivotSplit = false) => {
     if (!expandSupport.supported || !listColumnsFor(stage).some((column) => column.id === columnId)) return;
-    updateForm(initialExpandForm(stage, undefined, columnId));
+    updateForm(initialExpandForm(stage, undefined, columnId), undefined, reviewingPivotSplit);
   };
 
   const chooseSourceField = (choice: SourceInputChoice) => {
@@ -783,6 +791,9 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     sendPivotAction({ type: 'schedule-created', scheduled });
   };
 
+  const showReshapeTabs = !editingStep && (form.kind === 'pivot' || form.kind === 'unpivot' || form.kind === 'coded-pivot' ||
+    (form.kind === 'expand' && Boolean(pivotBeforeSplit)));
+
   return (
     <section ref={pivotDiscoveryRootRef} aria-label={props.rowValuesOnly ? 'Add columns from Group contributors' : 'Reshape editor'} data-testid="construction-reshape-editor" className="grid content-start gap-3">
 
@@ -796,7 +807,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
         <p role="status" data-testid="construction-reshape-schema-unavailable" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">The construction schema did not accept this reshape, so Loom has not previewed it.</p>
       ) : null}
 
-      {!editingStep && (form.kind === 'pivot' || form.kind === 'unpivot' || form.kind === 'coded-pivot') ? (
+      {showReshapeTabs ? (
         <div role="tablist" aria-label="Reshape operation" className="flex gap-1 border-b border-slate-200">
           {([['pivot', 'Pivot'], ['unpivot', 'Unpivot']] as const).map(([tab, label]) => (
             <button key={tab} type="button" role="tab" id={`${id}-reshape-tab-${tab}`}
@@ -805,6 +816,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
               disabled={disabled}
               onClick={() => {
                 setReshapeTab(tab);
+                if (tab === 'pivot') setPivotListSelection(undefined);
                 updateForm(tab === 'pivot'
                   ? initialPivotForm(stage, props.selectedColumns ?? [])
                   : initialUnpivotForm(stage, props.selectedColumns ?? []));
@@ -816,7 +828,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
         </div>
       ) : null}
 
-      {!props.rowValuesOnly && form.kind !== 'choose' && form.kind !== 'unsupported' && form.kind !== 'group' ? (
+      {!showReshapeTabs && !props.rowValuesOnly && form.kind !== 'choose' && form.kind !== 'unsupported' && form.kind !== 'group' && form.kind !== 'related-expand' ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
           <h2 className="m-0 font-semibold text-slate-900">{reshapeFormLabels[form.kind]}</h2>
           {!editingStep && !props.hideChangeRowOperation ? <button type="button" disabled={disabled} onClick={() => updateForm(initialPivotForm(stage, props.selectedColumns ?? []))}
@@ -897,17 +909,30 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       ) : null}
 
       {form.kind === 'expand' ? (
-        <ExpandEditor
-          key={`${id}:expand:${contextKey}`}
-          form={form}
-          stage={expandInputStage(stage, form, capabilities.expandSourceInput?.choices ?? [])}
-          sourceInput={capabilities.expandSourceInput}
-          sourceProjections={construction.sourceProjections}
-          supported={expandSupport.supported || (capabilities.expandSourceInput?.supported ?? false)}
-          reason={expandSupport.reason}
-          disabled={disabled}
-          onChange={(next) => updateForm(next)}
-        />
+        <>
+          {pivotBeforeSplit ? (
+            <section aria-label="Split before pivoting" className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3">
+              <h4 className="text-sm font-semibold text-slate-900">Split before pivoting</h4>
+              <p className="text-xs text-slate-700">Review and apply the split. Then open Pivot again and choose “{form.outputLabel}” in place of the list. The split is saved as its own step.</p>
+              <button type="button" disabled={disabled} className="justify-self-start text-sm font-medium text-blue-800"
+                onClick={() => updateForm(pivotBeforeSplit)}>
+                Back to pivot fields
+              </button>
+            </section>
+          ) : null}
+          <ExpandEditor
+            key={`${id}:expand:${contextKey}`}
+            form={form}
+            lockInput={Boolean(pivotBeforeSplit)}
+            stage={expandInputStage(stage, form, capabilities.expandSourceInput?.choices ?? [])}
+            sourceInput={capabilities.expandSourceInput}
+            sourceProjections={construction.sourceProjections}
+            supported={expandSupport.supported || (capabilities.expandSourceInput?.supported ?? false)}
+            reason={expandSupport.reason}
+            disabled={disabled}
+            onChange={(next) => updateForm(next)}
+          />
+        </>
       ) : null}
       {form.kind === 'pivot' ? (
         <PivotEditor
@@ -927,6 +952,13 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           populationChecking={populationQuery.isLoading && Boolean(populationIdentity)}
           populationUnavailable={Boolean(populationIdentity) && !populationQuery.isLoading && (
             populationQuery.data?.identity !== populationIdentity || Object.values(populationStatuses ?? {}).some((status) => status === 'UNKNOWN'))}
+          pendingList={pivotListSelection}
+          onPendingListChange={setPivotListSelection}
+          onExpandListColumn={!editingStep && expandSupport.supported &&
+            (pivotSupport.supported || savedPivotSupport.reasonCode === 'INSUFFICIENT_SCALAR_COLUMNS') ? (columnId) => {
+            setPivotBeforeSplit(form);
+            expandListColumn(columnId, true);
+          } : undefined}
           onDiscover={() => requestPivotCategories(form, true)}
           onManualCategorySelection={rememberManualPivotSelection}
           onForgetPairSelection={forgetPivotPairSelection}
@@ -1067,7 +1099,7 @@ const SourceGroupEditor = (props: {
           const isSelected = selected(field.choice.choiceId);
           const cannotClearLast = isSelected && selectedCount === 1 && !props.canClear;
           return (
-            <label key={field.choice.choiceId} className="flex min-w-0 items-start gap-2 rounded px-2 py-1.5 hover:bg-slate-50">
+            <label key={field.choice.choiceId} className={fieldPickerToggleRow}>
               <input type="checkbox" aria-label={`Group by ${field.choice.label}`} checked={isSelected}
                 disabled={cannotClearLast}
                 onChange={(event) => toggleChoice(field, event.currentTarget.checked)} />
@@ -1164,6 +1196,7 @@ const ExpandEditor = (props: {
   readonly supported: boolean;
   readonly reason: string;
   readonly disabled: boolean;
+  readonly lockInput?: boolean;
   readonly sourceInput?: ConstructionCapabilitiesResponse['expandSourceInput'];
   readonly sourceProjections?: Construction['sourceProjections'];
   readonly onChange: (form: ExpandForm) => void;
@@ -1208,7 +1241,7 @@ const ExpandEditor = (props: {
       props.onChange({
         ...props.form,
         inputColumnId: columnId,
-        outputName: `${normalizedName(baseName)}_item`,
+        outputName: uniqueName(`${normalizedName(baseName)}_item`, usedNames),
         outputLabel: `${choice.label} item`,
         expandSources: [...keptBindings, { choiceId: choice.choiceId, columnId }],
       });
@@ -1219,7 +1252,8 @@ const ExpandEditor = (props: {
     props.onChange({
       ...props.form,
       inputColumnId: column.id,
-      outputName: `${normalizedName(column.name)}_item`,
+      outputName: uniqueName(`${normalizedName(column.name)}_item`,
+        new Set(props.stage.columns.filter((other) => other.id !== column.id).map((other) => other.name.toLowerCase()))),
       outputLabel: `${column.label} item`,
       ...(keptBindings.length ? { expandSources: keptBindings } : { expandSources: undefined }),
     });
@@ -1237,7 +1271,7 @@ const ExpandEditor = (props: {
         <>
           <label className="grid gap-1 text-sm font-medium text-slate-700">
             Repeated field
-            <select aria-label="Repeated field" value={selectedInputValue} disabled={props.disabled || !props.supported} onChange={(event) => updateInput(event.currentTarget.value)} className="rounded border border-slate-300 bg-white px-2 py-1.5">
+            <select aria-label="Repeated field" value={selectedInputValue} disabled={props.disabled || !props.supported || props.lockInput} onChange={(event) => updateInput(event.currentTarget.value)} className="rounded border border-slate-300 bg-white px-2 py-1.5">
               <option value="">Choose a repeated field</option>
               {columns.map((column) => <option key={column.id} value={column.id}>{column.label} ({column.type ?? 'unknown item type'})</option>)}
               {allowedSourceChoices.length > 0 ? (
@@ -1263,16 +1297,10 @@ const ExpandEditor = (props: {
           <details data-testid="construction-reshape-expand-advanced" className="rounded-lg border border-slate-200">
             <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-700">Advanced options</summary>
             <div className="grid gap-3 p-3 pt-0">
-              <div className="grid gap-3 rounded border border-slate-200 p-3 sm:grid-cols-2">
-                <label className="grid gap-1 text-sm font-medium text-slate-700">
-                  Item column name
-                  <input aria-label="Expanded item name" value={props.form.outputName} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, outputName: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
-                </label>
-                <label className="grid gap-1 text-sm font-medium text-slate-700">
-                  Item column label
-                  <input aria-label="Expanded item label" value={props.form.outputLabel} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, outputLabel: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
-                </label>
-              </div>
+              <label className="grid gap-1 text-sm font-medium text-slate-700">
+                Item column label
+                <input aria-label="Expanded item label" value={props.form.outputLabel} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, outputLabel: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
+              </label>
               <label className="flex items-start gap-2 rounded border border-slate-200 px-3 py-2 text-sm">
                 <input
                   type="checkbox"
@@ -1458,15 +1486,18 @@ const UnpivotEditor = (props: {
 
   return (
     <section aria-label="Unpivot columns into rows" data-testid="construction-reshape-unpivot" className="grid content-start gap-3">
+      <p className="m-0 text-sm text-slate-600">
+        Turn columns into rows. For example, select Score 2024 and Score 2025 to make a separate row for each year’s score.
+      </p>
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
       {props.showInputSelection ? (
         <fieldset className="grid gap-1" disabled={props.disabled || !props.supported}>
           <legend className="m-0 text-sm font-semibold text-slate-800">Columns to turn into rows</legend>
-          <div className="grid gap-1 sm:grid-cols-2">
+          <div className={fieldPickerList}>
             {scalarColumnsFor(props.stage).map((column) => {
               const input = props.form.inputs.find((candidate) => candidate.columnId === column.id);
               return (
-                <label key={column.id} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-800 hover:bg-slate-50">
+                <label key={column.id} className={fieldPickerToggleRow}>
                   <input type="checkbox" aria-label={`Unpivot ${column.label}`} checked={Boolean(input)} disabled={props.disabled || !props.supported} onChange={(event) => toggleInput(column, event.currentTarget.checked)} />
                   {column.label}
                 </label>

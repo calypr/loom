@@ -14,6 +14,7 @@ export type RecipeEditTarget =
   | { readonly kind: 'connection'; readonly parentOccurrenceId: string; readonly catalogEdgeId: string }
   | { readonly kind: 'relationship'; readonly occurrenceId: string }
   | { readonly kind: 'sourceRows' }
+  | { readonly kind: 'createColumnRule' }
   | { readonly kind: 'root'; readonly mode: 'PRESERVE' | 'REPLACE'; readonly nodeId: string }
   | { readonly kind: 'sourceStep'; readonly sourceStepId: string }
   | { readonly kind: 'column'; readonly columnId: string }

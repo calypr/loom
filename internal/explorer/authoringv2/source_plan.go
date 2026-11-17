@@ -20,9 +20,18 @@ type ImportedSourceFieldBinding struct {
 }
 
 type ImportedSourcePlan struct {
-	FieldBindings []ImportedSourceFieldBinding `json:"fieldBindings,omitempty"`
-	Steps         []ImportedSourceStep         `json:"steps"`
-	Relationships *ImportedRelationshipOverlay `json:"relationships,omitempty"`
+	FieldBindings    []ImportedSourceFieldBinding    `json:"fieldBindings,omitempty"`
+	DynamicAdditions []ImportedSourceDynamicAddition `json:"dynamicAdditions,omitempty"`
+	Steps            []ImportedSourceStep            `json:"steps"`
+	Relationships    *ImportedRelationshipOverlay    `json:"relationships,omitempty"`
+}
+
+// ImportedSourceDynamicAddition stores a user-created root dynamic column.
+// IDs are append-only positional identities so edits never depend on names.
+type ImportedSourceDynamicAddition struct {
+	StepID     string                    `json:"stepId"`
+	Enabled    bool                      `json:"enabled"`
+	Parameters *ImportedSourceParameters `json:"parameters"`
 }
 
 // ImportedSourceStep identifies one source-plan stage. ParentID preserves the
@@ -67,6 +76,23 @@ func (p ImportedSourcePlan) Validate() error {
 	}
 	if len(p.Steps) > maxImportedSourcePlanSteps {
 		return fmt.Errorf("imported source plan has more than %d steps", maxImportedSourcePlanSteps)
+	}
+	if len(p.DynamicAdditions) > 128 {
+		return fmt.Errorf("source plan has more than 128 dynamic additions")
+	}
+	for index, addition := range p.DynamicAdditions {
+		if addition.StepID != fmt.Sprintf("dynamicAdditions[%d]", index) {
+			return fmt.Errorf("dynamicAdditions[%d].stepId must be its stable append-order identity", index)
+		}
+		if addition.Parameters == nil {
+			return fmt.Errorf("dynamicAdditions[%d] requires dynamic column parameters", index)
+		}
+		if err := addition.Parameters.Validate("DYNAMIC_COLUMN"); err != nil {
+			return fmt.Errorf("dynamicAdditions[%d]: %w", index, err)
+		}
+		if addition.Parameters == nil || addition.Parameters.Dynamic == nil {
+			return fmt.Errorf("dynamicAdditions[%d] requires dynamic column parameters", index)
+		}
 	}
 
 	seen := make(map[string]struct{}, len(p.Steps))

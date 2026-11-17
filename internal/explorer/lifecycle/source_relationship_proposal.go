@@ -62,7 +62,15 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	if err := request.validateSourceSelection(); err != nil {
 		return fail, malformed("source-relationship-proposal", err.Error(), err)
 	}
-	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil || s.config.AuthoringNetwork == nil || (!request.hasSourceSteps() && s.config.EditImportedRelationship == nil) || (request.SourceStep != nil && s.config.EditImportedSource == nil) || (request.SourceSteps != nil && s.config.EditImportedSources == nil) {
+	editSource := s.config.EditImportedSource
+	creatingRule := request.SourceStep != nil && request.SourceStep.CreateIdentifierRule
+	if creatingRule {
+		editSource = s.config.CreateImportedIdentifierRule
+		if editSource == nil {
+			return fail, unavailable("source-relationship-proposal", "IMPORTED_SOURCE_UNAVAILABLE", "Identifier rule creation is unavailable", nil)
+		}
+	}
+	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil || s.config.AuthoringNetwork == nil || (!request.hasSourceSteps() && s.config.EditImportedRelationship == nil) || (request.SourceStep != nil && editSource == nil) || (request.SourceSteps != nil && s.config.EditImportedSources == nil) {
 		return fail, unavailable("source-relationship-proposal", "IMPORTED_SOURCE_UNAVAILABLE", "native relationship editing is unavailable", nil)
 	}
 	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
@@ -99,7 +107,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	if request.SourceSteps != nil {
 		updated, err = s.config.EditImportedSources(ctx, request.Project, authorized, *document, request.SourceSteps)
 	} else if request.SourceStep != nil {
-		updated, err = s.config.EditImportedSource(ctx, request.Project, authorized, *document, request.SourceStep)
+		updated, err = editSource(ctx, request.Project, authorized, *document, request.SourceStep)
 	} else {
 		updated, err = s.config.EditImportedRelationship(ctx, request.Project, authorized, *document, request.Change)
 	}
@@ -107,6 +115,9 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 		var typed *Error
 		if errors.As(err, &typed) {
 			return fail, typed
+		}
+		if creatingRule {
+			return fail, unprocessable("source-relationship-proposal", "INVALID_IMPORTED_SOURCE", err.Error(), err)
 		}
 		return fail, unprocessable("source-relationship-proposal", "INVALID_IMPORTED_RELATIONSHIP", err.Error(), err)
 	}
@@ -177,7 +188,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	for id := range old {
 		affected = append(affected, id)
 	}
-	if request.Change.Action == "MATCH" || request.hasSourceSteps() {
+	if request.Change.Action == "MATCH" || (request.hasSourceSteps() && !creatingRule) {
 		affected = affected[:0]
 		for _, column := range updated.Columns {
 			affected = append(affected, column.ColumnID)

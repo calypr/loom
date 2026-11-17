@@ -1,3 +1,4 @@
+import { fieldPickerList, fieldPickerToggleRow } from '../components/fieldPickerStyles';
 import React, { useId, useMemo, useRef, useState } from 'react';
 import { useCommitLifecycle } from '../hooks/useBrowserSubscription';
 import type { LoomClient } from '../../../api';
@@ -342,13 +343,13 @@ const CodedPivotEditorBody = ({
           : sourceQuery ? 'No direct coded source matches this search.'
             : 'No direct coded source is available on these starting records. Use category and value fields already in this table, or add a coded-value column from a related record and then reopen Categories to columns.'
       }</p> : null}
-      {visibleSources.length > 0 ? <fieldset className="grid max-h-60 gap-2 overflow-y-auto sm:grid-cols-2">
+      {visibleSources.length > 0 ? <fieldset className={fieldPickerList}>
         <legend className="mb-1 text-sm font-medium text-slate-800">Source of coded values</legend>
         {visibleSources.map((option, index) => {
           const detailsId = `${sourceDetailsId}-source-${index}`;
           return (
-            <div key={option.choiceId} className="rounded border border-slate-200 p-2 hover:bg-slate-50">
-              <label className="flex gap-2 text-sm">
+            <div key={option.choiceId} className="border-b border-slate-100 last:border-b-0">
+              <label className={fieldPickerToggleRow}>
                 <input type="radio" name="coded-pivot-source" checked={source?.choiceId === option.choiceId}
                   onChange={() => chooseSource(option.choiceId)} disabled={disabled} aria-describedby={detailsId} />
                 <span>

@@ -332,3 +332,19 @@ authentication/SSR/cache-invalidation checks. Conflict recovery remains covered
 by the portable component and shared request-error tests. No user behavior
 promise is intentionally retired. IDP retains thin authenticated transport,
 routing, and SSR adapters; the duplicated implementation is deleted.
+
+## Pivot policy controls
+
+The Pivot form no longer provides controls for changing duplicate handling,
+missing-cell handling, or unselected-category handling. The existing defaults
+and saved policies still pass through the proposal. The reshape edit test
+checks saved-policy preservation when an output label changes, and output names
+and labels remain editable in their own disclosure.
+
+## Related expansion route discovery
+
+The Related Expand editor previously fetched every catalog route page automatically.
+The editor subsequently exposed manual pagination. That control is retired.
+The editor now loads the first saved graph page when applicable and the first
+catalog page. Further cursor pages are outside this picker. Request ownership
+and page draining during Apply still apply.

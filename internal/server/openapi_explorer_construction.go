@@ -63,6 +63,9 @@ func (h *explorerHTTPHandlers) searchRelatedExpandChoicesDirect(ctx context.Cont
 	if body.Cursor != nil {
 		request.Cursor = *body.Cursor
 	}
+	if body.SavedGraphOnly != nil {
+		request.SavedGraphOnly = *body.SavedGraphOnly
+	}
 	value, err := h.application.SearchRelatedExpandChoices(ctx, request)
 	if err != nil {
 		return result, err

@@ -24,6 +24,13 @@ func (r importedRecipeSources) Edit(ctx context.Context, project string, authori
 	return r.editSource(ctx, project, authorized, document, change, nil)
 }
 
+func (r importedRecipeSources) CreateIdentifierRule(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
+	if change == nil {
+		return authoringv2.Document{}, fmt.Errorf("creating an Identifier rule requires a source step proposal")
+	}
+	return r.editSources(ctx, project, authorized, document, []authoringv2.ImportedSourceStepChange{*change}, nil, true)
+}
+
 func (r importedRecipeSources) EditRelationship(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
 	if err := change.Validate(); err != nil {
 		return authoringv2.Document{}, err
@@ -35,17 +42,24 @@ func (r importedRecipeSources) EditBatch(ctx context.Context, project string, au
 	if err := authoringv2.ValidateImportedSourceStepBatch(changes); err != nil {
 		return authoringv2.Document{}, err
 	}
-	return r.editSources(ctx, project, authorized, document, changes, nil)
+	return r.editSources(ctx, project, authorized, document, changes, nil, false)
 }
 func (r importedRecipeSources) editSource(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange, relationship *authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
 	var changes []authoringv2.ImportedSourceStepChange
 	if change != nil {
 		changes = []authoringv2.ImportedSourceStepChange{*change}
 	}
-	return r.editSources(ctx, project, authorized, document, changes, relationship)
+	return r.editSources(ctx, project, authorized, document, changes, relationship, false)
 }
-func (r importedRecipeSources) editSources(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, changes []authoringv2.ImportedSourceStepChange, relationship *authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
-	if len(changes) > 0 {
+func (r importedRecipeSources) editSources(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, changes []authoringv2.ImportedSourceStepChange, relationship *authoringv2.ImportedRelationshipChange, allowCreateIdentifier bool) (authoringv2.Document, error) {
+	if allowCreateIdentifier {
+		if len(changes) != 1 || !changes[0].CreateIdentifierRule || relationship != nil {
+			return authoringv2.Document{}, fmt.Errorf("identifier creation requires one source step proposal")
+		}
+		if err := changes[0].Validate(); err != nil {
+			return authoringv2.Document{}, err
+		}
+	} else if len(changes) > 0 {
 		if err := authoringv2.ValidateImportedSourceStepBatch(changes); err != nil {
 			return authoringv2.Document{}, err
 		}
@@ -145,6 +159,39 @@ func (r importedRecipeSources) editSources(ctx context.Context, project string, 
 			}
 		}
 		if change != nil {
+			if change.CreateIdentifierRule {
+				addition := authoringv2.ImportedSourceDynamicAddition{StepID: fmt.Sprintf("dynamicAdditions[%d]", len(plan.DynamicAdditions)), Enabled: true, Parameters: change.Parameters}
+				plan.DynamicAdditions = append(plan.DynamicAdditions, addition)
+				plan.Steps = append(plan.Steps, recipeimport.SourcePlanForDynamicAddition(addition))
+				continue
+			}
+			additionFound := false
+			for i := range plan.DynamicAdditions {
+				addition := &plan.DynamicAdditions[i]
+				if addition.StepID != change.StepID {
+					continue
+				}
+				if change.MaxColumns != nil || change.ValueMode != "" {
+					return authoringv2.Document{}, fmt.Errorf("dynamic addition edits do not support a column limit or value mode")
+				}
+				if change.Parameters != nil {
+					if err := change.Parameters.Validate("DYNAMIC_COLUMN"); err != nil {
+						return authoringv2.Document{}, err
+					}
+					if err := recipeimport.ValidateIdentifierDynamic(original.RootResourceType, change.Parameters.Dynamic); err != nil {
+						return authoringv2.Document{}, err
+					}
+					addition.Parameters = change.Parameters
+				}
+				addition.Enabled = change.Enabled
+				stepIndex := len(plan.Steps) - len(plan.DynamicAdditions) + i
+				plan.Steps[stepIndex] = recipeimport.SourcePlanForDynamicAddition(*addition)
+				additionFound = true
+				break
+			}
+			if additionFound {
+				continue
+			}
 			found := false
 			for i := range plan.Steps {
 				step := &plan.Steps[i]

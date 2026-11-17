@@ -1,3 +1,4 @@
+import { fieldPickerList, fieldPickerMetadata, fieldPickerRow, fieldPickerSelected } from '../components/fieldPickerStyles';
 import React, { useRef, useState } from 'react';
 import { useCommitLifecycle } from '../hooks/useBrowserSubscription';
 import { ZodError } from 'zod';
@@ -288,14 +289,14 @@ export const RelatedExpandContributorEditor = ({
               Retry field search
             </button>
           ) : null}
-          <div role="group" aria-label="Fields for related-record condition" className="max-h-56 space-y-2 overflow-auto">
+          <div role="group" aria-label="Fields for related-record condition" className={fieldPickerList}>
             {[...choices, ...(selected && !choices.some((choice) => choice.choiceId === selected.choiceId) ? [selected] : [])].map((choice) => (
               <button key={choice.choiceId} type="button" disabled={disabled}
                 aria-pressed={selected?.choiceId === choice.choiceId}
                 onClick={() => onChange({ kind: 'EXISTS', choice })}
-                className={`block w-full rounded border p-2 text-left ${selected?.choiceId === choice.choiceId ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:border-blue-300'}`}>
-                <span className="block font-medium">{choice.label}</span>
-                <span className="block text-xs text-slate-600">{choice.source.path} · {choice.source.logicalType}
+                className={`${fieldPickerRow} ${selected?.choiceId === choice.choiceId ? fieldPickerSelected : ''} disabled:opacity-50`}>
+                <span className="min-w-0 flex-1 truncate">{choice.label}</span>
+                <span className={`${fieldPickerMetadata} max-w-[45%] truncate`} title={choice.source.path}>{choice.source.path} · {choice.source.logicalType}
                   {choice.source.cardinality === 'many' ? ' · Repeated values (any item can match)' : ''}
                 </span>
               </button>

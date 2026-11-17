@@ -410,7 +410,8 @@ describe('ConstructionOperationEditor', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Second value kind' }), { target: { value: 'literal' } });
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Second value number' }), { target: { value: '2.5' } });
 
-    expect(screen.getByTestId('construction-calculate-new-output')).toBeInTheDocument();
+    expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Output column label' }).value).toBe('Calculated value');
+    expect(screen.queryByRole('textbox', { name: 'Output column name' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Formula editor' })).toBeInTheDocument();
     const candidate = onCandidateChange.mock.lastCall?.[0];
     expect(candidate).toBeDefined();
@@ -448,7 +449,7 @@ describe('ConstructionOperationEditor', () => {
       onCandidateChange,
     });
 
-    expect(screen.getByTestId('construction-calculate-replacement')).toHaveTextContent('keeping its column identity');
+    expect(screen.getByTestId('construction-calculate-replacement')).toHaveTextContent('Applying updates the existing column');
     fireEvent.click(screen.getByRole('button', { name: 'Formula editor' }));
     expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Formula' }).value).toBe('age + 2');
     fireEvent.change(screen.getByRole('textbox', { name: 'Formula' }), { target: { value: 'weight * 3.5' } });

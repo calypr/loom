@@ -432,9 +432,10 @@ const driveCalculate = async (input: CoreAdapterInput): Promise<void> => {
   }
   const missingPolicy = optionalString(values, 'missing_input_policy');
   if (missingPolicy) await selectLabel(input, 'Missing input policy', missingPolicy);
-  const outputName = optionalString(values, 'output_name');
+  if (optionalString(values, 'output_name')) {
+    throw new CoreAdapterGapError(input.uiAction.affordanceId, 'Calculate derives the output column name automatically.');
+  }
   const outputLabel = optionalString(values, 'output_label');
-  if (outputName) await setText(input, 'Output column name', outputName);
   if (outputLabel) await setText(input, 'Output column label', outputLabel);
   const dividePolicy = optionalString(values, 'division_by_zero_policy');
   if (dividePolicy) await selectLabel(input, 'Division by zero policy', dividePolicy);

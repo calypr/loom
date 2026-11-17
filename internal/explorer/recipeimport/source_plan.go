@@ -8,6 +8,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 const (
@@ -219,11 +220,18 @@ func ApplySourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan)
 		copyPlan.Steps = append([]authoringv2.ImportedSourceStep{expected.Steps[0]}, plan.Steps...)
 		plan = &copyPlan
 	}
-	if len(plan.Steps) != len(expected.Steps) {
+	if len(plan.Steps) != len(expected.Steps)+len(plan.DynamicAdditions) {
 		return recipe.Output{}, fmt.Errorf("imported source plan does not match the pinned source step set")
 	}
 	steps := make(map[string]authoringv2.ImportedSourceStep, len(plan.Steps))
 	for index, step := range plan.Steps {
+		if index >= len(expected.Steps) {
+			additionIndex := index - len(expected.Steps)
+			if additionIndex >= len(plan.DynamicAdditions) || !reflect.DeepEqual(step, dynamicAdditionStep(plan.DynamicAdditions[additionIndex])) {
+				return recipe.Output{}, fmt.Errorf("imported source plan step %d does not match its dynamic addition", index)
+			}
+			continue
+		}
 		base := expected.Steps[index]
 		if step.ID != base.ID || step.ParentID != base.ParentID || step.Kind != base.Kind ||
 			step.Title != base.Title || step.Summary != base.Summary || (step.Editable != base.Editable && !(base.Editable && (step.Kind == SourcePlanExpansion || step.Kind == SourcePlanIdentity))) ||
@@ -269,10 +277,56 @@ func ApplySourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan)
 	}
 	cloned.CatalogProjections = applyCatalogProjections(cloned.CatalogProjections, steps, "")
 	cloned.DynamicColumns = applyDynamicColumns(cloned.DynamicColumns, steps, "")
+	for _, addition := range plan.DynamicAdditions {
+		if !addition.Enabled {
+			continue
+		}
+		dynamic := addition.Parameters.Dynamic
+		if err := ValidateIdentifierDynamic(output.RootResourceType, dynamic); err != nil {
+			return recipe.Output{}, fmt.Errorf("source step %q: %w", addition.StepID, err)
+		}
+		cloned.DynamicColumns = append(cloned.DynamicColumns, recipe.DynamicColumn{
+			Name: dynamic.Name, ColumnPrefix: dynamic.ColumnPrefix, Source: dynamic.Source,
+			Key: dynamic.Key, Value: dynamic.Value, MaxColumns: 128,
+		})
+	}
 	cloned.ExtensionColumns = applyExtensionColumns(cloned.ExtensionColumns, steps, "")
 	cloned.Pivots = applyPivots(cloned.Pivots, steps, "")
 	cloned.Traversals = applyTraversals(cloned.Traversals, steps, "")
 	return applyRelationshipOverlay(cloned, plan.Relationships)
+}
+
+// ValidateIdentifierDynamic keeps this first generated-column action bound to
+// the root FHIR Identifier datatype and its paired system/value selectors.
+func ValidateIdentifierDynamic(resourceType string, dynamic *authoringv2.ImportedDynamicParameters) error {
+	if dynamic == nil || dynamic.Name == "" || dynamic.Name != strings.TrimSpace(dynamic.Name) {
+		return fmt.Errorf("identifier dynamic column requires a trimmed name")
+	}
+	if !reflect.DeepEqual(dynamic.Source, recipe.Expression{Select: "root.identifier[]"}) || dynamic.Value == nil || !reflect.DeepEqual(*dynamic.Value, recipe.Expression{Select: "item.value"}) || dynamic.Key == nil {
+		return fmt.Errorf("identifier columns must use root.identifier[] with its paired system and value")
+	}
+	fullSystem := recipe.Expression{Select: "item.system"}
+	lastSystem := recipe.Expression{Call: "last_segment", Args: []recipe.Expression{fullSystem}}
+	if !reflect.DeepEqual(*dynamic.Key, fullSystem) && !reflect.DeepEqual(*dynamic.Key, lastSystem) {
+		return fmt.Errorf("identifier column key must use the full system URI or its last segment")
+	}
+	_, err := fhirschema.ValidateIdentifierBinding(resourceType, fhirschema.IdentifierBinding{
+		OwnerPath: "identifier[]", SystemPath: "system", ValuePath: "value", SystemURI: "urn:loom:identifier-system", LogicalType: "string",
+	})
+	return err
+}
+
+func dynamicAdditionStep(addition authoringv2.ImportedSourceDynamicAddition) authoringv2.ImportedSourceStep {
+	name := addition.Parameters.Dynamic.Name
+	return authoringv2.ImportedSourceStep{
+		ID: addition.StepID, Kind: SourcePlanDynamicColumn, SourceKey: name,
+		Title: "Dynamic columns: " + name, Summary: "Discover columns from this keyed source.",
+		Enabled: addition.Enabled, Editable: true, Parameters: addition.Parameters,
+	}
+}
+
+func SourcePlanForDynamicAddition(addition authoringv2.ImportedSourceDynamicAddition) authoringv2.ImportedSourceStep {
+	return dynamicAdditionStep(addition)
 }
 
 func validateMaxColumnsOverride(step, base authoringv2.ImportedSourceStep) error {
@@ -449,7 +503,11 @@ func HydrateSourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePla
 			}
 		}
 	}
+	for _, addition := range cloned.DynamicAdditions {
+		pristine.Steps = append(pristine.Steps, dynamicAdditionStep(addition))
+	}
 	pristine.FieldBindings = cloned.FieldBindings
+	pristine.DynamicAdditions = cloned.DynamicAdditions
 	pristine.Relationships = cloned.Relationships
 	return pristine, nil
 }

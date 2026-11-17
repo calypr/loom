@@ -1,3 +1,4 @@
+import { fieldPickerList, fieldPickerMetadata, fieldPickerRow, fieldPickerSelected } from '../components/fieldPickerStyles';
 import React, { useState } from 'react';
 export interface ConstructionSelectableColumn {
   readonly id: string;
@@ -55,7 +56,7 @@ export const ConstructionColumnSelection = ({
             Clear
           </button>
         ) : null}
-        <div role="listbox" aria-label="Available input columns" aria-multiselectable="true" className="grid max-h-72 gap-x-3 overflow-y-auto sm:grid-cols-2">
+        <div role="listbox" aria-label="Available input columns" aria-multiselectable="true" className={fieldPickerList}>
           {filtered.map((column) => {
             const selected = selectedColumnIds.includes(column.id);
             return (
@@ -69,10 +70,10 @@ export const ConstructionColumnSelection = ({
                 data-testid={`construction-column-${column.id}`}
                 disabled={disabled}
                 onClick={() => onToggleColumn(column.id)}
-                className={`flex min-w-0 items-start gap-2 rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 ${selected ? 'font-medium text-blue-900' : ''}`}
+                className={`${fieldPickerRow} ${selected ? fieldPickerSelected : ''} disabled:opacity-50`}
               >
-                <span aria-hidden="true" className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border text-[10px] ${selected ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-300 bg-white text-transparent'}`}>✓</span>
-                <span className="min-w-0 break-words">{column.label}{column.type ? <span className="ml-1 text-slate-500">· {column.type}</span> : null}</span>
+                <span className="min-w-0 flex-1 truncate">{column.label}</span>
+                {column.type ? <span className={fieldPickerMetadata}>{column.type}</span> : null}
               </button>
             );
           })}

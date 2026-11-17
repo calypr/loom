@@ -68,6 +68,45 @@ func TestSourcePlanDescribesNativeOutputStagesWithStableOwnerPaths(t *testing.T)
 	}
 }
 
+func TestImportedIdentifierDynamicAdditionIsValidatedAppliedAndHydrated(t *testing.T) {
+	output := recipe.Output{Name: "patient", RootResourceType: "Patient", RowGrain: "resource"}
+	key := recipe.Expression{Call: "last_segment", Args: []recipe.Expression{{Select: "item.system"}}}
+	value := recipe.Expression{Select: "item.value"}
+	parameters := &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{
+		Name: "identifiers", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &key, Value: &value,
+	}}
+	addition := authoringv2.ImportedSourceDynamicAddition{StepID: "dynamicAdditions[0]", Enabled: true, Parameters: parameters}
+	plan := SourcePlan(output)
+	plan.DynamicAdditions = []authoringv2.ImportedSourceDynamicAddition{addition}
+	plan.Steps = append(plan.Steps, dynamicAdditionStep(addition))
+
+	effective, err := ApplySourcePlan(output, &plan)
+	if err != nil {
+		t.Fatalf("apply generated Identifier addition: %v", err)
+	}
+	if len(effective.DynamicColumns) != 1 || effective.DynamicColumns[0].Name != "identifiers" || effective.DynamicColumns[0].Source.Select != "root.identifier[]" {
+		t.Fatalf("effective dynamic columns = %#v", effective.DynamicColumns)
+	}
+	hydrated, err := HydrateSourcePlan(output, &plan)
+	if err != nil {
+		t.Fatalf("hydrate generated Identifier addition: %v", err)
+	}
+	if len(hydrated.DynamicAdditions) != 1 || len(hydrated.Steps) != len(plan.Steps) || hydrated.Steps[len(hydrated.Steps)-1].ID != addition.StepID {
+		t.Fatalf("hydrated source plan lost editable addition: %#v", hydrated)
+	}
+
+	unsupported := output
+	unsupported.RootResourceType = "NotAResource"
+	if _, err := ApplySourcePlan(unsupported, &plan); err == nil {
+		t.Fatal("accepted an Identifier addition without generated FHIR resource metadata")
+	}
+
+	parameters.Dynamic.Value = &key
+	if _, err := ApplySourcePlan(output, &plan); err == nil {
+		t.Fatal("accepted an Identifier addition with an unpaired value selector")
+	}
+}
+
 func TestApplySourcePlanAppliesNestedEnablementAndBoundedOverridesWithoutMutatingSource(t *testing.T) {
 	bundle := defaultSourcePlanFixture(t)
 	output := outputNamed(t, bundle, "DocumentReference")

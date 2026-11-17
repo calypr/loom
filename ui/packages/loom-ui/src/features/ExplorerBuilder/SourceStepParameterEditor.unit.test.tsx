@@ -118,6 +118,19 @@ describe('typed source step parameters', () => {
     expect(fields.map((field: { enabled: boolean }) => field.enabled)).toEqual([true, true]);
     expect(screen.getByText('Projected fields (2 included of 2)')).toBeInTheDocument();
   });
+  it('lets an identifier rule choose a naming style while keeping its item and value paths', () => {
+    const rule = {
+      name: 'identifier_keys',
+      source: { select: 'root.identifier[]' },
+      key: { call: 'last_segment', args: [{ select: 'item.system' }] },
+      value: { select: 'item.value' },
+    };
+    const { changed } = parameterHarness({ dynamic: rule });
+    expect(screen.getByText('Advanced expressions').closest('details')?.open).toBe(false);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Name columns using' }), { target: { value: 'system' } });
+    expect(changed.mock.calls.at(-1)?.[0]).toEqual({ dynamic: { ...rule, key: { select: 'item.system' } } });
+  });
+
   it('distinguishes omitted prefix from an explicit empty prefix', () => {
     const { changed } = parameterHarness({ dynamic: { name: 'keys', source: { select: 'root.identifier[]' } } });
     expect(screen.queryByText(/recipe’s default prefix/i)).toBeNull();

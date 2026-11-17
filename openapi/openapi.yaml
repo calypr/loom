@@ -3187,6 +3187,10 @@ components:
       additionalProperties: false
       required: [steps]
       properties:
+        dynamicAdditions:
+          type: array
+          readOnly: true
+          items: {$ref: '#/components/schemas/ImportedDynamicColumnAddition'}
         fieldBindings:
           type: array
           readOnly: true
@@ -3201,6 +3205,14 @@ components:
         steps:
           type: array
           items: {$ref: '#/components/schemas/ImportedSourceStep'}
+    ImportedDynamicColumnAddition:
+      type: object
+      additionalProperties: false
+      required: [stepId, enabled, parameters]
+      properties:
+        stepId: {type: string, minLength: 1}
+        enabled: {type: boolean}
+        parameters: {$ref: '#/components/schemas/ImportedSourceParameters'}
     NetworkOccurrence:
       type: object
       additionalProperties: false
@@ -4331,6 +4343,9 @@ components:
       additionalProperties: false
       required: [stepId, enabled]
       properties:
+        createIdentifierRule:
+          type: boolean
+          description: Create a root Identifier rule through a source proposal. Requires stepId output and enabled true.
         stepId: {type: string, minLength: 1}
         enabled: {type: boolean}
         maxColumns: {type: integer, minimum: 1}
@@ -6749,6 +6764,9 @@ components:
         targetResourceType: {type: string, minLength: 1}
         limit: {type: integer, minimum: 1, maximum: 50}
         cursor: {type: string, maxLength: 4096}
+        savedGraphOnly:
+          type: boolean
+          description: Resolve paths already connected to the table starting records without searching the catalog.
     RelatedExpandRouteChoice:
       type: object
       additionalProperties: false

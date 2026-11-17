@@ -92,13 +92,30 @@ const formatListExample = (items: ReadonlyArray<unknown>): string => {
 const expandOutcomeFor = (args: {
   readonly response: ConstructionProposalResponse;
   readonly baseConstruction: Construction | undefined;
+  readonly outputPreview?: ExplorerBuilderPreviewResult;
   readonly currentInput?: {
     readonly preview: ExplorerBuilderPreviewResult;
     readonly stageId: string;
   };
 }) => {
   const step = changedCandidateStep(args.response, args.baseConstruction);
-  if (!step || step.operation.kind !== 'EXPAND') return undefined;
+  if (!step) return undefined;
+  if (step.operation.kind === 'RELATED_EXPAND') {
+    const operation = step.operation.relatedExpand;
+    const target = operation.targetResourceType;
+    const effect = `Each matching ${target} record gets its own row. Existing values repeat across those rows.`;
+    const output = step.outputs.find((column) => column.id === operation.relatedRecordColumnId);
+    const preview = args.outputPreview;
+    if (!output || !preview?.rows || !preview.columns.some((column) => column.column === output.name)) return { effect };
+
+    const matched = preview.rows.filter((row) => row[output.name] != null).length;
+    const unmatched = preview.rows.length - matched;
+    return {
+      effect,
+      observation: `Displayed output rows: ${matched.toLocaleString()} with a matching ${target} record, ${unmatched.toLocaleString()} kept without one.`,
+    };
+  }
+  if (step.operation.kind !== 'EXPAND') return undefined;
   const expand = step.operation.expand;
 
   const inputStageId = inputStageIdForStep(step);
@@ -214,7 +231,7 @@ export const ConstructionProposalPanel = ({
     (step) => step.id === response.changedStepId,
   );
   const expandOutcome = response
-    ? expandOutcomeFor({ response, baseConstruction, currentInput })
+    ? expandOutcomeFor({ response, baseConstruction, currentInput, outputPreview: 'preview' in state ? state.preview : undefined })
     : undefined;
   const relatedOutputId = changedStep?.operation.kind === 'RELATED_SOURCE'
     ? changedStep.operation.relatedSource.outputColumnId

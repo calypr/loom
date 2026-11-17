@@ -249,7 +249,6 @@ describe('core Calculate adapter dimensions', () => {
       left_operand: { kind: 'COLUMN', columnId: aggregateOutputId },
       right_operand: { kind: 'LITERAL', literal: { kind: 'INTEGER', integer: 1 } },
       missing_input_policy: 'PROPAGATE_NULL',
-      output_name: 'birth_count_plus_one',
       output_label: 'Birth count plus one',
     }));
 
@@ -270,6 +269,6 @@ describe('core Calculate adapter dimensions', () => {
         missingInputPolicy: 'PROPAGATE_NULL',
       },
     });
-    expect(derived?.outputs.at(-1)).toMatchObject({ name: 'birth_count_plus_one', label: 'Birth count plus one' });
+    expect(derived?.outputs.at(-1)).toMatchObject({ name: 'calculated_value', label: 'Birth count plus one' });
   });
 });

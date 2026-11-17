@@ -176,9 +176,11 @@ describe('ConstructionReshapeEditor pivot discovery opt-in', () => {
 
     expect(isChecked('Discover categories when proposing')).toBe(false);
     expect(screen.getByText('Change selected categories')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Pivot missing cell policy'), { target: { value: 'ERROR' } });
+    fireEvent.click(screen.getByText('Output column names and labels', { selector: 'summary' }));
+    fireEvent.change(screen.getByLabelText('Pivot output label baseline'), { target: { value: 'Baseline score' } });
     const pivot = pivotFrom(onCandidateChange.mock.lastCall?.[0]);
     expect(pivot.discovery).toBeUndefined();
+    expect(pivot.missingCellPolicy).toBe('NULL');
     expect(pivot.categories).toEqual([{ key: { kind: 'STRING', string: 'baseline' }, outputColumnId: 'saved-output' }]);
   });
 
@@ -210,8 +212,10 @@ describe('ConstructionReshapeEditor pivot discovery opt-in', () => {
 
     expect(isChecked('Discover categories when proposing')).toBe(true);
     expect(screen.getByText(/up to 128/)).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Pivot missing cell policy'), { target: { value: 'ERROR' } });
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'flag-id' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
     const pivot = pivotFrom(onCandidateChange.mock.lastCall?.[0]);
+    expect(pivot.missingCellPolicy).toBe('NULL');
     expect(pivot.categories).toEqual([]);
     expect(pivot.discovery).toEqual({ maxCategories: 128 });
   });

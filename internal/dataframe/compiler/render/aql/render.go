@@ -723,6 +723,8 @@ func (r *physicalPlanRenderer) renderRootScan(root ir.PhysicalRootScan) ([]strin
 	return lines, nil
 }
 
+var runtimeBindToken = regexp.MustCompile(`@@?[a-zA-Z0-9_]+`)
+
 // pruneUnusedRuntimeBindVars is required after physical rewrites. Traversal
 // sharing can remove a typed edge predicate while retaining its original
 // logical bind in the cloned plan. Arango rejects undeclared bind variables,
@@ -730,32 +732,13 @@ func (r *physicalPlanRenderer) renderRootScan(root ir.PhysicalRootScan) ([]strin
 // boundary.
 func pruneUnusedRuntimeBindVars(bindVars map[string]any, query string) map[string]any {
 	pruned := make(map[string]any, len(bindVars))
-	for key, value := range bindVars {
-		if containsExactBind(query, "@"+key) {
+	for _, token := range runtimeBindToken.FindAllString(query, -1) {
+		key := token[1:]
+		if value, ok := bindVars[key]; ok {
 			pruned[key] = value
 		}
 	}
 	return pruned
-}
-
-func containsExactBind(query, token string) bool {
-	for offset := 0; offset < len(query); {
-		index := strings.Index(query[offset:], token)
-		if index < 0 {
-			return false
-		}
-		index += offset
-		end := index + len(token)
-		if (index == 0 || query[index-1] != '@') && (end == len(query) || !isBindNameByte(query[end])) {
-			return true
-		}
-		offset = index + 1
-	}
-	return false
-}
-
-func isBindNameByte(b byte) bool {
-	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_'
 }
 
 func (r *physicalPlanRenderer) renderRootWindowOperation(operation ir.PhysicalOperation, indent string) ([]string, error) {

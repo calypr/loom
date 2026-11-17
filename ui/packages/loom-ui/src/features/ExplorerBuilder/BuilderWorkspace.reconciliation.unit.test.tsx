@@ -5028,7 +5028,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(operationEditor).toHaveAttribute('data-operation-family', 'RESHAPE');
     expect(screen.getByTestId('construction-column-selection')).toBeInTheDocument();
     const reshapeEditor = within(operationEditor).getByTestId('construction-reshape-editor');
-    expect(within(reshapeEditor).getByRole('heading', { name: 'Pivot categories into columns' })).toBeInTheDocument();
+    expect(within(reshapeEditor).getByRole('region', { name: 'Pivot categories into columns' })).toBeInTheDocument();
     expect(within(screen.getByTestId('construction-column-selection'))
       .getByTestId('construction-column-specimen_identifier_id')).toHaveAttribute('aria-pressed', 'true');
     expect(within(rowSettings).queryByText(/Inputs from your selection:/)).not.toBeInTheDocument();
@@ -5081,9 +5081,9 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       outputId: args.outputId,
       columns: [
         ...receipt.outputs[0]!.columns,
-        { column: 'weight_plus_height', label: 'Weight plus height', logicalType: 'number', filterable: true, chartable: false },
+        { column: 'calculated_value', label: 'Weight plus height', logicalType: 'number', filterable: true, chartable: false },
       ],
-      rows: [{ specimen_identifier: 'specimen-1', weight_plus_height: 2 }],
+      rows: [{ specimen_identifier: 'specimen-1', calculated_value: 2 }],
       rowCount: 1,
       diagnostics: [],
     }));
@@ -5144,13 +5144,16 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     const calculateAction = await screen.findByTestId('construction-action-calculate');
     await waitFor(() => expect(calculateAction).toBeEnabled());
     fireEvent.click(calculateAction);
+    await screen.findByTestId('construction-calculate-editor');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('construction-operation-editor')).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByTestId('construction-action-calculate'));
     const calculation = await screen.findByTestId('construction-calculate-editor');
     fireEvent.change(within(calculation).getByRole('combobox', { name: 'Operation' }), { target: { value: 'ADD' } });
     fireEvent.change(within(calculation).getByRole('combobox', { name: 'First value kind' }), { target: { value: 'column' } });
     fireEvent.change(within(calculation).getByRole('combobox', { name: 'First value column' }), { target: { value: 'weight' } });
     fireEvent.change(within(calculation).getByRole('combobox', { name: 'Second value kind' }), { target: { value: 'column' } });
     fireEvent.change(within(calculation).getByRole('combobox', { name: 'Second value column' }), { target: { value: 'height' } });
-    fireEvent.change(within(calculation).getByRole('textbox', { name: 'Output column name' }), { target: { value: 'weight_plus_height' } });
     fireEvent.change(within(calculation).getByRole('textbox', { name: 'Output column label' }), { target: { value: 'Weight plus height' } });
     fireEvent.change(within(calculation).getByRole('combobox', { name: 'Missing input policy' }), { target: { value: 'PROPAGATE_NULL' } });
 
@@ -5239,6 +5242,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(applyCommands.mock.calls[0]?.[0].commands).toEqual([
       { type: 'CREATE_TABLE', title: 'Specimens combined', rootNodeId: 'specimen-node' },
     ]);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('construction-operation-editor')).not.toBeInTheDocument();
   });
 
   it('automatically proposes a current-draft Combine edit and loads its exact preview without a Preview action', async () => {

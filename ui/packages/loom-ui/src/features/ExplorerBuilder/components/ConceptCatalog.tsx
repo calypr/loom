@@ -1,3 +1,4 @@
+import { fieldPickerList, fieldPickerMetadata, fieldPickerRow, fieldPickerSelected } from './fieldPickerStyles';
 import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { useLoomClient, useQuery } from '../../../react';
 import type {
@@ -743,6 +744,8 @@ const ConceptCatalogContent = ({
   resourceType,
   sourceNodeId,
   routeContext,
+  scopeToSource = false,
+  structuredOnly = false,
   layout = 'workspace',
   dense = false,
   catalog,
@@ -776,6 +779,8 @@ const ConceptCatalogContent = ({
   readonly resourceType?: string;
   readonly sourceNodeId?: string;
   readonly routeContext?: CatalogRouteContext;
+  readonly scopeToSource?: boolean;
+  readonly structuredOnly?: boolean;
   readonly layout?: 'workspace' | 'panel';
   readonly dense?: boolean;
   readonly catalog: ExplorerBuilderCatalog;
@@ -832,7 +837,7 @@ const ConceptCatalogContent = ({
   const setQuery = (value: string) => updateQueryState((current) => ({ ...current, query: value }));
   const setSearchGeneration = (update: (current: number) => number) =>
     updateQueryState((current) => ({ ...current, searchGeneration: update(current.searchGeneration) }));
-  const searchAcrossSources = query.trim().length > 0;
+  const searchAcrossSources = !scopeToSource && query.trim().length > 0;
   const browseResourceType = searchAcrossSources ? undefined : resourceType;
   const browseSourceNodeId = searchAcrossSources ? undefined : sourceNodeId;
   const browseRouteContext = searchAcrossSources ? undefined : routeContext;
@@ -1166,7 +1171,7 @@ const ConceptCatalogContent = ({
   };
   const fieldItems = useMemo(
     () => {
-      if (view === 'coded') return [];
+      if (view === 'coded' || structuredOnly) return [];
       const reachableSourceNodeIds = new Set(catalogSourceOptions(catalog, rowRoot)
         .flatMap((source) => source.kind === 'RELATED' ? [source.sourceNodeId] : []));
       const catalogFields = fieldCatalogItems(
@@ -1185,7 +1190,7 @@ const ConceptCatalogContent = ({
           canAddCatalogItem(item) && catalogItemAvailability(item).selectable,
       );
     },
-    [browseResourceType, browseRouteContext, browseSourceNodeId, catalog, choiceDetails, contextKey, query, rowRoot, relatedSourceAvailability, sourceProjectionAvailability, view],
+    [browseResourceType, browseRouteContext, browseSourceNodeId, catalog, choiceDetails, contextKey, query, rowRoot, relatedSourceAvailability, sourceProjectionAvailability, structuredOnly, view],
   );
   const initialFieldItem = initialFieldSource
     ? fieldItems.find((candidate) => candidate.kind === 'FIELD' &&
@@ -1326,7 +1331,12 @@ const ConceptCatalogContent = ({
   const semanticItems = useMemo(
     () => {
       const inventoryItems = semanticCatalogItems(
-      response?.entries ?? [],
+      (response?.entries ?? []).filter((entry) => {
+        if (!structuredOnly) return true;
+        const source = entry.constructionChoice?.source;
+        return entry.occurrences > 0 && source?.kind === 'SEMANTIC' &&
+          (source.ruleHint === 'IDENTIFIER_SYSTEM_VALUE' || source.ruleHint === 'EXTENSION_URL_VALUE');
+      }),
       browseResourceType,
       browseSourceNodeId,
       view === 'coded' ? CODED_SEMANTIC_RULE_HINTS : undefined,
@@ -1345,7 +1355,7 @@ const ConceptCatalogContent = ({
       }
       return [...itemsByIdentity.values()];
     },
-    [browseResourceType, browseSourceNodeId, canAddFromSourceProjection, choiceDetails, contextKey, focusedIdentityKey, view, relatedSourceAvailability, response?.entries, rowRoot, sourceFieldLinksByCandidateId],
+    [browseResourceType, browseSourceNodeId, canAddFromSourceProjection, choiceDetails, contextKey, focusedIdentityKey, view, relatedSourceAvailability, response?.entries, rowRoot, sourceFieldLinksByCandidateId, structuredOnly],
   );
   const otherFieldItems = fieldItems.filter((item) => {
     if (item.kind !== 'FIELD' || !sourceFieldLinksByCandidateId.has(item.candidate.candidateId)) return true;
@@ -1843,7 +1853,7 @@ const ConceptCatalogContent = ({
               : 'No fields match this search.'}
           </p>
         ) : (view === 'fields' || view === 'all') && dense ? (
-          <div role="listbox" aria-label="Populated dataset fields" aria-multiselectable="true" className="max-h-56 overflow-y-auto rounded-md border border-slate-200">
+          <div role="listbox" aria-label="Populated dataset fields" aria-multiselectable="true" className={fieldPickerList}>
             {otherFieldItems.map((item) => {
               const checked = selected.has(catalogItemKey(item));
               const unavailable = !canAddCatalogItem(item) || !catalogItemAvailability(item).selectable;
@@ -1852,10 +1862,9 @@ const ConceptCatalogContent = ({
                 aria-label={item.kind === 'FIELD' ? `Select ${item.constructionChoice.source.resourceType}.${item.candidate.fieldPath.replace(/^root\./, '')}` : `Select ${catalogItemSelectionLabel(item, semanticSelectionMode)}`}
                 disabled={disabled || submitting || unavailable || (selected.size >= MAX_SELECTIONS && !checked)}
                 onClick={() => toggleSelection(item)}
-                className={`flex w-full items-center gap-2 border-b border-slate-100 px-2 py-1 text-left text-xs last:border-b-0 ${checked ? 'bg-blue-50 font-medium text-blue-950' : 'text-slate-700 hover:bg-slate-50'} disabled:cursor-not-allowed disabled:opacity-50`}>
-                <span aria-hidden="true" className="w-3 shrink-0 text-blue-800">{checked ? '✓' : ''}</span>
+                className={`${fieldPickerRow} ${checked ? fieldPickerSelected : ''} disabled:cursor-not-allowed disabled:opacity-50`}>
                 <span className="min-w-0 flex-1 truncate">{label}</span>
-                {item.kind === 'FIELD' ? <span className="shrink-0 text-[10px] text-slate-500">{item.constructionChoice.source.resourceType} · {item.candidate.logicalType}</span> : null}
+                {item.kind === 'FIELD' ? <span className={fieldPickerMetadata}>{item.constructionChoice.source.resourceType} · {item.candidate.logicalType}</span> : null}
               </button>;
             })}
           </div>
@@ -1954,7 +1963,7 @@ const ConceptCatalogContent = ({
             aria-label={view === 'fields' ? 'Search dataset fields by name or type' : 'Search coded values by code or label'}
             value={queryInput}
             onChange={(event) => setQueryInput(event.currentTarget.value)}
-            placeholder={view === 'fields' ? 'Search a field name or type' : 'Search a code or label'}
+            placeholder={structuredOnly ? 'Search identifiers or extensions' : view === 'fields' ? 'Search a field name or type' : 'Search a code or label'}
             className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm outline-blue-500 focus:border-blue-500"
           />
           <button
@@ -2080,14 +2089,16 @@ const ConceptCatalogContent = ({
             const term = queryInput.trim().toLowerCase();
             return !term || catalogItemLabel(item).toLowerCase().includes(term) || catalogItemSelectionLabel(item, semanticSelectionMode).toLowerCase().includes(term);
           });
-          return <div role="listbox" aria-label="Available columns and coded values" aria-multiselectable="true" className="min-h-0 flex-1 overflow-y-auto px-2">
+          return <div role="listbox" aria-label={structuredOnly ? "Available identifier and extension columns" : "Available columns and coded values"} aria-multiselectable="true" className="min-h-0 flex-1 overflow-y-auto px-2">
             {items.map((item) => {
               const checked = selected.has(catalogItemKey(item));
               const unavailable = !canAddCatalogItem(item) || !catalogItemAvailability(item).selectable;
               const label = catalogItemLabel(item);
               const meta = item.kind === 'FIELD'
                 ? `${item.constructionChoice.source.resourceType} · ${item.candidate.logicalType}`
-                : `${item.item.resourceType} · coded value`;
+                : structuredOnly && item.item.constructionChoice?.source.kind === 'SEMANTIC'
+                  ? `${item.item.constructionChoice.source.ruleHint === 'IDENTIFIER_SYSTEM_VALUE' ? 'Identifier' : 'Extension'} · ${item.item.valueType}`
+                  : `${item.item.resourceType} · coded value`;
               return <button key={catalogItemKey(item)} type="button" role="option" aria-selected={checked} aria-pressed={checked}
                 aria-label={`${checked ? 'Remove' : 'Select'} ${catalogItemSelectionLabel(item, semanticSelectionMode)}`}
                 disabled={disabled || submitting || unavailable || (selected.size >= MAX_SELECTIONS && !checked)}
@@ -2098,7 +2109,7 @@ const ConceptCatalogContent = ({
                 <span className="shrink-0 text-[10px] text-slate-500">{meta}</span>
               </button>;
             })}
-            {items.length === 0 ? <p className="px-2 py-2 text-xs text-slate-500">No columns or coded values match this search.</p> : null}
+            {items.length === 0 ? <p className="px-2 py-2 text-xs text-slate-500">{structuredOnly ? response?.nextCursor ? 'No addable identifiers or extensions on this page. Use Next to see more.' : 'No populated, addable identifiers or extensions were found.' : 'No columns or coded values match this search.'}</p> : null}
           </div>;
         })() : (
         <div className={layout === 'panel'

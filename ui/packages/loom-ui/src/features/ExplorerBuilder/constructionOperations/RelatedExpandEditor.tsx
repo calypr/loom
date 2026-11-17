@@ -12,8 +12,7 @@ import type {
 import { constructionWithStep } from './editorShared';
 import { constructionInputForStage } from '../constructionWorkspace/constructionStages';
 import { RelatedExpandContributorEditor, type ContributorChoice, type ContributorCondition } from './RelatedExpandContributorEditor';
-import { routePath } from '../constructionWorkspace/routeDisplay';
-import { TraversalPath } from '../constructionWorkspace/TraversalPath';
+import { relationshipLabel, routePath } from '../constructionWorkspace/routeDisplay';
 import { useDismissibleLayer } from '../components/useDismissibleLayer';
 
 type RelatedExpandOperation = Extract<ConstructionOperation, { readonly kind: 'RELATED_EXPAND' }>;
@@ -32,10 +31,8 @@ export interface RelatedExpandQueryOwner {
 interface RouteQueryCheckpoint {
   readonly queryKey: string;
   readonly choices: ReadonlyArray<RouteChoice>;
-  readonly cursor?: string;
-  readonly seenCursors: ReadonlyArray<string>;
-  readonly complete: boolean;
-  readonly terminalTruncated: boolean;
+  readonly truncated: boolean;
+  readonly nextScope?: 'saved' | 'catalog';
 }
 
 interface ActiveRoutePage {
@@ -49,7 +46,7 @@ const contributorQuantifier = (choice: ContributorChoice) =>
   choice.source.cardinality === 'many' ? { quantifier: 'ANY' as const } : {};
 
 const routeLabel = (choice: RouteChoice): string => routePath(choice.route);
-const routeDisplayKey = (choice: RouteChoice): string => `${choice.targetResourceType}\u0000${routePath(choice.route)}`;
+const routeDisplayKey = (choice: RouteChoice): string => JSON.stringify([choice.nodeId, choice.route.map(({ edgeId, matchMode }) => [edgeId, matchMode])]);
 const uniqueRoutes = (items: ReadonlyArray<RouteChoice>): RouteChoice[] => {
   const seen = new Set<string>();
   return items.filter((item) => {
@@ -219,18 +216,15 @@ export const RelatedExpandEditor = ({
   const [otherRoutesOpen, setOtherRoutesOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const aboutRef = useDismissibleLayer<HTMLDivElement>(aboutOpen, setAboutOpen);
+  const selectedAnchor = anchors.find((anchor) => anchor.anchorColumnId === anchorColumnId);
+  const startsFromSavedGraph = selectedAnchor?.kind === 'root' || selectedAnchor?.kind === 'rootContributors';
   const routeQueryKey = JSON.stringify([
     project, explorerId, authResourcePath ?? '', snapshotToken,
-    capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType,
+    capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType, startsFromSavedGraph,
   ]);
-  const [loadedChoices, setLoadedChoices] = useState<{
-    readonly queryKey: string;
-    readonly choices: ReadonlyArray<RouteChoice>;
-    readonly truncated: boolean;
-  }>();
+  const [loadedChoices, setLoadedChoices] = useState<RouteQueryCheckpoint>();
   const routeCheckpointRef = useRef<RouteQueryCheckpoint | undefined>(undefined);
   const routeQueryPausedRef = useRef(false);
-  const pausedAtPageBoundaryRef = useRef(false);
   const activeRoutePageRef = useRef<ActiveRoutePage | undefined>(undefined);
   const choices = loadedChoices?.queryKey === routeQueryKey ? loadedChoices.choices : [];
   const routeSearchTruncated = loadedChoices?.queryKey === routeQueryKey && loadedChoices.truncated;
@@ -238,62 +232,41 @@ export const RelatedExpandEditor = ({
   const [outputName, setOutputName] = useState(savedOutput?.name ?? '');
   const [outputLabel, setOutputLabel] = useState(savedOutput?.label ?? '');
   const targetTypes = [...new Set(catalog.nodes.map((node) => node.resourceType))].sort();
-  const selectedAnchor = anchors.find((anchor) => anchor.anchorColumnId === anchorColumnId);
   const routeQuery = useQuery(async (signal) => {
-    const currentCheckpoint = routeCheckpointRef.current?.queryKey === routeQueryKey
-      ? routeCheckpointRef.current
-      : { queryKey: routeQueryKey, choices: [], seenCursors: [], complete: false, terminalTruncated: false };
-    let checkpoint: RouteQueryCheckpoint = currentCheckpoint;
-    if (routeCheckpointRef.current !== currentCheckpoint) {
+    let checkpoint = routeCheckpointRef.current;
+    if (checkpoint?.queryKey !== routeQueryKey) {
+      checkpoint = { queryKey: routeQueryKey, choices: [], truncated: false, nextScope: startsFromSavedGraph ? 'saved' : 'catalog' };
       routeCheckpointRef.current = checkpoint;
       routeQueryPausedRef.current = false;
-      pausedAtPageBoundaryRef.current = false;
     }
-    let cursor = checkpoint.cursor;
-    let paths = [...checkpoint.choices];
-    let complete = checkpoint.complete;
-    let terminalTruncated = checkpoint.terminalTruncated;
-    const seenCursors = new Set(checkpoint.seenCursors);
-    while (!complete && !terminalTruncated) {
-      if (signal.aborted) return paths;
-      if (routeQueryPausedRef.current) {
-        pausedAtPageBoundaryRef.current = true;
-        return paths;
-      }
+    while (checkpoint.nextScope && !signal.aborted && !routeQueryPausedRef.current) {
+      const scope = checkpoint.nextScope;
+      const previous = checkpoint;
       const task = (async () => {
         const result = await client.searchRelatedExpandChoices({
           project, explorerId, authResourcePath, snapshotToken, outputId,
           expectedDraftVersion: capabilities.draftVersion,
           expectedDraftDigest: capabilities.draftDigest,
-          stageId: stage.id, anchorColumnId, targetResourceType, limit: 50,
+          stageId: stage.id, anchorColumnId, targetResourceType, limit: 12,
+          ...(scope === 'saved' ? { savedGraphOnly: true } : {}),
           requestId: `related-expand-choices-${window.crypto.randomUUID()}`,
-          ...(cursor ? { cursor } : {}),
         }, signal);
         if (signal.aborted) return;
         if (!choicesMatchRequest(result, snapshotToken, capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType)) {
           throw new Error('The available paths changed. Reload this table before expanding records.');
         }
-        paths = [...paths, ...result.choices];
-        complete = result.complete;
-        cursor = result.nextCursor;
-        terminalTruncated = result.truncated && !cursor;
-        setLoadedChoices({ queryKey: routeQueryKey, choices: paths, truncated: terminalTruncated });
-        if (!complete && !cursor && !terminalTruncated) {
+        if (!result.complete && !result.nextCursor && !result.truncated) {
           throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
         }
-        if (cursor && seenCursors.has(cursor)) {
-          throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
-        }
-        if (cursor) seenCursors.add(cursor);
-        checkpoint = {
+        const next: RouteQueryCheckpoint = {
           queryKey: routeQueryKey,
-          choices: paths,
-          ...(cursor ? { cursor } : {}),
-          seenCursors: [...seenCursors],
-          complete,
-          terminalTruncated,
+          choices: uniqueRoutes([...previous.choices, ...result.choices]),
+          truncated: previous.truncated || result.truncated || Boolean(result.nextCursor),
+          nextScope: scope === 'saved' ? 'catalog' : undefined,
         };
-        routeCheckpointRef.current = checkpoint;
+        checkpoint = next;
+        routeCheckpointRef.current = next;
+        setLoadedChoices(next);
       })();
       const activePage: ActiveRoutePage = { queryKey: routeQueryKey, task };
       activeRoutePageRef.current = activePage;
@@ -302,16 +275,10 @@ export const RelatedExpandEditor = ({
       } finally {
         if (activeRoutePageRef.current === activePage) activeRoutePageRef.current = undefined;
       }
-      if (signal.aborted) return paths;
-      if (routeQueryPausedRef.current) {
-        pausedAtPageBoundaryRef.current = !complete && !terminalTruncated;
-        return paths;
-      }
     }
-    if (!complete && !terminalTruncated) throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
-    return paths;
+    return checkpoint.choices;
   }, [client, authResourcePath, explorerId, project, snapshotToken, capabilities.draftVersion,
-    capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType],
+    capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType, startsFromSavedGraph],
   Boolean(targetResourceType && anchorColumnId));
   const queryOwner = useMemo<RelatedExpandQueryOwner>(() => ({
     draftVersion: capabilities.draftVersion,
@@ -327,12 +294,8 @@ export const RelatedExpandEditor = ({
     resume: () => {
       if (queryOwnerRef && queryOwnerRef.current !== queryOwner) return;
       routeQueryPausedRef.current = false;
-      if (!pausedAtPageBoundaryRef.current) return;
-      pausedAtPageBoundaryRef.current = false;
       const checkpoint = routeCheckpointRef.current;
-      if (checkpoint?.queryKey === routeQueryKey && !checkpoint.complete && !checkpoint.terminalTruncated) {
-        void routeQuery.refetch();
-      }
+      if (!activeRoutePageRef.current && checkpoint?.queryKey === routeQueryKey && checkpoint.nextScope) void routeQuery.refetch();
     },
   }), [capabilities.draftDigest, capabilities.draftVersion, queryOwnerRef, routeQuery.refetch, routeQueryKey]);
   useImperativeHandle(queryOwnerRef ?? null, () => queryOwner, [queryOwner]);
@@ -359,29 +322,37 @@ export const RelatedExpandEditor = ({
     ...choices.filter((item) => item.choiceId !== choice?.choiceId),
   ]);
   const shortestRoute = Math.min(...listedRoutes.map((item) => item.route.length));
-  const visibleRoutes = choice ? listedRoutes.filter((item) => item.choiceId === choice.choiceId) : listedRoutes.filter((item) => item.route.length === shortestRoute);
+  const visibleRoutes = choice ? listedRoutes.filter((item) => item.choiceId === choice.choiceId) : listedRoutes.filter((item) => item.route.length === shortestRoute).slice(0, 3);
   const otherRoutes = listedRoutes.filter((item) => !visibleRoutes.some((visible) => visible.choiceId === item.choiceId));
   const renderRoute = (item: RouteChoice) => (
-    <label key={item.choiceId} className="flex gap-2 p-1">
+    <label key={item.choiceId}
+      className="flex min-w-0 cursor-pointer items-start gap-3 rounded-md border border-slate-200 px-3 py-2.5 hover:border-blue-400 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:disabled]:cursor-not-allowed">
       <input type="radio" name={`related-expand-route-${stepId}`} aria-label={routeLabel(item)} checked={choice?.choiceId === item.choiceId}
-        disabled={disabled} onChange={() => { setChoice(item); setCondition({ kind: 'ALL' }); emit(item, emptyPolicy, outputName, outputLabel, { kind: 'ALL' }); }} />
-      <span className="grid gap-1">
-        <TraversalPath route={item.route} referenceRoute={choice?.route ?? listedRoutes[0]?.route} />
+        className="mt-1 shrink-0" disabled={disabled}
+        onChange={() => { setChoice(item); setCondition({ kind: 'ALL' }); emit(item, emptyPolicy, outputName, outputLabel, { kind: 'ALL' }); }} />
+      <span className="grid min-w-0 gap-1">
+        <span className="font-medium text-slate-900">{item.targetResourceType}</span>
+        <span className="text-xs leading-relaxed text-slate-700">
+          {item.route[0]?.fromResourceType}
+          {item.route.map((hop, index) => (
+            <span key={index}> › {relationshipLabel(hop)} → {hop.toResourceType}</span>
+          ))}
+        </span>
       </span>
     </label>
   );
 
   return (
-    <div className="scroll-mt-20 grid gap-3" data-testid="construction-related-expand-editor" data-related-stage-id={stage.id} data-related-output-id={outputId}>
+    <div className="scroll-mt-20 grid gap-4" data-testid="construction-related-expand-editor" data-related-stage-id={stage.id} data-related-output-id={outputId}>
       <div className="relative" ref={aboutRef}>
         <div className="flex items-center gap-2">
-          <h4 className="font-semibold text-slate-900">Expand related records into rows</h4>
+          <h4 className="font-semibold" style={{ color: '#000' }}>Expand related records into rows</h4>
           <button type="button" aria-expanded={aboutOpen} aria-label="About expanding related records"
             className="h-5 w-5 shrink-0 rounded-full border border-slate-300 text-[11px] font-semibold leading-none text-slate-600 hover:bg-slate-100"
             onClick={() => setAboutOpen((open) => !open)}>i</button>
         </div>
         <p className="mt-1 text-sm text-slate-600">
-          {targetResourceType ? `One row per matching ${targetResourceType} record.` : 'One row per related record.'}
+          Choose a relationship to follow from each current row.
         </p>
         {aboutOpen ? (
           <div role="dialog" aria-label="How expanding related records works"
@@ -393,59 +364,60 @@ export const RelatedExpandEditor = ({
           </div>
         ) : null}
       </div>
-      {anchors.length === 0 ? <p role="status" className="text-sm text-slate-600">
-        Loom has not confirmed a starting record for this stage. Reload the table to check available paths.
-      </p> : null}
-      {anchors.length > 1 ? (
+      <div className="grid gap-3">
+        {anchors.length === 0 ? <p role="status" className="text-sm text-slate-600">
+          Loom has not confirmed a starting record for this stage. Reload the table to check available paths.
+        </p> : null}
+        {anchors.length > 1 ? (
+          <label className="grid gap-1 text-sm font-medium text-slate-800">
+            Start from
+            <select aria-label="Start from" value={anchorColumnId} disabled={disabled} onChange={(event) => {
+              setAnchorColumnId(event.target.value);
+              setChoice(undefined);
+              setCondition({ kind: 'ALL' });
+              setOtherRoutesOpen(false);
+                setLoadedChoices({ queryKey: routeQueryKey, choices: [], truncated: false });
+              onCandidateChange(undefined);
+            }} className="rounded border border-slate-300 bg-white px-3 py-2">
+              {anchors.map((anchor) => <option key={anchor.anchorColumnId} value={anchor.anchorColumnId}>{anchor.label}</option>)}
+            </select>
+          </label>
+        ) : null}
         <label className="grid gap-1 text-sm font-medium text-slate-800">
-          Start from
-          <select aria-label="Start from" value={anchorColumnId} disabled={disabled} onChange={(event) => {
-            setAnchorColumnId(event.target.value);
+          Related record type
+          <select aria-label="Related record type" value={targetResourceType} disabled={disabled || anchors.length === 0} onChange={(event) => {
+            const target = event.target.value;
+            setTargetResourceType(target);
             setChoice(undefined);
             setCondition({ kind: 'ALL' });
             setOtherRoutesOpen(false);
             setLoadedChoices({ queryKey: routeQueryKey, choices: [], truncated: false });
+            const suggested = availableColumnName(`related_${target.toLowerCase()}_id`, stage.columns);
+            setOutputName(suggested);
+            setOutputLabel(`${target} FHIR resource ID`);
             onCandidateChange(undefined);
           }} className="rounded border border-slate-300 bg-white px-3 py-2">
-            {anchors.map((anchor) => <option key={anchor.anchorColumnId} value={anchor.anchorColumnId}>{anchor.label}</option>)}
+            <option value="">Choose a record type</option>
+            {targetTypes.map((target) => <option key={target} value={target}>{target}</option>)}
           </select>
         </label>
-      ) : null}
-      <label className="grid gap-1 text-sm font-medium text-slate-800">
-        Related record type
-        <select aria-label="Related record type" value={targetResourceType} disabled={disabled || anchors.length === 0} onChange={(event) => {
-          const target = event.target.value;
-          setTargetResourceType(target);
-          setChoice(undefined);
-          setCondition({ kind: 'ALL' });
-          setOtherRoutesOpen(false);
-          setLoadedChoices({ queryKey: routeQueryKey, choices: [], truncated: false });
-          const suggested = availableColumnName(`related_${target.toLowerCase()}_id`, stage.columns);
-          setOutputName(suggested);
-          setOutputLabel(`${target} FHIR resource ID`);
-          onCandidateChange(undefined);
-        }} className="rounded border border-slate-300 bg-white px-3 py-2">
-          <option value="">Choose a record type</option>
-          {targetTypes.map((target) => <option key={target} value={target}>{target}</option>)}
-        </select>
-      </label>
-      {loading ? <p role="status" className="text-sm text-slate-600">Finding supported paths…</p> : null}
+      </div>
+      {loading ? <p role="status" className="text-sm text-slate-600">Finding relationship paths…</p> : null}
       {error ? <p role="alert" className="text-sm text-red-800">{error}</p> : null}
       {error && !loading && !staleRouteSearch ? <button type="button" disabled={disabled}
         onClick={() => void routeQuery.refetch()} className="justify-self-start text-sm text-blue-800 underline">
         Retry finding paths
       </button> : null}
       {routeSearchTruncated && !loading ? <p role="status" data-testid="construction-related-route-truncation" className="text-sm text-amber-900">
-        {listedRoutes.length === 0
-          ? 'No supported path appeared in the first page. Change the record type or search to look further.'
-          : `Showing the first ${listedRoutes.length.toLocaleString()} supported paths. Narrow the record type or search to see the remaining paths.`}
+        Showing an initial set of supported paths.
       </p> : null}
-      {targetResourceType && !loading && choices.length === 0 && !choice && !error && !routeSearchTruncated
-        ? <p role="status" className="text-sm text-slate-600">No supported path reaches this record type from these rows.</p>
-        : null}
+      {targetResourceType && !loading && choices.length === 0 && !choice && !error && !routeSearchTruncated ? (
+        <p role="status" className="text-sm text-slate-600">No supported path reaches this record type from these rows.</p>
+      ) : null}
       {choices.length > 0 || choice ? (
-        <fieldset className="grid gap-2 text-sm">
-          <legend className="font-medium text-slate-800">Relationship path</legend>
+        <fieldset className="grid min-w-0 gap-2 text-sm">
+          <legend className="font-medium text-slate-800">Relationship paths</legend>
+          <p className="text-xs text-slate-600">Choose a path to preview how it changes your rows.</p>
           {visibleRoutes.map(renderRoute)}
           {otherRoutes.length > 0 ? (
             <details data-testid="construction-related-expand-other-routes" open={otherRoutesOpen}
@@ -458,18 +430,22 @@ export const RelatedExpandEditor = ({
 
         </fieldset>
       ) : null}
-      <label className="grid gap-1 text-sm font-medium text-slate-800">
-        If a current row has no matches
-        <select aria-label="If a current row has no matches" value={emptyPolicy} disabled={disabled} onChange={(event) => {
-          const next = event.target.value as EmptyPolicy;
-          setEmptyPolicy(next);
-          emit(choice, next);
-        }} className="rounded border border-slate-300 bg-white px-3 py-2">
-          <option value="EXCLUDE">Leave that current row out</option>
-          <option value="PRESERVE_PARENT">Keep that current row once, with no related record ID</option>
-          <option value="ERROR">Stop with an error if any current row has no match</option>
-        </select>
-      </label>
+      <section aria-label="What happens to your rows" className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <h5 className="text-sm font-semibold text-slate-900">What happens to your rows</h5>
+        {choice ? <p className="text-sm text-slate-700">Each matching {choice.targetResourceType} record gets a new row. Values from the current row repeat in each match.</p> : null}
+        <label className="grid gap-1 text-sm font-medium text-slate-800">
+          If a current row has no matches
+          <select aria-label="If a current row has no matches" value={emptyPolicy} disabled={disabled} onChange={(event) => {
+            const next = event.target.value as EmptyPolicy;
+            setEmptyPolicy(next);
+            emit(choice, next);
+          }} className="rounded border border-slate-300 bg-white px-3 py-2">
+            <option value="EXCLUDE">Leave that current row out</option>
+            <option value="PRESERVE_PARENT">Keep the row with an empty related record ID</option>
+            <option value="ERROR">Stop with an error if any current row has no match</option>
+          </select>
+        </label>
+      </section>
       {choice ? (
         <details
           key={choice.choiceId}

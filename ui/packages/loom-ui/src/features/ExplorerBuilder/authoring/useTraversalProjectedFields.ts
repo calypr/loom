@@ -190,7 +190,7 @@ export const useTraversalProjectedFields = () => {
     const traversalOperationLabels = new Map(traversalSourceSteps.flatMap((step) => {
       const parameters = step.parameters;
       const name = parameters?.dynamic?.name ?? parameters?.extension?.name ?? parameters?.pivot?.name ?? parameters?.catalog?.name ?? parameters?.identity?.name;
-      return name ? [[step.id, `${step.kind === 'DYNAMIC_COLUMN' ? 'Keyed columns' : step.kind === 'PIVOT' ? 'Pivot' : step.kind === 'CATALOG_PROJECTION' ? 'Populated fields' : step.kind === 'IDENTITY' ? 'Row identity' : 'Extension columns'}: ${name}`] as const] : [];
+      return name ? [[step.id, `${step.kind === 'DYNAMIC_COLUMN' ? 'Columns from source values' : step.kind === 'PIVOT' ? 'Pivot' : step.kind === 'CATALOG_PROJECTION' ? 'Populated fields' : step.kind === 'IDENTITY' ? 'Row identity' : 'Extension columns'}: ${name}`] as const] : [];
     }));
     const savedProjectedFieldInventory = savedNetwork?.owner === relationshipOwner && savedNetwork.result.network.outputId === table?.outputId
       ? savedNetwork.result.network.projectedFields ?? [] : undefined;

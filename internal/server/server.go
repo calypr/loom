@@ -908,6 +908,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	lifecycleConfig := lifecycle.Config{
 		DefaultDataframeWorkspace:          importedSources.DefaultWorkspace,
 		EditImportedSource:                 importedSources.Edit,
+		CreateImportedIdentifierRule:       importedSources.CreateIdentifierRule,
 		EditImportedSources:                importedSources.EditBatch,
 		RemoveImportedField:                importedSources.RemoveField,
 		RemoveImportedOutput:               importedSources.RemoveOutput,

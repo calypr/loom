@@ -909,6 +909,26 @@ describe('ConceptCatalog', () => {
     expect(request.outputId).toBe('patients');
   });
 
+  it('lists populated identifier and extension choices for the selected resource', async () => {
+    const entries = [
+      item('identifier', 'Research identifier', 5, 'Patient', 'IDENTIFIER_SYSTEM_VALUE'),
+      item('extension', 'Recruitment status', 3, 'Patient', 'EXTENSION_URL_VALUE'),
+      item('empty', 'Empty identifier', 0, 'Patient', 'IDENTIFIER_SYSTEM_VALUE'),
+      item('other-resource', 'Observation identifier', 2, 'Observation', 'IDENTIFIER_SYSTEM_VALUE'),
+      item('code', 'Other code', 4, 'Patient'),
+    ];
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () =>
+      new Response(JSON.stringify(page(entries)), { status: 200, headers: { 'content-type': 'application/json' } }));
+    render(<LoomProvider client={createLoomClient({ fetch })}>
+      <ConceptCatalog project="project-a" explorerId="explorer-a" snapshotToken="snapshot-a" outputId="patients"
+        rowRoot="Patient" resourceType="Patient" catalog={catalog} dense scopeToSource structuredOnly />
+    </LoomProvider>);
+    const list = await screen.findByRole('listbox', { name: 'Available identifier and extension columns' });
+    expect(await within(list).findByRole('option', { name: /Research identifier/ })).toBeEnabled();
+    expect(within(list).getByRole('option', { name: /Recruitment status/ })).toBeEnabled();
+    expect(within(list).getAllByRole('option')).toHaveLength(2);
+  });
+
   it('shows compiler-proven coded concepts and paired values while excluding other semantic families', async () => {
     const identifier = withSemanticIdentity(
       item('patient-identifier', 'Patient identifier', 8, 'Patient', 'IDENTIFIER_SYSTEM_VALUE'),

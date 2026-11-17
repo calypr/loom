@@ -122,13 +122,22 @@ export function SourceRelationshipReview(props: Props) {
   const externallyPreparing = props.preparing ?? false;
   const visibleError = props.preparationError ?? error;
   const sourceEdit = Boolean(props.sourceStep || props.sourceSteps);
+  const creatingColumnRule = props.sourceStep?.createIdentifierRule === true;
+  const addedColumnIds = creatingColumnRule && visibleResult
+    ? new Set(visibleResult.proposal.affectedColumns) : undefined;
+  const addedColumns = addedColumnIds
+    ? visibleResult?.proposal.candidateDocument.columns.filter(column => column.columnId !== undefined && addedColumnIds.has(column.columnId)) : undefined;
   const summary = sourceEdit
     ? props.sourceSteps ? `${props.sourceSteps.length} source changes` : 'Source change'
     : `${props.change?.action === 'ADD' ? 'Add' : props.change?.action === 'REMOVE' ? 'Remove' : 'Update'}${props.relationshipDescription ? `: ${props.relationshipDescription}` : ''}`;
   return <section aria-label={sourceEdit ? 'Proposed source step' : 'Proposed related records'} className="flex flex-wrap items-center justify-end gap-1">
+    {addedColumns ? <p className="w-full text-xs text-slate-600">
+      {addedColumns.length ? `${addedColumns.length} identifier ${addedColumns.length === 1 ? 'column' : 'columns'} in the preview.`
+        : 'No identifier columns were found in this preview.'}
+    </p> : null}
     {visibleError ? <p role="alert" className="mr-auto text-xs text-red-800">{visibleError}</p> : sourceEdit ? null : <p className="mr-auto min-w-0 truncate text-xs text-slate-700" title={summary}>{summary}</p>}
-    <button type="button" disabled={busy || externallyPreparing || props.disabled} onClick={() => void preview()} className="h-8 rounded border border-slate-300 bg-white px-3 text-sm">{externallyPreparing ? 'Preparing…' : busy ? 'Working…' : sourceEdit ? 'Preview source step' : 'Preview relationship'}</button>
-    <button type="button" data-testid={sourceEdit ? 'imported-source-step-apply' : undefined} disabled={!visibleResult || busy || externallyPreparing || props.disabled} onClick={() => void apply()} className="h-8 rounded bg-blue-700 px-3 text-sm text-white disabled:opacity-50">{sourceEdit ? 'Apply source step' : 'Apply relationship'}</button>
+    <button type="button" disabled={busy || externallyPreparing || props.disabled} onClick={() => void preview()} className="h-8 rounded border border-slate-300 bg-white px-3 text-sm">{externallyPreparing ? 'Preparing…' : busy ? 'Working…' : creatingColumnRule ? 'Preview column rule' : sourceEdit ? 'Preview source step' : 'Preview relationship'}</button>
+    <button type="button" data-testid={sourceEdit ? 'imported-source-step-apply' : undefined} disabled={!visibleResult || busy || externallyPreparing || props.disabled} onClick={() => void apply()} className="h-8 rounded bg-blue-700 px-3 text-sm text-white disabled:opacity-50">{creatingColumnRule ? 'Apply column rule' : sourceEdit ? 'Apply source step' : 'Apply relationship'}</button>
     <button type="button" disabled={busy && !!visibleResult} onClick={cancel} className="h-8 rounded border border-slate-300 bg-white px-3 text-sm">Cancel</button>
   </section>;
 }
