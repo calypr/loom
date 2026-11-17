@@ -41,4 +41,12 @@ export const columnRuleDefaults: Partial<Record<ColumnRulePreset['id'], Imported
       value: { select: 'item.value' },
     },
   },
+  categoryCoding: {
+    dynamic: {
+      name: 'category_codings',
+      source: { select: 'category[].coding[]' },
+      key: { call: 'last_segment', args: [{ select: 'item.system' }] },
+      value: { select: 'item.display' },
+    },
+  },
 };

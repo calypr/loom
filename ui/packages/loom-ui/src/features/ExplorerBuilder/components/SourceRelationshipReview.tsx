@@ -133,10 +133,11 @@ export function SourceRelationshipReview(props: Props) {
     ? props.sourceSteps ? `${props.sourceSteps.length} source changes` : 'Source change'
     : `${props.change?.action === 'ADD' ? 'Add' : props.change?.action === 'REMOVE' ? 'Remove' : 'Update'}${props.relationshipDescription ? `: ${props.relationshipDescription}` : ''}`;
   return <section aria-label={sourceEdit ? 'Proposed source step' : 'Proposed related records'} className="flex flex-wrap items-center justify-end gap-1">
-    {addedColumns ? <p className="w-full text-xs text-slate-600">
-      {addedColumns.length ? `${addedColumns.length} identifier ${addedColumns.length === 1 ? 'column' : 'columns'} in the preview.`
-        : 'No identifier columns were found in this preview.'}
-    </p> : null}
+    {addedColumns ? <section aria-label="Generated columns" className="grid w-full gap-1 text-xs text-slate-600">
+      {addedColumns.length ? <ul className="max-h-32 list-disc overflow-auto pl-4">
+        {addedColumns.map(column => <li key={column.columnId}>{column.column}</li>)}
+      </ul> : <p>No columns were generated in this preview.</p>}
+    </section> : null}
     {visibleError ? <p role="alert" className="mr-auto text-xs text-red-800">{visibleError}</p> : sourceEdit ? null : <p className="mr-auto min-w-0 truncate text-xs text-slate-700" title={summary}>{summary}</p>}
     <button type="button" disabled={busy || externallyPreparing || props.disabled} onClick={() => void preview()} className="h-8 rounded border border-slate-300 bg-white px-3 text-sm">{externallyPreparing ? 'Preparing…' : busy ? 'Working…' : creatingColumnRule ? 'Preview column rule' : sourceEdit ? 'Preview source step' : 'Preview relationship'}</button>
     <button type="button" data-testid={sourceEdit ? 'imported-source-step-apply' : undefined} disabled={!visibleResult || busy || externallyPreparing || props.disabled} onClick={() => void apply()} className="h-8 rounded bg-blue-700 px-3 text-sm text-white disabled:opacity-50">{creatingColumnRule ? 'Apply column rule' : sourceEdit ? 'Apply source step' : 'Apply relationship'}</button>

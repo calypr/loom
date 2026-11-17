@@ -43,4 +43,26 @@ describe('creating a column rule', () => {
     expect(screen.getByRole('textbox', { name: 'Rule name' }).getAttribute('value')).toBe('external_ids');
     expect(screen.getByRole('textbox', { name: 'Rule name' })).toBeEnabled();
   });
+
+  it('reviews a category coding preset without exposing the expression editor', () => {
+    const category = columnRuleDefaults.categoryCoding;
+    if (!category) throw new Error('Category coding preset must be available.');
+    const renderReview = vi.fn<ComponentProps<typeof CreateColumnRule>['renderReview']>(() => null);
+    const onReview = vi.fn();
+    const props = {
+      kind: 'DYNAMIC_COLUMN',
+      occurrence: { id: 'observation-related', resourceType: 'Observation', label: 'Observation via subject' },
+      preset: columnRulePresets[2], initialParameters: category,
+      disabled: false, onReview, onCancel: vi.fn(), renderReview,
+    } satisfies Omit<ComponentProps<typeof CreateColumnRule>, 'reviewing'>;
+    const view = render(<CreateColumnRule {...props} reviewing={false} />);
+    expect(screen.queryByText('Advanced expressions')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Review column rule' }));
+    expect(onReview).toHaveBeenCalledOnce();
+    view.rerender(<CreateColumnRule {...props} reviewing />);
+    expect(renderReview).toHaveBeenCalledWith({
+      kind: 'DYNAMIC_COLUMN', occurrenceId: 'observation-related', parameters: category,
+    }, expect.any(Function));
+  });
+
 });

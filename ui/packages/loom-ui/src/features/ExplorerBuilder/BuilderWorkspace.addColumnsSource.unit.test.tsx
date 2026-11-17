@@ -1103,7 +1103,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     const panel = screen.getByRole('tabpanel', { name: 'Advanced' });
     expect(within(panel).getByRole('list', { name: 'Column rules' })).toBeInTheDocument();
     expect(within(panel).getByRole('button', { name: 'Extensions' })).toBeDisabled();
-    expect(within(panel).getByRole('button', { name: 'Category codings' })).toBeDisabled();
+    expect(within(panel).getByRole('button', { name: 'Category codings' })).toBeEnabled();
     expect(within(panel).getByRole('button', { name: 'Catalog fields' })).toBeDisabled();
     fireEvent.click(within(panel).getByRole('button', { name: 'Identifiers' }));
     expect(within(panel).getByRole('heading', { name: 'Columns from identifiers' })).toBeInTheDocument();

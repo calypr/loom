@@ -27,6 +27,9 @@ func validateDynamicRuleAddition(resourceType string, rule *authoringv2.Imported
 	if err := validateRuleName(rule.Name); err != nil {
 		return err
 	}
+	if err := validateDynamicItemPair(rule.Source, rule.Key, rule.Value); err != nil {
+		return err
+	}
 	system := recipe.Expression{Select: "item.system"}
 	lastSystem := recipe.Expression{Call: "last_segment", Args: []recipe.Expression{system}}
 	switch {
@@ -57,6 +60,42 @@ func validateDynamicRuleAddition(resourceType string, rule *authoringv2.Imported
 	default:
 		return fmt.Errorf("unsupported keyed source %q", rule.Source.Select)
 	}
+}
+
+func validateDynamicItemPair(source recipe.Expression, key, value *recipe.Expression) error {
+	if source.Select == "" || !strings.HasSuffix(source.Select, "[]") || key == nil || value == nil {
+		return fmt.Errorf("keyed columns require a repeated source and a key and value selector")
+	}
+	if err := validateItemExpression(*key); err != nil {
+		return fmt.Errorf("column key must come from the source item: %w", err)
+	}
+	if err := validateItemExpression(*value); err != nil {
+		return fmt.Errorf("column value must come from the same source item: %w", err)
+	}
+	return nil
+}
+
+func validateItemExpression(expression recipe.Expression) error {
+	if expression.Select != "" {
+		selector := strings.TrimSpace(expression.Select)
+		if !strings.HasPrefix(selector, "item.") || strings.TrimSpace(strings.TrimPrefix(selector, "item.")) == "" {
+			return fmt.Errorf("selector %q must be relative to item", selector)
+		}
+		if strings.Contains(strings.TrimPrefix(selector, "item."), "[]") {
+			return fmt.Errorf("selector %q crosses another repeated boundary", selector)
+		}
+		return nil
+	}
+	if expression.Call == "" || len(expression.Args) != 1 || expression.Literal != nil || expression.Document != nil {
+		return fmt.Errorf("expression must select an item field or normalize one item selector")
+	}
+	call := strings.ToLower(strings.TrimSpace(expression.Call))
+	switch call {
+	case "last_segment", "basename", "path_segment", "sanitize_name", "sanitize_graphql_name":
+	default:
+		return fmt.Errorf("call %q cannot preserve the source item", expression.Call)
+	}
+	return validateItemExpression(expression.Args[0])
 }
 
 func validateExtensionRuleAddition(resourceType string, rule *authoringv2.ImportedExtensionParameters) error {

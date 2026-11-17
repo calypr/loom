@@ -1,0 +1,2 @@
+{"resourceType":"Patient","id":"category-patient-first","identifier":[{"system":"urn:category-patient","value":"CAT-P1"}]}
+{"resourceType":"Patient","id":"category-patient-second","identifier":[{"system":"urn:category-patient","value":"CAT-P2"}]}

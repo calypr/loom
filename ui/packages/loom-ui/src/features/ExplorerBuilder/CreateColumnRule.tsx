@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import type { ImportedSourceParameters, SourceRuleCreate } from '../../types';
 import { SourceStepParameterEditor } from './SourceStepParameterEditor';
-import { isIdentifierColumnRule, type ColumnRuleOccurrence, type ColumnRulePreset } from './sourceColumnRule';
+import { isCategoryCodingRule, isIdentifierColumnRule, type ColumnRuleOccurrence, type ColumnRulePreset } from './sourceColumnRule';
 
 const ruleNamePattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -23,7 +23,8 @@ export function CreateColumnRule({ kind, occurrence, preset, initialParameters, 
   const rule = parameters.dynamic;
   const validName = ruleNamePattern.test(rule?.name ?? '');
   const validPrefix = !rule?.columnPrefix || ruleNamePattern.test(rule.columnPrefix);
-  const canReview = Boolean(preset.id === 'identifier' && rule && isIdentifierColumnRule(rule) && validName && validPrefix);
+  const matchesPreset = rule && (preset.id === 'identifier' ? isIdentifierColumnRule(rule) : preset.id === 'categoryCoding' && isCategoryCodingRule(rule));
+  const canReview = Boolean(matchesPreset && validName && validPrefix);
 
   return (
     <section className="grid gap-3 px-3 pb-3">
