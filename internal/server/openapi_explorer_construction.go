@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
@@ -182,26 +181,7 @@ func (r *HTTPRoutes) SearchExplorerConstructionChoices(ctx context.Context, requ
 		return loomapi.SearchExplorerConstructionChoices200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerConstructionChoices", err)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.SearchExplorerConstructionChoices400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.SearchExplorerConstructionChoices401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
-	case http.StatusForbidden:
-		return loomapi.SearchExplorerConstructionChoices403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case http.StatusNotFound:
-		return loomapi.SearchExplorerConstructionChoices404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
-	case http.StatusConflict:
-		return loomapi.SearchExplorerConstructionChoices409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.SearchExplorerConstructionChoices422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.SearchExplorerConstructionChoices500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.SearchExplorerConstructionChoices503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	default:
-		return nil, unexpectedResponseStatus("searchExplorerConstructionChoices", status)
-	}
+	return loomapi.NewSearchExplorerConstructionChoicesErrorResponse(status, openAPIErrorResponseBody(status, failure))
 }
 
 func (r *HTTPRoutes) SearchExplorerRelatedExpandChoices(ctx context.Context, request loomapi.SearchExplorerRelatedExpandChoicesRequestObject) (loomapi.SearchExplorerRelatedExpandChoicesResponseObject, error) {
@@ -214,26 +194,7 @@ func (r *HTTPRoutes) SearchExplorerRelatedExpandChoices(ctx context.Context, req
 		return loomapi.SearchExplorerRelatedExpandChoices200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerRelatedExpandChoices", err)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.SearchExplorerRelatedExpandChoices400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.SearchExplorerRelatedExpandChoices401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
-	case http.StatusForbidden:
-		return loomapi.SearchExplorerRelatedExpandChoices403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case http.StatusNotFound:
-		return loomapi.SearchExplorerRelatedExpandChoices404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
-	case http.StatusConflict:
-		return loomapi.SearchExplorerRelatedExpandChoices409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.SearchExplorerRelatedExpandChoices422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.SearchExplorerRelatedExpandChoices500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.SearchExplorerRelatedExpandChoices503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	default:
-		return nil, unexpectedResponseStatus("searchExplorerRelatedExpandChoices", status)
-	}
+	return loomapi.NewSearchExplorerRelatedExpandChoicesErrorResponse(status, openAPIErrorResponseBody(status, failure))
 }
 
 func (r *HTTPRoutes) SearchExplorerRelatedFieldChoices(ctx context.Context, request loomapi.SearchExplorerRelatedFieldChoicesRequestObject) (loomapi.SearchExplorerRelatedFieldChoicesResponseObject, error) {
@@ -246,26 +207,7 @@ func (r *HTTPRoutes) SearchExplorerRelatedFieldChoices(ctx context.Context, requ
 		return loomapi.SearchExplorerRelatedFieldChoices200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerRelatedFieldChoices", err)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.SearchExplorerRelatedFieldChoices400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.SearchExplorerRelatedFieldChoices401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
-	case http.StatusForbidden:
-		return loomapi.SearchExplorerRelatedFieldChoices403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case http.StatusNotFound:
-		return loomapi.SearchExplorerRelatedFieldChoices404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
-	case http.StatusConflict:
-		return loomapi.SearchExplorerRelatedFieldChoices409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.SearchExplorerRelatedFieldChoices422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.SearchExplorerRelatedFieldChoices500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.SearchExplorerRelatedFieldChoices503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	default:
-		return nil, unexpectedResponseStatus("searchExplorerRelatedFieldChoices", status)
-	}
+	return loomapi.NewSearchExplorerRelatedFieldChoicesErrorResponse(status, openAPIErrorResponseBody(status, failure))
 }
 
 func (r *HTTPRoutes) SearchExplorerRelatedExpandContributors(ctx context.Context, request loomapi.SearchExplorerRelatedExpandContributorsRequestObject) (loomapi.SearchExplorerRelatedExpandContributorsResponseObject, error) {
@@ -278,26 +220,7 @@ func (r *HTTPRoutes) SearchExplorerRelatedExpandContributors(ctx context.Context
 		return loomapi.SearchExplorerRelatedExpandContributors200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerRelatedExpandContributors", err)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.SearchExplorerRelatedExpandContributors400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.SearchExplorerRelatedExpandContributors401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
-	case http.StatusForbidden:
-		return loomapi.SearchExplorerRelatedExpandContributors403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case http.StatusNotFound:
-		return loomapi.SearchExplorerRelatedExpandContributors404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
-	case http.StatusConflict:
-		return loomapi.SearchExplorerRelatedExpandContributors409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.SearchExplorerRelatedExpandContributors422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.SearchExplorerRelatedExpandContributors500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.SearchExplorerRelatedExpandContributors503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	default:
-		return nil, unexpectedResponseStatus("searchExplorerRelatedExpandContributors", status)
-	}
+	return loomapi.NewSearchExplorerRelatedExpandContributorsErrorResponse(status, openAPIErrorResponseBody(status, failure))
 }
 
 func (r *HTTPRoutes) SearchExplorerPopulationRoutes(ctx context.Context, request loomapi.SearchExplorerPopulationRoutesRequestObject) (loomapi.SearchExplorerPopulationRoutesResponseObject, error) {
@@ -310,26 +233,7 @@ func (r *HTTPRoutes) SearchExplorerPopulationRoutes(ctx context.Context, request
 		return loomapi.SearchExplorerPopulationRoutes200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerPopulationRoutes", err)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.SearchExplorerPopulationRoutes400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.SearchExplorerPopulationRoutes401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
-	case http.StatusForbidden:
-		return loomapi.SearchExplorerPopulationRoutes403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case http.StatusNotFound:
-		return loomapi.SearchExplorerPopulationRoutes404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
-	case http.StatusConflict:
-		return loomapi.SearchExplorerPopulationRoutes409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.SearchExplorerPopulationRoutes422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.SearchExplorerPopulationRoutes500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.SearchExplorerPopulationRoutes503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	default:
-		return nil, unexpectedResponseStatus("searchExplorerPopulationRoutes", status)
-	}
+	return loomapi.NewSearchExplorerPopulationRoutesErrorResponse(status, openAPIErrorResponseBody(status, failure))
 }
 
 func (r *HTTPRoutes) GetExplorerColumnSource(ctx context.Context, request loomapi.GetExplorerColumnSourceRequestObject) (loomapi.GetExplorerColumnSourceResponseObject, error) {
@@ -342,22 +246,5 @@ func (r *HTTPRoutes) GetExplorerColumnSource(ctx context.Context, request loomap
 		return loomapi.GetExplorerColumnSource200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "getExplorerColumnSource", err)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.GetExplorerColumnSource400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.GetExplorerColumnSource401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
-	case http.StatusForbidden:
-		return loomapi.GetExplorerColumnSource403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case http.StatusNotFound:
-		return loomapi.GetExplorerColumnSource404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
-	case http.StatusConflict:
-		return loomapi.GetExplorerColumnSource409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.GetExplorerColumnSource500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.GetExplorerColumnSource503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	default:
-		return nil, unexpectedResponseStatus("getExplorerColumnSource", status)
-	}
+	return loomapi.NewGetExplorerColumnSourceErrorResponse(status, openAPIErrorResponseBody(status, failure))
 }

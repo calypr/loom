@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"net/http"
 	"time"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
@@ -81,26 +80,5 @@ func (r *HTTPRoutes) ProposeExplorerConstructionChoice(ctx context.Context, requ
 		return loomapi.ProposeExplorerConstructionChoice200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerConstructionChoice", err)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.ProposeExplorerConstructionChoice400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.ProposeExplorerConstructionChoice401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
-	case http.StatusForbidden:
-		return loomapi.ProposeExplorerConstructionChoice403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case http.StatusNotFound:
-		return loomapi.ProposeExplorerConstructionChoice404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
-	case http.StatusConflict:
-		return loomapi.ProposeExplorerConstructionChoice409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.ProposeExplorerConstructionChoice422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.ProposeExplorerConstructionChoice500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.ProposeExplorerConstructionChoice503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	case http.StatusGatewayTimeout:
-		return loomapi.ProposeExplorerConstructionChoice504JSONResponse{AuthoringGatewayTimeoutJSONResponse: loomapi.AuthoringGatewayTimeoutJSONResponse(failure)}, nil
-	default:
-		return nil, unexpectedResponseStatus("proposeExplorerConstructionChoice", status)
-	}
+	return loomapi.NewProposeExplorerConstructionChoiceErrorResponse(status, openAPIErrorResponseBody(status, failure))
 }

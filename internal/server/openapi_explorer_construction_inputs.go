@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"net/http"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 )
@@ -43,24 +42,5 @@ func (r *HTTPRoutes) GetExplorerConstructionInputs(ctx context.Context, request 
 		return loomapi.GetExplorerConstructionInputs200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "getExplorerConstructionInputs", err)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.GetExplorerConstructionInputs400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.GetExplorerConstructionInputs401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
-	case http.StatusForbidden:
-		return loomapi.GetExplorerConstructionInputs403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case http.StatusNotFound:
-		return loomapi.GetExplorerConstructionInputs404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
-	case http.StatusConflict:
-		return loomapi.GetExplorerConstructionInputs409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.GetExplorerConstructionInputs422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.GetExplorerConstructionInputs500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.GetExplorerConstructionInputs503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	default:
-		return nil, unexpectedResponseStatus("getExplorerConstructionInputs", status)
-	}
+	return loomapi.NewGetExplorerConstructionInputsErrorResponse(status, openAPIErrorResponseBody(status, failure))
 }

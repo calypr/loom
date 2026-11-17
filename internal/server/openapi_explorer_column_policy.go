@@ -37,26 +37,8 @@ func (r *HTTPRoutes) ProposeExplorerColumnPolicy(ctx context.Context, request lo
 		return loomapi.ProposeExplorerColumnPolicy200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerColumnPolicy", err)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.ProposeExplorerColumnPolicy400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.ProposeExplorerColumnPolicy401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
-	case http.StatusForbidden:
-		return loomapi.ProposeExplorerColumnPolicy403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case http.StatusNotFound:
-		return loomapi.ProposeExplorerColumnPolicy404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
-	case http.StatusConflict:
-		return loomapi.ProposeExplorerColumnPolicy409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.ProposeExplorerColumnPolicy422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.ProposeExplorerColumnPolicy500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.ProposeExplorerColumnPolicy503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	case http.StatusGatewayTimeout:
-		return loomapi.ProposeExplorerColumnPolicy504JSONResponse{AuthoringGatewayTimeoutJSONResponse: loomapi.AuthoringGatewayTimeoutJSONResponse(failure)}, nil
-	default:
-		return nil, unexpectedResponseStatus("proposeExplorerColumnPolicy", status)
+	if status == http.StatusUnauthorized {
+		return loomapi.NewProposeExplorerColumnPolicyErrorResponse(status, authoringUnauthorizedResponse(failure))
 	}
+	return loomapi.NewProposeExplorerColumnPolicyErrorResponse(status, failure)
 }

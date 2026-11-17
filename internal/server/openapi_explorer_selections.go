@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"errors"
-	"net/http"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/dataframe/published"
@@ -109,24 +108,7 @@ func (r *HTTPRoutes) CreateExplorerSelection(ctx context.Context, request loomap
 		return loomapi.CreateExplorerSelection201JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "createExplorerSelection", err)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.CreateExplorerSelection400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
-	case http.StatusForbidden:
-		return loomapi.CreateExplorerSelection403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case http.StatusNotFound:
-		return loomapi.CreateExplorerSelection404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
-	case http.StatusConflict:
-		return loomapi.CreateExplorerSelection409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.CreateExplorerSelection422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.CreateExplorerSelection503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.CreateExplorerSelection500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	default:
-		return nil, unexpectedResponseStatus("createExplorerSelection", status)
-	}
+	return loomapi.NewCreateExplorerSelectionErrorResponse(status, openAPIErrorResponseBody(status, failure))
 }
 
 func (r *HTTPRoutes) GetExplorerSelection(ctx context.Context, request loomapi.GetExplorerSelectionRequestObject) (loomapi.GetExplorerSelectionResponseObject, error) {
@@ -141,22 +123,5 @@ func (r *HTTPRoutes) GetExplorerSelection(ctx context.Context, request loomapi.G
 		return loomapi.GetExplorerSelection200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "getExplorerSelection", err)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.GetExplorerSelection400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
-	case http.StatusForbidden:
-		return loomapi.GetExplorerSelection403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case http.StatusNotFound:
-		return loomapi.GetExplorerSelection404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
-	case http.StatusConflict:
-		return loomapi.GetExplorerSelection409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.GetExplorerSelection422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.GetExplorerSelection503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.GetExplorerSelection500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	default:
-		return nil, unexpectedResponseStatus("getExplorerSelection", status)
-	}
+	return loomapi.NewGetExplorerSelectionErrorResponse(status, openAPIErrorResponseBody(status, failure))
 }

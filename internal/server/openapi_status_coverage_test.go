@@ -49,6 +49,81 @@ func TestOpenAPIStatusCoverageRejectsMissingAndUndeclaredStatuses(t *testing.T) 
 	}
 }
 
+func TestOpenAPIStatusCoverageFollowsActualFactoryReturns(t *testing.T) {
+	for _, test := range []struct {
+		name, adapter, factory, wantError string
+	}{
+		{
+			name: "actual returned variants",
+			factory: `func NewGetThingErrorResponse(status int) (any, error) {
+				switch status { case 503: return GetThing503JSONResponse{}, nil }
+				return nil, fmt.Errorf("unexpected")
+			}`,
+		},
+		{
+			name: "missing factory case", wantError: "getThing missing adapter status 503",
+			factory: `func NewGetThingErrorResponse(status int) (any, error) {
+				_ = GetThing503JSONResponse{}
+				switch status { case 400: return GetThing400JSONResponse{}, nil; case 503: return nil, fmt.Errorf("unimplemented") }
+				return nil, fmt.Errorf("unexpected")
+			}`,
+		},
+		{name: "missing factory declaration", wantError: "has no generated declaration"},
+		{
+			name: "wrong operation factory", wantError: "factory for another operation",
+			adapter: `func GetThing() { return loomapi.NewGetOtherErrorResponse(503) }`,
+			factory: `func NewGetOtherErrorResponse(status int) (any, error) { return GetOther503JSONResponse{}, nil }`,
+		},
+		{
+			name: "wrong operation variant", wantError: "returns no operation response variants",
+			factory: `func NewGetThingErrorResponse(status int) (any, error) { return GetOther503JSONResponse{}, nil }`,
+		},
+		{
+			name: "undeclared returned variant", wantError: "getThing handles undeclared status 502",
+			factory: `func NewGetThingErrorResponse(status int) (any, error) {
+				if status == 503 { return GetThing503JSONResponse{}, nil }
+				return GetThing502JSONResponse{}, nil
+			}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			adapter := test.adapter
+			if adapter == "" {
+				adapter = `func GetThing() { return loomapi.NewGetThingErrorResponse(503) }`
+			}
+			parsed, err := parser.ParseFile(token.NewFileSet(), "fixture.go", "package fixture\n"+adapter+"\n"+test.factory, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			factories := make(map[string]*ast.FuncDecl)
+			var body *ast.BlockStmt
+			for _, declaration := range parsed.Decls {
+				function := declaration.(*ast.FuncDecl)
+				if function.Name.Name == "GetThing" {
+					body = function.Body
+				} else {
+					factories[function.Name.Name] = function
+				}
+			}
+			statuses := map[int]struct{}{http.StatusOK: {}}
+			err = collectAdapterStatuses(body, "GetThing", statuses, factories)
+			if err == nil {
+				err = validateOpenAPIStatusCoverage(
+					map[string]map[int]struct{}{"getThing": {http.StatusOK: {}, http.StatusUnauthorized: {}, http.StatusServiceUnavailable: {}}},
+					map[string]map[int]struct{}{"getThing": statuses},
+				)
+			}
+			if test.wantError == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("coverage error = %v, want %q", err, test.wantError)
+			}
+		})
+	}
+}
+
 func declaredOpenAPIStatuses() (map[string]map[int]struct{}, error) {
 	spec, err := loomapi.GetSwagger()
 	if err != nil {
@@ -91,6 +166,25 @@ func adapterOpenAPIStatuses() (map[string]map[int]struct{}, error) {
 	}
 	handled := make(map[string]map[int]struct{})
 	fileSet := token.NewFileSet()
+	generatedFiles, err := filepath.Glob(filepath.Join(filepath.Dir(sourceFile), "../../generated/loomapi/*.go"))
+	if err != nil {
+		return nil, err
+	}
+	factories := make(map[string]*ast.FuncDecl)
+	for _, file := range generatedFiles {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		parsed, err := parser.ParseFile(fileSet, file, nil, 0)
+		if err != nil {
+			return nil, fmt.Errorf("parse generated response factories %s: %w", file, err)
+		}
+		for _, declaration := range parsed.Decls {
+			if function, ok := declaration.(*ast.FuncDecl); ok && function.Recv == nil && function.Body != nil {
+				factories[function.Name.Name] = function
+			}
+		}
+	}
 	for _, file := range files {
 		if strings.HasSuffix(file, "_test.go") {
 			continue
@@ -115,7 +209,9 @@ func adapterOpenAPIStatuses() (map[string]map[int]struct{}, error) {
 				return nil, fmt.Errorf("adapter for operationId %q is duplicated", operationID)
 			}
 			statuses := make(map[int]struct{})
-			collectAdapterStatuses(function.Body, function.Name.Name, statuses)
+			if err := collectAdapterStatuses(function.Body, function.Name.Name, statuses, factories); err != nil {
+				return nil, fmt.Errorf("%s: %w", operationID, err)
+			}
 			handled[operationID] = statuses
 		}
 	}
@@ -142,7 +238,8 @@ func matchingOperationID(functionName string) string {
 	return strings.ToLower(functionName[:1]) + functionName[1:]
 }
 
-func collectAdapterStatuses(body *ast.BlockStmt, operationName string, statuses map[int]struct{}) {
+func collectAdapterStatuses(body *ast.BlockStmt, operationName string, statuses map[int]struct{}, factories map[string]*ast.FuncDecl) error {
+	var factoryErr error
 	ast.Inspect(body, func(node ast.Node) bool {
 		switch value := node.(type) {
 		case *ast.SelectorExpr:
@@ -160,7 +257,14 @@ func collectAdapterStatuses(body *ast.BlockStmt, operationName string, statuses 
 		case *ast.CallExpr:
 			if selector, ok := value.Fun.(*ast.SelectorExpr); ok {
 				if packageName, ok := selector.X.(*ast.Ident); ok && packageName.Name == "loomapi" {
-					collectGeneratedResponseStatus(selector.Sel.Name, operationName, statuses)
+					name := selector.Sel.Name
+					if strings.HasPrefix(name, "New") && strings.HasSuffix(name, "ErrorResponse") {
+						if err := collectFactoryStatuses(name, operationName, statuses, factories); err != nil {
+							factoryErr = err
+						}
+					} else {
+						collectGeneratedResponseStatus(name, operationName, statuses)
+					}
 				}
 			}
 		case *ast.CaseClause:
@@ -176,6 +280,47 @@ func collectAdapterStatuses(body *ast.BlockStmt, operationName string, statuses 
 		}
 		return true
 	})
+	return factoryErr
+}
+
+func collectFactoryStatuses(name, operationName string, statuses map[int]struct{}, factories map[string]*ast.FuncDecl) error {
+	if name != "New"+operationName+"ErrorResponse" {
+		return fmt.Errorf("%s uses response factory for another operation: %s", operationName, name)
+	}
+	factory := factories[name]
+	if factory == nil || factory.Body == nil {
+		return fmt.Errorf("response factory %s has no generated declaration", name)
+	}
+	returned := make(map[int]struct{})
+	ast.Inspect(factory.Body, func(node ast.Node) bool {
+		statement, ok := node.(*ast.ReturnStmt)
+		if !ok {
+			return true
+		}
+		for _, result := range statement.Results {
+			var typ ast.Expr
+			switch value := result.(type) {
+			case *ast.CompositeLit:
+				typ = value.Type
+			case *ast.CallExpr:
+				typ = value.Fun
+			}
+			switch value := typ.(type) {
+			case *ast.Ident:
+				collectGeneratedResponseStatus(value.Name, operationName, returned)
+			case *ast.SelectorExpr:
+				collectGeneratedResponseStatus(value.Sel.Name, operationName, returned)
+			}
+		}
+		return false
+	})
+	if len(returned) == 0 {
+		return fmt.Errorf("response factory %s returns no operation response variants", name)
+	}
+	for status := range returned {
+		statuses[status] = struct{}{}
+	}
+	return nil
 }
 
 func collectGeneratedResponseStatus(name, operationName string, statuses map[int]struct{}) {

@@ -23,7 +23,7 @@ func (r *HTTPRoutes) GetHealth(ctx context.Context, _ loomapi.GetHealthRequestOb
 		return loomapi.GetHealth200JSONResponse(value), nil
 	}
 	if status == http.StatusServiceUnavailable {
-		return loomapi.GetHealth503JSONResponse(value), nil
+		return loomapi.NewGetHealthErrorResponse(status, value)
 	}
 	return nil, unexpectedResponseStatus("getHealth", status)
 }
@@ -50,7 +50,7 @@ func (r *HTTPRoutes) GetReadiness(ctx context.Context, _ loomapi.GetReadinessReq
 		return loomapi.GetReadiness200JSONResponse(value), nil
 	}
 	if status == http.StatusServiceUnavailable {
-		return loomapi.GetReadiness503JSONResponse(value), nil
+		return loomapi.NewGetReadinessErrorResponse(status, value)
 	}
 	return nil, unexpectedResponseStatus("getReadiness", status)
 }
@@ -62,22 +62,7 @@ func (r *HTTPRoutes) GetDatasetGenerationStatus(ctx context.Context, request loo
 		return loomapi.GetDatasetGenerationStatus200JSONResponse(generationStatusResponse(result)), nil
 	}
 	status, body := mapServiceError(err, ctx)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.GetDatasetGenerationStatus400JSONResponse{ServiceBadRequestJSONResponse: loomapi.ServiceBadRequestJSONResponse(body)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.GetDatasetGenerationStatus401JSONResponse{ServiceUnauthorizedJSONResponse: loomapi.ServiceUnauthorizedJSONResponse(body)}, nil
-	case http.StatusForbidden:
-		return loomapi.GetDatasetGenerationStatus403JSONResponse{ServiceForbiddenJSONResponse: loomapi.ServiceForbiddenJSONResponse(body)}, nil
-	case http.StatusNotFound:
-		return loomapi.GetDatasetGenerationStatus404JSONResponse{ServiceNotFoundJSONResponse: loomapi.ServiceNotFoundJSONResponse(body)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.GetDatasetGenerationStatus500JSONResponse{ServiceInternalErrorJSONResponse: loomapi.ServiceInternalErrorJSONResponse(body)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.GetDatasetGenerationStatus503JSONResponse{ServiceUnavailableJSONResponse: loomapi.ServiceUnavailableJSONResponse(body)}, nil
-	default:
-		return nil, unexpectedResponseStatus("getDatasetGenerationStatus", status)
-	}
+	return loomapi.NewGetDatasetGenerationStatusErrorResponse(status, body)
 }
 
 func (r *HTTPRoutes) CreateDatasetGeneration(ctx context.Context, request loomapi.CreateDatasetGenerationRequestObject) (loomapi.CreateDatasetGenerationResponseObject, error) {
@@ -91,26 +76,7 @@ func (r *HTTPRoutes) CreateDatasetGeneration(ctx context.Context, request loomap
 		return loomapi.CreateDatasetGeneration200JSONResponse(value), nil
 	}
 	status, body := mapServiceError(err, ctx)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.CreateDatasetGeneration400JSONResponse{ServiceBadRequestJSONResponse: loomapi.ServiceBadRequestJSONResponse(body)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.CreateDatasetGeneration401JSONResponse{ServiceUnauthorizedJSONResponse: loomapi.ServiceUnauthorizedJSONResponse(body)}, nil
-	case http.StatusForbidden:
-		return loomapi.CreateDatasetGeneration403JSONResponse{ServiceForbiddenJSONResponse: loomapi.ServiceForbiddenJSONResponse(body)}, nil
-	case http.StatusConflict:
-		return loomapi.CreateDatasetGeneration409JSONResponse{ServiceConflictJSONResponse: loomapi.ServiceConflictJSONResponse(body)}, nil
-	case http.StatusUnsupportedMediaType:
-		return loomapi.CreateDatasetGeneration415JSONResponse{ServiceUnsupportedMediaTypeJSONResponse: loomapi.ServiceUnsupportedMediaTypeJSONResponse(body)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.CreateDatasetGeneration422JSONResponse{ServiceUnprocessableJSONResponse: loomapi.ServiceUnprocessableJSONResponse(body)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.CreateDatasetGeneration500JSONResponse{ServiceInternalErrorJSONResponse: loomapi.ServiceInternalErrorJSONResponse(body)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.CreateDatasetGeneration503JSONResponse{ServiceUnavailableJSONResponse: loomapi.ServiceUnavailableJSONResponse(body)}, nil
-	default:
-		return nil, unexpectedResponseStatus("createDatasetGeneration", status)
-	}
+	return loomapi.NewCreateDatasetGenerationErrorResponse(status, body)
 }
 
 func (r *HTTPRoutes) ActivateDatasetGeneration(ctx context.Context, request loomapi.ActivateDatasetGenerationRequestObject) (loomapi.ActivateDatasetGenerationResponseObject, error) {
@@ -120,22 +86,7 @@ func (r *HTTPRoutes) ActivateDatasetGeneration(ctx context.Context, request loom
 		return loomapi.ActivateDatasetGeneration200JSONResponse(generationActivationResponse(result)), nil
 	}
 	status, body := mapServiceError(err, ctx)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.ActivateDatasetGeneration400JSONResponse{ServiceBadRequestJSONResponse: loomapi.ServiceBadRequestJSONResponse(body)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.ActivateDatasetGeneration401JSONResponse{ServiceUnauthorizedJSONResponse: loomapi.ServiceUnauthorizedJSONResponse(body)}, nil
-	case http.StatusForbidden:
-		return loomapi.ActivateDatasetGeneration403JSONResponse{ServiceForbiddenJSONResponse: loomapi.ServiceForbiddenJSONResponse(body)}, nil
-	case http.StatusConflict:
-		return loomapi.ActivateDatasetGeneration409JSONResponse{ServiceConflictJSONResponse: loomapi.ServiceConflictJSONResponse(body)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.ActivateDatasetGeneration500JSONResponse{ServiceInternalErrorJSONResponse: loomapi.ServiceInternalErrorJSONResponse(body)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.ActivateDatasetGeneration503JSONResponse{ServiceUnavailableJSONResponse: loomapi.ServiceUnavailableJSONResponse(body)}, nil
-	default:
-		return nil, unexpectedResponseStatus("activateDatasetGeneration", status)
-	}
+	return loomapi.NewActivateDatasetGenerationErrorResponse(status, body)
 }
 
 func (r *HTTPRoutes) GetRecipeExecution(ctx context.Context, request loomapi.GetRecipeExecutionRequestObject) (loomapi.GetRecipeExecutionResponseObject, error) {
@@ -152,28 +103,28 @@ func (r *HTTPRoutes) GetRecipeExecution(ctx context.Context, request loomapi.Get
 		if !ok {
 			return nil, unexpectedResponseStatus("getRecipeExecution", status)
 		}
-		return loomapi.GetRecipeExecution503JSONResponse{ServiceUnavailableJSONResponse: loomapi.ServiceUnavailableJSONResponse(response)}, nil
+		return loomapi.NewGetRecipeExecutionErrorResponse(status, response)
 	}
 	value, err := rawJSON(body)
 	if err != nil {
 		return nil, err
 	}
 	if status == http.StatusUnauthorized {
-		return loomapi.GetRecipeExecution401JSONResponse(value), nil
+		return loomapi.NewGetRecipeExecutionErrorResponse(status, value)
 	}
 	if status == http.StatusForbidden {
 		legacy, legacyErr := legacyErrorFromMap(value)
 		if legacyErr != nil {
 			return nil, legacyErr
 		}
-		return loomapi.GetRecipeExecution403JSONResponse{LegacyForbiddenJSONResponse: loomapi.LegacyForbiddenJSONResponse(legacy)}, nil
+		return loomapi.NewGetRecipeExecutionErrorResponse(status, legacy)
 	}
 	if status == http.StatusNotFound {
 		legacy, legacyErr := legacyErrorFromMap(value)
 		if legacyErr != nil {
 			return nil, legacyErr
 		}
-		return loomapi.GetRecipeExecution404JSONResponse{LegacyNotFoundJSONResponse: loomapi.LegacyNotFoundJSONResponse(legacy)}, nil
+		return loomapi.NewGetRecipeExecutionErrorResponse(status, legacy)
 	}
 	return nil, unexpectedResponseStatus("getRecipeExecution", status)
 }

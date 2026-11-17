@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"net/http"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
@@ -57,4 +58,11 @@ func legacyErrorFromMap(body loomapi.RawJSON) (loomapi.LegacyErrorResponse, erro
 
 func unexpectedResponseStatus(operation string, status int) error {
 	return fmt.Errorf("%s returned undocumented HTTP status %d", operation, status)
+}
+
+func openAPIErrorResponseBody(status int, failure loomapi.ErrorResponse) any {
+	if status == http.StatusUnauthorized {
+		return authoringUnauthorizedResponse(failure)
+	}
+	return failure
 }
