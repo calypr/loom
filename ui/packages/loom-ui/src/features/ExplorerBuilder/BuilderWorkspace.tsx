@@ -87,6 +87,7 @@ import { usePublish } from './authoring/usePublish';
 import { shouldShowBuilderLoadError } from './authoring/builderLoadError';
 import { useBuilderDraft } from './authoring/useBuilderDraft';
 import { useRecipeFocus } from './authoring/useRecipeFocus';
+import { useSuggestions } from './authoring/useSuggestions';
 import { usePopulationExclusion } from './authoring/usePopulationExclusion';
 import { useAddColumns } from './authoring/useAddColumns';
 import { createRecipeNetworkLoader } from './authoring/recipeNetwork';
@@ -372,10 +373,6 @@ const BuilderWorkspaceContent = ({
   const [getSuggestions, suggestionsStatus] =
     useGetExplorerCandidateSuggestionsV2Mutation();
   const [message, setMessage] = useState<string>();
-  const [suggestionsFailure, setSuggestionsFailure] = useState<{
-    readonly key: string;
-    readonly message: string;
-  }>();
   const [occurrenceInspectorHost, setOccurrenceInspectorHost] = useState<HTMLElement | null>(null);
   const [sourceChangeReviewHost, setSourceChangeReviewHost] = useState<HTMLDivElement | null>(null);
   const [cancelingConstructionProposal, setCancelingConstructionProposal] = useState(false);
@@ -439,7 +436,6 @@ const BuilderWorkspaceContent = ({
     null,
   );
   const firstTableActionPending = useRef(false);
-  const suggestionRequestKey = useRef('');
   const combineCatalog = useCombineCatalog({
     ownerKey,
     explorerId: state.explorerId,
@@ -1203,69 +1199,10 @@ const BuilderWorkspaceContent = ({
       </label>
     </div>
   ) : undefined;
-  const ensureSuggestions = useCallback(() => {
-    const current = latestState.current;
-    const currentOccurrence = derivedOccurrences(
-      selectedTable(current),
-      current.catalog,
-    ).find((candidate) => candidate.id === current.selectedOccurrenceId);
-    if (!currentOccurrence || !current.catalog.snapshotToken) return;
-    const key = `${current.explorerId}:${current.catalog.snapshotToken}:${currentOccurrence.id}`;
-    if (suggestionRequestKey.current === key) return;
-    if (
-      (current.catalog.candidates ?? []).some(
-        (candidate) => candidate.nodeId === currentOccurrence.nodeId,
-      )
-    )
-      return;
-    suggestionRequestKey.current = key;
-    setSuggestionsFailure(undefined);
-    const request = getSuggestions({
-      project: projectId,
-      explorerId: current.explorerId,
-      authResourcePath,
-      snapshotToken: current.catalog.snapshotToken,
-      nodeId: currentOccurrence.nodeId,
-      requestId: `suggestions-${currentOccurrence.id}`,
-    });
-    void request
-      .unwrap()
-      .then((value) => {
-        const latest = latestState.current;
-        if (
-          latest.explorerId === current.explorerId &&
-          value.snapshotToken === latest.catalog.snapshotToken &&
-          latest.selectedOccurrenceId === currentOccurrence.id
-        ) {
-          dispatch({ type: 'candidatesLoaded', candidates: value.candidates });
-          setSuggestionsFailure(undefined);
-        } else if (suggestionRequestKey.current === key) {
-          suggestionRequestKey.current = '';
-        }
-      })
-      .catch((error: ExplorerAuthoringApiError) => {
-        if (suggestionRequestKey.current === key) suggestionRequestKey.current = '';
-        if (error.code !== 'CLIENT_CANCELLED') {
-          const suffix = error.code ? ` (${error.code})` : '';
-          const latest = latestState.current;
-          if (latest.explorerId === current.explorerId &&
-            latest.catalog.snapshotToken === current.catalog.snapshotToken &&
-            latest.selectedOccurrenceId === currentOccurrence.id) {
-            setSuggestionsFailure({
-              key,
-              message: `Available columns could not be loaded: ${error.message}${suffix}`,
-            });
-          }
-        }
-      });
-  }, [authResourcePath, dispatch, getSuggestions, projectId]);
-  const suggestionHostRef = useCallback(
-    (host: HTMLSpanElement | null) => {
-      if (host) ensureSuggestions();
-    },
-    [ensureSuggestions],
-  );
-  const suggestionIdentity = `${state.explorerId}:${state.catalog.snapshotToken}:${state.selectedOccurrenceId}`;
+  const {
+    suggestionsFailure, setSuggestionsFailure, suggestionRequestKey,
+    ensureSuggestions, suggestionHostRef, suggestionIdentity,
+  } = useSuggestions({ state, latestState, dispatch, getSuggestions, projectId, authResourcePath });
   const unsupportedSourceProjectionDiagnostic = state.diagnostics.find(
     isUnsupportedUnknownSourceProjectionDiagnostic,
   );
