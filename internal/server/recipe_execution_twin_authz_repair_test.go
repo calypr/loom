@@ -3,9 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"testing"
 
+	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
@@ -32,25 +32,33 @@ func TestRecipeExecutionTwinRefusesForeignProjectPrincipal(t *testing.T) {
 		Subject:  "operator-a",
 		Projects: []string{"project-a"},
 	})
-	body, statusCode := routes.recipeExecution(foreignCtx, "execution-foreign")
-	if statusCode != http.StatusNotFound {
-		resp, _ := json.Marshal(body)
-		t.Fatalf("F-B20 REGRESSION: foreign-project principal received status %d with body %s; "+
-			"the REST twin disclosed cross-project execution metadata without asserting project membership", statusCode, resp)
+	response, err := routes.GetRecipeExecution(foreignCtx, loomapi.GetRecipeExecutionRequestObject{Id: "execution-foreign"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if denial, ok := body.(map[string]any); !ok || denial["error"] != "recipe execution not found" {
-		t.Fatalf("foreign-project denial = %#v, want the concealed missing-execution envelope", body)
+	denial, ok := response.(loomapi.GetRecipeExecution404JSONResponse)
+	if !ok {
+		resp, _ := json.Marshal(response)
+		t.Fatalf("F-B20 REGRESSION: foreign-project principal received %T with body %s; want concealed 404", response, resp)
+	}
+	resp, _ := json.Marshal(denial)
+	if string(resp) != `{"error":"recipe execution not found"}` {
+		t.Fatalf("foreign-project denial body = %s, want concealed missing-execution envelope", resp)
 	}
 
 	memberCtx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{
 		Subject:  "operator-b",
 		Projects: []string{"project-a", "project-b"},
 	})
-	if _, statusCode := routes.recipeExecution(memberCtx, "execution-foreign"); statusCode != http.StatusOK {
-		t.Fatalf("same-project member status = %d, want 200 (membership gate must not over-deny)", statusCode)
+	if response, err := routes.GetRecipeExecution(memberCtx, loomapi.GetRecipeExecutionRequestObject{Id: "execution-foreign"}); err != nil {
+		t.Fatal(err)
+	} else if _, ok := response.(loomapi.GetRecipeExecution200JSONResponse); !ok {
+		t.Fatalf("same-project member response = %T, want 200 (membership gate must not over-deny)", response)
 	}
 
-	if _, statusCode := routes.recipeExecution(context.Background(), "execution-foreign"); statusCode != http.StatusOK {
-		t.Fatalf("principal-less (single-operator) status = %d, want 200 (anonymous posture preserved)", statusCode)
+	if response, err := routes.GetRecipeExecution(context.Background(), loomapi.GetRecipeExecutionRequestObject{Id: "execution-foreign"}); err != nil {
+		t.Fatal(err)
+	} else if _, ok := response.(loomapi.GetRecipeExecution200JSONResponse); !ok {
+		t.Fatalf("principal-less (single-operator) response = %T, want 200 (anonymous posture preserved)", response)
 	}
 }

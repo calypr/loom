@@ -124,6 +124,60 @@ func TestOpenAPIStatusCoverageFollowsActualFactoryReturns(t *testing.T) {
 	}
 }
 
+func TestOpenAPIStatusCoverageFollowsTypedLocalHelpers(t *testing.T) {
+	for _, test := range []struct{ name, helper, wantError, adapter string }{
+		{"helper to factory", `func dispatch() (loomapi.GetThingResponseObject, error) { return loomapi.NewGetThingErrorResponse(503, nil) }`, "", ""},
+		{"concrete helper", `func dispatch() loomapi.GetThing503JSONResponse { return loomapi.GetThing503JSONResponse{} }`, "", ""},
+		{"unimplemented helper", `func dispatch() (loomapi.GetThingResponseObject, error) { return nil, nil }`, "missing adapter status 503", ""},
+		{"missing helper", ``, "missing adapter status 503", ""},
+		{"discarded typed helper", `func dispatch() (loomapi.GetThingResponseObject, error) { return loomapi.NewGetThingErrorResponse(503, nil) }`, "missing adapter status 503", `func GetThing() { _, _ = dispatch(); return nil, nil }`},
+		{"unused factory", `func dispatch() (loomapi.GetThingResponseObject, error) { _, _ = loomapi.NewGetThingErrorResponse(503, nil); return nil, nil }`, "missing adapter status 503", ""},
+		{"wrong operation helper", `func dispatch() (loomapi.GetOtherResponseObject, error) { return loomapi.NewGetOtherErrorResponse(503, nil) }`, "returning another operation response", ""},
+		{"unused closure local helper", `func dispatch() (loomapi.GetThingResponseObject, error) { return loomapi.NewGetThingErrorResponse(503, nil) }`, "missing adapter status 503", `func GetThing() { unused := func() (loomapi.GetThingResponseObject, error) { return dispatch() }; _ = unused; return nil, nil }`},
+		{"invoked failure closure", ``, "", `func GetThing() { fail := func() (loomapi.GetThingResponseObject, error) { return loomapi.NewGetThingErrorResponse(503, nil) }; return fail() }`},
+		{"cyclic helper", `func dispatch() (loomapi.GetThingResponseObject, error) { return next() }; func next() (loomapi.GetThingResponseObject, error) { return dispatch() }`, "missing adapter status 503", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			adapter := test.adapter
+			if adapter == "" {
+				adapter = "func GetThing() { return dispatch() }"
+			}
+			source := "package fixture\n" + adapter + "\n" + test.helper + `
+			func NewGetThingErrorResponse(status int, body any) (any, error) { return GetThing503JSONResponse{}, nil }
+			func NewGetOtherErrorResponse(status int, body any) (any, error) { return GetOther503JSONResponse{}, nil }`
+			parsed, err := parser.ParseFile(token.NewFileSet(), "fixture.go", source, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			helpers := map[string]*ast.FuncDecl{}
+			factories := map[string]*ast.FuncDecl{}
+			var body *ast.BlockStmt
+			for _, declaration := range parsed.Decls {
+				function := declaration.(*ast.FuncDecl)
+				if function.Name.Name == "GetThing" {
+					body = function.Body
+				} else if strings.HasPrefix(function.Name.Name, "New") {
+					factories[function.Name.Name] = function
+				} else {
+					helpers[function.Name.Name] = function
+				}
+			}
+			statuses := map[int]struct{}{http.StatusOK: {}}
+			err = collectAdapterStatuses(body, "GetThing", statuses, factories, helpers)
+			if err == nil {
+				err = validateOpenAPIStatusCoverage(map[string]map[int]struct{}{"getThing": {200: {}, 503: {}}}, map[string]map[int]struct{}{"getThing": statuses})
+			}
+			if test.wantError == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("coverage error = %v, want %q", err, test.wantError)
+			}
+		})
+	}
+}
+
 func declaredOpenAPIStatuses() (map[string]map[int]struct{}, error) {
 	spec, err := loomapi.GetSwagger()
 	if err != nil {
@@ -185,6 +239,21 @@ func adapterOpenAPIStatuses() (map[string]map[int]struct{}, error) {
 			}
 		}
 	}
+	localHelpers := make(map[string]*ast.FuncDecl)
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		parsed, err := parser.ParseFile(fileSet, file, nil, 0)
+		if err != nil {
+			return nil, err
+		}
+		for _, declaration := range parsed.Decls {
+			if function, ok := declaration.(*ast.FuncDecl); ok && function.Recv == nil && function.Body != nil {
+				localHelpers[function.Name.Name] = function
+			}
+		}
+	}
 	for _, file := range files {
 		if strings.HasSuffix(file, "_test.go") {
 			continue
@@ -209,7 +278,7 @@ func adapterOpenAPIStatuses() (map[string]map[int]struct{}, error) {
 				return nil, fmt.Errorf("adapter for operationId %q is duplicated", operationID)
 			}
 			statuses := make(map[int]struct{})
-			if err := collectAdapterStatuses(function.Body, function.Name.Name, statuses, factories); err != nil {
+			if err := collectAdapterStatuses(function.Body, function.Name.Name, statuses, factories, localHelpers); err != nil {
 				return nil, fmt.Errorf("%s: %w", operationID, err)
 			}
 			handled[operationID] = statuses
@@ -238,8 +307,13 @@ func matchingOperationID(functionName string) string {
 	return strings.ToLower(functionName[:1]) + functionName[1:]
 }
 
-func collectAdapterStatuses(body *ast.BlockStmt, operationName string, statuses map[int]struct{}, factories map[string]*ast.FuncDecl) error {
+func collectAdapterStatuses(body *ast.BlockStmt, operationName string, statuses map[int]struct{}, factories map[string]*ast.FuncDecl, helperMaps ...map[string]*ast.FuncDecl) error {
 	var factoryErr error
+	helpers := map[string]*ast.FuncDecl{}
+	if len(helperMaps) > 0 {
+		helpers = helperMaps[0]
+	}
+	visited := map[string]bool{}
 	ast.Inspect(body, func(node ast.Node) bool {
 		switch value := node.(type) {
 		case *ast.SelectorExpr:
@@ -280,7 +354,110 @@ func collectAdapterStatuses(body *ast.BlockStmt, operationName string, statuses 
 		}
 		return true
 	})
+	// Local helper results count only when returned by this adapter itself.
+	// Keep the existing direct-factory scan for invoked failure closures.
+	ast.Inspect(body, func(node ast.Node) bool {
+		if _, closure := node.(*ast.FuncLit); closure {
+			return false
+		}
+		value, ok := node.(*ast.ReturnStmt)
+		if !ok {
+			return true
+		}
+		for _, result := range value.Results {
+			call, ok := result.(*ast.CallExpr)
+			if !ok {
+				continue
+			}
+			if name, ok := call.Fun.(*ast.Ident); ok && helpers[name.Name] != nil {
+				if err := collectLocalResponseHelperStatuses(name.Name, operationName, statuses, factories, helpers, visited); err != nil {
+					factoryErr = err
+				}
+			}
+		}
+
+		return false
+	})
+
 	return factoryErr
+}
+
+func collectLocalResponseHelperStatuses(name, operationName string, statuses map[int]struct{}, factories, helpers map[string]*ast.FuncDecl, visited map[string]bool) error {
+	if visited[name] {
+		return nil
+	}
+	visited[name] = true
+	helper := helpers[name]
+	if helper == nil || helper.Body == nil || helper.Type.Results == nil {
+		return nil
+	}
+	matches := false
+	for _, result := range helper.Type.Results.List {
+		selector, ok := result.Type.(*ast.SelectorExpr)
+		if !ok {
+			continue
+		}
+		pkg, ok := selector.X.(*ast.Ident)
+		if !ok || pkg.Name != "loomapi" {
+			continue
+		}
+		typ := selector.Sel.Name
+		if typ == operationName+"ResponseObject" {
+			matches = true
+			continue
+		}
+		concrete := map[int]struct{}{}
+		collectGeneratedResponseStatus(typ, operationName, concrete)
+		if len(concrete) > 0 && strings.HasSuffix(typ, "JSONResponse") {
+			matches = true
+			continue
+		}
+		if strings.HasSuffix(typ, "ResponseObject") || strings.HasSuffix(typ, "JSONResponse") {
+			return fmt.Errorf("%s uses local helper %s returning another operation response: %s", operationName, name, typ)
+		}
+	}
+	if !matches {
+		return nil
+	}
+	var helperErr error
+	ast.Inspect(helper.Body, func(node ast.Node) bool {
+		if _, closure := node.(*ast.FuncLit); closure {
+			return false
+		}
+		statement, ok := node.(*ast.ReturnStmt)
+		if !ok {
+			return true
+		}
+		for _, result := range statement.Results {
+			switch value := result.(type) {
+			case *ast.CompositeLit:
+				if typ, ok := value.Type.(*ast.SelectorExpr); ok {
+					if pkg, ok := typ.X.(*ast.Ident); ok && pkg.Name == "loomapi" {
+						collectGeneratedResponseStatus(typ.Sel.Name, operationName, statuses)
+					}
+				}
+			case *ast.CallExpr:
+				switch call := value.Fun.(type) {
+				case *ast.Ident:
+					if err := collectLocalResponseHelperStatuses(call.Name, operationName, statuses, factories, helpers, visited); err != nil {
+						helperErr = err
+					}
+				case *ast.SelectorExpr:
+					if pkg, ok := call.X.(*ast.Ident); ok && pkg.Name == "loomapi" {
+						if strings.HasPrefix(call.Sel.Name, "New") && strings.HasSuffix(call.Sel.Name, "ErrorResponse") {
+							if err := collectFactoryStatuses(call.Sel.Name, operationName, statuses, factories); err != nil {
+								helperErr = err
+							}
+						} else {
+							collectGeneratedResponseStatus(call.Sel.Name, operationName, statuses)
+						}
+					}
+				}
+			}
+		}
+		return false
+	})
+	return helperErr
 }
 
 func collectFactoryStatuses(name, operationName string, statuses map[int]struct{}, factories map[string]*ast.FuncDecl) error {

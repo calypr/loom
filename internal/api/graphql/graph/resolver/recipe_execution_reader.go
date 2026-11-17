@@ -19,30 +19,71 @@ type RecipeExecutionStore interface {
 	GetExecution(context.Context, string) (materialization.BundleExecution, error)
 }
 
+// RecipeExecutionScopeResolver is the per-request scope check used by the
+// authorized durable-record reader. A transport can provide the same resolver
+// through a narrow test seam without changing the shared authorization flow.
+type RecipeExecutionScopeResolver func(context.Context, *authscope.ScopeResolver, *authscope.Principal, string, string, []string) (authscope.ReadScope, error)
+
+// RecipeExecutionReadFailure retains the boundary that failed so transports
+// can preserve their distinct lookup and authorization error contracts.
+type RecipeExecutionReadFailure struct {
+	Authorization bool
+	Err           error
+}
+
+func (e *RecipeExecutionReadFailure) Error() string { return e.Err.Error() }
+func (e *RecipeExecutionReadFailure) Unwrap() error { return e.Err }
+
+// NewAuthorizedRecipeExecutionRecordReader loads the durable, transport-neutral
+// execution record after applying the project and generation-scope checks.
+// REST and GraphQL project the authorized record into their own wire contracts.
+func NewAuthorizedRecipeExecutionRecordReader(store RecipeExecutionStore, scopeResolver *authscope.ScopeResolver, resolveScope RecipeExecutionScopeResolver, requireID bool) func(context.Context, string) (materialization.BundleExecution, error) {
+	return func(ctx context.Context, id string) (materialization.BundleExecution, error) {
+		if store == nil {
+			return materialization.BundleExecution{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+		}
+		execution, err := store.GetExecution(ctx, id)
+		if err != nil {
+			return materialization.BundleExecution{}, &RecipeExecutionReadFailure{Err: err}
+		}
+		if requireID && execution.ID == "" {
+			return materialization.BundleExecution{}, dataframeerrors.NewError(dataframeerrors.CodeRecipeExecutionNotFound, "")
+		}
+		principal, _ := authscope.PrincipalFromContext(ctx)
+		if err := authscope.AuthorizeProject(principal, execution.Project, false); err != nil {
+			return materialization.BundleExecution{}, dataframeerrors.NewError(dataframeerrors.CodeRecipeExecutionNotFound, "")
+		}
+		if scopeResolver != nil {
+			resolve := resolveScope
+			if resolve == nil {
+				resolve = func(ctx context.Context, scopes *authscope.ScopeResolver, principal *authscope.Principal, project, generation string, declared []string) (authscope.ReadScope, error) {
+					return scopes.ResolveReadScopeForGeneration(ctx, principal, project, generation, declared)
+				}
+			}
+			scope, scopeErr := resolve(ctx, scopeResolver, principal, execution.Project, execution.DatasetGeneration, execution.AuthResourcePaths)
+			if scopeErr != nil {
+				return materialization.BundleExecution{}, &RecipeExecutionReadFailure{Authorization: true, Err: scopeErr}
+			}
+			if scope.Mode == authscope.ReadScopeRestricted && !scope.CoversExecutionPaths(execution.AuthResourcePaths) {
+				return materialization.BundleExecution{}, dataframeerrors.NewError(dataframeerrors.CodeRecipeExecutionNotFound, "")
+			}
+		}
+		return execution, nil
+	}
+}
+
 // NewAuthorizedRecipeExecutionReader performs the project/scope check before
 // exposing durable publication status. Execution IDs are opaque and are not
 // themselves authorization credentials.
 func NewAuthorizedRecipeExecutionReader(store RecipeExecutionStore, scopeResolver *authscope.ScopeResolver) RecipeExecutionReader {
 	return func(ctx context.Context, id string) (*RecipeExecution, error) {
-		if store == nil {
-			return nil, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-		}
-		execution, err := store.GetExecution(ctx, id)
+		execution, err := NewAuthorizedRecipeExecutionRecordReader(store, scopeResolver, nil, false)(ctx, id)
 		if err != nil {
+			var failure *RecipeExecutionReadFailure
+			if errors.As(err, &failure) {
+				err = failure.Err
+			}
 			return nil, recipeExecutionLookupError(err)
-		}
-		principal, _ := authscope.PrincipalFromContext(ctx)
-		if err := authscope.AuthorizeProject(principal, execution.Project, false); err != nil {
-			return nil, dataframeerrors.NewError(dataframeerrors.CodeRecipeExecutionNotFound, "")
-		}
-		if scopeResolver != nil {
-			scope, scopeErr := scopeResolver.ResolveReadScopeForGeneration(ctx, principal, execution.Project, execution.DatasetGeneration, execution.AuthResourcePaths)
-			if scopeErr != nil {
-				return nil, recipeExecutionLookupError(scopeErr)
-			}
-			if scope.Mode == authscope.ReadScopeRestricted && !scope.CoversExecutionPaths(execution.AuthResourcePaths) {
-				return nil, dataframeerrors.NewError(dataframeerrors.CodeRecipeExecutionNotFound, "")
-			}
 		}
 		state, err := graphQLRecipeExecutionState(execution.State)
 		if err != nil {
@@ -80,10 +121,7 @@ func NewAuthorizedRecipeExecutionReader(store RecipeExecutionStore, scopeResolve
 			// per-output failures (failPhase bundle_store.go:989-995) are
 			// FAILED or persist a own FailureCode, and still project
 			// unconditionally through ErrorCode/ErrorRetryable/Phase below.
-			mirroredError := ""
-			if outputState != "READY" && outputState != "PUBLISHED" {
-				mirroredError = execution.Error
-			}
+			mirroredError := RecipeExecutionOutputMessage(execution.Error, output.State)
 			result.Outputs = append(result.Outputs, RecipeExecutionOutput{
 				Name: output.Name, State: outputState, RowCount: &rowCount, Columns: append([]materialization.PhysicalColumn(nil), output.Columns...), Error: mirroredError,
 				ErrorCode: output.FailureCode, ErrorRetryable: output.FailureRetryable,
@@ -135,4 +173,13 @@ func graphQLRecipeExecutionState(state materialization.BundleState) (string, err
 	default:
 		return "", fmt.Errorf("unsupported bundle execution state %q", state)
 	}
+}
+
+// RecipeExecutionOutputMessage mirrors execution failure text only onto outputs
+// that have not already published successfully.
+func RecipeExecutionOutputMessage(message string, state materialization.BundleState) string {
+	if state == materialization.BundleReady || state == materialization.BundlePublished {
+		return ""
+	}
+	return message
 }

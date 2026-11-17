@@ -90,43 +90,11 @@ func (r *HTTPRoutes) ActivateDatasetGeneration(ctx context.Context, request loom
 }
 
 func (r *HTTPRoutes) GetRecipeExecution(ctx context.Context, request loomapi.GetRecipeExecutionRequestObject) (loomapi.GetRecipeExecutionResponseObject, error) {
-	body, status := r.recipeExecution(ctx, request.Id)
-	if status == http.StatusOK {
-		response, ok := body.(loomapi.RecipeExecutionResponse)
-		if !ok {
-			return nil, unexpectedResponseStatus("getRecipeExecution", status)
-		}
-		return loomapi.GetRecipeExecution200JSONResponse(response), nil
-	}
-	if status == http.StatusServiceUnavailable {
-		response, ok := body.(loomapi.ServiceErrorResponse)
-		if !ok {
-			return nil, unexpectedResponseStatus("getRecipeExecution", status)
-		}
-		return loomapi.NewGetRecipeExecutionErrorResponse(status, response)
-	}
-	value, err := rawJSON(body)
+	execution, err := r.recipeExecution(ctx, request.Id)
 	if err != nil {
-		return nil, err
+		return recipeExecutionErrorResponse(ctx, err)
 	}
-	if status == http.StatusUnauthorized {
-		return loomapi.NewGetRecipeExecutionErrorResponse(status, value)
-	}
-	if status == http.StatusForbidden {
-		legacy, legacyErr := legacyErrorFromMap(value)
-		if legacyErr != nil {
-			return nil, legacyErr
-		}
-		return loomapi.NewGetRecipeExecutionErrorResponse(status, legacy)
-	}
-	if status == http.StatusNotFound {
-		legacy, legacyErr := legacyErrorFromMap(value)
-		if legacyErr != nil {
-			return nil, legacyErr
-		}
-		return loomapi.NewGetRecipeExecutionErrorResponse(status, legacy)
-	}
-	return nil, unexpectedResponseStatus("getRecipeExecution", status)
+	return loomapi.GetRecipeExecution200JSONResponse(recipeExecutionResponse(execution)), nil
 }
 
 func optionalString(value *string) string {

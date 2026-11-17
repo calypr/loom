@@ -44,18 +44,6 @@ func serviceErrorResponse(body httpapi.ErrorResponse) loomapi.ServiceErrorRespon
 	return loomapi.ServiceErrorResponse{Error: loomapi.ServiceErrorBody{Code: body.Error.Code, Message: body.Error.Message, FieldPath: fieldPathPtr, Details: detailsPtr, RequestId: requestIDPtr, Retryable: &retryable}}
 }
 
-func legacyErrorFromMap(body loomapi.RawJSON) (loomapi.LegacyErrorResponse, error) {
-	value, ok := body["error"].(string)
-	if !ok {
-		return loomapi.LegacyErrorResponse{}, fmt.Errorf("legacy error response is missing a string error")
-	}
-	var result loomapi.LegacyErrorResponse
-	if err := result.Error.FromLegacyErrorResponseError0(value); err != nil {
-		return loomapi.LegacyErrorResponse{}, err
-	}
-	return result, nil
-}
-
 func unexpectedResponseStatus(operation string, status int) error {
 	return fmt.Errorf("%s returned undocumented HTTP status %d", operation, status)
 }
