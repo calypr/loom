@@ -1125,6 +1125,34 @@ describe('BuilderWorkspace Add columns source selection', () => {
     })));
   });
 
+  it('lists observed Identifier systems across inventory pages for the selected resource type', async () => {
+    mockLoomClient.browseSemanticInventory.mockImplementation(async ({ cursor }: Parameters<LoomClient['browseSemanticInventory']>[0]) => ({
+      contextToken: 'identifier-context', buildId: 'identifier-build',
+      state: 'complete', sourceAvailability: 'unknown',
+      entries: cursor
+        ? [{ resourceType: 'Patient', sourcePath: 'identifier[]', system: 'urn:second', occurrences: 2 }]
+        : [
+          { resourceType: 'Patient', sourcePath: 'identifier[]', system: 'urn:first', occurrences: 1 },
+          { resourceType: 'Patient', sourcePath: 'extension[]', system: 'urn:unrelated', occurrences: 1 },
+        ],
+      ...(cursor ? {} : { nextCursor: 'page-two' }),
+    }));
+    renderImportedBuilder();
+    fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Advanced' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Identifiers' }));
+
+    const systems = screen.getByRole('region', { name: 'Observed identifier systems' });
+    expect(await within(systems).findByText('urn:first')).toBeInTheDocument();
+    expect(within(systems).getByText('urn:second')).toBeInTheDocument();
+    expect(within(systems).queryByText('urn:unrelated')).not.toBeInTheDocument();
+    expect(mockLoomClient.browseSemanticInventory).toHaveBeenCalledWith(
+      expect.objectContaining({ rowRoot: 'Patient', resourceType: 'Patient', query: 'identifier', cursor: 'page-two' }),
+      expect.any(AbortSignal),
+    );
+    expect(screen.getByText(/Loom keeps the first in sorted order/)).toBeInTheDocument();
+  });
+
   it('lists unavailable column rules on a Builder-created table', async () => {
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
 

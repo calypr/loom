@@ -1,4 +1,5 @@
 import React, { useId, useState } from 'react';
+import { observedIdentifierSystems, useColumnRuleInventory, type ColumnRuleInventoryScope } from '../columnRuleInventory';
 import { columnRuleDefaults, columnRulePresets, type ColumnRulePreset } from '../sourceColumnRule';
 import type { AddColumnsGraphSource, AddColumnsView } from '../authoring/useAddColumns';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
@@ -28,18 +29,32 @@ type CatalogProps = React.ComponentProps<typeof ConceptCatalog>;
 type ReshapeProps = React.ComponentProps<typeof ConstructionReshapeEditor>;
 type FamilyOperation = { readonly family: ConstructionOperationFamily; readonly label: string };
 
-function ColumnRulePicker({ unavailableReason, disabled, reviewing, renderRule }: {
+type RuleInventory = {
+  readonly systems: ReadonlyArray<string>;
+  readonly loading: boolean;
+  readonly unavailable: boolean;
+};
+
+function ColumnRulePicker({ client, inventoryScope, unavailableReason, disabled, reviewing, renderRule }: {
+  readonly client: LoomClient;
+  readonly inventoryScope: ColumnRuleInventoryScope;
   readonly unavailableReason?: string;
   readonly disabled: boolean;
   readonly reviewing: boolean;
-  readonly renderRule?: (preset: ColumnRulePreset) => React.ReactNode;
+  readonly renderRule?: (preset: ColumnRulePreset, inventory: RuleInventory) => React.ReactNode;
 }) {
   const [selected, setSelected] = useState<ColumnRulePreset>();
+  const identifiers = useColumnRuleInventory(client, inventoryScope, 'identifier', !unavailableReason);
+  const inventory = {
+    systems: observedIdentifierSystems(identifiers.data ?? []),
+    loading: identifiers.isLoading,
+    unavailable: Boolean(identifiers.error),
+  };
   if (selected && !unavailableReason && renderRule) {
     return <div className="grid gap-2">
       <button type="button" disabled={disabled || reviewing} onClick={() => setSelected(undefined)}
         className="justify-self-start px-3 text-sm font-medium text-blue-800">Back to column rules</button>
-      {renderRule(selected)}
+      {renderRule(selected, inventory)}
     </div>;
   }
   return (
@@ -87,7 +102,8 @@ export interface OperationEditorHostProps {
   readonly fieldPresentationContext: CatalogProps['presentationContext'];
   readonly addColumnsView: AddColumnsView;
   readonly columnRulesUnavailableReason?: string;
-  readonly renderColumnRule?: (preset: ColumnRulePreset) => React.ReactNode;
+  readonly columnRuleInventoryScope: ColumnRuleInventoryScope;
+  readonly renderColumnRule?: (preset: ColumnRulePreset, inventory: RuleInventory) => React.ReactNode;
   readonly reviewingAdvancedColumns?: boolean;
   readonly onSwitchAddColumnsView: (view: AddColumnsView) => void;
   readonly existingSourceKeys: CatalogProps['existingSourceKeys'];
@@ -142,6 +158,7 @@ export const OperationEditorHost = ({
   fieldPresentationContext,
   addColumnsView: columnKind,
   columnRulesUnavailableReason,
+  columnRuleInventoryScope,
   renderColumnRule,
   reviewingAdvancedColumns,
   onSwitchAddColumnsView: selectColumnKind,
@@ -287,6 +304,7 @@ export const OperationEditorHost = ({
                   className="grid gap-3">
                   {advanced ? <ColumnRulePicker
                     key={`${ownerKey}:${graphSource?.occurrenceId ?? ''}`}
+                    client={loomClient} inventoryScope={columnRuleInventoryScope}
                     unavailableReason={columnRulesUnavailableReason} disabled={columnControlsDisabled}
                     reviewing={Boolean(reviewingAdvancedColumns)} renderRule={renderColumnRule}
                   /> : graphSource && !graphSource.isRoot && !graphSource.nodeId ? (

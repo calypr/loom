@@ -1350,6 +1350,12 @@ const BuilderWorkspaceContent = ({
     : graphSource && !graphSource.isRoot && !graphSource.nodeId
       ? 'This graph occurrence is unavailable.'
       : undefined;
+  const ruleInventoryScope = {
+    project: projectId, explorerId: state.explorerId, authResourcePath,
+    snapshotToken: state.catalog.snapshotToken,
+    rowRoot: table?.document.rootResourceType ?? '',
+    resourceType: ruleOccurrence?.resourceType ?? '',
+  };
   const operationEditor = table && activeOperation ? (
     <OperationEditorHost
       table={table}
@@ -1379,13 +1385,16 @@ const BuilderWorkspaceContent = ({
       addColumnsView={addColumnsView}
       reviewingAdvancedColumns={reviewingAdvancedColumns}
       columnRulesUnavailableReason={ruleUnavailableReason}
-      renderColumnRule={(preset) => {
+      columnRuleInventoryScope={ruleInventoryScope}
+      renderColumnRule={(preset, inventory) => {
         const initialParameters = columnRuleDefaults[preset.id];
         if (!ruleOccurrence || !initialParameters) return null;
         return (
           <CreateColumnRule
             key={`${relationshipOwner}:${ruleOccurrence.id}:${preset.id}`}
             kind={preset.kind} occurrence={ruleOccurrence} preset={preset} initialParameters={initialParameters}
+            identifierSystems={inventory.systems} identifierInventoryLoading={inventory.loading}
+            identifierInventoryUnavailable={inventory.unavailable}
             reviewing={activeRuleReview?.ruleKind === preset.kind && activeRuleReview.occurrenceId === ruleOccurrence.id}
             disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
             onReview={() => {
