@@ -240,11 +240,21 @@ func contributorSnapshot() capability.Snapshot {
 func stringPtr(value string) *string { return &value }
 
 func TestProjectionWireModesPreserveDistinctArray(t *testing.T) {
-	if got := wireProjectionMode(capability.ProjectionArray); got != "ALL" {
-		t.Fatalf("array wire mode = %q, want ALL", got)
+	snapshot := fixtureSnapshot()
+	snapshot.Candidates = []capability.Candidate{
+		{ID: "array", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name", Label: "Patient name", LogicalType: "string", Cardinality: "many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}},
+		{ID: "distinct", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "identifier", Label: "Identifier", LogicalType: "string", Cardinality: "many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionDistinctArray}},
 	}
-	if got := wireProjectionMode(capability.ProjectionDistinctArray); got != "DISTINCT" {
-		t.Fatalf("distinct array wire mode = %q, want DISTINCT", got)
+	catalog := authoringv2.CatalogFromCapability(snapshot, "explorer-a")
+	got := map[string][]string{}
+	for _, candidate := range catalog.Candidates {
+		got[candidate.ID] = candidate.ProjectionModes
+	}
+	if !reflect.DeepEqual(got["array"], []string{"ALL"}) {
+		t.Fatalf("array projection modes = %#v, want [ALL]", got["array"])
+	}
+	if !reflect.DeepEqual(got["distinct"], []string{"DISTINCT"}) {
+		t.Fatalf("distinct projection modes = %#v, want [DISTINCT]", got["distinct"])
 	}
 }
 
@@ -256,7 +266,7 @@ func TestCatalogCandidateRepeatedUsesCompilerCardinality(t *testing.T) {
 		{ID: "many", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name[].family", LogicalType: "string", Cardinality: "many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}},
 		{ID: "observed-many", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "identifier[].value", LogicalType: "string", Cardinality: "unknown_observed_many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}},
 	}
-	catalog := catalogFromCapability(snapshot, "explorer-a")
+	catalog := authoringv2.CatalogFromCapability(snapshot, "explorer-a")
 	got := map[string]bool{}
 	for _, candidate := range catalog.Candidates {
 		got[candidate.ID] = candidate.Repeated
@@ -275,7 +285,7 @@ func TestCatalogCandidateRepeatedUsesCompilerCardinality(t *testing.T) {
 func TestRouteDepthUsesStableErrorAtCommandAndCompileBoundaries(t *testing.T) {
 	snapshot := fixtureSnapshot()
 	snapshot.Policy.Route.MaxHops = 1
-	catalog := catalogFromCapability(snapshot, "explorer-a")
+	catalog := authoringv2.CatalogFromCapability(snapshot, "explorer-a")
 	workspace, created, err := authoringv2.ApplyCommands(
 		authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}},
 		catalog,
@@ -342,7 +352,7 @@ func TestCompileRejectsCapabilityMismatchedLogicalTypeAndProjection(t *testing.T
 
 func TestCompileWorkspaceAcceptsCommandGeneratedCandidateSelection(t *testing.T) {
 	snapshot := fixtureSnapshot()
-	catalog := catalogFromCapability(snapshot, "explorer-a")
+	catalog := authoringv2.CatalogFromCapability(snapshot, "explorer-a")
 	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}}
 	var created []authoringv2.CommandResult
 	var err error

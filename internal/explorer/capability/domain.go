@@ -464,7 +464,7 @@ func cloneAvailability(in *Availability) *Availability {
 	out.Fields = append([]ObservedField(nil), in.Fields...)
 	for i := range out.Fields {
 		out.Fields[i].Examples = append([]string(nil), in.Fields[i].Examples...)
-		out.Fields[i].SemanticObservations = cloneConceptCandidates(in.Fields[i].SemanticObservations)
+		out.Fields[i].SemanticObservations = CloneConceptCandidates(in.Fields[i].SemanticObservations)
 	}
 	return &out
 }
@@ -485,12 +485,12 @@ func cloneCandidates(v []Candidate) []Candidate {
 		out[i].AggregateOperations = cloneAggregateOperationCapabilities(v[i].AggregateOperations)
 		out[i].SuggestedValues = append([]string(nil), out[i].SuggestedValues...)
 		out[i].RepeatedBoundaries = append([]RepeatedBoundary(nil), out[i].RepeatedBoundaries...)
-		out[i].ConceptCandidates = cloneConceptCandidateValues(out[i].ConceptCandidates)
+		out[i].ConceptCandidates = CloneConceptCandidates(out[i].ConceptCandidates)
 	}
 	return out
 }
 
-func cloneConceptCandidateValues(in []ConceptCandidate) []ConceptCandidate {
+func CloneConceptCandidates(in []ConceptCandidate) []ConceptCandidate {
 	if len(in) == 0 {
 		return nil
 	}
@@ -503,6 +503,7 @@ func cloneConceptCandidateValues(in []ConceptCandidate) []ConceptCandidate {
 	}
 	return out
 }
+
 func cloneDiagnostics(v []Diagnostic) []Diagnostic {
 	out := append([]Diagnostic(nil), v...)
 	for i := range out {

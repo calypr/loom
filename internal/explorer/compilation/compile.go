@@ -139,7 +139,7 @@ type ResolvedImportedSourceColumn struct {
 
 func CompileWorkspace(ctx context.Context, project, explorerID string, workspace authoringv2.Workspace, snapshot capability.Snapshot, resolvedInputs ResolvedInputs) (WorkspaceResult, error) {
 	project = projectid.Canonical(project)
-	wire := catalogFromCapability(snapshot, explorerID)
+	wire := authoringv2.CatalogFromCapability(snapshot, explorerID)
 	var migrationErr error
 	workspace, migrationErr = authoringv2.MigrateWorkspaceForCompilation(workspace, wire)
 	if migrationErr != nil {
@@ -899,89 +899,6 @@ func compileWithWorkspaceOutputs(ctx context.Context, project, explorerID string
 	return compileSemanticDocument(ctx, project, explorerID, document, snapshot, workspaceOutputIDs)
 }
 
-func catalogFromCapability(snapshot capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
-	catalog := authoringv2.CatalogSnapshot{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind,
-		Project: snapshot.Identity.Project, ExplorerID: explorerID,
-		SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
-		ResolvedSchemaDigest: snapshot.Identity.SchemaDigest, SnapshotToken: snapshot.Token, Complete: snapshot.Complete,
-		RoutePolicy: authoringv2.RoutePolicy{Unbounded: snapshot.Policy.Route.MaxHops == 0, AllowRepeatedEdges: snapshot.Policy.Route.AllowsRepeatedEdges, AllowSelfLoops: snapshot.Policy.Route.AllowsSelfLoops},
-	}
-	if snapshot.Policy.Route.MaxHops > 0 {
-		max := snapshot.Policy.Route.MaxHops
-		catalog.RoutePolicy.MaxHops = &max
-	}
-	for _, node := range snapshot.Nodes {
-		count := node.DocumentCount
-		catalog.Nodes = append(catalog.Nodes, authoringv2.CatalogNode{ID: node.ID, ResourceType: node.ResourceType, RowRootEligible: node.RowRootEligible, RowGrain: node.RowGrain, Populated: node.Populated, DocumentCount: &count})
-	}
-	for _, edge := range snapshot.Edges {
-		catalog.Edges = append(catalog.Edges, authoringv2.CatalogEdge{
-			ID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID, Label: edge.Label,
-			StorageDirection: edge.StorageDirection, Populated: edge.ObservedEdgeCount > 0,
-		})
-	}
-	for _, candidate := range snapshot.Candidates {
-		modes := make([]string, len(candidate.ProjectionModes))
-		for i, mode := range candidate.ProjectionModes {
-			modes[i] = wireProjectionMode(mode)
-		}
-		defaultMode := preferredProjectionMode(modes)
-		conceptCandidates := make([]authoringv2.ConceptCandidate, len(candidate.ConceptCandidates))
-		for index, concept := range candidate.ConceptCandidates {
-			conceptCandidates[index] = authoringv2.ConceptCandidate{
-				SourceResourceType: concept.SourceResourceType, SourcePath: concept.SourcePath, SourceCanonical: concept.SourceCanonical, SourceProfile: concept.SourceProfile, OwningScope: concept.OwningScope,
-				ExtensionURLPath: append([]string(nil), concept.ExtensionURLPath...), KeySelector: concept.KeySelector,
-				System: concept.System, Code: concept.Code, Display: concept.Display, ValueSelector: concept.ValueSelector,
-				ChoiceArm: concept.ChoiceArm, LogicalType: concept.LogicalType, ObservedUnits: append([]string(nil), concept.ObservedUnits...),
-				ObservedUnitsTruncated: concept.ObservedUnitsTruncated,
-				Completeness:           concept.Completeness, Status: concept.Status, Population: concept.Population, Examples: append([]string(nil), concept.Examples...), ExamplesTruncated: concept.ExamplesTruncated, RuleHint: concept.RuleHint, RuleVersion: concept.RuleVersion,
-			}
-		}
-		wire := authoringv2.CatalogCandidate{
-			ID: candidate.ID, NodeID: candidate.NodeID, Label: candidate.Label, LogicalType: candidate.LogicalType,
-			Cardinality: candidate.Cardinality, Repeated: capability.IsRepeatedCardinality(candidate.Cardinality), Filterable: supportsOperation(candidate.SupportedOperations, capability.OperationFilter), Chartable: supportsOperation(candidate.SupportedOperations, capability.OperationChart),
-			FieldPath: candidate.FieldPath, ProjectionModes: modes, DefaultProjectionMode: defaultMode, Populated: candidate.Populated,
-			RepeatedBoundaries: authoringRepeatedBoundaries(candidate.RepeatedBoundaries), ConceptCandidates: conceptCandidates,
-			AggregateOperations: append([]capability.AggregateOperationCapability{}, candidate.AggregateOperations...),
-		}
-		choice, err := capability.NewFieldConstructionChoice(snapshot.Token, candidate)
-		if err != nil {
-			catalog.Diagnostics = append(catalog.Diagnostics, authoringv2.CatalogDiagnostic{
-				Severity: "WARNING", Code: "CONSTRUCTION_CHOICE_UNAVAILABLE",
-				Message: "A catalog candidate was omitted because no compiler-proved construction output is available.",
-			})
-			continue
-		}
-		wire.ConstructionChoice = &choice
-		catalog.Candidates = append(catalog.Candidates, wire)
-	}
-	transformations := authoringv2.AggregateTransformationCapabilitiesForCatalogCandidates(catalog)
-	for index := range catalog.Candidates {
-		catalog.Candidates[index].Transformations = transformations[index]
-	}
-	return catalog
-}
-
-func preferredProjectionMode(values []string) string {
-	for _, preferred := range []string{"VALUE", "INDEXED", "ALL", "FIRST"} {
-		for _, value := range values {
-			if value == preferred {
-				return value
-			}
-		}
-	}
-	return ""
-}
-
-func authoringRepeatedBoundaries(values []capability.RepeatedBoundary) []authoringv2.RepeatedBoundary {
-	out := make([]authoringv2.RepeatedBoundary, len(values))
-	for index, value := range values {
-		out[index] = authoringv2.RepeatedBoundary{Path: value.Path, MaxItems: value.MaxItems}
-	}
-	return out
-}
-
 func validateSnapshot(snapshot capability.Snapshot) error {
 	nodes := map[string]capability.Node{}
 	for i, node := range snapshot.Nodes {
@@ -1025,6 +942,7 @@ func supportsOperation(items []capability.Operation, want capability.Operation) 
 	return false
 }
 
+
 func projectionValueMode(mode string) recipe.ValueMode {
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case string(capability.ProjectionFirst):
@@ -1035,21 +953,6 @@ func projectionValueMode(mode string) recipe.ValueMode {
 		return recipe.ValueModeDistinct
 	default:
 		return recipe.ValueModeAuto
-	}
-}
-
-func wireProjectionMode(mode capability.ProjectionMode) string {
-	switch mode {
-	case capability.ProjectionScalar:
-		return "VALUE"
-	case capability.ProjectionIndexed:
-		return "INDEXED"
-	case capability.ProjectionArray:
-		return "ALL"
-	case capability.ProjectionDistinctArray:
-		return "DISTINCT"
-	default:
-		return string(mode)
 	}
 }
 

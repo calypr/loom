@@ -282,7 +282,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			}
 			var contributorWhere *recipe.Filter
 			if column.Contributor != nil {
-				catalog := catalogFromCapability(snapshot, explorerID)
+				catalog := authoringv2.CatalogFromCapability(snapshot, explorerID)
 				if err := authoringv2.ValidateContributorForCatalog(document, catalog, column.OccurrenceID, column.Source, *column.Contributor); err != nil {
 					return Result{}, fail("intent", "INVALID_CONTRIBUTOR_PREDICATE", fmt.Sprintf("$.columns[%d].contributor", index), err.Error(), map[string]any{"candidateId": column.Contributor.CandidateID}, err)
 				}

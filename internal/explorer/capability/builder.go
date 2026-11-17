@@ -141,7 +141,7 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 		fields[i].SuggestedValues = append([]string(nil), fields[i].SuggestedValues...)
 		fields[i].Examples = append([]string(nil), fields[i].Examples...)
 		fields[i].RepeatedBoundaries = append([]RepeatedBoundary(nil), fields[i].RepeatedBoundaries...)
-		fields[i].ConceptCandidates = cloneConceptCandidates(fields[i].ConceptCandidates)
+		fields[i].ConceptCandidates = CloneConceptCandidates(fields[i].ConceptCandidates)
 	}
 	observedFields := append([]ObservedField(nil), b.Evidence.ObservedFields...)
 	if len(observedFields) == 0 {
@@ -149,13 +149,13 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 			observedFields = append(observedFields, ObservedField{
 				ResourceType: field.ResourceType, Path: field.Path, ShapeKind: field.ObservedShapeKind,
 				PathObservedCount: field.ObservedDocumentCount, Examples: append([]string(nil), field.Examples...),
-				ExamplesTruncated: field.ExamplesTruncated, SemanticObservations: cloneConceptCandidates(field.ConceptCandidates),
+				ExamplesTruncated: field.ExamplesTruncated, SemanticObservations: CloneConceptCandidates(field.ConceptCandidates),
 			})
 		}
 	}
 	for i := range observedFields {
 		observedFields[i].Examples = append([]string(nil), observedFields[i].Examples...)
-		observedFields[i].SemanticObservations = cloneConceptCandidates(observedFields[i].SemanticObservations)
+		observedFields[i].SemanticObservations = CloneConceptCandidates(observedFields[i].SemanticObservations)
 	}
 
 	policy := b.Policy
@@ -297,7 +297,7 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 		c.SuggestedValues = append([]string(nil), f.SuggestedValues...)
 		c.SuggestionsComplete = f.SuggestionsComplete
 		c.SuggestionsTruncated = f.SuggestionsTruncated
-		c.ConceptCandidates = cloneConceptCandidates(f.ConceptCandidates)
+		c.ConceptCandidates = CloneConceptCandidates(f.ConceptCandidates)
 		sort.Strings(c.SuggestedValues)
 		if policy.Projection.SuggestionLimit > 0 && len(c.SuggestedValues) > policy.Projection.SuggestionLimit {
 			c.SuggestedValues = c.SuggestedValues[:policy.Projection.SuggestionLimit]
@@ -437,20 +437,6 @@ func inferredReadiness(available bool) AvailabilitySourceReadiness {
 		return AvailabilitySourceReadiness{Status: "COMPLETE"}
 	}
 	return AvailabilitySourceReadiness{Status: "BLOCKED", Reason: "observation source is unavailable"}
-}
-
-func cloneConceptCandidates(in []ConceptCandidate) []ConceptCandidate {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]ConceptCandidate, len(in))
-	for i := range in {
-		out[i] = in[i]
-		out[i].ExtensionURLPath = append([]string(nil), in[i].ExtensionURLPath...)
-		out[i].ObservedUnits = append([]string(nil), in[i].ObservedUnits...)
-		out[i].Examples = append([]string(nil), in[i].Examples...)
-	}
-	return out
 }
 
 func (b Builder) failed(identity SnapshotIdentity, code, message string) Snapshot {

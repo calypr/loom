@@ -53,7 +53,7 @@ func TestAcceptanceObservationContributorAQLAndBinds(t *testing.T) {
 	}
 
 	snapshot := acceptanceObservationSnapshot()
-	catalog := catalogFromCapability(snapshot, "acceptance")
+	catalog := authoringv2.CatalogFromCapability(snapshot, "acceptance")
 	workspace.Documents = []authoringv2.Document{document}
 	migrated, err := authoringv2.MigrateLegacyContributors(workspace, catalog)
 	if err != nil {
