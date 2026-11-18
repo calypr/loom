@@ -1,6 +1,6 @@
 # Development-only API image. Source is mounted by compose.dev.yaml so saves
 # rebuild the binary in Air instead of rebuilding this image.
-FROM golang:1.26.5-bookworm
+FROM golang:1.27.4-bookworm
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git \

@@ -1,7 +1,7 @@
 # Scripts
 
 Run commands from the repository root. Use the repository Go toolchain
-(currently 1.26.5), Node 24 as used by CI, and installed UI
+(currently 1.27.4), Node 24 as used by CI, and installed UI
 dependencies. Docker Compose and Chrome/Chromium are required for local e2e.
 CI setup versions and service configuration live in
 [tests.yaml](../.github/workflows/tests.yaml).

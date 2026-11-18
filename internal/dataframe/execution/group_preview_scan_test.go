@@ -517,15 +517,15 @@ func TestChooseGroupPreviewScanKeepsNoneligiblePlansOnCanonicalQuery(t *testing.
 
 func groupPreviewScanFixture() (*Engine, compiler.CompiledQuery, OutputStream) {
 	return &Engine{}, compiler.CompiledQuery{
-			Query: "normal-query", BindVars: map[string]any{"scan": "normal"},
-			PreviewGroupScan: &compiler.PreviewGroupScanSpec{
-				Collection: "Specimen", SequentialQuery: "sequential-query",
-				SequentialBindVars: map[string]any{"scan": "sequential"},
-				ScopeCountQuery:    "scope-count-query", ScopeCountBindVars: map[string]any{"scope": true},
-			},
-		}, OutputStream{query: "normal-query", bindVars: map[string]any{"scan": "normal"}, stream: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
-			return nil
-		}}
+		Query: "normal-query", BindVars: map[string]any{"scan": "normal"},
+		PreviewGroupScan: &compiler.PreviewGroupScanSpec{
+			Collection: "Specimen", SequentialQuery: "sequential-query",
+			SequentialBindVars: map[string]any{"scan": "sequential"},
+			ScopeCountQuery:    "scope-count-query", ScopeCountBindVars: map[string]any{"scope": true},
+		},
+	}, OutputStream{query: "normal-query", bindVars: map[string]any{"scan": "normal"}, stream: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		return nil
+	}}
 }
 
 func nonCoveringGroupExplain(context.Context, string, map[string]any) (arango.ExplainResult, error) {

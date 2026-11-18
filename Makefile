@@ -1,7 +1,7 @@
 .PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir openapi-check test test-scripts dev-test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui dev dev-rebuild dev-doctor verify-current verify-fast dev-down verify-api test-ui test-go test-integration e2e
 
 GO ?= go
-GO_VERSION ?= 1.26.5
+GO_VERSION ?= 1.27.4
 GO_TOOLCHAIN ?= go$(GO_VERSION)
 GOCACHE_DIR ?= $(CURDIR)/.gocache
 GOFLAGS ?=

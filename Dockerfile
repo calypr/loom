@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM golang:1.26.5-bookworm AS builder
+FROM golang:1.27.4-bookworm AS builder
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/*
