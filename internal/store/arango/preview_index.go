@@ -54,11 +54,7 @@ func previewCoveringIndexDefinitions(collection string, indexes []driver.IndexRe
 	for _, index := range indexes {
 		if index.Type != driver.IndexType("persistent") || index.RegularIndex == nil ||
 			index.Unique == nil || *index.Unique || index.Sparse == nil || *index.Sparse ||
-			!validPreviewCoveringIndex(collection, index.Name, index.RegularIndex.Fields) {
-			continue
-		}
-		if len(index.RegularIndex.StoredValues) != 0 &&
-			!validPreviewCoveringIndexStoredValuesDefinition(index.Name, index.RegularIndex.Fields, index.RegularIndex.StoredValues) {
+			!validPreviewCoveringIndexDefinition(collection, index.Name, index.RegularIndex.Fields, index.RegularIndex.StoredValues) {
 			continue
 		}
 		definitions = append(definitions, PreviewCoveringIndex{
@@ -189,7 +185,7 @@ func previewCoveringIndexMatchesDefinition(index driver.IndexResponse, fields, s
 }
 
 func validPreviewCoveringIndexWithStoredValues(collection, name string, fields, storedValues []string) bool {
-	return validPreviewCoveringIndex(collection, name, fields) &&
+	return validPreviewCoveringIndexFieldSet(collection, name, fields) &&
 		validPreviewCoveringIndexStoredValuesDefinition(name, fields, storedValues)
 }
 
@@ -209,9 +205,13 @@ func previewCoveringIndexNameWithStoredValues(collection string, fields, storedV
 
 func validPreviewCoveringIndexStoredValuesDefinition(name string, fields, storedValues []string) bool {
 	if !strings.HasPrefix(name, previewCoveringIndexPrefix) || !validIndexPath(name) ||
-		len(fields) < 5 || len(fields) > 32 ||
-		!slices.Equal(fields[:4], []string{"project", "dataset_generation", "auth_resource_path", "_key"}) ||
-		len(storedValues) == 0 || len(storedValues) > 32 {
+		len(fields) > 32 || len(storedValues) == 0 || len(storedValues) > 32 {
+		return false
+	}
+	legacyFields := len(fields) >= 5 &&
+		slices.Equal(fields[:4], []string{"project", "dataset_generation", "auth_resource_path", "_key"})
+	newFields := len(fields) >= 2 && slices.Equal(fields[:2], []string{"project", "dataset_generation"})
+	if !legacyFields && !newFields {
 		return false
 	}
 	fieldSet := make(map[string]struct{}, len(fields))
@@ -221,29 +221,52 @@ func validPreviewCoveringIndexStoredValuesDefinition(name string, fields, stored
 		}
 		fieldSet[field] = struct{}{}
 	}
-	lastPayloadField := ""
-	for index, field := range fields[4:] {
-		if field == "resourceType" {
-			if index != len(fields[4:])-1 {
+	if newFields && !legacyFields {
+		for _, field := range fields[2:] {
+			if field != "_key" && !strings.HasPrefix(field, "payload.") {
 				return false
 			}
+		}
+	}
+	lastPayloadField := ""
+	fieldOffset := 2
+	if legacyFields {
+		fieldOffset = 4
+	}
+	for _, field := range fields[fieldOffset:] {
+		if field == "_key" {
 			continue
 		}
-		if !strings.HasPrefix(field, "payload.") || (lastPayloadField != "" && lastPayloadField >= field) {
+		if legacyFields && field == "resourceType" && field == fields[len(fields)-1] {
+			continue
+		}
+		if strings.HasPrefix(field, "payload.") && lastPayloadField != "" && lastPayloadField >= field {
 			return false
 		}
-		for previous := 4; previous < index+4; previous++ {
-			if previewIndexPathsOverlap(fields[previous], field) {
-				return false
+		if strings.HasPrefix(field, "payload.") {
+			for previous := fieldOffset; previous < len(fields); previous++ {
+				if fields[previous] == field {
+					break
+				}
+				if previewIndexPathsOverlap(fields[previous], field) {
+					return false
+				}
 			}
+			lastPayloadField = field
+		} else if field != "_key" {
+			return false
 		}
-		lastPayloadField = field
 	}
 	seen := make(map[string]struct{}, len(storedValues))
+	lastStoredValue := ""
+	storedAuth := false
 	for _, path := range storedValues {
-		if !strings.HasPrefix(path, "payload.") || !validIndexPath(path) {
+		if !validIndexPath(path) || (path != "auth_resource_path" && path != "resourceType" && !strings.HasPrefix(path, "payload.")) ||
+			(lastStoredValue != "" && lastStoredValue >= path) {
 			return false
 		}
+		storedAuth = storedAuth || path == "auth_resource_path"
+		lastStoredValue = path
 		for existing := range seen {
 			if previewIndexPathsOverlap(existing, path) {
 				return false
@@ -256,7 +279,7 @@ func validPreviewCoveringIndexStoredValuesDefinition(name string, fields, stored
 		}
 		seen[path] = struct{}{}
 	}
-	return true
+	return legacyFields || storedAuth
 }
 
 func previewIndexPathsOverlap(left, right string) bool {
@@ -264,16 +287,28 @@ func previewIndexPathsOverlap(left, right string) bool {
 }
 
 func validPreviewCoveringIndex(collection, name string, fields []string) bool {
+	return validPreviewCoveringIndexFieldSet(collection, name, fields) && !newStoredPreviewIndexFields(fields)
+}
+
+func validPreviewCoveringIndexDefinition(collection, name string, fields, storedValues []string) bool {
+	if len(storedValues) != 0 {
+		return validPreviewCoveringIndexWithStoredValues(collection, name, fields, storedValues)
+	}
+	return validPreviewCoveringIndex(collection, name, fields)
+}
+
+func validPreviewCoveringIndexFieldSet(collection, name string, fields []string) bool {
 	if collection == "" || !validIndexPath(collection) || !strings.HasPrefix(name, previewCoveringIndexPrefix) || !validIndexPath(name) {
 		return false
 	}
-	if len(fields) < 4 || len(fields) > 32 || fields[0] != "project" || fields[1] != "dataset_generation" {
+	if len(fields) < 3 || len(fields) > 32 || fields[0] != "project" || fields[1] != "dataset_generation" {
 		return false
 	}
+	newStoredLayout := newStoredPreviewIndexFields(fields)
 	categoryOrdered := len(fields) == 4 && strings.HasPrefix(fields[2], "payload.") && fields[3] == "auth_resource_path"
 	relatedCategoryTypeOrdered := len(fields) == 5 && fields[2] == "resourceType" &&
 		strings.HasPrefix(fields[3], "payload.") && fields[4] == "auth_resource_path"
-	if fields[2] != "auth_resource_path" && !categoryOrdered && !relatedCategoryTypeOrdered {
+	if fields[2] != "auth_resource_path" && !categoryOrdered && !relatedCategoryTypeOrdered && !newStoredLayout {
 		return false
 	}
 	seen := make(map[string]struct{}, len(fields))
@@ -285,6 +320,35 @@ func validPreviewCoveringIndex(collection, name string, fields []string) bool {
 			return false
 		}
 		seen[field] = struct{}{}
+	}
+	return true
+}
+
+func newStoredPreviewIndexFields(fields []string) bool {
+	if len(fields) < 3 || fields[0] != "project" || fields[1] != "dataset_generation" {
+		return false
+	}
+	if fields[2] != "_key" && !strings.HasPrefix(fields[2], "payload.") {
+		return false
+	}
+	lastPayload := ""
+	seenPayload := make(map[string]struct{}, len(fields)-2)
+	for _, field := range fields[2:] {
+		if field != "_key" && !strings.HasPrefix(field, "payload.") {
+			return false
+		}
+		if strings.HasPrefix(field, "payload.") {
+			if lastPayload != "" && lastPayload >= field {
+				return false
+			}
+			for previous := range seenPayload {
+				if previewIndexPathsOverlap(previous, field) {
+					return false
+				}
+			}
+			seenPayload[field] = struct{}{}
+			lastPayload = field
+		}
 	}
 	return true
 }

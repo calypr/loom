@@ -4,11 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/catalog"
 )
 
 func sourceValidationFile(t *testing.T, body string) string {
@@ -79,5 +82,34 @@ func TestSourceFileValidationChecksEveryResourceType(t *testing.T) {
 	_, _, rejected, err := validateSourceLoadFile(context.Background(), sourceValidationFile(t, `{"resourceType":"Patient","id":"p1"}`), "META/BodyStructure.ndjson", "fixture", "", "candidate", sourceValidationSchema(t))
 	if err != nil || rejected == nil || rejected.TotalErrors != 1 {
 		t.Fatalf("mismatched resource type = %#v %v", rejected, err)
+	}
+}
+
+func TestCopySemanticInventoryEntryRekeysAndRespectsSourceVersion(t *testing.T) {
+	project, sourceGeneration, targetGeneration := "project", "source", "target"
+	buildID := catalog.SemanticInventoryBuildID(project, sourceGeneration)
+	document := map[string]any{
+		"_key": "old-key", "project": project, "dataset_generation": sourceGeneration, "build_id": buildID,
+		"source_kind": catalog.SemanticInventorySourceFile, "auth_resource_path": "scope", "resource_type": "Observation",
+		"binding_id": "binding", "concept_id": "concept", "observation": map[string]any{"population": 4},
+	}
+	transform := copySemanticInventoryEntryDocument(project, targetGeneration, []string{"Patient"}, true)
+	encoded, err := transform(sourceCopyRow{Document: document})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var copied map[string]any
+	if err := json.Unmarshal(encoded, &copied); err != nil {
+		t.Fatal(err)
+	}
+	targetBuild := catalog.SemanticInventoryBuildID(project, targetGeneration)
+	wantKey := catalog.SemanticInventoryEntryKey(project, targetGeneration, targetBuild, catalog.SemanticInventorySourceFile, "scope", "binding", "concept")
+	if copied["_key"] != wantKey || copied["_key"] == "old-key" || copied["dataset_generation"] != targetGeneration || copied["build_id"] != targetBuild {
+		t.Fatalf("copied entry identity = %#v", copied)
+	}
+	if omitted, err := copySemanticInventoryEntryDocument(project, targetGeneration, nil, false)(sourceCopyRow{Document: map[string]any{
+		"project": project, "resource_type": "Observation", "binding_id": "binding", "concept_id": "concept", "source_kind": catalog.SemanticInventorySourceFile,
+	}}); err != nil || omitted != nil {
+		t.Fatalf("stale file entry copy = %s, %v, want omitted", omitted, err)
 	}
 }

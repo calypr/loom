@@ -36,6 +36,34 @@ func TestFieldCatalogRetainsAllDynamicKeys(t *testing.T) {
 	}
 }
 
+func TestSharedShapePlansKeepRetentionBudgetsPerProfiler(t *testing.T) {
+	limits := DefaultProfileLimits()
+	limits.MaxShapePlans = 1
+	limits.MaxRetainedBytes = 1 << 20
+	shared := NewShapePlanCacheWithLimits(limits.MaxShapePlans, limits.MaxRetainedBytes)
+	first := NewProfilerForGenerationWithLimits("project", "generation", "", "Patient",
+		NewShapePlanCacheWithSharedPlans(limits.MaxShapePlans, limits.MaxRetainedBytes, shared), limits)
+	for _, payload := range []map[string]any{
+		{"resourceType": "Patient", "id": "one"},
+		{"resourceType": "Patient", "id": "two", "active": true},
+	} {
+		if err := first.ObservePayload(payload, map[string]float64{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !first.Truncated() {
+		t.Fatal("first profiler did not reach its one-plan cache limit")
+	}
+	second := NewProfilerForGenerationWithLimits("project", "generation", "", "Patient",
+		NewShapePlanCacheWithSharedPlans(limits.MaxShapePlans, limits.MaxRetainedBytes, shared), limits)
+	if err := second.ObservePayload(map[string]any{"resourceType": "Patient", "id": "one"}, map[string]float64{}); err != nil {
+		t.Fatal(err)
+	}
+	if second.Truncated() {
+		t.Fatal("another file's shape cache truncation leaked into this profiler")
+	}
+}
+
 func TestFieldCatalogProfilerBoundsHighCardinalityValues(t *testing.T) {
 	limits := ProfileLimits{
 		MaxFields:                  8,

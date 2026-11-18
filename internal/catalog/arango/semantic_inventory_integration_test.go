@@ -208,6 +208,133 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 	assertCodePopulation(t, replayed, "shared-000", 2)
 }
 
+func TestSemanticInventoryMaterializationMatchesFileAggregationAgainstArango(t *testing.T) {
+	owned := arangotest.Owned(t, "loom_semantic_aggregation_")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	store, err := New(owned.Client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := owned.Client.Bootstrap(ctx, arangostore.BootstrapSpec{Collections: []arangostore.CollectionSpec{
+		{Name: catalog.SemanticInventoryCollection},
+		{Name: catalog.SemanticInventoryEntryCollection},
+		{Name: catalog.SemanticInventoryBuildCollection},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	project := "aggregation-" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	fixtures := []catalog.SemanticInventoryContribution{
+		inventoryAggregationFixture("a", 1, false),
+		inventoryAggregationFixture("a", 2, true),
+		inventoryAggregationFixture("a", 1, false),
+		inventoryAggregationFixture("Z", 1, false),
+	}
+	var rowLevel, aggregated []catalog.SemanticInventoryEntry
+	var rawPopulation int64
+	for _, fixture := range fixtures {
+		rawPopulation += fixture.Observation.Population
+	}
+	for index, generation := range []string{"row-level", "aggregated"} {
+		build := catalog.NewSemanticInventoryBuild(project, generation, "scope")
+		if err := store.BeginSemanticInventoryBuild(ctx, build); err != nil {
+			t.Fatal(err)
+		}
+		contributions := make([]catalog.SemanticInventoryContribution, 0, len(fixtures))
+		aggregator := catalog.NewSemanticInventoryAggregator(project, generation, "scope", "Observation", "META/Observation.ndjson")
+		for ordinal, fixture := range fixtures {
+			fixture.Project = project
+			fixture.DatasetGeneration = generation
+			fixture.BuildID = build.BuildID
+			fixture.AuthResourcePath = "scope"
+			fixture.SourceKind = catalog.SemanticInventorySourceFile
+			fixture.SourceID = fmt.Sprintf("META/Observation.ndjson#%d", ordinal+1)
+			fixture.Ordinal = ordinal
+			fixture.Key = fmt.Sprintf("row-%d-%s", ordinal, generation)
+			fixture.Observation.SchemaVersion = build.ObservationSchema
+			if index == 0 {
+				contributions = append(contributions, fixture)
+			} else if err := aggregator.Add(fixture); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if index == 1 {
+			contributions = aggregator.Documents()
+			if len(contributions) != 2 {
+				t.Fatalf("aggregated rows = %d, want two distinct ICU reducer inputs", len(contributions))
+			}
+			for ordinal, contribution := range contributions {
+				contribution.Key = fmt.Sprintf("aggregate-%d-%s", ordinal, generation)
+				contributions[ordinal] = contribution
+			}
+		}
+		if err := store.WriteSemanticInventoryContributions(ctx, contributions, 100); err != nil {
+			t.Fatal(err)
+		}
+		build, err = store.EnsureSemanticInventoryEntries(ctx, build)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.CompleteSemanticInventoryBuild(ctx, build, rawPopulation, "META/Observation.ndjson"); err != nil {
+			t.Fatal(err)
+		}
+		if build.EntryIndexVersion != catalog.SemanticInventoryEntryIndexVersion {
+			t.Fatalf("entry index version = %d, want %d", build.EntryIndexVersion, catalog.SemanticInventoryEntryIndexVersion)
+		}
+		page, err := store.PageSemanticInventory(ctx, catalog.SemanticInventoryPageOptions{
+			Project: project, DatasetGeneration: generation,
+			AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(true), Limit: 10,
+		})
+		if err != nil || page.State != catalog.SemanticInventoryComplete {
+			t.Fatalf("page state=%s err=%v", page.State, err)
+		}
+		resolved, err := store.ResolveSemanticInventorySelections(ctx, catalog.SemanticInventoryResolveOptions{
+			Project: project, DatasetGeneration: generation,
+			AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(true),
+			References:                    []catalog.SemanticInventoryReference{{BindingID: "binding", ConceptID: "concept"}},
+		})
+		if err != nil || resolved.State != catalog.SemanticInventoryComplete {
+			t.Fatalf("resolve state=%s err=%v", resolved.State, err)
+		}
+		if index == 0 {
+			rowLevel = page.Entries
+			if !reflect.DeepEqual(page.Entries, resolved.Entries) {
+				t.Fatalf("row-level page entries differ from resolve entries")
+			}
+		} else {
+			aggregated = page.Entries
+			if !reflect.DeepEqual(page.Entries, resolved.Entries) {
+				t.Fatalf("aggregated page entries differ from resolve entries")
+			}
+		}
+	}
+	if !reflect.DeepEqual(rowLevel, aggregated) {
+		t.Fatalf("aggregated materialized entries differ from row-level entries\nrow level: %+v\naggregated: %+v", rowLevel, aggregated)
+	}
+	if len(aggregated) != 1 {
+		t.Fatalf("aggregated entries=%+v, want one materialized entry", aggregated)
+	}
+	if aggregated[0].Observation.Population != rawPopulation {
+		t.Fatalf("aggregated population=%d, want %d", aggregated[0].Observation.Population, rawPopulation)
+	}
+}
+
+func inventoryAggregationFixture(display string, population int64, truncated bool) catalog.SemanticInventoryContribution {
+	return catalog.SemanticInventoryContribution{
+		Project: "project", DatasetGeneration: "generation", AuthResourcePath: "scope", ResourceType: "Observation",
+		BuildID: catalog.SemanticInventoryBuildID("project", "generation"), SourceKind: catalog.SemanticInventorySourceFile,
+		SourceID: "META/Observation.ndjson#1", Ordinal: 0, ConceptID: "concept", BindingID: "binding", Example: display,
+		Observation: catalog.SemanticObservation{
+			SchemaVersion: 4,
+			Source:        catalog.SemanticObservationSource{Canonical: "canonical", Type: "Observation", Profile: "profile", Path: "path"},
+			Key:           catalog.SemanticObservationKey{Selector: "code", System: "urn:system", Version: "1", Code: "code", Display: display},
+			Value:         catalog.SemanticObservationValue{Selector: "value", Type: "string", FallbackSelectors: []string{"a", "b"}},
+			OwningScope:   "scope", ObservedUnits: []string{display}, Completeness: catalog.SemanticComplete,
+			Population: population, Examples: []string{display}, ExamplesTruncated: truncated,
+		},
+	}
+}
+
 func TestSemanticInventoryFallbackPolicySurvivesMaterializationAndReadback(t *testing.T) {
 	owned := arangotest.Owned(t, "loom_test_semantic_inventory_")
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)

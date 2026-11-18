@@ -59,7 +59,8 @@ func previewGroupProjectionIndexSpec(plan ir.PhysicalPlan) *PreviewGroupProjecti
 		path += "." + segment.Name
 	}
 	return &PreviewGroupProjectionIndexSpec{
-		RequiredFields: append([]string(nil), previewCoveringIndexPrefixFields...),
-		ProjectionPath: path,
+		RequiredFields:       append([]string(nil), previewCoveringIndexPrefixFields...),
+		RequiredStoredValues: []string{"auth_resource_path"},
+		ProjectionPath:       path,
 	}
 }

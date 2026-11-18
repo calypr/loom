@@ -239,6 +239,22 @@ func compatibleGroupProjectionIndexes(collection string, required *compiler.Prev
 		if !valid {
 			continue
 		}
+		storedFields := make(map[string]struct{}, len(index.StoredValues))
+		for _, field := range index.StoredValues {
+			storedFields[field] = struct{}{}
+		}
+		for _, field := range required.RequiredStoredValues {
+			if _, indexed := indexFields[field]; indexed {
+				continue
+			}
+			if _, stored := storedFields[field]; !stored {
+				valid = false
+				break
+			}
+		}
+		if !valid {
+			continue
+		}
 		projectionCovered := false
 		for _, field := range index.Fields {
 			if field == required.ProjectionPath {
@@ -498,6 +514,19 @@ func compatibleGroupPreviewIndexes(required *compiler.PreviewCoveringIndexSpec, 
 		covers := len(indexFields) == len(index.Fields)
 		for field := range requiredFields {
 			if _, ok := indexFields[field]; !ok {
+				covers = false
+				break
+			}
+		}
+		storedFields := make(map[string]struct{}, len(index.StoredValues))
+		for _, field := range index.StoredValues {
+			storedFields[field] = struct{}{}
+		}
+		for _, field := range required.StoredValues {
+			if _, indexed := indexFields[field]; indexed {
+				continue
+			}
+			if _, stored := storedFields[field]; !stored {
 				covers = false
 				break
 			}

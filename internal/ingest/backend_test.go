@@ -9,7 +9,7 @@ import (
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
-func TestBootstrapSpecAddsRootPreviewIndexesForEveryFHIRCollection(t *testing.T) {
+func TestBootstrapSpecAddsMergedIndexesForEveryFHIRCollection(t *testing.T) {
 	resources := []string{"Patient", "Specimen", "Observation", "DocumentReference"}
 	spec := bootstrapSpecWithReporter(resources, false, nil)
 	for _, resource := range resources {
@@ -18,8 +18,8 @@ func TestBootstrapSpecAddsRootPreviewIndexesForEveryFHIRCollection(t *testing.T)
 			t.Fatalf("bootstrap collection %q is missing", resource)
 		}
 		for _, required := range [][]string{
-			{"project", "_key"},
-			{"project", "auth_resource_path", "_key"},
+			{"project", "dataset_generation", "id"},
+			{"project", "dataset_generation", "auth_resource_path", "_key"},
 		} {
 			if !containsIndex(collection.Indexes, required) {
 				t.Fatalf("collection %q indexes %#v do not include required preview index %#v", resource, collection.Indexes, required)
@@ -35,10 +35,8 @@ func TestBootstrapSpecAddsGenerationScopedIndexesWithoutTraversalSpeculation(t *
 		t.Fatal("Patient bootstrap collection is missing")
 	}
 	for _, required := range [][]string{
-		{"project", "dataset_generation", "_key"},
-		{"project", "dataset_generation", "auth_resource_path", "_key"},
 		{"project", "dataset_generation", "id"},
-		{"project", "dataset_generation", "auth_resource_path", "id"},
+		{"project", "dataset_generation", "auth_resource_path", "_key"},
 	} {
 		if !containsIndex(patient.Indexes, required) {
 			t.Fatalf("Patient indexes %#v do not include generation index %#v", patient.Indexes, required)
@@ -49,17 +47,10 @@ func TestBootstrapSpecAddsGenerationScopedIndexesWithoutTraversalSpeculation(t *
 	if !found {
 		t.Fatal("edge bootstrap collection is missing")
 	}
-	for _, required := range [][]string{
-		{"project", "dataset_generation", "from_type", "label"},
-		{"project", "dataset_generation", "to_type", "label"},
-		{"project", "dataset_generation", "auth_resource_path", "from_type", "label"},
-		{"project", "dataset_generation", "auth_resource_path", "to_type", "label"},
-		{"_to", "project", "dataset_generation", "label", "from_type"},
-		{"_from", "project", "dataset_generation", "label", "to_type"},
-	} {
-		if !containsIndex(edges.Indexes, required) {
-			t.Fatalf("edge indexes %#v do not include generation index %#v", edges.Indexes, required)
-		}
+	if len(edges.PersistentIndexes) != 1 ||
+		!reflect.DeepEqual(edges.PersistentIndexes[0].Fields, []string{"project", "dataset_generation", "auth_resource_path", "from_type", "label", "to_type"}) ||
+		!reflect.DeepEqual(edges.PersistentIndexes[0].StoredValues, []string{"source_file"}) {
+		t.Fatalf("edge indexes = %+v, want the measured auth/type index with stored source_file", edges.PersistentIndexes)
 	}
 
 	fieldCatalog, found := bootstrapCollection(spec, "fhir_field_catalog")

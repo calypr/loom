@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
+
+	"github.com/calypr/loom/internal/catalog"
 )
 
 func TestNamespaceRowBuildResultKeepsLogicalFHIRIdentityAndQualifiesGraphIdentity(t *testing.T) {
@@ -133,6 +135,65 @@ func TestGenerationRowBuilderTurnsIdentityFailureIntoGenerationError(t *testing.
 	_, kind, err := builder.Build("Patient", []byte(`{}`), map[string]float64{})
 	if err == nil || kind != rowErrorGeneration {
 		t.Fatalf("Build() = kind %q err %v, want generation error", kind, err)
+	}
+}
+
+func TestGenerationRowBuilderRejectsInvalidUTF8Project(t *testing.T) {
+	const project = "p\xff"
+	builder, err := newGenerationRowBuilder(NewGeneratedRowBuilder(project, ""), project, "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, kind, err := builder.Build("Patient", []byte(`{"resourceType":"Patient","id":"a"}`), map[string]float64{})
+	if err == nil || kind != rowErrorGeneration {
+		t.Fatalf("expected generation error, got %q %v", kind, err)
+	}
+}
+
+func TestGenerationRowBuilderFallbackKeepsSourceOwnerAndRecountsNamespacedEdges(t *testing.T) {
+	const project = "project-1"
+	result, _, err := NewGeneratedRowBuilder(project, "").Build("ResearchSubject", []byte(`{"resourceType":"ResearchSubject","id":"r","status":"active","study":{"reference":"ResearchStudy/s"},"subject":{"reference":"Patient/p"}}`), map[string]float64{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	delegate := rowBuilderFunc(func(string, []byte, map[string]float64) (rowBuildResult, rowErrorType, error) {
+		return result, "", nil
+	})
+	builder, err := newGenerationRowBuilder(delegate, project, "generation-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned, kind, err := (sourceFileOwnerRowBuilder{delegate: builder, owner: "ResearchSubject"}).Build("ResearchSubject", nil, map[string]float64{})
+	if err != nil {
+		t.Fatalf("Build() kind %q error = %v", kind, err)
+	}
+	if len(owned.edges) == 0 {
+		t.Fatal("Build() returned no edges")
+	}
+	var edge map[string]any
+	if err := json.Unmarshal(owned.edges[0], &edge); err != nil {
+		t.Fatal(err)
+	}
+	if got := edge["source_file"]; got != "ResearchSubject" {
+		t.Fatalf("source_file = %v, want ResearchSubject", got)
+	}
+	if got := edge[generationIdentityField]; got != "generation-1" {
+		t.Fatalf("dataset_generation = %v, want generation-1", got)
+	}
+	if owned.relationships != nil {
+		t.Fatalf("fallback relationship keys = %#v, want nil so final documents are recounted", owned.relationships)
+	}
+	counts, err := catalog.RelationshipCountsFromRawEdges(owned.edges)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(counts) != 2 {
+		t.Fatalf("final document relationship counts = %#v, want both ResearchStudy and Patient endpoints", counts)
+	}
+	for relationship := range counts {
+		if relationship.DatasetGeneration != "generation-1" || relationship.FromType != "ResearchSubject" {
+			t.Fatalf("final document relationship = %#v, want namespaced ResearchSubject relationship", relationship)
+		}
 	}
 }
 

@@ -60,7 +60,8 @@ func TestGenerateExtractEmitsOnlyConcreteRootLoaders(t *testing.T) {
 			t.Fatalf("generated extractor emitted non-resource definition %s", resourceType)
 		}
 	}
-	if !strings.Contains(text, "ExtractEdges extracts graph links from Practitioner") {
-		t.Fatal("generated extractor omitted concrete Practitioner root")
+	if !strings.Contains(text, "ExtractEdgeDocuments builds graph links from Practitioner") ||
+		!strings.Contains(text, "ExtractEdges encodes graph links from Practitioner") {
+		t.Fatal("generated extractor omitted concrete Practitioner edge builders")
 	}
 }

@@ -844,11 +844,12 @@ func assertSemanticGroupProjectionIndexDescriptor(t *testing.T, query compiler.C
 	if descriptor == nil {
 		t.Fatalf("direct terminal Coding array for %s.%s has no read-only index descriptor", resourceType, codingPath)
 	}
-	wantFields := []string{"project", "dataset_generation", "auth_resource_path"}
+	wantFields := []string{"project", "dataset_generation"}
+	wantStored := []string{"auth_resource_path"}
 	wantPath := "payload." + strings.TrimSuffix(codingPath, "[]")
-	if !reflect.DeepEqual(descriptor.RequiredFields, wantFields) || descriptor.ProjectionPath != wantPath {
-		t.Fatalf("read-only projection index descriptor = %+v, want fields %#v and path %q",
-			descriptor, wantFields, wantPath)
+	if !reflect.DeepEqual(descriptor.RequiredFields, wantFields) || !reflect.DeepEqual(descriptor.RequiredStoredValues, wantStored) || descriptor.ProjectionPath != wantPath {
+		t.Fatalf("read-only projection index descriptor = %+v, want fields %#v, stored values %#v, and path %q",
+			descriptor, wantFields, wantStored, wantPath)
 	}
 }
 

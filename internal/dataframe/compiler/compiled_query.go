@@ -34,8 +34,9 @@ type PreviewGroupProjectionSpec struct {
 }
 
 type PreviewGroupProjectionIndexSpec struct {
-	RequiredFields []string
-	ProjectionPath string
+	RequiredFields       []string
+	RequiredStoredValues []string
+	ProjectionPath       string
 }
 
 type CompiledQuery struct {

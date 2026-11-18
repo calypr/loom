@@ -22,6 +22,13 @@ func NewShapePlanCacheWithLimits(maxPlans, maxBytes int) *ShapePlanCache {
 	return &ShapePlanCache{plans: make(map[string]*shapePlan), maxPlans: maxPlans, maxBytes: maxBytes, budget: newRetentionBudget(maxBytes)}
 }
 
+// Essential: files share immutable shape plans while retaining independent profiling budgets.
+func NewShapePlanCacheWithSharedPlans(maxPlans, maxBytes int, shared *ShapePlanCache) *ShapePlanCache {
+	cache := NewShapePlanCacheWithLimits(maxPlans, maxBytes)
+	cache.sharedPlans = shared
+	return cache
+}
+
 func NewProfilerForGenerationWithLimits(project, datasetGeneration, authResourcePath, resourceType string, cache *ShapePlanCache, limits ProfileLimits) *Profiler {
 	limits = limits.normalized()
 	if cache == nil {
@@ -690,12 +697,19 @@ func (c *ShapePlanCache) getOrBuild(fingerprint string, payload map[string]any) 
 	if ok {
 		return plan
 	}
+	var sharedPlan *shapePlan
+	if c.sharedPlans != nil {
+		sharedPlan = c.sharedPlans.getOrBuild(fingerprint, payload)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if plan, ok = c.plans[fingerprint]; ok {
-		return plan
+	if cachedPlan, exists := c.plans[fingerprint]; exists {
+		return cachedPlan
 	}
-	plan = buildShapePlan(payload)
+	plan = sharedPlan
+	if plan == nil {
+		plan = buildShapePlan(payload)
+	}
 	weight := shapePlanWeight(plan)
 	if c.maxPlans > 0 && len(c.plans) >= c.maxPlans {
 		c.truncated = true

@@ -19,6 +19,7 @@ type LoadOptions struct {
 	ProgressEvery    int
 	WriterCount      int
 	WorkerCount      int
+	FileConcurrency  int
 	LineQueueSize    int
 	WriteQueueSize   int
 	CatalogLimits    catalog.ProfileLimits
@@ -35,6 +36,11 @@ type LoadOptions struct {
 	DeferActivation bool
 
 	PreflightSampleRows int
+
+	fileWorkerBudget     chan struct{}
+	fileWriterBudget     chan struct{}
+	fileShapePlanCache   *catalog.ShapePlanCache
+	fileInsertedCounters *generationInsertCounters
 }
 
 type RowErrorSample struct {
@@ -75,6 +81,9 @@ func normalizeLoadOptions(opts LoadOptions) LoadOptions {
 	}
 	if opts.WorkerCount <= 0 {
 		opts.WorkerCount = opts.WriterCount
+	}
+	if opts.FileConcurrency <= 0 {
+		opts.FileConcurrency = 2
 	}
 	if opts.LineQueueSize <= 0 {
 		opts.LineQueueSize = 1024

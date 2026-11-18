@@ -27,11 +27,10 @@ func TestChooseGroupPreviewScanReusesSmallestCompatibleCoveringIndex(t *testing.
 	originalQuery := query.Query
 	originalBinds := query.BindVars
 	largeFields := append(append([]string(nil), required.Fields...), "payload.extra", "resourceType")
-	smallFields := []string{"project", "dataset_generation", "resourceType"}
-	smallFields = append(smallFields, required.Fields[2:]...)
+	smallFields := append([]string(nil), required.Fields...)
 	indexes := []arango.PreviewCoveringIndex{
-		{Collection: required.Collection, Name: "loom_pivot_preview_existing_larger", Fields: largeFields},
-		{Collection: required.Collection, Name: "loom_pivot_preview_existing_smaller", Fields: smallFields},
+		{Collection: required.Collection, Name: "loom_pivot_preview_existing_larger", Fields: largeFields, StoredValues: []string{"auth_resource_path"}},
+		{Collection: required.Collection, Name: "loom_pivot_preview_existing_smaller", Fields: smallFields, StoredValues: []string{"auth_resource_path"}},
 	}
 	indexCalls, explainCalls := 0, 0
 	engine.previewCoveringIndexes = func(_ context.Context, collection string) ([]arango.PreviewCoveringIndex, error) {
@@ -124,7 +123,7 @@ func TestChooseGroupPreviewScanRequiresExplainToProveCoveringIndex(t *testing.T)
 			engine, query, stream := compiledGroupPreviewScanFixture(t, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "G1"})
 			originalQuery := query.Query
 			candidate := arango.PreviewCoveringIndex{
-				Collection: query.PreviewCoveringIndex.Collection, Name: "loom_pivot_preview_unproven", Fields: append([]string(nil), query.PreviewCoveringIndex.Fields...),
+				Collection: query.PreviewCoveringIndex.Collection, Name: "loom_pivot_preview_unproven", Fields: append([]string(nil), query.PreviewCoveringIndex.Fields...), StoredValues: append([]string(nil), query.PreviewCoveringIndex.StoredValues...),
 			}
 			engine.previewCoveringIndexes = func(context.Context, string) ([]arango.PreviewCoveringIndex, error) {
 				return []arango.PreviewCoveringIndex{candidate}, nil
@@ -197,17 +196,19 @@ func TestChooseGroupPreviewScanDoesNotReplaceSequentialChoiceWithProjectionIndex
 
 func TestCompatibleGroupProjectionIndexesRequiresOwnedScopeAndProjectionCoverage(t *testing.T) {
 	required := &compiler.PreviewGroupProjectionIndexSpec{
-		RequiredFields: []string{"project", "dataset_generation", "auth_resource_path"},
-		ProjectionPath: "payload.code.coding",
+		RequiredFields:       []string{"project", "dataset_generation"},
+		RequiredStoredValues: []string{"auth_resource_path"},
+		ProjectionPath:       "payload.code.coding",
 	}
 	baseFields := []string{"project", "dataset_generation", "auth_resource_path"}
 	withProjection := append(append([]string(nil), baseFields...), required.ProjectionPath)
+	newFields := []string{"project", "dataset_generation", required.ProjectionPath}
 	indexes := []arango.PreviewCoveringIndex{
 		{Collection: "Observation", Name: "other_preview_owned", Fields: withProjection},
-		{Collection: "Observation", Name: "loom_pivot_preview_missing_scope", Fields: []string{"project", "dataset_generation", required.ProjectionPath}},
+		{Collection: "Observation", Name: "loom_pivot_preview_missing_scope", Fields: newFields},
 		{Collection: "Patient", Name: "loom_pivot_preview_wrong_collection", Fields: withProjection},
 		{Collection: "Observation", Name: "loom_pivot_preview_missing_projection", Fields: baseFields},
-		{Collection: "Observation", Name: "loom_pivot_preview_stored_projection", Fields: baseFields, StoredValues: []string{required.ProjectionPath}},
+		{Collection: "Observation", Name: "loom_pivot_preview_stored_projection", Fields: newFields, StoredValues: []string{"auth_resource_path", required.ProjectionPath}},
 		{Collection: "Observation", Name: "loom_pivot_preview_key_projection", Fields: withProjection},
 	}
 	got := compatibleGroupProjectionIndexes("Observation", required, indexes)
@@ -221,8 +222,8 @@ func TestPreviewOutputReusesStoredValuesGroupIndexWithoutPrewarmingIt(t *testing
 	index := arango.PreviewCoveringIndex{
 		Collection:   "Observation",
 		Name:         "loom_pivot_preview_existing_stored_values",
-		Fields:       []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"},
-		StoredValues: []string{"payload.valueQuantity"},
+		Fields:       []string{"project", "dataset_generation", "_key", "payload.id", "payload.status"},
+		StoredValues: []string{"auth_resource_path", "payload.valueQuantity"},
 	}
 	engine, err := New(Config{
 		Registry:    invalidRecipeRegistry{},
@@ -620,9 +621,10 @@ func configureSemanticGroupProjectionIndex(
 	indexFields := append([]string(nil), descriptor.RequiredFields...)
 	indexFields = append(indexFields, descriptor.ProjectionPath)
 	index := arango.PreviewCoveringIndex{
-		Collection: query.PreviewGroupProjection.Collection,
-		Name:       "loom_pivot_preview_runtime_existing",
-		Fields:     indexFields,
+		Collection:   query.PreviewGroupProjection.Collection,
+		Name:         "loom_pivot_preview_runtime_existing",
+		Fields:       indexFields,
+		StoredValues: descriptor.RequiredStoredValues,
 	}
 	assessmentQuery, assessmentBinds, err := compiler.RenderPreviewGroupProjectionAssessment(query.PhysicalPlan, index.Name, false)
 	if err != nil {

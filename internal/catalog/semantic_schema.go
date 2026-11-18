@@ -74,18 +74,24 @@ func (p *Profiler) observeSchemaSemanticsWithEvidence(
 	sourceID string,
 	emit semanticCoverageObservationEmitter,
 ) error {
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("encode FHIR payload for semantic discovery: %w", err)
-	}
 	facts := make([]fhirsemantic.MemberFact, 0, 32)
-	if _, err := fhirsemantic.WalkMembers(index, schema.DefinitionName(p.resourceType), raw, func(fact fhirsemantic.MemberFact) error {
+	if _, err := fhirsemantic.WalkMemberValues(index, schema.DefinitionName(p.resourceType), payload, func(fact fhirsemantic.MemberFact) error {
 		facts = append(facts, fact)
 		return nil
 	}); err != nil {
 		return err
 	}
 
+	return p.observeSchemaSemanticsFromFacts(payload, profile, sourceID, facts, emit)
+}
+
+func (p *Profiler) observeSchemaSemanticsFromFacts(
+	payload map[string]any,
+	profile string,
+	sourceID string,
+	facts []fhirsemantic.MemberFact,
+	emit semanticCoverageObservationEmitter,
+) error {
 	root := &semanticScope{
 		definition: schema.DefinitionName(p.resourceType),
 		value:      payload,
@@ -96,7 +102,7 @@ func (p *Profiler) observeSchemaSemanticsWithEvidence(
 		if fact.Repeated && !fact.ArrayItem {
 			continue
 		}
-		value, ok := decodeSemanticObject(fact.RawJSON)
+		value, ok := fact.Value.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -126,7 +132,7 @@ func (p *Profiler) observeSchemaSemanticsWithEvidence(
 			continue
 		}
 		if url, ok := directSemanticFact(scope, "url"); ok {
-			extensionURLs[scope.ownerPath] = semanticStringFromRaw(url.RawJSON)
+			extensionURLs[scope.ownerPath] = stringValue(url.Value)
 		}
 	}
 
@@ -279,12 +285,9 @@ func (p *Profiler) emitIdentifierScope(
 	if !ok || valueFact.Null {
 		return
 	}
-	value, ok := decodeSemanticValue(valueFact.RawJSON)
-	if !ok {
-		return
-	}
+	value := semanticUseJSONNumber(valueFact.Value)
 	keyFact, _ := directSemanticFact(scope, association.keyMember)
-	system := semanticStringFromRaw(keyFact.RawJSON)
+	system := stringValue(keyFact.Value)
 	logicalType := semanticGeneratedValueType(p.resourceType, valueFact.CanonicalPath, value, semanticValueType(value))
 	observation := SemanticObservation{
 		SchemaVersion: SemanticObservationSchemaVersion,
@@ -327,7 +330,7 @@ func (p *Profiler) emitExtensionScope(
 	if !ok {
 		return
 	}
-	url := semanticStringFromRaw(keyFact.RawJSON)
+	url := stringValue(keyFact.Value)
 	if strings.TrimSpace(url) == "" {
 		return
 	}
@@ -407,7 +410,7 @@ func (p *Profiler) emitCodedChoiceScope(
 	if len(concepts) != 1 || len(values) == 0 {
 		return
 	}
-	conceptValue, ok := decodeSemanticObject(concepts[0].RawJSON)
+	conceptValue, ok := concepts[0].Value.(map[string]any)
 	if !ok {
 		return
 	}
@@ -523,11 +526,19 @@ func directSemanticFact(scope *semanticScope, member string) (fhirsemantic.Membe
 	return fhirsemantic.MemberFact{}, false
 }
 
-func semanticChoiceValueFromFact(resourceType string, fact fhirsemantic.MemberFact) (semanticChoiceValue, bool) {
-	value, ok := decodeSemanticValue(fact.RawJSON)
-	if !ok {
-		return semanticChoiceValue{}, false
+func semanticUseJSONNumber(value any) any {
+	switch typed := value.(type) {
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		encoded, err := json.Marshal(typed)
+		if err == nil {
+			return json.Number(encoded)
+		}
 	}
+	return value
+}
+
+func semanticChoiceValueFromFact(resourceType string, fact fhirsemantic.MemberFact) (semanticChoiceValue, bool) {
+	value := semanticUseJSONNumber(fact.Value)
 	selector := fact.Element.Name
 	valueType := semanticGeneratedValueType(resourceType, fact.CanonicalPath, value, semanticValueType(value))
 	status := "SUPPORTED"
@@ -588,17 +599,6 @@ func semanticProjectionStatusWithFallback(value map[string]any, selector string,
 		}
 	}
 	return SemanticStatusUnsupportedValueProjection
-}
-
-func decodeSemanticObject(raw json.RawMessage) (map[string]any, bool) {
-	if len(bytes.TrimSpace(raw)) == 0 || bytes.TrimSpace(raw)[0] != '{' {
-		return nil, false
-	}
-	var value map[string]any
-	if err := json.Unmarshal(raw, &value); err != nil || value == nil {
-		return nil, false
-	}
-	return value, true
 }
 
 func decodeSemanticValue(raw json.RawMessage) (any, bool) {

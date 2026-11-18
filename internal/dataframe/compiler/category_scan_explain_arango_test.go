@@ -65,7 +65,7 @@ func TestRootCategoryScanUsesSharedTypedIndexContractAgainstArango(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scan.CategoryIndex == nil || !reflect.DeepEqual(scan.CategoryIndex.Fields, []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status", "resourceType"}) || !reflect.DeepEqual(scan.CategoryIndex.StoredValues, []string{"payload.valueQuantity"}) {
+	if scan.CategoryIndex == nil || !reflect.DeepEqual(scan.CategoryIndex.Fields, previewQuantityCategoryFields()) || !reflect.DeepEqual(scan.CategoryIndex.StoredValues, previewQuantityCategoryStoredValues()) {
 		t.Fatalf("root quantity index definition = %+v", scan.CategoryIndex)
 	}
 	assertCategoryScanIndexExplain(t, ctx, client, scan, true)
@@ -112,7 +112,8 @@ func TestRelatedCategoryScanUsesTypedIndexAgainstArango(t *testing.T) {
 		definition.Construction.Steps[i].Outputs = columns
 	}
 	_, _, scan := compileRelatedCategoryRuntimeScansWithBindings(t, definition, bindings, 10)
-	if scan.CategoryIndex == nil || !reflect.DeepEqual(scan.CategoryIndex.Fields, []string{"project", "dataset_generation", "resourceType", "payload.valueQuantity.code", "auth_resource_path"}) {
+	if scan.CategoryIndex == nil || !reflect.DeepEqual(scan.CategoryIndex.Fields, []string{"project", "dataset_generation", "payload.valueQuantity.code"}) ||
+		!reflect.DeepEqual(scan.CategoryIndex.StoredValues, []string{"auth_resource_path", "resourceType"}) {
 		t.Fatalf("related category index fields = %+v", scan.CategoryIndex)
 	}
 	assertCategoryScanIndexExplain(t, ctx, client, scan, false)

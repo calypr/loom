@@ -134,7 +134,7 @@ func semanticExampleValues(value semanticChoiceValue) []any {
 
 	path := strings.TrimPrefix(value.Selector, value.Arm+".")
 	if path != "" {
-		return []any{semanticValueAtPath(object, path)}
+		return []any{semanticUseJSONNumber(semanticValueAtPath(object, path))}
 	}
 	return []any{value.Value}
 }
@@ -169,7 +169,7 @@ func semanticValuesAtPath(value any, path string) []any {
 	var walk func(any, int) []any
 	walk = func(current any, index int) []any {
 		if index == len(parts) {
-			return []any{current}
+			return []any{semanticUseJSONNumber(current)}
 		}
 		part := parts[index]
 		array := strings.HasSuffix(part, "[]")
