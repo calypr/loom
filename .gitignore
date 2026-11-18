@@ -54,7 +54,6 @@ META/
 
 # Local tool/runtime artifacts and external import data
 /.opencode/
-fhir/.cache/
 /.openshell-transfer-*
 /GDC-FHIR/
 /error.log

@@ -55,11 +55,7 @@ func (p *RepositorySourceLoader) UploadFile(ctx context.Context, project, operat
 		}
 		return receipt, nil
 	}
-	schema, err := loadRuntimeGraphSchema(p.schemaPath)
-	if err != nil {
-		return SourceFileReceipt{}, err
-	}
-	digest, rows, validation, err := validateSourceLoadFile(ctx, localPath, planned.Path, project, record.Plan.AuthResourcePath, record.Generation, schema)
+	digest, rows, validation, err := validateSourceLoadFile(ctx, localPath, planned.Path, project, record.Plan.AuthResourcePath, record.Generation, p.schema)
 	if err != nil {
 		return SourceFileReceipt{}, fmt.Errorf("validate source file %q: %w", planned.Path, err)
 	}
@@ -110,12 +106,12 @@ func (p *RepositorySourceLoader) UploadFile(ctx context.Context, project, operat
 		return SourceFileReceipt{}, fmt.Errorf("inspect source file %q: %w", planned.Path, err)
 	}
 	opts := normalizeLoadOptions(LoadOptions{
-		Schema: p.schemaPath, MetaDir: filepath.Dir(localPath), Project: project,
+		MetaDir: filepath.Dir(localPath), Project: project,
 		AuthResourcePath: record.Plan.AuthResourcePath, BatchSize: p.batchSize,
 		WriterCount: 1, WorkerCount: 1, FailFast: true, SourceFileOwner: resourceType,
 		WriteAPI: p.writeAPI,
 	})
-	loaded, loadErr := loadFile(workCtx, opts, p.client, schema, localPath, record.Generation, false, time.Now(), 0, 0, insertRawDocuments)
+	loaded, loadErr := loadFile(workCtx, opts, p.client, p.schema, localPath, record.Generation, false, time.Now(), 0, 0, insertRawDocuments)
 	if loadErr != nil {
 		cleanupErr := p.clearCandidateSourceFile(context.WithoutCancel(ctx), record, planned.Path, owner, resourceType)
 		return SourceFileReceipt{}, errors.Join(fmt.Errorf("load source file %q into inactive generation: %w", planned.Path, loadErr), cleanupErr)

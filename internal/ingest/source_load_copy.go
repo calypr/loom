@@ -7,18 +7,42 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	publication "github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func (p *RepositorySourceLoader) copyGenerationForward(ctx context.Context, record sourceLoadRecord) error {
-	identity, err := loadSchemaSnapshot(p.schemaPath)
+	identity, err := loadSchemaSnapshot()
 	if err != nil {
 		return err
+	}
+	selectedTypes := make([]string, 0, len(record.Plan.Files))
+	for _, file := range record.Plan.Files {
+		resourceType, err := canonicalSourceResourceType(file.Path)
+		if err != nil {
+			return err
+		}
+		selectedTypes = append(selectedTypes, resourceType)
+	}
+	if record.SourceGeneration != "" {
+		ref, err := publication.NewRef(record.Project, record.SourceGeneration)
+		if err != nil {
+			return err
+		}
+		base, err := p.datasets.ReadManifest(ctx, ref)
+		if err != nil {
+			return fmt.Errorf("read source generation manifest: %w", err)
+		}
+		copySource, err := sourceSchemaAllowsCopy(base.SchemaIdentity, identity, selectedTypes)
+		if err != nil || !copySource {
+			return err
+		}
 	}
 	for _, resourceType := range identity.GeneratedResourceTypes {
 		if err := ctx.Err(); err != nil {
@@ -31,14 +55,6 @@ func (p *RepositorySourceLoader) copyGenerationForward(ctx context.Context, reco
 			return fmt.Errorf("copy source generation resource %s: %w", resourceType, err)
 		}
 	}
-	selectedTypes := make([]string, 0, len(record.Plan.Files))
-	for _, file := range record.Plan.Files {
-		resourceType, err := canonicalSourceResourceType(file.Path)
-		if err != nil {
-			return err
-		}
-		selectedTypes = append(selectedTypes, resourceType)
-	}
 	if err := p.copySourceCollection(ctx, EdgeCollection, record.SourceGeneration, record.Project, record.Generation, copyEdgeDocument(record.Project, record.Generation, record.SourceGeneration, selectedTypes)); err != nil {
 		return fmt.Errorf("copy source generation edges: %w", err)
 	}
@@ -49,6 +65,18 @@ func (p *RepositorySourceLoader) copyGenerationForward(ctx context.Context, reco
 		return fmt.Errorf("copy source generation semantic inventory: %w", err)
 	}
 	return nil
+}
+
+func sourceSchemaAllowsCopy(base, current publication.SchemaSnapshot, selectedTypes []string) (bool, error) {
+	if base.SchemaSHA256 == current.SchemaSHA256 {
+		return true, nil
+	}
+	for _, resourceType := range current.GeneratedResourceTypes {
+		if !slices.Contains(selectedTypes, resourceType) {
+			return false, &SourcePublishMigrationRequiredError{Reason: "FHIR schema changed and a full reload is required"}
+		}
+	}
+	return false, nil
 }
 
 type sourceCopyRow struct {
@@ -376,7 +404,7 @@ func (p *RepositorySourceLoader) requireMutableSourceCopySafe(ctx context.Contex
 	if base.Mode != "mutable" {
 		return nil
 	}
-	identity, err := loadSchemaSnapshot(p.schemaPath)
+	identity, err := loadSchemaSnapshot()
 	if err != nil {
 		return err
 	}
@@ -480,7 +508,7 @@ func (p *RepositorySourceLoader) prepareCandidateSemanticInventory(ctx context.C
 }
 
 func (p *RepositorySourceLoader) finalizeSourceLoadCandidate(ctx context.Context, record sourceLoadRecord) (int64, error) {
-	identity, err := loadSchemaSnapshot(p.schemaPath)
+	identity, err := loadSchemaSnapshot()
 	if err != nil {
 		return 0, err
 	}
@@ -520,7 +548,7 @@ func (p *RepositorySourceLoader) rebuildCandidateRelationshipCatalog(ctx context
     WITH COUNT INTO edge_count
   SORT project, dataset_generation, auth_resource_path, from_type, label, to_type
   RETURN {project, dataset_generation, auth_resource_path, from_type, label, to_type, edge_count}`
-	identity, err := loadSchemaSnapshot(p.schemaPath)
+	identity, err := loadSchemaSnapshot()
 	if err != nil {
 		return err
 	}

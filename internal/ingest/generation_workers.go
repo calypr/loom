@@ -141,7 +141,7 @@ func loadFile(
 	ctx context.Context,
 	opts LoadOptions,
 	client *arangostore.Client,
-	schema *runtimeGraphSchema,
+	schema *runtimeFHIRSchema,
 	file string,
 	datasetGeneration string,
 	overwrite bool,
@@ -164,7 +164,7 @@ func loadFile(
 		}
 	}
 	if !schema.HasClass(resourceType) {
-		return result, fmt.Errorf("%s: class %q not found in graph schema", filepath.Base(file), resourceType)
+		return result, fmt.Errorf("%s: resource type %q is not in the generated FHIR resource registry", filepath.Base(file), resourceType)
 	}
 	if !supportsGeneratedLoad(resourceType) {
 		return result, fmt.Errorf("%s: resource type %q has no generated loader", filepath.Base(file), resourceType)

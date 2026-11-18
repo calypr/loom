@@ -5,65 +5,49 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
-func TestPreflightFilesReportsGeneratedLoaderSupportFromActiveSchema(t *testing.T) {
-	schema, err := loadRuntimeGraphSchema(repoPath(t, "fhir", "graph-fhir.json"))
-	if err != nil {
-		t.Fatalf("load schema: %v", err)
-	}
+func TestPreflightFilesReportsGeneratedResourceSupport(t *testing.T) {
+	schema := loadRuntimeFHIRSchema()
 	dir := t.TempDir()
 	patient := writePreflightFixture(t, dir, "Patient.ndjson", `{"resourceType":"Patient"}`+"\n")
-	directory := writePreflightFixture(t, dir, "Directory.ndjson", `{"resourceType":"Directory"}`+"\n")
-	resource := writePreflightFixture(t, dir, "Resource.ndjson", `{"resourceType":"Resource"}`+"\n")
+	unknown := writePreflightFixture(t, dir, "Unknown.ndjson", `{"resourceType":"Unknown"}`+"\n")
 
-	report, err := PreflightFiles([]string{patient, directory, resource}, schema, 1)
+	report, err := PreflightFiles([]string{patient, unknown}, schema, 1)
 	if err == nil {
-		t.Fatal("expected unsupported Resource loader error")
+		t.Fatal("expected unsupported resource error")
 	}
-	if report.Valid() || len(report.Resources) != 3 {
+	if report.Valid() || len(report.Resources) != 2 {
 		t.Fatalf("unexpected report: %+v", report)
 	}
-	if got := report.Resources[0]; got.ResourceType != "Directory" || got.Mode != IngestionModeUnsupported || got.GraphSchemaSupported || got.GeneratedLoaderSupported || got.SampledRows != 1 {
-		t.Fatalf("unexpected Directory report: %+v", got)
-	}
-	if got := report.Resources[1]; got.ResourceType != "Patient" || got.Mode != IngestionModeGenerated || !got.GraphSchemaSupported || !got.GeneratedLoaderSupported || got.SampledRows != 1 {
+	if got := report.Resources[0]; got.ResourceType != "Patient" || got.Mode != IngestionModeGenerated || !got.FHIRSchemaSupported || !got.GeneratedLoaderSupported || got.SampledRows != 1 {
 		t.Fatalf("unexpected Patient report: %+v", got)
 	}
-	if got := report.Resources[2]; got.ResourceType != "Resource" || got.Mode != IngestionModeUnsupported || !got.GraphSchemaSupported || got.GeneratedLoaderSupported || got.SampledRows != 1 {
-		t.Fatalf("unexpected Resource report: %+v", got)
+	if got := report.Resources[1]; got.ResourceType != "Unknown" || got.Mode != IngestionModeUnsupported || got.FHIRSchemaSupported || got.GeneratedLoaderSupported || got.SampledRows != 1 {
+		t.Fatalf("unexpected Unknown report: %+v", got)
 	}
 }
 
-func TestPreflightUsesConfiguredClassAllowlistForGeneratedResources(t *testing.T) {
-	schemaPath := writeTempSchemaBytes(t, []byte(`{"$id":"urn:example:graph","$defs":{"Patient":{"$id":"urn:example:graph/Patient","title":"Patient","type":"object"},"Observation":{"$id":"urn:example:graph/Observation","title":"Observation","type":"object"}},"anyOf":[{"$ref":"urn:example:graph/Patient"}]}`))
-	schema, err := loadRuntimeGraphSchema(schemaPath)
-	if err != nil {
-		t.Fatal(err)
+func TestPreflightUsesGeneratedResourceRegistry(t *testing.T) {
+	schema := loadRuntimeFHIRSchema()
+	if !schema.HasClass("Observation") || schema.HasClass("MadeUpResource") {
+		t.Fatalf("generated resource registry has unexpected membership")
 	}
-	if !supportsGeneratedLoad("Observation") {
-		t.Fatal("Observation must remain available in generated code")
-	}
-	patient := writePreflightFixture(t, t.TempDir(), "Patient.ndjson", `{"resourceType":"Patient"}`+"\n")
 	observation := writePreflightFixture(t, t.TempDir(), "Observation.ndjson", `{"resourceType":"Observation"}`+"\n")
-	report, err := PreflightFiles([]string{patient, observation}, schema, 1)
-	if err == nil {
-		t.Fatal("expected the configured schema to reject Observation")
+	report, err := PreflightFiles([]string{observation}, schema, 1)
+	if err != nil {
+		t.Fatalf("preflight generated Observation: %v", err)
 	}
-	if got := report.Resources[0]; got.ResourceType != "Observation" || got.GraphSchemaSupported || !got.GeneratedLoaderSupported || got.Mode != IngestionModeUnsupported {
-		t.Fatalf("unexpected configured-schema drift report: %+v", got)
+	if got := report.Resources[0]; got.ResourceType != "Observation" || got.Mode != IngestionModeGenerated || !got.FHIRSchemaSupported || !got.GeneratedLoaderSupported {
+		t.Fatalf("unexpected Observation report: %+v", got)
 	}
 }
 
 func TestPreflightFilesReportsAllStagedInputProblems(t *testing.T) {
-	schema, err := loadRuntimeGraphSchema(repoPath(t, "fhir", "graph-fhir.json"))
-	if err != nil {
-		t.Fatalf("load schema: %v", err)
-	}
+	schema := loadRuntimeFHIRSchema()
 	dir := t.TempDir()
 	patient := writePreflightFixture(t, dir, "Patient.ndjson", "not-json\n")
 	specimen := writePreflightFixture(t, dir, "Specimen.ndjson", `{"resourceType":"Patient"}`+"\n")
@@ -84,7 +68,7 @@ func TestPreflightFilesReportsAllStagedInputProblems(t *testing.T) {
 	for _, issue := range report.Issues {
 		codes[issue.Code] = true
 	}
-	for _, want := range []string{"invalid_json", "resource_type_mismatch", "unsupported_graph_schema_resource"} {
+	for _, want := range []string{"invalid_json", "resource_type_mismatch", "unsupported_fhir_resource"} {
 		if !codes[want] {
 			t.Fatalf("issues missing %q: %+v", want, report.Issues)
 		}
@@ -95,10 +79,7 @@ func TestPreflightFilesReportsAllStagedInputProblems(t *testing.T) {
 }
 
 func TestPreflightFilesBoundsPayloadSamplingPerFile(t *testing.T) {
-	schema, err := loadRuntimeGraphSchema(repoPath(t, "fhir", "graph-fhir.json"))
-	if err != nil {
-		t.Fatalf("load schema: %v", err)
-	}
+	schema := loadRuntimeFHIRSchema()
 	dir := t.TempDir()
 	patient := writePreflightFixture(t, dir, "Patient.ndjson", `{"resourceType":"Patient"}`+"\n"+`{"resourceType":"Specimen"}`+"\n")
 
@@ -114,8 +95,7 @@ func TestPreflightFilesBoundsPayloadSamplingPerFile(t *testing.T) {
 func TestLoadReturnsPreflightReportBeforeOpeningArango(t *testing.T) {
 	dir := t.TempDir()
 	writePreflightFixture(t, dir, "Unknown.ndjson", `{"resourceType":"Unknown"}`+"\n")
-	schemaPath := repoPath(t, "fhir", "graph-fhir.json")
-	wantIdentity, err := loadSchemaSnapshot(schemaPath)
+	wantIdentity, err := loadSchemaSnapshot()
 	if err != nil {
 		t.Fatalf("load expected schema identity: %v", err)
 	}
@@ -124,7 +104,6 @@ func TestLoadReturnsPreflightReportBeforeOpeningArango(t *testing.T) {
 	var preflightStart map[string]any
 
 	summary, err := Load(context.Background(), LoadOptions{
-		Schema:  schemaPath,
 		MetaDir: dir,
 
 		ConnectionOptions: arangostore.ConnectionOptions{
@@ -154,9 +133,6 @@ func TestLoadReturnsPreflightReportBeforeOpeningArango(t *testing.T) {
 	if got, want := summary.SchemaIdentity.SchemaSHA256, wantIdentity.SchemaSHA256; got != want {
 		t.Errorf("Load() schema digest = %q, want %q", got, want)
 	}
-	if got, want := summary.SchemaIdentity.GeneratedResourceTypes, wantIdentity.GeneratedResourceTypes; !reflect.DeepEqual(got, want) {
-		t.Errorf("Load() generated roots = %#v, want %#v", got, want)
-	}
 	if preflightStart == nil {
 		t.Fatal("missing go_preflight_start event")
 	}
@@ -170,19 +146,6 @@ func TestLoadReturnsPreflightReportBeforeOpeningArango(t *testing.T) {
 		if event == "go_backend_connect_start" || event == "go_backend_connect_complete" || event == "go_bootstrap_start" {
 			t.Fatalf("Load() emitted %q after an invalid staged input; events = %v", event, events)
 		}
-	}
-}
-
-func TestLoadMissingSchemaReturnsNoSchemaIdentity(t *testing.T) {
-	summary, err := Load(context.Background(), LoadOptions{
-		Schema:  filepath.Join(t.TempDir(), "missing-graph.json"),
-		MetaDir: t.TempDir(),
-	})
-	if !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("Load() missing schema error = %v, want os.ErrNotExist", err)
-	}
-	if summary.SchemaIdentity != nil {
-		t.Fatalf("Load() missing schema identity = %#v, want nil", summary.SchemaIdentity)
 	}
 }
 

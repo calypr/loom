@@ -16,13 +16,13 @@ import (
 
 const sourceFileIssueLimit = 100
 
-func validateSourceLoadFile(ctx context.Context, localPath, filePath, project, authResourcePath, generation string, schema *runtimeGraphSchema) (digest string, rows int64, validation *SourceFileValidationError, err error) {
+func validateSourceLoadFile(ctx context.Context, localPath, filePath, project, authResourcePath, generation string, schema *runtimeFHIRSchema) (digest string, rows int64, validation *SourceFileValidationError, err error) {
 	resourceType, err := canonicalSourceResourceType(filePath)
 	if err != nil {
 		return "", 0, nil, err
 	}
 	if !schema.HasClass(resourceType) {
-		return "", 0, nil, fmt.Errorf("resource class %s is not in the configured graph schema", resourceType)
+		return "", 0, nil, fmt.Errorf("resource type %s is not in the generated FHIR resource registry", resourceType)
 	}
 	if !supportsGeneratedLoad(resourceType) {
 		return "", 0, nil, fmt.Errorf("resource type %q has no generated loader", resourceType)

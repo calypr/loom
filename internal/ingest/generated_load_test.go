@@ -70,31 +70,39 @@ func TestGeneratedNestedLinkUsesConcreteRuntimeEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadRowGenerated(Practitioner): %v", err)
 	}
-	want := map[string]struct {
-		from, to, fromType, toType string
-	}{
-		"qualification_issuer":       {"Practitioner/practitioner-1", "Organization/org-1", "Practitioner", "Organization"},
-		"practitioner_qualification": {"Organization/org-1", "Practitioner/practitioner-1", "Organization", "Practitioner"},
+	if len(edges) != 1 {
+		t.Fatalf("expected one forward qualification edge, got %d", len(edges))
 	}
-	found := map[string]bool{}
-	for _, raw := range edges {
-		var edge fhir.EdgeDocument
-		if err := json.Unmarshal(raw, &edge); err != nil {
-			t.Fatalf("decode generated edge: %v", err)
-		}
-		wantEdge, ok := want[edge.Label]
-		if !ok {
-			continue
-		}
-		found[edge.Label] = true
-		if edge.From != wantEdge.from || edge.To != wantEdge.to || edge.FromType != wantEdge.fromType || edge.ToType != wantEdge.toType {
-			t.Errorf("%s edge = %#v, want %s/%s %s -> %s", edge.Label, edge, wantEdge.fromType, wantEdge.toType, wantEdge.from, wantEdge.to)
-		}
+	var edge fhir.EdgeDocument
+	if err := json.Unmarshal(edges[0], &edge); err != nil {
+		t.Fatalf("decode generated edge: %v", err)
 	}
-	for label := range want {
-		if !found[label] {
-			t.Errorf("generated Practitioner edges missing %s", label)
-		}
+	if edge.Label != "qualification_issuer" || edge.From != "Practitioner/practitioner-1" ||
+		edge.To != "Organization/org-1" || edge.FromType != "Practitioner" || edge.ToType != "Organization" {
+		t.Fatalf("unexpected qualification issuer edge: %#v", edge)
+	}
+}
+
+func TestGeneratedTaskUsesOfficialForProperty(t *testing.T) {
+	_, edges, _, err := loadRowGenerated("Task", []byte(`{
+		"resourceType":"Task",
+		"id":"task-1",
+		"status":"requested",
+		"intent":"order",
+		"for":{"reference":"Patient/patient-1"}
+	}`), "project-1", map[string]float64{})
+	if err != nil {
+		t.Fatalf("load official Task shape: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected one Task.for edge, got %d", len(edges))
+	}
+	var edge fhir.EdgeDocument
+	if err := json.Unmarshal(edges[0], &edge); err != nil {
+		t.Fatalf("decode Task.for edge: %v", err)
+	}
+	if edge.Label != "for_Patient" || edge.From != "Task/task-1" || edge.To != "Patient/patient-1" {
+		t.Fatalf("unexpected Task.for edge: %#v", edge)
 	}
 }
 

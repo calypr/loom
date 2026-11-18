@@ -53,7 +53,6 @@ WORKDIR /app
 COPY --from=builder /out/arango-fhir-server /app/arango-fhir-server
 COPY --from=builder /out/arango-fhir-proto /app/arango-fhir-proto
 COPY --from=builder /out/loom-acceptance /app/loom-acceptance
-COPY --from=builder /src/fhir/graph-fhir.json /app/fhir/graph-fhir.json
 
 USER arango-fhir
 EXPOSE 8080

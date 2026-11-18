@@ -12,7 +12,6 @@ import (
 
 type LoadOptions struct {
 	arangostore.ConnectionOptions
-	Schema           string
 	MetaDir          string
 	Project          string
 	AuthResourcePath string

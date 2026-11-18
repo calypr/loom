@@ -31,7 +31,6 @@ const (
 	defaultURL      = "http://127.0.0.1:8529"
 	defaultDatabase = "fhir_proto"
 	defaultProject  = "ARANGODB_PROTO"
-	defaultSchema   = "fhir/graph-fhir.json"
 	defaultMetaDir  = "META"
 )
 
@@ -179,7 +178,6 @@ func configureLoadFlagsCore(fs *flag.FlagSet, config *loadCommandConfig) {
 	fs.StringVar(&config.MemoryLimit, "memory-limit", "4GiB", "Go memory limit for this load, for example 4GiB; 0 disables the soft limit")
 	fs.StringVar(&config.Options.URL, "url", defaultURL, "Backend base URL")
 	fs.StringVar(&config.Options.Database, "database", defaultDatabase, "Backend database")
-	fs.StringVar(&config.Options.Schema, "schema", defaultSchema, "graph-fhir JSON schema")
 	fs.StringVar(&config.Options.MetaDir, "meta-dir", defaultMetaDir, "Directory containing META/*.ndjson")
 	fs.StringVar(&config.Options.Project, "project", defaultProject, "Project label")
 	fs.StringVar(&config.Options.AuthResourcePath, "auth-resource-path", "", "Optional auth resource path copied onto vertex data, for example EllrottLab-GDC_Data")

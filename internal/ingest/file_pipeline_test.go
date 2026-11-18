@@ -16,10 +16,7 @@ import (
 )
 
 func TestLoadFileSupportsGenerationAndCancellation(t *testing.T) {
-	schema, err := loadRuntimeGraphSchema(repoPath(t, "fhir", "graph-fhir.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := loadRuntimeFHIRSchema()
 	file := filepath.Join(t.TempDir(), "Patient.ndjson")
 	if err := os.WriteFile(file, nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -50,10 +47,7 @@ func TestLoadFileSupportsGenerationAndCancellation(t *testing.T) {
 }
 
 func TestLoadFilePreservesGenerationWrites(t *testing.T) {
-	schema, err := loadRuntimeGraphSchema(repoPath(t, "fhir", "graph-fhir.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := loadRuntimeFHIRSchema()
 	file := filepath.Join(t.TempDir(), "Patient.ndjson")
 	if err := os.WriteFile(file, []byte("{\"resourceType\":\"Patient\",\"id\":\"patient-1\"}\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -103,10 +97,7 @@ func TestLoadFilePreservesGenerationWrites(t *testing.T) {
 }
 
 func TestLoadFileReportsPhysicalLinesAndBoundedErrors(t *testing.T) {
-	schema, err := loadRuntimeGraphSchema(repoPath(t, "fhir", "graph-fhir.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := loadRuntimeFHIRSchema()
 	opts := normalizeLoadOptions(LoadOptions{Project: "project"})
 	insert := func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error { return nil }
 
@@ -153,10 +144,7 @@ func TestLoadFileReportsPhysicalLinesAndBoundedErrors(t *testing.T) {
 }
 
 func TestLoadFileBatchesAndPropagatesWriterFailure(t *testing.T) {
-	schema, err := loadRuntimeGraphSchema(repoPath(t, "fhir", "graph-fhir.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := loadRuntimeFHIRSchema()
 	file := filepath.Join(t.TempDir(), "Patient.ndjson")
 	data := []byte("{\"resourceType\":\"Patient\",\"id\":\"patient-1\"}\n{\"resourceType\":\"Patient\",\"id\":\"patient-2\"}\n{\"resourceType\":\"Patient\",\"id\":\"patient-3\"}\n")
 	if err := os.WriteFile(file, data, 0o600); err != nil {

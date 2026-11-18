@@ -20,12 +20,9 @@ func sourceValidationFile(t *testing.T, body string) string {
 	return path
 }
 
-func sourceValidationSchema(t *testing.T) *runtimeGraphSchema {
+func sourceValidationSchema(t *testing.T) *runtimeFHIRSchema {
 	t.Helper()
-	schema, err := loadRuntimeGraphSchema(repoPath(t, "fhir", "graph-fhir.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := loadRuntimeFHIRSchema()
 	return schema
 }
 

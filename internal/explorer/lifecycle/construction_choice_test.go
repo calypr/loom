@@ -112,12 +112,12 @@ func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOpti
 		{ID: "observation", ResourceType: "Observation", RowRootEligible: true},
 	}
 	route := []capability.ConstructionRouteStep{
-		{EdgeID: "medication-administration", FromNodeID: "medication", ToNodeID: "administration", FromResourceType: "Medication", ToResourceType: "MedicationAdministration", Relationship: "medication_reference_Medication", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"},
+		{EdgeID: "medication-administration", FromNodeID: "medication", ToNodeID: "administration", FromResourceType: "Medication", ToResourceType: "MedicationAdministration", Relationship: "medication", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"},
 		{EdgeID: "administration-patient", FromNodeID: "administration", ToNodeID: "patient", FromResourceType: "MedicationAdministration", ToResourceType: "Patient", Relationship: "subject_Patient", StorageDirection: "OUTBOUND", MatchMode: "OPTIONAL"},
 		{EdgeID: "patient-observation", FromNodeID: "patient", ToNodeID: "observation", FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "focus_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"},
 	}
 	snapshot.Edges = []capability.Edge{
-		{ID: "medication-administration", FromNodeID: "medication", ToNodeID: "administration", SourceResourceType: "Medication", TargetResourceType: "MedicationAdministration", Label: "medication_reference_Medication", StorageDirection: "INBOUND"},
+		{ID: "medication-administration", FromNodeID: "medication", ToNodeID: "administration", SourceResourceType: "Medication", TargetResourceType: "MedicationAdministration", Label: "medication", StorageDirection: "INBOUND"},
 		{ID: "administration-patient", FromNodeID: "administration", ToNodeID: "patient", SourceResourceType: "MedicationAdministration", TargetResourceType: "Patient", Label: "subject_Patient", StorageDirection: "OUTBOUND"},
 		{ID: "patient-observation", FromNodeID: "patient", ToNodeID: "observation", SourceResourceType: "Patient", TargetResourceType: "Observation", Label: "focus_Patient", StorageDirection: "INBOUND"},
 	}

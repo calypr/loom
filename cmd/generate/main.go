@@ -9,8 +9,9 @@ import (
 
 func main() {
 	fs := flag.NewFlagSet("generate", flag.ExitOnError)
-	definitionsPath := fs.String("structure-definitions", "fhir/.cache/hl7.fhir.r5.core-5.0.0.tgz", "Path to the pinned HL7 FHIR R5 core package")
-	edgePolicyPath := fs.String("edge-policy", "fhir/edge-policy.json", "Path to Loom's graph edge policy")
+	schemaPath := fs.String("json-schema", "fhir/r5/fhir.schema.json", "Path to the official HL7 FHIR R5 JSON Schema")
+	definitionsPath := fs.String("structure-definitions", "fhir/r5/definitions", "Directory of official HL7 FHIR R5 StructureDefinitions")
+	resourceTypesPath := fs.String("resource-types", "fhir/r5/resources.txt", "Path to Loom's supported FHIR resource type list")
 	structsDir := fs.String("structs-out", "fhir/model", "Directory for generated FHIR Go structs, validation, and edge extraction")
 	metadataOut := fs.String("metadata-out", "fhir/schema/generated.go", "Path for generated compiler FHIR schema metadata")
 	if err := fs.Parse(os.Args[1:]); err != nil {
@@ -18,14 +19,22 @@ func main() {
 		os.Exit(2)
 	}
 
-	fmt.Printf("Reading FHIR definitions from %s...\n", *definitionsPath)
-	schema, err := loadStructureDefinitions(*definitionsPath)
+	schema, err := loadOfficialFHIRJSONSchema(*schemaPath, *resourceTypesPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading FHIR StructureDefinitions: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error loading FHIR JSON Schema: %v\n", err)
 		os.Exit(1)
 	}
-	if err := applyEdgePolicy(schema, *edgePolicyPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading Loom edge policy: %v\n", err)
+	if err := augmentOfficialFHIRSchema(schema, *definitionsPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error applying FHIR StructureDefinitions: %v\n", err)
+		os.Exit(1)
+	}
+	if err := addOfficialEdges(schema, *definitionsPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error deriving FHIR edges: %v\n", err)
+		os.Exit(1)
+	}
+	schema.SourceSHA256, err = sourceSchemaDigest(*schemaPath, *resourceTypesPath, *definitionsPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error hashing FHIR inputs: %v\n", err)
 		os.Exit(1)
 	}
 

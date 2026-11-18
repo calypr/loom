@@ -2,7 +2,7 @@
 
 Loom is an Arango-backed compiler for flat, exportable FHIR dataframes.
 [Loom's FHIR generator](CODE_GENERATION.md) reads HL7's FHIR R5
-StructureDefinitions and Loom's edge policy. Ingest and the compiler use the
+JSON Schema and StructureDefinition snapshots. Ingest and the compiler use the
 resulting Go model and metadata.
 
 ## Repository boundaries
@@ -77,10 +77,9 @@ publication or reader fallback.
 
 ## Load and storage model
 
-`internal/ingest` reads an NDJSON directory, preflights it against the local
-schema, builds vertices and `fhir_edge` documents, profiles populated fields,
-and writes batches to Arango. A resource must be present in the configured
-schema and have a generated loader.
+`internal/ingest` reads an NDJSON directory, checks each resource type against the
+generated registry, builds vertices and `fhir_edge` documents, profiles populated
+fields, and writes batches to Arango.
 
 Fresh loads bootstrap:
 

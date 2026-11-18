@@ -4,7 +4,6 @@
 .artifacts
 .audit-worker
 .gocache
-fhir/.cache
 .gomodcache
 .DS_Store
 bin

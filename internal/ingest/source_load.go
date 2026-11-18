@@ -67,7 +67,6 @@ type SourceLoadMaterializer func(context.Context, string, string, string, string
 type SourceLoadPublisherConfig struct {
 	Client               *arangostore.Client
 	DatasetStore         *datasetarango.Store
-	SchemaPath           string
 	BatchSize            int
 	WriteAPI             string
 	ValidateProject      func(context.Context, string) error
@@ -117,7 +116,7 @@ const sourceLoadCollection = "loom_source_loads"
 type RepositorySourceLoader struct {
 	client          *arangostore.Client
 	datasets        *datasetarango.Store
-	schemaPath      string
+	schema          *runtimeFHIRSchema
 	batchSize       int
 	writeAPI        string
 	validateProject func(context.Context, string) error
@@ -127,8 +126,8 @@ type RepositorySourceLoader struct {
 var _ SourceLoadStore = (*RepositorySourceLoader)(nil)
 
 func NewRepositorySourceLoader(cfg SourceLoadPublisherConfig) (*RepositorySourceLoader, error) {
-	if cfg.Client == nil || cfg.DatasetStore == nil || strings.TrimSpace(cfg.SchemaPath) == "" || cfg.MaterializeAndSelect == nil {
-		return nil, fmt.Errorf("source load publisher requires an Arango client, dataset store, graph schema, and release callback")
+	if cfg.Client == nil || cfg.DatasetStore == nil || cfg.MaterializeAndSelect == nil {
+		return nil, fmt.Errorf("source load publisher requires an Arango client, dataset store, and release callback")
 	}
 	if cfg.BatchSize <= 0 {
 		cfg.BatchSize = 1000
@@ -140,7 +139,7 @@ func NewRepositorySourceLoader(cfg SourceLoadPublisherConfig) (*RepositorySource
 		cfg.WriteAPI = "import"
 	}
 	return &RepositorySourceLoader{
-		client: cfg.Client, datasets: cfg.DatasetStore, schemaPath: cfg.SchemaPath,
+		client: cfg.Client, datasets: cfg.DatasetStore, schema: loadRuntimeFHIRSchema(),
 		batchSize: cfg.BatchSize, writeAPI: cfg.WriteAPI, validateProject: cfg.ValidateProject,
 		materialize: cfg.MaterializeAndSelect,
 	}, nil

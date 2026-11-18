@@ -139,3 +139,215 @@ func ValidateFhirBinary(s string) error {
 	}
 	return nil
 }
+
+func fhirSchemaSpace(r rune) bool {
+	switch r {
+	case ' ', '\t', '\n', '\v', '\f', '\r', '\u00a0', '\u1680', '\u2028',
+		'\u2029', '\u202f', '\u205f', '\u3000', '\ufeff':
+		return true
+	default:
+		return r >= '\u2000' && r <= '\u200a'
+	}
+}
+
+func hasFHIRSchemaSpace(s string) bool {
+	for _, r := range s {
+		if fhirSchemaSpace(r) {
+			return true
+		}
+	}
+	return false
+}
+
+func validFHIRCode(s string) bool {
+	needCharacter := true
+	for _, r := range s {
+		if r == ' ' && !needCharacter {
+			needCharacter = true
+			continue
+		}
+		if fhirSchemaSpace(r) {
+			return false
+		}
+		needCharacter = false
+	}
+	return !needCharacter
+}
+
+func validFHIRID(s string) bool {
+	if len(s) == 0 || len(s) > 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'z' ||
+			c >= 'A' && c <= 'Z' || c == '-' || c == '.') {
+			return false
+		}
+	}
+	return true
+}
+
+func fhirTwoDigits(s string) int {
+	a, b := s[0]-'0', s[1]-'0'
+	if a > 9 || b > 9 {
+		return -1
+	}
+	return int(a)*10 + int(b)
+}
+
+func fhirDatePrefix(s string) int {
+	if len(s) < 4 {
+		return 0
+	}
+	century, year := fhirTwoDigits(s[:2]), fhirTwoDigits(s[2:4])
+	if century < 0 || year < 0 || century+year == 0 {
+		return 0
+	}
+	if len(s) < 7 || s[4] != '-' {
+		return 4
+	}
+	month := fhirTwoDigits(s[5:7])
+	if month < 1 || month > 12 {
+		return 4
+	}
+	if len(s) < 10 || s[7] != '-' {
+		return 7
+	}
+	day := fhirTwoDigits(s[8:10])
+	if day < 1 || day > 31 {
+		return 7
+	}
+	return 10
+}
+
+func fhirTimePrefix(s string) int {
+	if len(s) < 8 || s[2] != ':' || s[5] != ':' {
+		return 0
+	}
+	hour, minute, second := fhirTwoDigits(s[:2]), fhirTwoDigits(s[3:5]), fhirTwoDigits(s[6:8])
+	if hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 60 {
+		return 0
+	}
+	if len(s) == 8 || s[8] != '.' {
+		return 8
+	}
+	end := 9
+	for end < len(s) && end < 18 && s[end] >= '0' && s[end] <= '9' {
+		end++
+	}
+	if end == 9 {
+		return 0
+	}
+	return end
+}
+
+func validFHIRDate(s string) bool {
+	return s != "" && fhirDatePrefix(s) == len(s)
+}
+
+func validFHIRTime(s string) bool {
+	return s != "" && fhirTimePrefix(s) == len(s)
+}
+
+func validFHIRDateTime(s string, instant bool) bool {
+	prefix := fhirDatePrefix(s)
+	if prefix == 0 || instant && prefix != 10 {
+		return false
+	}
+	rest := s[prefix:]
+	if prefix == 10 && len(rest) > 0 && rest[0] == 'T' {
+		timeLength := fhirTimePrefix(rest[1:])
+		if timeLength == 0 {
+			return false
+		}
+		rest = rest[1+timeLength:]
+	} else if instant {
+		return false
+	}
+	if !instant && (rest == "" || prefix >= 7 && (rest == "+" || rest == "-")) {
+		return true
+	}
+	if prefix == 4 {
+		return false
+	}
+	if rest == "Z" {
+		return true
+	}
+	if len(rest) != 6 || (rest[0] != '+' && rest[0] != '-') || rest[3] != ':' {
+		return false
+	}
+	hour, minute := fhirTwoDigits(rest[1:3]), fhirTwoDigits(rest[4:6])
+	return hour >= 0 && minute >= 0 && (hour < 14 && minute < 60 || hour == 14 && minute == 0)
+}
+
+func validFHIRBase64(s string) bool {
+	if len(s)%4 != 0 {
+		return false
+	}
+	text := strings.TrimSuffix(strings.TrimSuffix(s, "="), "=")
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' ||
+			c >= '0' && c <= '9' || c == '+' || c == '/') {
+			return false
+		}
+	}
+	return true
+}
+
+func validFHIROID(s string) bool {
+	suffix, ok := strings.CutPrefix(s, "urn:oid:")
+	if !ok || len(suffix) < 3 || suffix[0] < '0' || suffix[0] > '2' || suffix[1] != '.' {
+		return false
+	}
+	arcStart := 2
+	for i := 2; i <= len(suffix); i++ {
+		if i == len(suffix) || suffix[i] == '.' {
+			if i == arcStart || i-arcStart > 1 && suffix[arcStart] == '0' {
+				return false
+			}
+			arcStart = i + 1
+		} else if suffix[i] < '0' || suffix[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func validFHIRUUID(s string) bool {
+	suffix, ok := strings.CutPrefix(s, "urn:uuid:")
+	if !ok || len(suffix) != 36 {
+		return false
+	}
+	for i := 0; i < len(suffix); i++ {
+		c := suffix[i]
+		switch i {
+		case 8, 13, 18, 23:
+			if c != '-' {
+				return false
+			}
+		default:
+			if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// Essential: The official JSON Schema anchors only one side of each alternative.
+func matchesFHIRInteger64Pattern(s string) bool {
+	if len(s) > 0 && s[0] == '0' {
+		return true
+	}
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] >= '1' && s[i] <= '9' {
+			return true
+		}
+		if s[i] != '0' {
+			return false
+		}
+	}
+	return false
+}

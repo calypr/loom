@@ -59,7 +59,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		StageSeconds: map[string]float64{},
 	}
 
-	schemaIdentity, schema, err := loadSchema(opts.Schema)
+	schemaIdentity, schema, err := loadSchema()
 	if err != nil {
 		return summary, err
 	}

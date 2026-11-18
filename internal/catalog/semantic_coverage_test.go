@@ -564,7 +564,7 @@ func TestSemanticCoverageCensusDispatchesContainedResourceAndLegacyWalkerStaysAb
 	definitions := index.Definitions()
 	definitions = append(definitions,
 		schema.Definition{Name: "Bundle", Elements: []schema.Element{{Name: "entry", JSONType: schema.JSONTypeArray, ArrayElementType: "CoverageBundleEntry"}}},
-		schema.Definition{Name: "CoverageBundleEntry", Elements: []schema.Element{{Name: "resource", ReferencedType: "Resource"}}},
+		schema.Definition{Name: "CoverageBundleEntry", Elements: []schema.Element{{Name: "resource", ReferencedType: "ResourceList"}}},
 	)
 	unionIndex, err := schema.NewIndex(definitions)
 	if err != nil {

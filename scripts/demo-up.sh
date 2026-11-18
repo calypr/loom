@@ -35,11 +35,6 @@ fi
 [[ -f "$ui_build_context/apps/demo/Dockerfile" ]] || { echo "UI build context has no apps/demo/Dockerfile: $ui_build_context" >&2; exit 2; }
 case "$seed" in true|false) ;; *) echo "invalid LOOM_DEMO_SEED: $seed" >&2; exit 2 ;; esac
 
-# Acceptance performance can build an image from a pre-layout Git revision.
-if [[ ! -f "$api_build_context/fhir/graph-fhir.json" && -f "$api_build_context/schemas/graph-fhir.json" ]]; then
-  export LOOM_DEMO_SCHEMA_PATH=/app/schemas/graph-fhir.json
-fi
-
 # Acceptance scripts prewarm an explicit host cache. Go's MkdirTemp creates
 # content-addressed cache roots as 0700, and the bind mount masks the image's
 # arango-fhir ownership. Grant the container's matching supplementary group

@@ -47,7 +47,7 @@ func loadResource(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 		return LoadSummary{}, err
 	}
 	summary := LoadSummary{Files: len(files), Resources: map[string]int{}, BatchCounts: map[string]int{}, StageSeconds: map[string]float64{}}
-	schemaIdentity, schema, err := loadSchema(opts.Schema)
+	schemaIdentity, schema, err := loadSchema()
 	if err != nil {
 		return summary, err
 	}

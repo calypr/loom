@@ -36,7 +36,6 @@ func TestLoadAndQueryFixture(t *testing.T) {
 	database := "fhir_proto_int_generated_" + time.Now().Format("20060102150405")
 	loadSummary, err := Load(ctx, LoadOptions{
 		ConnectionOptions: arangostore.ConnectionOptions{URL: "http://127.0.0.1:8529", Database: database},
-		Schema:            repoPath(t, "fhir", "graph-fhir.json"),
 		MetaDir:           fixtureDir,
 		Project:           "ARANGO_PROTO_TEST",
 		Dataset:           &generation,
@@ -49,8 +48,8 @@ func TestLoadAndQueryFixture(t *testing.T) {
 	if loadSummary.VerticesInserted != 2 {
 		t.Fatalf("vertices inserted = %d, want 2", loadSummary.VerticesInserted)
 	}
-	if loadSummary.EdgesInserted != 2 {
-		t.Fatalf("edges inserted = %d, want 2 for one subject reference and its back-reference", loadSummary.EdgesInserted)
+	if loadSummary.EdgesInserted != 1 {
+		t.Fatalf("edges inserted = %d, want 1 for one subject reference", loadSummary.EdgesInserted)
 	}
 	for _, key := range []string{"bootstrap", "decode", "validate", "object_id", "edge_generation", "vertex_insert", "edge_insert"} {
 		if _, ok := loadSummary.StageSeconds[key]; !ok {

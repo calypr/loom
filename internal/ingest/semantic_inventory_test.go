@@ -20,10 +20,7 @@ func TestLoadFilePersistsSemanticInventoryFromSharedEmitter(t *testing.T) {
 	if err := os.WriteFile(file, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	schema, err := loadRuntimeGraphSchema(repoPath(t, "fhir", "graph-fhir.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := loadRuntimeFHIRSchema()
 	opts := normalizeLoadOptions(LoadOptions{
 		Project:     "project",
 		MetaDir:     root,

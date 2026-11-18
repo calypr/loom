@@ -21,7 +21,7 @@ type PreflightResource struct {
 	ResourceType             string        `json:"resourceType"`
 	Files                    []string      `json:"files"`
 	SampledRows              int           `json:"sampledRows"`
-	GraphSchemaSupported     bool          `json:"graphSchemaSupported"`
+	FHIRSchemaSupported      bool          `json:"fhirSchemaSupported"`
 	GeneratedLoaderSupported bool          `json:"generatedLoaderSupported"`
 	Mode                     IngestionMode `json:"mode"`
 }
@@ -55,9 +55,9 @@ func (e *PreflightError) Error() string {
 	return fmt.Sprintf("ingestion preflight failed: %s", issue.Message)
 }
 
-func PreflightFiles(files []string, schema *runtimeGraphSchema, sampleRows int) (PreflightReport, error) {
+func PreflightFiles(files []string, schema *runtimeFHIRSchema, sampleRows int) (PreflightReport, error) {
 	if schema == nil {
-		return PreflightReport{}, fmt.Errorf("graph schema is required")
+		return PreflightReport{}, fmt.Errorf("FHIR schema is required")
 	}
 	if sampleRows <= 0 {
 		sampleRows = defaultPreflightSampleRows
@@ -90,16 +90,16 @@ func PreflightFiles(files []string, schema *runtimeGraphSchema, sampleRows int) 
 		resource := PreflightResource{
 			ResourceType:             resourceType,
 			Files:                    resourceFiles,
-			GraphSchemaSupported:     classSupported,
+			FHIRSchemaSupported:      classSupported,
 			GeneratedLoaderSupported: generatedSupported,
 			Mode:                     mode,
 		}
 		if !classSupported {
 			report.Issues = append(report.Issues, PreflightIssue{
-				Code:         "unsupported_graph_schema_resource",
+				Code:         "unsupported_fhir_resource",
 				File:         filepath.Base(resourceFiles[0]),
 				ResourceType: resourceType,
-				Message:      fmt.Sprintf("resource type %q is not represented by the active graph schema", resourceType),
+				Message:      fmt.Sprintf("resource type %q is not present in the generated FHIR resource registry", resourceType),
 			})
 		} else if !generatedSupported {
 			report.Issues = append(report.Issues, PreflightIssue{

@@ -59,8 +59,8 @@ func TestCDAZeroColumnMedicationPositiveFixture(t *testing.T) {
 		{"Condition/route-condition", "Patient/route-patient", "subject_Patient", "Condition", "Patient"},
 		{"MedicationAdministration/route-admin-a", "Patient/route-patient", "subject_Patient", "MedicationAdministration", "Patient"},
 		{"MedicationAdministration/route-admin-b", "Patient/route-patient", "subject_Patient", "MedicationAdministration", "Patient"},
-		{"MedicationAdministration/route-admin-a", "Medication/medication-a", "medication_reference_Medication", "MedicationAdministration", "Medication"},
-		{"MedicationAdministration/route-admin-b", "Medication/medication-b", "medication_reference_Medication", "MedicationAdministration", "Medication"},
+		{"MedicationAdministration/route-admin-a", "Medication/medication-a", "medication", "MedicationAdministration", "Medication"},
+		{"MedicationAdministration/route-admin-b", "Medication/medication-b", "medication", "MedicationAdministration", "Medication"},
 	}
 	if got := fixtureEdgeContracts(edges); !reflect.DeepEqual(got, sortMedicationFixtureEdges(wantEdges)) {
 		t.Fatalf("generated FHIR extractors returned wrong typed route edges:\n got: %#v\nwant: %#v", got, sortMedicationFixtureEdges(wantEdges))
@@ -202,7 +202,7 @@ func medicationFixtureRoutes(specimen string, docs map[string]medicationFixtureD
 		for _, stage := range scopedMedicationEdges(edges, "", focus.From, "Condition", "Observation", "stage_assessment_Observation", scope) {
 			for _, conditionSubject := range scopedMedicationEdges(edges, stage.From, "", "Condition", "Patient", "subject_Patient", scope) {
 				for _, administrationSubject := range scopedMedicationEdges(edges, "", conditionSubject.To, "MedicationAdministration", "Patient", "subject_Patient", scope) {
-					for _, medication := range scopedMedicationEdges(edges, administrationSubject.From, "", "MedicationAdministration", "Medication", "medication_reference_Medication", scope) {
+					for _, medication := range scopedMedicationEdges(edges, administrationSubject.From, "", "MedicationAdministration", "Medication", "medication", scope) {
 						doc, exists := docs[medication.To]
 						if exists && docs[specimen].ResourceType == "Specimen" {
 							routes = append(routes, medicationFixtureRoute{specimen, focus.From, stage.From, conditionSubject.To, administrationSubject.From, medication.To, doc.Value})
@@ -239,7 +239,7 @@ func fixtureEdgeContracts(edges []medicationFixtureEdge) []medicationFixtureEdge
 }
 
 func isMedicationRouteLabel(label string) bool {
-	return label == "focus_Specimen" || label == "stage_assessment_Observation" || label == "subject_Patient" || label == "medication_reference_Medication"
+	return label == "focus_Specimen" || label == "stage_assessment_Observation" || label == "subject_Patient" || label == "medication"
 }
 
 func sortMedicationFixtureEdges(edges []medicationFixtureEdgeContract) []medicationFixtureEdgeContract {

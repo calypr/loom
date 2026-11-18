@@ -5,7 +5,6 @@ GO_VERSION ?= 1.26.5
 GO_TOOLCHAIN ?= go$(GO_VERSION)
 GOCACHE_DIR ?= $(CURDIR)/.gocache
 GOFLAGS ?=
-FHIR_PACKAGE_PATH ?= fhir/.cache/hl7.fhir.r5.core-5.0.0.tgz
 OAPI_CODEGEN_VERSION ?= v2.8.0
 IMAGE ?= arango-fhir-proto:local
 LOOM_URL ?= http://127.0.0.1:8080
@@ -52,8 +51,7 @@ build-server:
 
 generate-fhir:
 	mkdir -p $(GOCACHE_DIR)
-	python3 scripts/fetch_fhir_core.py $(FHIR_PACKAGE_PATH)
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/generate -structure-definitions $(FHIR_PACKAGE_PATH) -edge-policy fhir/edge-policy.json -structs-out fhir/model -metadata-out fhir/schema/generated.go
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/generate -structs-out fhir/model -metadata-out fhir/schema/generated.go
 	gofmt -w fhir/model/*.go fhir/schema/generated.go
 
 generate-openapi:
