@@ -44,7 +44,8 @@ const twinRowCount = int64(7373737)
 
 const (
 	twinHandlerFile = "../api/dataframe/dataframe/openapi_handlers.go"
-	twinWiringFile  = "openapi_recipe_execution.go"
+	twinWiringFile  = "wire_http.go"
+	twinAdapterFile = "../api/dataframe/dataframe/recipe_execution_reader.go"
 	twinReaderFile  = "../api/dataframe/dataframe/recipe_execution.go"
 	twinRoutePrefix = "/api/v1/dataframe/recipe-executions/"
 )
@@ -207,8 +208,15 @@ func twinRequireRepairedGuards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("STEP 0 drift: cannot read %s: %v", twinWiringFile, err)
 	}
-	wiringSource := string(wiringRaw)
-	if !strings.Contains(wiringSource, "NewAuthorizedRecipeExecutionRecordReader(releases, scopes, resolveScope, true)") {
+	if !strings.Contains(string(wiringRaw), "dataframeapi.NewRecipeExecutionReader(releases, scopes, nil)") {
+		t.Fatal("HTTP registration no longer constructs the recipe execution reader")
+	}
+	adapterRaw, err := os.ReadFile(twinAdapterFile)
+	if err != nil {
+		t.Fatalf("STEP 0 drift: cannot read %s: %v", twinAdapterFile, err)
+	}
+	adapterSource := string(adapterRaw)
+	if !strings.Contains(adapterSource, "NewAuthorizedRecipeExecutionRecordReader(releases, scopes, resolveScope, true)") {
 		t.Fatal("REST wiring no longer uses the shared authorized reader")
 	}
 	for _, fact := range twinQuotedFacts {
@@ -231,7 +239,7 @@ func twinRequireRepairedGuards(t *testing.T) {
 	if strings.Contains(string(readerRaw), "if scopeResolver != nil {\n\t\t\tprincipal, _ := authscope.PrincipalFromContext(ctx)") {
 		t.Fatal("shared reader restored resolver-conditional project membership")
 	}
-	if strings.Contains(wiringSource, archivedMembershipFreeGate) {
+	if strings.Contains(adapterSource, archivedMembershipFreeGate) {
 		t.Fatalf("FB20-TWIN REGRESSION | %s restored the archived membership-free gate (principal consulted only inside the resolver-conditional block)", twinHandlerFile)
 	}
 	t.Logf("FB20-TWIN GATE | archived-gate-stays-absent | %s keeps the shipped membership-free gate removed", twinHandlerFile)

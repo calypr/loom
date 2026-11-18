@@ -182,22 +182,17 @@ func TestStableReadResponseFixtures(t *testing.T) {
 	}
 }
 
-func assertJSONFixture(t *testing.T, value any, want string) {
-	t.Helper()
-	payload, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(payload) != want {
-		t.Fatalf("response fixture = %s, want %s", payload, want)
-	}
-}
-
 type recipeExecutionRouteConfig struct {
 	releases publication.BundleCatalog
 	scopes   *authscope.ScopeResolver
 }
 
 func recipeExecutionTestRoutes(config recipeExecutionRouteConfig) *routes {
-	return &routes{Handlers: dataframeapi.NewHandlers(nil, nil, newRecipeExecutionReader(config.releases, config.scopes))}
+	return &routes{Handlers: dataframeapi.NewHandlers(nil, nil, dataframeapi.NewRecipeExecutionReader(config.releases, config.scopes, func(ctx context.Context, scopes *authscope.ScopeResolver, principal *authscope.Principal, project, generation string, declared []string) (authscope.ReadScope, error) {
+		return recipeExecutionReadScope(ctx, scopes, principal, project, generation, declared)
+	}))}
+}
+
+var recipeExecutionReadScope = func(ctx context.Context, scopes *authscope.ScopeResolver, principal *authscope.Principal, project, generation string, declared []string) (authscope.ReadScope, error) {
+	return scopes.ResolveReadScopeForGeneration(ctx, principal, project, generation, declared)
 }

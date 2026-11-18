@@ -1,8 +1,6 @@
 package server
 
 import (
-	"testing"
-
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
@@ -28,13 +26,6 @@ type testExplorerStore = explorerfixtures.Store
 
 func newTestExplorerStore() *testExplorerStore {
 	return explorerfixtures.NewStore()
-}
-
-var testExplorerKey = explorerfixtures.Key
-
-func testAuthorizedCapabilitySnapshot(t testing.TB, generation string, scope authscope.ReadScope) capability.Snapshot {
-	t.Helper()
-	return capabilityfixtures.AuthorizedCapabilitySnapshot(generation, capabilityresolver.ScopeDigest(scope))
 }
 
 func testAuthoringV2CapabilitySnapshot() capability.Snapshot {

@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
@@ -10,6 +12,8 @@ import (
 	api "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
+	arangostore "github.com/calypr/loom/internal/store/arango"
+	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
 
 type explorerHandlers = explorerapi.Handlers
@@ -57,10 +61,30 @@ func registerRoutes(server *api.HTTPServer, generationService *loadapi.Service, 
 	handlers := &routes{
 		HealthHandlers:   api.NewHealthHandlers(server),
 		StrictHandlers:   loadapi.NewStrictHandlers(loadHandler),
-		Handlers:         dataframeapi.NewHandlers(dataframes.published, dataframes.query, newRecipeExecutionReader(releases, scopes)),
+		Handlers:         dataframeapi.NewHandlers(dataframes.published, dataframes.query, dataframeapi.NewRecipeExecutionReader(releases, scopes, nil)),
 		explorerHandlers: explorerHandlers,
 	}
 	handler := loomapi.NewStrictHandler(handlers, nil)
 	loomapi.RegisterHandlersWithOptions(server.App(), handler, loomapi.FiberServerOptions{})
 	return nil
+}
+
+func wireHTTP(lifecycleClient *arangostore.Client, clickhouse *clickhousestore.Client, clickHouseEnabled bool, degradation error, authenticator authscope.Authenticator, authorizer authscope.Authorizer, logger *slog.Logger) (*api.HTTPServer, error) {
+	server, err := api.NewHTTPServer(api.HTTPConfig{Authenticator: authenticator, Authorizer: authorizer, Logger: logger,
+		CoreReadyCheck: func(ctx context.Context) error {
+			return lifecycleClient.QueryRows(ctx, "RETURN {ready: true}", 1, nil, func(map[string]any) error { return nil })
+		},
+		ClickHouseReadyCheck: func(ctx context.Context) error {
+			if degradation != nil {
+				return degradation
+			}
+			if clickhouse == nil {
+				return nil
+			}
+			return clickhouse.Ping(ctx)
+		}, ClickHouseEnabled: clickHouseEnabled})
+	if err != nil {
+		return nil, fmt.Errorf("create HTTP server: %w", err)
+	}
+	return server, nil
 }

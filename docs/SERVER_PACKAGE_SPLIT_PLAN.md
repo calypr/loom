@@ -104,12 +104,18 @@ already exist.
 | `wire_storage.go` | Arango and ClickHouse clients, registries, stores |
 | `wire_dataframe.go` | engine, recipe runtime, publication |
 | `wire_explorer.go` | capability resolver, imported sources, receipt runtime, `lifecycle.Config` built from adapter methods |
+| `wire_load.go` | Construct generation and source-load services. |
 | `wire_http.go` | Compose and register the strict health, load, dataframe, and Explorer handlers. An internal alias distinguishes the two handler types named `Handlers`. |
 
 Tests that remain here drive the full composition: `core_authoring_protocol_*`,
 `*_integration_test.go`, `wiring_test.go`, `config_test.go`,
 `openapi_route_inventory_test.go`, `openapi_status_coverage_test.go`. All other tests
 move with their subject.
+
+The remaining request-time adapters belong with their callers. Source-load publication
+moves to `internal/ingest`, release preparation and activation to `internal/dataset`,
+recipe execution reads to `internal/api/dataframe/dataframe`, and Arango query and
+preview adapters to `internal/dataframe/execution/arango`.
 
 ## Phases
 
