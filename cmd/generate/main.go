@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -10,7 +9,8 @@ import (
 
 func main() {
 	fs := flag.NewFlagSet("generate", flag.ExitOnError)
-	schemaPath := fs.String("schema", "fhir/graph-fhir.json", "Path to graph-fhir JSON schema")
+	definitionsPath := fs.String("structure-definitions", "fhir/.cache/hl7.fhir.r5.core-5.0.0.tgz", "Path to the pinned HL7 FHIR R5 core package")
+	edgePolicyPath := fs.String("edge-policy", "fhir/edge-policy.json", "Path to Loom's graph edge policy")
 	structsDir := fs.String("structs-out", "fhir/model", "Directory for generated FHIR Go structs, validation, and edge extraction")
 	metadataOut := fs.String("metadata-out", "fhir/schema/generated.go", "Path for generated compiler FHIR schema metadata")
 	if err := fs.Parse(os.Args[1:]); err != nil {
@@ -18,16 +18,14 @@ func main() {
 		os.Exit(2)
 	}
 
-	fmt.Printf("Reading schema from %s...\n", *schemaPath)
-	data, err := os.ReadFile(*schemaPath)
+	fmt.Printf("Reading FHIR definitions from %s...\n", *definitionsPath)
+	schema, err := loadStructureDefinitions(*definitionsPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading schema: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error loading FHIR StructureDefinitions: %v\n", err)
 		os.Exit(1)
 	}
-
-	var schema Schema
-	if err := json.Unmarshal(data, &schema); err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing schema JSON: %v\n", err)
+	if err := applyEdgePolicy(schema, *edgePolicyPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading Loom edge policy: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -45,27 +43,27 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := generateModel(&schema, filepath.Join(*structsDir, "model.go")); err != nil {
+	if err := generateModel(schema, filepath.Join(*structsDir, "model.go")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating model.go: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := generateValidate(&schema, filepath.Join(*structsDir, "validate.go")); err != nil {
+	if err := generateValidate(schema, filepath.Join(*structsDir, "validate.go")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating validate.go: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := generateExtract(&schema, filepath.Join(*structsDir, "extract.go")); err != nil {
+	if err := generateExtract(schema, filepath.Join(*structsDir, "extract.go")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating extract.go: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := generateFHIRResources(&schema, filepath.Join(*structsDir, "resources.go")); err != nil {
+	if err := generateFHIRResources(schema, filepath.Join(*structsDir, "resources.go")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating resource registry: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := generateFHIRSchema(&schema, *metadataOut); err != nil {
+	if err := generateFHIRSchema(schema, *metadataOut); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating fhir/schema/generated.go: %v\n", err)
 		os.Exit(1)
 	}

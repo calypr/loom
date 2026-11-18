@@ -9,36 +9,58 @@ import (
 	"testing"
 
 	arangostore "github.com/calypr/loom/internal/store/arango"
-
-	"github.com/bmeg/jsonschemagraph/graph"
 )
 
-func TestPreflightFilesSelectsGeneratedAndGenericModesFromActiveSchema(t *testing.T) {
-	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
+func TestPreflightFilesReportsGeneratedLoaderSupportFromActiveSchema(t *testing.T) {
+	schema, err := loadRuntimeGraphSchema(repoPath(t, "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatalf("load schema: %v", err)
 	}
 	dir := t.TempDir()
 	patient := writePreflightFixture(t, dir, "Patient.ndjson", `{"resourceType":"Patient"}`+"\n")
+	directory := writePreflightFixture(t, dir, "Directory.ndjson", `{"resourceType":"Directory"}`+"\n")
 	resource := writePreflightFixture(t, dir, "Resource.ndjson", `{"resourceType":"Resource"}`+"\n")
 
-	report, err := PreflightFiles([]string{patient, resource}, schema, 1)
-	if err != nil {
-		t.Fatalf("preflight: %v", err)
+	report, err := PreflightFiles([]string{patient, directory, resource}, schema, 1)
+	if err == nil {
+		t.Fatal("expected unsupported Resource loader error")
 	}
-	if !report.Valid() || len(report.Resources) != 2 {
+	if report.Valid() || len(report.Resources) != 3 {
 		t.Fatalf("unexpected report: %+v", report)
 	}
-	if got := report.Resources[0]; got.ResourceType != "Patient" || got.Mode != IngestionModeGenerated || !got.GraphSchemaSupported || !got.GeneratedLoaderSupported || got.SampledRows != 1 {
-		t.Fatalf("unexpected generic resource report: %+v", got)
+	if got := report.Resources[0]; got.ResourceType != "Directory" || got.Mode != IngestionModeUnsupported || got.GraphSchemaSupported || got.GeneratedLoaderSupported || got.SampledRows != 1 {
+		t.Fatalf("unexpected Directory report: %+v", got)
 	}
-	if got := report.Resources[1]; got.ResourceType != "Resource" || got.Mode != IngestionModeGeneric || !got.GraphSchemaSupported || got.GeneratedLoaderSupported || got.SampledRows != 1 {
-		t.Fatalf("unexpected generated resource report: %+v", got)
+	if got := report.Resources[1]; got.ResourceType != "Patient" || got.Mode != IngestionModeGenerated || !got.GraphSchemaSupported || !got.GeneratedLoaderSupported || got.SampledRows != 1 {
+		t.Fatalf("unexpected Patient report: %+v", got)
+	}
+	if got := report.Resources[2]; got.ResourceType != "Resource" || got.Mode != IngestionModeUnsupported || !got.GraphSchemaSupported || got.GeneratedLoaderSupported || got.SampledRows != 1 {
+		t.Fatalf("unexpected Resource report: %+v", got)
+	}
+}
+
+func TestPreflightUsesConfiguredClassAllowlistForGeneratedResources(t *testing.T) {
+	schemaPath := writeTempSchemaBytes(t, []byte(`{"$id":"urn:example:graph","$defs":{"Patient":{"$id":"urn:example:graph/Patient","title":"Patient","type":"object"},"Observation":{"$id":"urn:example:graph/Observation","title":"Observation","type":"object"}},"anyOf":[{"$ref":"urn:example:graph/Patient"}]}`))
+	schema, err := loadRuntimeGraphSchema(schemaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !supportsGeneratedLoad("Observation") {
+		t.Fatal("Observation must remain available in generated code")
+	}
+	patient := writePreflightFixture(t, t.TempDir(), "Patient.ndjson", `{"resourceType":"Patient"}`+"\n")
+	observation := writePreflightFixture(t, t.TempDir(), "Observation.ndjson", `{"resourceType":"Observation"}`+"\n")
+	report, err := PreflightFiles([]string{patient, observation}, schema, 1)
+	if err == nil {
+		t.Fatal("expected the configured schema to reject Observation")
+	}
+	if got := report.Resources[0]; got.ResourceType != "Observation" || got.GraphSchemaSupported || !got.GeneratedLoaderSupported || got.Mode != IngestionModeUnsupported {
+		t.Fatalf("unexpected configured-schema drift report: %+v", got)
 	}
 }
 
 func TestPreflightFilesReportsAllStagedInputProblems(t *testing.T) {
-	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
+	schema, err := loadRuntimeGraphSchema(repoPath(t, "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatalf("load schema: %v", err)
 	}
@@ -73,7 +95,7 @@ func TestPreflightFilesReportsAllStagedInputProblems(t *testing.T) {
 }
 
 func TestPreflightFilesBoundsPayloadSamplingPerFile(t *testing.T) {
-	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
+	schema, err := loadRuntimeGraphSchema(repoPath(t, "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatalf("load schema: %v", err)
 	}

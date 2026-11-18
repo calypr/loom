@@ -1,11 +1,9 @@
 package ingest
 
 import (
-	"bufio"
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -13,9 +11,6 @@ import (
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 
-	"github.com/bmeg/jsonschemagraph/graph"
-	"github.com/bmeg/jsonschemagraph/util"
-	"github.com/bytedance/sonic"
 	publication "github.com/calypr/loom/internal/dataset"
 )
 
@@ -25,120 +20,62 @@ func TestLoadAndQueryFixture(t *testing.T) {
 	}
 	ctx := context.Background()
 	fixtureDir := t.TempDir()
-	sourceMetaDir := repoPath(t, "META")
-	files, err := DiscoverNDJSON(sourceMetaDir)
-	if err != nil {
-		t.Fatalf("discover fixture source: %v", err)
+	fixtures := map[string]string{
+		"Patient.ndjson":   `{"resourceType":"Patient","id":"patient-1","gender":"female"}`,
+		"Condition.ndjson": `{"resourceType":"Condition","id":"condition-1","clinicalStatus":{"text":"active"},"subject":{"reference":"Patient/patient-1"}}`,
 	}
-	expectedVertices := 0
-	expectedEdges := 0
-	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
-	if err != nil {
-		t.Fatalf("load graph schema: %v", err)
+	for name, line := range fixtures {
+		if err := os.WriteFile(filepath.Join(fixtureDir, name), []byte(line+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	for _, file := range files {
-		resource := ResourceTypeFromPath(file)
-		payload := copyFirstLineFixture(t, file, filepath.Join(fixtureDir, filepath.Base(file)))
-		expectedVertices++
-		class := schema.GetClass(resource)
-		if class == nil {
-			t.Fatalf("class %s not found", resource)
+	generation, err := publication.NewRef("ARANGO_PROTO_TEST", "generated-generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	database := "fhir_proto_int_generated_" + time.Now().Format("20060102150405")
+	loadSummary, err := Load(ctx, LoadOptions{
+		ConnectionOptions: arangostore.ConnectionOptions{URL: "http://127.0.0.1:8529", Database: database},
+		Schema:            repoPath(t, "fhir", "graph-fhir.json"),
+		MetaDir:           fixtureDir,
+		Project:           "ARANGO_PROTO_TEST",
+		Dataset:           &generation,
+		BatchSize:         100,
+		ProgressEvery:     1000,
+	})
+	if err != nil {
+		t.Fatalf("load fixture: %v", err)
+	}
+	if loadSummary.VerticesInserted != 2 {
+		t.Fatalf("vertices inserted = %d, want 2", loadSummary.VerticesInserted)
+	}
+	if loadSummary.EdgesInserted != 2 {
+		t.Fatalf("edges inserted = %d, want 2 for one subject reference and its back-reference", loadSummary.EdgesInserted)
+	}
+	for _, key := range []string{"bootstrap", "decode", "validate", "object_id", "edge_generation", "vertex_insert", "edge_insert"} {
+		if _, ok := loadSummary.StageSeconds[key]; !ok {
+			t.Fatalf("stage timing %q missing", key)
 		}
-		id, err := util.GetObjectID(payload, class)
-		if err != nil {
-			t.Fatalf("object id for %s: %v", resource, err)
-		}
-		edges, err := schema.BuildEdgesWithID(resource, id, payload, nil, true)
-		if err != nil {
-			t.Fatalf("edges for %s: %v", resource, err)
-		}
-		expectedEdges += len(edges)
 	}
 
-	for _, useGeneric := range []bool{true, false} {
-		name := "Generated"
-		if useGeneric {
-			name = "Generic"
-		}
-		t.Run(name, func(t *testing.T) {
-			generation, err := publication.NewRef("ARANGO_PROTO_TEST", strings.ToLower(name)+"-generation")
-			if err != nil {
-				t.Fatal(err)
-			}
-			database := "fhir_proto_int_" + strings.ToLower(name) + "_" + time.Now().Format("20060102150405")
-			loadSummary, err := Load(ctx, LoadOptions{
-				ConnectionOptions: arangostore.ConnectionOptions{
-					URL:      "http://127.0.0.1:8529",
-					Database: database,
-				},
-				Schema:        repoPath(t, "fhir", "graph-fhir.json"),
-				MetaDir:       fixtureDir,
-				Project:       "ARANGO_PROTO_TEST",
-				Dataset:       &generation,
-				BatchSize:     100,
-				ProgressEvery: 1000,
-				UseGeneric:    useGeneric,
-			})
-			if err != nil {
-				t.Fatalf("load fixture: %v", err)
-			}
-			if loadSummary.VerticesInserted != expectedVertices {
-				t.Fatalf("vertices inserted = %d, want %d", loadSummary.VerticesInserted, expectedVertices)
-			}
-			if loadSummary.EdgesInserted != expectedEdges {
-				t.Fatalf("edges inserted = %d, want %d", loadSummary.EdgesInserted, expectedEdges)
-			}
-			for _, key := range []string{"bootstrap", "decode", "validate", "object_id", "edge_generation", "vertex_insert", "edge_insert"} {
-				if _, ok := loadSummary.StageSeconds[key]; !ok {
-					t.Fatalf("stage timing %q missing", key)
-				}
-			}
-
-			client, err := arangostore.Open(ctx, "http://127.0.0.1:8529", database)
-			if err != nil {
-				t.Fatalf("open catalog client: %v", err)
-			}
-			defer client.Close(ctx)
-			catalogStore, err := catalogarango.New(client)
-			if err != nil {
-				t.Fatalf("create catalog store: %v", err)
-			}
-			fields, err := catalogStore.DiscoverFields(ctx, catalog.PopulatedFieldOptions{
-				Project:      "ARANGO_PROTO_TEST",
-				ResourceType: "Condition",
-				CursorBatch:  100,
-			})
-			if err != nil {
-				t.Fatalf("discover populated fields: %v", err)
-			}
-			if len(fields) == 0 {
-				t.Fatalf("discover populated fields returned no rows")
-			}
-		})
-	}
-}
-
-func copyFirstLineFixture(t *testing.T, src, dst string) map[string]any {
-	t.Helper()
-	in, err := os.Open(src)
+	client, err := arangostore.Open(ctx, "http://127.0.0.1:8529", database)
 	if err != nil {
-		t.Fatalf("open fixture source %s: %v", src, err)
+		t.Fatalf("open catalog client: %v", err)
 	}
-	defer in.Close()
-	scanner := bufio.NewScanner(in)
-	if !scanner.Scan() {
-		t.Fatalf("fixture source %s is empty", src)
+	defer client.Close(ctx)
+	catalogStore, err := catalogarango.New(client)
+	if err != nil {
+		t.Fatalf("create catalog store: %v", err)
 	}
-	line := strings.TrimSpace(scanner.Text())
-	if err := scanner.Err(); err != nil {
-		t.Fatalf("scan fixture source %s: %v", src, err)
+	fields, err := catalogStore.DiscoverFields(ctx, catalog.PopulatedFieldOptions{
+		Project:      "ARANGO_PROTO_TEST",
+		ResourceType: "Condition",
+		CursorBatch:  100,
+	})
+	if err != nil {
+		t.Fatalf("discover populated fields: %v", err)
 	}
-	if err := os.WriteFile(dst, []byte(line+"\n"), 0o644); err != nil {
-		t.Fatalf("write fixture %s: %v", dst, err)
+	if len(fields) == 0 {
+		t.Fatalf("discover populated fields returned no rows")
 	}
-	var payload map[string]any
-	if err := sonic.ConfigFastest.Unmarshal([]byte(line), &payload); err != nil {
-		t.Fatalf("decode fixture %s: %v", src, err)
-	}
-	return payload
 }

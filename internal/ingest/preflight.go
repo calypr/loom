@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/bmeg/jsonschemagraph/graph"
 )
 
 const defaultPreflightSampleRows = 10
@@ -16,7 +14,6 @@ type IngestionMode string
 
 const (
 	IngestionModeGenerated   IngestionMode = "generated"
-	IngestionModeGeneric     IngestionMode = "generic"
 	IngestionModeUnsupported IngestionMode = "unsupported"
 )
 
@@ -58,7 +55,7 @@ func (e *PreflightError) Error() string {
 	return fmt.Sprintf("ingestion preflight failed: %s", issue.Message)
 }
 
-func PreflightFiles(files []string, schema *graph.GraphSchema, sampleRows int) (PreflightReport, error) {
+func PreflightFiles(files []string, schema *runtimeGraphSchema, sampleRows int) (PreflightReport, error) {
 	if schema == nil {
 		return PreflightReport{}, fmt.Errorf("graph schema is required")
 	}
@@ -84,12 +81,10 @@ func PreflightFiles(files []string, schema *graph.GraphSchema, sampleRows int) (
 	for _, resourceType := range resourceTypes {
 		resourceFiles := append([]string(nil), grouped[resourceType]...)
 		sort.Strings(resourceFiles)
-		classSupported := schema.GetClass(resourceType) != nil
+		classSupported := schema.HasClass(resourceType)
 		generatedSupported := supportsGeneratedLoad(resourceType)
-		mode := IngestionModeGeneric
-		if !classSupported {
-			mode = IngestionModeUnsupported
-		} else if generatedSupported {
+		mode := IngestionModeUnsupported
+		if classSupported && generatedSupported {
 			mode = IngestionModeGenerated
 		}
 		resource := PreflightResource{
@@ -105,6 +100,13 @@ func PreflightFiles(files []string, schema *graph.GraphSchema, sampleRows int) (
 				File:         filepath.Base(resourceFiles[0]),
 				ResourceType: resourceType,
 				Message:      fmt.Sprintf("resource type %q is not represented by the active graph schema", resourceType),
+			})
+		} else if !generatedSupported {
+			report.Issues = append(report.Issues, PreflightIssue{
+				Code:         "unsupported_generated_resource",
+				File:         filepath.Base(resourceFiles[0]),
+				ResourceType: resourceType,
+				Message:      fmt.Sprintf("resource type %q has no generated loader", resourceType),
 			})
 		}
 

@@ -197,7 +197,6 @@ func configureLoadFlagsCore(fs *flag.FlagSet, config *loadCommandConfig) {
 	fs.IntVar(&config.Options.CatalogLimits.MaxExtensionValuesPerField, "max-extension-values", profileLimits.MaxExtensionValuesPerField, "Maximum retained extension observations per field")
 	fs.IntVar(&config.Options.CatalogLimits.MaxShapePlans, "max-shape-plans", profileLimits.MaxShapePlans, "Maximum cached payload shape plans")
 	fs.BoolVar(&config.Options.FailFast, "fail-fast", false, "Stop on the first decode, validation, or edge conversion error")
-	fs.BoolVar(&config.Options.UseGeneric, "use-generic", false, "Use the generic jsonschema + jsonschemagraph validator and extractor")
 	fs.StringVar(&config.Options.WriteAPI, "write-api", "import", "Bulk write API: import or document")
 }
 

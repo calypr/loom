@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bmeg/jsonschemagraph/graph"
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -56,7 +55,11 @@ func (p *RepositorySourceLoader) UploadFile(ctx context.Context, project, operat
 		}
 		return receipt, nil
 	}
-	digest, rows, validation, err := validateSourceLoadFile(ctx, localPath, planned.Path, project, record.Plan.AuthResourcePath, record.Generation, p.schemaPath)
+	schema, err := loadRuntimeGraphSchema(p.schemaPath)
+	if err != nil {
+		return SourceFileReceipt{}, err
+	}
+	digest, rows, validation, err := validateSourceLoadFile(ctx, localPath, planned.Path, project, record.Plan.AuthResourcePath, record.Generation, schema)
 	if err != nil {
 		return SourceFileReceipt{}, fmt.Errorf("validate source file %q: %w", planned.Path, err)
 	}
@@ -97,10 +100,6 @@ func (p *RepositorySourceLoader) UploadFile(ctx context.Context, project, operat
 	defer stopLease()
 
 	if err := p.clearCandidateSourceFile(workCtx, record, planned.Path, owner, resourceType); err != nil {
-		return SourceFileReceipt{}, err
-	}
-	schema, err := graph.Load(p.schemaPath)
-	if err != nil {
 		return SourceFileReceipt{}, err
 	}
 	stat, err := os.Stat(localPath)

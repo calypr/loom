@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/bmeg/jsonschemagraph/model"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -60,72 +59,12 @@ func VertexFromFHIRWithExtra(project, resourceType string, payload, extraArgs ma
 	}, nil
 }
 
-func EdgeFromGrip(project, sourceType string, edge *model.Edge) (EdgeDocument, error) {
-	if edge == nil {
-		return EdgeDocument{}, fmt.Errorf("nil edge")
-	}
-	canonicalSourceType, ok := fhirschema.ConcreteResourceType(sourceType)
-	if !ok {
-		return EdgeDocument{}, fmt.Errorf("edge %q has unsupported source resource type %q", edge.Id, sourceType)
-	}
-	if strings.TrimSpace(edge.From) == "" {
-		return EdgeDocument{}, fmt.Errorf("edge %q missing source id", edge.Id)
-	}
-	targetType, targetID := "", edge.To
-	if strings.Contains(edge.To, "/") {
-		var err error
-		targetType, targetID, err = splitFHIRReference(edge.To)
-		if err != nil {
-			return EdgeDocument{}, fmt.Errorf("edge %q target: %w", edge.Id, err)
-		}
-	} else {
-		var err error
-		targetType, err = targetTypeFromLabel(edge.Label)
-		if err != nil {
-			return EdgeDocument{}, fmt.Errorf("edge %q target type: %w", edge.Id, err)
-		}
-	}
-	canonicalTargetType, ok := fhirschema.ConcreteResourceType(targetType)
-	if !ok {
-		return EdgeDocument{}, fmt.Errorf("edge %q has unsupported target resource type %q", edge.Id, targetType)
-	}
-	return EdgeDocument{
-		Key:      SanitizeKey(edge.Id),
-		From:     collectionID(canonicalSourceType, edge.From),
-		To:       collectionID(canonicalTargetType, targetID),
-		Label:    edge.Label,
-		Project:  project,
-		FromType: canonicalSourceType,
-		ToType:   canonicalTargetType,
-	}, nil
-}
-
 func SanitizeKey(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return "_"
 	}
 	return validKeyPart.ReplaceAllString(value, "_")
-}
-
-func splitFHIRReference(ref string) (string, string, error) {
-	parts := strings.Split(ref, "/")
-	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", fmt.Errorf("malformed FHIR reference %q", ref)
-	}
-	return parts[0], parts[1], nil
-}
-
-func targetTypeFromLabel(label string) (string, error) {
-	parts := strings.Split(label, "_")
-	if len(parts) == 0 {
-		return "", fmt.Errorf("empty edge label")
-	}
-	targetType := parts[len(parts)-1]
-	if strings.TrimSpace(targetType) == "" {
-		return "", fmt.Errorf("malformed edge label %q", label)
-	}
-	return targetType, nil
 }
 
 func collectionID(resourceType, id string) string {

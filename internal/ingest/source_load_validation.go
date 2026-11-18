@@ -12,31 +12,22 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-
-	"github.com/bmeg/jsonschemagraph/graph"
 )
 
 const sourceFileIssueLimit = 100
 
-func validateSourceLoadFile(ctx context.Context, localPath, filePath, project, authResourcePath, generation, schemaPath string) (digest string, rows int64, validation *SourceFileValidationError, err error) {
+func validateSourceLoadFile(ctx context.Context, localPath, filePath, project, authResourcePath, generation string, schema *runtimeGraphSchema) (digest string, rows int64, validation *SourceFileValidationError, err error) {
 	resourceType, err := canonicalSourceResourceType(filePath)
 	if err != nil {
 		return "", 0, nil, err
 	}
-	schema, err := graph.Load(schemaPath)
-	if err != nil {
-		return "", 0, nil, fmt.Errorf("load source-file validation schema: %w", err)
-	}
-	class := schema.GetClass(resourceType)
-	if class == nil {
+	if !schema.HasClass(resourceType) {
 		return "", 0, nil, fmt.Errorf("resource class %s is not in the configured graph schema", resourceType)
 	}
-	var builder RowBuilder
-	if supportsGeneratedLoad(resourceType) {
-		builder = NewGeneratedRowBuilder(project, authResourcePath)
-	} else {
-		builder = NewGenericRowBuilder(project, class, schema, graphExtraArgs(project, authResourcePath))
+	if !supportsGeneratedLoad(resourceType) {
+		return "", 0, nil, fmt.Errorf("resource type %q has no generated loader", resourceType)
 	}
+	var builder RowBuilder = NewGeneratedRowBuilder(project, authResourcePath)
 	builder, err = newGenerationRowBuilder(builder, project, generation)
 	if err != nil {
 		return "", 0, nil, err

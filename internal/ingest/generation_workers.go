@@ -15,8 +15,6 @@ import (
 
 	"github.com/calypr/loom/internal/catalog"
 	arangostore "github.com/calypr/loom/internal/store/arango"
-
-	"github.com/bmeg/jsonschemagraph/graph"
 )
 
 type generationCatalogKey struct {
@@ -143,7 +141,7 @@ func loadFile(
 	ctx context.Context,
 	opts LoadOptions,
 	client *arangostore.Client,
-	schema *graph.GraphSchema,
+	schema *runtimeGraphSchema,
 	file string,
 	datasetGeneration string,
 	overwrite bool,
@@ -165,9 +163,11 @@ func loadFile(
 			semanticSourceFile = semanticInventorySourceFileID(opts.MetaDir, file)
 		}
 	}
-	class := schema.GetClass(resourceType)
-	if class == nil {
+	if !schema.HasClass(resourceType) {
 		return result, fmt.Errorf("%s: class %q not found in graph schema", filepath.Base(file), resourceType)
+	}
+	if !supportsGeneratedLoad(resourceType) {
+		return result, fmt.Errorf("%s: resource type %q has no generated loader", filepath.Base(file), resourceType)
 	}
 
 	scanner, closeFn, err := OpenLineScanner(file)
@@ -178,12 +178,7 @@ func loadFile(
 		err = errors.Join(err, closeFn())
 	}()
 
-	var rowBuilder RowBuilder
-	if opts.UseGeneric || !supportsGeneratedLoad(resourceType) {
-		rowBuilder = NewGenericRowBuilder(opts.Project, class, schema, graphExtraArgs(opts.Project, opts.AuthResourcePath))
-	} else {
-		rowBuilder = NewGeneratedRowBuilder(opts.Project, opts.AuthResourcePath)
-	}
+	var rowBuilder RowBuilder = NewGeneratedRowBuilder(opts.Project, opts.AuthResourcePath)
 	if strings.TrimSpace(datasetGeneration) != "" {
 		rowBuilder, err = newGenerationRowBuilder(rowBuilder, opts.Project, datasetGeneration)
 		if err != nil {

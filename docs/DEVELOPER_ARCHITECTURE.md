@@ -1,10 +1,9 @@
 # Developer Architecture
 
-Loom is an Arango-backed compiler for flat, exportable FHIR dataframes. The
-authority for FHIR structure is the checked-in
-[`fhir/graph-fhir.json`](../fhir/graph-fhir.json) graph schema and the
-generated Go metadata derived from it. Code should not add a second handwritten
-FHIR model or a parallel AQL implementation.
+Loom is an Arango-backed compiler for flat, exportable FHIR dataframes.
+[Loom's FHIR generator](CODE_GENERATION.md) reads HL7's FHIR R5
+StructureDefinitions and Loom's edge policy. Ingest and the compiler use the
+resulting Go model and metadata.
 
 ## Repository boundaries
 
@@ -80,9 +79,8 @@ publication or reader fallback.
 
 `internal/ingest` reads an NDJSON directory, preflights it against the local
 schema, builds vertices and `fhir_edge` documents, profiles populated fields,
-and writes batches to Arango. Generated loaders are the fast path for covered
-resources; the schema-backed generic loader is the fallback for the other
-active graph roots.
+and writes batches to Arango. A resource must be present in the configured
+schema and have a generated loader.
 
 Fresh loads bootstrap:
 

@@ -5,8 +5,6 @@ go 1.26.5
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.47.0
 	github.com/arangodb/go-driver/v2 v2.3.1
-	github.com/bmeg/jsonschema/v6 v6.0.5
-	github.com/bmeg/jsonschemagraph v0.0.6
 	github.com/bytedance/sonic v1.15.2
 	github.com/getkin/kin-openapi v0.142.0
 	github.com/gofiber/fiber/v3 v3.4.0
@@ -33,8 +31,6 @@ require (
 	github.com/go-openapi/swag/jsonname v0.25.5 // indirect
 	github.com/gofiber/schema v1.8.3 // indirect
 	github.com/gofiber/utils/v2 v2.4.1 // indirect
-	github.com/hashicorp/errwrap v1.1.0 // indirect
-	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/kkdai/maglev v0.2.0 // indirect
 	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
@@ -60,5 +56,4 @@ require (
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
 )

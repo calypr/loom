@@ -35,8 +35,19 @@ func TestSchemaFHIRRootResourceTypesUsesCheckedInRootShape(t *testing.T) {
 	}
 }
 
-func TestFHIRSchemaMetadataGenerationMatchesCheckedInArtifact(t *testing.T) {
-	schema := loadCheckedInGraphFHIRSchema(t)
+func TestFHIRSchemaMetadataGenerationRetainsStructureDefinitionEdges(t *testing.T) {
+	schema := loadStructureFixture(t)
+	schema.Defs["Organization"] = &Definition{Type: "object", Properties: map[string]*Property{
+		"id":           {Type: "string"},
+		"meta":         {Ref: fhirDefinitionBase + "/Meta"},
+		"resourceType": {Type: "string", Const: "Organization"},
+	}}
+	schema.Defs["Patient"].Links = []Link{{
+		Rel:              "managingOrganization_Organization",
+		TargetHints:      TargetHints{Backref: []string{"managingOrganization_patient"}, Direction: []string{"outbound"}, Multiplicity: []string{"has_one"}, RegexMatch: []string{"Organization/*"}},
+		TargetSchema:     TargetSchema{Ref: fhirDefinitionBase + "/Organization"},
+		TemplatePointers: TemplatePointers{ID: "/managingOrganization/reference"},
+	}}
 	generatedPath := filepath.Join(t.TempDir(), "generated.go")
 	if err := generateFHIRSchema(schema, generatedPath); err != nil {
 		t.Fatalf("generate FHIR schema metadata: %v", err)
@@ -49,12 +60,15 @@ func TestFHIRSchemaMetadataGenerationMatchesCheckedInArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("format generated metadata: %v", err)
 	}
-	want, err := os.ReadFile(filepath.Join("..", "..", "fhir", "schema", "generated.go"))
-	if err != nil {
-		t.Fatalf("read checked-in metadata: %v", err)
-	}
-	if !bytes.Equal(got, want) {
-		t.Fatal("checked-in fhir/schema/generated.go is stale; run make generate-fhir")
+	for _, expected := range []string{
+		`"Patient|managingOrganization_Organization|Organization"`,
+		`"outbound",`,
+		`"has_one",`,
+		`"managingOrganization_patient",`,
+	} {
+		if !bytes.Contains(got, []byte(expected)) {
+			t.Errorf("generated metadata omitted %q", expected)
+		}
 	}
 }
 

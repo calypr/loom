@@ -52,6 +52,67 @@ func TestLoadSchemaSnapshotUsesExactBytesAndExplicitMetadata(t *testing.T) {
 	}
 }
 
+func TestRuntimeGraphSchemaMatchesLegacyRootAllowlist(t *testing.T) {
+	schema, err := loadRuntimeGraphSchema(repoPath(t, "fhir", "graph-fhir.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for resourceType, want := range map[string]bool{
+		"Patient":       true,
+		"BodyStructure": true,
+		"Resource":      true,
+		"Directory":     false,
+	} {
+		if got := schema.HasClass(resourceType); got != want {
+			t.Errorf("HasClass(%q) = %t, want %t", resourceType, got, want)
+		}
+	}
+}
+
+func TestRuntimeGraphSchemaPreservesConfiguredAllowlist(t *testing.T) {
+	path := writeTempSchemaBytes(t, []byte(`{
+		"$id":"urn:example:graph",
+		"$defs":{
+			"Patient":{"$id":"urn:example:graph/Patient","title":"Patient","type":"object"},
+			"Observation":{"$id":"urn:example:graph/Observation","title":"Observation","type":"object"}
+		},
+		"anyOf":[{"$ref":"urn:example:graph/Patient"}]
+	}`))
+	schema, err := loadRuntimeGraphSchema(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !schema.HasClass("Patient") || schema.HasClass("Observation") {
+		t.Fatalf("configured class allowlist = %#v", schema.classes)
+	}
+	if !supportsGeneratedLoad("Observation") {
+		t.Fatal("fixture requires Observation to remain available in generated code")
+	}
+}
+
+func TestRuntimeGraphSchemaResolvesLocalReferencesAndNestedRoots(t *testing.T) {
+	for name, roots := range map[string]string{
+		"pointer reference": `[{"$ref":"#/$defs/Patient"}]`,
+		"absolute pointer":  `[{"$ref":"urn:example:graph#/$defs/Patient"}]`,
+		"nested anyOf":      `[{"anyOf":[{"$ref":"urn:example:graph/Patient"}]}]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := writeTempSchemaBytes(t, []byte(`{
+				"$id":"urn:example:graph",
+				"$defs":{"Patient":{"$id":"urn:example:graph/Patient","title":"Patient","type":"object"}},
+				"anyOf":`+roots+`
+			}`))
+			schema, err := loadRuntimeGraphSchema(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !schema.HasClass("Patient") {
+				t.Fatalf("configured Patient is missing from class allowlist: %#v", schema.classes)
+			}
+		})
+	}
+}
+
 func TestLoadSchemaSnapshotRejectsMalformedInputs(t *testing.T) {
 	if _, err := loadSchemaSnapshot("  "); !errors.Is(err, ErrGraphSchemaPathRequired) {
 		t.Fatalf("blank path = %v", err)

@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bmeg/jsonschemagraph/graph"
 	"github.com/calypr/loom/internal/catalog"
 	publication "github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -341,7 +340,7 @@ func TestSelectGenerationRowErrorSamplesEdges(t *testing.T) {
 }
 
 func TestGenerationRowErrorSamplesCoverEveryFailingStagedFile(t *testing.T) {
-	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
+	schema, err := loadRuntimeGraphSchema(repoPath(t, "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +426,7 @@ func TestGenerationRowErrorSamplesCoverEveryFailingStagedFile(t *testing.T) {
 }
 
 func TestGenerationRowErrorSamplesLeaveCleanLoadWithoutSamples(t *testing.T) {
-	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
+	schema, err := loadRuntimeGraphSchema(repoPath(t, "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

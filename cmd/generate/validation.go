@@ -260,7 +260,6 @@ func generateValidate(schema *Schema, path string) error {
 				sb.WriteString("\t}\n")
 			}
 		}
-
 		sb.WriteString("\treturn nil\n")
 		sb.WriteString("}\n\n")
 	}

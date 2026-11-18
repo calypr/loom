@@ -10,6 +10,7 @@ type Definition struct {
 	Type                 string               `json:"type"`
 	Title                string               `json:"title"`
 	Description          string               `json:"description"`
+	Abstract             bool                 `json:"abstract"`
 	Properties           map[string]*Property `json:"properties"`
 	Required             []string             `json:"required"`
 	AdditionalProperties bool                 `json:"additionalProperties"`

@@ -116,7 +116,7 @@ func schemaFHIRRootResourceTypes(schema *Schema) []string {
 
 func isFHIRRootResourceDefinition(name string, def *Definition) bool {
 	name = strings.TrimSpace(name)
-	if name == "" || def == nil {
+	if name == "" || def == nil || def.Abstract {
 		return false
 	}
 

@@ -11,17 +11,10 @@ import (
 	fhir "github.com/calypr/loom/fhir/model"
 	"github.com/calypr/loom/internal/catalog"
 
-	"github.com/bmeg/jsonschemagraph/graph"
 	"github.com/bytedance/sonic"
 )
 
 func BenchmarkValidateAndExtract(b *testing.B) {
-	schemaPath := benchRepoPath(b, "fhir", "graph-fhir.json")
-	schema, err := graph.Load(schemaPath)
-	if err != nil {
-		b.Fatalf("failed to load schema: %v", err)
-	}
-
 	hotResources := []string{
 		"Condition",
 		"DocumentReference",
@@ -34,22 +27,6 @@ func BenchmarkValidateAndExtract(b *testing.B) {
 	for _, resourceType := range hotResources {
 		ndjsonPath := filepath.Join(metaDir, resourceType+".ndjson")
 		lines := readSampleLines(b, ndjsonPath, 100)
-
-		class := schema.GetClass(resourceType)
-
-		b.Run(resourceType+"/Generic_Baseline", func(b *testing.B) {
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				line := lines[i%len(lines)]
-				var payload map[string]any
-				if err := sonic.ConfigFastest.Unmarshal(line, &payload); err == nil {
-					if err := class.ValidateFast(payload); err == nil {
-						id, _ := graphObjectID(payload, class)
-						_, _ = schema.BuildEdgesWithID(resourceType, id, payload, nil, true)
-					}
-				}
-			}
-		})
 
 		b.Run(resourceType+"/Generated_ValidateOnly", func(b *testing.B) {
 			b.ResetTimer()

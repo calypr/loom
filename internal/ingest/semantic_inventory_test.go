@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bmeg/jsonschemagraph/graph"
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -21,7 +20,7 @@ func TestLoadFilePersistsSemanticInventoryFromSharedEmitter(t *testing.T) {
 	if err := os.WriteFile(file, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
+	schema, err := loadRuntimeGraphSchema(repoPath(t, "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
