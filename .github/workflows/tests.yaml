@@ -59,7 +59,7 @@ jobs:
           path: ${{ runner.temp }}/go-test-list.txt
       - name: Run all ordinary Go packages and catalog witnesses
         run: |
-          package_list=$(go list . ./internal/... ./cmd/... ./generated/... ./conformance/...)
+          package_list=$(go list . ./internal/... ./cmd/... ./generated/... ./tests/conformance/...)
           mapfile -t packages < <(printf '%s\n' "$package_list" | grep -vE '/(compiler/render/clickhouse|published|store/clickhouse)$')
           test "${#packages[@]}" -gt 0
           go test -timeout=10m -count=1 "${packages[@]}"
@@ -120,7 +120,7 @@ jobs:
       - name: Verify derived arithmetic policies against Arango
         env:
           LOOM_TEST_ARANGO_URL: http://127.0.0.1:8529
-        run: go test -json -timeout=10m -count=1 -run '^TestDerivedArithmeticPoliciesAgainstArango$' ./internal/server | node scripts/assert-go-tests.mjs TestDerivedArithmeticPoliciesAgainstArango
+        run: go test -json -timeout=10m -count=1 -run '^TestDerivedArithmeticPoliciesAgainstArango$' ./internal/server | node tests/scripts/assert-go-tests.mjs TestDerivedArithmeticPoliciesAgainstArango
 
   go-publication-rows:
     name: Compiled publication rows across Arango and ClickHouse
@@ -171,11 +171,11 @@ jobs:
       - name: Compile server tests separately from runtime proof
         run: go test -timeout=10m -run '^$' ./internal/server
       - name: Verify literal compiled and stored rows through fresh Viewer
-        run: go test -json -timeout=10m -count=1 -run '^TestPublicationRowsAndFreshViewerAgainstArangoClickHouse$' ./internal/server | node scripts/assert-go-tests.mjs TestPublicationRowsAndFreshViewerAgainstArangoClickHouse
+        run: go test -json -timeout=10m -count=1 -run '^TestPublicationRowsAndFreshViewerAgainstArangoClickHouse$' ./internal/server | node tests/scripts/assert-go-tests.mjs TestPublicationRowsAndFreshViewerAgainstArangoClickHouse
       - name: Verify active release tables survive cleanup races
-        run: go test -json -timeout=10m -count=1 -run '^TestReconcileDanglesActiveReleaseAgainstArangoClickHouse$' ./internal/dataframe/publication/arango | node scripts/assert-go-tests.mjs TestReconcileDanglesActiveReleaseAgainstArangoClickHouse
+        run: go test -json -timeout=10m -count=1 -run '^TestReconcileDanglesActiveReleaseAgainstArangoClickHouse$' ./internal/dataframe/publication/arango | node tests/scripts/assert-go-tests.mjs TestReconcileDanglesActiveReleaseAgainstArangoClickHouse
       - name: Verify current draft APPEND rows
-        run: go test -json -timeout=10m -count=1 -run '^TestCurrentDraftAppendRowsAgainstArangoClickHouse$' ./internal/server | node scripts/assert-go-tests.mjs TestCurrentDraftAppendRowsAgainstArangoClickHouse
+        run: go test -json -timeout=10m -count=1 -run '^TestCurrentDraftAppendRowsAgainstArangoClickHouse$' ./internal/server | node tests/scripts/assert-go-tests.mjs TestCurrentDraftAppendRowsAgainstArangoClickHouse
 
   go-clickhouse:
     name: Go ClickHouse integration tests
@@ -255,7 +255,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Run acceptance cleanup tests
-        run: timeout 600s bash scripts/tests/test_acceptance_real_cleanup.sh
+        run: timeout 600s bash tests/scripts/test_acceptance_real_cleanup.sh
 
   python-unit:
     name: Python tests
@@ -268,7 +268,7 @@ jobs:
           node-version: 22.x
       - name: Run retained Python tests
         run: |
-          python3 -m unittest discover -s scripts/tests
+          python3 -m unittest discover -s tests/scripts
 
   contracts:
     name: Generated and OpenAPI contracts
@@ -294,16 +294,12 @@ jobs:
         run: timeout 600s make openapi-check
       - name: Check preview-index migration
         run: >-
-          go test -timeout=10m -count=1
-          ./scripts/local-preview-index-migration.go
-          ./scripts/local-preview-index-migration_test.go
+          timeout 600s bash tests/scripts/test-go-script.sh local-preview-index-migration -timeout=10m -count=1
       - name: Check FHIR semantic resource types
         run: timeout 600s go run ./scripts/check_fhir_semantic_resource_types.go
       - name: Test FHIR semantic resource checks
         run: >-
-          timeout 600s go test -timeout=10m -count=1
-          ./scripts/check_fhir_semantic_resource_types.go
-          ./scripts/check_fhir_semantic_resource_types_test.go
+          timeout 600s bash tests/scripts/test-go-script.sh check_fhir_semantic_resource_types -timeout=10m -count=1
 
   component-browser:
     name: Chromium component boundaries

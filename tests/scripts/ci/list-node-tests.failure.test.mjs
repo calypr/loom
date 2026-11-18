@@ -5,9 +5,9 @@ import path from 'node:path';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { NodeTestInventoryError, nodeTestInventory } from './list-node-tests.mjs';
+import { NodeTestInventoryError, nodeTestInventory } from '../../../scripts/ci/list-node-tests.mjs';
 
-const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const selector = path.join(repositoryRoot, 'scripts/ci/list-node-tests.mjs');
 
 function project(files) {

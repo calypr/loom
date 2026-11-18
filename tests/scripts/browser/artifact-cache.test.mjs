@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { mkdtemp, mkdir, readFile, writeFile, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { restoreArtifacts, publishArtifacts } from './artifact-cache.mjs';
+import { restoreArtifacts, publishArtifacts } from '../../../scripts/browser/artifact-cache.mjs';
 
 test('reuse only exact-source, verified assets; reject corruption and unsafe manifests', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'loom-artifact-cache-test-'));

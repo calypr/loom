@@ -7,10 +7,12 @@ import (
 	"testing"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
+
+	"github.com/calypr/loom/internal/testkit"
 )
 
 func TestAcceptedConstructionSharedContractFixture(t *testing.T) {
-	fixture, err := os.ReadFile("../../testdata/openapi/accepted-construction-response.json")
+	fixture, err := os.ReadFile(testkit.FixturePath(t, "openapi/accepted-construction-response.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

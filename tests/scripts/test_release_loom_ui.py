@@ -154,7 +154,7 @@ class ReleaseScriptTest(unittest.TestCase):
             encoding="utf-8",
         )
         (self.root / "Makefile").write_text("release fixture\n", encoding="utf-8")
-        fixture_tests = self.root / "scripts" / "tests" / "test_release_loom_ui.py"
+        fixture_tests = self.root / "tests" / "scripts" / "test_release_loom_ui.py"
         fixture_tests.parent.mkdir(parents=True, exist_ok=True)
         fixture_tests.write_text("release fixture test\n", encoding="utf-8")
         (self.root / ".gitignore").write_text(".artifacts/\n", encoding="utf-8")

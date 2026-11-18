@@ -4,7 +4,7 @@ Use this guide when you need to edit Loom backend or Explorer UI code and
 verify the result through a real browser. The development stack uses the
 separate Compose project `loom-dev`, ports `8180` and `3180`, an isolated
 ArangoDB volume, an isolated ClickHouse volume, and the checked-in fixture in
-`testdata/devloop-fixture`.
+`tests/fixtures/devloop-fixture`.
 
 The stack does not use `loom-demo`, `NCPI_ACCEPTANCE`, the repository `CONFIG`,
 or a researcher-owned Explorer. The Vite service proxies `/api` to `loom-api` on the Compose network so browser

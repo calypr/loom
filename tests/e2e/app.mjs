@@ -5,11 +5,11 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { CDPClient } from '../browser/cdp.mjs';
+import { CDPClient } from '../../scripts/browser/cdp.mjs';
 import { EXPLORER_AUTHORING_SEMANTICS_VERSION } from '../../ui/packages/loom-ui/src/authoringSemanticsVersion.mjs';
 
 const repo = resolve(import.meta.dirname, '../..');
-const fixtureRoot = join(repo, 'testdata/devloop-fixture');
+const fixtureRoot = join(repo, 'tests/fixtures/devloop-fixture');
 const uiOrigin = process.env.LOOM_DEV_UI_URL || 'http://127.0.0.1:3180';
 const apiOrigin = (process.env.LOOM_DEV_API_URL || 'http://127.0.0.1:8180').replace(/\/$/, '');
 const stackProject = process.env.LOOM_DEV_PROJECT;

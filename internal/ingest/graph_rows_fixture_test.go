@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/testkit"
 )
 
 func TestGraphRowsFixturePassesProductionIngestionValidation(t *testing.T) {
-	directory := filepath.Join("..", "..", "testdata", "graph-rows")
+	directory := testkit.FixturePath(t, "graph-rows")
 	raw, err := os.ReadFile(filepath.Join(directory, "oracle.json"))
 	if err != nil {
 		t.Fatal(err)

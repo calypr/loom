@@ -1,6 +1,6 @@
 # Read and export a published dataframe
 
-`scripts/e2e/author-publish-view.spec.mjs` publishes the fixture's authored
+`tests/e2e/author-publish-view.spec.mjs` publishes the fixture's authored
 female-Patient filter, opens Viewer, compares visible rows with fixture data,
 and downloads a ZIP through `Download dataset` and `Download ZIP`. It checks
 archive manifest version 2, included Patient identity, and exclusion of rows

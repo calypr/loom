@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkEvents, ownDatabase, profiles, runBounded, sourceFingerprint } from './run-arango-integration.mjs';
+import { checkEvents, ownDatabase, profiles, runBounded, sourceFingerprint } from '../../scripts/run-arango-integration.mjs';
 const stream = events => events.map(e => JSON.stringify(e)).join('\n');
 test('real case must pass; empty package and skip cannot masquerade as proof', () => {
     const profile = { required: 'TestReal' };
@@ -82,12 +82,12 @@ test('source fingerprint covers dependency manifests and embedded Go test fixtur
     const root = mkdtempSync(join(tmpdir(), 'loom-arango-fingerprint-'));
     const fixture = join(root, 'internal/server/testdata/patient_one_pre_one_saved_document.json');
     try {
-        for (const directory of ['generated', 'schemas', 'testdata', 'scripts']) mkdirSync(join(root, directory), { recursive: true });
+        for (const directory of ['generated', 'schemas', 'tests/fixtures', 'tests/scripts', 'scripts']) mkdirSync(join(root, directory), { recursive: true });
         mkdirSync(join(root, 'internal/server/testdata'), { recursive: true });
         writeFileSync(join(root, 'go.mod'), 'module loom\n');
         writeFileSync(join(root, 'go.sum'), '');
         writeFileSync(join(root, 'scripts/run-arango-integration.mjs'), 'runner\n');
-        writeFileSync(join(root, 'scripts/run-arango-integration.test.mjs'), 'runner test\n');
+        writeFileSync(join(root, 'tests/scripts/run-arango-integration.test.mjs'), 'runner test\n');
         writeFileSync(fixture, '{"version":1}\n');
         const withFixture = sourceFingerprint(root);
         writeFileSync(fixture, '{"version":2}\n');

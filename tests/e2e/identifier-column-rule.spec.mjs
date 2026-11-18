@@ -106,7 +106,7 @@ test('create an identifier column rule, preview its values, and reopen it from R
 });
 
 test('create an Identifier rule on a connected Observation occurrence', { timeout: 240000 }, async () => {
-  const fixtureDirectory = resolve(import.meta.dirname, '../../testdata/builder-rule-related');
+  const fixtureDirectory = resolve(import.meta.dirname, '../fixtures/builder-rule-related');
   const patients = await readFixture('Patient', fixtureDirectory);
   const observations = await readFixture('Observation', fixtureDirectory);
   const expectedByPatient = new Map(observations.map(observation => [

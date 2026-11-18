@@ -73,7 +73,7 @@ services:
         published: ${LOOM_API_PORT:-8080}
         host_ip: ${LOOM_API_HOST:-127.0.0.1}
     volumes:
-      - ${LOOM_DEMO_FIXTURE_DIR:-./testdata/acceptance/ncpi-tcga-brca}:/app/testdata:ro
+      - ${LOOM_DEMO_FIXTURE_DIR:-./tests/fixtures/acceptance/ncpi-tcga-brca}:/app/testdata:ro
 
   demo-seed:
     image: ${LOOM_API_IMAGE:-loom-demo-api:local}
@@ -111,7 +111,7 @@ services:
       loom-api:
         condition: service_healthy
     volumes:
-      - ${LOOM_DEMO_FIXTURE_DIR:-./testdata/acceptance/ncpi-tcga-brca}:/app/testdata:ro
+      - ${LOOM_DEMO_FIXTURE_DIR:-./tests/fixtures/acceptance/ncpi-tcga-brca}:/app/testdata:ro
       - ${LOOM_DEMO_FIXTURE_CACHE_DIR:-fixture_cache}:/var/cache/loom
       - demo_artifacts:/var/lib/loom/artifacts
     restart: "no"

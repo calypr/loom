@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	compilerfixture "github.com/calypr/loom/conformance/compiler"
+	compilerfixture "github.com/calypr/loom/tests/conformance"
 
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	queryapi "github.com/calypr/loom/internal/api/dataframe/query"
@@ -73,7 +73,7 @@ type profileReportDetails struct {
 
 func main() {
 	var (
-		fixtureDir  = flag.String("fixtures", "conformance/compiler/fixtures", "compiler fixture directory")
+		fixtureDir  = flag.String("fixtures", "tests/conformance/fixtures", "compiler fixture directory")
 		fixtureID   = flag.String("fixture", "gdc-case-matrix", "fixture ID to compile")
 		variables   = flag.String("variables", "", "dataframe request JSON; when set, compile its input instead of the fixture builder")
 		limit       = flag.Int("limit", 1000, "root row limit")

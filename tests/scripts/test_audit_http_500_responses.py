@@ -4,7 +4,7 @@ import pathlib
 import tempfile
 import unittest
 
-SCRIPT = pathlib.Path(__file__).resolve().parents[1] / 'audit-http-500-responses.py'
+SCRIPT = pathlib.Path(__file__).resolve().parents[2] / 'scripts' / 'audit-http-500-responses.py'
 spec = importlib.util.spec_from_file_location('audit500', SCRIPT)
 audit = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(audit)

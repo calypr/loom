@@ -20,12 +20,12 @@ import {
   parseBuildIdentity,
   resolveOwnedApiContainer,
   sourceMountMatches,
-} from './loom-dev.mjs';
+} from '../../scripts/loom-dev.mjs';
 
 const makeSource = (label, { patient = '{"resourceType":"Patient","id":"patient-1"}\n', observation = '{"resourceType":"Observation","id":"observation-1"}\n', fixtureDir } = {}) => {
   const root = mkdtempSync(join(tmpdir(), `loom-dev-${label}-`));
   writeFileSync(join(root, 'go.mod'), 'module example.test/loom-dev\n');
-  const fixture = fixtureDir ?? join(root, 'testdata/devloop-fixture');
+  const fixture = fixtureDir ?? join(root, 'tests/fixtures/devloop-fixture');
   mkdirSync(fixture, { recursive: true });
   writeFileSync(join(fixture, 'Patient.ndjson'), patient);
   writeFileSync(join(fixture, 'Observation.ndjson'), observation);
@@ -333,7 +333,7 @@ test('generation and bootstrap seed planners distinguish incomplete, ready, and 
 });
 
 test('core development CLI help loads without browser dependencies', () => {
-  const result = spawnSync(process.execPath, [new URL('./loom-dev.mjs', import.meta.url).pathname, '--help'], {
+  const result = spawnSync(process.execPath, [new URL('../../scripts/loom-dev.mjs', import.meta.url).pathname, '--help'], {
     encoding: 'utf8', timeout: 5000, env: { ...process.env, NODE_TEST_CONTEXT: '', PATH: '' },
   });
   assert.ifError(result.error);

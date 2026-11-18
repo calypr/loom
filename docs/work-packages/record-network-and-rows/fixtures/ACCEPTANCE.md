@@ -1,7 +1,7 @@
 # GRAPH-ROWS independent acceptance specification
 
 Implementation and independent fixture checks are integrated; final native acceptance is in progress. Seeds and
-literal exact expectations are in `testdata/graph-rows/`. The default recipe
+literal exact expectations are in `tests/fixtures/graph-rows/`. The default recipe
 reference remains unchanged. Fixture helper tests are not product passes.
 
 Freeze the final integrated source snapshot before a native run. Retain per-file
@@ -100,7 +100,7 @@ terms and their effect, rather than locating only the row-settings trigger.
 The native cases require a physically separate, frozen source checkout and an
 owned development stack validated by the current verification skill. The API
 must load this package's unchanged default recipe, and the fixture generation
-must come from `testdata/graph-rows` through production ingest.
+must come from `tests/fixtures/graph-rows` through production ingest.
 
 For the recorded run, the source checkout is `/workspace/loom-runtime`, Compose
 project `loom-dev-cloud`, API `http://127.0.0.1:8180`, UI

@@ -4,13 +4,13 @@ import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createDevSession } from '../loom-dev.mjs';
+import { createDevSession } from '../../scripts/loom-dev.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const session = createDevSession(process.env, root);
-const specs = readdirSync(join(root, 'scripts/e2e')).filter(name => name.endsWith('.spec.mjs')).sort();
+const specs = readdirSync(join(root, 'tests/e2e')).filter(name => name.endsWith('.spec.mjs')).sort();
 assert.ok(specs.length, 'No end-to-end specs found');
-const result = spawnSync(process.execPath, ['--test', '--test-concurrency=1', ...specs.map(name => `scripts/e2e/${name}`)], {
+const result = spawnSync(process.execPath, ['--test', '--test-concurrency=1', ...specs.map(name => `tests/e2e/${name}`)], {
   cwd: root, stdio: 'inherit', detached: true, timeout: 8 * 60 * 1000,
   env: { ...process.env, LOOM_DEV_PROJECT: session.fixtureProject, LOOM_DEV_UI_URL: session.uiUrl, LOOM_DEV_API_URL: session.apiUrl },
 });

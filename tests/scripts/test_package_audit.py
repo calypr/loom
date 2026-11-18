@@ -117,7 +117,7 @@ class PackageAuditTest(unittest.TestCase):
             capture_output=True,
             text=True,
         )
-        self.assertIn("-m unittest scripts.tests.test_package_audit", result.stdout)
+        self.assertIn("-m unittest discover -s tests/scripts -p test_package_audit.py", result.stdout)
         self.assertIn("$ make test", result.stdout)
 
 

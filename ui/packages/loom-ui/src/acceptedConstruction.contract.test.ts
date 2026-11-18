@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import fixtureJson from '../../../../testdata/openapi/accepted-construction-response.json?raw';
+import fixtureJson from '../../../../tests/fixtures/openapi/accepted-construction-response.json?raw';
 
 import {
   explorerBuilderAcceptedConstructionSchema,

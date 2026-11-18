@@ -123,7 +123,7 @@ remove the per-resource query sections and say the typed FHIR API was retired. U
 2. `go build ./... && go vet ./internal/... && go test ./...`
 3. **Ingest unchanged:**
    - `go test ./internal/ingest/... ./internal/api/bulk/load/... ./cmd/generate/...`
-   - Run one generation load of `testdata/devloop-fixture` before and after, and compare the summary:
+   - Run one generation load of `tests/fixtures/devloop-fixture` before and after, and compare the summary:
      vertex count, edge count, `validation_errors`, `generation_errors`, `edge_errors`.
    - Feed a known-bad row (missing required field, bad date, wrong reference target type) and confirm the same error category.
 4. **Real data:** `go run ./cmd/loom-acceptance --fixture-only`, then `make acceptance-real` on an owned stack. The NCPI

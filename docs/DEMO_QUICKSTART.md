@@ -64,7 +64,7 @@ The seed job has already verified these deeper contracts:
 
 - ArangoDB contains the locked Patient, Condition, Observation, ResearchStudy, and Specimen counts.
 - ClickHouse contains 100 patient rows and 100 unique patients.
-- The published dataframe schema matches `testdata/acceptance/ncpi-tcga-brca/oracle.json`.
+- The published dataframe schema matches `tests/fixtures/acceptance/ncpi-tcga-brca/oracle.json`.
 - The GraphQL rows match the locked row digest.
 - Publishing the same workspace twice reuses the same execution.
 

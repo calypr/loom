@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { api, readFixture, withFreshUIExplorer } from './app.mjs';
 
-const fixtureDirectory = new URL('../../testdata/extension-column-rule/', import.meta.url).pathname;
+const fixtureDirectory = new URL('../fixtures/extension-column-rule/', import.meta.url).pathname;
 
 test('extension rules preserve nested URL ancestry through preview and reload', { timeout: 180000 }, async () => {
   const patients = await readFixture('Patient', fixtureDirectory);

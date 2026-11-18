@@ -107,7 +107,7 @@ test('the Patient→Observation network follows fixture references through relat
 });
 
 test('DocumentReference rows follow the deep Specimen-to-Patient path and preserve the unmatched ResearchStudy row', { timeout: 240000 }, async () => {
-  const fixtureDirectory = resolve(import.meta.dirname, '../../testdata/traversal-first');
+  const fixtureDirectory = resolve(import.meta.dirname, '../fixtures/traversal-first');
   const documents = await readFixture('DocumentReference', fixtureDirectory);
   const specimens = await readFixture('Specimen', fixtureDirectory);
   const patients = await readFixture('Patient', fixtureDirectory);

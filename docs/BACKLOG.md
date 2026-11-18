@@ -17,7 +17,7 @@ request, so it did not measure the approved 30-second Pivot allowance. Preserve
 full population, authorization, multiplicity, and missing-value semantics when
 resuming. **Reproducing test: none retained for this exact population.** The
 former registered full-population case was retired; the bounded Observation
-Pivot in `scripts/e2e/group-pivot.spec.mjs` is not its replacement oracle.
+Pivot in `tests/e2e/group-pivot.spec.mjs` is not its replacement oracle.
 
 ### F-001 — Group-derived Pivot receipt input
 
@@ -70,7 +70,7 @@ Calypr host identity, wide-frame rendering, and equivalence across the Record
 network/row-definition views remain unverified. Keep carry-in, related rows,
 upstream dependencies, history, and shared-editing guarantees separate from a
 single network expansion. **Exact reproducer: none retained for complete
-cross-editor equivalence.** `scripts/e2e/record-network.spec.mjs`,
+cross-editor equivalence.** `tests/e2e/record-network.spec.mjs`,
 `root-change.spec.mjs`, and `related-field.spec.mjs` cover bounded local slices.
 External acceptance requires an authorized target and credentials.
 

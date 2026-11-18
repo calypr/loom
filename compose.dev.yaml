@@ -68,7 +68,7 @@ services:
       - ${LOOM_DEV_SOURCE_ROOT:-.}/.air.dev.toml:/workspace/.air.dev.toml:ro
       - ${LOOM_DEV_SOURCE_ROOT:-.}/loom-dev-build.sh:/workspace/loom-dev-build.sh:ro
       - ${LOOM_DEV_SOURCE_ROOT:-.}/loom-dev-build-stamp.sh:/workspace/loom-dev-build-stamp.sh:ro
-      - ${LOOM_DEV_SOURCE_ROOT:-.}/testdata/devloop-fixture:/workspace/testdata/devloop-fixture:ro
+      - ${LOOM_DEV_SOURCE_ROOT:-.}/tests/fixtures/devloop-fixture:/workspace/tests/fixtures/devloop-fixture:ro
       - loom_dev_go_module_cache:/go/pkg/mod
       - loom_dev_go_build_cache:/root/.cache/go-build
 

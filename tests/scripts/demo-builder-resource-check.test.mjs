@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { verifyBuilderResourceChoices } from './demo-builder-resource-check.mjs';
+import { verifyBuilderResourceChoices } from '../../scripts/demo-builder-resource-check.mjs';
 
 const makePage = (choices = ['Patient', 'Specimen']) => {
   const actions = [];

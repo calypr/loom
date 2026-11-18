@@ -3,7 +3,7 @@ import test from 'node:test';
 import { resolve } from 'node:path';
 import { api, postCommands, readFixture, withFreshUIExplorer } from './app.mjs';
 
-const fixtureDirectory = resolve(import.meta.dirname, '../../testdata/category-column-rule');
+const fixtureDirectory = resolve(import.meta.dirname, '../fixtures/category-column-rule');
 
 test('category coding rule keeps each system paired with its own display', { timeout: 180000 }, async () => {
   const observations = await readFixture('Observation', fixtureDirectory);

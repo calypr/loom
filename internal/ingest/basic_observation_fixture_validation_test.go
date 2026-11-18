@@ -3,8 +3,9 @@ package ingest
 import (
 	"bufio"
 	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/calypr/loom/internal/testkit"
 )
 
 func TestBasicObservationFixturesPassGeneratedLoaderValidation(t *testing.T) {
@@ -19,7 +20,7 @@ func TestBasicObservationFixturesPassGeneratedLoaderValidation(t *testing.T) {
 
 	for _, fixture := range fixtures {
 		t.Run(fixture.name, func(t *testing.T) {
-			path := filepath.Join("..", "..", "testdata", fixture.name, "Observation.ndjson")
+			path := testkit.FixturePath(t, fixture.name, "Observation.ndjson")
 			file, err := os.Open(path)
 			if err != nil {
 				t.Fatal(err)

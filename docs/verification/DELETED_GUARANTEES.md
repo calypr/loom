@@ -36,8 +36,8 @@ The replacement commands are `make test-ui`, `make test-go`, `make test-integrat
 | `scripts/{measure-b05-preview,measure-b07-evidence,verify-b07-faults,measure-authoring-loop}.mjs`, tests, and `scripts/measurements/**` | Dropped: dormant measurement/source-fault infrastructure; no current performance improvement claimed. |
 | `scripts/validate_ml_dataframer_plan.mjs`, `scripts/fixtures/generate-cda-mini-fixture.mjs` | Dropped: plan validation and unused generated browser fixture. Literal fixture NDJSON remains. |
 | `scripts/{verify_ui_contract_inventory,normalize_ui_contract_inventory}.py`, tests, `scripts/lib/ui-contract-inventory.mjs`, `docs/ui-contract-inventory/**` | Dropped: source checkpoint/inventory and its uncalled wrapper. Runtime parser and real component/API tests remain. |
-| `scripts/{validate_architecture_plan,test_validate_architecture_plan}.py`, `scripts/tests/test_ui_ci_workflow.py` | Dropped: planning-document/source-text verification. |
-| `scripts/tests/test_acceptance_real.py` | Dropped: six source-text/syntax cases. Real acceptance cleanup tests and release/demo tooling checks remain. |
+| `scripts/{validate_architecture_plan,test_validate_architecture_plan}.py`, `tests/scripts/test_ui_ci_workflow.py` | Dropped: planning-document/source-text verification. |
+| `tests/scripts/test_acceptance_real.py` | Dropped: six source-text/syntax cases. Real acceptance cleanup tests and release/demo tooling checks remain. |
 | `cmd/{explorer-config-v2-convert,preview-covering-index-artifact}/**`, `scripts/preview-covering-index-artifact.mjs` | Dropped: unused offline tools and their three tool-only tests; no served API or operational caller. |
 | `internal/api/graphql/graph/dataframe/export{,_test}.go` | Dropped: uncalled writer and its two tests. Published dataset artifact export remains covered by the browser ZIP oracle and Go published-path tests. |
 | Retired reports under `docs/verification/**` and plan-named Builder verification narratives | Dropped: generated logs, ledgers, browser archives, and obsolete procedure narratives. Open product defects are in `docs/BACKLOG.md`. |

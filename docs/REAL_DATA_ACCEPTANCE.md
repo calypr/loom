@@ -227,7 +227,7 @@ that cleanup.
 ```text
 cmd/loom-acceptance/                 Command boundary
 internal/acceptance/                 Fixture, target, scenario, evidence, and comparison logic
-testdata/acceptance/ncpi-tcga-brca/ Fixture lock, provenance, workspace, GraphQL document, and oracle
+tests/fixtures/acceptance/ncpi-tcga-brca/ Fixture lock, provenance, workspace, GraphQL document, and oracle
 scripts/acceptance-real.sh          Stable local entry point
 scripts/acceptance-performance.sh   Same-machine base/current regression driver
 .codex/skills/verify-loom/          Agent-facing pointer to this runbook

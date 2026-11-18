@@ -10,9 +10,9 @@ import vm from 'node:vm';
 import {
   buildExecuteRequestScript,
   buildExplainRequestScript,
-} from './owned-query-probe.mjs';
+} from '../../scripts/owned-query-probe.mjs';
 
-const repoRoot = resolve(import.meta.dirname, '..');
+const repoRoot = resolve(import.meta.dirname, '../..');
 const cliPath = join(repoRoot, 'scripts', 'owned-query-probe.mjs');
 const sensitiveCategory = 'PRIVATE_CATEGORY_VALUE_79b1';
 const sensitiveResourcePath = 'PRIVATE_RESOURCE_PATH_40ca';

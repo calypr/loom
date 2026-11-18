@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import fieldPresentationReadyFixture from '../../../../testdata/semantic-field-presentation-ready.json?raw';
+import fieldPresentationReadyFixture from '../../../../tests/fixtures/semantic-field-presentation-ready.json?raw';
 import { canonicalProject, createLoomClient, LoomRequestError, populationMappingResponseSchema } from './api';
 import { cellTraceResponseSchema } from './cellTrace';
 import {

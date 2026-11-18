@@ -30,7 +30,9 @@ EXCLUDED_PARTS = {
 
 # These sentences are deliberately curated. The generator refuses to emit a row
 # without one so a directory listing cannot masquerade as a semantic inventory.
-RESPONSIBILITIES = {'internal/testkit/arangotest': 'Provide isolated Arango and ClickHouse service clients, database ownership, and '
+RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from package tests.',
+ 'tests/scripts': 'Hold explicit-file Go tests for standalone repository scripts.',
+ 'internal/testkit/arangotest': 'Provide isolated Arango and ClickHouse service clients, database ownership, and '
                                 'cleanup for integration tests.',
  '.': 'Start the default Loom server process through the internal server composition root.',
  'client/ingest': 'Upload versioned source files and publish durable Loom source loads through the HTTP client '
@@ -47,7 +49,7 @@ RESPONSIBILITIES = {'internal/testkit/arangotest': 'Provide isolated Arango and 
                         'artifacts.',
  'cmd/loom-repository': 'Preflight a repository checkout and launch Loom against its META and CONFIG data with an '
                         'owned Compose project.',
- 'conformance/compiler': 'Load and exercise the canonical dataframe compiler oracle corpus for conformance and '
+ 'tests/conformance': 'Load and exercise the canonical dataframe compiler oracle corpus for conformance and '
                          'performance checks.',
  'generated/fhir': 'Expose generated FHIR resource models and their validation and edge extraction helpers.',
  'generated/fhirschema': 'Expose generated raw FHIR schema metadata tables.',
@@ -329,7 +331,7 @@ def package_kind(location: str, generated_files: list[str], production_file_coun
         production_file_count > 0 and len(generated_files) == production_file_count
     ):
         return "generated"
-    if location.startswith("conformance/"):
+    if location.startswith("tests/conformance"):
         return "conformance"
     if location.startswith("internal/api/"):
         return "transport adapter"
@@ -718,7 +720,7 @@ def main() -> None:
             "",
             "```bash",
             "python3 scripts/package_audit.py",
-            "python3 -m unittest scripts.tests.test_package_audit",
+            "python3 -m unittest discover -s tests/scripts -p test_package_audit.py",
             "```",
             "",
             "Regenerate after adding, removing, or moving a Go package. A generator failure means the curated responsibility map and the source tree disagree; resolve that mismatch rather than emitting an unclassified row.",

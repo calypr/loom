@@ -47,7 +47,7 @@ component values. Two observations omit a value to exercise nullable output.
 Point the dev harness at the fixture directory:
 
 ```sh
-LOOM_DEV_FIXTURE_DIR=$PWD/testdata/cda-mini-fixture make dev
+LOOM_DEV_FIXTURE_DIR=$PWD/tests/fixtures/cda-mini-fixture make dev
 ```
 
 The bootstrap table contains only `id` because the CDA patients carry no
@@ -92,7 +92,7 @@ LOOM_DEV_GENERATION=fixture-v1 \
 LOOM_DEV_HOST=127.0.0.1 \
 LOOM_DEV_API_PORT=8180 \
 LOOM_DEV_UI_PORT=3180 \
-LOOM_DEV_FIXTURE_DIR="$PWD/testdata/cda-mini-fixture" \
+LOOM_DEV_FIXTURE_DIR="$PWD/tests/fixtures/cda-mini-fixture" \
 node scripts/run-builder-journey.mjs \
   --manifest verification/builder-interactions/cda-mini-journeys.json \
   --journey edit-remove-reload-cda-manual \

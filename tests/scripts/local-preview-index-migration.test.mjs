@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { buildMigrationHelperInvocation, verifyApiSourceMount } from './lib/local-preview-index-migration.mjs';
+import { buildMigrationHelperInvocation, verifyApiSourceMount } from '../../scripts/lib/local-preview-index-migration.mjs';
 
 async function createSourceRoot(path) {
   await mkdir(join(path, 'internal'), { recursive: true });

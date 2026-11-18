@@ -66,20 +66,20 @@ openapi-check:
 test:
 	mkdir -p $(GOCACHE_DIR)
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./... -count=1
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./scripts/local-preview-index-migration.go ./scripts/local-preview-index-migration_test.go -count=1
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) GO="$(GO)" bash tests/scripts/test-go-script.sh local-preview-index-migration $(GOFLAGS) -count=1
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run $(GOFLAGS) ./scripts/check_fhir_semantic_resource_types.go
-	node --test scripts/loom-dev.test.mjs
-	bash scripts/tests/test_acceptance_real_cleanup.sh
+	node --test tests/scripts/loom-dev.test.mjs
+	bash tests/scripts/test_acceptance_real_cleanup.sh
 
 dev-test:
-	node --test scripts/loom-dev.test.mjs
+	node --test tests/scripts/loom-dev.test.mjs
 
 test-scripts:
-	python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+	python3 -m unittest discover -s tests/scripts -p 'test_*.py'
 
 compiler-bench:
 	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./conformance/compiler -run '^$$' -bench '^BenchmarkCompilerOracle$$' -benchmem
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./tests/conformance -run '^$$' -bench '^BenchmarkCompilerOracle$$' -benchmem
 
 # Requires `arango-fhir-server --no-auth` and a loaded META project. Prints the
 # actual REST dataframe response and per-request wall-clock timings.
@@ -102,7 +102,7 @@ dataframe-test: dataframe-boundaries
 
 conformance:
 	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./conformance/... -count=1
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./tests/conformance/... -count=1
 
 docker-build:
 	docker build -t $(IMAGE) .
@@ -166,9 +166,9 @@ test-go:
 test-integration:
 	@test -n "$$LOOM_TEST_ARANGO_URL" || (echo "Set LOOM_TEST_ARANGO_URL to an owned dev instance" >&2; exit 1)
 	@test -n "$$LOOM_CLICKHOUSE_URL" || (echo "Set LOOM_CLICKHOUSE_URL to an owned dev instance" >&2; exit 1)
-	$(GO) test -json -timeout=10m -count=1 -run '^(TestGraphRowsIndependentFixtureAgainstArango|TestDerivedArithmeticPoliciesAgainstArango|TestCurrentDraftAppendRowsAgainstArangoClickHouse|TestPublicationRowsAndFreshViewerAgainstArangoClickHouse|TestSavedRelatedRouteRowsAgainstArango|TestSavedRelatedRouteProposalApplyRestoreAndFreshRead|TestPublicationHTTPReceiptRevisionAndViewerAgreeAfterFreshRead|TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible|TestApplyConstructionProposalReturnsExactPreviewOnlyAfterSave|TestApplyConstructionProposalCaptureFailureKeepsSaveAndOmitsAcceptedPreview|TestApplyConstructionProposalCapturesEmptyPreviewAsEmptyRowsArray|TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly|TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP|TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP|TestCoreAuthoringProtocolVerticalWitness|TestCoreAuthoringProtocolCompetingSaveDuringReconcile|TestCoreAuthoringProtocolErrorBoundaries)$$' ./internal/server | node scripts/assert-go-tests.mjs TestGraphRowsIndependentFixtureAgainstArango TestDerivedArithmeticPoliciesAgainstArango TestCurrentDraftAppendRowsAgainstArangoClickHouse TestPublicationRowsAndFreshViewerAgainstArangoClickHouse TestSavedRelatedRouteRowsAgainstArango TestSavedRelatedRouteProposalApplyRestoreAndFreshRead TestPublicationHTTPReceiptRevisionAndViewerAgreeAfterFreshRead TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible TestApplyConstructionProposalReturnsExactPreviewOnlyAfterSave TestApplyConstructionProposalCaptureFailureKeepsSaveAndOmitsAcceptedPreview TestApplyConstructionProposalCapturesEmptyPreviewAsEmptyRowsArray TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP TestCoreAuthoringProtocolVerticalWitness TestCoreAuthoringProtocolCompetingSaveDuringReconcile TestCoreAuthoringProtocolErrorBoundaries
-	$(GO) test -json -timeout=10m -count=1 -run '^TestReconcileDanglesActiveReleaseAgainstArangoClickHouse$$' ./internal/dataframe/publication/arango | node scripts/assert-go-tests.mjs TestReconcileDanglesActiveReleaseAgainstArangoClickHouse
-	$(GO) test -json -timeout=10m -count=1 -run '^(TestDraftCASConcurrentWritersAgainstArango|TestDraftCASAfterWinnerCommitAgainstArango|TestDraftCASPublicApplyConflictClassAgainstArango|TestDraftCASUpdateFailureRollsBackHistoryAgainstArango)$$' ./internal/explorer/arango | node scripts/assert-go-tests.mjs TestDraftCASConcurrentWritersAgainstArango TestDraftCASAfterWinnerCommitAgainstArango TestDraftCASPublicApplyConflictClassAgainstArango TestDraftCASUpdateFailureRollsBackHistoryAgainstArango
+	$(GO) test -json -timeout=10m -count=1 -run '^(TestGraphRowsIndependentFixtureAgainstArango|TestDerivedArithmeticPoliciesAgainstArango|TestCurrentDraftAppendRowsAgainstArangoClickHouse|TestPublicationRowsAndFreshViewerAgainstArangoClickHouse|TestSavedRelatedRouteRowsAgainstArango|TestSavedRelatedRouteProposalApplyRestoreAndFreshRead|TestPublicationHTTPReceiptRevisionAndViewerAgreeAfterFreshRead|TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible|TestApplyConstructionProposalReturnsExactPreviewOnlyAfterSave|TestApplyConstructionProposalCaptureFailureKeepsSaveAndOmitsAcceptedPreview|TestApplyConstructionProposalCapturesEmptyPreviewAsEmptyRowsArray|TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly|TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP|TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP|TestCoreAuthoringProtocolVerticalWitness|TestCoreAuthoringProtocolCompetingSaveDuringReconcile|TestCoreAuthoringProtocolErrorBoundaries)$$' ./internal/server | node tests/scripts/assert-go-tests.mjs TestGraphRowsIndependentFixtureAgainstArango TestDerivedArithmeticPoliciesAgainstArango TestCurrentDraftAppendRowsAgainstArangoClickHouse TestPublicationRowsAndFreshViewerAgainstArangoClickHouse TestSavedRelatedRouteRowsAgainstArango TestSavedRelatedRouteProposalApplyRestoreAndFreshRead TestPublicationHTTPReceiptRevisionAndViewerAgreeAfterFreshRead TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible TestApplyConstructionProposalReturnsExactPreviewOnlyAfterSave TestApplyConstructionProposalCaptureFailureKeepsSaveAndOmitsAcceptedPreview TestApplyConstructionProposalCapturesEmptyPreviewAsEmptyRowsArray TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP TestCoreAuthoringProtocolVerticalWitness TestCoreAuthoringProtocolCompetingSaveDuringReconcile TestCoreAuthoringProtocolErrorBoundaries
+	$(GO) test -json -timeout=10m -count=1 -run '^TestReconcileDanglesActiveReleaseAgainstArangoClickHouse$$' ./internal/dataframe/publication/arango | node tests/scripts/assert-go-tests.mjs TestReconcileDanglesActiveReleaseAgainstArangoClickHouse
+	$(GO) test -json -timeout=10m -count=1 -run '^(TestDraftCASConcurrentWritersAgainstArango|TestDraftCASAfterWinnerCommitAgainstArango|TestDraftCASPublicApplyConflictClassAgainstArango|TestDraftCASUpdateFailureRollsBackHistoryAgainstArango)$$' ./internal/explorer/arango | node tests/scripts/assert-go-tests.mjs TestDraftCASConcurrentWritersAgainstArango TestDraftCASAfterWinnerCommitAgainstArango TestDraftCASPublicApplyConflictClassAgainstArango TestDraftCASUpdateFailureRollsBackHistoryAgainstArango
 	node scripts/run-arango-integration.mjs --out "$${RUNNER_TEMP:-/tmp}/loom-arango-integration-$$$$"
 
 # Direct Builder checkpoints. Full repository coverage remains in tests.yaml.
@@ -180,4 +180,4 @@ verify-current: test-ui test-go
 
 # Drive the running stack selected by this checkout; doctor rejects stale identity.
 e2e: dev-doctor
-	node scripts/e2e/run.mjs
+	node tests/e2e/run.mjs

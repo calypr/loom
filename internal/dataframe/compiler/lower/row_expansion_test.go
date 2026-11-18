@@ -11,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/testkit"
 )
 
 func TestSchemaDefinedSecondShapeKeepsIndependentArraysSeparate(t *testing.T) {
@@ -27,7 +28,7 @@ func TestSchemaDefinedSecondShapeKeepsIndependentArraysSeparate(t *testing.T) {
 		t.Fatalf("Group characteristic scope = %#v, %v", characteristicScope, err)
 	}
 
-	fixture, err := os.ReadFile("../../../../testdata/s03-independent-arrays/Group.ndjson")
+	fixture, err := os.ReadFile(testkit.FixturePath(t, "s03-independent-arrays/Group.ndjson"))
 	if err != nil {
 		t.Fatal(err)
 	}

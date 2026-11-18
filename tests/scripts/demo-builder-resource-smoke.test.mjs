@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const sourcePath = new URL('./demo-builder-resource-smoke.mjs', import.meta.url);
+const sourcePath = new URL('../../scripts/demo-builder-resource-smoke.mjs', import.meta.url);
 const source = await readFile(sourcePath, 'utf8');
 
 const runWithFakes = async ({
