@@ -1,10 +1,18 @@
 package catalog
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/bytedance/sonic"
 	"github.com/calypr/loom/internal/fhir/schema"
+	fhirsemantic "github.com/calypr/loom/internal/fhir/semantic"
 )
 
 func TestSchemaSemanticDiscoveryUsesResolvedDatatypesUnderUnfamiliarNames(t *testing.T) {
@@ -114,4 +122,271 @@ func findSchemaObservation(t *testing.T, observations []schemaSemanticEmission, 
 	}
 	t.Fatalf("semantic observation with rule %q not found in %#v", rule, observations)
 	return schemaSemanticEmission{}
+}
+
+func TestSchemaSemanticValueWalkMatchesByteWalkObservations(t *testing.T) {
+	index, err := schema.NewIndex([]schema.Definition{
+		{Name: "SignalPacket", Elements: []schema.Element{
+			{Name: "keys", JSONType: schema.JSONTypeArray, ArrayElementType: "Identifier"},
+			{Name: "addons", JSONType: schema.JSONTypeArray, ArrayElementType: "Extension"},
+			{Name: "measurements", JSONType: schema.JSONTypeArray, ArrayElementType: "SignalReading"},
+		}},
+		{Name: "SignalReading", Elements: []schema.Element{
+			{Name: "meaning", JSONType: schema.JSONTypeObject, ReferencedType: "CodeableConcept"},
+			{Name: "resultQuantity", JSONType: schema.JSONTypeObject, ReferencedType: "Quantity", ChoiceGroup: "result", ChoiceGroupRequired: true},
+			{Name: "resultRange", JSONType: schema.JSONTypeObject, ReferencedType: "Range", ChoiceGroup: "result", ChoiceGroupRequired: true},
+			{Name: "resultRatio", JSONType: schema.JSONTypeObject, ReferencedType: "Ratio", ChoiceGroup: "result", ChoiceGroupRequired: true},
+			{Name: "resultString", JSONType: "string", ChoiceGroup: "result", ChoiceGroupRequired: true},
+		}},
+		{Name: "CodeableConcept", Elements: []schema.Element{
+			{Name: "coding", JSONType: schema.JSONTypeArray, ArrayElementType: "Coding"},
+			{Name: "text", JSONType: "string"},
+		}},
+		{Name: "Coding", Elements: []schema.Element{
+			{Name: "system", JSONType: "string"}, {Name: "code", JSONType: "string"}, {Name: "display", JSONType: "string"},
+		}},
+		{Name: "Quantity", Elements: []schema.Element{{Name: "value", JSONType: "number"}, {Name: "unit", JSONType: "string"}}},
+		{Name: "Range", Elements: []schema.Element{
+			{Name: "low", JSONType: schema.JSONTypeObject, ReferencedType: "Quantity"},
+			{Name: "high", JSONType: schema.JSONTypeObject, ReferencedType: "Quantity"},
+		}},
+		{Name: "Ratio", Elements: []schema.Element{
+			{Name: "numerator", JSONType: schema.JSONTypeObject, ReferencedType: "Quantity"},
+			{Name: "denominator", JSONType: schema.JSONTypeObject, ReferencedType: "Quantity"},
+		}},
+		{Name: "Identifier", Elements: []schema.Element{{Name: "system", JSONType: "string"}, {Name: "value", JSONType: "string"}}},
+		{Name: "Extension", Elements: []schema.Element{
+			{Name: "url", JSONType: "string"},
+			{Name: "valueString", JSONType: "string", ChoiceGroup: "extension-value"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := map[string]any{
+		"keys": []any{map[string]any{"system": "urn:id", "value": "abc"}, nil},
+		"addons": []any{
+			map[string]any{"url": "urn:outer", "extension": []any{map[string]any{"url": "urn:inner", "valueString": "nested"}}},
+			map[string]any{"url": "urn:blank", "valueString": ""},
+		},
+		"measurements": []any{
+			map[string]any{
+				"meaning": map[string]any{"text": "reading", "coding": []any{
+					map[string]any{"system": "urn:one", "code": "1", "display": "One"},
+					map[string]any{"system": "urn:two", "code": "2", "display": "Two"},
+				}},
+				"resultQuantity": map[string]any{"value": 0.0, "unit": "mg"},
+			},
+			map[string]any{"meaning": map[string]any{"coding": []any{}}, "resultString": "done"},
+			map[string]any{"meaning": nil, "resultQuantity": nil},
+			map[string]any{"meaning": map[string]any{"text": "large quantity"}, "resultQuantity": map[string]any{"value": int64(9007199254740993), "unit": "count"}},
+			map[string]any{"meaning": map[string]any{"text": "large range"}, "resultRange": map[string]any{
+				"low":  map[string]any{"value": int64(9007199254740993), "unit": "count"},
+				"high": map[string]any{"value": int64(9007199254740995), "unit": "count"},
+			}},
+			map[string]any{"meaning": map[string]any{"text": "large ratio"}, "resultRatio": map[string]any{
+				"numerator":   map[string]any{"value": int64(9007199254740993), "unit": "count"},
+				"denominator": map[string]any{"value": int64(9007199254740995), "unit": "count"},
+			}},
+		},
+	}
+	input, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := sonic.ConfigFastest.Unmarshal(input, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var byteFacts []fhirsemantic.MemberFact
+	if _, err := fhirsemantic.WalkMembers(index, "SignalPacket", raw, func(fact fhirsemantic.MemberFact) error {
+		value, valid := decodeSemanticValue(fact.RawJSON)
+		if valid {
+			fact.Value = value
+		}
+		byteFacts = append(byteFacts, fact)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var valueFacts []fhirsemantic.MemberFact
+	if _, err := fhirsemantic.WalkMemberValues(index, "SignalPacket", decoded, func(fact fhirsemantic.MemberFact) error {
+		valueFacts = append(valueFacts, fact)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(byteFacts) != len(valueFacts) {
+		t.Fatalf("fact counts differ: byte=%d value=%d", len(byteFacts), len(valueFacts))
+	}
+	for i := range byteFacts {
+		byteFact, valueFact := byteFacts[i], valueFacts[i]
+		byteFact.RawJSON, valueFact.RawJSON = nil, nil
+		byteFact.Value, valueFact.Value = nil, nil
+		if !reflect.DeepEqual(byteFact, valueFact) {
+			t.Fatalf("fact %d differs: byte=%#v value=%#v", i, byteFact, valueFact)
+		}
+		rawValue, ok := decodeSemanticValue(byteFacts[i].RawJSON)
+		if !ok || !reflect.DeepEqual(rawValue, normalizeSemanticWalkValue(valueFacts[i].Value)) {
+			t.Fatalf("fact %d value differs from raw JSON: raw=%#v value=%#v", i, rawValue, valueFacts[i].Value)
+		}
+	}
+	byteEmissions := observeSchemaFactsForTest(t, index, "SignalPacket", "fixture/SignalPacket.ndjson:1", decoded, byteFacts)
+	valueEmissions := observeSchemaFactsForTest(t, index, "SignalPacket", "fixture/SignalPacket.ndjson:1", decoded, valueFacts)
+	if !reflect.DeepEqual(byteEmissions, valueEmissions) {
+		t.Fatalf("semantic emission sequence differs:\nbyte=%#v\nvalue=%#v", byteEmissions, valueEmissions)
+	}
+}
+
+type semanticEmissionForTest struct {
+	Observation SemanticObservation
+	Examples    []any
+	Evidence    SemanticCoverageEmissionEvidence
+}
+
+func observeSchemaFactsForTest(t *testing.T, index *schema.Index, resourceType, sourceID string, payload map[string]any, facts []fhirsemantic.MemberFact) []semanticEmissionForTest {
+	t.Helper()
+	profiler := NewProfilerForGeneration("project", "generation", "scope", resourceType, nil)
+	var emissions []semanticEmissionForTest
+	err := profiler.observeSchemaSemanticsFromFacts(payload, "", sourceID, facts, func(observation SemanticObservation, examples []any, evidence SemanticCoverageEmissionEvidence) {
+		emissions = append(emissions, semanticEmissionForTest{observation, examples, evidence})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return emissions
+}
+
+func normalizeSemanticWalkValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		normalized := make(map[string]any, len(typed))
+		for key, item := range typed {
+			normalized[key] = normalizeSemanticWalkValue(item)
+		}
+		return normalized
+	case []any:
+		normalized := make([]any, len(typed))
+		for index, item := range typed {
+			normalized[index] = normalizeSemanticWalkValue(item)
+		}
+		return normalized
+	default:
+		return semanticUseJSONNumber(value)
+	}
+}
+
+func TestSemanticValueWalkMatchesFixtureNDJSON(t *testing.T) {
+	index, err := schema.GeneratedIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixtures := filepath.Join("..", "..", "tests", "fixtures")
+	var files []string
+	if err := filepath.WalkDir(fixtures, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".ndjson") {
+			files = append(files, path)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no fixture NDJSON files found")
+	}
+	if metaDir := os.Getenv("LOOM_INGEST_PERF_META"); metaDir != "" {
+		if err := filepath.WalkDir(metaDir, func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".ndjson") {
+				files = append(files, path)
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows := 0
+	for _, path := range files {
+		resourceType := strings.TrimSuffix(filepath.Base(path), ".ndjson")
+		file, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scanner := bufio.NewScanner(file)
+		scanner.Buffer(make([]byte, 1024), 64*1024*1024)
+		lineNumber := 0
+		for scanner.Scan() {
+			lineNumber++
+			line := append([]byte(nil), scanner.Bytes()...)
+			var payload map[string]any
+			if err := sonic.ConfigFastest.Unmarshal(line, &payload); err != nil {
+				file.Close()
+				t.Fatalf("%s:%d decode: %v", path, lineNumber, err)
+			}
+			encoded, err := json.Marshal(payload)
+			if err != nil {
+				file.Close()
+				t.Fatalf("%s:%d encode: %v", path, lineNumber, err)
+			}
+			var byteFacts []fhirsemantic.MemberFact
+			byteDiagnostics, err := fhirsemantic.WalkMembers(index, schema.DefinitionName(resourceType), encoded, func(fact fhirsemantic.MemberFact) error {
+				value, valid := decodeSemanticValue(fact.RawJSON)
+				if valid {
+					fact.Value = value
+				}
+				byteFacts = append(byteFacts, fact)
+				return nil
+			})
+			if err != nil {
+				file.Close()
+				t.Fatalf("%s:%d byte walk: %v", path, lineNumber, err)
+			}
+			var valueFacts []fhirsemantic.MemberFact
+			valueDiagnostics, err := fhirsemantic.WalkMemberValues(index, schema.DefinitionName(resourceType), payload, func(fact fhirsemantic.MemberFact) error {
+				valueFacts = append(valueFacts, fact)
+				return nil
+			})
+			if err != nil {
+				file.Close()
+				t.Fatalf("%s:%d value walk: %v", path, lineNumber, err)
+			}
+			if !reflect.DeepEqual(byteDiagnostics, valueDiagnostics) || len(byteFacts) != len(valueFacts) {
+				file.Close()
+				t.Fatalf("%s:%d diagnostics/fact count differ: byte %d/%d value %d/%d", path, lineNumber, len(byteDiagnostics), len(byteFacts), len(valueDiagnostics), len(valueFacts))
+			}
+			for factIndex := range byteFacts {
+				oldFact, newFact := byteFacts[factIndex], valueFacts[factIndex]
+				oldFact.RawJSON, newFact.RawJSON = nil, nil
+				oldFact.Value, newFact.Value = nil, nil
+				if !reflect.DeepEqual(oldFact, newFact) {
+					file.Close()
+					t.Fatalf("%s:%d fact %d differs: byte=%#v value=%#v", path, lineNumber, factIndex, oldFact, newFact)
+				}
+			}
+			oldEmissions := observeSchemaFactsForTest(t, index, resourceType, fmt.Sprintf("%s:%d", path, lineNumber), payload, byteFacts)
+			newEmissions := observeSchemaFactsForTest(t, index, resourceType, fmt.Sprintf("%s:%d", path, lineNumber), payload, valueFacts)
+			if !reflect.DeepEqual(oldEmissions, newEmissions) {
+				file.Close()
+				t.Fatalf("%s:%d semantic emissions differ: byte=%#v value=%#v", path, lineNumber, oldEmissions, newEmissions)
+			}
+			rows++
+		}
+		if err := scanner.Err(); err != nil {
+			file.Close()
+			t.Fatalf("%s scan: %v", path, err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Logf("compared byte and value walks for %d fixture rows in %d files", rows, len(files))
 }
