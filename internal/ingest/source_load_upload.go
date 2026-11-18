@@ -301,6 +301,7 @@ func (p *RepositorySourceLoader) clearCandidateSourceFile(ctx context.Context, r
 		{EdgeCollection, "doc.dataset_generation == @generation AND doc.source_file == @resource_type"},
 		{catalog.FieldCatalogCollection, "doc.dataset_generation == @generation AND doc.resource_type == @resource_type"},
 		{catalog.SemanticInventoryCollection, "doc.dataset_generation == @generation AND doc.resource_type == @resource_type"},
+		{catalog.SemanticInventoryEntryCollection, "doc.dataset_generation == @generation AND doc.resource_type == @resource_type"},
 	}
 	for _, target := range targets {
 		if exists, err := p.client.CollectionExists(ctx, target.collection); err != nil {

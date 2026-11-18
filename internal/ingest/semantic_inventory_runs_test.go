@@ -1,6 +1,8 @@
 package ingest
 
 import (
+	"context"
+	"errors"
 	"os"
 	"reflect"
 	"testing"
@@ -58,6 +60,105 @@ func TestSemanticInventoryRunMergeIsWorkerIndependent(t *testing.T) {
 	}
 	if !reflect.DeepEqual(encoded, retry) {
 		t.Fatal("spill merge changed retry keys")
+	}
+}
+
+func TestSemanticInventoryEntryRunsMergeRepeatedEntryGroups(t *testing.T) {
+	project, generation, auth, resource := "project", "generation", "scope", "Observation"
+	buildID := catalog.SemanticInventoryBuildID(project, generation)
+	makeAggregator := func(example string, population int64) *catalog.SemanticInventoryEntryAggregator {
+		aggregator := catalog.NewSemanticInventoryEntryAggregator(project, generation, auth, resource, catalog.SemanticInventorySourceFile)
+		observation := catalog.SemanticObservation{
+			SchemaVersion: catalog.SemanticObservationSchemaVersion,
+			Source:        catalog.SemanticObservationSource{Type: resource, Path: "value"},
+			Key:           catalog.SemanticObservationKey{System: "urn:test", Code: "same", Display: example},
+			Completeness:  catalog.SemanticComplete, Population: population,
+		}
+		if err := aggregator.Add(catalog.SemanticInventoryContribution{
+			Project: project, DatasetGeneration: generation, AuthResourcePath: auth, ResourceType: resource,
+			BuildID: buildID, SourceKind: catalog.SemanticInventorySourceFile, BindingID: "binding", ConceptID: "concept",
+			Example: example, Observation: observation,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return aggregator
+	}
+	first, err := writeSemanticInventoryEntryRun(makeAggregator("Zulu", 2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := writeSemanticInventoryEntryRun(makeAggregator("Alpha", 3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []catalog.SemanticInventoryEntryPartial
+	if err := mergeSemanticInventoryEntryRuns(context.Background(), []string{first, second}, func(value catalog.SemanticInventoryEntryPartial) error {
+		got = append(got, value)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Contribution.Observation.Population != 5 || got[0].Contribution.Example != "Alpha" {
+		t.Fatalf("merged entry partials = %+v", got)
+	}
+}
+
+func TestSemanticInventoryEntryRunsUseBoundedFanInAndCleanFiles(t *testing.T) {
+	project, generation, auth, resource := "project", "generation", "scope", "Observation"
+	buildID := catalog.SemanticInventoryBuildID(project, generation)
+	makeRun := func(population int64) string {
+		aggregator := catalog.NewSemanticInventoryEntryAggregator(project, generation, auth, resource, catalog.SemanticInventorySourceFile)
+		if err := aggregator.Add(catalog.SemanticInventoryContribution{
+			Project: project, DatasetGeneration: generation, AuthResourcePath: auth, ResourceType: resource,
+			BuildID: buildID, SourceKind: catalog.SemanticInventorySourceFile, BindingID: "binding", ConceptID: "concept",
+			Example: "example", Observation: catalog.SemanticObservation{Population: population},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		path, err := writeSemanticInventoryEntryRun(aggregator)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	pathCount := semanticInventoryRunFanIn * 5
+	paths := make([]string, 0, pathCount)
+	for i := 0; i < pathCount; i++ {
+		paths = append(paths, makeRun(1))
+	}
+	var merged []catalog.SemanticInventoryEntryPartial
+	if err := mergeSemanticInventoryEntryRuns(context.Background(), paths, func(value catalog.SemanticInventoryEntryPartial) error {
+		merged = append(merged, value)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(merged) != 1 || merged[0].Contribution.Observation.Population != int64(pathCount) {
+		t.Fatalf("bounded merge result = %+v, want one group with population %d", merged, pathCount)
+	}
+	assertInventoryRunFilesRemoved(t, paths)
+
+	paths = paths[:0]
+	for i := 0; i < pathCount; i++ {
+		paths = append(paths, makeRun(1))
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	err := mergeSemanticInventoryEntryRuns(ctx, paths, func(catalog.SemanticInventoryEntryPartial) error {
+		cancel()
+		return ctx.Err()
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled bounded merge error = %v, want context canceled", err)
+	}
+	assertInventoryRunFilesRemoved(t, paths)
+}
+
+func assertInventoryRunFilesRemoved(t *testing.T, paths []string) {
+	t.Helper()
+	for _, path := range paths {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("inventory run %q remains after merge, stat error = %v", path, err)
+		}
 	}
 }
 

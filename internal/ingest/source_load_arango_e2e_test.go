@@ -235,6 +235,36 @@ RETURN {document: doc}`
 			t.Fatalf("retained edge endpoints = (%q,%q) owner=%q, want Patient/Organization endpoints owned by Patient", edge.From, edge.To, edge.SourceFile)
 		}
 	}
+
+	patientReplacement := writeSourceLoadTempFile(t, `{"resourceType":"Patient","id":"patient-replacement","identifier":[{"system":"urn:source-load:test-one","value":"replacement"}]}`+"\n")
+	replacement, err := loader.Begin(ctx, project, "replace-patient", SourceLoadPlan{
+		Repository: repository, Commit: commit, AuthResourcePath: "/programs/example/projects/source-load-e2e",
+		ExpectedRevision: int64Pointer(3), Files: []SourceManifestFile{{Path: "META/Patient.ndjson"}},
+	})
+	if err != nil {
+		t.Fatalf("begin Patient replacement: %v", err)
+	}
+	if _, err := loader.UploadFile(ctx, project, "replace-patient", "Patient", patientReplacement); err != nil {
+		t.Fatalf("upload Patient replacement: %v", err)
+	}
+	if _, err := loader.Publish(ctx, project, "replace-patient"); err != nil {
+		t.Fatalf("publish Patient replacement: %v", err)
+	}
+	store, err := catalogarango.New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unrestricted := true
+	page, err := store.PageSemanticInventory(ctx, catalog.SemanticInventoryPageOptions{
+		Project: project, DatasetGeneration: replacement.Generation, ResourceType: "Patient",
+		AuthResourcePathsUnrestricted: &unrestricted,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 1 || page.Entries[0].Observation.Population != 1 {
+		t.Fatalf("replacement Patient inventory = %#v, want one current entry with population one", page.Entries)
+	}
 }
 
 func assertCopiedSourceLoadInventory(t *testing.T, ctx context.Context, client *arangostore.Client, project, source, target string) {
@@ -267,38 +297,59 @@ func assertCopiedSourceLoadInventory(t *testing.T, ctx context.Context, client *
 		t.Fatalf("copied inventory differs: before %#v, after %#v", before, after)
 	}
 
-	readRows := func(generation string) []catalog.SemanticInventoryContribution {
+	readEntries := func(generation string) map[string]map[string]any {
 		t.Helper()
-		var rows []catalog.SemanticInventoryContribution
-		err := client.QueryRows(ctx, `FOR doc IN fhir_semantic_inventory
+		entries := make(map[string]map[string]any)
+		err := client.QueryRows(ctx, `FOR doc IN fhir_semantic_inventory_entries
 FILTER doc.project == @project AND doc.dataset_generation == @generation AND doc.resource_type == "Patient"
-SORT doc.source_id, doc.ordinal
-RETURN doc`, 10, map[string]any{"project": project, "generation": generation}, func(doc map[string]any) error {
-			raw, err := json.Marshal(doc)
-			if err != nil {
-				return err
-			}
-			var row catalog.SemanticInventoryContribution
-			if err := json.Unmarshal(raw, &row); err != nil {
-				return err
-			}
-			rows = append(rows, row)
+FILTER doc.source_kind == "file"
+SORT doc.binding_id, doc.concept_id
+RETURN UNSET(doc, "_id", "_rev")`, 10, map[string]any{"project": project, "generation": generation}, func(doc map[string]any) error {
+			identity := sourceLoadString(doc["binding_id"]) + "|" + sourceLoadString(doc["concept_id"])
+			entries[identity] = doc
 			return nil
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(rows) != 2 || rows[0].Key == rows[1].Key {
-			t.Fatalf("generation %q has %d inventory rows or duplicate keys", generation, len(rows))
+		if len(entries) != 2 {
+			t.Fatalf("generation %q has %d materialized Patient entries, want two", generation, len(entries))
 		}
-		return rows
+		return entries
 	}
-	sourceRows, targetRows := readRows(source), readRows(target)
-	for i, row := range targetRows {
-		prior := sourceRows[i]
-		wantKey := semanticInventoryContributionKey(project, target, row.AuthResourcePath, row.ResourceType, row.BuildID, row.SourceID, row.Ordinal, row.SourceKind)
-		if row.SourceID == "" || row.SourceID != prior.SourceID || row.Ordinal < 0 || row.Ordinal != prior.Ordinal || row.Key != wantKey || row.Key == prior.Key {
-			t.Fatalf("invalid copied inventory identity: source=%#v, target=%#v, wanted key %q", prior, row, wantKey)
+	sourceEntries, targetEntries := readEntries(source), readEntries(target)
+	for identity, targetEntry := range targetEntries {
+		sourceEntry, exists := sourceEntries[identity]
+		if !exists {
+			t.Fatalf("target generation has unexpected inventory entry %q", identity)
+		}
+		sourceKey := sourceLoadString(sourceEntry["_key"])
+		targetKey := sourceLoadString(targetEntry["_key"])
+		wantKey := catalog.SemanticInventoryEntryKey(project, target,
+			catalog.SemanticInventoryBuildID(project, target), sourceLoadString(targetEntry["source_kind"]),
+			sourceLoadString(targetEntry["auth_resource_path"]), sourceLoadString(targetEntry["binding_id"]),
+			sourceLoadString(targetEntry["concept_id"]))
+		if targetKey != wantKey || targetKey == sourceKey {
+			t.Fatalf("copied entry key = %q, want deterministic target key %q distinct from %q", targetKey, wantKey, sourceKey)
+		}
+		for _, field := range []string{"_key", "dataset_generation", "build_id"} {
+			delete(sourceEntry, field)
+			delete(targetEntry, field)
+		}
+		if !reflect.DeepEqual(sourceEntry, targetEntry) {
+			t.Fatalf("copied entry %q changed: source=%#v target=%#v", identity, sourceEntry, targetEntry)
+		}
+	}
+	for _, generation := range []string{source, target} {
+		found, err := arangostore.QueryHasRow(ctx, client, `FOR doc IN fhir_semantic_inventory
+FILTER doc.project == @project AND doc.dataset_generation == @generation AND doc.resource_type == "Patient"
+LIMIT 1
+RETURN {found: true}`, 1, map[string]any{"project": project, "generation": generation})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if found {
+			t.Fatalf("generation %q unexpectedly retained raw Patient inventory contributions", generation)
 		}
 	}
 }

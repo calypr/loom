@@ -67,7 +67,7 @@ func TestIngestPerf(t *testing.T) {
 			bytes += int64(len(doc))
 		}
 		class := "vertices"
-		if collection == EdgeCollection || collection == catalog.SemanticInventoryCollection {
+		if collection == EdgeCollection || collection == catalog.SemanticInventoryCollection || collection == catalog.SemanticInventoryEntryCollection {
 			class = collection
 		}
 		mu.Lock()

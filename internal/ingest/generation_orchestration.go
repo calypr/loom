@@ -2,9 +2,12 @@ package ingest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +16,7 @@ import (
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publication "github.com/calypr/loom/internal/dataset"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
+	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
@@ -177,6 +181,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		})
 	}()
 	inventoryBuild := catalog.NewSemanticInventoryBuild(opts.Project, plan.Dataset.Generation, opts.AuthResourcePath)
+	inventoryBuild.EntryIndexVersion = catalog.SemanticInventoryEntryIndexVersion
 	if err = catalogStore.BeginSemanticInventoryBuild(ctx, inventoryBuild); err != nil {
 		return summary, err
 	}
@@ -257,6 +262,20 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	fileErrors := outcomes.errors
 	fileFinished := outcomes.finished
 	lastInventoryCheckpoint = outcomes.lastCheckpoint
+	inventoryRunsByResource := make(map[string][]string)
+	for _, result := range fileResults {
+		if len(result.SemanticInventoryEntryRuns) == 0 {
+			continue
+		}
+		inventoryRunsByResource[result.ResourceType] = append(inventoryRunsByResource[result.ResourceType], result.SemanticInventoryEntryRuns...)
+	}
+	defer func() {
+		for _, paths := range inventoryRunsByResource {
+			for _, path := range paths {
+				_ = os.Remove(path)
+			}
+		}
+	}()
 	for index := range files {
 		if !fileFinished[index] {
 			continue
@@ -321,6 +340,51 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err = ctx.Err(); err != nil {
 		return summary, err
 	}
+	entryTypes := make([]string, 0, len(inventoryRunsByResource))
+	for resourceType := range inventoryRunsByResource {
+		entryTypes = append(entryTypes, resourceType)
+	}
+	sort.Strings(entryTypes)
+	entryMergeStart := time.Now()
+	for _, resourceType := range entryTypes {
+		batch := make([]json.RawMessage, 0, opts.BatchSize)
+		flush := func() error {
+			if len(batch) == 0 {
+				return nil
+			}
+			insertStart := time.Now()
+			insertCtx := arangostore.WithRawInsertObserver(ctx, func(bytes int64, duration time.Duration) {
+				writeStats.record("semantic_inventory", generationWriteSample{bytes: bytes, duration: duration})
+			})
+			if err := insertRawDocuments(insertCtx, client, catalog.SemanticInventoryEntryCollection, batch, true, opts.WriteAPI); err != nil {
+				return err
+			}
+			summary.StageSeconds["semantic_inventory_insert"] += time.Since(insertStart).Seconds()
+			summary.BatchCounts["semantic_inventory"]++
+			batch = make([]json.RawMessage, 0, opts.BatchSize)
+			return nil
+		}
+		mergeErr := mergeSemanticInventoryEntryRuns(ctx, inventoryRunsByResource[resourceType], func(partial catalog.SemanticInventoryEntryPartial) error {
+			document := catalog.SemanticInventoryEntryDocument(partial, opts.Project, catalog.NormalizeDatasetGeneration(plan.Dataset.Generation),
+				catalog.SemanticInventoryBuildID(opts.Project, plan.Dataset.Generation), catalog.SemanticInventorySourceFile)
+			encoded, encodeErr := json.Marshal(document)
+			if encodeErr != nil {
+				return encodeErr
+			}
+			batch = append(batch, encoded)
+			if len(batch) == opts.BatchSize {
+				return flush()
+			}
+			return nil
+		})
+		if mergeErr != nil {
+			return summary, fmt.Errorf("merge semantic inventory entries for %s: %w", resourceType, mergeErr)
+		}
+		if err = flush(); err != nil {
+			return summary, fmt.Errorf("write semantic inventory entries for %s: %w", resourceType, err)
+		}
+	}
+	summary.StageSeconds["semantic_inventory_aggregate_encode"] += time.Since(entryMergeStart).Seconds()
 
 	finalizationStart := time.Now()
 	recordFinalization := func(stage string) {

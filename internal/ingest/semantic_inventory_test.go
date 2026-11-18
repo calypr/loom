@@ -3,8 +3,10 @@ package ingest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,16 +30,14 @@ func TestLoadFilePersistsSemanticInventoryFromSharedEmitter(t *testing.T) {
 		WorkerCount: 1,
 		WriterCount: 1,
 	})
-	var inventoryDocs []json.RawMessage
-	var inventoryOverwrite []bool
+	var inventoryCollectionWrites []string
 	result, err := loadFile(context.Background(), opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0,
 		func(_ context.Context, _ *arangostore.Client, collection string, docs []json.RawMessage, overwrite bool, _ string) error {
 			if collection == catalogarango.SemanticCoverageCollection {
 				t.Fatalf("normal generation load wrote optional semantic coverage collection %q", collection)
 			}
-			if collection == catalog.SemanticInventoryCollection {
-				inventoryDocs = append(inventoryDocs, docs...)
-				inventoryOverwrite = append(inventoryOverwrite, overwrite)
+			if collection == catalog.SemanticInventoryCollection || collection == catalog.SemanticInventoryEntryCollection {
+				inventoryCollectionWrites = append(inventoryCollectionWrites, collection)
 			}
 			return nil
 		},
@@ -45,25 +45,94 @@ func TestLoadFilePersistsSemanticInventoryFromSharedEmitter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inventoryDocs) != 2 || result.SemanticInventoryBatches != 2 {
+	if len(inventoryCollectionWrites) != 0 || result.SemanticInventoryBatches != 0 || len(result.SemanticInventoryEntryRuns) == 0 {
 		message := "no row error sample"
 		if len(result.RowErrors) > 0 {
 			message = result.RowErrors[0].Message
 		}
-		t.Fatalf("inventory docs=%d batches=%d rows=%d validation=%d sample=%s", len(inventoryDocs), result.SemanticInventoryBatches, result.Rows, result.ValidationErrors, message)
+		t.Fatalf("inventory writes=%v batches=%d runs=%d rows=%d validation=%d sample=%s", inventoryCollectionWrites, result.SemanticInventoryBatches, len(result.SemanticInventoryEntryRuns), result.Rows, result.ValidationErrors, message)
 	}
-	if len(inventoryOverwrite) != 2 || !inventoryOverwrite[0] || !inventoryOverwrite[1] {
-		t.Fatalf("inventory overwrite modes = %v, want source-key replacement", inventoryOverwrite)
-	}
-	var contribution catalog.SemanticInventoryContribution
-	if err := json.Unmarshal(inventoryDocs[0], &contribution); err != nil {
+	var inventoryDocs []json.RawMessage
+	err = mergeSemanticInventoryEntryRuns(context.Background(), result.SemanticInventoryEntryRuns, func(partial catalog.SemanticInventoryEntryPartial) error {
+		document := catalog.SemanticInventoryEntryDocument(partial, "project", "generation-1", catalog.SemanticInventoryBuildID("project", "generation-1"), catalog.SemanticInventorySourceFile)
+		encoded, err := json.Marshal(document)
+		if err != nil {
+			return err
+		}
+		inventoryDocs = append(inventoryDocs, encoded)
+		return nil
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if contribution.SourceID != "Observation.ndjson" || contribution.AuthResourcePath != "" {
-		t.Fatalf("inventory source/scope = %q/%q, want stable file locator and unscoped path", contribution.SourceID, contribution.AuthResourcePath)
+	if len(inventoryDocs) != 2 {
+		t.Fatalf("materialized entries = %d, want two", len(inventoryDocs))
 	}
-	if contribution.ConceptID == "" || contribution.BindingID == "" || contribution.Observation.Key.Version != "v1" {
-		t.Fatalf("inventory identity/observation = %+v", contribution)
+	var entry map[string]any
+	if err := json.Unmarshal(inventoryDocs[0], &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry["resource_type"] != "Observation" || entry["auth_resource_path"] != "" {
+		t.Fatalf("inventory resource/scope = %q/%q", entry["resource_type"], entry["auth_resource_path"])
+	}
+	if entry["concept_id"] == "" || entry["binding_id"] == "" {
+		t.Fatalf("inventory identity = %+v", entry)
+	}
+	ownerOptions := opts
+	ownerOptions.SourceFileOwner = "Observation"
+	var uploadedEntries []json.RawMessage
+	result, err = loadFile(context.Background(), ownerOptions, nil, schema, file, "generation-1", false, time.Now(), 0, 0,
+		func(_ context.Context, _ *arangostore.Client, collection string, docs []json.RawMessage, overwrite bool, _ string) error {
+			if collection == catalog.SemanticInventoryCollection {
+				t.Fatal("single-file upload wrote raw inventory contributions")
+			}
+			if collection == catalog.SemanticInventoryEntryCollection {
+				if !overwrite {
+					t.Fatal("single-file inventory entry write must replace prior rows")
+				}
+				uploadedEntries = append(uploadedEntries, docs...)
+			}
+			return nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(uploadedEntries) != 2 || len(result.SemanticInventoryEntryRuns) != 0 {
+		t.Fatalf("single-file entry writes=%d remaining runs=%d", len(uploadedEntries), len(result.SemanticInventoryEntryRuns))
+	}
+}
+
+func TestLoadFileWaitsForInventorySpillOwnershipAfterWriterFailure(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "Observation.ndjson")
+	data := []byte(`{"resourceType":"Observation","id":"obs-1","status":"final","code":{"coding":[{"system":"urn:inventory","code":"panel"}]},"component":[{"code":{"coding":[{"system":"urn:inventory","code":"glucose","display":"Glucose"}]},"valueQuantity":{"value":1,"unit":"mg"}}]}` + "\n")
+	if err := os.WriteFile(file, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := filepath.Glob(filepath.Join(os.TempDir(), "loom-semantic-entry-*.ndjson"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := normalizeLoadOptions(LoadOptions{Project: "project", MetaDir: root, BatchSize: 1, WorkerCount: 1, WriterCount: 1, FailFast: true})
+	_, err = loadFile(context.Background(), opts, nil, loadRuntimeFHIRSchema(), file, "generation-1", false, time.Now(), 0, 0,
+		func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
+			return errors.New("forced writer failure")
+		})
+	if err == nil || !strings.Contains(err.Error(), "forced writer failure") {
+		t.Fatalf("load error = %v, want writer failure", err)
+	}
+	after, err := filepath.Glob(filepath.Join(os.TempDir(), "loom-semantic-entry-*.ndjson"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	known := make(map[string]struct{}, len(before))
+	for _, path := range before {
+		known[path] = struct{}{}
+	}
+	for _, path := range after {
+		if _, existed := known[path]; !existed {
+			t.Errorf("failed file load leaked inventory spill %q", path)
+		}
 	}
 }
 
