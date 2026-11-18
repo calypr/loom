@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+
 	recipeapi "github.com/calypr/loom/internal/api/recipe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
@@ -31,7 +33,7 @@ func TestImportedRelationshipAddMatchRemoveRoundTripPreservesPin(t *testing.T) {
 	}
 	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: registry, ScopeDigest: recipeScopeDigest,
+		Registry: registry, ScopeDigest: reciperuntime.ScopeDigest,
 		ResolveBundle: recipeapi.RecipeSchemaResolver(func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 			if options.ResourceType != "Patient" {
 				return nil, nil

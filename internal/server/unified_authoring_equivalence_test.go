@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"testing"
 
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+
 	recipeapi "github.com/calypr/loom/internal/api/recipe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
@@ -81,7 +83,7 @@ func newUnifiedAuthoringFixture(t *testing.T) unifiedAuthoringFixture {
 	}
 	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: registry, ScopeDigest: recipeScopeDigest,
+		Registry: registry, ScopeDigest: reciperuntime.ScopeDigest,
 		ResolveBundle: recipeapi.RecipeSchemaResolver(func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 			return nil, nil
 		}, nil),

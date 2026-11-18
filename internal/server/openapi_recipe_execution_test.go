@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	"github.com/calypr/loom/internal/authscope"
@@ -77,7 +79,7 @@ func TestRecipeAuthorizationAdapterUsesOperationAuthPolicy(t *testing.T) {
 		{name: "authorization outage", err: authscope.ErrAuthorizationBackendUnavailable, code: "BACKEND_UNAVAILABLE", retryable: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			mapped := recipeAuthorizationError(test.err)
+			mapped := reciperuntime.AuthorizationError(test.err)
 			userErr, ok := dataframeerrors.AsUserError(mapped)
 			if !ok || userErr.Code() != test.code || userErr.Retryable() != test.retryable {
 				t.Fatalf("mapped error = %#v, want code=%s retryable=%t", mapped, test.code, test.retryable)

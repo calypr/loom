@@ -1,8 +1,10 @@
-package server
+package runtime
 
 import (
 	"context"
 	"testing"
+
+	"github.com/calypr/loom/internal/testkit/recipefixtures"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
@@ -16,7 +18,7 @@ const (
 )
 
 func TestRecipeAuthorizationWritesBackTrimmedProject(t *testing.T) {
-	authorizer := recipeAuthorization{}
+	authorizer := Authorization{}
 	for _, leg := range []struct {
 		name      string
 		authorize func(context.Context, recipe.RuntimeBindings) (recipe.RuntimeBindings, error)
@@ -37,7 +39,7 @@ func TestRecipeAuthorizationWritesBackTrimmedProject(t *testing.T) {
 			}
 
 			gotBlank, blankErr := leg.authorize(context.Background(), recipe.RuntimeBindings{Project: " \t \n ", DatasetGeneration: "generation-a"})
-			assertTypedProjectRequired(t, blankErr, leg.name+" blank-after-trim")
+			recipefixtures.AssertTypedProjectRequired(t, blankErr, leg.name+" blank-after-trim")
 			if gotBlank.Project != "" || gotBlank.SelectionProject != "" || gotBlank.AuthScopeMode != "" {
 				t.Fatalf("%s: guard must clear bindings on rejection, got %#v", leg.name, gotBlank)
 			}
@@ -76,7 +78,7 @@ func TestRecipeAuthorizationScopeResolutionSeesNormalizedProject(t *testing.T) {
 		} {
 			t.Run(leg.name+" "+spelling.name, func(t *testing.T) {
 				lister := &keyingPathLister{paths: []string{"myproj/padata"}}
-				authorizer := recipeAuthorization{resolver: authscope.NewScopeResolver(authscope.ScopeResolverConfig{
+				authorizer := Authorization{resolver: authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 					ListExistingAuthResourcePaths: lister.list,
 				})}
 				authorize := authorizer.AuthorizeRead
@@ -98,7 +100,7 @@ func TestRecipeAuthorizationScopeResolutionSeesNormalizedProject(t *testing.T) {
 				}
 
 				blankLister := &keyingPathLister{paths: []string{"myproj/padata"}}
-				blankAuthorizer := recipeAuthorization{resolver: authscope.NewScopeResolver(authscope.ScopeResolverConfig{
+				blankAuthorizer := Authorization{resolver: authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 					ListExistingAuthResourcePaths: blankLister.list,
 				})}
 				blankAuthorize := blankAuthorizer.AuthorizeRead
@@ -106,7 +108,7 @@ func TestRecipeAuthorizationScopeResolutionSeesNormalizedProject(t *testing.T) {
 					blankAuthorize = blankAuthorizer.AuthorizeWrite
 				}
 				_, blankErr := blankAuthorize(ctx, recipe.RuntimeBindings{Project: "  \t "})
-				assertTypedProjectRequired(t, blankErr, leg.name+" blank-after-trim scoped")
+				recipefixtures.AssertTypedProjectRequired(t, blankErr, leg.name+" blank-after-trim scoped")
 				if len(blankLister.projects) != 0 {
 					t.Fatalf("guard must reject before scope resolution, got %#v", blankLister.projects)
 				}

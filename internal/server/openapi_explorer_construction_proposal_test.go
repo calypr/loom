@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+
 	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
@@ -1852,7 +1854,7 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry:     compilerTestRegistry{},
-		ScopeDigest:  recipeScopeDigest,
+		ScopeDigest:  reciperuntime.ScopeDigest,
 		QueryRows:    func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
 		RootPageRows: 100,
 	})
@@ -2209,7 +2211,7 @@ func TestConstructionProposalCurrentCodingGroupSpecimenFocusObservationHTTP(t *t
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{}, ScopeDigest: recipeScopeDigest, RootPageRows: 100,
+		Registry: compilerTestRegistry{}, ScopeDigest: reciperuntime.ScopeDigest, RootPageRows: 100,
 		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
 	})
 	if err != nil {

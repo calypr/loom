@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"testing"
 
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -99,7 +101,7 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 	var basePreviewColumns []string
 	var candidatePreviewColumns []string
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{}, ScopeDigest: recipeScopeDigest,
+		Registry: compilerTestRegistry{}, ScopeDigest: reciperuntime.ScopeDigest,
 		QueryRows: func(_ context.Context, _ string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
 			queryCalls++
 			if _, grouped := bindVars["group_rows_revision_id"]; grouped {

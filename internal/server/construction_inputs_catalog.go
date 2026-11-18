@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+
 	"github.com/calypr/loom/internal/api/columncapabilities"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/publication"
@@ -200,7 +202,7 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 		if err := validateConstructionInputMaterialization(materialization, reference, project, snapshot.Identity.Generation); err != nil {
 			continue
 		}
-		persistedScope, err := persistedMaterializationScope(materialization)
+		persistedScope, err := reciperuntime.PersistedMaterializationScope(materialization)
 		if err != nil {
 			continue
 		}
@@ -208,7 +210,7 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 			Project: materialization.Project, DatasetGeneration: materialization.DatasetGeneration,
 			AuthScopeMode: persistedScope.Mode, AuthResourcePaths: append([]string(nil), persistedScope.AuthResourcePaths...),
 		}
-		if materialization.ScopeDigest != recipeScopeDigest(persistedBindings) {
+		if materialization.ScopeDigest != reciperuntime.ScopeDigest(persistedBindings) {
 			continue
 		}
 		effectiveScope, err := c.effectiveConstructionInputScope(ctx, persistedScope, materialization)
@@ -218,10 +220,10 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 			}
 			return constructionInputsResponse{}, constructionInputsUnavailable(err)
 		}
-		if effectiveScope.Mode == authscope.ReadScopeRestricted && len(effectiveScope.AuthResourcePaths) == 0 || !sameClickHouseReadScope(effectiveScope, scope) {
+		if effectiveScope.Mode == authscope.ReadScopeRestricted && len(effectiveScope.AuthResourcePaths) == 0 || !reciperuntime.SameClickHouseReadScope(effectiveScope, scope) {
 			continue
 		}
-		if _, err := resolvedClickHouseColumns(materialization.Columns); err != nil {
+		if _, err := reciperuntime.ResolvedClickHouseColumns(materialization.Columns); err != nil {
 			continue
 		}
 		metadataKey := reference.execution.ID + "\x00" + reference.execution.ReceiptID
@@ -298,7 +300,7 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 			if err := validateConstructionInputMaterialization(materialization, reference, project, snapshot.Identity.Generation); err != nil {
 				return fmt.Errorf("exact published construction input identity changed: %w", err)
 			}
-			persistedScope, err := persistedMaterializationScope(materialization)
+			persistedScope, err := reciperuntime.PersistedMaterializationScope(materialization)
 			if err != nil {
 				return fmt.Errorf("exact published construction input authorization metadata is invalid: %w", err)
 			}
@@ -306,17 +308,17 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 				Project: materialization.Project, DatasetGeneration: materialization.DatasetGeneration,
 				AuthScopeMode: persistedScope.Mode, AuthResourcePaths: append([]string(nil), persistedScope.AuthResourcePaths...),
 			}
-			if materialization.ScopeDigest != recipeScopeDigest(persistedBindings) {
+			if materialization.ScopeDigest != reciperuntime.ScopeDigest(persistedBindings) {
 				return errors.New("exact published construction input authorization digest changed")
 			}
 			effectiveScope, err := c.effectiveConstructionInputScope(scanCtx, persistedScope, materialization)
 			if err != nil {
 				return fmt.Errorf("reauthorize exact published construction input: %w", err)
 			}
-			if effectiveScope.Mode == authscope.ReadScopeRestricted && len(effectiveScope.AuthResourcePaths) == 0 || !sameClickHouseReadScope(effectiveScope, scope) {
+			if effectiveScope.Mode == authscope.ReadScopeRestricted && len(effectiveScope.AuthResourcePaths) == 0 || !reciperuntime.SameClickHouseReadScope(effectiveScope, scope) {
 				return explorer.ExplorerConflict("construction-inputs", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil)
 			}
-			if _, err := resolvedClickHouseColumns(materialization.Columns); err != nil {
+			if _, err := reciperuntime.ResolvedClickHouseColumns(materialization.Columns); err != nil {
 				return fmt.Errorf("exact published construction input schema is invalid: %w", err)
 			}
 			columns := constructionInputColumns(materialization.Columns, candidate.presentation.columnLabels)

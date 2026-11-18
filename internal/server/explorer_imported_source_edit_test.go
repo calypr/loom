@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+
 	recipeapi "github.com/calypr/loom/internal/api/recipe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
@@ -420,7 +422,7 @@ func TestImportedSourceDiscoveredCollisionPreservesWinnerIdentity(t *testing.T) 
 		t.Fatal(err)
 	}
 	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: registry, ScopeDigest: recipeScopeDigest, ResolveBundle: recipeapi.RecipeSchemaResolver(func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: registry, ScopeDigest: reciperuntime.ScopeDigest, ResolveBundle: recipeapi.RecipeSchemaResolver(func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 		if options.Project != "project-a" || options.DatasetGeneration != "generation-a" || options.ResourceType != "Specimen" {
 			t.Fatalf("discovery lost exact scope: %+v", options)
 		}
@@ -529,7 +531,7 @@ func newSourceIdentityFixture(t *testing.T, output recipe.Output, fields []catal
 		t.Fatal(err)
 	}
 	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: registry, ScopeDigest: recipeScopeDigest, ResolveBundle: recipeapi.RecipeSchemaResolver(func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: registry, ScopeDigest: reciperuntime.ScopeDigest, ResolveBundle: recipeapi.RecipeSchemaResolver(func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 		if options.Project != "project-a" || options.DatasetGeneration != "generation-a" || options.ResourceType != output.RootResourceType {
 			t.Fatal("native identity discovery escaped its exact authorized scope")
 		}

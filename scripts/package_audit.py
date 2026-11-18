@@ -34,6 +34,7 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
  'tests/scripts': 'Hold explicit-file Go tests for standalone repository scripts.',
  'internal/testkit/arangotest': 'Provide isolated Arango and ClickHouse service clients, database ownership, and '
                                 'cleanup for integration tests.',
+ 'internal/testkit/recipefixtures': 'Share recipe authorization and combine materialization fixtures across package tests.',
  '.': 'Start the default Loom server process through the internal server composition root.',
  'client/ingest': 'Upload versioned source files and publish durable Loom source loads through the HTTP client '
                   'library.',
@@ -106,6 +107,7 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
  'internal/dataframe/recipe/exec': 'Define durable recipe-version storage contracts and immutable registration '
                                    'behavior.',
  'internal/dataframe/recipe/exec/arango': 'Persist recipe versions and execution-use records in ArangoDB.',
+ 'internal/dataframe/recipe/runtime': 'Authorize recipe execution, resolve published combine inputs, and publish recipe results.',
  'internal/dataframe/recipe/schema': 'Resolve catalog-backed recipe declarations into concrete validated schemas.',
  'internal/dataframe/semantic': 'Convert validated dataframe requests and recipes into backend-neutral logical FHIR '
                                 'plans.',

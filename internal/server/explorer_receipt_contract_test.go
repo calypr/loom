@@ -12,6 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/testkit/recipefixtures"
+
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -2431,25 +2435,25 @@ func TestCompileExplorerReceiptReconcilesSparsePublishedAppendWithExactSourceSch
 		Project: "project-a", DatasetGeneration: snapshot.Identity.Generation,
 		AuthScopeMode: readScope.Mode,
 	}
-	left := combineInputReference("labs", "source_one", "execution-left")
-	right := combineInputReference("labs", "source_two", "execution-right")
-	sparse := combineInputReference("labs", "source_three", "execution-sparse")
-	leftMaterialization := combineInputMaterialization(left, bindings)
+	left := recipefixtures.CombineInputReference("labs", "source_one", "execution-left")
+	right := recipefixtures.CombineInputReference("labs", "source_two", "execution-right")
+	sparse := recipefixtures.CombineInputReference("labs", "source_three", "execution-sparse")
+	leftMaterialization := recipefixtures.CombineInputMaterialization(left, bindings, reciperuntime.ScopeDigest(bindings))
 	leftMaterialization.Columns = []published.Column{
 		{ID: "left-row", Name: "__loom_row_id", ClickHouse: "String", LogicalType: "string", LoomOwned: true},
 		{ID: "left-display-name", Name: "display_name", ClickHouse: "String", LogicalType: "string"},
 	}
-	rightMaterialization := combineInputMaterialization(right, bindings)
+	rightMaterialization := recipefixtures.CombineInputMaterialization(right, bindings, reciperuntime.ScopeDigest(bindings))
 	rightMaterialization.Columns = []published.Column{
 		{ID: "right-row", Name: "__loom_row_id", ClickHouse: "String", LogicalType: "string", LoomOwned: true},
 		{ID: "right-display-name", Name: "display_name", ClickHouse: "Nullable(String)", LogicalType: "string", Nullable: true},
 	}
-	sparseMaterialization := combineInputMaterialization(sparse, bindings)
+	sparseMaterialization := recipefixtures.CombineInputMaterialization(sparse, bindings, reciperuntime.ScopeDigest(bindings))
 	sparseMaterialization.Columns = []published.Column{
 		{ID: "sparse-row", Name: "__loom_row_id", ClickHouse: "String", LogicalType: "string", LoomOwned: true},
 		{ID: "sparse-other", Name: "other_value", ClickHouse: "String", LogicalType: "string"},
 	}
-	reader := &combineMaterializationReader{values: map[string]published.Materialization{
+	reader := &recipefixtures.CombineMaterializationReader{Values: map[string]published.Materialization{
 		left.RevisionID + "/" + left.OutputID:     leftMaterialization,
 		right.RevisionID + "/" + right.OutputID:   rightMaterialization,
 		sparse.RevisionID + "/" + sparse.OutputID: sparseMaterialization,
@@ -2538,10 +2542,10 @@ func TestCompileExplorerReceiptReconcilesSparsePublishedAppendWithExactSourceSch
 	if err != nil {
 		t.Fatalf("compile sparse published APPEND receipt: %v", err)
 	}
-	if !reflect.DeepEqual(reader.calls, []string{
+	if !reflect.DeepEqual(reader.Calls, []string{
 		"execution-left/source_one", "execution-right/source_two", "execution-sparse/source_three",
 	}) || !reflect.DeepEqual(pinned, []string{"execution-left", "execution-right", "execution-sparse"}) {
-		t.Fatalf("exact metadata resolution calls=%#v pinned=%#v", reader.calls, pinned)
+		t.Fatalf("exact metadata resolution calls=%#v pinned=%#v", reader.Calls, pinned)
 	}
 	if len(receipt.Bundle.Outputs) != 4 {
 		t.Fatalf("receipt output count = %d, want three source outputs plus Combine target", len(receipt.Bundle.Outputs))

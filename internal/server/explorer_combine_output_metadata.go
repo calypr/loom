@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -19,7 +21,7 @@ func exactPublishedCombineInputSchemas(
 	ctx context.Context,
 	output lower.CompiledRecipeOutput,
 	bindings recipe.RuntimeBindings,
-	reader exactMaterializationReader,
+	reader reciperuntime.ExactMaterializationReader,
 	withPins dataframeexecution.WithExecutionReadPins,
 	scopes *authscope.ScopeResolver,
 ) (resolvedCombineInputSchema, error) {
@@ -46,11 +48,11 @@ func exactPublishedCombineInputSchemas(
 	if reader == nil || withPins == nil {
 		return nil, fmt.Errorf("exact published Combine input metadata resolver and read pins are required")
 	}
-	requestedScope, err := scopeFromRecipeBindings(bindings)
+	requestedScope, err := reciperuntime.ScopeFromBindings(bindings)
 	if err != nil {
 		return nil, fmt.Errorf("resolve Combine metadata scope: %w", err)
 	}
-	resolver := clickHouseCombineInputResolver{reader: reader, scopes: scopes}
+	resolver := reciperuntime.NewCombineInputResolver(reader, scopes)
 	err = withPins(ctx, revisions, func(pinnedCtx context.Context) error {
 		for _, index := range indices {
 			reference := combine.Inputs[index]
@@ -58,7 +60,7 @@ func exactPublishedCombineInputSchemas(
 			if err != nil {
 				return fmt.Errorf("resolve exact Combine metadata input %d: %w", index, err)
 			}
-			resolved, err := resolver.resolveMaterialization(pinnedCtx, index, reference, materialization, bindings, requestedScope)
+			resolved, err := resolver.ResolveMaterialization(pinnedCtx, index, reference, materialization, bindings, requestedScope)
 			if err != nil {
 				return err
 			}

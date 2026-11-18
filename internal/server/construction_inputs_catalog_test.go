@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/publication"
@@ -362,12 +364,12 @@ func TestConstructionInputsCatalogFiltersUnauthorizedScopeAndSupportsStablePagin
 	})
 	ctx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{AuthResourcePaths: []string{"allowed-a"}})
 	allowedMaterialization := reader.values[allowed.ID+"/"+selectorA.Output]
-	persistedScope, err := persistedMaterializationScope(allowedMaterialization)
+	persistedScope, err := reciperuntime.PersistedMaterializationScope(allowedMaterialization)
 	if err != nil {
 		t.Fatal(err)
 	}
 	effectiveScope, err := service.effectiveConstructionInputScope(ctx, persistedScope, allowedMaterialization)
-	if err != nil || !sameClickHouseReadScope(effectiveScope, scope) {
+	if err != nil || !reciperuntime.SameClickHouseReadScope(effectiveScope, scope) {
 		t.Fatalf("allowed materialization scope = %#v, err=%v", effectiveScope, err)
 	}
 	request := constructionInputsRequest{SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, Limit: 1}
@@ -511,7 +513,7 @@ func setConstructionInputsExecutionScope(execution *publication.BundleExecution,
 	execution.ReceiptID = "receipt-" + execution.ID
 	execution.AuthScopeMode = string(scope.Mode)
 	execution.AuthResourcePaths = append([]string(nil), scope.AuthResourcePaths...)
-	execution.ScopeDigest = recipeScopeDigest(bindings)
+	execution.ScopeDigest = reciperuntime.ScopeDigest(bindings)
 }
 
 func constructionInputsMaterialization(execution publication.BundleExecution, selector dataset.DataframeSelector, scope authscope.ReadScope) published.Materialization {
@@ -521,7 +523,7 @@ func constructionInputsMaterialization(execution publication.BundleExecution, se
 	}
 	return published.Materialization{
 		ID: execution.ID + ":" + selector.Output, Name: "Observation", Revision: execution.ID,
-		ReceiptID: "receipt-" + execution.ID, SchemaDigest: "schema-" + execution.ID, ScopeDigest: recipeScopeDigest(bindings),
+		ReceiptID: "receipt-" + execution.ID, SchemaDigest: "schema-" + execution.ID, ScopeDigest: reciperuntime.ScopeDigest(bindings),
 		AuthScopeMode: string(scope.Mode), Project: execution.Project, DatasetGeneration: execution.DatasetGeneration,
 		State: published.StateReady, ScopeUnrestricted: scope.Mode == authscope.ReadScopeUnrestricted,
 		AuthResourcePaths: append([]string(nil), scope.AuthResourcePaths...), PhysicalTable: "physical_" + execution.ID,

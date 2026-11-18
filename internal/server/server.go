@@ -3,6 +3,8 @@ package server
 import (
 	"net/http"
 
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 
 	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
@@ -352,8 +354,8 @@ func run(ctx context.Context, serverConfig Config) error {
 	var resolveClickHouseInputs dataframeexecution.ResolveClickHouseInputs
 	var withExecutionReadPins dataframeexecution.WithExecutionReadPins
 	if materializationReader != nil {
-		resolver := clickHouseCombineInputResolver{reader: materializationReader, scopes: scopeResolver}
-		resolveClickHouseInputs = resolver.resolve
+		resolver := reciperuntime.NewCombineInputResolver(materializationReader, scopeResolver)
+		resolveClickHouseInputs = resolver.Resolve
 		withExecutionReadPins = materializationReader.WithExecutionReadPins
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
@@ -398,7 +400,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		QueryRows: executionarango.ConfiguredAQLQueryRows(logger, "query_rows", preserveConfiguredQueryError, func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
 			return lifecycleClient.QueryRows(ctx, query, batchSize, bindVars, arangostore.RowVisitor(visit))
 		}),
-		ScopeDigest:  recipeScopeDigest,
+		ScopeDigest:  reciperuntime.ScopeDigest,
 		RootPageRows: serverConfig.Server.RecipeQueryPageRows,
 	})
 	if err != nil {
@@ -513,19 +515,19 @@ func run(ctx context.Context, serverConfig Config) error {
 				}
 				principal, _ := authscope.PrincipalFromContext(ctx)
 				if err := scopeResolver.AuthorizeReadProject(ctx, principal, project); err != nil {
-					return recipeAuthorizationError(err)
+					return reciperuntime.AuthorizationError(err)
 				}
 				return nil
 			},
 			MaterializeAndSelect: func(ctx context.Context, project, generation, operationID, commit string, expectedRevision int64) (string, int64, error) {
-				bindings, err := (recipeAuthorization{resolver: scopeResolver}).AuthorizeRead(ctx, recipe.RuntimeBindings{Project: project, DatasetGeneration: generation})
+				bindings, err := reciperuntime.NewAuthorization(scopeResolver).AuthorizeRead(ctx, recipe.RuntimeBindings{Project: project, DatasetGeneration: generation})
 				if err != nil {
 					return "", 0, err
 				}
 				var identity publication.BundleIdentity
 				resolved, err := recipeEngine.Materialize(ctx, configuredRecipeName, bindings, func(publishCtx context.Context, full dataframeexecution.Resolved) error {
 					var publishErr error
-					identity, publishErr = publishResolvedRecipe(
+					identity, publishErr = reciperuntime.PublishResolvedRecipe(
 						publishCtx, recipeEngine, bundleTarget, configuredRecipeName, bindings, full,
 						operationID, nil, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes,
 						serverConfig.Server.RecipeQualityMaxRows, serverConfig.Server.RecipeQualityMaxDistinctKeys,

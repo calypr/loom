@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -141,7 +143,7 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 	candidatePublicColumn := ""
 	previewQueryCalls := 0
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{}, ScopeDigest: recipeScopeDigest,
+		Registry: compilerTestRegistry{}, ScopeDigest: reciperuntime.ScopeDigest,
 
 		QueryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 			previewQueryCalls++

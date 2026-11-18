@@ -1,4 +1,4 @@
-package server
+package runtime
 
 import (
 	"context"
@@ -12,16 +12,16 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-type exactMaterializationReader interface {
+type ExactMaterializationReader interface {
 	ExactExecutionMaterialization(context.Context, string, string) (published.Materialization, error)
 }
 
-type clickHouseCombineInputResolver struct {
-	reader exactMaterializationReader
+type CombineInputResolver struct {
+	reader ExactMaterializationReader
 	scopes *authscope.ScopeResolver
 }
 
-func (r clickHouseCombineInputResolver) resolve(ctx context.Context, combine ir.PhysicalClickHouseCombine, bindings recipe.RuntimeBindings) ([]ir.ResolvedClickHouseTable, error) {
+func (r CombineInputResolver) Resolve(ctx context.Context, combine ir.PhysicalClickHouseCombine, bindings recipe.RuntimeBindings) ([]ir.ResolvedClickHouseTable, error) {
 	if r.reader == nil {
 		return nil, fmt.Errorf("published dataframe reader is required for ClickHouse combine")
 	}
@@ -31,7 +31,7 @@ func (r clickHouseCombineInputResolver) resolve(ctx context.Context, combine ir.
 	if strings.TrimSpace(bindings.Project) == "" {
 		return nil, fmt.Errorf("ClickHouse combine project is required")
 	}
-	requestedScope, err := scopeFromRecipeBindings(bindings)
+	requestedScope, err := ScopeFromBindings(bindings)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +45,7 @@ func (r clickHouseCombineInputResolver) resolve(ctx context.Context, combine ir.
 		if err != nil {
 			return nil, fmt.Errorf("resolve exact ClickHouse combine input %d: %w", index, err)
 		}
-		input, err := r.resolveMaterialization(ctx, index, reference, materialization, bindings, requestedScope)
+		input, err := r.ResolveMaterialization(ctx, index, reference, materialization, bindings, requestedScope)
 		if err != nil {
 			return nil, err
 		}
@@ -54,7 +54,7 @@ func (r clickHouseCombineInputResolver) resolve(ctx context.Context, combine ir.
 	return resolved, nil
 }
 
-func (r clickHouseCombineInputResolver) resolveMaterialization(ctx context.Context, index int, reference ir.PhysicalCombineInputRef, materialization published.Materialization, bindings recipe.RuntimeBindings, requestedScope authscope.ReadScope) (ir.ResolvedClickHouseTable, error) {
+func (r CombineInputResolver) ResolveMaterialization(ctx context.Context, index int, reference ir.PhysicalCombineInputRef, materialization published.Materialization, bindings recipe.RuntimeBindings, requestedScope authscope.ReadScope) (ir.ResolvedClickHouseTable, error) {
 	if materialization.State != published.StateReady {
 		return ir.ResolvedClickHouseTable{}, fmt.Errorf("ClickHouse combine input %d is not a published queryable materialization", index)
 	}
@@ -68,7 +68,7 @@ func (r clickHouseCombineInputResolver) resolveMaterialization(ctx context.Conte
 		return ir.ResolvedClickHouseTable{}, fmt.Errorf("ClickHouse combine input %d is missing immutable publication metadata", index)
 	}
 
-	persistedScope, err := persistedMaterializationScope(materialization)
+	persistedScope, err := PersistedMaterializationScope(materialization)
 	if err != nil {
 		return ir.ResolvedClickHouseTable{}, fmt.Errorf("ClickHouse combine input %d has invalid persisted authorization metadata: %w", index, err)
 	}
@@ -76,7 +76,7 @@ func (r clickHouseCombineInputResolver) resolveMaterialization(ctx context.Conte
 		Project: materialization.Project, DatasetGeneration: materialization.DatasetGeneration,
 		AuthScopeMode: persistedScope.Mode, AuthResourcePaths: append([]string(nil), persistedScope.AuthResourcePaths...),
 	}
-	if materialization.ScopeDigest != recipeScopeDigest(persistedBindings) {
+	if materialization.ScopeDigest != ScopeDigest(persistedBindings) {
 		return ir.ResolvedClickHouseTable{}, fmt.Errorf("ClickHouse combine input %d authorization metadata does not match its persisted scope digest", index)
 	}
 
@@ -85,17 +85,17 @@ func (r clickHouseCombineInputResolver) resolveMaterialization(ctx context.Conte
 		principal, _ := authscope.PrincipalFromContext(ctx)
 		effectiveScope, err = r.scopes.ResolveReadScopeForGeneration(ctx, principal, materialization.Project, materialization.DatasetGeneration, persistedScope.AuthResourcePaths)
 		if err != nil {
-			return ir.ResolvedClickHouseTable{}, recipeAuthorizationError(err)
+			return ir.ResolvedClickHouseTable{}, AuthorizationError(err)
 		}
 	}
 	if effectiveScope.Mode == authscope.ReadScopeRestricted && len(effectiveScope.AuthResourcePaths) == 0 {
 		return ir.ResolvedClickHouseTable{}, fmt.Errorf("ClickHouse combine input %d has an empty restricted authorization scope", index)
 	}
-	if !sameClickHouseReadScope(effectiveScope, requestedScope) {
+	if !SameClickHouseReadScope(effectiveScope, requestedScope) {
 		return ir.ResolvedClickHouseTable{}, fmt.Errorf("ClickHouse combine input %d authorization scope differs from the requested output scope", index)
 	}
 
-	columns, err := resolvedClickHouseColumns(materialization.Columns)
+	columns, err := ResolvedClickHouseColumns(materialization.Columns)
 	if err != nil {
 		return ir.ResolvedClickHouseTable{}, fmt.Errorf("ClickHouse combine input %d has an invalid published schema: %w", index, err)
 	}
@@ -109,7 +109,7 @@ func (r clickHouseCombineInputResolver) resolveMaterialization(ctx context.Conte
 	}, nil
 }
 
-func scopeFromRecipeBindings(bindings recipe.RuntimeBindings) (authscope.ReadScope, error) {
+func ScopeFromBindings(bindings recipe.RuntimeBindings) (authscope.ReadScope, error) {
 	scope := authscope.ReadScope{Mode: bindings.AuthScopeMode, AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...)}
 	switch scope.Mode {
 	case authscope.ReadScopeUnrestricted:
@@ -126,7 +126,7 @@ func scopeFromRecipeBindings(bindings recipe.RuntimeBindings) (authscope.ReadSco
 	return scope, nil
 }
 
-func persistedMaterializationScope(materialization published.Materialization) (authscope.ReadScope, error) {
+func PersistedMaterializationScope(materialization published.Materialization) (authscope.ReadScope, error) {
 	scope := authscope.ReadScope{
 		Mode:              authscope.ReadScopeMode(materialization.AuthScopeMode),
 		AuthResourcePaths: append([]string(nil), materialization.AuthResourcePaths...),
@@ -146,7 +146,7 @@ func persistedMaterializationScope(materialization published.Materialization) (a
 	return scope, nil
 }
 
-func sameClickHouseReadScope(left, right authscope.ReadScope) bool {
+func SameClickHouseReadScope(left, right authscope.ReadScope) bool {
 	if left.Mode != right.Mode {
 		return false
 	}
@@ -175,7 +175,7 @@ func canonicalClickHouseScopePaths(paths []string) []string {
 	return unique
 }
 
-func resolvedClickHouseColumns(columns []published.Column) ([]ir.ResolvedClickHouseColumn, error) {
+func ResolvedClickHouseColumns(columns []published.Column) ([]ir.ResolvedClickHouseColumn, error) {
 	resolved := make([]ir.ResolvedClickHouseColumn, 0, len(columns))
 	seenIDs := make(map[string]bool, len(columns))
 	for index, column := range columns {
@@ -195,4 +195,8 @@ func resolvedClickHouseColumns(columns []published.Column) ([]ir.ResolvedClickHo
 		})
 	}
 	return resolved, nil
+}
+
+func NewCombineInputResolver(reader ExactMaterializationReader, scopes *authscope.ScopeResolver) CombineInputResolver {
+	return CombineInputResolver{reader: reader, scopes: scopes}
 }

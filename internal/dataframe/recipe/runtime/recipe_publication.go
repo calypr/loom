@@ -1,4 +1,4 @@
-package server
+package runtime
 
 import (
 	"context"
@@ -16,14 +16,14 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-func recipeScopeDigest(bindings recipe.RuntimeBindings) string {
+func ScopeDigest(bindings recipe.RuntimeBindings) string {
 	paths := append([]string(nil), bindings.AuthResourcePaths...)
 	sort.Strings(paths)
 	hash := sha256.Sum256([]byte(bindings.Project + "\x00" + bindings.DatasetGeneration + "\x00" + string(bindings.AuthScopeMode) + "\x00" + strings.Join(paths, "\x00")))
 	return hex.EncodeToString(hash[:])
 }
 
-func publishResolvedRecipe(ctx context.Context, recipeEngine *dataframeexecution.Engine, target publication.Target, name string, bindings recipe.RuntimeBindings, full dataframeexecution.Resolved, receiptID string, sourceRows map[string]*publication.SourceRowMetadata, batchRows, batchBytes int, qualityMaxRows, qualityMaxDistinctKeys int64) (publication.BundleIdentity, error) {
+func PublishResolvedRecipe(ctx context.Context, recipeEngine *dataframeexecution.Engine, target publication.Target, name string, bindings recipe.RuntimeBindings, full dataframeexecution.Resolved, receiptID string, sourceRows map[string]*publication.SourceRowMetadata, batchRows, batchBytes int, qualityMaxRows, qualityMaxDistinctKeys int64) (publication.BundleIdentity, error) {
 	streams, err := recipeEngine.Streams(ctx, full)
 	if err != nil {
 		return publication.BundleIdentity{}, err

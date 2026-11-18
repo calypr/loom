@@ -1,4 +1,4 @@
-package server
+package runtime
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 )
 
 func TestRecipeAuthorizationBindsSavedSelectionToAuthorizedProject(t *testing.T) {
-	authorizer := recipeAuthorization{}
+	authorizer := Authorization{}
 	for name, authorize := range map[string]func(context.Context, recipe.RuntimeBindings) (recipe.RuntimeBindings, error){
 		"read":  authorizer.AuthorizeRead,
 		"write": authorizer.AuthorizeWrite,

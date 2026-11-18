@@ -1,32 +1,18 @@
-package server
+package runtime
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"testing"
+
+	"github.com/calypr/loom/internal/testkit/recipefixtures"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataset"
 )
-
-type combineMaterializationReader struct {
-	values map[string]published.Materialization
-	calls  []string
-}
-
-func (r *combineMaterializationReader) ExactExecutionMaterialization(_ context.Context, revision, output string) (published.Materialization, error) {
-	r.calls = append(r.calls, revision+"/"+output)
-	materialization, ok := r.values[revision+"/"+output]
-	if !ok {
-		return published.Materialization{}, errors.New("materialization not found")
-	}
-	return materialization, nil
-}
 
 type combineResourceAccess []string
 
@@ -39,19 +25,19 @@ func TestClickHouseCombineInputResolverUsesExactOrderedPublishedInputs(t *testin
 		Project: "project-a", DatasetGeneration: "generation-a",
 		AuthScopeMode: authscope.ReadScopeUnrestricted,
 	}
-	first := combineInputReference("labs", "Observation", "execution-a")
-	second := combineInputReference("visits", "Encounter", "execution-b")
-	reader := &combineMaterializationReader{values: map[string]published.Materialization{
-		first.RevisionID + "/" + first.OutputID:   combineInputMaterialization(first, bindings),
-		second.RevisionID + "/" + second.OutputID: combineInputMaterialization(second, bindings),
+	first := recipefixtures.CombineInputReference("labs", "Observation", "execution-a")
+	second := recipefixtures.CombineInputReference("visits", "Encounter", "execution-b")
+	reader := &recipefixtures.CombineMaterializationReader{Values: map[string]published.Materialization{
+		first.RevisionID + "/" + first.OutputID:   recipefixtures.CombineInputMaterialization(first, bindings, ScopeDigest(bindings)),
+		second.RevisionID + "/" + second.OutputID: recipefixtures.CombineInputMaterialization(second, bindings, ScopeDigest(bindings)),
 	}}
 
-	resolved, err := (clickHouseCombineInputResolver{reader: reader}).resolve(context.Background(), ir.PhysicalClickHouseCombine{Inputs: []ir.PhysicalCombineInputRef{first, second}}, bindings)
+	resolved, err := (CombineInputResolver{reader: reader}).Resolve(context.Background(), ir.PhysicalClickHouseCombine{Inputs: []ir.PhysicalCombineInputRef{first, second}}, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(reader.calls, []string{"execution-a/Observation", "execution-b/Encounter"}) {
-		t.Fatalf("exact materialization lookups = %#v", reader.calls)
+	if !reflect.DeepEqual(reader.Calls, []string{"execution-a/Observation", "execution-b/Encounter"}) {
+		t.Fatalf("exact materialization lookups = %#v", reader.Calls)
 	}
 	if len(resolved) != 2 || resolved[0].RevisionID != first.RevisionID || resolved[0].OutputID != first.OutputID || resolved[1].RevisionID != second.RevisionID || resolved[1].OutputID != second.OutputID {
 		t.Fatalf("resolved input order or identity = %#v", resolved)
@@ -66,14 +52,14 @@ func TestClickHouseCombineInputResolverUsesExactOrderedPublishedInputs(t *testin
 
 func TestClickHouseCombineInputResolverPreservesExactLegacyNullGeneration(t *testing.T) {
 	bindings := recipe.RuntimeBindings{Project: "project-a", AuthScopeMode: authscope.ReadScopeUnrestricted}
-	first := combineInputReference("labs", "Observation", "execution-a")
-	second := combineInputReference("visits", "Encounter", "execution-b")
-	reader := &combineMaterializationReader{values: map[string]published.Materialization{
-		first.RevisionID + "/" + first.OutputID:   combineInputMaterialization(first, bindings),
-		second.RevisionID + "/" + second.OutputID: combineInputMaterialization(second, bindings),
+	first := recipefixtures.CombineInputReference("labs", "Observation", "execution-a")
+	second := recipefixtures.CombineInputReference("visits", "Encounter", "execution-b")
+	reader := &recipefixtures.CombineMaterializationReader{Values: map[string]published.Materialization{
+		first.RevisionID + "/" + first.OutputID:   recipefixtures.CombineInputMaterialization(first, bindings, ScopeDigest(bindings)),
+		second.RevisionID + "/" + second.OutputID: recipefixtures.CombineInputMaterialization(second, bindings, ScopeDigest(bindings)),
 	}}
 
-	resolved, err := (clickHouseCombineInputResolver{reader: reader}).resolve(context.Background(), ir.PhysicalClickHouseCombine{Inputs: []ir.PhysicalCombineInputRef{first, second}}, bindings)
+	resolved, err := (CombineInputResolver{reader: reader}).Resolve(context.Background(), ir.PhysicalClickHouseCombine{Inputs: []ir.PhysicalCombineInputRef{first, second}}, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +73,7 @@ func TestClickHouseCombineInputResolverRejectsMismatchedPublishedIdentity(t *tes
 		Project: "project-a", DatasetGeneration: "generation-a",
 		AuthScopeMode: authscope.ReadScopeUnrestricted,
 	}
-	reference := combineInputReference("labs", "Observation", "execution-a")
+	reference := recipefixtures.CombineInputReference("labs", "Observation", "execution-a")
 	tests := []struct {
 		name   string
 		mutate func(*published.Materialization)
@@ -102,12 +88,12 @@ func TestClickHouseCombineInputResolverRejectsMismatchedPublishedIdentity(t *tes
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			materialization := combineInputMaterialization(reference, bindings)
+			materialization := recipefixtures.CombineInputMaterialization(reference, bindings, ScopeDigest(bindings))
 			test.mutate(&materialization)
-			reader := &combineMaterializationReader{values: map[string]published.Materialization{
+			reader := &recipefixtures.CombineMaterializationReader{Values: map[string]published.Materialization{
 				reference.RevisionID + "/" + reference.OutputID: materialization,
 			}}
-			_, err := (clickHouseCombineInputResolver{reader: reader}).resolve(context.Background(), ir.PhysicalClickHouseCombine{Inputs: []ir.PhysicalCombineInputRef{reference, combineInputReference("visits", "Encounter", "execution-b")}}, bindings)
+			_, err := (CombineInputResolver{reader: reader}).Resolve(context.Background(), ir.PhysicalClickHouseCombine{Inputs: []ir.PhysicalCombineInputRef{reference, recipefixtures.CombineInputReference("visits", "Encounter", "execution-b")}}, bindings)
 			if err == nil {
 				t.Fatal("mismatched published materialization was accepted")
 			}
@@ -120,11 +106,11 @@ func TestClickHouseCombineInputResolverReauthorizesExactGenerationAndScope(t *te
 		Project: "project-a", DatasetGeneration: "generation-a",
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"allowed-a"},
 	}
-	first := combineInputReference("labs", "Observation", "execution-a")
-	second := combineInputReference("visits", "Encounter", "execution-b")
-	reader := &combineMaterializationReader{values: map[string]published.Materialization{
-		first.RevisionID + "/" + first.OutputID:   combineInputMaterialization(first, bindings),
-		second.RevisionID + "/" + second.OutputID: combineInputMaterialization(second, bindings),
+	first := recipefixtures.CombineInputReference("labs", "Observation", "execution-a")
+	second := recipefixtures.CombineInputReference("visits", "Encounter", "execution-b")
+	reader := &recipefixtures.CombineMaterializationReader{Values: map[string]published.Materialization{
+		first.RevisionID + "/" + first.OutputID:   recipefixtures.CombineInputMaterialization(first, bindings, ScopeDigest(bindings)),
+		second.RevisionID + "/" + second.OutputID: recipefixtures.CombineInputMaterialization(second, bindings, ScopeDigest(bindings)),
 	}}
 	var resolvedProject, resolvedGeneration string
 	scopes := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
@@ -135,7 +121,7 @@ func TestClickHouseCombineInputResolverReauthorizesExactGenerationAndScope(t *te
 	})
 	ctx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{AuthResourcePaths: []string{"allowed-a", "allowed-b"}})
 
-	resolved, err := (clickHouseCombineInputResolver{reader: reader, scopes: scopes}).resolve(ctx, ir.PhysicalClickHouseCombine{Inputs: []ir.PhysicalCombineInputRef{first, second}}, bindings)
+	resolved, err := (CombineInputResolver{reader: reader, scopes: scopes}).Resolve(ctx, ir.PhysicalClickHouseCombine{Inputs: []ir.PhysicalCombineInputRef{first, second}}, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,9 +139,9 @@ func TestClickHouseCombineInputResolverRejectsScopeMismatchAndRestrictedEmpty(t 
 			Project: "project-a", DatasetGeneration: "generation-a",
 			AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"allowed-a"},
 		}
-		reference := combineInputReference("labs", "Observation", "execution-a")
-		materialization := combineInputMaterialization(reference, persisted)
-		reader := &combineMaterializationReader{values: map[string]published.Materialization{
+		reference := recipefixtures.CombineInputReference("labs", "Observation", "execution-a")
+		materialization := recipefixtures.CombineInputMaterialization(reference, persisted, ScopeDigest(persisted))
+		reader := &recipefixtures.CombineMaterializationReader{Values: map[string]published.Materialization{
 			reference.RevisionID + "/" + reference.OutputID: materialization,
 		}}
 		scopes := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
@@ -166,7 +152,7 @@ func TestClickHouseCombineInputResolverRejectsScopeMismatchAndRestrictedEmpty(t 
 		ctx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{AuthResourcePaths: []string{"allowed-a", "allowed-b"}})
 		requested := persisted
 		requested.AuthResourcePaths = []string{"allowed-b"}
-		_, err := (clickHouseCombineInputResolver{reader: reader, scopes: scopes}).resolve(ctx, ir.PhysicalClickHouseCombine{Inputs: []ir.PhysicalCombineInputRef{reference, combineInputReference("visits", "Encounter", "execution-b")}}, requested)
+		_, err := (CombineInputResolver{reader: reader, scopes: scopes}).Resolve(ctx, ir.PhysicalClickHouseCombine{Inputs: []ir.PhysicalCombineInputRef{reference, recipefixtures.CombineInputReference("visits", "Encounter", "execution-b")}}, requested)
 		if err == nil {
 			t.Fatal("input with a different effective scope was accepted")
 		}
@@ -177,9 +163,9 @@ func TestClickHouseCombineInputResolverRejectsScopeMismatchAndRestrictedEmpty(t 
 			Project: "project-a", DatasetGeneration: "generation-a",
 			AuthScopeMode: authscope.ReadScopeUnrestricted,
 		}
-		reference := combineInputReference("labs", "Observation", "execution-a")
-		reader := &combineMaterializationReader{values: map[string]published.Materialization{
-			reference.RevisionID + "/" + reference.OutputID: combineInputMaterialization(reference, bindings),
+		reference := recipefixtures.CombineInputReference("labs", "Observation", "execution-a")
+		reader := &recipefixtures.CombineMaterializationReader{Values: map[string]published.Materialization{
+			reference.RevisionID + "/" + reference.OutputID: recipefixtures.CombineInputMaterialization(reference, bindings, ScopeDigest(bindings)),
 		}}
 		scopes := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 			ResourceAccess: combineResourceAccess{},
@@ -188,34 +174,9 @@ func TestClickHouseCombineInputResolverRejectsScopeMismatchAndRestrictedEmpty(t 
 			},
 		})
 		ctx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{AuthorizationHeader: "Bearer token"})
-		_, err := (clickHouseCombineInputResolver{reader: reader, scopes: scopes}).resolve(ctx, ir.PhysicalClickHouseCombine{Inputs: []ir.PhysicalCombineInputRef{reference, combineInputReference("visits", "Encounter", "execution-b")}}, bindings)
+		_, err := (CombineInputResolver{reader: reader, scopes: scopes}).Resolve(ctx, ir.PhysicalClickHouseCombine{Inputs: []ir.PhysicalCombineInputRef{reference, recipefixtures.CombineInputReference("visits", "Encounter", "execution-b")}}, bindings)
 		if err == nil {
 			t.Fatal("restricted-empty current scope was accepted")
 		}
 	})
-}
-
-func combineInputReference(recipeName, output, revision string) ir.PhysicalCombineInputRef {
-	selector := dataset.DataframeSelector{Recipe: recipeName, TranslationVersion: "v1", Output: output}
-	return ir.PhysicalCombineInputRef{TableID: selector.Key(), RevisionID: revision, OutputID: output}
-}
-
-func combineInputMaterialization(reference ir.PhysicalCombineInputRef, bindings recipe.RuntimeBindings) published.Materialization {
-	selector := dataset.DataframeSelector{Recipe: "labs", TranslationVersion: "v1", Output: reference.OutputID}
-	if reference.TableID == combineInputReference("visits", "Encounter", reference.RevisionID).TableID {
-		selector = dataset.DataframeSelector{Recipe: "visits", TranslationVersion: "v1", Output: reference.OutputID}
-	}
-	return published.Materialization{
-		ID: reference.RevisionID + ":" + reference.OutputID, Revision: reference.RevisionID,
-		ReceiptID: "receipt-" + reference.RevisionID, SchemaDigest: "schema-" + reference.RevisionID,
-		ScopeDigest: recipeScopeDigest(bindings), AuthScopeMode: string(bindings.AuthScopeMode),
-		Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration,
-		State: published.StateReady, ScopeUnrestricted: bindings.AuthScopeMode == authscope.ReadScopeUnrestricted,
-		AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...), PhysicalTable: "physical_" + reference.OutputID,
-		Selector: selector,
-		Columns: []published.Column{
-			{ID: "stable-row-id", Name: "__loom_row_id", ClickHouse: "String", LogicalType: "string"},
-			{ID: "stable-labs-value", Name: "value", ClickHouse: "Float64", LogicalType: "decimal"},
-		},
-	}
 }

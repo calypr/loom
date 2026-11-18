@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -115,7 +117,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 		t.Fatal(err)
 	}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{}, ScopeDigest: recipeScopeDigest,
+		Registry: compilerTestRegistry{}, ScopeDigest: reciperuntime.ScopeDigest,
 		QueryRows:    func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
 		RootPageRows: 100,
 	})

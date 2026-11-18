@@ -7,6 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/testkit/recipefixtures"
+
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 
@@ -45,27 +49,6 @@ func blankProjectEngine(t *testing.T) (*dataframeexecution.Engine, *blankProject
 	return engine, registry
 }
 
-func assertTypedProjectRequired(t *testing.T, err error, site string) dataframeerrors.UserError {
-	t.Helper()
-	if err == nil {
-		t.Fatalf("%s: whitespace-only project accepted; want typed PROJECT_REQUIRED", site)
-	}
-	userErr, ok := dataframeerrors.AsUserError(err)
-	if !ok {
-		t.Fatalf("%s: error escaped as raw (INTERNAL fault would be synthesized): %v", site, err)
-	}
-	if userErr.Code() != string(dataframeerrors.CodeProjectRequired) {
-		t.Fatalf("%s: code=%s want %s (err=%v)", site, userErr.Code(), dataframeerrors.CodeProjectRequired, err)
-	}
-	if userErr.Retryable() {
-		t.Fatalf("%s: PROJECT_REQUIRED must stay non-retryable", site)
-	}
-	if message := dataframeerrors.PublicMessage(err); message != dataframeerrors.PublicMessage(dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")) {
-		t.Fatalf("%s: message=%q want default publish text", site, message)
-	}
-	return userErr
-}
-
 func TestRecipeControlBlankProjectGuardTypesThrowsAtEscapeSite(t *testing.T) {
 	engine, registry := blankProjectEngine(t)
 	control := dataframeexecution.Control{Engine: engine}
@@ -97,7 +80,7 @@ func TestRecipeControlBlankProjectGuardTypesThrowsAtEscapeSite(t *testing.T) {
 		t.Run(leg.name, func(t *testing.T) {
 			for _, project := range []string{"", "  "} {
 				err := leg.call(context.Background(), "patients", recipe.RuntimeBindings{Project: project, DatasetGeneration: "generation-a"})
-				assertTypedProjectRequired(t, err, "control."+leg.name)
+				recipefixtures.AssertTypedProjectRequired(t, err, "control."+leg.name)
 			}
 		})
 	}
@@ -108,16 +91,16 @@ func TestRecipeControlBlankProjectGuardTypesThrowsAtEscapeSite(t *testing.T) {
 
 func TestRecipeAuthorizationTreatsWhitespaceProjectAsEmpty(t *testing.T) {
 	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{ResourceAccess: fencedFaultClient{}})
-	authorizer := recipeAuthorization{resolver: resolver}
+	authorizer := reciperuntime.NewAuthorization(resolver)
 	for name, authorize := range map[string]func(context.Context, recipe.RuntimeBindings) (recipe.RuntimeBindings, error){
 		"read":  authorizer.AuthorizeRead,
 		"write": authorizer.AuthorizeWrite,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, emptyErr := authorize(context.Background(), recipe.RuntimeBindings{Project: ""})
-			emptyErrUser := assertTypedProjectRequired(t, emptyErr, name+" empty")
+			emptyErrUser := recipefixtures.AssertTypedProjectRequired(t, emptyErr, name+" empty")
 			_, blankErr := authorize(context.Background(), recipe.RuntimeBindings{Project: "  "})
-			blankErrUser := assertTypedProjectRequired(t, blankErr, name+" whitespace")
+			blankErrUser := recipefixtures.AssertTypedProjectRequired(t, blankErr, name+" whitespace")
 			if emptyErrUser.Code() != blankErrUser.Code() || emptyErrUser.Retryable() != blankErrUser.Retryable() {
 				t.Fatalf("whitespace leg diverges from empty leg: %s/%v vs %s/%v", blankErrUser.Code(), blankErrUser.Retryable(), emptyErrUser.Code(), emptyErrUser.Retryable())
 			}
@@ -140,7 +123,7 @@ func TestRecipeAuthorizationResolverFaultStaysBackendUnavailable(t *testing.T) {
 	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 		ResourceAccess: fencedFaultClient{},
 	})
-	authorizer := recipeAuthorization{resolver: resolver}
+	authorizer := reciperuntime.NewAuthorization(resolver)
 	ctx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{Subject: "tester", AuthorizationHeader: "Bearer token"})
 	_, err := authorizer.AuthorizeRead(ctx, recipe.RuntimeBindings{Project: "HTAN_INT/project-a"})
 	userErr, ok := dataframeerrors.AsUserError(err)
