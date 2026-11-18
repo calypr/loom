@@ -23,7 +23,7 @@ func TestRecipeLookupRetainsTransportErrorContract(t *testing.T) {
 		{"typed unauthenticated lookup remains outage", dataframeerrors.NewError(dataframeerrors.CodeUnauthenticated, ""), false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			routes := recipeExecutionTestRoutes(&HTTPRoutes{releases: recipeExecutionFaultCatalog{err: test.err}})
+			routes := recipeExecutionTestRoutes(recipeExecutionRouteConfig{releases: recipeExecutionFaultCatalog{err: test.err}})
 			response, err := routes.GetRecipeExecution(context.Background(), loomapi.GetRecipeExecutionRequestObject{Id: "execution-a"})
 			if err != nil {
 				t.Fatal(err)
@@ -42,7 +42,7 @@ func TestRecipeLookupRetainsTransportErrorContract(t *testing.T) {
 }
 func TestRecipeLookupRetainsExistingOutageDetails(t *testing.T) {
 	fault := dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithDetails(map[string]any{"reason": "catalog unavailable"}), dataframeerrors.WithFieldPath("execution"), dataframeerrors.WithRetryable(false))
-	routes := recipeExecutionTestRoutes(&HTTPRoutes{releases: recipeExecutionFaultCatalog{err: fault}})
+	routes := recipeExecutionTestRoutes(recipeExecutionRouteConfig{releases: recipeExecutionFaultCatalog{err: fault}})
 	response, err := routes.GetRecipeExecution(context.Background(), loomapi.GetRecipeExecutionRequestObject{Id: "execution-a"})
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestRecipeScopeUnauthenticatedRetainsLegacyBody(t *testing.T) {
 	recipeExecutionReadScope = func(context.Context, *authscope.ScopeResolver, *authscope.Principal, string, string, []string) (authscope.ReadScope, error) {
 		return authscope.ReadScope{}, authscope.ErrUnauthenticated
 	}
-	routes := recipeExecutionTestRoutes(&HTTPRoutes{releases: recipeExecutionCatalog{execution: publication.BundleExecution{ID: "execution-a", BundleIdentity: publication.BundleIdentity{Project: "project-a", DatasetGeneration: "generation-a"}}}, scopes: &authscope.ScopeResolver{}})
+	routes := recipeExecutionTestRoutes(recipeExecutionRouteConfig{releases: recipeExecutionCatalog{execution: publication.BundleExecution{ID: "execution-a", BundleIdentity: publication.BundleIdentity{Project: "project-a", DatasetGeneration: "generation-a"}}}, scopes: &authscope.ScopeResolver{}})
 	response, err := routes.GetRecipeExecution(context.Background(), loomapi.GetRecipeExecutionRequestObject{Id: "execution-a"})
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +89,7 @@ func TestRecipeLookupRetainsLegacyAdapterRejections(t *testing.T) {
 		{400, "getRecipeExecution returned undocumented HTTP status 400"},
 		{502, "getRecipeExecution returned undocumented HTTP status 502"},
 	} {
-		routes := recipeExecutionTestRoutes(&HTTPRoutes{releases: recipeExecutionFaultCatalog{err: fiber.NewError(test.status)}})
+		routes := recipeExecutionTestRoutes(recipeExecutionRouteConfig{releases: recipeExecutionFaultCatalog{err: fiber.NewError(test.status)}})
 		response, err := routes.GetRecipeExecution(context.Background(), loomapi.GetRecipeExecutionRequestObject{Id: "execution-a"})
 		if response != nil || err == nil || err.Error() != test.message {
 			t.Fatalf("lookup status%d: response=%#v err=%v, want %q", test.status, response, err, test.message)

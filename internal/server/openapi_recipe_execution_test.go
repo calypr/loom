@@ -57,7 +57,7 @@ func TestRecipeAuthorizationAdapterUsesOperationAuthPolicy(t *testing.T) {
 }
 
 func TestGetRecipeExecutionAuthorizationArbitraryFaultIsRetryableOutage(t *testing.T) {
-	routes := recipeExecutionTestRoutes(&HTTPRoutes{
+	routes := recipeExecutionTestRoutes(recipeExecutionRouteConfig{
 		releases: recipeExecutionCatalog{execution: publication.BundleExecution{
 			ID: "execution-a", BundleIdentity: publication.BundleIdentity{
 				Project: "project-a", DatasetGeneration: "generation-a", AuthResourcePaths: []string{"path-a"},
@@ -78,7 +78,7 @@ func TestGetRecipeExecutionAuthorizationArbitraryFaultIsRetryableOutage(t *testi
 }
 
 func TestGetRecipeExecutionReturnsGeneratedRetryableOutage(t *testing.T) {
-	routes := recipeExecutionTestRoutes(&HTTPRoutes{
+	routes := recipeExecutionTestRoutes(recipeExecutionRouteConfig{
 		releases: recipeExecutionCatalog{execution: publication.BundleExecution{
 			ID: "execution-a", BundleIdentity: publication.BundleIdentity{
 				Project: "project-a", DatasetGeneration: "generation-a", AuthResourcePaths: []string{"path-a"},
@@ -124,7 +124,7 @@ func assertRecipeExecutionRetryableOutage(t *testing.T, response loomapi.GetReci
 }
 
 func TestGetRecipeExecutionStoreFaultIsRetryableOutage(t *testing.T) {
-	routes := recipeExecutionTestRoutes(&HTTPRoutes{releases: recipeExecutionFaultCatalog{err: errors.New("arango connection reset")}})
+	routes := recipeExecutionTestRoutes(recipeExecutionRouteConfig{releases: recipeExecutionFaultCatalog{err: errors.New("arango connection reset")}})
 	response, err := routes.GetRecipeExecution(context.Background(), loomapi.GetRecipeExecutionRequestObject{Id: "execution-a"})
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +133,7 @@ func TestGetRecipeExecutionStoreFaultIsRetryableOutage(t *testing.T) {
 }
 
 func TestGetRecipeExecutionDeadlineExceededIsRetryableOutage(t *testing.T) {
-	routes := recipeExecutionTestRoutes(&HTTPRoutes{releases: recipeExecutionFaultCatalog{err: context.DeadlineExceeded}})
+	routes := recipeExecutionTestRoutes(recipeExecutionRouteConfig{releases: recipeExecutionFaultCatalog{err: context.DeadlineExceeded}})
 	response, err := routes.GetRecipeExecution(context.Background(), loomapi.GetRecipeExecutionRequestObject{Id: "execution-a"})
 	if err != nil {
 		t.Fatal(err)
@@ -142,7 +142,7 @@ func TestGetRecipeExecutionDeadlineExceededIsRetryableOutage(t *testing.T) {
 }
 
 func TestGetRecipeExecutionWrappedBundleNotFoundStaysNotFound(t *testing.T) {
-	routes := recipeExecutionTestRoutes(&HTTPRoutes{releases: recipeExecutionFaultCatalog{err: fmt.Errorf("arango lookup failed: %w", publication.ErrBundleNotFound)}})
+	routes := recipeExecutionTestRoutes(recipeExecutionRouteConfig{releases: recipeExecutionFaultCatalog{err: fmt.Errorf("arango lookup failed: %w", publication.ErrBundleNotFound)}})
 	response, err := routes.GetRecipeExecution(context.Background(), loomapi.GetRecipeExecutionRequestObject{Id: "execution-a"})
 	if err != nil {
 		t.Fatal(err)
@@ -162,7 +162,7 @@ func TestGetRecipeExecutionWrappedBundleNotFoundStaysNotFound(t *testing.T) {
 
 func TestStableReadResponseFixtures(t *testing.T) {
 
-	routes := recipeExecutionTestRoutes(&HTTPRoutes{releases: recipeExecutionCatalog{execution: publication.BundleExecution{
+	routes := recipeExecutionTestRoutes(recipeExecutionRouteConfig{releases: recipeExecutionCatalog{execution: publication.BundleExecution{
 		ID: "execution-a",
 		BundleIdentity: publication.BundleIdentity{
 			Project: "project-a", DatasetGeneration: "generation-a", RecipeDigest: "recipe-digest", SchemaDigest: "schema-digest",
@@ -193,7 +193,11 @@ func assertJSONFixture(t *testing.T, value any, want string) {
 	}
 }
 
-func recipeExecutionTestRoutes(routes *HTTPRoutes) *HTTPRoutes {
-	routes.Handlers = dataframeapi.NewHandlers(nil, nil, newRecipeExecutionReader(routes.releases, routes.scopes))
-	return routes
+type recipeExecutionRouteConfig struct {
+	releases publication.BundleCatalog
+	scopes   *authscope.ScopeResolver
+}
+
+func recipeExecutionTestRoutes(config recipeExecutionRouteConfig) *routes {
+	return &routes{Handlers: dataframeapi.NewHandlers(nil, nil, newRecipeExecutionReader(config.releases, config.scopes))}
 }

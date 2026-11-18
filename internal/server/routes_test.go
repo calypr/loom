@@ -13,6 +13,8 @@ import (
 	"github.com/calypr/loom/internal/ingest"
 )
 
+type HTTPRoutes = routes
+
 type routeRunner struct{}
 
 func (routeRunner) RunGeneration(context.Context, loadapi.GenerationLoadRequest, ingest.EventSink) (ingest.LoadSummary, error) {

@@ -98,12 +98,16 @@ func (s mscFailingStore) GetExecution(context.Context, string) (publication.Bund
 	return publication.BundleExecution{}, s.err
 }
 
-func mscRoutesWith(probe *mscProbe, resourceAccess authscope.ResourceAccessClient) *HTTPRoutes {
+func mscRouteConfig(probe *mscProbe, resourceAccess authscope.ResourceAccessClient) recipeExecutionRouteConfig {
 	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 		ResourceAccess:                resourceAccess,
 		ListExistingAuthResourcePaths: probe.listExisting,
 	})
-	return recipeExecutionTestRoutes(&HTTPRoutes{releases: mscStore(), scopes: resolver})
+	return recipeExecutionRouteConfig{releases: mscStore(), scopes: resolver}
+}
+
+func mscRoutesWith(probe *mscProbe, resourceAccess authscope.ResourceAccessClient) *routes {
+	return recipeExecutionTestRoutes(mscRouteConfig(probe, resourceAccess))
 }
 
 func mscMemberPrincipal() *authscope.Principal {
@@ -291,9 +295,9 @@ func TestRESTRecipeExecutionMalformedScopePreservesAuthorizationArms(t *testing.
 
 	storeFault := errors.New("arangodb connection reset")
 	probeStore := &mscProbe{pathsByProjectGeneration: mscKnownPaths()}
-	routesStore := mscRoutesWith(probeStore, nil)
-	routesStore.releases = mscFailingStore{err: storeFault}
-	routesStore = recipeExecutionTestRoutes(routesStore)
+	storeConfig := mscRouteConfig(probeStore, nil)
+	storeConfig.releases = mscFailingStore{err: storeFault}
+	routesStore := recipeExecutionTestRoutes(storeConfig)
 	storeStatus, storeBody, storeFields := twinGetExecution(t, twinHTTPStack(routesStore, mscMemberPrincipal()), mscMalformedExecID)
 	if storeStatus != http.StatusServiceUnavailable {
 		t.Fatalf("store fault must stay 503, got %d %s", storeStatus, storeBody)

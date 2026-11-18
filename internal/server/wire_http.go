@@ -6,12 +6,24 @@ import (
 	loomapi "github.com/calypr/loom/api/loomapi"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
+	explorerapi "github.com/calypr/loom/internal/api/explorer"
 	api "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 )
 
-func registerRoutes(server *api.HTTPServer, generationService *loadapi.Service, authorizer authscope.Authorizer, explorerHandlers *explorerHandlers, optional ...any) error {
+type explorerHandlers = explorerapi.Handlers
+
+type routes struct {
+	*api.HealthHandlers
+	*loadapi.StrictHandlers
+	*dataframeapi.Handlers
+	*explorerHandlers
+}
+
+var _ loomapi.StrictServerInterface = (*routes)(nil)
+
+func registerRoutes(server *api.HTTPServer, generationService *loadapi.Service, authorizer authscope.Authorizer, explorerHandlers *explorerapi.Handlers, optional ...any) error {
 	if explorerHandlers == nil {
 		return fmt.Errorf("create Explorer HTTP routes: Explorer handlers are required")
 	}
@@ -42,18 +54,13 @@ func registerRoutes(server *api.HTTPServer, generationService *loadapi.Service, 
 			scopes = typed
 		}
 	}
-	routes := &HTTPRoutes{
+	handlers := &routes{
 		HealthHandlers:   api.NewHealthHandlers(server),
 		StrictHandlers:   loadapi.NewStrictHandlers(loadHandler),
 		Handlers:         dataframeapi.NewHandlers(dataframes.published, dataframes.query, newRecipeExecutionReader(releases, scopes)),
-		server:           server,
-		load:             loadHandler,
-		releases:         releases,
-		scopes:           scopes,
 		explorerHandlers: explorerHandlers,
-		dataframes:       dataframes,
 	}
-	handler := loomapi.NewStrictHandler(routes, nil)
+	handler := loomapi.NewStrictHandler(handlers, nil)
 	loomapi.RegisterHandlersWithOptions(server.App(), handler, loomapi.FiberServerOptions{})
 	return nil
 }

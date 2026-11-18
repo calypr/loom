@@ -109,7 +109,7 @@ func TestSourceLoadValidationDetailsSurviveGenerated422Adapter(t *testing.T) {
 		c.SetContext(authscope.ContextWithPrincipal(c.Context(), &authscope.Principal{Subject: "test"}))
 		return c.Next()
 	})
-	loomapi.RegisterHandlersWithOptions(app, loomapi.NewStrictHandler(&HTTPRoutes{StrictHandlers: loadapi.NewStrictHandlers(loadHandler), load: loadHandler}, nil), loomapi.FiberServerOptions{})
+	loomapi.RegisterHandlersWithOptions(app, loomapi.NewStrictHandler(&HTTPRoutes{StrictHandlers: loadapi.NewStrictHandlers(loadHandler)}, nil), loomapi.FiberServerOptions{})
 
 	var multipartBody bytes.Buffer
 	writer := multipart.NewWriter(&multipartBody)
@@ -180,7 +180,7 @@ func TestGeneratedRouterDoesNotReadMultipartBodyBeforeAuthorization(t *testing.T
 		t.Fatalf("NewHandler: %v", err)
 	}
 	app := fiber.New(fiber.Config{StreamRequestBody: true, DisablePreParseMultipartForm: true})
-	loomapi.RegisterHandlersWithOptions(app, loomapi.NewStrictHandler(&HTTPRoutes{StrictHandlers: loadapi.NewStrictHandlers(loadHandler), load: loadHandler}, nil), loomapi.FiberServerOptions{})
+	loomapi.RegisterHandlersWithOptions(app, loomapi.NewStrictHandler(&HTTPRoutes{StrictHandlers: loadapi.NewStrictHandlers(loadHandler)}, nil), loomapi.FiberServerOptions{})
 	var multipartBody bytes.Buffer
 	writer := multipart.NewWriter(&multipartBody)
 	part, err := writer.CreateFormFile("file", "META/Patient.ndjson")
@@ -214,7 +214,7 @@ func TestGeneratedBeginRouteCapsPlanJSONBody(t *testing.T) {
 		t.Fatalf("NewHandler: %v", err)
 	}
 	app := fiber.New()
-	loomapi.RegisterHandlersWithOptions(app, loomapi.NewStrictHandler(&HTTPRoutes{StrictHandlers: loadapi.NewStrictHandlers(loadHandler), load: loadHandler}, nil), loomapi.FiberServerOptions{})
+	loomapi.RegisterHandlersWithOptions(app, loomapi.NewStrictHandler(&HTTPRoutes{StrictHandlers: loadapi.NewStrictHandlers(loadHandler)}, nil), loomapi.FiberServerOptions{})
 	request := httptest.NewRequest(http.MethodPut, "/api/v1/datasets/project-a/source-loads/task-1", strings.NewReader(strings.Repeat(" ", (1<<20)+1)))
 	request.Header.Set("Content-Type", "application/json")
 	response, err := app.Test(request)
@@ -249,7 +249,7 @@ func testChunkedSourceUploadKeepsNextRequestIntact(t *testing.T, trailingCRLF bo
 		t.Fatal(err)
 	}
 	app := fiber.New(fiber.Config{StreamRequestBody: true, DisablePreParseMultipartForm: true})
-	loomapi.RegisterHandlersWithOptions(app, loomapi.NewStrictHandler(&HTTPRoutes{StrictHandlers: loadapi.NewStrictHandlers(loadHandler), load: loadHandler}, nil), loomapi.FiberServerOptions{})
+	loomapi.RegisterHandlersWithOptions(app, loomapi.NewStrictHandler(&HTTPRoutes{StrictHandlers: loadapi.NewStrictHandlers(loadHandler)}, nil), loomapi.FiberServerOptions{})
 	app.Get("/next-request", func(c fiber.Ctx) error { return c.SendString("next request intact") })
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)

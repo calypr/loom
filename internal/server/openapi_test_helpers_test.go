@@ -21,6 +21,6 @@ func newExplorerHTTPHandlers(authorizer authscope.Authorizer, authorizeRead func
 }
 
 func registerGeneratedExplorerTestRoutes(router fiber.Router, authorizer authscope.Authorizer, authorizeRead func(context.Context, *authscope.Principal, string) error, service *explorer.Service, config lifecycle.Config) {
-	routes := &HTTPRoutes{explorerHandlers: newExplorerHTTPHandlers(authorizer, authorizeRead, service, config)}
-	loomapi.RegisterHandlersWithOptions(router, loomapi.NewStrictHandler(routes, nil), loomapi.FiberServerOptions{})
+	routeHandlers := &routes{explorerHandlers: newExplorerHTTPHandlers(authorizer, authorizeRead, service, config)}
+	loomapi.RegisterHandlersWithOptions(router, loomapi.NewStrictHandler(routeHandlers, nil), loomapi.FiberServerOptions{})
 }

@@ -325,19 +325,19 @@ func twinForeignStore() *twinExecutionStore {
 	}}
 }
 
-func twinWiredRoutes() (*HTTPRoutes, *twinExecutionStore, *twinScopeProbe) {
+func twinWiredRoutes() (*routes, *twinExecutionStore, *twinScopeProbe, *authscope.ScopeResolver) {
 	store := twinForeignStore()
 	probe := &twinScopeProbe{existingByProject: map[string][]string{twinForeignProject: {twinCallerPath}}}
 	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 		ListExistingAuthResourcePaths: probe.listExisting,
 	})
-	return recipeExecutionTestRoutes(&HTTPRoutes{releases: store, scopes: resolver}), store, probe
+	return recipeExecutionTestRoutes(recipeExecutionRouteConfig{releases: store, scopes: resolver}), store, probe, resolver
 }
 
 func TestFB20RESTTwinNilScopesRefusesForeignPrincipalOverHTTP(t *testing.T) {
 	twinRequireRepairedGuards(t)
 	store := twinForeignStore()
-	routes := recipeExecutionTestRoutes(&HTTPRoutes{releases: store})
+	routes := recipeExecutionTestRoutes(recipeExecutionRouteConfig{releases: store})
 	principal := &authscope.Principal{Subject: "operator-" + twinHomeProject, Projects: []string{twinHomeProject}}
 	app := twinHTTPStack(routes, principal)
 
@@ -371,7 +371,7 @@ func TestFB20RESTTwinNilScopesRefusesForeignPrincipalOverHTTP(t *testing.T) {
 
 func TestFB20RESTTwinWiredHeldPathAloneNoLongerAdmitsNonMember(t *testing.T) {
 	twinRequireRepairedGuards(t)
-	routes, _, probe := twinWiredRoutes()
+	routes, _, probe, resolver := twinWiredRoutes()
 	principal := &authscope.Principal{
 		Subject:           "operator-" + twinHomeProject,
 		Projects:          []string{twinHomeProject},
@@ -379,7 +379,7 @@ func TestFB20RESTTwinWiredHeldPathAloneNoLongerAdmitsNonMember(t *testing.T) {
 	}
 	ctx := authscope.ContextWithPrincipal(context.Background(), principal)
 
-	scope, scopeErr := routes.scopes.ResolveReadScopeForGeneration(ctx, principal, twinForeignProject, twinForeignGeneration, []string{twinCallerPath})
+	scope, scopeErr := resolver.ResolveReadScopeForGeneration(ctx, principal, twinForeignProject, twinForeignGeneration, []string{twinCallerPath})
 	if scopeErr != nil {
 		t.Fatalf("precondition: the production resolver should authorize the held path, got %v", scopeErr)
 	}
@@ -413,7 +413,7 @@ func TestFB20RESTTwinDeniedMemberAndNonMemberAreIndistinguishable(t *testing.T) 
 		Projects:          []string{twinForeignProject},
 		AuthResourcePaths: []string{twinStrangerPath},
 	}
-	routesM, _, probeM := twinWiredRoutes()
+	routesM, _, probeM, _ := twinWiredRoutes()
 	appM := twinHTTPStack(routesM, memberPrincipal)
 	memberStatus, memberBody, memberFields := twinGetExecution(t, appM, twinForeignExecID)
 	if memberStatus == http.StatusOK {
@@ -435,7 +435,7 @@ func TestFB20RESTTwinDeniedMemberAndNonMemberAreIndistinguishable(t *testing.T) 
 		Projects:          []string{twinHomeProject},
 		AuthResourcePaths: []string{twinStrangerPath},
 	}
-	routesN, _, probeN := twinWiredRoutes()
+	routesN, _, probeN, _ := twinWiredRoutes()
 	appN := twinHTTPStack(routesN, nonMemberPrincipal)
 	nonMemberStatus, nonMemberBody, _ := twinGetExecution(t, appN, twinForeignExecID)
 	twinAssertConcealment(t, nonMemberStatus, nonMemberBody)
@@ -446,7 +446,7 @@ func TestFB20RESTTwinDeniedMemberAndNonMemberAreIndistinguishable(t *testing.T) 
 		t.Fatalf("denied member and denied non-member must be indistinguishable: %d %q vs %d %q",
 			memberStatus, memberBody, nonMemberStatus, nonMemberBody)
 	}
-	routesU, _, probeU := twinWiredRoutes()
+	routesU, _, probeU, _ := twinWiredRoutes()
 	appU := twinHTTPStack(routesU, nil)
 	anonStatus, anonBody, anonFields := twinGetExecution(t, appU, twinForeignExecID)
 	if anonStatus != http.StatusOK {
@@ -470,7 +470,7 @@ func TestFB20RESTTwinCoversSubsetGateIsSoleDisclosureGate(t *testing.T) {
 	store.executions[twinCoversSupersetExecID] = superset
 	probe := &twinScopeProbe{existingByProject: map[string][]string{twinForeignProject: {twinCallerPath, twinCoversExtraPath}}}
 	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{ListExistingAuthResourcePaths: probe.listExisting})
-	routes := recipeExecutionTestRoutes(&HTTPRoutes{releases: store, scopes: resolver})
+	routes := recipeExecutionTestRoutes(recipeExecutionRouteConfig{releases: store, scopes: resolver})
 	principal := &authscope.Principal{
 		Subject:           "operator-" + twinForeignProject,
 		Projects:          []string{twinForeignProject},
@@ -481,7 +481,7 @@ func TestFB20RESTTwinCoversSubsetGateIsSoleDisclosureGate(t *testing.T) {
 		t.Fatalf("precondition: the shipped authorizer must admit this project member, got %v", err)
 	}
 	ctx := authscope.ContextWithPrincipal(context.Background(), principal)
-	if _, scopeErr := routes.scopes.ResolveReadScopeForGeneration(ctx, principal, twinForeignProject, twinForeignGeneration, []string{twinCallerPath, twinCoversExtraPath}); !errors.Is(scopeErr, authscope.ErrForbidden) {
+	if _, scopeErr := resolver.ResolveReadScopeForGeneration(ctx, principal, twinForeignProject, twinForeignGeneration, []string{twinCallerPath, twinCoversExtraPath}); !errors.Is(scopeErr, authscope.ErrForbidden) {
 		t.Fatalf("precondition: the production resolver must deny the superset read outside caller scope, got %v", scopeErr)
 	}
 	t.Logf("FB20-TWIN CONTROL | case-T-C-drift-is-not-resolver-reachable | production resolver denies [{%s,%s}] for caller {%s}: the drifted subset in arm (b) models resolver drift, the exact drift the gate documents defense against", twinCallerPath, twinCoversExtraPath, twinCallerPath)
