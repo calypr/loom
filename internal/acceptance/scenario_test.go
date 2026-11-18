@@ -13,13 +13,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/generated/loomapi"
+	"github.com/calypr/loom/api/loomapi"
 	dfpublication "github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/testkit"
 )
 
 func TestAcceptanceWorkspaceDefinesPatientCohortContract(t *testing.T) {
-	raw, err := os.ReadFile("../../testdata/acceptance/ncpi-tcga-brca/workspace.json")
+	raw, err := os.ReadFile(testkit.FixturePath(t, "acceptance/ncpi-tcga-brca/workspace.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +52,7 @@ func TestAcceptanceWorkspaceDefinesPatientCohortContract(t *testing.T) {
 }
 
 func TestAcceptanceWorkspaceMigratesLegacyContributorPredicatesAgainstPinnedCatalog(t *testing.T) {
-	raw, err := os.ReadFile("../../testdata/acceptance/ncpi-tcga-brca/workspace.json")
+	raw, err := os.ReadFile(testkit.FixturePath(t, "acceptance/ncpi-tcga-brca/workspace.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +182,7 @@ func TestDecodeAcceptanceCatalogBindsGenerationAndRequestScope(t *testing.T) {
 }
 
 func TestMigrateLegacyWorkspaceForOldAPIPreservesExactBytes(t *testing.T) {
-	raw, err := os.ReadFile("../../testdata/acceptance/ncpi-tcga-brca/workspace.json")
+	raw, err := os.ReadFile(testkit.FixturePath(t, "acceptance/ncpi-tcga-brca/workspace.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +216,7 @@ func TestMigrateLegacyWorkspaceForOldAPIPreservesExactBytes(t *testing.T) {
 }
 
 func TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody(t *testing.T) {
-	raw, err := os.ReadFile("../../testdata/acceptance/ncpi-tcga-brca/workspace.json")
+	raw, err := os.ReadFile(testkit.FixturePath(t, "acceptance/ncpi-tcga-brca/workspace.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +306,7 @@ func TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBod
 }
 
 func TestMigrateLegacyWorkspaceRejectsTruncatedOrMalformedBuilderCatalog(t *testing.T) {
-	raw, err := os.ReadFile("../../testdata/acceptance/ncpi-tcga-brca/workspace.json")
+	raw, err := os.ReadFile(testkit.FixturePath(t, "acceptance/ncpi-tcga-brca/workspace.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

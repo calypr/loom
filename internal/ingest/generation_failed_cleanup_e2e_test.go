@@ -63,7 +63,7 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 		}
 		_, loadErr := Load(ctx, LoadOptions{
 			ConnectionOptions: arangostore.ConnectionOptions{URL: endpoint, Database: database},
-			Schema:            repoPath(t, "schemas", "graph-fhir.json"),
+			Schema:            repoPath(t, "fhir", "graph-fhir.json"),
 			MetaDir:           metaDir,
 			Project:           project,
 			Dataset:           &ref,
@@ -114,7 +114,7 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 
 		if _, err := Load(ctx, LoadOptions{
 			ConnectionOptions: arangostore.ConnectionOptions{URL: endpoint, Database: database},
-			Schema:            repoPath(t, "schemas", "graph-fhir.json"),
+			Schema:            repoPath(t, "fhir", "graph-fhir.json"),
 			MetaDir:           metaDir,
 			Project:           project,
 			Dataset:           &ref,
@@ -161,7 +161,7 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 		}
 		summary, err := Load(ctx, LoadOptions{
 			ConnectionOptions: arangostore.ConnectionOptions{URL: endpoint, Database: database},
-			Schema:            repoPath(t, "schemas", "graph-fhir.json"),
+			Schema:            repoPath(t, "fhir", "graph-fhir.json"),
 			MetaDir:           metaDir,
 			Project:           project,
 			Dataset:           &ref,

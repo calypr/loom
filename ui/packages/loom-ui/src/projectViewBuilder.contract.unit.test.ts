@@ -7,7 +7,7 @@ const documentSchema = z.object({
   paths: z.record(z.string(), z.record(z.string(), z.unknown())),
   components: z.object({ schemas: z.record(z.string(), z.unknown()) }).passthrough(),
 }).passthrough();
-const contractPath = process.env.LOOM_OPENAPI_CONTRACT_PATH ?? new URL('../../../../openapi/openapi.yaml', import.meta.url);
+const contractPath = process.env.LOOM_OPENAPI_CONTRACT_PATH ?? new URL('../../../../api/openapi.yaml', import.meta.url);
 const document = documentSchema.parse(parse(readFileSync(contractPath, 'utf8')));
 
 describe('saved view client and OpenAPI contract', () => {

@@ -2,7 +2,7 @@
 
 The three dataframe operations use JSON POST requests under
 `/api/v1/projects/{project}/dataframes`. See the
-[OpenAPI contract](../openapi/openapi.yaml) for complete schemas and status codes.
+[OpenAPI contract](../api/openapi.yaml) for complete schemas and status codes.
 
 ## Page through published rows
 
@@ -35,9 +35,8 @@ project and resource-path grants before querying ClickHouse.
 
 ## Query the active FHIR generation
 
-Send a request body such as
-[the Patient example](../examples/meta_patient_dataframe.json) to `/run`.
+Send a dataframe request body to `/run`.
 Loom resolves the active generation and compiles and executes one scoped
 dataframe query over ArangoDB. The response includes columns, JSON rows,
-row count, and compiler and execution diagnostics. Run a checked-in request
-with `go run ./cmd/dataframe-query -request examples/meta_patient_dataframe.json`.
+row count, and compiler and execution diagnostics. Run a saved request
+with `go run ./cmd/dataframe-query -request /path/to/request.json`.

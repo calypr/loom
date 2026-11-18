@@ -7,11 +7,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	loomapi "github.com/calypr/loom/generated/loomapi"
+	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -22,6 +21,8 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/projectid"
 	"github.com/gofiber/fiber/v3"
+
+	"github.com/calypr/loom/internal/testkit"
 )
 
 //go:embed testdata/patient_one_pre_one_saved_document.json
@@ -116,7 +117,7 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	rawFixture, err := os.ReadFile(filepath.Join("..", "..", "testdata", "devloop-fixture", "Patient.ndjson"))
+	rawFixture, err := os.ReadFile(testkit.FixturePath(t, "devloop-fixture", "Patient.ndjson"))
 	if err != nil {
 		t.Fatalf("read retained Patient fixture: %v", err)
 	}

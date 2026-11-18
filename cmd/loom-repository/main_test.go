@@ -19,7 +19,7 @@ func TestLaunchOptionsDeriveComposeAndPublicEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(options.composeArgs("/loom"), " "); got != "compose --project-name custom-stack -f /loom/compose.yaml -f /loom/compose.repository.yaml" {
+	if got := strings.Join(options.composeArgs("/loom"), " "); got != "compose --project-name custom-stack --project-directory /loom -f /loom/tests/deploy/compose.yaml -f /loom/tests/deploy/compose.repository.yaml" {
 		t.Fatalf("compose arguments = %q", got)
 	}
 	if got := options.apiURL(); got != "http://127.0.0.1:18080" {

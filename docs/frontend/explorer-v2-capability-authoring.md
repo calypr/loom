@@ -2,7 +2,7 @@
 
 This contract matches `internal/explorer/authoringv2` and the generated Loom
 OpenAPI routes. The canonical wire specification is
-[`openapi/openapi.yaml`](../../openapi/openapi.yaml).
+[`api/openapi.yaml`](../../api/openapi.yaml).
 
 ## Hard cutover
 

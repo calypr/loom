@@ -9,10 +9,10 @@ and operating guides. Superseded product plans and their evidence live under
 - [Standalone Explorer demo](DEMO_QUICKSTART.md) runs the no-auth Builder and Viewer against the locked FHIR Aggregator cohort with one command.
 - [Quickstart](QUICKSTART.md) — run Loom locally, load sample data, and make a
   first dataframe request.
-- [HTTP API and OpenAPI contract](../openapi/openapi.yaml) — canonical paths,
+- [HTTP API and OpenAPI contract](../api/openapi.yaml) — canonical paths,
   schemas, generator configuration, generated server package, and validation
   commands. The source specification is
-  [`openapi/openapi.yaml`](../openapi/openapi.yaml).
+  [`api/openapi.yaml`](../api/openapi.yaml).
 - [Explorer authoring](EXPLORER_AUTHORING.md) — current V2 Builder contract,
   compilation pipeline, receipts, draft/publish behavior, diagnostics, and
   offline default conversion.

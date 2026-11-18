@@ -40,7 +40,7 @@ Each slice owns rendering and existing consumer support for its new shapes. Do n
 
 ## Use small fixtures with independent expected outputs
 
-Extend `testdata/devloop-fixture` and its fixture generators, without changing existing cases invisibly. Add only records needed by the owning package.
+Extend `tests/fixtures/devloop-fixture` and its fixture generators, without changing existing cases invisibly. Add only records needed by the owning package.
 
 - S01 covers an unfamiliar schema-defined root with reusable datatypes under unfamiliar property names, same code in different systems, multiple coding translations, quantity members, string/integer choice arms, recorded absence, nested equal leaf Extension URLs under different parents, primitive metadata without a value, unknown fields, and 1,000 concepts beyond the old 512 bound.
 - S02 covers two semantically different routes, a five-edge route, inbound fan-out, a finite repeated/self-loop route if compiler-supported, an unavailable reference, and explicit search truncation. Same resource types do not make two routes equivalent.

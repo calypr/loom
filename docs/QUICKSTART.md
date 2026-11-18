@@ -11,12 +11,12 @@ This guide gets a fresh local checkout to:
 
 The lightweight local compose file is:
 
-- [`experimental/docker-compose.yml`](../experimental/docker-compose.yml)
+- [`tests/deploy/compose.local.yaml`](../tests/deploy/compose.local.yaml)
 
 Bring it up:
 
 ```bash
-rtk docker compose -f experimental/docker-compose.yml up -d
+rtk docker compose --project-directory . -f tests/deploy/compose.local.yaml up -d
 ```
 
 This starts:
@@ -92,26 +92,22 @@ diagnostics.
 
 Read [the Explorer authoring guide](EXPLORER_AUTHORING.md) for the current
 request/response behavior and the canonical
-[OpenAPI contract](../openapi/openapi.yaml) for exact wire schemas.
+[OpenAPI contract](../api/openapi.yaml) for exact wire schemas.
 
-## 6. Run a sample dataframe query
+## 6. Run a dataframe query
 
-With the local server listening on port 8080, run the compact Patient example.
+Save a dataframe request as JSON with `input.project` set to your loaded project.
+Follow the request format in [the dataframe API guide](DATAFRAME_API.md).
+With the server listening on port 8080, run:
 
 ```bash
-go run ./cmd/dataframe-query -request examples/meta_patient_dataframe.json
+go run ./cmd/dataframe-query -request /path/to/request.json
 ```
 
-The example selects Patient fields and traverses related resources. Set
-`input.project` in the example if the loaded project uses a different name.
-
-Use `make dataframe-demo` for the larger GDC case matrix. Add
-`DATAFRAME_REPEAT=10` to repeat the same request. The command prints server
-timing, returned row count, and response bytes. See
-[the dataframe API guide](DATAFRAME_API.md) for request and response details.
+The command prints server timing, returned row count, and response bytes.
 
 ## 7. Shut down local Arango
 
 ```bash
-rtk docker compose -f experimental/docker-compose.yml down
+rtk docker compose --project-directory . -f tests/deploy/compose.local.yaml down
 ```

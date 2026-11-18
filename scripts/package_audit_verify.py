@@ -87,7 +87,7 @@ def main() -> None:
     args = parse_args()
     if args.full:
         run(
-            [sys.executable, "-m", "unittest", "scripts.tests.test_package_audit"],
+            [sys.executable, "-m", "unittest", "discover", "-s", "tests/scripts", "-p", "test_package_audit.py"],
             args.dry_run,
         )
         run(["make", "test"], args.dry_run)

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -26,10 +25,12 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/testkit/arangotest"
+
+	"github.com/calypr/loom/internal/testkit"
 )
 
 func TestAcceptanceObservationContributorAQLAndBinds(t *testing.T) {
-	fixturePath := filepath.Join("..", "..", "..", "testdata", "acceptance", "ncpi-tcga-brca", "workspace.json")
+	fixturePath := testkit.FixturePath(t, "acceptance", "ncpi-tcga-brca", "workspace.json")
 	raw, err := os.ReadFile(fixturePath)
 	if err != nil {
 		t.Fatal(err)

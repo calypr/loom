@@ -32,12 +32,12 @@ func TestFHIRStructGenerationMatchesCheckedInArtifacts(t *testing.T) {
 			if err != nil {
 				t.Fatalf("format generated %s: %v", artifact.name, err)
 			}
-			want, err := os.ReadFile(filepath.Join("..", "..", "generated", "fhir", artifact.name))
+			want, err := os.ReadFile(filepath.Join("..", "..", "fhir", "model", artifact.name))
 			if err != nil {
 				t.Fatalf("read checked-in %s: %v", artifact.name, err)
 			}
 			if !bytes.Equal(got, want) {
-				t.Fatalf("checked-in generated/fhir/%s is stale; run make generate-fhir", artifact.name)
+				t.Fatalf("checked-in fhir/model/%s is stale; run make generate-fhir", artifact.name)
 			}
 		})
 	}

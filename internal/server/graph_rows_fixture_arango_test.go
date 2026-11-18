@@ -25,6 +25,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	storearango "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit"
 	"github.com/google/uuid"
 )
 
@@ -90,7 +91,7 @@ func graphRowsIndependentFixtureAgainstArango(t *testing.T, generation string, q
 	if err := client.Bootstrap(ctx, storearango.BootstrapSpec{Collections: []storearango.CollectionSpec{{Name: "ResearchSubject"}, {Name: "Patient"}, {Name: "Observation"}, {Name: "Condition"}, {Name: "fhir_edge", Edge: true}}}); err != nil {
 		t.Fatal(err)
 	}
-	fixture := filepath.Join("..", "..", "testdata", "graph-rows")
+	fixture := testkit.FixturePath(t, "graph-rows")
 	insert := func(collection string, documents []json.RawMessage) {
 		t.Helper()
 		if reverse {

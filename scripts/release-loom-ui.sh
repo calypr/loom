@@ -20,7 +20,7 @@ upstream_ref=''
 owned_paths=(
   Makefile
   scripts/release-loom-ui.sh
-  scripts/tests/test_release_loom_ui.py
+  tests/scripts/test_release_loom_ui.py
   ui/packages/loom-ui/package.json
   ui/apps/demo/package.json
   ui/package-lock.json

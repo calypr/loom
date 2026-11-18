@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 
-	loomapi "github.com/calypr/loom/generated/loomapi"
+	loomapi "github.com/calypr/loom/api/loomapi"
 )
 
 func (h *explorerHTTPHandlers) getConstructionInputsOpenAPIDirect(ctx context.Context, project, explorerID string, body *loomapi.ConstructionInputsRequest) (loomapi.ConstructionInputsResponse, error) {

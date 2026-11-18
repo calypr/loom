@@ -3,7 +3,7 @@ package server
 import (
 	"testing"
 
-	loomapi "github.com/calypr/loom/generated/loomapi"
+	loomapi "github.com/calypr/loom/api/loomapi"
 )
 
 func TestGeneratedEnumNullMembersValidateAsNullNotNilPlaceholder(t *testing.T) {

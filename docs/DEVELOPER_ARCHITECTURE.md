@@ -2,7 +2,7 @@
 
 Loom is an Arango-backed compiler for flat, exportable FHIR dataframes. The
 authority for FHIR structure is the checked-in
-[`schemas/graph-fhir.json`](../schemas/graph-fhir.json) graph schema and the
+[`fhir/graph-fhir.json`](../fhir/graph-fhir.json) graph schema and the
 generated Go metadata derived from it. Code should not add a second handwritten
 FHIR model or a parallel AQL implementation.
 
@@ -12,14 +12,14 @@ The top-level directories have distinct ownership:
 
 | Path | Ownership |
 | --- | --- |
-| `openapi/` | Canonical Loom HTTP contract and oapi-codegen configuration. |
-| `schemas/` | Source schemas edited by developers. |
+| `api/` | Canonical Loom HTTP contract and oapi-codegen configuration. |
+| `fhir/` | Source schemas edited by developers. |
 | `generated/` | Checked-in generated output; never server business logic. |
 | `internal/` | Handwritten server implementation. |
 | `cmd/` | Executable entry points and developer generators. |
 
-Generated FHIR structs live in `generated/fhir`; raw generated schema tables
-live in `generated/fhirschema`. `internal/fhir/schema` adds the handwritten
+Generated FHIR structs live in `fhir/model`; raw generated schema tables
+live in `fhir/schema`. `internal/fhir/schema` adds the handwritten
 selector, traversal, and compiler semantics that consume those tables.
 
 Dataframe requests are defined in OpenAPI. Their Go service inputs and responses
@@ -30,7 +30,7 @@ are owned by `internal/api/dataframe`.
 The Builder integration contract is documented in
 [`EXPLORER_AUTHORING.md`](EXPLORER_AUTHORING.md). The Builder uses the REST
 Explorer lifecycle and submits V2 intent. Every HTTP method and path is defined in the
-canonical [`openapi/openapi.yaml`](../openapi/openapi.yaml) contract.
+canonical [`api/openapi.yaml`](../api/openapi.yaml) contract.
 
 Ownership map: `dataset` owns immutable FHIR generation lifecycle; `catalog`
 owns persistence-neutral observed facts; `catalog/arango` owns catalog
@@ -254,8 +254,8 @@ Run `make generate-fhir` after changing the graph schema. See
 [the code generation guide](CODE_GENERATION.md) for the generated artifacts.
 
 Run `make generate-openapi` after changing the canonical HTTP contract or its
-generator configuration under `openapi/`. Do not hand-edit
-`generated/loomapi/api.gen.go`.
+generator configuration under `api/`. Do not hand-edit
+`api/loomapi/api.gen.go`.
 
 The normal verification targets are:
 

@@ -17,7 +17,7 @@ import (
 )
 
 func TestLoadFileSupportsGenerationAndCancellation(t *testing.T) {
-	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))
+	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestLoadFileSupportsGenerationAndCancellation(t *testing.T) {
 }
 
 func TestLoadFilePreservesGenerationWrites(t *testing.T) {
-	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))
+	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestLoadFilePreservesGenerationWrites(t *testing.T) {
 }
 
 func TestLoadFileReportsPhysicalLinesAndBoundedErrors(t *testing.T) {
-	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))
+	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestLoadFileReportsPhysicalLinesAndBoundedErrors(t *testing.T) {
 }
 
 func TestLoadFileBatchesAndPropagatesWriterFailure(t *testing.T) {
-	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))
+	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

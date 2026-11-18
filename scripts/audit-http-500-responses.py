@@ -58,7 +58,7 @@ def audit_server(root: pathlib.Path, openapi: pathlib.Path) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", default="internal/server")
-    parser.add_argument("--openapi", default="openapi/openapi.yaml")
+    parser.add_argument("--openapi", default="api/openapi.yaml")
     parser.add_argument("--output")
     args = parser.parse_args()
     try:

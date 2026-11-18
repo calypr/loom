@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	loomapi "github.com/calypr/loom/generated/loomapi"
+	loomapi "github.com/calypr/loom/api/loomapi"
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
 	queryapi "github.com/calypr/loom/internal/api/dataframe/query"

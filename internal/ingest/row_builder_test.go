@@ -17,7 +17,7 @@ func TestEdgeWithAuthResourcePathFailsClosed(t *testing.T) {
 }
 
 func TestGenericRowBuilderIsSafeForParallelWorkers(t *testing.T) {
-	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))
+	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

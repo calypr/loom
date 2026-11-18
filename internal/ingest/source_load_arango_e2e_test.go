@@ -38,7 +38,7 @@ func TestRepositorySourceLoaderArangoResumeCopyAndEmptyReplacement(t *testing.T)
 	const repository = "https://github.com/example/clinical-data"
 	const commit = "0123456789abcdef0123456789abcdef01234567"
 	loader, err := NewRepositorySourceLoader(SourceLoadPublisherConfig{
-		Client: client, DatasetStore: datasets, SchemaPath: repoPath(t, "schemas", "graph-fhir.json"),
+		Client: client, DatasetStore: datasets, SchemaPath: repoPath(t, "fhir", "graph-fhir.json"),
 		BatchSize: 2, WriteAPI: "import",
 		MaterializeAndSelect: func(ctx context.Context, project, generation, operationID, gitCommit string, expectedRevision int64) (string, int64, error) {
 			release := publication.ProjectRelease{

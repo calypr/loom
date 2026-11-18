@@ -6,13 +6,13 @@ must activate the reviewed output and make its rows available in Viewer.
 
 The matching real-browser cases are:
 
-- `scripts/e2e/author-publish-view.spec.mjs`: review automatic Patient preview,
+- `tests/e2e/author-publish-view.spec.mjs`: review automatic Patient preview,
   apply Filter, compare saved draft identity across reload, publish, and verify
   the filtered fixture rows in Viewer and the downloaded archive.
-- `scripts/e2e/group-pivot.spec.mjs`: Group with Count rows matches literal
+- `tests/e2e/group-pivot.spec.mjs`: Group with Count rows matches literal
   Observation inputs; Pivot preserves Cancel/Apply behavior and saved rows
   through reload.
-- `scripts/e2e/related-field.spec.mjs`: expand related Observation rows, select
+- `tests/e2e/related-field.spec.mjs`: expand related Observation rows, select
   a field from the current related record, reject ambiguous ONE, and preserve
   all distinct values with ALL after Apply and reload. Cancel preserves the
   saved Group.

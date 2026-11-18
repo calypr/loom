@@ -1,0 +1,8 @@
+*
+!go.mod
+!go.sum
+!tests/deploy/dev/.air.dev.toml
+!tests/deploy/dev/Dockerfile.dev
+!tests/deploy/dev/loom-dev-api-entrypoint.sh
+!tests/deploy/dev/loom-dev-build-stamp.sh
+!tests/deploy/dev/loom-dev-build.sh

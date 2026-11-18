@@ -17,7 +17,7 @@ request, so it did not measure the approved 30-second Pivot allowance. Preserve
 full population, authorization, multiplicity, and missing-value semantics when
 resuming. **Reproducing test: none retained for this exact population.** The
 former registered full-population case was retired; the bounded Observation
-Pivot in `scripts/e2e/group-pivot.spec.mjs` is not its replacement oracle.
+Pivot in `tests/e2e/group-pivot.spec.mjs` is not its replacement oracle.
 
 ### F-001 — Group-derived Pivot receipt input
 
@@ -70,7 +70,7 @@ Calypr host identity, wide-frame rendering, and equivalence across the Record
 network/row-definition views remain unverified. Keep carry-in, related rows,
 upstream dependencies, history, and shared-editing guarantees separate from a
 single network expansion. **Exact reproducer: none retained for complete
-cross-editor equivalence.** `scripts/e2e/record-network.spec.mjs`,
+cross-editor equivalence.** `tests/e2e/record-network.spec.mjs`,
 `root-change.spec.mjs`, and `related-field.spec.mjs` cover bounded local slices.
 External acceptance requires an authorized target and credentials.
 
@@ -85,7 +85,7 @@ implementation or describe confirmed regressions.
 | ROW-SOURCE-04 | Proposal only: post-transform coded Pivot and related source-input design remain unapproved. | No reproducer for an approved feature contract. |
 | OPS-62-01 | Keep the named 422 when a signed source duplicates an already projected public field, or approve wider dedupe/bind semantics. Shipped refusal stays until decided. | `internal/server/fs1_signed_slot_collision_test.go` covers current collision behavior. |
 | OPS-62-02 | Decide whether capability discovery should hide projected fields; currently it may advertise a choice and reject its collision at proposal time. EXPAND admission stays deferred. | Existing signed-source proposal guards establish refusal, not a new discovery contract. |
-| OPS-63-01 | Triage cross-lane schema hardening separately. Optional capability `columnId`, nonempty labels, and form-gated Unpivot inputs have different dispositions; do not combine them into a claimed product fix. | `ui/packages/loom-ui/src/types.ts` and `openapi/openapi.yaml` remain the contract sources; no test reproduces a demonstrated user failure here. |
+| OPS-63-01 | Triage cross-lane schema hardening separately. Optional capability `columnId`, nonempty labels, and form-gated Unpivot inputs have different dispositions; do not combine them into a claimed product fix. | `ui/packages/loom-ui/src/types.ts` and `api/openapi.yaml` remain the contract sources; no test reproduces a demonstrated user failure here. |
 | ROW-CONTRACT-01 | Direct list-aware Unpivot needs item pairing, cardinality, null, and row-identity rules. Scalar Unpivot after supported expansion is a different supported path. | No approved direct-list regression contract. |
 | ROW-CONTRACT-02 | Connected Group supports its canonical root/contributor route; arbitrary later-stage and independent relationship branches need a separate contract. | Current related Coding HTTP tests cover the supported route only. |
 | ROW-CONTRACT-03 | Versioned coded Pivot remains intentionally unsupported; both UI and lifecycle reject nonempty coding versions. | `CodedPivotEditor.tsx` and `construction_coded_pivot.go` enforce the current restriction. |

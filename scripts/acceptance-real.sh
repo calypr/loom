@@ -20,7 +20,11 @@ api_image=${LOOM_API_IMAGE:-loom-demo-api:local}
 case "$isolated" in true|false) ;; *) echo "invalid LOOM_ACCEPTANCE_ISOLATED: $isolated" >&2; exit 2 ;; esac
 case "$fixture_prepared" in true|false) ;; *) echo "invalid LOOM_ACCEPTANCE_FIXTURE_PREPARED: $fixture_prepared" >&2; exit 2 ;; esac
 if [[ "$source_root" != /* ]]; then source_root="$repo_root/$source_root"; fi
-export LOOM_DEMO_FIXTURE_DIR=${LOOM_DEMO_FIXTURE_DIR:-"$source_root/testdata/acceptance/ncpi-tcga-brca"}
+fixture_dir="$source_root/tests/fixtures/acceptance/ncpi-tcga-brca"
+if [[ ! -d "$fixture_dir" && -d "$source_root/testdata/acceptance/ncpi-tcga-brca" ]]; then
+  fixture_dir="$source_root/testdata/acceptance/ncpi-tcga-brca"
+fi
+export LOOM_DEMO_FIXTURE_DIR=${LOOM_DEMO_FIXTURE_DIR:-"$fixture_dir"}
 mkdir -p "$artifacts" "$cache"
 cache=$(cd "$cache" && pwd)
 
@@ -40,7 +44,7 @@ if [[ "$isolated" == false ]]; then
   LOOM_DEMO_SEED=false \
     LOOM_DEMO_SOURCE_ROOT="$source_root" \
     "$repo_root/scripts/demo-up.sh"
-  docker compose --project-name "$deployment_project" ps -a >"$artifacts/deployment-compose-ps.txt" 2>&1 || true
+  docker compose --project-name "$deployment_project" --project-directory "$repo_root" -f "$repo_root/tests/deploy/compose.yaml" ps -a >"$artifacts/deployment-compose-ps.txt" 2>&1 || true
 
   acceptance_project="loom-acceptance-$acceptance_id"
   read -r api_port ui_port <<<"$(free_ports)"
@@ -51,7 +55,7 @@ if [[ "$isolated" == false ]]; then
   teardown_acceptance=true
 fi
 
-compose=(docker compose --project-name "$acceptance_project")
+compose=(docker compose --project-name "$acceptance_project" --project-directory "$repo_root" -f "$repo_root/tests/deploy/compose.yaml")
 report_exported=false
 
 capture_compose_evidence() {

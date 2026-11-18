@@ -18,7 +18,7 @@ changed behavior; use the broader commands at a coherent checkpoint.
 | `make e2e` | Local Builder/Viewer flows in real Chrome against the development stack. |
 
 The [feature map](features/README.md) maps browser guarantees to specs in
-`scripts/e2e/`. A component pass establishes the component boundary. Store
+`tests/e2e/`. A component pass establishes the component boundary. Store
 persistence, native interactions, and published Viewer behavior require their
 matching integration or browser assertions. Record the command, exit status,
 source identity, target identity, fixture, and remaining gaps. A skipped test,
@@ -31,8 +31,8 @@ and GraphQL correctness, use [verify-loom](../verify-loom/SKILL.md).
 ## Bind the development target
 
 Discover projects with `docker compose ls --all`. Inspect the chosen project
-with `docker compose -f compose.dev.yaml -p <project> ps`. Always specify
-`compose.dev.yaml`: the default `compose.yaml` describes canonical `loom-demo`.
+with `docker compose --project-directory . -f tests/deploy/compose.dev.yaml -p <project> ps`. Use `tests/deploy/compose.dev.yaml` for the dev stack.
+`tests/deploy/compose.yaml` describes canonical `loom-demo`.
 Read published ports from the running containers; a session file can be stale.
 A stopped or missing project is an environment blocker.
 
@@ -43,7 +43,7 @@ make dev-doctor
 
 The usual development URLs are `http://127.0.0.1:8180` and
 `http://127.0.0.1:3180`; isolated projects may use other ports. The fixture is
-`testdata/devloop-fixture`. Source changes use Go and Vite watchers. Use
+`tests/fixtures/devloop-fixture`. Source changes use Go and Vite watchers. Use
 `make dev-rebuild` after a dependency, toolchain, or development image change.
 Require `DEV_DOCTOR_PASSED`; its report binds the Compose identity, fixture
 project/generation, API, UI, and source/build identity. Doctor does not prove a
@@ -56,7 +56,7 @@ defaults. Set `LOOM_E2E_CHROME` to the Chrome/Chromium executable when needed.
 For example, after Doctor validates the target:
 
 ```sh
-node --test --test-concurrency=1 scripts/e2e/root-change.spec.mjs
+node --test --test-concurrency=1 tests/e2e/root-change.spec.mjs
 ```
 
 ## Preflight loaded data

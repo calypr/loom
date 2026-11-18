@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/generated/loomapi"
+	"github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/gofiber/fiber/v3"
 )

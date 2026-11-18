@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oapi-codegen/oapi-codegen/v2.8.0/configuration-schema.json
+package: loomapi
+generate:
+  models: true
+  fiber-v3-server: true
+  strict-server: true
+  embedded-spec: true
+output: api/loomapi/api.gen.go
+output-options:
+  skip-prune: false
+  user-templates:
+    strict/strict-fiber-v3.tmpl: ./api/templates/strict-fiber-v3.tmpl

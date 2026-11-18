@@ -24,11 +24,11 @@ function sourceFiles(directory, files = []) {
 export function sourceFingerprint(sourceRoot = root) {
     const hash = createHash('sha256');
     const sources = [
-        ...['internal', 'generated', 'schemas', 'testdata'].flatMap(directory => sourceFiles(resolve(sourceRoot, directory))),
+        ...['internal', 'api', 'fhir', 'tests/fixtures'].flatMap(directory => sourceFiles(resolve(sourceRoot, directory))),
         resolve(sourceRoot, 'go.mod'),
         resolve(sourceRoot, 'go.sum'),
         resolve(sourceRoot, 'scripts/run-arango-integration.mjs'),
-        resolve(sourceRoot, 'scripts/run-arango-integration.test.mjs'),
+        resolve(sourceRoot, 'tests/scripts/run-arango-integration.test.mjs'),
     ].sort();
     for (const path of sources) {
         hash.update(relative(sourceRoot, path));

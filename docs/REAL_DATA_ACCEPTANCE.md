@@ -48,7 +48,7 @@ After correctness succeeds, require all of the following:
 - `cleanup.json` has string `status: "0"` and `cleanup_status: "0"`.
 - `cleanup.json` names `loom-demo` as `deployment_project` and a generated
   `loom-acceptance-<id>` as `acceptance_project` for the normal correctness run.
-- `docker compose --project-name loom-demo ps` shows canonical services running.
+- `docker compose --project-directory . -f tests/deploy/compose.yaml --project-name loom-demo ps` shows canonical services running.
 - `docker compose ls --all` shows no generated acceptance project from that run.
 
 Canonical readiness at `http://127.0.0.1:8080/readyz` and the UI at port 3080
@@ -227,7 +227,7 @@ that cleanup.
 ```text
 cmd/loom-acceptance/                 Command boundary
 internal/acceptance/                 Fixture, target, scenario, evidence, and comparison logic
-testdata/acceptance/ncpi-tcga-brca/ Fixture lock, provenance, workspace, GraphQL document, and oracle
+tests/fixtures/acceptance/ncpi-tcga-brca/ Fixture lock, provenance, workspace, GraphQL document, and oracle
 scripts/acceptance-real.sh          Stable local entry point
 scripts/acceptance-performance.sh   Same-machine base/current regression driver
 .codex/skills/verify-loom/          Agent-facing pointer to this runbook

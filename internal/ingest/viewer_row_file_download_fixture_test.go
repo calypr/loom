@@ -3,13 +3,14 @@ package ingest
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/testkit"
 )
 
 func TestViewerRowFileDownloadObservationFixtureLoadsGenerated(t *testing.T) {
-	fixturePath := filepath.Join("..", "..", "testdata", "viewer-row-file-download", "Observation.ndjson")
+	fixturePath := testkit.FixturePath(t, "viewer-row-file-download", "Observation.ndjson")
 	data, err := os.ReadFile(fixturePath)
 	if err != nil {
 		t.Fatalf("read FileCell Observation fixture: %v", err)

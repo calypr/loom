@@ -46,10 +46,10 @@ Reload failures save bounded CDP diagnostics under the system temporary
 Run a focused case with:
 
 ```sh
-node --test --test-concurrency=1 scripts/e2e/root-change.spec.mjs
+node --test --test-concurrency=1 tests/e2e/root-change.spec.mjs
 ```
 
-The fixture is `testdata/devloop-fixture`; Patient 001 has two related
+The fixture is `tests/fixtures/devloop-fixture`; Patient 001 has two related
 Observations. These bounded synthetic cases do not establish full-population
 CDA performance, arbitrary FHIR shapes, or authenticated external Calypr
 behavior. See [the backlog](../docs/BACKLOG.md) for remaining acceptance gaps.

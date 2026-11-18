@@ -131,7 +131,9 @@ async function scanRoots(projectRoot) {
     }
   }
   await visit(path.join(projectRoot, 'scripts'));
-  try { await visit(path.join(projectRoot, '.codex/skills')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  for (const directory of ['tests/scripts', '.codex/skills']) {
+    try { await visit(path.join(projectRoot, directory)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
   return candidates.sort();
 }
 

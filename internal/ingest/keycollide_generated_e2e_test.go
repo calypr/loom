@@ -68,7 +68,7 @@ func TestFB25SanitizeKeyCollisionLosesAcknowledgedWrite(t *testing.T) {
 			}
 			summary, err := Load(ctx, LoadOptions{
 				ConnectionOptions: arangostore.ConnectionOptions{URL: endpoint, Database: database},
-				Schema:            repoPath(t, "schemas", "graph-fhir.json"),
+				Schema:            repoPath(t, "fhir", "graph-fhir.json"),
 				MetaDir:           metaDir,
 				Project:           "KCOLL_TEST",
 				Dataset:           &ref,

@@ -19,7 +19,7 @@ const openApiDocumentSchema = z.object({
 }).passthrough();
 
 const document = openApiDocumentSchema.parse(parse(readFileSync(
-  process.env.LOOM_OPENAPI_CONTRACT_PATH ?? new URL('../../../../openapi/openapi.yaml', import.meta.url),
+  process.env.LOOM_OPENAPI_CONTRACT_PATH ?? new URL('../../../../api/openapi.yaml', import.meta.url),
   'utf8',
 )));
 

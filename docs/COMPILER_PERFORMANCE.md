@@ -28,10 +28,10 @@ For compiler shape and diagnostics:
 make compiler-bench
 ```
 
-For the checked-in GDC request against a running GraphQL service:
+For a saved request against a running Loom server:
 
 ```bash
-make dataframe-demo DATAFRAME_LIMIT=1000 DATAFRAME_REPEAT=3 \
+make dataframe-demo DATAFRAME_REQUEST=/path/to/request.json DATAFRAME_LIMIT=1000 DATAFRAME_REPEAT=3 \
   DATAFRAME_PRINT_RESPONSE=false
 ```
 

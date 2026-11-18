@@ -10,7 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	generatedfhir "github.com/calypr/loom/generated/fhir"
+	generatedfhir "github.com/calypr/loom/fhir/model"
+
+	"github.com/calypr/loom/internal/testkit"
 )
 
 type medicationFixtureScope struct {
@@ -93,7 +95,7 @@ func TestCDAZeroColumnMedicationPositiveFixture(t *testing.T) {
 
 func readMedicationFixture(t *testing.T) (medicationFixtureScope, map[string]medicationFixtureDoc, []medicationFixtureEdge) {
 	t.Helper()
-	dir := filepath.Join("..", "..", "testdata", "cda-zero-column-related-medication-positive")
+	dir := testkit.FixturePath(t, "cda-zero-column-related-medication-positive")
 	scopeJSON, err := os.ReadFile(filepath.Join(dir, "scope.json"))
 	if err != nil {
 		t.Fatal(err)

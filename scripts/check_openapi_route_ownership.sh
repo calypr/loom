@@ -11,7 +11,7 @@ search_production_go() {
 }
 
 if matches="$(search_production_go '(^|[^[:alnum:]_])(app|router|[[:alnum:]_]+\.app|server\.App\(\))\.(Get|Post|Put|Delete|Patch|Head|Options|All)\(' | grep -v '/generated/' || true)" && [[ -n "${matches}" ]]; then
-  printf '%s\n' 'production HTTP routes must be registered through generated/loomapi:'
+  printf '%s\n' 'production HTTP routes must be registered through api/loomapi:'
   printf '%s\n' "${matches}"
   exit 1
 fi

@@ -62,7 +62,7 @@ recipe, translation-version, and output selector.
 | `POST /api/v1/datasets/:project/generations/:generation` | Multipart immutable-generation loader used by ETL. |
 
 The canonical contract for every server route is
-[`openapi/openapi.yaml`](openapi/openapi.yaml). It includes health, generation
+[`api/openapi.yaml`](api/openapi.yaml). It includes health, generation
 ingestion/activation, recipe execution, dataframe queries, Explorer lifecycle,
 and Explorer authoring operations. The `:project` path parameter is the tenancy
 identity used for authorization and becomes the published row `project_id`
@@ -116,7 +116,7 @@ at a time.
 For backend-only development, the lightweight Compose stack starts ArangoDB and ClickHouse:
 
 ```bash
-rtk docker compose -f experimental/docker-compose.yml up -d
+rtk docker compose --project-directory . -f tests/deploy/compose.local.yaml up -d
 make generate-fhir
 make build
 ```
@@ -167,10 +167,10 @@ Useful local URLs:
 - [Process liveness](http://127.0.0.1:8080/livez)
 - [Dependency readiness](http://127.0.0.1:8080/readyz)
 
-Run the checked-in graph dataframe example after the server is up:
+Run a saved dataframe request after the server is up:
 
 ```bash
-make dataframe-demo
+make dataframe-demo DATAFRAME_REQUEST=/path/to/request.json
 ```
 
 See [the documentation index](docs/README.md) for the complete guide map,
@@ -251,11 +251,10 @@ Project-owned views and their published revisions continue to be refreshed trans
 | Path | Responsibility |
 | --- | --- |
 | [`cmd/`](cmd) | Operator CLI, server executable, and developer tools. |
-| [`openapi/`](openapi) | Canonical Loom HTTP specification and generator configuration. |
-| [`schemas/`](schemas) | Source FHIR graph schema. |
-| [`generated/`](generated) | Checked-in generator-managed artifacts; see the code-generation guide before editing. |
-| [`generated/fhir`](generated/fhir) | Public generated FHIR resource structs and validation helpers. |
-| [`generated/fhirschema`](generated/fhirschema) | Generated raw FHIR schema metadata. |
+| [`api/`](api) | Canonical Loom HTTP specification and generator configuration. |
+| [`fhir/`](fhir) | Source FHIR graph schema and generated Go code. |
+| [`fhir/model`](fhir/model) | Public generated FHIR resource structs and validation helpers. |
+| [`fhir/schema`](fhir/schema) | Generated raw FHIR schema metadata. |
 | [`internal/fhir/schema`](internal/fhir/schema) | Server-only FHIR schema metadata and selector semantics. |
 | [`internal/ingest`](internal/ingest) | NDJSON loading, validation, graph extraction, and ingest lifecycle. |
 | [`internal/dataset`](internal/dataset) | Immutable generation and active-manifest contracts. |
@@ -295,7 +294,7 @@ go test ./...
 ## Further reading
 
 - [Documentation index](docs/README.md)
-- [OpenAPI contract](openapi/README.md)
+- [OpenAPI contract](api/openapi.yaml)
 - [Quickstart](docs/QUICKSTART.md)
 - [Explorer authoring contract](docs/EXPLORER_AUTHORING.md)
 - [Default dataframer recipe authoring guide](docs/DATAFRAMER_RECIPES.md)

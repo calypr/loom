@@ -53,7 +53,7 @@ func run(args []string, clientFor func(time.Duration) *http.Client, stdout, stde
 	flags := flag.NewFlagSet("dataframe-query", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&baseURL, "url", "http://127.0.0.1:8080", "Loom base URL")
-	flags.StringVar(&requestPath, "request", "examples/meta_patient_dataframe.json", "dataframe request JSON file")
+	flags.StringVar(&requestPath, "request", "", "path to a dataframe request JSON file (required)")
 	flags.IntVar(&repeat, "repeat", 1, "number of sequential requests; only the final response is printed")
 	flags.IntVar(&limit, "limit", 0, "override row limit; 0 preserves the request file")
 	flags.DurationVar(&timeout, "timeout", 60*time.Second, "per-request HTTP timeout")
@@ -62,6 +62,9 @@ func run(args []string, clientFor func(time.Duration) *http.Client, stdout, stde
 		return usageError{err: err}
 	}
 
+	if requestPath == "" {
+		return usageError{err: errors.New("-request is required")}
+	}
 	if repeat < 1 {
 		return fmt.Errorf("repeat must be positive")
 	}

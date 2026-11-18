@@ -7,12 +7,12 @@ record section is labeled `Starting record type`; field actions include
 
 Run these cases with the target variables documented in [verify](../SKILL.md):
 
-- `scripts/e2e/root-change.spec.mjs`: changing Patient starting records to
+- `tests/e2e/root-change.spec.mjs`: changing Patient starting records to
   Observation offers `Keep current rows` and `Apply row change`. Cancel keeps
   the draft digest; Apply persists Observation rows after reload.
-- `scripts/e2e/record-network.spec.mjs`: Patient→Observation follows literal
+- `tests/e2e/record-network.spec.mjs`: Patient→Observation follows literal
   fixture references through related-row expansion and reload.
-- `scripts/e2e/author-publish-view.spec.mjs`: create the table through native UI,
+- `tests/e2e/author-publish-view.spec.mjs`: create the table through native UI,
   select family/gender fields, compare preview values with fixture records,
   apply a gender filter, and reload the saved draft.
 

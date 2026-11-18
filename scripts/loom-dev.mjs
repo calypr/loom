@@ -11,7 +11,7 @@ import { EXPLORER_AUTHORING_SEMANTICS_VERSION } from '../ui/packages/loom-ui/src
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
 const REPO_ROOT = resolve(SCRIPT_DIR, '..');
-const COMPOSE_FILE = join(REPO_ROOT, 'compose.dev.yaml');
+const COMPOSE_FILE = join(REPO_ROOT, 'tests/deploy/compose.dev.yaml');
 const VALID_NAME = /^[a-z][a-z0-9_-]{0,62}$/;
 const VALID_IDENTIFIER = /^[A-Za-z][A-Za-z0-9_-]{0,62}$/;
 const CANONICAL_PROJECT = 'loom-demo';
@@ -165,7 +165,7 @@ export const createDevSession = (env = process.env, cwd = REPO_ROOT) => {
     createHash('sha256').update(`loom-dev-population-mapping-cursor\x00${sourceRoot}\x00${composeProject}\x00${project}`).digest('hex'),
   );
   const artifacts = resolve(envValue(env, 'LOOM_DEV_ARTIFACTS', defaults.artifacts));
-  const fixtureDir = resolve(envValue(env, 'LOOM_DEV_FIXTURE_DIR', join(sourceRoot, 'testdata/devloop-fixture')));
+  const fixtureDir = resolve(envValue(env, 'LOOM_DEV_FIXTURE_DIR', join(sourceRoot, 'tests/fixtures/devloop-fixture')));
   const fixtureLoadTimeout = durationValue(env, 'LOOM_DEV_FIXTURE_TIMEOUT_MS', 180000, 3_600_000);
 
   if (composeProject === CANONICAL_PROJECT) {
@@ -204,7 +204,7 @@ export const createDevSession = (env = process.env, cwd = REPO_ROOT) => {
   return Object.freeze({
     kind: 'isolated',
     composeProject,
-    composeFile: sourceRoot === REPO_ROOT ? COMPOSE_FILE : join(sourceRoot, 'compose.dev.yaml'),
+    composeFile: sourceRoot === REPO_ROOT ? COMPOSE_FILE : join(sourceRoot, 'tests/deploy/compose.dev.yaml'),
     sourceRoot,
     fixtureDir,
     fixtureLoadTimeout,
@@ -320,7 +320,7 @@ const run = (command, args, options = {}) => new Promise((resolvePromise, reject
   child.on('close', (code, signal) => resolvePromise({ code: code ?? 1, signal, stdout, stderr }));
 });
 
-const compose = (target, args, options = {}) => run('docker', ['compose', '--project-name', target.composeProject, '--file', target.composeFile, ...args], { env: commandEnvironment(target), ...options });
+const compose = (target, args, options = {}) => run('docker', ['compose', '--project-name', target.composeProject, '--project-directory', target.sourceRoot, '--file', target.composeFile, ...args], { env: commandEnvironment(target), ...options });
 
 const docker = (target, args, options = {}) => run('docker', args, { env: commandEnvironment(target), ...options });
 

@@ -3,15 +3,16 @@ package server
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 
-	loomapi "github.com/calypr/loom/generated/loomapi"
+	loomapi "github.com/calypr/loom/api/loomapi"
+
+	"github.com/calypr/loom/internal/testkit"
 )
 
 func TestFieldPresentationReadySharedFixtureMatchesGeneratedWireTypes(t *testing.T) {
-	fixturePath := filepath.Join("..", "..", "testdata", "semantic-field-presentation-ready.json")
+	fixturePath := testkit.FixturePath(t, "semantic-field-presentation-ready.json")
 	raw, err := os.ReadFile(fixturePath)
 	if err != nil {
 		t.Fatal(err)

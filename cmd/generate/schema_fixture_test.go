@@ -9,7 +9,7 @@ import (
 
 func loadCheckedInGraphFHIRSchema(t *testing.T) *Schema {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "schemas", "graph-fhir.json"))
+	data, err := os.ReadFile(filepath.Join("..", "..", "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatalf("read graph schema: %v", err)
 	}

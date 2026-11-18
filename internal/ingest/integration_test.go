@@ -32,7 +32,7 @@ func TestLoadAndQueryFixture(t *testing.T) {
 	}
 	expectedVertices := 0
 	expectedEdges := 0
-	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))
+	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatalf("load graph schema: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestLoadAndQueryFixture(t *testing.T) {
 					URL:      "http://127.0.0.1:8529",
 					Database: database,
 				},
-				Schema:        repoPath(t, "schemas", "graph-fhir.json"),
+				Schema:        repoPath(t, "fhir", "graph-fhir.json"),
 				MetaDir:       fixtureDir,
 				Project:       "ARANGO_PROTO_TEST",
 				Dataset:       &generation,

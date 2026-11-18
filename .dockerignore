@@ -14,9 +14,9 @@ META_SMALL
 data
 experimental
 docs
-examples
 scripts
 Makefile
 README.md
 TODO.md
 **/*_test.go
+tests/deploy/.data

@@ -23,7 +23,7 @@ func sourceValidationFile(t *testing.T, body string) string {
 func TestSourceFileValidationRejectsLateInvalidRows(t *testing.T) {
 	valid := `{"resourceType":"BodyStructure","id":"fixture","patient":{"reference":"Patient/p1"},"includedStructure":[{"structure":{"text":"body"}}]}` + "\n"
 	body := strings.Repeat(valid, 30) + "\n" + `{"resourceType":"BodyStructure","id":"bad","patient":{"reference":"Patient/p1"},"private":"do-not-disclose"}` + "\n"
-	digest, rows, rejected, err := validateSourceLoadFile(context.Background(), sourceValidationFile(t, body), "META/BodyStructure.ndjson", "fixture", "", "candidate", "../../schemas/graph-fhir.json")
+	digest, rows, rejected, err := validateSourceLoadFile(context.Background(), sourceValidationFile(t, body), "META/BodyStructure.ndjson", "fixture", "", "candidate", "../../fhir/graph-fhir.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestSourceFileValidationRejectsLateInvalidRows(t *testing.T) {
 
 func TestSourceFileValidationBoundsIssuesAndCountsAllFailures(t *testing.T) {
 	body := strings.Repeat(`{"resourceType":"BodyStructure","id":"bad"}`+"\n", 125)
-	_, rows, rejected, err := validateSourceLoadFile(context.Background(), sourceValidationFile(t, body), "META/BodyStructure.ndjson", "fixture", "", "candidate", "../../schemas/graph-fhir.json")
+	_, rows, rejected, err := validateSourceLoadFile(context.Background(), sourceValidationFile(t, body), "META/BodyStructure.ndjson", "fixture", "", "candidate", "../../fhir/graph-fhir.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestSourceFileValidationBoundsIssuesAndCountsAllFailures(t *testing.T) {
 func TestSourceFileValidationHashesExactBytesAndAcceptsEmptyReplacement(t *testing.T) {
 	for _, body := range []string{"", "\n", `{"resourceType":"BodyStructure","id":"fixture","patient":{"reference":"Patient/p1"},"includedStructure":[{"structure":{"text":"body"}}]}` + "\r\n\n"} {
 		t.Run(strconv.Itoa(len(body)), func(t *testing.T) {
-			digest, rows, rejected, err := validateSourceLoadFile(context.Background(), sourceValidationFile(t, body), "META/BodyStructure.ndjson", "fixture", "", "candidate", "../../schemas/graph-fhir.json")
+			digest, rows, rejected, err := validateSourceLoadFile(context.Background(), sourceValidationFile(t, body), "META/BodyStructure.ndjson", "fixture", "", "candidate", "../../fhir/graph-fhir.json")
 			if err != nil || rejected != nil {
 				t.Fatalf("validation = %#v %v", rejected, err)
 			}
@@ -70,7 +70,7 @@ func TestSourceFileValidationHashesExactBytesAndAcceptsEmptyReplacement(t *testi
 }
 
 func TestSourceFileValidationChecksEveryResourceType(t *testing.T) {
-	_, _, rejected, err := validateSourceLoadFile(context.Background(), sourceValidationFile(t, `{"resourceType":"Patient","id":"p1"}`), "META/BodyStructure.ndjson", "fixture", "", "candidate", "../../schemas/graph-fhir.json")
+	_, _, rejected, err := validateSourceLoadFile(context.Background(), sourceValidationFile(t, `{"resourceType":"Patient","id":"p1"}`), "META/BodyStructure.ndjson", "fixture", "", "candidate", "../../fhir/graph-fhir.json")
 	if err != nil || rejected == nil || rejected.TotalErrors != 1 {
 		t.Fatalf("mismatched resource type = %#v %v", rejected, err)
 	}

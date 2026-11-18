@@ -7,12 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/testkit"
 )
 
 func TestWalkFindsDatatypesFromSyntheticFutureDefinition(t *testing.T) {
@@ -42,7 +41,7 @@ func TestWalkUsesGeneratedIndexOnObservationFixture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GeneratedIndex: %v", err)
 	}
-	payload := readNDJSONLine(t, "../../../testdata/devloop-fixture/Observation.ndjson", 4)
+	payload := readNDJSONLine(t, testkit.FixturePath(t, "devloop-fixture/Observation.ndjson"), 4)
 	occurrences := walkOccurrences(t, index, "Observation", payload)
 
 	concept := findOccurrence(t, occurrences, "code")
@@ -336,13 +335,8 @@ func occurrencesAt(t *testing.T, occurrences []Occurrence, canonicalPath string,
 	return matched
 }
 
-func readNDJSONLine(t *testing.T, relativePath string, lineNumber int) []byte {
+func readNDJSONLine(t *testing.T, fixturePath string, lineNumber int) []byte {
 	t.Helper()
-	_, sourcePath, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve semantic test source path")
-	}
-	fixturePath := filepath.Join(filepath.Dir(sourcePath), relativePath)
 	file, err := os.Open(fixturePath)
 	if err != nil {
 		t.Fatalf("open fixture %s: %v", fixturePath, err)

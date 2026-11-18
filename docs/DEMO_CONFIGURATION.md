@@ -31,7 +31,7 @@ The demo scripts read these environment variables. Use the same values for
 | --- | --- | --- |
 | `LOOM_DEMO_PROJECT` | `NCPI_ACCEPTANCE` | Seeded project |
 | `LOOM_DEMO_GENERATION` | `tcga-brca-locked` | Seeded generation |
-| `LOOM_DEMO_FIXTURE_DIR` | `./testdata/acceptance/ncpi-tcga-brca` | Directory that contains `fixture.lock.json`, `workspace.json`, `oracle.json`, and `recipe.json` |
+| `LOOM_DEMO_FIXTURE_DIR` | `./tests/fixtures/acceptance/ncpi-tcga-brca` | Directory that contains `fixture.lock.json`, `workspace.json`, `oracle.json`, and `recipe.json` |
 
 ## Smoke expectations
 

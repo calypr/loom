@@ -111,7 +111,7 @@ func TestGenerationLoadPreflightRunsBeforeOptionRejectionOrBackend(t *testing.T)
 	}
 	var events []string
 	summary, err := Load(context.Background(), LoadOptions{
-		Schema:   repoPath(t, "schemas", "graph-fhir.json"),
+		Schema:   repoPath(t, "fhir", "graph-fhir.json"),
 		MetaDir:  dir,
 		Project:  ref.Project,
 		Dataset:  &ref,
@@ -146,7 +146,7 @@ func TestGenerationLoadEmptyDirectoryDoesNotOpenBackend(t *testing.T) {
 	}
 	var events []string
 	summary, err := Load(context.Background(), LoadOptions{
-		Schema:  repoPath(t, "schemas", "graph-fhir.json"),
+		Schema:  repoPath(t, "fhir", "graph-fhir.json"),
 		MetaDir: dir,
 		Project: ref.Project,
 		Dataset: &ref,
@@ -341,7 +341,7 @@ func TestSelectGenerationRowErrorSamplesEdges(t *testing.T) {
 }
 
 func TestGenerationRowErrorSamplesCoverEveryFailingStagedFile(t *testing.T) {
-	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))
+	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +427,7 @@ func TestGenerationRowErrorSamplesCoverEveryFailingStagedFile(t *testing.T) {
 }
 
 func TestGenerationRowErrorSamplesLeaveCleanLoadWithoutSamples(t *testing.T) {
-	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))
+	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,7 +477,7 @@ func TestSortedGenerationCatalogKeysKeepFullIdentityDistinct(t *testing.T) {
 
 func loadGenerationSchemaIdentity(t *testing.T) publication.SchemaSnapshot {
 	t.Helper()
-	identity, err := loadSchemaSnapshot(repoPath(t, "schemas", "graph-fhir.json"))
+	identity, err := loadSchemaSnapshot(repoPath(t, "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatalf("load schema identity: %v", err)
 	}
