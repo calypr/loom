@@ -13,8 +13,8 @@ DATAFRAME_REPEAT ?= 1
 DATAFRAME_LIMIT ?= 0
 DATAFRAME_TIMEOUT ?= 5m
 DATAFRAME_PRINT_RESPONSE ?= false
-DATAFRAME_REQUEST ?= examples/meta_gdc_case_matrix.json
-DATAFRAME_PROFILE_VARIABLES ?= examples/meta_gdc_case_matrix.json
+DATAFRAME_REQUEST ?=
+DATAFRAME_PROFILE_VARIABLES ?=
 DATAFRAME_PROFILE_LIMIT ?= 1000
 
 # Make treats the positional version as a second goal. Reject every ambiguous
@@ -85,13 +85,13 @@ compiler-bench:
 # actual REST dataframe response and per-request wall-clock timings.
 dataframe-demo:
 	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/dataframe-query -url $(LOOM_URL) -request $(DATAFRAME_REQUEST) -repeat $(DATAFRAME_REPEAT) -limit $(DATAFRAME_LIMIT) -timeout $(DATAFRAME_TIMEOUT) -print-response=$(DATAFRAME_PRINT_RESPONSE)
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/dataframe-query -url $(LOOM_URL) -request "$(DATAFRAME_REQUEST)" -repeat $(DATAFRAME_REPEAT) -limit $(DATAFRAME_LIMIT) -timeout $(DATAFRAME_TIMEOUT) -print-response=$(DATAFRAME_PRINT_RESPONSE)
 
 # Requires a loaded META fixture database. Compiles the checked-in GDC fixture,
 # writes exact rendered AQL, then runs Arango EXPLAIN and PROFILE 2.
 dataframe-profile:
 	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/dataframe-profile -variables $(DATAFRAME_PROFILE_VARIABLES) -limit $(DATAFRAME_PROFILE_LIMIT)
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/dataframe-profile -variables "$(DATAFRAME_PROFILE_VARIABLES)" -limit $(DATAFRAME_PROFILE_LIMIT)
 
 dataframe-boundaries:
 	./scripts/check_dataframe_package_boundaries.sh

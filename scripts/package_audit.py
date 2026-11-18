@@ -42,7 +42,7 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
                           'activation.',
  'cmd/arango-fhir-server': 'Start the explicit Loom HTTP server binary.',
  'cmd/dataframe-profile': 'Run and compare developer-facing dataframe profiling workloads.',
- 'cmd/dataframe-query': 'Execute a checked-in REST dataframe request and report response timing and diagnostics.',
+ 'cmd/dataframe-query': 'Execute a saved REST dataframe request and report response timing and diagnostics.',
  'cmd/generate': 'Generate FHIR models, schema metadata, validation, and edge extraction from source '
                  'schemas.',
  'cmd/loom-acceptance': 'Run the locked real-data acceptance scenario and emit machine-readable verification '

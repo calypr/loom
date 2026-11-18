@@ -14,7 +14,6 @@ META_SMALL
 data
 experimental
 docs
-examples
 scripts
 Makefile
 README.md

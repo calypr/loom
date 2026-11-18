@@ -94,21 +94,17 @@ Read [the Explorer authoring guide](EXPLORER_AUTHORING.md) for the current
 request/response behavior and the canonical
 [OpenAPI contract](../api/openapi.yaml) for exact wire schemas.
 
-## 6. Run a sample dataframe query
+## 6. Run a dataframe query
 
-With the local server listening on port 8080, run the compact Patient example.
+Save a dataframe request as JSON with `input.project` set to your loaded project.
+Follow the request format in [the dataframe API guide](DATAFRAME_API.md).
+With the server listening on port 8080, run:
 
 ```bash
-go run ./cmd/dataframe-query -request examples/meta_patient_dataframe.json
+go run ./cmd/dataframe-query -request /path/to/request.json
 ```
 
-The example selects Patient fields and traverses related resources. Set
-`input.project` in the example if the loaded project uses a different name.
-
-Use `make dataframe-demo` for the larger GDC case matrix. Add
-`DATAFRAME_REPEAT=10` to repeat the same request. The command prints server
-timing, returned row count, and response bytes. See
-[the dataframe API guide](DATAFRAME_API.md) for request and response details.
+The command prints server timing, returned row count, and response bytes.
 
 ## 7. Shut down local Arango
 

@@ -167,10 +167,10 @@ Useful local URLs:
 - [Process liveness](http://127.0.0.1:8080/livez)
 - [Dependency readiness](http://127.0.0.1:8080/readyz)
 
-Run the checked-in graph dataframe example after the server is up:
+Run a saved dataframe request after the server is up:
 
 ```bash
-make dataframe-demo
+make dataframe-demo DATAFRAME_REQUEST=/path/to/request.json
 ```
 
 See [the documentation index](docs/README.md) for the complete guide map,
