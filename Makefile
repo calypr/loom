@@ -180,3 +180,12 @@ verify-current: test-ui test-go
 # Drive the running stack selected by this checkout; doctor rejects stale identity.
 e2e: dev-doctor
 	node tests/e2e/run.mjs
+
+INGEST_PERF_LABEL ?= local
+INGEST_PERF_OUT = outputs/ingest-perf/$(INGEST_PERF_LABEL)
+
+.PHONY: ingest-perf
+ingest-perf:
+	@mkdir -p "$(INGEST_PERF_OUT)"
+	env -u GOGC $(GO) test ./internal/ingest -run '^TestIngestPerf$$' -count=1 -v \
+		-o "$(abspath $(INGEST_PERF_OUT))/ingest.test" -cpuprofile "$(abspath $(INGEST_PERF_OUT))/cpu.pprof"

@@ -193,10 +193,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	defer func() {
 		summary.RowErrors = selectGenerationRowErrorSamples(rowErrorCandidates)
 	}()
-	for _, file := range files {
-		if err = ctx.Err(); err != nil {
-			return summary, err
-		}
+	if err = runGenerationFiles(ctx, opts, files, func(ctx context.Context, opts LoadOptions, _ int, file string) error {
 		fileStart := time.Now()
 		resourceType := ResourceTypeFromPath(file)
 		emitEvent(opts.EventSink, "go_load_file_start", map[string]any{"file": file, "resource": resourceType})
@@ -215,7 +212,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			insertRawDocuments,
 		)
 		if fileErr != nil {
-			return summary, fileErr
+			return fileErr
 		}
 
 		summary.VerticesInserted += result.VerticesInserted
@@ -233,7 +230,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		summary.BatchCounts["semantic_inventory"] += result.SemanticInventoryBatches
 		lastInventoryCheckpoint = semanticInventorySourceFileID(opts.MetaDir, file)
 		if err = catalogStore.AdvanceSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
-			return summary, fmt.Errorf("advance semantic inventory checkpoint: %w", err)
+			return fmt.Errorf("advance semantic inventory checkpoint: %w", err)
 		}
 		catalog.MergeRelationshipCounts(relationshipCounts, result.RelationshipCounts)
 
@@ -256,7 +253,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			catalogs[key] = merged
 		}
 		if err = merged.Merge(result.Catalog); err != nil {
-			return summary, fmt.Errorf("merge catalog for dataset generation %s/%s %s: %w", plan.Dataset.Project, plan.Dataset.Generation, result.ResourceType, err)
+			return fmt.Errorf("merge catalog for dataset generation %s/%s %s: %w", plan.Dataset.Project, plan.Dataset.Generation, result.ResourceType, err)
 		}
 
 		emitEvent(opts.EventSink, "go_load_file_complete", map[string]any{
@@ -267,6 +264,9 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			"file_edges":    result.EdgesBuilt,
 			"seconds":       time.Since(fileStart).Seconds(),
 		})
+		return nil
+	}); err != nil {
+		return summary, err
 	}
 
 	if summary.ValidationErrors != 0 || summary.GenerationErrors != 0 || summary.EdgeErrors != 0 {
