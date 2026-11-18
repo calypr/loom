@@ -91,7 +91,7 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.create(explorer.Explorer{
+	if _, err := store.Create(context.Background(), explorer.Explorer{
 		Project: case008Project, ExplorerID: case008ExplorerID, Title: workspace.Explorer.Title,
 		DraftConfig: draft, DraftVersion: 2, DraftDigest: digest,
 	}); err != nil {

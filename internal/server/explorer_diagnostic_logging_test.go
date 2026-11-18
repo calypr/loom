@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	explorerapi "github.com/calypr/loom/internal/api/explorer"
+
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
@@ -44,7 +46,7 @@ func TestConfiguredAQLQueryRowsLogsSafeRequestCorrelatedRecords(t *testing.T) {
 			query := "FOR d IN patients FILTER d.id == @secret RETURN d"
 			bindVars := map[string]any{"secret": "private-bind-value"}
 			failure := errors.New("arangodb unavailable: connection refused; query=RETURN @secret auth_token=private-auth-value")
-			gotErr := executionarango.ConfiguredAQLQueryRows(logger, phase, preserveConfiguredQueryError, func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+			gotErr := executionarango.ConfiguredAQLQueryRows(logger, phase, explorerapi.PreserveConfiguredQueryError, func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
 				return failure
 			})(ctx, query, 16, bindVars, func(map[string]any) error { return nil })
 			if gotErr != failure {
@@ -96,23 +98,23 @@ func TestConfiguredAQLQueryRowsLogsSafeRequestCorrelatedRecords(t *testing.T) {
 func TestConfiguredQueryErrorMappingPreservesTypedSemantics(t *testing.T) {
 	canceled := fmt.Errorf("query canceled: %w", context.Canceled)
 	var canceledAuthoring *explorer.AuthoringError
-	if got := preserveConfiguredQueryError(canceled); !errors.As(got, &canceledAuthoring) || canceledAuthoring.Status != 499 || canceledAuthoring.Diagnostic.Code != "CLIENT_CANCELED" {
+	if got := explorerapi.PreserveConfiguredQueryError(canceled); !errors.As(got, &canceledAuthoring) || canceledAuthoring.Status != 499 || canceledAuthoring.Diagnostic.Code != "CLIENT_CANCELED" {
 		t.Fatalf("canceled query error = %#v, want redacted 499 CLIENT_CANCELED", got)
 	}
 
 	deadline := fmt.Errorf("query deadline: %w", context.DeadlineExceeded)
-	if got := preserveConfiguredQueryError(deadline); !errors.Is(got, context.DeadlineExceeded) || got != deadline {
+	if got := explorerapi.PreserveConfiguredQueryError(deadline); !errors.Is(got, context.DeadlineExceeded) || got != deadline {
 		t.Fatalf("deadline query error = %#v, want original lifecycle-classifiable deadline", got)
 	}
 
 	userErr := dataframeerrors.NewError(dataframeerrors.CodeConstructionExpansionEmpty, "")
 	var userAuthoring *explorer.AuthoringError
-	if got := preserveConfiguredQueryError(userErr); !errors.As(got, &userAuthoring) || userAuthoring.Status != http.StatusUnprocessableEntity || userAuthoring.Diagnostic.Code != string(dataframeerrors.CodeConstructionExpansionEmpty) {
+	if got := explorerapi.PreserveConfiguredQueryError(userErr); !errors.As(got, &userAuthoring) || userAuthoring.Status != http.StatusUnprocessableEntity || userAuthoring.Diagnostic.Code != string(dataframeerrors.CodeConstructionExpansionEmpty) {
 		t.Fatalf("typed query error = %#v, want mapped 422 user error", got)
 	}
 
 	unknown := errors.New("private backend details")
-	if got := preserveConfiguredQueryError(unknown); got != unknown {
+	if got := explorerapi.PreserveConfiguredQueryError(unknown); got != unknown {
 		t.Fatalf("untyped query error = %#v, want original lifecycle-classifiable error", got)
 	}
 }
@@ -129,7 +131,7 @@ func TestConfiguredQueryErrorMappingKeepsAuthStatusAndSafeMessage(t *testing.T) 
 	for _, test := range tests {
 		t.Run(string(test.code), func(t *testing.T) {
 			cause := dataframeerrors.NewError(test.code, "private authorization detail")
-			mapped := preserveConfiguredQueryError(cause)
+			mapped := explorerapi.PreserveConfiguredQueryError(cause)
 			var authoringErr *explorer.AuthoringError
 			if !errors.As(mapped, &authoringErr) || authoringErr.Status != test.status || authoringErr.Diagnostic.Code != string(test.code) {
 				t.Fatalf("mapped auth error = %#v, want status %d and code %s", mapped, test.status, test.code)

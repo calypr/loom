@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
+
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -54,7 +56,7 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return persistTestNativeReceipt(ctx, t, service, request, snapshot)
+			return explorerfixtures.PersistTestNativeReceipt(ctx, t, service, request, snapshot)
 		},
 		MaterializeReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (lifecycle.Execution, error) {
 			execution, err := materialize(ctx, receipt.Bundle, bindings)
@@ -114,20 +116,20 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 	if viewer.StatusCode != http.StatusOK || !strings.Contains(viewer.Body, `"label":"Patient ID"`) || !strings.Contains(viewer.Body, `"qualityReports"`) {
 		t.Fatalf("viewer state status=%d body=%s", viewer.StatusCode, viewer.Body)
 	}
-	store.mu.Lock()
-	broken := store.revisions[active.ID]
+	store.Mu.Lock()
+	broken := store.Revisions[active.ID]
 	broken.PublicOutputContract = nil
-	store.revisions[active.ID] = broken
-	store.mu.Unlock()
+	store.Revisions[active.ID] = broken
+	store.Mu.Unlock()
 	withoutContract := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default/authoring/v2/builder", "")
 	if withoutContract.StatusCode != http.StatusOK || !strings.Contains(withoutContract.Body, `"workspace"`) {
 		t.Fatalf("builder should hydrate valid intent without runtime contract: status=%d body=%s", withoutContract.StatusCode, withoutContract.Body)
 	}
-	store.mu.Lock()
-	broken = store.revisions[active.ID]
+	store.Mu.Lock()
+	broken = store.Revisions[active.ID]
 	broken.AuthoringBundle = nil
-	store.revisions[active.ID] = broken
-	store.mu.Unlock()
+	store.Revisions[active.ID] = broken
+	store.Mu.Unlock()
 	missing := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default/authoring/v2/builder", "")
 	if missing.StatusCode != http.StatusConflict || !strings.Contains(missing.Body, `"code":"AUTHORING_STATE_MISSING"`) {
 		t.Fatalf("missing active authoring state status=%d body=%s", missing.StatusCode, missing.Body)

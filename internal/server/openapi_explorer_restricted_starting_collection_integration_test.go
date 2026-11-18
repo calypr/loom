@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -11,6 +10,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
+
+	explorerapi "github.com/calypr/loom/internal/api/explorer"
 
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 
@@ -195,10 +198,10 @@ FOR d IN Patient
 		return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: currentScope}, nil
 	}
 
-	proposalStore := &populationProposalHTTPStore{
-		testExplorerStore: newTestExplorerStore(),
-		selections:        map[string]explorer.SelectionRevision{},
-		members:           map[string][]explorer.SelectionMember{},
+	proposalStore := &explorerfixtures.SelectionStore{
+		Store:      newTestExplorerStore(),
+		Selections: map[string]explorer.SelectionRevision{},
+		Members:    map[string][]explorer.SelectionMember{},
 	}
 	domain, err := explorer.NewService(proposalStore)
 	if err != nil {
@@ -215,7 +218,7 @@ FOR d IN Patient
 		},
 		SelectionReferenceValidator: explorerStore.ValidateSelectionReferences,
 	}
-	handlers := newExplorerHTTPHandlers(authscope.ScopeAuthorizer{Resolver: resolver}, resolver.AuthorizeReadProject, domain, config)
+	handlers := explorerapi.NewHandlers(explorerapi.Config{Authorizer: authscope.ScopeAuthorizer{Resolver: resolver}, AuthorizeRead: resolver.AuthorizeReadProject, Explorers: domain, Lifecycle: config})
 
 	toWireRef := func(id string) loomapi.SelectionResourceRef {
 		return loomapi.SelectionResourceRef{Project: project, Generation: generation, ResourceType: resourceType, Id: id}
@@ -243,33 +246,45 @@ FOR d IN Patient
 	deniedWrite := selectionRequest("denied-write-path", allowedOne)
 	deniedPathParam := loomapi.AuthResourcePath(deniedPath)
 	deniedWrite.Params.AuthResourcePath = &deniedPathParam
-	if _, err := handlers.createSelectionDirect(requestCtx, deniedWrite); !errors.Is(err, authscope.ErrForbidden) {
+	response, err := handlers.CreateExplorerSelection(requestCtx, deniedWrite)
+	if _, ok := response.(loomapi.CreateExplorerSelection403JSONResponse); !ok || err != nil {
 		t.Fatalf("write under denied auth_resource_path err=%v; want actual ScopeAuthorizer denial", err)
 	}
 
 	deniedRefRequest := selectionRequest("denied-reference-witness", allowedOne, deniedWitness)
-	if _, err := handlers.createSelectionDirect(requestCtx, deniedRefRequest); !errors.Is(err, explorer.ErrResourceRefScopeMismatch) {
-		t.Fatalf("allowed-path create containing denied witness err=%v; want real Arango scope-reference rejection", err)
+	response, err = handlers.CreateExplorerSelection(requestCtx, deniedRefRequest)
+	conflict, ok := response.(loomapi.CreateExplorerSelection409JSONResponse)
+	if !ok || err != nil || conflict.Error.Code != "SELECTION_STALE_SCOPE" ||
+		conflict.Error.Message != "selection references are outside the authorized snapshot" {
+		t.Fatalf("allowed-path create containing denied witness response=%#v err=%v; want real Arango scope-reference rejection", response, err)
 	}
-	proposalStore.selectionMu.Lock()
-	partialSelectionCount := len(proposalStore.selections)
-	proposalStore.selectionMu.Unlock()
+	proposalStore.SelectionMu.Lock()
+	partialSelectionCount := len(proposalStore.Selections)
+	proposalStore.SelectionMu.Unlock()
 	if partialSelectionCount != 0 {
 		t.Fatalf("denied create persisted %d selection headers before rejection", partialSelectionCount)
 	}
 
-	created, err := handlers.createSelectionDirect(requestCtx, selectionRequest("allowed-starting-collection", allowedOne, allowedTwo, allowedThree))
+	createdResponse, err := handlers.CreateExplorerSelection(requestCtx, selectionRequest("allowed-starting-collection", allowedOne, allowedTwo, allowedThree))
+	created, ok := createdResponse.(loomapi.CreateExplorerSelection201JSONResponse)
+	if !ok {
+		t.Fatalf("create selection response = %T, want 201", createdResponse)
+	}
 	if err != nil {
 		t.Fatalf("create allowed-only starting collection: %v", err)
 	}
 	if created.MemberCount != int64(len(wantAllowedIDs)) || created.ScopeDigest != snapshot.Identity.AuthorizationScopeDigest {
 		t.Fatalf("allowed selection header lost exact count/scope: %#v", created)
 	}
-	selectionPage, err := handlers.getSelectionDirect(requestCtx, loomapi.GetExplorerSelectionRequestObject{
+	selectionPageResponse, err := handlers.GetExplorerSelection(requestCtx, loomapi.GetExplorerSelectionRequestObject{
 		Project: loomapi.Project(project), ExplorerId: loomapi.ExplorerId("restricted-starting-collection"), SelectionRevision: created.Id,
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	selectionPage, ok := selectionPageResponse.(loomapi.GetExplorerSelection200JSONResponse)
+	if !ok {
+		t.Fatalf("get selection response = %T, want 200", selectionPageResponse)
 	}
 	visibleIDs := sortedIDs(selectionMemberIDs(selectionPage.Members))
 	if !reflect.DeepEqual(visibleIDs, wantAllowedIDs) {

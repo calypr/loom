@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
+
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
@@ -90,12 +92,12 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 		t.Fatal(err)
 	}
 
-	store := &populationProposalHTTPStore{
-		testExplorerStore: newTestExplorerStore(),
-		selections:        map[string]explorer.SelectionRevision{},
-		members:           map[string][]explorer.SelectionMember{},
+	store := &explorerfixtures.SelectionStore{
+		Store:      newTestExplorerStore(),
+		Selections: map[string]explorer.SelectionRevision{},
+		Members:    map[string][]explorer.SelectionMember{},
 	}
-	if _, err := store.create(explorer.Explorer{
+	if _, err := store.Create(context.Background(), explorer.Explorer{
 		Project: "project-a", ExplorerID: "custom", Title: "Specimens",
 		DraftConfig: draft, DraftVersion: 1, DraftDigest: digest,
 	}); err != nil {
@@ -106,14 +108,14 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 		{Ref: explorer.ResourceRef{Project: "project-a", Generation: snapshot.Identity.Generation, ResourceType: "Specimen", ID: "root-b"}},
 	}
 	completedAt := time.Now().UTC()
-	store.selections["selection-zero-column"] = explorer.SelectionRevision{
+	store.Selections["selection-zero-column"] = explorer.SelectionRevision{
 		ID: "selection-zero-column", Project: "project-a", Generation: snapshot.Identity.Generation, ResourceType: "Specimen",
 		Rule: explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit}, Source: explorer.SelectionSource{Kind: explorer.SelectionSourceExplicit},
 		ScopeDigest: snapshot.Identity.AuthorizationScopeDigest, RuleDigest: "wave104-rule",
 		MembershipDigest: explorer.MembershipDigest(members), MemberCount: int64(len(members)), MemberBytes: 256,
 		Complete: true, CreatedAt: completedAt, CompletedAt: &completedAt,
 	}
-	store.members["selection-zero-column"] = members
+	store.Members["selection-zero-column"] = members
 
 	domain, err := explorer.NewService(store)
 	if err != nil {

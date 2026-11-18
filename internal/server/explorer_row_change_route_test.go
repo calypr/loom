@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -67,7 +69,7 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 		Catalog: authoringv2.CatalogFromCapability,
 	},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return persistTestNativeReceipt(ctx, t, domain, request, snapshot)
+			return explorerfixtures.PersistTestNativeReceipt(ctx, t, domain, request, snapshot)
 		},
 		PreviewReceipt: func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if err := visit(map[string]any{"__loom_row_id": "row-1", "c_patient": "encounter-1"}); err != nil {

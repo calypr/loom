@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
+
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
@@ -160,7 +162,7 @@ func (f *coreProtocolReceiptsFixture) compileAtHead(requestID string) (loomapi.C
 	if compiled.ReceiptId == "" || len(compiled.Outputs) != 1 || compiled.Outputs[0].OutputId != c1011OutputID {
 		f.t.Fatalf("compile response outputs=%+v receipt=%q", compiled.Outputs, compiled.ReceiptId)
 	}
-	receipt, ok := f.store.receipts[compiled.ReceiptId]
+	receipt, ok := f.store.Receipts[compiled.ReceiptId]
 	if !ok {
 		f.t.Fatalf("receipt %s was not persisted", compiled.ReceiptId)
 	}
@@ -192,7 +194,7 @@ func (f *coreProtocolReceiptsFixture) previewOutput(receiptID, outputID string) 
 
 func (f *coreProtocolReceiptsFixture) receiptEmittedLabel(t *testing.T, receiptID, publicColumn string) string {
 	t.Helper()
-	receipt, ok := f.store.receipts[receiptID]
+	receipt, ok := f.store.Receipts[receiptID]
 	if !ok {
 		t.Fatalf("receipt %s was not persisted", receiptID)
 	}
@@ -432,7 +434,7 @@ func TestCoreAuthoringProtocolHistoricalAndRevokedReceipts(t *testing.T) {
 	if historical.ID == current.ID {
 		t.Fatalf("newer draft did not produce a distinct receipt: %s", current.ID)
 	}
-	if head := fixture.store.explorers[testExplorerKey(c1011Project, c1011ExplorerID)]; head.DraftVersion != fixture.headVersion || head.DraftDigest != fixture.headDigest {
+	if head := fixture.store.Explorers[explorerfixtures.Key(c1011Project, c1011ExplorerID)]; head.DraftVersion != fixture.headVersion || head.DraftDigest != fixture.headDigest {
 		t.Fatalf("persisted head disagrees with compiled head: %+v", head)
 	}
 

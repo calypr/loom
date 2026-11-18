@@ -113,7 +113,7 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 
 	baseStore := newTestExplorerStore()
 	store := &jsonRoundTripPatientOneReceiptStore{testExplorerStore: baseStore}
-	if _, err := baseStore.create(explorer.Explorer{
+	if _, err := baseStore.Create(context.Background(), explorer.Explorer{
 		Project: project, ExplorerID: explorerID, Title: document.Output.Title,
 		DraftConfig: draft, DraftVersion: 3, DraftDigest: digest,
 	}); err != nil {
@@ -274,8 +274,8 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 	if !ok || len(values) != 2 || values[0] != patientIDs[0] || values[1] != patientIDs[1] {
 		t.Fatalf("ALL Patient.id preview values = %#v, want exact IDs %#v", allProposal.Preview.Rows[0][candidatePublicColumn], patientIDs)
 	}
-	if len(baseStore.receipts) != 2 {
-		t.Fatalf("candidate receipt count=%d, want one production receipt for each ONE and ALL preview", len(baseStore.receipts))
+	if len(baseStore.Receipts) != 2 {
+		t.Fatalf("candidate receipt count=%d, want one production receipt for each ONE and ALL preview", len(baseStore.Receipts))
 	}
 }
 

@@ -90,7 +90,7 @@ already exist.
 | `internal/api/http` | `GetHealth`, `GetLiveness`, `GetReadiness` |
 | `internal/api/bulk/load` | `StrictHandlers` adapts the existing load `Handler` without method name collisions. Generation create/status/activate; source-load begin/status/upload/publish (`openapi_data_routes.go`, `openapi_source_load.go`) |
 | `internal/api/dataframe/dataframe` | dataframe rows, aggregations, FHIR dataframe, recipe execution (`openapi_dataframe.go`, `openapi_recipe_execution.go`) |
-| `internal/api/explorer` (new) | All explorer, construction, selection, artifact, interpretation, and view-builder operations: `explorer_config_route.go`, `explorer_preview_response.go`, the 16 `openapi_explorer_*.go`, `openapi_frame_source_options.go`, `openapi_semantic_inventory.go`, `openapi_view_builder.go`. `*Direct` methods merge into the strict-server methods. Move `preserveConfiguredQueryError` with `previewRouteError`. |
+| `internal/api/explorer` (new) | All explorer, construction, selection, artifact, interpretation, and view-builder operations: `explorer_config_route.go`, `explorer_preview_response.go`, the 16 `openapi_explorer_*.go`, `openapi_frame_source_options.go`, `openapi_semantic_inventory.go`, `openapi_view_builder.go`. Single-use `*Direct` methods merge into strict-server methods. The same handler owns shared request authorization, preview, and response helpers. Move `preserveConfiguredQueryError` with `previewRouteError`. |
 
 `HTTPRoutes`, `routes.go`, and `openapi_routes.go` are deleted.
 

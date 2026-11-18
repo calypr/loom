@@ -1,7 +1,7 @@
 package server
 
 import (
-	"net/http"
+	explorerapi "github.com/calypr/loom/internal/api/explorer"
 
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
@@ -10,8 +10,6 @@ import (
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
-
-	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 
 	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
 
@@ -105,30 +103,6 @@ func recordDegradation(logger *slog.Logger, current error, stage string, cause e
 		logger.Error("dataframe startup degraded", "stage", stage, "error", cause)
 	}
 	return errors.Join(current, fmt.Errorf("%s: %w", stage, cause))
-}
-
-func preserveConfiguredQueryError(err error) error {
-	err = executionarango.ClassifyDataframeQueryError(err)
-	if err == nil || errors.Is(err, context.DeadlineExceeded) {
-		return err
-	}
-	if errors.Is(err, context.Canceled) {
-		return previewRouteError(err)
-	}
-	if userErr, ok := dataframeerrors.AsUserError(err); ok {
-		switch userErr.Code() {
-		case string(dataframeerrors.CodeUnauthenticated):
-			return &explorer.AuthoringError{Status: http.StatusUnauthorized, Diagnostic: explorer.AuthoringDiagnostic{
-				Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err),
-			}, Cause: err}
-		case string(dataframeerrors.CodeForbidden), string(dataframeerrors.CodeUnauthorizedProject):
-			return &explorer.AuthoringError{Status: http.StatusForbidden, Diagnostic: explorer.AuthoringDiagnostic{
-				Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err),
-			}, Cause: err}
-		}
-		return previewRouteError(err)
-	}
-	return err
 }
 
 func newExplorerReleaseActivator(releaseService *publicationcontract.ReleaseService, devReleaseCASFault *atomic.Bool) func(context.Context, string, string, []publicationcontract.DataframeSelector) error {
@@ -313,7 +287,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		},
 		PreviewCollectionCount: lifecycleClient.CollectionCount,
 		ClickHouseQueryRows:    clickHouseQueryRows,
-		PreviewQueryRows: executionarango.ConfiguredAQLQueryRows(logger, "preview_query_rows", preserveConfiguredQueryError, func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+		PreviewQueryRows: executionarango.ConfiguredAQLQueryRows(logger, "preview_query_rows", explorerapi.PreserveConfiguredQueryError, func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
 			return lifecycleClient.QueryRowsWithMaxRuntime(ctx, query, batchSize, bindVars, executionarango.PreviewQueryMaxRuntime(ctx), arangostore.RowVisitor(visit))
 		}),
 		WithPreviewReadSnapshot: func(ctx context.Context, run func(context.Context, dataframeexecution.QueryRows) error) error {
@@ -322,7 +296,7 @@ func run(ctx context.Context, serverConfig Config) error {
 				return err
 			}
 			return lifecycleClient.WithReadSnapshot(ctx, collections, func(snapshotCtx context.Context, reader arangostore.RowQueryer) error {
-				query := executionarango.ConfiguredAQLQueryRows(logger, "preview_query_rows", preserveConfiguredQueryError, executionarango.WithPreviewQueryTimeout(func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+				query := executionarango.ConfiguredAQLQueryRows(logger, "preview_query_rows", explorerapi.PreserveConfiguredQueryError, executionarango.WithPreviewQueryTimeout(func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
 					ctx = arangostore.WithQueryMaxNumberOfPlans(ctx, 1)
 					return reader.QueryRows(ctx, query, batchSize, bindVars, arangostore.RowVisitor(visit))
 				}))
@@ -332,7 +306,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		ResolveClickHouseInputs:    resolveClickHouseInputs,
 		WithExecutionReadPins:      withExecutionReadPins,
 		PrivateClickHouseArtifacts: privateClickHouseArtifacts,
-		QueryRows: executionarango.ConfiguredAQLQueryRows(logger, "query_rows", preserveConfiguredQueryError, func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+		QueryRows: executionarango.ConfiguredAQLQueryRows(logger, "query_rows", explorerapi.PreserveConfiguredQueryError, func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
 			return lifecycleClient.QueryRows(ctx, query, batchSize, bindVars, arangostore.RowVisitor(visit))
 		}),
 		ScopeDigest:  reciperuntime.ScopeDigest,
@@ -651,20 +625,23 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create HTTP server: %w", err)
 	}
-	explorerHandlers := newExplorerHTTPHandlers(authorizer, func(ctx context.Context, principal *authscope.Principal, project string) error {
-		if scopeResolver == nil {
-			return nil
-		}
-		return scopeResolver.AuthorizeReadProject(ctx, principal, project)
-	}, explorerService, lifecycleConfig)
-	explorerHandlers.authorizeExecution = func(ctx context.Context, id string) error {
-		return readRecipeExecution(ctx, id)
-	}
 	var constructionInputsReader constructioninputs.ExactReader
 	if materializationReader != nil {
 		constructionInputsReader = materializationReader
 	}
-	explorerHandlers.constructionInputs = constructioninputs.New(constructionInputsReader, publishedRegistry, lifecycleConfig.Capability, scopeResolver, explorerService, explorerService)
+	explorerHandlers := explorerapi.NewHandlers(explorerapi.Config{
+		Authorizer: authorizer,
+		AuthorizeRead: func(ctx context.Context, principal *authscope.Principal, project string) error {
+			if scopeResolver == nil {
+				return nil
+			}
+			return scopeResolver.AuthorizeReadProject(ctx, principal, project)
+		},
+		Explorers:          explorerService,
+		Lifecycle:          lifecycleConfig,
+		ConstructionInputs: constructioninputs.New(constructionInputsReader, publishedRegistry, lifecycleConfig.Capability, scopeResolver, explorerService, explorerService),
+		AuthorizeExecution: readRecipeExecution,
+	})
 	if err := registerRoutes(server, generationService, authorizer, explorerHandlers, publishedRegistry, scopeResolver, sourceLoader, sourceLoadLimits, dataframeReads); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
 	}

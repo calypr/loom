@@ -125,7 +125,7 @@ export const profiles = [
     ['explorer', './internal/explorer/arango', 'TestSelectionStorageAgainstArango'],
     ['store', './internal/store/arango', 'TestReceiptArangoStoreUsesImmutableTenantScopedQueries'],
     ['preview-index-migration', './internal/store/arango', previewIndexMigrationTests[0]],
-    ['server', './internal/server', 'TestSavedRelatedRouteRowsAgainstArango'],
+    ['server', './internal/server', 'TestDerivedArithmeticPoliciesAgainstArango'],
     ['artifact', './internal/dataframe/execution/chartifact/arango', 'TestCatalogLeaseArbitrationAgainstArango'],
     ['publication', './internal/dataframe/publication/arango', 'TestExecutionReadPinArbitrationAgainstArango'],
     ['publication-clickhouse', './internal/dataframe/publication/clickhouse', 'TestAbortDropsUnpublishedExecutionAgainstArango'],
@@ -142,7 +142,9 @@ profiles.find(p => p.id === 'store').skip = `^${previewIndexMigrationPattern}$`;
 profiles.find(p => p.id === 'preview-index-migration').run = previewIndexMigrationPattern;
 profiles.find(p => p.id === 'preview-index-migration').alsoRequired = previewIndexMigrationTests.slice(1);
 profiles.find(p => p.id === 'execution').alsoRequired = ['TestPublicationRowStreamRejectsPayloadMetadataSmuggling'];
-profiles.find(p => p.id === 'server').alsoRequired = ['TestDerivedArithmeticPoliciesAgainstArango'];
+profiles.find(p => p.id === 'server').alsoPackages = [
+    { package: './internal/api/explorer', required: 'TestSavedRelatedRouteRowsAgainstArango' },
+];
 profiles.find(p => p.id === 'publication-clickhouse').alsoRequired = ['TestStalePinAbsentReclaimsAllAgainstArango'];
 profiles.find(p => p.id === 'explorer').alsoRequired = [
     // WP-17 TableShape conversion: mutable owners, fail-closed lookup, CAS rollback,

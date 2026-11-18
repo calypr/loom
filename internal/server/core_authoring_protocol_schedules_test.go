@@ -190,7 +190,7 @@ func coreProtocolReplayMapStores(t *testing.T) coreProtocolReplayStores {
 			}
 			return receipt, true
 		},
-		hasReceipts: func(context.Context) bool { return store.countCompilationReceipts() > 0 },
+		hasReceipts: func(context.Context) bool { return countCompilationReceipts(store) > 0 },
 		history: func(ctx context.Context, revisionID string) (explorer.DraftRevision, bool) {
 			revision, err := store.GetDraftRevision(ctx, coreProtocolReplayProject, coreProtocolReplayExplorerID, revisionID)
 			if err != nil || revision == nil {
@@ -299,10 +299,10 @@ func coreProtocolReplayArangoStores(t *testing.T, client *storearango.Client, gr
 	}
 }
 
-func (s *testExplorerStore) countCompilationReceipts() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.receipts)
+func countCompilationReceipts(s *testExplorerStore) int {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	return len(s.Receipts)
 }
 
 func runCoreProtocolReplayCase(t *testing.T, replayCase coreProtocolReplayCase, stores coreProtocolReplayStores) coreProtocolReplayObservation {

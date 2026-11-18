@@ -441,7 +441,7 @@ func TestCoreAuthoringProtocolRowSchemaSemantics(t *testing.T) {
 		if !strings.Contains(string(stored.DraftConfig), c19LabelPatientEdit) {
 			t.Fatalf("persisted draft lacks the saved label: %s", stored.DraftConfig)
 		}
-		emitted := fixture.store.receipts[compiled.ReceiptId]
+		emitted := fixture.store.Receipts[compiled.ReceiptId]
 		if emitted.IntentDigest != ack.DraftDigest {
 			t.Fatalf("receipt intentDigest=%q does not name the saved head digest=%q", emitted.IntentDigest, ack.DraftDigest)
 		}
@@ -735,7 +735,7 @@ func TestCoreAuthoringProtocolRowSchemaSemantics(t *testing.T) {
 		if restoredReceipt.IntentDigest != restoredDigest {
 			t.Fatalf("restored receipt intentDigest=%q want the CAS head digest %q (heads enter compile already prepared, so the two define the same value)", restoredReceipt.IntentDigest, restoredDigest)
 		}
-		persistedRestored, ok := fixture.store.receipts[restoredReceipt.ReceiptId]
+		persistedRestored, ok := fixture.store.Receipts[restoredReceipt.ReceiptId]
 		if !ok || persistedRestored.IntentDigest != restoredReceipt.IntentDigest {
 			t.Fatalf("map-store copy of the restored receipt diverges from the response: %+v", persistedRestored)
 		}

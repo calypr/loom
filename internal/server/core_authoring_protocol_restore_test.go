@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
+
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
@@ -132,9 +134,9 @@ func coreProtocolSeedDraftRevisionRecord(t *testing.T, fixture *coreProtocolFixt
 	if err != nil || head == nil {
 		t.Fatalf("read head for revision seeding: %v", err)
 	}
-	fixture.store.mu.Lock()
-	defer fixture.store.mu.Unlock()
-	fixture.store.draftRevisions[testExplorerKey("project-a", "core-protocol")+"\x00"+revisionID] = explorer.DraftRevision{
+	fixture.store.Mu.Lock()
+	defer fixture.store.Mu.Unlock()
+	fixture.store.DraftRevisions[explorerfixtures.Key("project-a", "core-protocol")+"\x00"+revisionID] = explorer.DraftRevision{
 		ID: revisionID, Project: head.Project, ExplorerID: head.ExplorerID, DraftVersion: draftVersion, DraftDigest: digest,
 		DraftConfig: append([]byte(nil), raw...), Title: head.Title,
 		SnapshotToken: head.DraftSnapshotToken, SourceGeneration: head.DraftSourceGeneration,
@@ -436,7 +438,7 @@ func TestCoreAuthoringProtocolRestoreDuringPendingWork(t *testing.T) {
 		if label := fixture.receiptEmittedLabel(t, compiled.ReceiptId, "c_patient"); label != coreProtocolRestoreSavedLabel {
 			t.Fatalf("receipt from the parked A reconcile describes %q, not captured A", label)
 		}
-		if receipt, ok := fixture.store.receipts[compiled.ReceiptId]; !ok || receipt.Project != "project-a" || receipt.ExplorerID != "core-protocol" || receipt.SnapshotToken != fixture.snapshot.Token {
+		if receipt, ok := fixture.store.Receipts[compiled.ReceiptId]; !ok || receipt.Project != "project-a" || receipt.ExplorerID != "core-protocol" || receipt.SnapshotToken != fixture.snapshot.Token {
 			t.Fatalf("parked receipt is not the persisted A compilation: %+v ok=%v", receipt, ok)
 		}
 
@@ -599,11 +601,11 @@ func TestCoreAuthoringProtocolRestoreDuringPendingWork(t *testing.T) {
 		if label := fixture.receiptEmittedLabel(t, restoredCompile.ReceiptId, "c_patient"); label != coreProtocolRestoreOriginalLabel {
 			t.Fatalf("receipt of the restored head describes %q, want %q", label, coreProtocolRestoreOriginalLabel)
 		}
-		restoredReceipt, ok := fixture.store.receipts[restoredCompile.ReceiptId]
+		restoredReceipt, ok := fixture.store.Receipts[restoredCompile.ReceiptId]
 		if !ok || restoredReceipt.Project != "project-a" || restoredReceipt.ExplorerID != "core-protocol" {
 			t.Fatalf("receipt of the restored head is not persisted for this Explorer: %+v ok=%v", restoredReceipt, ok)
 		}
-		if compiledA, retained := fixture.store.receipts[receiptA.ReceiptId]; !retained || restoredReceipt.IntentDigest == compiledA.IntentDigest {
+		if compiledA, retained := fixture.store.Receipts[receiptA.ReceiptId]; !retained || restoredReceipt.IntentDigest == compiledA.IntentDigest {
 			t.Fatalf("restored-head receipt does not carry its own compile identity: %q vs %q", restoredReceipt.IntentDigest, compiledA.IntentDigest)
 		}
 		if after := fixture.preview(restoredCompile.ReceiptId); after.StatusCode != http.StatusOK || !strings.Contains(after.Body, `"rows":[]`) || !strings.Contains(after.Body, coreProtocolRestoreOriginalLabel) {

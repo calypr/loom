@@ -37,6 +37,8 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
  'internal/testkit/capabilityfixtures': 'Share Explorer capability snapshots, stores, and catalog evidence fixtures.',
  'internal/testkit/constructionfixtures': 'Share authorized Explorer workspaces and construction catalog fixtures.',
  'internal/testkit/recipetest': 'Share receipt construction, workspace, and recipe registry fixtures.',
+ 'internal/testkit/explorerfixtures': 'Share in-memory Explorer stores and fixtures for receipt and HTTP composition tests.',
+ 'internal/testkit/httpfixtures': 'Share generated-HTTP test requests and response capture.',
  'internal/testkit/recipefixtures': 'Share recipe authorization and combine materialization fixtures across package tests.',
  '.': 'Start the default Loom server process through the internal server composition root.',
  'client/ingest': 'Upload versioned source files and publish durable Loom source loads through the HTTP client '
@@ -63,6 +65,7 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
  'internal/api/dataframe': 'Own typed dataframe request and publication representations.',
  'internal/api/dataframe/dataframe': 'Resolve and authorize published dataframe rows, aggregates, and export.',
  'internal/api/dataframe/query': 'Resolve and authorize Arango-backed FHIR dataframe and graph requests.',
+ 'internal/api/explorer': 'Serve strict OpenAPI Explorer, construction, selection, artifact, interpretation, and view-builder operations.',
  'internal/api/http': 'Own shared Fiber server setup, middleware, request IDs, errors, health, and readiness behavior.',
  'internal/api/authpolicy': 'Centralize authorization-sentinel classification for transport operations while '
                             'preserving operation-specific concealment.',

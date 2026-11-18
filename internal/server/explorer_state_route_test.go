@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -42,12 +44,12 @@ func TestExplorerStateRouteBuildsDefaultProjectionFromRecipe(t *testing.T) {
 		Publication:          explorer.PublicationMetadata{State: "ACTIVE", Generation: "generation-a"},
 		Status:               explorer.RevisionActive,
 	}
-	store.mu.Lock()
-	store.revisions[revision.ID] = revision
-	owner := store.explorers[testExplorerKey("project-a", "patients")]
+	store.Mu.Lock()
+	store.Revisions[revision.ID] = revision
+	owner := store.Explorers[explorerfixtures.Key("project-a", "patients")]
 	owner.ActiveRevisionID = revision.ID
-	store.explorers[testExplorerKey("project-a", "patients")] = owner
-	store.mu.Unlock()
+	store.Explorers[explorerfixtures.Key("project-a", "patients")] = owner
+	store.Mu.Unlock()
 
 	app := fiber.New()
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{})
@@ -113,12 +115,12 @@ func TestExplorerStateRoutePreservesCompilerResultUnits(t *testing.T) {
 	if _, err := service.CreateInteractiveFrom(context.Background(), "project-a", "patients", "Patients", "", "test"); err != nil {
 		t.Fatal(err)
 	}
-	store.mu.Lock()
-	store.revisions[revision.ID] = revision
-	owner := store.explorers[testExplorerKey("project-a", "patients")]
+	store.Mu.Lock()
+	store.Revisions[revision.ID] = revision
+	owner := store.Explorers[explorerfixtures.Key("project-a", "patients")]
 	owner.ActiveRevisionID = revision.ID
-	store.explorers[testExplorerKey("project-a", "patients")] = owner
-	store.mu.Unlock()
+	store.Explorers[explorerfixtures.Key("project-a", "patients")] = owner
+	store.Mu.Unlock()
 
 	app := fiber.New()
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{})
@@ -274,12 +276,12 @@ func TestExplorerStateRouteReportsMalformedCurrentProjection(t *testing.T) {
 			revision := baseRevision
 			revision.Config = test.config
 			revision.PublicOutputContract = test.contract
-			store.mu.Lock()
-			store.revisions[revision.ID] = revision
-			owner := store.explorers[testExplorerKey("project-a", "patients")]
+			store.Mu.Lock()
+			store.Revisions[revision.ID] = revision
+			owner := store.Explorers[explorerfixtures.Key("project-a", "patients")]
 			owner.ActiveRevisionID = revision.ID
-			store.explorers[testExplorerKey("project-a", "patients")] = owner
-			store.mu.Unlock()
+			store.Explorers[explorerfixtures.Key("project-a", "patients")] = owner
+			store.Mu.Unlock()
 
 			app := fiber.New()
 			registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, lifecycle.Config{})

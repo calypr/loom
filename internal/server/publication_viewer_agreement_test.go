@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
+
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
@@ -34,10 +36,10 @@ type agreementPublicationStore struct {
 }
 
 func (s *agreementPublicationStore) PublishAuthoring(_ context.Context, receipt explorer.CompilationReceipt, revision explorer.Revision, release dataset.ProjectRelease, expected int64) (*explorer.Revision, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	key := testExplorerKey(revision.Project, revision.ExplorerID)
-	owner, found := s.explorers[key]
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	key := explorerfixtures.Key(revision.Project, revision.ExplorerID)
+	owner, found := s.Explorers[key]
 	if !found {
 		return nil, explorer.ErrNotFound
 	}
@@ -46,9 +48,9 @@ func (s *agreementPublicationStore) PublishAuthoring(_ context.Context, receipt 
 	revision.Status = explorer.RevisionActive
 	revision.Publication.State = "ACTIVE"
 	revision.Publication.RevisionID = revision.ID
-	s.revisions[revision.ID] = revision
+	s.Revisions[revision.ID] = revision
 	owner.ActiveRevisionID = revision.ID
-	s.explorers[key] = owner
+	s.Explorers[key] = owner
 	return &revision, nil
 }
 
@@ -112,13 +114,13 @@ func TestPublicationHTTPReceiptRevisionAndViewerAgreeAfterFreshRead(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.mu.Lock()
-	owner := store.explorers[testExplorerKey("project-a", "publication-agreement")]
+	store.Mu.Lock()
+	owner := store.Explorers[explorerfixtures.Key("project-a", "publication-agreement")]
 	owner.DraftConfig = unpublishedRaw
 	owner.DraftDigest = unpublishedDigest
 	owner.DraftVersion++
-	store.explorers[testExplorerKey("project-a", "publication-agreement")] = owner
-	store.mu.Unlock()
+	store.Explorers[explorerfixtures.Key("project-a", "publication-agreement")] = owner
+	store.Mu.Unlock()
 	assertFreshViewer := func() {
 		t.Helper()
 		response := requestJSON(t, app, http.MethodGet, path, "")
@@ -202,7 +204,7 @@ func publicationAgreementFixture(t *testing.T) (*fiber.App, *agreementPublicatio
 		t.Fatal(err)
 	}
 	store := &agreementPublicationStore{testExplorerStore: newTestExplorerStore()}
-	_, err = store.create(explorer.Explorer{Project: "project-a", ExplorerID: "publication-agreement", Title: "Publication agreement", ManagementMode: explorer.ManagementInteractive, DraftConfig: raw, DraftDigest: digest, DraftVersion: 1})
+	_, err = store.Create(context.Background(), explorer.Explorer{Project: "project-a", ExplorerID: "publication-agreement", Title: "Publication agreement", ManagementMode: explorer.ManagementInteractive, DraftConfig: raw, DraftDigest: digest, DraftVersion: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

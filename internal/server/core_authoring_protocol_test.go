@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
+
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
@@ -257,7 +259,7 @@ func (f *coreProtocolFixture) decodeCompile(response testHTTPResponse) loomapi.C
 
 func (f *coreProtocolFixture) receiptEmittedLabel(t *testing.T, receiptID, publicColumn string) string {
 	t.Helper()
-	receipt, ok := f.store.receipts[receiptID]
+	receipt, ok := f.store.Receipts[receiptID]
 	if !ok {
 		t.Fatalf("receipt %s not persisted", receiptID)
 	}
@@ -296,7 +298,7 @@ func TestCoreAuthoringProtocolVerticalWitness(t *testing.T) {
 		t.Fatalf("acknowledgement previous revision=%v want %s", ack.PreviousDraftRevisionId, wantRevision)
 	}
 	coreProtocolExpectLabels(t, saved.Body, "workspace", "patients", "Patient Identifier")
-	stored := fixture.store.explorers[testExplorerKey("project-a", "core-protocol")]
+	stored := fixture.store.Explorers[explorerfixtures.Key("project-a", "core-protocol")]
 	if stored.DraftVersion != 2 || stored.DraftDigest != ack.DraftDigest {
 		t.Fatalf("persisted head disagrees with acknowledgement: %+v", stored)
 	}
@@ -324,7 +326,7 @@ func TestCoreAuthoringProtocolVerticalWitness(t *testing.T) {
 	response := fixture.MustReconcile(2, ack.DraftDigest, "builder-1-2")
 	compiled := fixture.decodeCompile(response)
 	coreProtocolExpectLabels(t, response.Body, "builder", "patients", "Patient Identifier")
-	persistedReceipt, ok := fixture.store.receipts[compiled.ReceiptId]
+	persistedReceipt, ok := fixture.store.Receipts[compiled.ReceiptId]
 	if !ok {
 		t.Fatalf("receipt %s not persisted", compiled.ReceiptId)
 	}
@@ -511,7 +513,7 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		if _, hydrated := fixture.getBuilder(); hydrated.DraftVersion != 1 || hydrated.DraftDigest != fixture.initialDigest {
 			t.Fatalf("baseline hydration identity mismatch: %+v", hydrated)
 		}
-		receiptsBefore := len(fixture.store.receipts)
+		receiptsBefore := len(fixture.store.Receipts)
 
 		truncated := []byte(`{"apiVersion":"explorer.calypr.org/authoringv2"`)
 		if _, err := authoringv2.DecodeWorkspace(truncated); err == nil {
@@ -552,8 +554,8 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 			t.Fatal(err)
 		}
 		coreProtocolBoundaryFailure(t, response, "reconcile of contract-invalid stored draft", http.StatusConflict, "AUTHORING_STATE_MISSING", "reconcile", "")
-		if len(fixture.store.receipts) != receiptsBefore {
-			t.Fatalf("rejected malformed drafts persisted receipts: %d new", len(fixture.store.receipts)-receiptsBefore)
+		if len(fixture.store.Receipts) != receiptsBefore {
+			t.Fatalf("rejected malformed drafts persisted receipts: %d new", len(fixture.store.Receipts)-receiptsBefore)
 		}
 
 		restoredVersion, restoredDigest := coreProtocolSeedStoredDraft(t, fixture, raw, fixture.initialDigest)
@@ -573,18 +575,18 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 	t.Run("missing-receipt-preview", func(t *testing.T) {
 		fixture := newCoreProtocolFixture(t)
 		compiled := fixture.decodeCompile(fixture.MustReconcile(1, fixture.initialDigest, "errors-missing-receipt-baseline"))
-		if _, ok := fixture.store.receipts[compiled.ReceiptId]; !ok {
+		if _, ok := fixture.store.Receipts[compiled.ReceiptId]; !ok {
 			t.Fatalf("baseline receipt %s not persisted", compiled.ReceiptId)
 		}
-		receiptsBefore, headBefore := len(fixture.store.receipts), coreProtocolStoredHeadVersion(t, fixture)
+		receiptsBefore, headBefore := len(fixture.store.Receipts), coreProtocolStoredHeadVersion(t, fixture)
 
 		unknown := coreProtocolRequest(t, fixture.app, http.MethodPost, fixture.basePath+"/preview", `{"receiptId":"core-protocol-never-issued-receipt","outputId":"patients","limit":10}`, "")
 		coreProtocolBoundaryFailure(t, unknown, "preview of never-issued receipt", http.StatusNotFound, "COMPILE_RECEIPT_NOT_FOUND", "receipt", "")
 		if strings.Contains(unknown.Body, `"rows"`) {
 			t.Fatalf("missing receipt preview published rows: %s", unknown.Body)
 		}
-		if len(fixture.store.receipts) != receiptsBefore {
-			t.Fatalf("missing receipt preview persisted receipts: %d new", len(fixture.store.receipts)-receiptsBefore)
+		if len(fixture.store.Receipts) != receiptsBefore {
+			t.Fatalf("missing receipt preview persisted receipts: %d new", len(fixture.store.Receipts)-receiptsBefore)
 		}
 		if headBefore != coreProtocolStoredHeadVersion(t, fixture) {
 			t.Fatalf("missing receipt preview moved the saved head")
@@ -603,7 +605,7 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		if retainedPreview.StatusCode != http.StatusOK {
 			t.Fatalf("retained receipt preview rejected: status=%d body=%s", retainedPreview.StatusCode, retainedPreview.Body)
 		}
-		receiptsBefore := len(fixture.store.receipts)
+		receiptsBefore := len(fixture.store.Receipts)
 
 		baseline, err := fixture.workspace.CanonicalJSON()
 		if err != nil {
@@ -634,10 +636,10 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		}
 		coreProtocolBoundaryFailure(t, response, "reconcile of compiler-rejected saved draft", http.StatusUnprocessableEntity, "DOCUMENT_COMPILE_FAILED", "compile", "STALE_FIELD")
 
-		if len(fixture.store.receipts) != receiptsBefore {
-			t.Fatalf("failed compile persisted %d new receipts", len(fixture.store.receipts)-receiptsBefore)
+		if len(fixture.store.Receipts) != receiptsBefore {
+			t.Fatalf("failed compile persisted %d new receipts", len(fixture.store.Receipts)-receiptsBefore)
 		}
-		if _, ok := fixture.store.receipts[retained.ReceiptId]; !ok {
+		if _, ok := fixture.store.Receipts[retained.ReceiptId]; !ok {
 			t.Fatalf("retained receipt %s was not still persisted", retained.ReceiptId)
 		}
 		if label := fixture.receiptEmittedLabel(t, retained.ReceiptId, "c_patient"); label != "Patient ID" {
@@ -665,7 +667,7 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		if compiled.ReceiptId == retained.ReceiptId {
 			t.Fatal("newly accepted compilation reused the retained receipt identity")
 		}
-		if _, ok := fixture.store.receipts[compiled.ReceiptId]; !ok {
+		if _, ok := fixture.store.Receipts[compiled.ReceiptId]; !ok {
 			t.Fatalf("companion receipt %s not persisted", compiled.ReceiptId)
 		}
 		if label := fixture.receiptEmittedLabel(t, compiled.ReceiptId, "c_patient"); label != "Patient Compile Companion" {
@@ -674,8 +676,8 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		if previewed := fixture.preview(compiled.ReceiptId); previewed.StatusCode != http.StatusOK || !strings.Contains(previewed.Body, "Patient Compile Companion") {
 			t.Fatalf("companion preview rejected: status=%d body=%s", previewed.StatusCode, previewed.Body)
 		}
-		if len(fixture.store.receipts) != receiptsBefore+1 {
-			t.Fatalf("companion published %d receipts, want exactly the one new acceptance", len(fixture.store.receipts)-receiptsBefore)
+		if len(fixture.store.Receipts) != receiptsBefore+1 {
+			t.Fatalf("companion published %d receipts, want exactly the one new acceptance", len(fixture.store.Receipts)-receiptsBefore)
 		}
 		if retainedStill := fixture.preview(retained.ReceiptId); retainedStill.StatusCode != http.StatusOK || !strings.Contains(retainedStill.Body, "Patient ID") {
 			t.Fatalf("retained receipt stopped describing its own frozen contract: status=%d body=%s", retainedStill.StatusCode, retainedStill.Body)
@@ -685,14 +687,14 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 	t.Run("unsupported-receipt-contract", func(t *testing.T) {
 		fixture := newCoreProtocolFixture(t)
 		compiled := fixture.decodeCompile(fixture.MustReconcile(1, fixture.initialDigest, "errors-contract-baseline"))
-		genuine, ok := fixture.store.receipts[compiled.ReceiptId]
+		genuine, ok := fixture.store.Receipts[compiled.ReceiptId]
 		if !ok {
 			t.Fatalf("baseline receipt %s not persisted", compiled.ReceiptId)
 		}
 		if previewed := fixture.preview(compiled.ReceiptId); previewed.StatusCode != http.StatusOK {
 			t.Fatalf("baseline preview rejected: status=%d body=%s", previewed.StatusCode, previewed.Body)
 		}
-		receiptsBefore := len(fixture.store.receipts)
+		receiptsBefore := len(fixture.store.Receipts)
 
 		unsupported := genuine
 		unsupported.ID = "core-protocol-unsupported-contract"
@@ -716,8 +718,8 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		}
 		response = coreProtocolRequest(t, fixture.app, http.MethodPost, fixture.basePath+"/preview", `{"receiptId":"core-protocol-incomplete-contract","outputId":"patients","limit":10}`, "")
 		coreProtocolBoundaryFailure(t, response, "preview of incomplete receipt identity", http.StatusConflict, "RECEIPT_RECOMPILE_REQUIRED", "receipt", "")
-		if len(fixture.store.receipts) != receiptsBefore+2 {
-			t.Fatalf("preview failures changed persisted receipts: before=%d now=%d", receiptsBefore, len(fixture.store.receipts))
+		if len(fixture.store.Receipts) != receiptsBefore+2 {
+			t.Fatalf("preview failures changed persisted receipts: before=%d now=%d", receiptsBefore, len(fixture.store.Receipts))
 		}
 
 		valid := fixture.preview(compiled.ReceiptId)
@@ -732,7 +734,7 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		if previewed := fixture.preview(compiled.ReceiptId); previewed.StatusCode != http.StatusOK {
 			t.Fatalf("baseline preview rejected: status=%d body=%s", previewed.StatusCode, previewed.Body)
 		}
-		receiptsBefore, headBefore := len(fixture.store.receipts), coreProtocolStoredHeadVersion(t, fixture)
+		receiptsBefore, headBefore := len(fixture.store.Receipts), coreProtocolStoredHeadVersion(t, fixture)
 
 		for _, request := range []struct {
 			name string
@@ -752,8 +754,8 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		response := coreProtocolRequest(t, fixture.app, http.MethodPost, fixture.basePath+"/preview", fmt.Sprintf(`{"receiptId":%q,"outputId":"never-emitted-output","limit":10}`, compiled.ReceiptId), "")
 		coreProtocolBoundaryFailure(t, response, "preview of output absent from the receipt", http.StatusUnprocessableEntity, "UNKNOWN_AUTHORING_OUTPUT", "preview", "")
 
-		if len(fixture.store.receipts) != receiptsBefore {
-			t.Fatalf("invalid preview requests persisted receipts: %d new", len(fixture.store.receipts)-receiptsBefore)
+		if len(fixture.store.Receipts) != receiptsBefore {
+			t.Fatalf("invalid preview requests persisted receipts: %d new", len(fixture.store.Receipts)-receiptsBefore)
 		}
 		if headBefore != coreProtocolStoredHeadVersion(t, fixture) {
 			t.Fatalf("invalid preview requests moved the saved head")

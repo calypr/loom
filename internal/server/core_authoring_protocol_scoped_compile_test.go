@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
+
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
@@ -237,7 +239,7 @@ func (f *scopedCompileFixture) scopedCompileDecodeReceipt(t *testing.T, response
 	if compiled.ReceiptId == "" {
 		t.Fatalf("%s: compile response has no receipt identity: %s", stage, response.Body)
 	}
-	persisted, ok := f.store.receipts[compiled.ReceiptId]
+	persisted, ok := f.store.Receipts[compiled.ReceiptId]
 	if !ok {
 		t.Fatalf("%s: receipt %s not persisted", stage, compiled.ReceiptId)
 	}
@@ -461,8 +463,8 @@ func TestCoreAuthoringProtocolOutputScopedCompilation(t *testing.T) {
 		responseEncounters = append(responseEncounters, receiptOutput.OutputId)
 	}
 	scopedExpectStrings(t, "output-scoped encounters reconcile", "response outputs", responseEncounters, scopedClosureEncounters)
-	if len(fixture.store.receipts) != 1 {
-		t.Fatalf("output-scoped encounters reconcile persisted %d receipts, want exactly 1", len(fixture.store.receipts))
+	if len(fixture.store.Receipts) != 1 {
+		t.Fatalf("output-scoped encounters reconcile persisted %d receipts, want exactly 1", len(fixture.store.Receipts))
 	}
 
 	second := fixture.reconcile(scopedOutputConditions, "c06-scoped-conditions")
@@ -475,8 +477,8 @@ func TestCoreAuthoringProtocolOutputScopedCompilation(t *testing.T) {
 	if compiledConditions.ReceiptId == compiledEncounters.ReceiptId {
 		t.Fatal("the unrelated output reconcile reused the encounters receipt identity")
 	}
-	if len(fixture.store.receipts) != 2 {
-		t.Fatalf("output-scoped conditions reconcile persisted %d receipts, want exactly 2", len(fixture.store.receipts))
+	if len(fixture.store.Receipts) != 2 {
+		t.Fatalf("output-scoped conditions reconcile persisted %d receipts, want exactly 2", len(fixture.store.Receipts))
 	}
 
 	full := fixture.reconcile("", "c06-full-workspace")
@@ -490,26 +492,26 @@ func TestCoreAuthoringProtocolOutputScopedCompilation(t *testing.T) {
 	if receiptFull.IntentDigest == receiptEncounters.IntentDigest || receiptFull.IntentDigest == receiptConditions.IntentDigest {
 		t.Fatal("the complete workspace reconcile reused a scoped compile intent")
 	}
-	if len(fixture.store.receipts) != 3 {
-		t.Fatalf("the three successful reconciles persisted %d receipts, want exactly 3", len(fixture.store.receipts))
+	if len(fixture.store.Receipts) != 3 {
+		t.Fatalf("the three successful reconciles persisted %d receipts, want exactly 3", len(fixture.store.Receipts))
 	}
 
 	if receiptFull.RecipeDigest == receiptEncounters.RecipeDigest {
 		t.Fatal("the complete workspace recipe digest matches the scoped encounters recipe digest")
 	}
 
-	receiptsBefore := len(fixture.store.receipts)
+	receiptsBefore := len(fixture.store.Receipts)
 	unknown := fixture.reconcile(scopedUnknownOutputID, "c06-scoped-unknown")
 	coreProtocolBoundaryFailure(t, unknown, "output-scoped reconcile of unknown outputId", http.StatusUnprocessableEntity, "INVALID_OUTPUT_SCOPE", "reconcile", scopedUnknownOutputID)
-	if len(fixture.store.receipts) != receiptsBefore {
-		t.Fatalf("unknown outputId reconcile persisted %d receipts", len(fixture.store.receipts)-receiptsBefore)
+	if len(fixture.store.Receipts) != receiptsBefore {
+		t.Fatalf("unknown outputId reconcile persisted %d receipts", len(fixture.store.Receipts)-receiptsBefore)
 	}
 	for _, id := range []string{compiledEncounters.ReceiptId, compiledConditions.ReceiptId, compiledFull.ReceiptId} {
-		if _, ok := fixture.store.receipts[id]; !ok {
+		if _, ok := fixture.store.Receipts[id]; !ok {
 			t.Fatalf("prior accepted receipt %s no longer persisted after the rejection", id)
 		}
 	}
-	if stored := fixture.store.explorers[testExplorerKey(scopedCompileProject, scopedCompileExplorer)]; stored.DraftVersion != 1 || stored.DraftDigest != fixture.initialDigest {
+	if stored := fixture.store.Explorers[explorerfixtures.Key(scopedCompileProject, scopedCompileExplorer)]; stored.DraftVersion != 1 || stored.DraftDigest != fixture.initialDigest {
 		t.Fatalf("rejected reconcile moved the saved head: %+v", stored)
 	}
 }

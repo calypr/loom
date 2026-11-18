@@ -568,6 +568,7 @@ func main() {
 		filepath.Join(*root, "../api/http"),
 		filepath.Join(*root, "../api/bulk/load"),
 		filepath.Join(*root, "../api/dataframe/dataframe"),
+		filepath.Join(*root, "../api/explorer"),
 	}
 	var files []string
 	for _, handlerRoot := range handlerRoots {

@@ -11,7 +11,7 @@ import (
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 )
 
-func registerRoutes(server *api.HTTPServer, generationService *loadapi.Service, authorizer authscope.Authorizer, explorerHandlers *explorerHTTPHandlers, optional ...any) error {
+func registerRoutes(server *api.HTTPServer, generationService *loadapi.Service, authorizer authscope.Authorizer, explorerHandlers *explorerHandlers, optional ...any) error {
 	if explorerHandlers == nil {
 		return fmt.Errorf("create Explorer HTTP routes: Explorer handlers are required")
 	}
@@ -43,15 +43,15 @@ func registerRoutes(server *api.HTTPServer, generationService *loadapi.Service, 
 		}
 	}
 	routes := &HTTPRoutes{
-		HealthHandlers: api.NewHealthHandlers(server),
-		StrictHandlers: loadapi.NewStrictHandlers(loadHandler),
-		Handlers:       dataframeapi.NewHandlers(dataframes.published, dataframes.query, newRecipeExecutionReader(releases, scopes)),
-		server:         server,
-		load:           loadHandler,
-		releases:       releases,
-		scopes:         scopes,
-		explorer:       explorerHandlers,
-		dataframes:     dataframes,
+		HealthHandlers:   api.NewHealthHandlers(server),
+		StrictHandlers:   loadapi.NewStrictHandlers(loadHandler),
+		Handlers:         dataframeapi.NewHandlers(dataframes.published, dataframes.query, newRecipeExecutionReader(releases, scopes)),
+		server:           server,
+		load:             loadHandler,
+		releases:         releases,
+		scopes:           scopes,
+		explorerHandlers: explorerHandlers,
+		dataframes:       dataframes,
 	}
 	handler := loomapi.NewStrictHandler(routes, nil)
 	loomapi.RegisterHandlersWithOptions(server.App(), handler, loomapi.FiberServerOptions{})

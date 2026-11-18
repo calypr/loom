@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
+
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
@@ -64,7 +66,7 @@ func fs1New(t *testing.T) *fs1Env {
 		t.Fatal(err)
 	}
 	store := newTestExplorerStore()
-	if _, err := store.create(explorer.Explorer{
+	if _, err := store.Create(context.Background(), explorer.Explorer{
 		Project: "project-a", ExplorerID: "custom", Title: "Patients",
 		DraftConfig: draft, DraftVersion: 1, DraftDigest: digest,
 	}); err != nil {
@@ -184,14 +186,14 @@ func (e *fs1Env) fs1SignedChoice(stageID, fieldPath string) string {
 		e.t.Fatalf("capabilities stage=%s status=%d body=%s", stageID, capabilitiesHTTP.StatusCode, capabilitiesHTTP.Body)
 	}
 	if stageID == "source_projection" {
-		if _, input := decodedDeriveSourceInput(e.t, capabilitiesHTTP.Body); true {
+		if _, input := explorerfixtures.DecodeDeriveSourceInput(e.t, capabilitiesHTTP.Body); true {
 			for _, choice := range input.Choices {
 				if choice.FieldPath != nil && *choice.FieldPath == fieldPath && choice.ChoiceID != nil {
 					return *choice.ChoiceID
 				}
 			}
 		}
-		if _, input := decodedFilterSourceInput(e.t, capabilitiesHTTP.Body); true {
+		if _, input := explorerfixtures.DecodeFilterSourceInput(e.t, capabilitiesHTTP.Body); true {
 			for _, choice := range input.Choices {
 				if choice.FieldPath != nil && *choice.FieldPath == fieldPath && choice.ChoiceID != nil {
 					return *choice.ChoiceID

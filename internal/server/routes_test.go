@@ -31,7 +31,7 @@ func TestRegisterRoutesExposesGenerationReleaseWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registerRoutes(server, resourceService, authscope.AllowAllAuthorizer{}, &explorerHTTPHandlers{}); err != nil {
+	if err := registerRoutes(server, resourceService, authscope.AllowAllAuthorizer{}, &explorerHandlers{}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -216,6 +216,7 @@ func adapterOpenAPIStatuses() (map[string]map[int]struct{}, error) {
 		filepath.Join(base, "../api/http"),
 		filepath.Join(base, "../api/bulk/load"),
 		filepath.Join(base, "../api/dataframe/dataframe"),
+		filepath.Join(base, "../api/explorer"),
 	}
 	packageFiles := make([][]string, 0, len(packageDirs))
 	for _, directory := range packageDirs {
