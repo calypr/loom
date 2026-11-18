@@ -17,9 +17,9 @@ if matches="$(search_production_go '(^|[^[:alnum:]_])(app|router|[[:alnum:]_]+\.
 fi
 
 registrars="$(search_production_go 'RegisterHandlers(WithOptions)?\(' || true)"
-expected='internal/server/routes.go:'
+expected='internal/server/wire_http.go:'
 if [[ "${registrars}" != "${expected}"* ]] || [[ "$(printf '%s\n' "${registrars}" | wc -l | tr -d ' ')" != '1' ]]; then
-  printf '%s\n' 'expected exactly one production generated route registrar in internal/server/routes.go:'
+  printf '%s\n' 'expected exactly one production generated route registrar in internal/server/wire_http.go:'
   printf '%s\n' "${registrars}"
   exit 1
 fi

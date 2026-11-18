@@ -34,6 +34,12 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
  'tests/scripts': 'Hold explicit-file Go tests for standalone repository scripts.',
  'internal/testkit/arangotest': 'Provide isolated Arango and ClickHouse service clients, database ownership, and '
                                 'cleanup for integration tests.',
+ 'internal/testkit/capabilityfixtures': 'Share Explorer capability snapshots, stores, and catalog evidence fixtures.',
+ 'internal/testkit/constructionfixtures': 'Share authorized Explorer workspaces and construction catalog fixtures.',
+ 'internal/testkit/recipetest': 'Share receipt construction, workspace, and recipe registry fixtures.',
+ 'internal/testkit/explorerfixtures': 'Share in-memory Explorer stores and fixtures for receipt and HTTP composition tests.',
+ 'internal/testkit/httpfixtures': 'Share generated-HTTP test requests and response capture.',
+ 'internal/testkit/recipefixtures': 'Share recipe authorization and combine materialization fixtures across package tests.',
  '.': 'Start the default Loom server process through the internal server composition root.',
  'client/ingest': 'Upload versioned source files and publish durable Loom source loads through the HTTP client '
                   'library.',
@@ -59,6 +65,7 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
  'internal/api/dataframe': 'Own typed dataframe request and publication representations.',
  'internal/api/dataframe/dataframe': 'Resolve and authorize published dataframe rows, aggregates, and export.',
  'internal/api/dataframe/query': 'Resolve and authorize Arango-backed FHIR dataframe and graph requests.',
+ 'internal/api/explorer': 'Serve strict OpenAPI Explorer, construction, selection, artifact, interpretation, and view-builder operations.',
  'internal/api/http': 'Own shared Fiber server setup, middleware, request IDs, errors, health, and readiness behavior.',
  'internal/api/authpolicy': 'Centralize authorization-sentinel classification for transport operations while '
                             'preserving operation-specific concealment.',
@@ -88,6 +95,7 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
                                                   'inputs as deterministic ClickHouse SQL.',
  'internal/dataframe/errors': 'Define and normalize stable structured dataframe errors for transport presentation.',
  'internal/dataframe/execution': 'Prepare, authorize, execute, explain, and post-process compiled dataframe requests.',
+ 'internal/dataframe/execution/arango': 'Adapt Arango queries, explain results, and preview budgets for dataframe execution.',
  'internal/dataframe/execution/chartifact': 'Manage private ClickHouse staging tables and leases used to cross '
                                             'execution boundaries without publishing outputs.',
  'internal/dataframe/execution/chartifact/arango': 'Persist private ClickHouse artifact manifests and leases in a '
@@ -105,6 +113,7 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
  'internal/dataframe/recipe/exec': 'Define durable recipe-version storage contracts and immutable registration '
                                    'behavior.',
  'internal/dataframe/recipe/exec/arango': 'Persist recipe versions and execution-use records in ArangoDB.',
+ 'internal/dataframe/recipe/runtime': 'Authorize recipe execution, resolve published combine inputs, and publish recipe results.',
  'internal/dataframe/recipe/schema': 'Resolve catalog-backed recipe declarations into concrete validated schemas.',
  'internal/dataframe/semantic': 'Convert validated dataframe requests and recipes into backend-neutral logical FHIR '
                                 'plans.',
@@ -124,10 +133,14 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
  'internal/explorer/authoringv2': 'Define, validate, canonicalize, and mutate the V2 Explorer Builder authoring '
                                   'workspace.',
  'internal/explorer/capability': 'Build the immutable compiler-backed capability contract exposed to Explorer Builder.',
+ 'internal/explorer/capability/resolver': 'Resolve scoped Explorer capability snapshots and compiler-proven catalog evidence.',
  'internal/explorer/compilation': 'Translate validated Explorer authoring intent into native recipe and compilation '
                                   'artifacts.',
+ 'internal/explorer/importedsource': 'Resolve, edit, and expose imported recipe sources for Explorer authoring.',
+ 'internal/explorer/constructioninputs': 'List authorized immutable published table revisions for Explorer construction.',
  'internal/explorer/lifecycle': 'Coordinate transport-neutral Explorer authoring, preview, publication, query, and '
                                 'policy operations.',
+ 'internal/explorer/receipt': 'Compile, validate, preview, reconcile, and materialize Explorer receipts.',
  'internal/explorer/recipeimport': 'Translate imported recipe documents into authorized Explorer source plans and '
                                    'exact capability choices.',
  'internal/fhir/schema': 'Add handwritten selector, traversal, pivot, and compiler semantics to generated FHIR '

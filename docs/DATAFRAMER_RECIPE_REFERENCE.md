@@ -748,7 +748,7 @@ to disagree:
 | Expression type checking | `internal/dataframe/expression/` |
 | Semantic column naming and collision handling | `internal/dataframe/semantic/` |
 | Physical compilation | `internal/dataframe/compiler/lower/` |
-| Default registration/replacement | `internal/dataframe/recipe/exec/persistent.go` and `internal/server/server.go` |
+| Default registration/replacement | `internal/dataframe/recipe/exec/persistent.go` and `internal/server/wire_storage.go` |
 
 The implementation is the final authority for a newly introduced feature, but
 the safe path is still: express the desired output contract in an explicit

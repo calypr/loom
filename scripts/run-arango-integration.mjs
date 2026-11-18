@@ -125,7 +125,8 @@ export const profiles = [
     ['explorer', './internal/explorer/arango', 'TestSelectionStorageAgainstArango'],
     ['store', './internal/store/arango', 'TestReceiptArangoStoreUsesImmutableTenantScopedQueries'],
     ['preview-index-migration', './internal/store/arango', previewIndexMigrationTests[0]],
-    ['server', './internal/server', 'TestSavedRelatedRouteRowsAgainstArango'],
+    ['execution-arango', './internal/dataframe/execution/arango', 'TestDerivedArithmeticPoliciesAgainstArango'],
+    ['explorer-api', './internal/api/explorer', 'TestSavedRelatedRouteRowsAgainstArango'],
     ['artifact', './internal/dataframe/execution/chartifact/arango', 'TestCatalogLeaseArbitrationAgainstArango'],
     ['publication', './internal/dataframe/publication/arango', 'TestExecutionReadPinArbitrationAgainstArango'],
     ['publication-clickhouse', './internal/dataframe/publication/clickhouse', 'TestAbortDropsUnpublishedExecutionAgainstArango'],
@@ -136,13 +137,21 @@ export const profiles = [
     ['backfill', './internal/ingest', 'TestRetainedSemanticInventoryBackfillArangoIntegration'],
 ].map(([id, pkg, required]) => ({ id, package: pkg, required, ...(id === 'backfill' ? { run: required } : {}) }));
 // The store package's retained cases require external seeded data. Its ordinary
-// unit cases still run; compiler, execution and server supply real row witnesses.
+// unit cases still run; compiler and execution packages supply real row witnesses.
 profiles.find(p => p.id === 'store').required = null;
 profiles.find(p => p.id === 'store').skip = `^${previewIndexMigrationPattern}$`;
 profiles.find(p => p.id === 'preview-index-migration').run = previewIndexMigrationPattern;
 profiles.find(p => p.id === 'preview-index-migration').alsoRequired = previewIndexMigrationTests.slice(1);
 profiles.find(p => p.id === 'execution').alsoRequired = ['TestPublicationRowStreamRejectsPayloadMetadataSmuggling'];
-profiles.find(p => p.id === 'server').alsoRequired = ['TestDerivedArithmeticPoliciesAgainstArango'];
+profiles.find(p => p.id === 'execution-arango').alsoRequired = [
+    'TestGraphRowsIndependentFixtureAgainstArango',
+    'TestGraphRowsDefaultRelatedInventoryAgainstArango',
+    'TestGraphRowsLogicalContributorOrderAgainstArango',
+];
+profiles.find(p => p.id === 'explorer-api').alsoRequired = [
+    'TestCoreAuthoringProtocolAgainstArango',
+    'TestRestrictedStartingCollectionRejectsDeniedReferences',
+];
 profiles.find(p => p.id === 'publication-clickhouse').alsoRequired = ['TestStalePinAbsentReclaimsAllAgainstArango'];
 profiles.find(p => p.id === 'explorer').alsoRequired = [
     // WP-17 TableShape conversion: mutable owners, fail-closed lookup, CAS rollback,
@@ -185,8 +194,9 @@ profiles.find(p => p.id === 'compiler').alsoRequired = [
 profiles.find(p => p.id === 'compiler').alsoPackages = [
     { package: './internal/dataframe/compiler/render/aql', required: 'TestScalarSelectorArrayMatchesLegacyAgainstArango' },
 ];
-// The assembled dual-store checkpoint has its own API/CI route with both services.
-profiles.find(p => p.id === 'server').skip = '^(TestPublicationRowsAndFreshViewerAgainstArangoClickHouse|TestCurrentDraftAppendRowsAgainstArangoClickHouse)$';
+// Dual-store checkpoints run in the job that owns both services.
+profiles.find(p => p.id === 'explorer-api').skip = '^TestPublicationRowsAndFreshViewerAgainstArangoClickHouse$';
+profiles.find(p => p.id === 'execution').skip = '^TestCurrentDraftAppendRowsAgainstArangoClickHouse$';
 export function checkEvents(stdout, profile) {
     const events = stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
     assert.ok(events.some(e => !e.Test && e.Action === 'pass'), 'No successful package completion');

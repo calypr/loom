@@ -34,7 +34,7 @@ type audit struct {
 	invalidated map[string]bool
 }
 
-var mappers = map[string]int{"authoringErrorForOpenAPI": 1, "explorerErrorResponse": 1, "explorerLegacyResponse": 1, "mapServiceError": 1}
+var mappers = map[string]int{"authoringErrorForOpenAPI": 1, "explorerErrorResponse": 1, "explorerLegacyResponse": 1, "mapServiceError": 1, "httpapi.MapServiceError": 1}
 
 func name(e ast.Expr) string {
 	switch x := e.(type) {
@@ -563,7 +563,18 @@ func main() {
 	ops := flag.String("operations", "", "")
 	flag.Parse()
 	a := audit{fs: token.NewFileSet(), funcs: map[string]*ast.FuncDecl{}, factories: map[string]*ast.FuncDecl{}, active: map[string]bool{}}
-	files, _ := filepath.Glob(filepath.Join(*root, "openapi_*.go"))
+	handlerRoots := []string{
+		*root,
+		filepath.Join(*root, "../api/http"),
+		filepath.Join(*root, "../api/bulk/load"),
+		filepath.Join(*root, "../api/dataframe/dataframe"),
+		filepath.Join(*root, "../api/explorer"),
+	}
+	var files []string
+	for _, handlerRoot := range handlerRoots {
+		matches, _ := filepath.Glob(filepath.Join(handlerRoot, "openapi_*.go"))
+		files = append(files, matches...)
+	}
 	generated, _ := filepath.Glob(filepath.Join(*root, "../../api/loomapi/*.go"))
 	parse := func(paths []string, dst map[string]*ast.FuncDecl) {
 		for _, p := range paths {
