@@ -136,6 +136,18 @@ func TestGenerationRowBuilderTurnsIdentityFailureIntoGenerationError(t *testing.
 	}
 }
 
+func TestGenerationRowBuilderRejectsInvalidUTF8Project(t *testing.T) {
+	const project = "p\xff"
+	builder, err := newGenerationRowBuilder(NewGeneratedRowBuilder(project, ""), project, "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, kind, err := builder.Build("Patient", []byte(`{"resourceType":"Patient","id":"a"}`), map[string]float64{})
+	if err == nil || kind != rowErrorGeneration {
+		t.Fatalf("expected generation error, got %q %v", kind, err)
+	}
+}
+
 type rowBuilderFunc func(string, []byte, map[string]float64) (rowBuildResult, rowErrorType, error)
 
 func (f rowBuilderFunc) Build(resourceType string, line []byte, stageSeconds map[string]float64) (rowBuildResult, rowErrorType, error) {

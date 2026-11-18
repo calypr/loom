@@ -35,6 +35,10 @@ func NewGeneratedRowBuilder(project, authResourcePath string) *GeneratedRowBuild
 }
 
 func (b *GeneratedRowBuilder) Build(resourceType string, line []byte, stageSeconds map[string]float64) (rowBuildResult, rowErrorType, error) {
+	return b.build(resourceType, line, stageSeconds, "")
+}
+
+func (b *GeneratedRowBuilder) build(resourceType string, line []byte, stageSeconds map[string]float64, datasetGeneration string) (rowBuildResult, rowErrorType, error) {
 	vDoc, eDocs, payload, errorType, err := loadRowGeneratedWithPayload(resourceType, line, b.project, stageSeconds)
 	if err != nil {
 		return rowBuildResult{}, errorType, err
@@ -49,7 +53,17 @@ func (b *GeneratedRowBuilder) Build(resourceType string, line []byte, stageSecon
 		}
 	}
 	marshalStart := time.Now()
-	vBytes, err := sonic.ConfigFastest.Marshal(&vDoc)
+	var document any = &vDoc
+	if datasetGeneration != "" {
+		logicalKey := vDoc.Key
+		vDoc.Key = generationDocumentKey(b.project, datasetGeneration, resourceType, logicalKey)
+		document = &struct {
+			VertexDocument
+			LogicalKey        string `json:"logical_key"`
+			DatasetGeneration string `json:"dataset_generation"`
+		}{vDoc, logicalKey, datasetGeneration}
+	}
+	vBytes, err := sonic.ConfigFastest.Marshal(document)
 	stageSeconds["vertex_marshal"] += time.Since(marshalStart).Seconds()
 	if err != nil {
 		return rowBuildResult{}, rowErrorValidation, err

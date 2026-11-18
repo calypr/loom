@@ -126,6 +126,16 @@ func TestGeneratedRowBuilderPreservesPayloadIdentityAndEdges(t *testing.T) {
 	if got := documentString(t, namespacedVertex, "auth_resource_path"); got != authResourcePath {
 		t.Fatalf("namespaced vertex auth_resource_path = %q, want %q", got, authResourcePath)
 	}
+	if got := documentString(t, namespacedVertex, "_key"); got != generationDocumentKey(project, "generation-1", "ResearchSubject", vertex.Key) {
+		t.Fatalf("namespaced vertex key = %q, want generation-qualified key", got)
+	}
+	var storedPayload map[string]any
+	if err := json.Unmarshal(namespacedVertex["payload"], &storedPayload); err != nil {
+		t.Fatalf("decode namespaced payload: %v", err)
+	}
+	if !reflect.DeepEqual(storedPayload, vertexPayload) {
+		t.Fatalf("generation changed the stored payload: %#v", storedPayload)
+	}
 	if len(namespaced.edges) != len(result.edges) {
 		t.Fatalf("namespaced edge count = %d, want %d", len(namespaced.edges), len(result.edges))
 	}

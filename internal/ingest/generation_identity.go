@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 const generationIdentityField = "dataset_generation"
@@ -14,6 +15,7 @@ const logicalKeyField = "logical_key"
 
 type generationRowBuilder struct {
 	delegate          RowBuilder
+	generated         *GeneratedRowBuilder
 	project           string
 	datasetGeneration string
 }
@@ -30,7 +32,12 @@ func newGenerationRowBuilder(delegate RowBuilder, project, datasetGeneration str
 	if datasetGeneration == "" {
 		return nil, fmt.Errorf("generation row builder requires a dataset generation")
 	}
+	generated, _ := delegate.(*GeneratedRowBuilder)
+	if generated != nil && (generated.project != project || !utf8.ValidString(project)) {
+		generated = nil
+	}
 	return &generationRowBuilder{
+		generated:         generated,
 		delegate:          delegate,
 		project:           project,
 		datasetGeneration: datasetGeneration,
@@ -38,6 +45,17 @@ func newGenerationRowBuilder(delegate RowBuilder, project, datasetGeneration str
 }
 
 func (b *generationRowBuilder) Build(resourceType string, line []byte, stageSeconds map[string]float64) (rowBuildResult, rowErrorType, error) {
+	if b.generated != nil {
+		result, errType, err := b.generated.build(resourceType, line, stageSeconds, b.datasetGeneration)
+		if err != nil {
+			return rowBuildResult{}, errType, err
+		}
+		result.edges, err = namespaceRowEdges(result.edges, b.project, b.datasetGeneration)
+		if err != nil {
+			return rowBuildResult{}, rowErrorGeneration, fmt.Errorf("namespace %s: %w", resourceType, err)
+		}
+		return result, "", nil
+	}
 	result, errType, err := b.delegate.Build(resourceType, line, stageSeconds)
 	if err != nil {
 		return rowBuildResult{}, errType, err
@@ -61,19 +79,23 @@ func namespaceRowBuildResult(result rowBuildResult, project, datasetGeneration, 
 	if err != nil {
 		return rowBuildResult{}, err
 	}
-	edges := make([]json.RawMessage, len(result.edges))
-	for index, edge := range result.edges {
-		namespaced, err := namespaceEdgeDocument(edge, project, datasetGeneration)
-		if err != nil {
-			return rowBuildResult{}, fmt.Errorf("namespace edge %d for %s/%s: %w", index, resourceType, logicalVertexKey, err)
-		}
-		edges[index] = namespaced
+	edges, err := namespaceRowEdges(result.edges, project, datasetGeneration)
+	if err != nil {
+		return rowBuildResult{}, fmt.Errorf("namespace %s/%s: %w", resourceType, logicalVertexKey, err)
 	}
-	return rowBuildResult{
-		vertex:  vertex,
-		edges:   edges,
-		payload: result.payload,
-	}, nil
+	return rowBuildResult{vertex: vertex, edges: edges, payload: result.payload}, nil
+}
+
+func namespaceRowEdges(edges []json.RawMessage, project, datasetGeneration string) ([]json.RawMessage, error) {
+	namespaced := make([]json.RawMessage, len(edges))
+	for index, edge := range edges {
+		document, err := namespaceEdgeDocument(edge, project, datasetGeneration)
+		if err != nil {
+			return nil, fmt.Errorf("edge %d: %w", index, err)
+		}
+		namespaced[index] = document
+	}
+	return namespaced, nil
 }
 
 func namespaceVertexDocument(raw json.RawMessage, project, datasetGeneration, resourceType string) (json.RawMessage, string, error) {
