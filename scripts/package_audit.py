@@ -131,6 +131,7 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
  'internal/explorer/capability/resolver': 'Resolve scoped Explorer capability snapshots and compiler-proven catalog evidence.',
  'internal/explorer/compilation': 'Translate validated Explorer authoring intent into native recipe and compilation '
                                   'artifacts.',
+ 'internal/explorer/importedsource': 'Resolve, edit, and expose imported recipe sources for Explorer authoring.',
  'internal/explorer/lifecycle': 'Coordinate transport-neutral Explorer authoring, preview, publication, query, and '
                                 'policy operations.',
  'internal/explorer/recipeimport': 'Translate imported recipe documents into authorized Explorer source plans and '

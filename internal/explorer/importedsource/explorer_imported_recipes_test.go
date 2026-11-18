@@ -1,4 +1,4 @@
-package server
+package importedsource
 
 import (
 	"context"
@@ -61,7 +61,7 @@ func TestImportedSourceResolutionRejectsChangedPinsAndForeignScopes(t *testing.T
 		t.Fatal(err)
 	}
 	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
-	resolver := importedRecipeSources{registry: registry, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
+	resolver := Sources{registry: registry, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	authorized := lifecycle.AuthorizedCapability{Snapshot: capability.Snapshot{Identity: capability.SnapshotIdentity{Project: "HTAN_INT/BForePC", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}}, Scope: scope}
 	if _, err := resolver.load(context.Background(), "HTAN_INT/other", bundle.Name, bundle.TranslationVersion, digest, authorized); err == nil {

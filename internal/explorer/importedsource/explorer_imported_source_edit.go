@@ -1,4 +1,4 @@
-package server
+package importedsource
 
 import (
 	"context"
@@ -22,38 +22,38 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-func (r importedRecipeSources) Edit(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
+func (r Sources) Edit(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
 	return r.editSource(ctx, project, authorized, document, change, nil)
 }
 
-func (r importedRecipeSources) CreateSourceRule(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, rule authoringv2.SourceRuleCreate) (authoringv2.Document, error) {
+func (r Sources) CreateSourceRule(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, rule authoringv2.SourceRuleCreate) (authoringv2.Document, error) {
 	if err := rule.Validate(); err != nil {
 		return authoringv2.Document{}, err
 	}
 	return r.editSources(ctx, project, authorized, document, nil, nil, &rule)
 }
 
-func (r importedRecipeSources) EditRelationship(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
+func (r Sources) EditRelationship(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
 	if err := change.Validate(); err != nil {
 		return authoringv2.Document{}, err
 	}
 	return r.editSource(ctx, project, authorized, document, nil, &change)
 }
 
-func (r importedRecipeSources) EditBatch(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, changes []authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
+func (r Sources) EditBatch(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, changes []authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
 	if err := authoringv2.ValidateImportedSourceStepBatch(changes); err != nil {
 		return authoringv2.Document{}, err
 	}
 	return r.editSources(ctx, project, authorized, document, changes, nil, nil)
 }
-func (r importedRecipeSources) editSource(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange, relationship *authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
+func (r Sources) editSource(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange, relationship *authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
 	var changes []authoringv2.ImportedSourceStepChange
 	if change != nil {
 		changes = []authoringv2.ImportedSourceStepChange{*change}
 	}
 	return r.editSources(ctx, project, authorized, document, changes, relationship, nil)
 }
-func (r importedRecipeSources) editSources(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, changes []authoringv2.ImportedSourceStepChange, relationship *authoringv2.ImportedRelationshipChange, rule *authoringv2.SourceRuleCreate) (authoringv2.Document, error) {
+func (r Sources) editSources(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, changes []authoringv2.ImportedSourceStepChange, relationship *authoringv2.ImportedRelationshipChange, rule *authoringv2.SourceRuleCreate) (authoringv2.Document, error) {
 	if len(changes) > 0 {
 		if err := authoringv2.ValidateImportedSourceStepBatch(changes); err != nil {
 			return authoringv2.Document{}, err

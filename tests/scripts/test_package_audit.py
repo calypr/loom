@@ -105,7 +105,8 @@ class PackageAuditTest(unittest.TestCase):
         )
         self.assertIn("internal/server", result.stdout)
         self.assertIn(
-            "go test ./internal/api/dataframe/query ./internal/api/recipe ./internal/server -count=1",
+            "go test ./internal/api/dataframe/query ./internal/api/recipe "
+            "./internal/explorer/importedsource ./internal/server -count=1",
             result.stdout,
         )
 

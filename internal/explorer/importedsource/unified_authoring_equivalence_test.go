@@ -1,4 +1,4 @@
-package server
+package importedsource
 
 import (
 	"context"
@@ -37,7 +37,7 @@ const (
 type unifiedAuthoringFixture struct {
 	bundle     recipe.Bundle
 	digest     string
-	resolver   importedRecipeSources
+	resolver   Sources
 	authorized lifecycle.AuthorizedCapability
 	workspace  authoringv2.Workspace
 }
@@ -62,7 +62,7 @@ func unifiedColumnIDs(columns []authoringv2.Column) []string {
 func newUnifiedAuthoringFixture(t *testing.T) unifiedAuthoringFixture {
 	t.Helper()
 
-	raw, err := os.ReadFile(filepath.Join("..", "explorer", "recipeimport", "testdata", "default-dataframer.json"))
+	raw, err := os.ReadFile(filepath.Join("..", "recipeimport", "testdata", "default-dataframer.json"))
 	if err != nil {
 		t.Fatalf("read checked-in imported recipe fixture: %v", err)
 	}
@@ -96,7 +96,7 @@ func newUnifiedAuthoringFixture(t *testing.T) unifiedAuthoringFixture {
 	if err != nil {
 		t.Fatalf("create isolated recipe resolver: %v", err)
 	}
-	resolver := importedRecipeSources{registry: registry, engine: engine, defaultName: bundle.Name}
+	resolver := Sources{registry: registry, engine: engine, defaultName: bundle.Name}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := capability.NewSnapshot(
 		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)},

@@ -3,6 +3,8 @@ package server
 import (
 	"net/http"
 
+	"github.com/calypr/loom/internal/explorer/importedsource"
+
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
@@ -604,7 +606,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			return fmt.Errorf("create per-file source loader: %w", err)
 		}
 	}
-	importedSources := importedRecipeSources{registry: recipeRegistry, engine: recipeEngine, capabilities: capabilityResolver, defaultName: configuredRecipeName, defaultVersion: configuredRecipeVersion}
+	importedSources := importedsource.New(recipeRegistry, recipeEngine, capabilityResolver, configuredRecipeName, configuredRecipeVersion)
 	compileReceipt := func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		var resolveCombineSchemas combineInputSchemaResolver
 		if materializationReader != nil {
@@ -670,7 +672,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		ScanColumnPopulation:               configuredColumnPopulationScanner(logger, recipeEngine),
 		CompileReceipt:                     compileReceipt,
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
-			return compileConstructionSourceStage(ctx, request, recipeEngine, importedSources)
+			return compileConstructionSourceStage(ctx, request, recipeEngine, importedSources.SourceStage)
 		},
 		Capability: lifecycle.CapabilityResolver{
 			Current: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {

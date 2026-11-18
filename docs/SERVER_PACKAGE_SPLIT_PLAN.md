@@ -122,7 +122,7 @@ No phase changes behavior.
 | 1 | Leaf relocations into existing packages, plus `dataframe/execution/arango`. | 0 |
 | 2 | `dataframe/recipe/runtime` | 1 |
 | 3 | `explorer/capability/resolver` | 1 |
-| 4 | `explorer/importedsource` | 3 |
+| 4 | `explorer/importedsource`; move the shared compiled-stage-to-receipt mapper into `explorer/compilation`. | 3 |
 | 5 | `explorer/constructioninputs` | 2, 3 |
 | 6 | `explorer/receipt` with `receipt.Runtime`; replace the lifecycle closures in `server.go` | 2, 3, 4 |
 | 7a | Health, load, and dataframe handlers move to their API packages; `HTTPRoutes` temporarily embeds them | 1 |

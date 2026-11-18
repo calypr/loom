@@ -1,4 +1,4 @@
-package server
+package importedsource
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-func (r importedRecipeSources) Network(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
+func (r Sources) Network(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
 	catalog := authoringv2.CatalogFromCapability(authorized.Snapshot, "")
 	if document.ImportedRecipe == nil {
 		return authoringv2.NetworkForDocument(document, catalog)
@@ -55,7 +55,7 @@ func (r importedRecipeSources) Network(ctx context.Context, project string, auth
 	return authoringv2.AuthoringNetwork{}, fmt.Errorf("pinned source output was not found")
 }
 
-func (r importedRecipeSources) RemoveOutput(
+func (r Sources) RemoveOutput(
 	ctx context.Context,
 	project string,
 	authorized lifecycle.AuthorizedCapability,
@@ -277,7 +277,7 @@ func disablePivotOutput(parameters *authoringv2.ImportedPivotParameters, key str
 	return true, nil
 }
 
-func (r importedRecipeSources) RemoveField(
+func (r Sources) RemoveField(
 	ctx context.Context,
 	project string,
 	authorized lifecycle.AuthorizedCapability,
