@@ -218,8 +218,8 @@ RETURN {document: doc}`
 		t.Fatalf("empty selected file retained %d Organization vertices", got)
 	}
 	clearedEdges := sourceLoadEdges(t, ctx, client, project, clearedActive.Release.Generation)
-	if len(clearedEdges) != 6 {
-		t.Fatalf("empty replacement retained %d Patient edges, want 6", len(clearedEdges))
+	if len(clearedEdges) != 3 {
+		t.Fatalf("empty replacement retained %d Patient edges, want 3", len(clearedEdges))
 	}
 	clearedOrganizationKey := "Organization/" + generationDocumentKey(project, clearedActive.Release.Generation, "Organization", SanitizeKey("org-1"))
 	clearedPatientKeys := map[string]bool{}
@@ -227,8 +227,8 @@ RETURN {document: doc}`
 		clearedPatientKeys["Patient/"+generationDocumentKey(project, clearedActive.Release.Generation, "Patient", SanitizeKey(id))] = true
 	}
 	for _, edge := range clearedEdges {
-		if !(clearedPatientKeys[edge.From] && edge.To == clearedOrganizationKey || edge.From == clearedOrganizationKey && clearedPatientKeys[edge.To]) {
-			t.Fatalf("retained edge does not point to rebased candidate identities: %#v", edge)
+		if edge.SourceFile != "Patient" || !clearedPatientKeys[edge.From] || edge.To != clearedOrganizationKey {
+			t.Fatalf("retained edge endpoints = (%q,%q) owner=%q, want Patient/Organization endpoints owned by Patient", edge.From, edge.To, edge.SourceFile)
 		}
 	}
 }

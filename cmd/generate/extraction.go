@@ -49,6 +49,27 @@ type Result struct {
 	Edges        []json.RawMessage
 }
 
+func buildEdgeRawJSON(key, from, to, label, projectJSON, fromType, toType string) json.RawMessage {
+	var buf bytes.Buffer
+	buf.Grow(256)
+	buf.WriteString("{\"_key\":\"")
+	buf.WriteString(key)
+	buf.WriteString("\",\"_from\":\"")
+	buf.WriteString(from)
+	buf.WriteString("\",\"_to\":\"")
+	buf.WriteString(to)
+	buf.WriteString("\",\"label\":\"")
+	buf.WriteString(label)
+	buf.WriteString("\",\"project\":")
+	buf.WriteString(projectJSON)
+	buf.WriteString(",\"from_type\":\"")
+	buf.WriteString(fromType)
+	buf.WriteString("\",\"to_type\":\"")
+	buf.WriteString(toType)
+	buf.WriteString("\"}")
+	return json.RawMessage(buf.Bytes())
+}
+
 // Global namespace UUID constant computed from "calypr-public.ohsu.edu"
 var namespaceUUID = uuid.NewMD5(uuid.NameSpaceDNS, []byte("calypr-public.ohsu.edu"))
 
@@ -166,43 +187,19 @@ func splitFHIRReference(ref string) (string, string, bool) {
 	return targetType, targetID, true
 }
 
-func buildEdgeRawJSON(key, from, to, label, projectJSON, fromType, toType string) json.RawMessage {
-	var buf bytes.Buffer
-	buf.Grow(256)
-	buf.WriteString("{\"_key\":\"")
-	buf.WriteString(key)
-	buf.WriteString("\",\"_from\":\"")
-	buf.WriteString(from)
-	buf.WriteString("\",\"_to\":\"")
-	buf.WriteString(to)
-	buf.WriteString("\",\"label\":\"")
-	buf.WriteString(label)
-	buf.WriteString("\",\"project\":")
-	buf.WriteString(projectJSON)
-	buf.WriteString(",\"from_type\":\"")
-	buf.WriteString(fromType)
-	buf.WriteString("\",\"to_type\":\"")
-	buf.WriteString(toType)
-	buf.WriteString("\"}")
-	return json.RawMessage(buf.Bytes())
-}
-
 `)
 
 	supportedResources := schemaFHIRRootResourceTypes(schema)
 	for _, k := range supportedResources {
 		def := schema.Defs[k]
 
-		sb.WriteString(fmt.Sprintf("// ExtractEdges extracts graph links from %s.\n", k))
-		sb.WriteString(fmt.Sprintf("func (x *%s) ExtractEdges(project string) ([]json.RawMessage, error) {\n", k))
-		sb.WriteString("\tvar edges []json.RawMessage\n")
+		sb.WriteString(fmt.Sprintf("// ExtractEdgeDocuments builds graph links from %s.\n", k))
+		sb.WriteString(fmt.Sprintf("func (x *%s) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {\n", k))
+		sb.WriteString("\tvar edges []EdgeDocument\n")
 		sb.WriteString("\tif x == nil || x.ID == nil {\n\t\treturn edges, nil\n\t}\n")
 		sb.WriteString("\tid := *x.ID\n")
 		sb.WriteString("\tsourceType := \"" + k + "\"\n")
-		sb.WriteString("\tprojectJSON := strconv.Quote(project)\n")
-		sb.WriteString("\t_ = id\n")
 		sb.WriteString("\t_ = sourceType\n")
-		sb.WriteString("\t_ = projectJSON\n")
 		sb.WriteString("\tvar seen map[string]struct{}\n")
 		sb.WriteString("\t_ = seen\n")
 
@@ -220,6 +217,16 @@ func buildEdgeRawJSON(key, from, to, label, projectJSON, fromType, toType string
 			sb.WriteString(traversalCode)
 		}
 
+		sb.WriteString("\treturn edges, nil\n")
+		sb.WriteString("}\n\n")
+		sb.WriteString(fmt.Sprintf("// ExtractEdges encodes graph links from %s.\n", k))
+		sb.WriteString(fmt.Sprintf("func (x *%s) ExtractEdges(project string) ([]json.RawMessage, error) {\n", k))
+		sb.WriteString("\tdocuments, err := x.ExtractEdgeDocuments(project)\n")
+		sb.WriteString("\tif err != nil { return nil, err }\n")
+		sb.WriteString("\tvar edges []json.RawMessage\n")
+		sb.WriteString("\tfor _, document := range documents {\n")
+		sb.WriteString("\t\tedges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))\n")
+		sb.WriteString("\t}\n")
 		sb.WriteString("\treturn edges, nil\n")
 		sb.WriteString("}\n\n")
 	}
@@ -289,15 +296,15 @@ func generateTraversalCode(schema *Schema, structName string, path []string, var
 		sb.WriteString(fmt.Sprintf("%s}\n", bodyIndent))
 		sb.WriteString(fmt.Sprintf("%sif _, exists := seen[forwardKey]; !exists {\n", bodyIndent))
 		sb.WriteString(fmt.Sprintf("%s\tseen[forwardKey] = struct{}{}\n", bodyIndent))
-		sb.WriteString(fmt.Sprintf("%s\tedges = append(edges, buildEdgeRawJSON(\n", bodyIndent))
-		sb.WriteString(fmt.Sprintf("%s\t\tforwardKey,\n", bodyIndent))
-		sb.WriteString(fmt.Sprintf("%s\t\tcollectionID(sourceType, id),\n", bodyIndent))
-		sb.WriteString(fmt.Sprintf("%s\t\tcollectionID(refType, targetID),\n", bodyIndent))
-		sb.WriteString(fmt.Sprintf("%s\t\t%q,\n", bodyIndent, link.Rel))
-		sb.WriteString(fmt.Sprintf("%s\t\tprojectJSON,\n", bodyIndent))
-		sb.WriteString(fmt.Sprintf("%s\t\tsourceType,\n", bodyIndent))
-		sb.WriteString(fmt.Sprintf("%s\t\trefType,\n", bodyIndent))
-		sb.WriteString(fmt.Sprintf("%s\t))\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s\tedges = append(edges, EdgeDocument{\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s\t\tKey: forwardKey,\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s\t\tFrom: collectionID(sourceType, id),\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s\t\tTo: collectionID(refType, targetID),\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s\t\tLabel: %q,\n", bodyIndent, link.Rel))
+		sb.WriteString(fmt.Sprintf("%s\t\tProject: project,\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s\t\tFromType: sourceType,\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s\t\tToType: refType,\n", bodyIndent))
+		sb.WriteString(fmt.Sprintf("%s\t})\n", bodyIndent))
 		sb.WriteString(fmt.Sprintf("%s}\n", bodyIndent))
 
 		if !allowAnyMatch && matchPrefix != "" {

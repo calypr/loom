@@ -86,23 +86,37 @@ type sourceFileOwnerRowBuilder struct {
 }
 
 func (b sourceFileOwnerRowBuilder) Build(resourceType string, line []byte, timings map[string]float64) (rowBuildResult, rowErrorType, error) {
+	if builder, ok := b.delegate.(interface {
+		BuildWithSourceFile(string, []byte, map[string]float64, string) (rowBuildResult, rowErrorType, error)
+	}); ok {
+		return builder.BuildWithSourceFile(resourceType, line, timings, b.owner)
+	}
 	result, kind, err := b.delegate.Build(resourceType, line, timings)
 	if err != nil {
 		return rowBuildResult{}, kind, err
 	}
-	for i, raw := range result.edges {
-		document, err := decodeTopLevelDocument(raw)
-		if err != nil {
-			return rowBuildResult{}, rowErrorEdge, err
-		}
-		document["source_file"] = json.RawMessage(strconvQuote(b.owner))
-		encoded, err := json.Marshal(document)
-		if err != nil {
-			return rowBuildResult{}, rowErrorEdge, fmt.Errorf("marshal source-owned edge %d: %w", i, err)
-		}
-		result.edges[i] = encoded
+	result.edges, err = sourceFileOwnerEdges(result.edges, b.owner)
+	if err != nil {
+		return rowBuildResult{}, rowErrorEdge, err
 	}
 	return result, "", nil
+}
+
+func sourceFileOwnerEdges(edges []json.RawMessage, owner string) ([]json.RawMessage, error) {
+	owned := make([]json.RawMessage, len(edges))
+	for i, raw := range edges {
+		document, err := decodeTopLevelDocument(raw)
+		if err != nil {
+			return nil, err
+		}
+		document["source_file"] = json.RawMessage(strconvQuote(owner))
+		encoded, err := json.Marshal(document)
+		if err != nil {
+			return nil, fmt.Errorf("marshal source-owned edge %d: %w", i, err)
+		}
+		owned[i] = encoded
+	}
+	return owned, nil
 }
 
 var (

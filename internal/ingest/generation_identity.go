@@ -45,14 +45,14 @@ func newGenerationRowBuilder(delegate RowBuilder, project, datasetGeneration str
 }
 
 func (b *generationRowBuilder) Build(resourceType string, line []byte, stageSeconds map[string]float64) (rowBuildResult, rowErrorType, error) {
+	return b.BuildWithSourceFile(resourceType, line, stageSeconds, "")
+}
+
+func (b *generationRowBuilder) BuildWithSourceFile(resourceType string, line []byte, stageSeconds map[string]float64, sourceFile string) (rowBuildResult, rowErrorType, error) {
 	if b.generated != nil {
-		result, errType, err := b.generated.build(resourceType, line, stageSeconds, b.datasetGeneration)
+		result, errType, err := b.generated.build(resourceType, line, stageSeconds, b.datasetGeneration, sourceFile)
 		if err != nil {
 			return rowBuildResult{}, errType, err
-		}
-		result.edges, err = namespaceRowEdges(result.edges, b.project, b.datasetGeneration)
-		if err != nil {
-			return rowBuildResult{}, rowErrorGeneration, fmt.Errorf("namespace %s: %w", resourceType, err)
 		}
 		return result, "", nil
 	}
@@ -63,6 +63,12 @@ func (b *generationRowBuilder) Build(resourceType string, line []byte, stageSeco
 	namespaced, err := namespaceRowBuildResult(result, b.project, b.datasetGeneration, resourceType)
 	if err != nil {
 		return rowBuildResult{}, rowErrorGeneration, err
+	}
+	if sourceFile != "" {
+		namespaced.edges, err = sourceFileOwnerEdges(namespaced.edges, sourceFile)
+		if err != nil {
+			return rowBuildResult{}, rowErrorEdge, err
+		}
 	}
 	return namespaced, "", nil
 }

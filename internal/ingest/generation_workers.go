@@ -280,6 +280,8 @@ func loadFile(
 			localCatalog := catalog.NewProfilerForGenerationWithLimits(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, shapeCache, opts.CatalogLimits)
 			vertexBatch := make([]json.RawMessage, 0, opts.BatchSize)
 			edgeBatch := make([]json.RawMessage, 0, opts.BatchSize)
+			edgeRelationshipCounts := make(map[catalog.RelationshipKey]int64)
+			edgeRelationshipsKnown := true
 			semanticInventoryBatch := make([]json.RawMessage, 0, opts.BatchSize)
 			semanticInventoryFailed := false
 
@@ -303,10 +305,14 @@ func loadFile(
 				if len(edgeBatch) == 0 {
 					return true
 				}
-				relationshipCounts, countErr := catalog.RelationshipCountsFromRawEdges(edgeBatch)
-				if countErr != nil {
-					setPipelineErr(countErr)
-					return false
+				relationshipCounts := edgeRelationshipCounts
+				if !edgeRelationshipsKnown {
+					var countErr error
+					relationshipCounts, countErr = catalog.RelationshipCountsFromRawEdges(edgeBatch)
+					if countErr != nil {
+						setPipelineErr(countErr)
+						return false
+					}
 				}
 				waitStart := time.Now()
 				select {
@@ -314,6 +320,8 @@ func loadFile(
 					localTimings["edge_queue_wait"] += time.Since(waitStart).Seconds()
 					localTimings["edge_batches"]++
 					edgeBatch = make([]json.RawMessage, 0, opts.BatchSize)
+					edgeRelationshipCounts = make(map[catalog.RelationshipKey]int64)
+					edgeRelationshipsKnown = true
 					return true
 				case <-fileCtx.Done():
 					localTimings["edge_queue_wait"] += time.Since(waitStart).Seconds()
@@ -409,7 +417,12 @@ func loadFile(
 					if len(vertexBatch) >= opts.BatchSize && !flushVertexBatch() {
 						return
 					}
-					for _, edge := range built.edges {
+					for edgeIndex, edge := range built.edges {
+						if edgeIndex < len(built.relationships) {
+							edgeRelationshipCounts[built.relationships[edgeIndex]]++
+						} else {
+							edgeRelationshipsKnown = false
+						}
 						edgeBatch = append(edgeBatch, edge)
 						atomic.AddInt64(&fileEdges, 1)
 						if len(edgeBatch) >= opts.BatchSize && !flushEdgeBatch() {
