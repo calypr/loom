@@ -217,8 +217,8 @@ jobs:
           ./internal/dataframe/published
           ./internal/store/clickhouse
 
-  node-unit:
-    name: Node unit tests
+  script-tests:
+    name: Repository script tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -247,28 +247,13 @@ jobs:
           mapfile -t tests <<< "$test_list"
           node --test --test-timeout=600000 "${tests[@]}"
 
-  shell-unit:
-    name: Shell cleanup tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
       - name: Run acceptance cleanup tests
+        if: ${{ !cancelled() }}
         run: timeout 600s bash tests/scripts/test_acceptance_real_cleanup.sh
 
-  python-unit:
-    name: Python tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
       - name: Run retained Python tests
-        run: |
-          python3 -m unittest discover -s tests/scripts
+        if: ${{ !cancelled() }}
+        run: python3 -m unittest discover -s tests/scripts
 
   contracts:
     name: Generated and OpenAPI contracts
