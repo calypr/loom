@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
@@ -136,7 +137,7 @@ func TestPopulationMappingRouteUsesReceiptBoundAuthoredFilterConstruction(t *tes
 		},
 		ReceiptLookup: domain.CompilationReceiptForExplorer,
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, engine, domain, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
 		PopulationMapping: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, output string, memberIDs []string, after string, limit int) (dataframeexecution.PopulationMappingResult, error) {
 			mappingCalls++
@@ -145,7 +146,7 @@ func TestPopulationMappingRouteUsesReceiptBoundAuthoredFilterConstruction(t *tes
 			if receipt == nil || output != "patients" || !reflect.DeepEqual(selectedIDs, []string{"patient-1", "patient-2", "patient-3"}) {
 				return dataframeexecution.PopulationMappingResult{}, fmt.Errorf("population mapping lost the receipt output or exact selected IDs: receipt=%#v output=%q members=%v", receipt, output, selectedIDs)
 			}
-			resolved, err := compileValidatedReceiptResolution(ctx, engine, receipt, bindings)
+			resolved, err := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
 			if err != nil {
 				return dataframeexecution.PopulationMappingResult{}, err
 			}

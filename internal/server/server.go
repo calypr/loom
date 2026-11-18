@@ -3,6 +3,8 @@ package server
 import (
 	"net/http"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
+
 	"github.com/calypr/loom/internal/explorer/importedsource"
 
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
@@ -39,7 +41,6 @@ import (
 
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
@@ -128,77 +129,6 @@ func preserveConfiguredQueryError(err error) error {
 		return previewRouteError(err)
 	}
 	return err
-}
-
-func categoryScanReceiptResolutionError(receiptID string, err error) error {
-	classified := classifyReceiptPreviewResolutionError(receiptID, err)
-	var resolution *receiptPreviewResolutionError
-	if errors.As(classified, &resolution) {
-		return receiptPreviewConflict(classified)
-	}
-	return classified
-}
-
-func configuredCategoryScanner(logger *slog.Logger, recipeEngine *dataframeexecution.Engine) lifecycle.CategoryScanner {
-	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
-
-		scanCtx, cancel := context.WithTimeout(ctx, executionarango.PivotCategoryScanTimeout)
-		defer cancel()
-		scanCtx = executionarango.WithPivotPreviewQueryBudget(scanCtx)
-		started := time.Now()
-		attrs := []any{"output_id", request.Output, "stage_id", request.StageID, "category_column_id", request.ColumnID, "value_column_id", request.ValueColumnID}
-		if receipt == nil {
-			err := fmt.Errorf("compilation receipt is missing")
-			httpapi.LogServerDiagnostic(logger, slog.LevelError, "Explorer table-shape category scan resolution", httpapi.RequestIDFromContext(ctx), "category_scan_resolution", time.Since(started), err, attrs...)
-			return dataframeexecution.CategoryScanResult{}, err
-		}
-		resolved, err := compileValidatedReceiptResolution(scanCtx, recipeEngine, receipt, bindings)
-		if err != nil {
-			resultErr := categoryScanReceiptResolutionError(receipt.ID, err)
-			httpapi.LogServerDiagnostic(logger, slog.LevelError, "Explorer table-shape category scan resolution", httpapi.RequestIDFromContext(ctx), "category_scan_resolution", time.Since(started), resultErr, attrs...)
-			return dataframeexecution.CategoryScanResult{}, resultErr
-		}
-		httpapi.LogServerDiagnostic(logger, slog.LevelInfo, "Explorer table-shape category scan resolution", httpapi.RequestIDFromContext(ctx), "category_scan_resolution", time.Since(started), nil, attrs...)
-
-		scanStarted := time.Now()
-		result, err := recipeEngine.ScanCategories(scanCtx, resolved, request)
-		level := slog.LevelInfo
-		if err != nil {
-			level = slog.LevelError
-		}
-		httpapi.LogServerDiagnostic(logger, level, "Explorer table-shape category scan", httpapi.RequestIDFromContext(ctx), "category_scan", time.Since(scanStarted), err, attrs...)
-		return result, err
-	}
-}
-
-func configuredColumnPopulationScanner(logger *slog.Logger, recipeEngine *dataframeexecution.Engine) lifecycle.ColumnPopulationScanner {
-	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.ColumnPopulationRequest) (dataframeexecution.ColumnPopulationResult, error) {
-		scanCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		started := time.Now()
-		attrs := []any{"output_id", request.Output, "stage_id", request.StageID, "column_ids", request.ColumnIDs}
-		if receipt == nil {
-			err := fmt.Errorf("compilation receipt is missing")
-			httpapi.LogServerDiagnostic(logger, slog.LevelError, "Explorer construction column population resolution", httpapi.RequestIDFromContext(ctx), "column_population_resolution", time.Since(started), err, attrs...)
-			return dataframeexecution.ColumnPopulationResult{}, err
-		}
-		resolved, err := compileValidatedReceiptResolution(scanCtx, recipeEngine, receipt, bindings)
-		if err != nil {
-			resultErr := categoryScanReceiptResolutionError(receipt.ID, err)
-			httpapi.LogServerDiagnostic(logger, slog.LevelError, "Explorer construction column population resolution", httpapi.RequestIDFromContext(ctx), "column_population_resolution", time.Since(started), resultErr, attrs...)
-			return dataframeexecution.ColumnPopulationResult{}, resultErr
-		}
-		httpapi.LogServerDiagnostic(logger, slog.LevelInfo, "Explorer construction column population resolution", httpapi.RequestIDFromContext(ctx), "column_population_resolution", time.Since(started), nil, attrs...)
-
-		scanStarted := time.Now()
-		result, err := recipeEngine.ScanColumnPopulation(scanCtx, resolved, request)
-		level := slog.LevelInfo
-		if err != nil {
-			level = slog.LevelError
-		}
-		httpapi.LogServerDiagnostic(logger, level, "Explorer construction column population", httpapi.RequestIDFromContext(ctx), "column_population", time.Since(scanStarted), err, attrs...)
-		return result, err
-	}
 }
 
 func newExplorerReleaseActivator(releaseService *publicationcontract.ReleaseService, devReleaseCASFault *atomic.Bool) func(context.Context, string, string, []publicationcontract.DataframeSelector) error {
@@ -608,15 +538,21 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 	}
 	importedSources := importedsource.New(recipeRegistry, recipeEngine, capabilityResolver, configuredRecipeName, configuredRecipeVersion)
-	compileReceipt := func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		var resolveCombineSchemas combineInputSchemaResolver
-		if materializationReader != nil {
-			resolveCombineSchemas = func(ctx context.Context, output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings) (resolvedCombineInputSchema, error) {
-				return exactPublishedCombineInputSchemas(ctx, output, bindings, materializationReader, materializationReader.WithExecutionReadPins, scopeResolver)
-			}
-		}
-		return compileExplorerReceipt(ctx, request, capabilityResolver, recipeEngine, explorerService, logger, resolveCombineSchemas, importedSources)
+	var combineInputSchemas receiptapi.CombineInputSchemaResolver
+	if materializationReader != nil {
+		combineInputSchemas = receiptapi.NewCombineInputSchemaResolver(materializationReader, materializationReader.WithExecutionReadPins, scopeResolver)
 	}
+	receiptRuntime := receiptapi.NewRuntime(receiptapi.RuntimeConfig{
+		Engine: recipeEngine, Explorers: explorerService, CapabilityResolver: capabilityResolver,
+		Logger: logger, CombineInputSchemas: combineInputSchemas, ImportedSources: importedSources,
+		ConstructionSourceStage: importedSources.SourceStage,
+		Materializer: receiptapi.NewMaterializer(
+			recipeEngine, bundleTarget, publishedRegistry, degradation, logger,
+			serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes,
+			serverConfig.Server.RecipeQualityMaxRows, serverConfig.Server.RecipeQualityMaxDistinctKeys,
+		),
+	})
+	compileReceipt := receiptRuntime.CompileReceipt
 	persistPublishedWorkspace, err := explorer.LocalWorkspaceWriter(serverConfig.Server.LocalWorkspaceWriteback, serverConfig.Server.LocalWorkspaceProject)
 	if err != nil {
 		return fmt.Errorf("configure local workspace writeback: %w", err)
@@ -669,12 +605,10 @@ func run(ctx context.Context, serverConfig Config) error {
 		RowChoicePlanner:                   rowChoiceResolver,
 		ExplicitGroupResolver:              explicitGroupResolver,
 		ExplicitGroupRepository:            explorerStore,
-		ScanCategories:                     configuredCategoryScanner(logger, recipeEngine),
-		ScanColumnPopulation:               configuredColumnPopulationScanner(logger, recipeEngine),
+		ScanCategories:                     receiptRuntime.ScanCategories,
+		ScanColumnPopulation:               receiptRuntime.ScanColumnPopulation,
 		CompileReceipt:                     compileReceipt,
-		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
-			return compileConstructionSourceStage(ctx, request, recipeEngine, importedSources.SourceStage)
-		},
+		ConstructionSourceStage:            receiptRuntime.ConstructionSourceStage,
 		Capability: lifecycle.CapabilityResolver{
 			Current: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {
 				return capabilityResolver.Resolve(ctx, project, generation)
@@ -684,87 +618,18 @@ func run(ctx context.Context, serverConfig Config) error {
 			ForExecution:   capabilityResolver.ResolveForExecution,
 			Catalog:        authoringv2.CatalogFromCapability,
 		},
-		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
-			return explorerService.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
-		},
-		ArtifactStore:    artifactStore,
-		PublishedReader:  artifactPublishedReader,
-		ArtifactTTL:      serverConfig.Server.ArtifactTTL,
-		ArtifactMaxRows:  serverConfig.Server.ArtifactMaxRows,
-		ArtifactMaxBytes: serverConfig.Server.ArtifactMaxBytes,
-		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-			if receipt == nil {
-				return dataframeexecution.PreviewSummary{}, fmt.Errorf("compilation receipt is required")
-			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer receipt preview resolution failed", "receipt_id", receipt.ID, "error", err)
-				return dataframeexecution.PreviewSummary{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
-			}
-			output := ""
-			if len(bindings.OutputNames) > 0 {
-				output = bindings.OutputNames[0]
-			}
-			summary, previewErr := recipeEngine.PreviewOutput(ctx, resolved, dataframeexecution.PreviewRequest{Output: output, Limit: bindings.PreviewLimit, IncludeRowIdentity: bindings.IncludeRowIdentity}, visit)
-			if previewErr != nil {
-				logReceiptPreviewContractFailure(logger, httpapi.RequestIDFromContext(ctx), receipt.ID, output, previewErr)
-			}
-			return summary, previewErr
-		},
-		ValidateReceiptStream: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) error {
-			err := validateReceiptFullStream(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer row-value policy full-stream validation failed", "receipt_id", receipt.ID, "error", err)
-			}
-			return err
-		},
-		PopulationMapping: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, output string, memberIDs []string, after string, limit int) (dataframeexecution.PopulationMappingResult, error) {
-			if receipt == nil {
-				return dataframeexecution.PopulationMappingResult{}, fmt.Errorf("compilation receipt is required")
-			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer receipt population mapping resolution failed", "receipt_id", receipt.ID, "error", err)
-				return dataframeexecution.PopulationMappingResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
-			}
-			reader := dataframeexecution.PopulationMemberReaderFunc(func(_ context.Context, visit func(string) error) error {
-				for _, id := range memberIDs {
-					if err := visit(id); err != nil {
-						return err
-					}
-				}
-				return nil
-			})
-			return recipeEngine.PopulationMapping(ctx, resolved, dataframeexecution.PopulationMappingRequest{Output: output, AfterMemberID: after, MaxUnmapped: limit}, reader)
-		},
-		CellTrace: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
-			if receipt == nil {
-				return dataframeexecution.CellTraceResult{}, fmt.Errorf("compilation receipt is required")
-			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer receipt cell trace resolution failed", "receipt_id", receipt.ID, "error", err)
-				return dataframeexecution.CellTraceResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
-			}
-			return recipeEngine.CellTrace(ctx, resolved, request)
-		},
-		RowLineage: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error) {
-			if receipt == nil {
-				return dataframeexecution.RowLineageResult{}, fmt.Errorf("compilation receipt is required")
-			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer receipt row lineage resolution failed", "receipt_id", receipt.ID, "error", err)
-				return dataframeexecution.RowLineageResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
-			}
-			return recipeEngine.RowLineage(ctx, resolved, request)
-		},
-
-		MaterializeReceipt: explorerReceiptMaterializer(
-			recipeEngine, bundleTarget, publishedRegistry, degradation, logger,
-			serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes,
-			serverConfig.Server.RecipeQualityMaxRows, serverConfig.Server.RecipeQualityMaxDistinctKeys,
-		),
+		ReceiptLookup:             receiptRuntime.ReceiptLookup,
+		ArtifactStore:             artifactStore,
+		PublishedReader:           artifactPublishedReader,
+		ArtifactTTL:               serverConfig.Server.ArtifactTTL,
+		ArtifactMaxRows:           serverConfig.Server.ArtifactMaxRows,
+		ArtifactMaxBytes:          serverConfig.Server.ArtifactMaxBytes,
+		PreviewReceipt:            receiptRuntime.PreviewReceipt,
+		ValidateReceiptStream:     receiptRuntime.ValidateReceiptStream,
+		PopulationMapping:         receiptRuntime.PopulationMapping,
+		CellTrace:                 receiptRuntime.CellTrace,
+		RowLineage:                receiptRuntime.RowLineage,
+		MaterializeReceipt:        receiptRuntime.MaterializeReceipt,
 		ValidateReleaseGeneration: validateExplorerReleaseGeneration,
 		ActivateRelease:           activateExplorerRelease,
 		PrepareRelease:            prepareExplorerRelease,

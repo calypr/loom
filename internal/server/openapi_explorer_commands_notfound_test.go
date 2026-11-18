@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -153,10 +154,10 @@ func newGroupFieldSourceProposalFixture(t *testing.T) *groupFieldSourceProposalF
 		},
 		RowChoicePlanner: rowChoices,
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
-			return compileConstructionSourceStage(ctx, request, recipeEngine)
+			return receiptapi.CompileConstructionSourceStage(ctx, request, recipeEngine)
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || receipt.ConstructionProposal == nil || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "observations" {

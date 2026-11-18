@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
@@ -190,7 +191,7 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			receipt, err := compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
+			receipt, err := receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -203,7 +204,7 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 			return receipt, nil
 		},
 		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
+			resolved, err := receiptapi.CompileValidatedResolution(ctx, recipeEngine, receipt, bindings)
 			if err != nil {
 				previewResolutionErr = err
 				return dataframeexecution.PreviewSummary{}, err

@@ -1,4 +1,4 @@
-package server
+package receipt
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-func validateReceiptFullStream(ctx context.Context, recipeEngine *dataframeexecution.Engine, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) error {
+func ValidateFullStream(ctx context.Context, recipeEngine *dataframeexecution.Engine, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) error {
 	if receipt == nil {
 		return fmt.Errorf("compilation receipt is required")
 	}
@@ -21,22 +21,22 @@ func validateReceiptFullStream(ctx context.Context, recipeEngine *dataframeexecu
 		return fmt.Errorf("exactly one output is required for full-stream validation")
 	}
 	output := bindings.OutputNames[0]
-	resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
+	resolved, err := CompileValidatedResolution(ctx, recipeEngine, receipt, bindings)
 	if err != nil {
-		return classifyReceiptPreviewResolutionError(receipt.ID, err)
+		return ClassifyPreviewResolutionError(receipt.ID, err)
 	}
 
 	resolved.Semantic.SemanticPlan.Bindings.OutputNames = []string{output}
 	streams, err := recipeEngine.Streams(ctx, resolved)
 	if err != nil {
-		return classifyReceiptPreviewResolutionError(receipt.ID, err)
+		return ClassifyPreviewResolutionError(receipt.ID, err)
 	}
 	if len(streams) != 1 || streams[0].Name != output {
 		return fmt.Errorf("full-stream validation resolved %d streams for output %q", len(streams), output)
 	}
 	_, err = streams[0].Stream(ctx, func(map[string]any) error { return nil })
 	if err != nil {
-		return classifyReceiptPreviewResolutionError(receipt.ID, err)
+		return ClassifyPreviewResolutionError(receipt.ID, err)
 	}
 	return nil
 }

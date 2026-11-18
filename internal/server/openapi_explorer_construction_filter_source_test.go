@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -146,12 +147,12 @@ func TestConstructionFilterSourceHTTPContractPreservesCapabilitiesAndProposals(t
 			Catalog: authoringv2.CatalogFromCapability,
 		},
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
-			return compileConstructionSourceStage(ctx, request, recipeEngine)
+			return receiptapi.CompileConstructionSourceStage(ctx, request, recipeEngine)
 		},
 		RowChoicePlanner:  rowChoices,
 		RowChoiceResolver: rowChoices,
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		PreviewReceipt: func(previewCtx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || receipt.ConstructionProposal == nil || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "patients" {
@@ -432,7 +433,7 @@ func filterSourceF1Refuse(t *testing.T, tampered authoringv2.ConstructionSourceP
 	for _, output := range resolved.Compiled.Outputs {
 		compiledByOutput[output.Name] = output
 	}
-	_, _, err := authoredOutputColumnsWithCombineInputs(workspace, compiledByOutput, nil, snapshot)
+	_, _, err := receiptapi.AuthoredOutputColumnsWithCombineInputs(workspace, compiledByOutput, nil, snapshot)
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("reconcile FILTER branch wrongly accepted tampered projection %s: err=%v want=%q", tampered.FieldPath, err, want)
 	}
@@ -460,7 +461,7 @@ func TestConstructionFilterSourceReconcileClaimsHonestProjection(t *testing.T) {
 	for _, output := range resolved.Compiled.Outputs {
 		compiledByOutput[output.Name] = output
 	}
-	if _, _, err := authoredOutputColumnsWithCombineInputs(workspace, compiledByOutput, nil, snapshot); err != nil {
+	if _, _, err := receiptapi.AuthoredOutputColumnsWithCombineInputs(workspace, compiledByOutput, nil, snapshot); err != nil {
 		t.Fatalf("reconcile FILTER branch refused the honest projection: %v", err)
 	}
 }
@@ -481,11 +482,11 @@ func TestConstructionFilterSourceReconcileClaimsOnlyWithAuthorizedSnapshot(t *te
 	blankToken := stale
 	blankToken.Token = ""
 
-	_, _, err := authoredOutputColumnsWithCombineInputs(workspace, compiledByOutput, nil, blankToken)
+	_, _, err := receiptapi.AuthoredOutputColumnsWithCombineInputs(workspace, compiledByOutput, nil, blankToken)
 	if err == nil || !strings.Contains(err.Error(), "without an authorized capability snapshot") {
 		t.Fatalf("unarmed reconcile wrongly published an unpopulated filter-owned claim: err=%v", err)
 	}
-	if _, _, err := authoredOutputColumnsWithCombineInputs(workspace, compiledByOutput, nil, stale); err == nil || !strings.Contains(err.Error(), "authorized filter source derivation") {
+	if _, _, err := receiptapi.AuthoredOutputColumnsWithCombineInputs(workspace, compiledByOutput, nil, stale); err == nil || !strings.Contains(err.Error(), "authorized filter source derivation") {
 		t.Fatalf("armed reconcile wrongly published the same unpopulated claim: err=%v", err)
 	}
 }

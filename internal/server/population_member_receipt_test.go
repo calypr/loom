@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -146,7 +147,7 @@ func TestCompileExplorerReceiptBindsPopulationRemovalWithGroupedRelatedSummary(t
 		}}},
 		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope},
 	}
-	receipt, err := compileExplorerReceipt(context.Background(), request, nil, engine, service, nil, nil)
+	receipt, err := receiptapi.Compile(context.Background(), request, nil, engine, service, nil, nil)
 	if err != nil {
 		t.Fatalf("compile grouped related-summary population proposal receipt: %v", err)
 	}
@@ -177,7 +178,7 @@ func TestCompileExplorerReceiptBindsPopulationRemovalWithGroupedRelatedSummary(t
 		Project: "project-a", SelectionProject: "project-a", DatasetGeneration: snapshot.Identity.Generation,
 		AuthScopeMode: authscope.ReadScopeUnrestricted, SelectionMembersCollection: request.SelectionMembersCollection,
 	}
-	if _, err := compileValidatedReceiptResolution(context.Background(), engine, receipt, bindings); err != nil {
+	if _, err := receiptapi.CompileValidatedResolution(context.Background(), engine, receipt, bindings); err != nil {
 		t.Fatalf("real Group/related population proposal receipt failed re-lowering: %v", err)
 	}
 }

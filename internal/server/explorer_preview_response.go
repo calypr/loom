@@ -13,6 +13,7 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 )
 
 const (
@@ -20,22 +21,6 @@ const (
 )
 
 var ErrPreviewResponseTooLarge = errors.New("PREVIEW_RESPONSE_TOO_LARGE")
-
-type receiptPreviewResolutionError struct {
-	ReceiptID string
-	Err       error
-}
-
-func (e *receiptPreviewResolutionError) Error() string { return e.Err.Error() }
-func (e *receiptPreviewResolutionError) Unwrap() error { return e.Err }
-
-func classifyReceiptPreviewResolutionError(receiptID string, err error) error {
-	var mismatch *receiptContractMismatch
-	if errors.As(err, &mismatch) || errors.Is(err, explorer.ErrReceiptRecompileRequired) {
-		return &receiptPreviewResolutionError{ReceiptID: receiptID, Err: err}
-	}
-	return err
-}
 
 func previewRouteError(err error) error {
 	if errors.Is(err, ErrPreviewResponseTooLarge) {
@@ -74,7 +59,7 @@ func previewRouteError(err error) error {
 		case string(dataframeerrors.CodeQueryMemoryLimitExceeded), string(dataframeerrors.CodeQueryResourceLimitExceeded), string(dataframeerrors.CodeQueryBackendOutOfMemory):
 			return &explorer.AuthoringError{Status: 503, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err), Details: userErr.Details()}, Cause: err}
 		case string(dataframeerrors.CodeRecipeContractViolation), string(dataframeerrors.CodeDynamicSchemaDrift):
-			return receiptPreviewConflict(err)
+			return receiptapi.PreviewConflict(err)
 		default:
 			return previewInternalError(err)
 		}
@@ -83,8 +68,8 @@ func previewRouteError(err error) error {
 	if errors.As(err, &applicationError) {
 		return err
 	}
-	if errors.As(err, new(*receiptPreviewResolutionError)) {
-		return receiptPreviewConflict(err)
+	if errors.As(err, new(*receiptapi.PreviewResolutionError)) {
+		return receiptapi.PreviewConflict(err)
 	}
 	return previewInternalError(err)
 }
@@ -100,25 +85,6 @@ func previewInternalError(err error) error {
 			Details:  map[string]any{"causeType": fmt.Sprintf("%T", err)},
 		},
 		Cause: err,
-	}
-}
-
-func receiptPreviewConflict(cause error) error {
-	receiptID := ""
-	var resolution *receiptPreviewResolutionError
-	if errors.As(cause, &resolution) {
-		receiptID = resolution.ReceiptID
-	}
-	return &explorer.AuthoringError{
-		Status: http.StatusConflict,
-		Diagnostic: explorer.AuthoringDiagnostic{
-			Severity: "ERROR",
-			Stage:    "preview",
-			Code:     "RECEIPT_RECOMPILE_REQUIRED",
-			Message:  "receipt deterministic lowering no longer matches the stored artifact",
-			Details:  receiptMismatchDetails(receiptID, cause),
-		},
-		Cause: cause,
 	}
 }
 

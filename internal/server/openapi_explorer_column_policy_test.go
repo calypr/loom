@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
+
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -50,7 +52,7 @@ func TestColumnPolicyHTTPContractPreviewApplyAndClosedIntent(t *testing.T) {
 			return nil, err
 		}
 		clone := *receipt
-		clone.ColumnPolicyProposal = cloneColumnPolicyBinding(request.ColumnPolicyProposal)
+		clone.ColumnPolicyProposal = receiptapi.CloneColumnPolicyBinding(request.ColumnPolicyProposal)
 		clone.CompilationKey, err = explorer.CompilationKey(clone)
 		if err != nil {
 			return nil, err

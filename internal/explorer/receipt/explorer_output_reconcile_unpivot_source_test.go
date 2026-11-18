@@ -1,4 +1,4 @@
-package server
+package receipt
 
 import (
 	"strings"
@@ -85,8 +85,8 @@ func unpivotSourceReconcileFixture(t *testing.T) (authoringv2.Document, lower.Co
 
 func TestUnpivotSourceMeltClaimsUnselectedFieldQualityWithoutAuthoringTheSlot(t *testing.T) {
 	document, compiled, snapshot, projection := unpivotSourceReconcileFixture(t)
-	authored := make(map[string]authoredOutputColumn)
-	if err := authoredConstructionOutputsWithCombineInputs(document, authored, compiled, nil, snapshot); err != nil {
+	authored := make(map[string]AuthoredOutputColumn)
+	if err := AuthoredConstructionOutputsWithCombineInputs(document, authored, compiled, nil, snapshot); err != nil {
 		t.Fatalf("reconcile unpivot-owned projection: %v", err)
 	}
 	slotName := authoringv2.ConstructionSourceProjectionName(projection.ColumnID)
@@ -114,7 +114,7 @@ func TestUnpivotSourceProjectionReconcileRefusesDriftedClaims(t *testing.T) {
 	t.Run("compiled slot no longer matches the durable claim", func(t *testing.T) {
 		document, compiled, snapshot, _ := unpivotSourceReconcileFixture(t)
 		compiled.Stages[0].Columns[1].SemanticPath = "active"
-		err := authoredConstructionOutputsWithCombineInputs(document, make(map[string]authoredOutputColumn), compiled, nil, snapshot)
+		err := AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]AuthoredOutputColumn), compiled, nil, snapshot)
 		if err == nil || !strings.Contains(err.Error(), "does not carry the compiled source column identity") {
 			t.Fatalf("drifted compiled slot error = %v", err)
 		}
@@ -122,7 +122,7 @@ func TestUnpivotSourceProjectionReconcileRefusesDriftedClaims(t *testing.T) {
 
 	t.Run("claim needs an authorized capability snapshot", func(t *testing.T) {
 		document, compiled, _, _ := unpivotSourceReconcileFixture(t)
-		err := authoredConstructionOutputsWithCombineInputs(document, make(map[string]authoredOutputColumn), compiled, nil, capability.Snapshot{})
+		err := AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]AuthoredOutputColumn), compiled, nil, capability.Snapshot{})
 		if err == nil || !strings.Contains(err.Error(), "without an authorized capability snapshot") {
 			t.Fatalf("unarmed snapshot error = %v", err)
 		}
@@ -132,7 +132,7 @@ func TestUnpivotSourceProjectionReconcileRefusesDriftedClaims(t *testing.T) {
 		document, compiled, snapshot, _ := unpivotSourceReconcileFixture(t)
 		document.Construction.SourceProjections[0].FieldPath = "gender"
 		compiled.Stages[0].Columns[1].SemanticPath = "gender"
-		err := authoredConstructionOutputsWithCombineInputs(document, make(map[string]authoredOutputColumn), compiled, nil, snapshot)
+		err := AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]AuthoredOutputColumn), compiled, nil, snapshot)
 		if err == nil || !strings.Contains(err.Error(), "no longer matches the authorized unpivot source derivation") {
 			t.Fatalf("drifted claim error = %v", err)
 		}
@@ -142,7 +142,7 @@ func TestUnpivotSourceProjectionReconcileRefusesDriftedClaims(t *testing.T) {
 		document, compiled, snapshot, _ := unpivotSourceReconcileFixture(t)
 		document.Construction.SourceProjections[0].Label = "TAMPERED-LABEL"
 		compiled.Stages[0].Columns[1].Label = document.Construction.SourceProjections[0].Label
-		err := authoredConstructionOutputsWithCombineInputs(document, make(map[string]authoredOutputColumn), compiled, nil, snapshot)
+		err := AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]AuthoredOutputColumn), compiled, nil, snapshot)
 		if err == nil || !strings.Contains(err.Error(), "no longer matches the authorized unpivot source derivation") {
 			t.Fatalf("mirrored tampered label error = %v, want the facts-branch refusal", err)
 		}
@@ -151,7 +151,7 @@ func TestUnpivotSourceProjectionReconcileRefusesDriftedClaims(t *testing.T) {
 	t.Run("claim fhir type drifted from the rederived schema facts", func(t *testing.T) {
 		document, compiled, snapshot, _ := unpivotSourceReconcileFixture(t)
 		document.Construction.SourceProjections[0].FHIRType = "TAMPERED-TYPE"
-		err := authoredConstructionOutputsWithCombineInputs(document, make(map[string]authoredOutputColumn), compiled, nil, snapshot)
+		err := AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]AuthoredOutputColumn), compiled, nil, snapshot)
 		if err == nil || !strings.Contains(err.Error(), "no longer matches the authorized unpivot source derivation") {
 			t.Fatalf("tampered fhirType error = %v, want the facts-branch refusal", err)
 		}
@@ -164,7 +164,7 @@ func TestUnpivotSourceProjectionReconcileRefusesDriftedClaims(t *testing.T) {
 				document.Construction.Steps[1].Operation.Unpivot.Inputs[index].ColumnID = "derived-total"
 			}
 		}
-		err := authoredConstructionOutputsWithCombineInputs(document, make(map[string]authoredOutputColumn), compiled, nil, snapshot)
+		err := AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]AuthoredOutputColumn), compiled, nil, snapshot)
 		if err == nil || !strings.Contains(err.Error(), "it does not melt as an input") {
 			t.Fatalf("unconsumed melt input error = %v", err)
 		}
@@ -180,7 +180,7 @@ func TestUnpivotSourceProjectionReconcileRefusesDriftedClaims(t *testing.T) {
 			}
 		}
 		carrier.Outputs = kept
-		err := authoredConstructionOutputsWithCombineInputs(document, make(map[string]authoredOutputColumn), compiled, nil, snapshot)
+		err := AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]AuthoredOutputColumn), compiled, nil, snapshot)
 		if err == nil || !strings.Contains(err.Error(), "missing a declared stable ID, name, or label") {
 			t.Fatalf("missing carrier declaration error = %v", err)
 		}
@@ -238,7 +238,7 @@ func unpivotMeltFirstReconcileFixture(t *testing.T) (authoringv2.Document, lower
 func TestUnpivotSourceProjectionReconcileMeltFirst(t *testing.T) {
 	t.Run("compiler-materialized first-step slot reconciles", func(t *testing.T) {
 		document, compiled, snapshot := unpivotMeltFirstReconcileFixture(t)
-		if err := authoredConstructionOutputsWithCombineInputs(document, make(map[string]authoredOutputColumn), compiled, nil, snapshot); err != nil {
+		if err := AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]AuthoredOutputColumn), compiled, nil, snapshot); err != nil {
 			t.Fatalf("legit melt-first signed state was refused (pre-fix this is the F-A catch-all): %v", err)
 		}
 	})
@@ -246,7 +246,7 @@ func TestUnpivotSourceProjectionReconcileMeltFirst(t *testing.T) {
 	t.Run("compiled slot identity drift still falls to the declaration refusal", func(t *testing.T) {
 		document, compiled, snapshot := unpivotMeltFirstReconcileFixture(t)
 		compiled.Stages[0].Columns[2].Label = "DRIFTED-COMPILED-LABEL"
-		err := authoredConstructionOutputsWithCombineInputs(document, make(map[string]authoredOutputColumn), compiled, nil, snapshot)
+		err := AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]AuthoredOutputColumn), compiled, nil, snapshot)
 		if err == nil || !strings.Contains(err.Error(), "missing a declared stable ID, name, or label") {
 			t.Fatalf("drifted compiled slot label error = %v, want the slot-equality-gated declaration refusal", err)
 		}
@@ -255,7 +255,7 @@ func TestUnpivotSourceProjectionReconcileMeltFirst(t *testing.T) {
 	t.Run("compiled slot marked identity stays unclaimable", func(t *testing.T) {
 		document, compiled, snapshot := unpivotMeltFirstReconcileFixture(t)
 		compiled.Stages[0].Columns[2].Identity = true
-		err := authoredConstructionOutputsWithCombineInputs(document, make(map[string]authoredOutputColumn), compiled, nil, snapshot)
+		err := AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]AuthoredOutputColumn), compiled, nil, snapshot)
 		if err == nil || !strings.Contains(err.Error(), "missing a declared stable ID, name, or label") {
 			t.Fatalf("identity-flagged compiled slot error = %v, want the slot-equality-gated declaration refusal", err)
 		}
@@ -265,7 +265,7 @@ func TestUnpivotSourceProjectionReconcileMeltFirst(t *testing.T) {
 		document, compiled, snapshot := unpivotMeltFirstReconcileFixture(t)
 		document.Construction.SourceProjections[0].Label = "TAMPERED-LABEL"
 		compiled.Stages[0].Columns[2].Label = document.Construction.SourceProjections[0].Label
-		err := authoredConstructionOutputsWithCombineInputs(document, make(map[string]authoredOutputColumn), compiled, nil, snapshot)
+		err := AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]AuthoredOutputColumn), compiled, nil, snapshot)
 		if err == nil || !strings.Contains(err.Error(), "no longer matches the authorized unpivot source derivation") {
 			t.Fatalf("melt-first mirrored tampered label error = %v, want the facts-branch refusal", err)
 		}
@@ -273,7 +273,7 @@ func TestUnpivotSourceProjectionReconcileMeltFirst(t *testing.T) {
 
 	t.Run("melt-first still requires an authorized capability snapshot", func(t *testing.T) {
 		document, compiled, _ := unpivotMeltFirstReconcileFixture(t)
-		err := authoredConstructionOutputsWithCombineInputs(document, make(map[string]authoredOutputColumn), compiled, nil, capability.Snapshot{})
+		err := AuthoredConstructionOutputsWithCombineInputs(document, make(map[string]AuthoredOutputColumn), compiled, nil, capability.Snapshot{})
 		if err == nil || !strings.Contains(err.Error(), "cannot be claimed without an authorized capability snapshot") {
 			t.Fatalf("melt-first unarmed snapshot error = %v, want the authorized-snapshot refusal", err)
 		}

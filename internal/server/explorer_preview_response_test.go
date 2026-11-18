@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/explorer"
@@ -174,7 +176,7 @@ func TestPreviewErrorPreservesStableClassifications(t *testing.T) {
 		{"memory-limit", dataframeerrors.NewError(dataframeerrors.CodeQueryMemoryLimitExceeded, "private"), http.StatusServiceUnavailable, "QUERY_MEMORY_LIMIT_EXCEEDED"},
 		{"resource-limit", dataframeerrors.NewError(dataframeerrors.CodeQueryResourceLimitExceeded, "private"), http.StatusServiceUnavailable, "QUERY_RESOURCE_LIMIT_EXCEEDED"},
 		{"out-of-memory", dataframeerrors.NewError(dataframeerrors.CodeQueryBackendOutOfMemory, "private"), http.StatusServiceUnavailable, "QUERY_BACKEND_OUT_OF_MEMORY"},
-		{"receipt", &receiptPreviewResolutionError{ReceiptID: "receipt-1", Err: contractMismatch("output_execution", "patients", "private-expected", "private-actual")}, http.StatusConflict, "RECEIPT_RECOMPILE_REQUIRED"},
+		{"receipt", &receiptapi.PreviewResolutionError{ReceiptID: "receipt-1", Err: receiptapi.NewContractMismatch("output_execution", "patients", "private-expected", "private-actual")}, http.StatusConflict, "RECEIPT_RECOMPILE_REQUIRED"},
 		{"unknown", errors.New("private"), http.StatusInternalServerError, "PREVIEW_FAILED"},
 	}
 	for _, test := range tests {
@@ -234,8 +236,8 @@ func TestUnlistedPivotCategoryPreviewErrorIsActionable(t *testing.T) {
 }
 
 func TestClassifyReceiptPreviewResolutionErrorOnlyMarksContractFailuresForRecompile(t *testing.T) {
-	mismatch := classifyReceiptPreviewResolutionError("receipt-1", contractMismatch("output_execution", "patients", "expected", "actual"))
-	var resolution *receiptPreviewResolutionError
+	mismatch := receiptapi.ClassifyPreviewResolutionError("receipt-1", receiptapi.NewContractMismatch("output_execution", "patients", "expected", "actual"))
+	var resolution *receiptapi.PreviewResolutionError
 	if !errors.As(mismatch, &resolution) || resolution.ReceiptID != "receipt-1" {
 		t.Fatalf("mismatch classification = %#v", mismatch)
 	}
@@ -250,7 +252,7 @@ func TestClassifyReceiptPreviewResolutionErrorOnlyMarksContractFailuresForRecomp
 		t.Fatalf("outputId detail = %#v", got)
 	}
 
-	compileFailure := classifyReceiptPreviewResolutionError("receipt-1", errors.New("compiler failed"))
+	compileFailure := receiptapi.ClassifyPreviewResolutionError("receipt-1", errors.New("compiler failed"))
 	if errors.As(compileFailure, &resolution) {
 		t.Fatalf("ordinary compiler failure was classified as a receipt mismatch: %v", compileFailure)
 	}

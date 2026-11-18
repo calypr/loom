@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -125,7 +126,7 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 		t.Fatal(err)
 	}
 	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}
-	receipt, err := compileExplorerReceipt(ctx, lifecycle.CompileReceiptRequest{Project: "project-a", ExplorerID: "published-rows", Workspace: workspace, SnapshotToken: snapshot.Token, Authorized: authorized}, nil, engine, service, nil, nil)
+	receipt, err := receiptapi.Compile(ctx, lifecycle.CompileReceiptRequest{Project: "project-a", ExplorerID: "published-rows", Workspace: workspace, SnapshotToken: snapshot.Token, Authorized: authorized}, nil, engine, service, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +182,7 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 		release.Publications = []dataset.ReleasePublication{{Selector: selectors[0], ExecutionID: execution.ID, Generation: generation, Required: true, VerifiedAt: *output.VerifiedAt}}
 		saved, err := releases.SaveRelease(ctx, release)
 		return saved, 0, err
-	}, MaterializeReceipt: explorerReceiptMaterializer(engine, target, registry, nil, nil, 2, 1024*1024, 100, 100)}
+	}, MaterializeReceipt: receiptapi.NewMaterializer(engine, target, registry, nil, nil, 2, 1024*1024, 100, 100)}
 	app := fiber.New()
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
 	path := "/api/v1/projects/project-a/explorers/published-rows"

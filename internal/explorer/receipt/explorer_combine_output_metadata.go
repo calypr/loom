@@ -1,4 +1,4 @@
-package server
+package receipt
 
 import (
 	"context"
@@ -13,19 +13,19 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-type resolvedCombineInputSchema map[int]ir.ResolvedClickHouseTable
+type ResolvedCombineInputSchema map[int]ir.ResolvedClickHouseTable
 
-type combineInputSchemaResolver func(context.Context, lower.CompiledRecipeOutput, recipe.RuntimeBindings) (resolvedCombineInputSchema, error)
+type CombineInputSchemaResolver func(context.Context, lower.CompiledRecipeOutput, recipe.RuntimeBindings) (ResolvedCombineInputSchema, error)
 
-func exactPublishedCombineInputSchemas(
+func ExactPublishedCombineInputSchemas(
 	ctx context.Context,
 	output lower.CompiledRecipeOutput,
 	bindings recipe.RuntimeBindings,
 	reader reciperuntime.ExactMaterializationReader,
 	withPins dataframeexecution.WithExecutionReadPins,
 	scopes *authscope.ScopeResolver,
-) (resolvedCombineInputSchema, error) {
-	result := resolvedCombineInputSchema{}
+) (ResolvedCombineInputSchema, error) {
+	result := ResolvedCombineInputSchema{}
 	combine := output.Plan.ClickHouseCombine
 	if combine == nil {
 		return result, nil

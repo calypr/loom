@@ -1,4 +1,4 @@
-package server
+package receipt
 
 import (
 	"crypto/sha256"
@@ -18,7 +18,7 @@ type outputFingerprintColumn struct {
 	Nullable, Internal, Identity          bool
 }
 
-func resolvedOutputArtifacts(resolved dataframeexecution.Resolved) (map[string]string, map[string]map[string]string, error) {
+func ResolvedOutputArtifacts(resolved dataframeexecution.Resolved) (map[string]string, map[string]map[string]string, error) {
 	result := make(map[string]string, len(resolved.Compiled.Outputs))
 	provenance := make(map[string]map[string]string, len(resolved.Compiled.Outputs))
 	for _, output := range resolved.Compiled.Outputs {

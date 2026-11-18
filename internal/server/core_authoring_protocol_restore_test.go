@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -341,7 +343,7 @@ func newCoreProtocolPendingFixture(t *testing.T) *coreProtocolPendingFixture {
 			if base.beforeCompile != nil {
 				base.beforeCompile()
 			}
-			return compileExplorerReceipt(ctx, request, nil, engine, domain, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
 		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
 			return domain.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
@@ -350,7 +352,7 @@ func newCoreProtocolPendingFixture(t *testing.T) *coreProtocolPendingFixture {
 			if pending.beforePreview != nil {
 				pending.beforePreview()
 			}
-			resolved, resolveErr := compileValidatedReceiptResolution(ctx, engine, receipt, bindings)
+			resolved, resolveErr := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
 			if resolveErr != nil {
 				return dataframeexecution.PreviewSummary{}, resolveErr
 			}

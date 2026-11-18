@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"testing"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
+
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 
@@ -145,7 +147,7 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			receipt, err := compileExplorerReceipt(ctx, request, nil, engine, service, nil, nil)
+			receipt, err := receiptapi.Compile(ctx, request, nil, engine, service, nil, nil)
 			if err == nil && request.RequestID == "row-definition-proposal-candidate" {
 				candidateReceipt = receipt
 			}
@@ -153,7 +155,7 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 		},
 		ExplicitGroupResolver: groupResolver,
 		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-			resolved, err := compileValidatedReceiptResolution(ctx, engine, receipt, bindings)
+			resolved, err := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
 			if err != nil {
 				return dataframeexecution.PreviewSummary{}, err
 			}

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
@@ -220,7 +221,7 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		ScanCategories: func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 			categoryScanCalls++
@@ -487,7 +488,7 @@ func TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute(t *testing.T) {
 			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, engine, service, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, engine, service, nil, nil)
 		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || receipt.ConstructionProposal == nil {
@@ -740,7 +741,7 @@ func TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata
 			}, nil
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previewCalls++
@@ -951,10 +952,10 @@ func TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP(t *tes
 		},
 		RowChoicePlanner: rowChoices,
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
-			return compileConstructionSourceStage(ctx, request, recipeEngine)
+			return receiptapi.CompileConstructionSourceStage(ctx, request, recipeEngine)
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previewCalls++
@@ -1391,10 +1392,10 @@ func TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP(t *
 			Catalog: authoringv2.CatalogFromCapability,
 		},
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
-			return compileConstructionSourceStage(ctx, request, recipeEngine)
+			return receiptapi.CompileConstructionSourceStage(ctx, request, recipeEngine)
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || receipt.ConstructionProposal == nil {
@@ -1730,7 +1731,7 @@ func TestAuthoredSemanticGroupOutputCanBeRemovedByDownstreamUnpivot(t *testing.T
 			{ID: "unpivot_semantic_key", Operation: "UNPIVOT"},
 		},
 	}
-	if err := authoredConstructionOutputsWithCombineInputs(document, map[string]authoredOutputColumn{}, compiled, nil, capability.Snapshot{}); err != nil {
+	if err := receiptapi.AuthoredConstructionOutputsWithCombineInputs(document, map[string]receiptapi.AuthoredOutputColumn{}, compiled, nil, capability.Snapshot{}); err != nil {
 		t.Fatalf("reconcile semantic Group key removed by downstream UNPIVOT: %v", err)
 	}
 }
@@ -1876,7 +1877,7 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || receipt.ConstructionProposal == nil {
@@ -1902,7 +1903,7 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 			if err := json.Unmarshal(storedRaw, &storedReceipt); err != nil {
 				t.Fatalf("decode related-source receipt as the Arango store does: %v", err)
 			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, &storedReceipt, bindings)
+			resolved, err := receiptapi.CompileValidatedResolution(ctx, recipeEngine, &storedReceipt, bindings)
 			if err != nil {
 				t.Fatalf("validate the JSON round-tripped related-source receipt before preview: %v", err)
 			}
@@ -1930,7 +1931,7 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 			if relatedEmission.ConstructionID != step.ID || relatedEmission.SourceResourceType != "Observation" || relatedEmission.SourcePath != "status" || relatedEmission.CandidateID != candidate.ID || relatedEmission.OccurrenceID != candidate.NodeID ||
 				relatedEmission.NodeID != candidate.NodeID || len(relatedEmission.AuthoredColumns) != 0 || len(relatedEmission.InputColumns) != 0 ||
 				relatedEmission.Cardinality != wantCardinality || relatedEmission.Shape != wantShape || relatedEmission.Lossless || relatedEmission.MLReady || relatedEmission.StructuralSuitability != "requires-review" || relatedEmission.Filterable != wantFilterable || relatedEmission.Chartable != wantChartable ||
-				!containsOutputContractString(relatedEmission.LossReasons, "RELATED_SOURCE_AUTHORIZED_MATCHES_ONLY") || !containsOutputContractString(relatedEmission.LossReasons, tableShapeMLReadinessUnassessed) {
+				!receiptapi.ContainsOutputContractString(relatedEmission.LossReasons, "RELATED_SOURCE_AUTHORIZED_MATCHES_ONLY") || !receiptapi.ContainsOutputContractString(relatedEmission.LossReasons, receiptapi.TableShapeMLReadinessUnassessed) {
 				return dataframeexecution.PreviewSummary{}, fmt.Errorf("related-source output metadata does not match row value policy %q: %#v", related.RowValuePolicy, *relatedEmission)
 			}
 			contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
@@ -2239,10 +2240,10 @@ func TestConstructionProposalCurrentCodingGroupSpecimenFocusObservationHTTP(t *t
 		},
 		RowChoicePlanner: rowChoices,
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
-			return compileConstructionSourceStage(ctx, request, recipeEngine)
+			return receiptapi.CompileConstructionSourceStage(ctx, request, recipeEngine)
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || receipt.ConstructionProposal == nil || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != outputID {
@@ -2265,7 +2266,7 @@ func TestConstructionProposalCurrentCodingGroupSpecimenFocusObservationHTTP(t *t
 				sourceStage.GroupFieldSourceContext.SourceExpansion.Selector != codingPath {
 				return dataframeexecution.PreviewSummary{}, fmt.Errorf("compiled source projection lost the exact expanded Observation Coding context: found=%t stage=%#v", foundSourceStage, sourceStage)
 			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
+			resolved, err := receiptapi.CompileValidatedResolution(ctx, recipeEngine, receipt, bindings)
 			if err != nil {
 				return dataframeexecution.PreviewSummary{}, fmt.Errorf("validate proposal receipt before native preview: %w", err)
 			}
@@ -2457,10 +2458,10 @@ func TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation(t *testing.
 			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
-			return compileConstructionSourceStage(ctx, request, recipeEngine)
+			return receiptapi.CompileConstructionSourceStage(ctx, request, recipeEngine)
 		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || len(receipt.EmittedColumns) != 1 {

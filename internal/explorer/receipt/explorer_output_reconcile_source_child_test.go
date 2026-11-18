@@ -1,4 +1,4 @@
-package server
+package receipt
 
 import (
 	"reflect"
@@ -86,8 +86,8 @@ func TestAuthoredConstructionOutputsResolveCompilerSourceChildren(t *testing.T) 
 				ID:      recipe.ConstructionSourceProjectionID,
 				Columns: []lower.CompiledOutputColumn{{ID: childID, Name: "family_0", Label: "Family [0]", SourceChild: child}},
 			}}}
-			authored := make(map[string]authoredOutputColumn)
-			if err := authoredConstructionOutputsWithCombineInputs(document, authored, compiled, nil, capability.Snapshot{}); err != nil {
+			authored := make(map[string]AuthoredOutputColumn)
+			if err := AuthoredConstructionOutputsWithCombineInputs(document, authored, compiled, nil, capability.Snapshot{}); err != nil {
 				t.Fatalf("reconcile construction output: %v", err)
 			}
 			for _, outputID := range test.outputIDs {

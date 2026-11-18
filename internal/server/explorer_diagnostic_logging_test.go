@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
@@ -176,7 +177,7 @@ func TestCompileExplorerReceiptLogsSafeStructuredSummary(t *testing.T) {
 	requestID := "http-request-123"
 	ctx := httpapi.ContextWithRequestID(context.Background(), requestID)
 	request, engine, service := diagnosticCompileFixture(t, "synthetic-compile-role")
-	receipt, err := compileExplorerReceipt(ctx, request, nil, engine, service, logger, nil)
+	receipt, err := receiptapi.Compile(ctx, request, nil, engine, service, logger, nil)
 	if err != nil {
 		t.Fatalf("compile receipt: %v", err)
 	}
@@ -214,13 +215,13 @@ func TestConfiguredCategoryScannerSeparatesResolutionAndScanDiagnostics(t *testi
 	var output bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
 	request, engine, service := diagnosticCompileFixture(t, "compile-role")
-	receipt, err := compileExplorerReceipt(context.Background(), request, nil, engine, service, nil, nil)
+	receipt, err := receiptapi.Compile(context.Background(), request, nil, engine, service, nil, nil)
 	if err != nil {
 		t.Fatalf("compile receipt fixture: %v", err)
 	}
 	ctx := httpapi.ContextWithRequestID(context.Background(), "request-category")
 	requestScan := dataframeexecution.CategoryScanRequest{Output: "patients", Column: "c_patient", MaxValues: 10}
-	_, err = configuredCategoryScanner(logger, engine)(ctx, receipt, recipeBindingsForDiagnostic(receipt), requestScan)
+	_, err = receiptapi.NewRuntime(receiptapi.RuntimeConfig{Engine: engine, Logger: logger}).ScanCategories(ctx, receipt, recipeBindingsForDiagnostic(receipt), requestScan)
 	if err != nil {
 		t.Fatalf("category scan: %v", err)
 	}
@@ -240,7 +241,7 @@ func TestConfiguredCategoryScannerUsesPivotTimeoutAndPreservesBackendErrors(t *t
 	var output bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
 	request, receiptEngine, service := diagnosticCompileFixture(t, "pivot-timeout")
-	receipt, err := compileExplorerReceipt(context.Background(), request, nil, receiptEngine, service, nil, nil)
+	receipt, err := receiptapi.Compile(context.Background(), request, nil, receiptEngine, service, nil, nil)
 	if err != nil {
 		t.Fatalf("compile receipt fixture: %v", err)
 	}
@@ -275,7 +276,7 @@ func TestConfiguredCategoryScannerUsesPivotTimeoutAndPreservesBackendErrors(t *t
 		t.Fatalf("create category scan engine: %v", err)
 	}
 	requestScan := dataframeexecution.CategoryScanRequest{Output: "patients", Column: "c_patient", MaxValues: 10}
-	if _, err := configuredCategoryScanner(logger, scanEngine)(context.Background(), receipt, recipeBindingsForDiagnostic(receipt), requestScan); err != nil {
+	if _, err := receiptapi.NewRuntime(receiptapi.RuntimeConfig{Engine: scanEngine, Logger: logger}).ScanCategories(context.Background(), receipt, recipeBindingsForDiagnostic(receipt), requestScan); err != nil {
 		t.Fatalf("category scan: %v", err)
 	}
 	remaining := time.Until(queryDeadline)
@@ -289,7 +290,7 @@ func TestConfiguredCategoryScannerUsesPivotTimeoutAndPreservesBackendErrors(t *t
 	parentDeadline := time.Now().Add(2 * time.Second)
 	parentCtx, cancel := context.WithDeadline(context.Background(), parentDeadline)
 	defer cancel()
-	if _, err := configuredCategoryScanner(logger, scanEngine)(parentCtx, receipt, recipeBindingsForDiagnostic(receipt), requestScan); err != nil {
+	if _, err := receiptapi.NewRuntime(receiptapi.RuntimeConfig{Engine: scanEngine, Logger: logger}).ScanCategories(parentCtx, receipt, recipeBindingsForDiagnostic(receipt), requestScan); err != nil {
 		t.Fatalf("category scan with earlier caller deadline: %v", err)
 	}
 	if !queryDeadline.Equal(parentDeadline) {
@@ -306,7 +307,7 @@ func TestConfiguredCategoryScannerUsesPivotTimeoutAndPreservesBackendErrors(t *t
 	if err != nil {
 		t.Fatalf("create failing category scan engine: %v", err)
 	}
-	_, err = configuredCategoryScanner(logger, failingEngine)(context.Background(), receipt, recipeBindingsForDiagnostic(receipt), requestScan)
+	_, err = receiptapi.NewRuntime(receiptapi.RuntimeConfig{Engine: failingEngine, Logger: logger}).ScanCategories(context.Background(), receipt, recipeBindingsForDiagnostic(receipt), requestScan)
 	if !errors.Is(err, backendFailure) || errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("non-timeout category error = %v, want original backend cause without timeout classification", err)
 	}
@@ -316,14 +317,14 @@ func TestConfiguredCategoryScannerReturnsTransportNeutralReceiptConflict(t *test
 	var output bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
 	request, engine, service := diagnosticCompileFixture(t, "compile-role")
-	receipt, err := compileExplorerReceipt(context.Background(), request, nil, engine, service, nil, nil)
+	receipt, err := receiptapi.Compile(context.Background(), request, nil, engine, service, nil, nil)
 	if err != nil {
 		t.Fatalf("compile receipt fixture: %v", err)
 	}
 	receipt.ResolvedSchemaDigest = "private-mismatch-value"
 	ctx := httpapi.ContextWithRequestID(context.Background(), "request-category-conflict")
 	requestScan := dataframeexecution.CategoryScanRequest{Output: "patients", StageID: "stage-base", ColumnID: "category-id", ValueColumnID: "value-id", MaxValues: 10}
-	_, err = configuredCategoryScanner(logger, engine)(ctx, receipt, recipeBindingsForDiagnostic(receipt), requestScan)
+	_, err = receiptapi.NewRuntime(receiptapi.RuntimeConfig{Engine: engine, Logger: logger}).ScanCategories(ctx, receipt, recipeBindingsForDiagnostic(receipt), requestScan)
 	var authoringErr *explorer.AuthoringError
 	if !errors.As(err, &authoringErr) || authoringErr.Status != http.StatusConflict || authoringErr.Diagnostic.Code != "RECEIPT_RECOMPILE_REQUIRED" {
 		t.Fatalf("category conflict cause = %#v, want mapped redacted 409 authoring error", err)

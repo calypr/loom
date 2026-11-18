@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -32,7 +34,7 @@ func TestGroupedDynamicSourceReceiptReplaysWithoutDiscardingValidation(t *testin
 	if len(resolved.Compiled.Outputs[0].DynamicColumns) != 1 {
 		t.Fatal("source dynamic validation metadata lost")
 	}
-	fingerprints, provenance, err := resolvedOutputArtifacts(resolved)
+	fingerprints, provenance, err := receiptapi.ResolvedOutputArtifacts(resolved)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +45,7 @@ func TestGroupedDynamicSourceReceiptReplaysWithoutDiscardingValidation(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	stages, err := receiptConstructionStages(&resolved)
+	stages, err := receiptapi.ConstructionStages(&resolved)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +65,7 @@ func TestGroupedDynamicSourceReceiptReplaysWithoutDiscardingValidation(t *testin
 	if err = json.Unmarshal(raw, &stored); err != nil {
 		t.Fatal(err)
 	}
-	replay, err := compileValidatedReceiptResolution(context.Background(), engine, &stored, bindings)
+	replay, err := receiptapi.CompileValidatedResolution(context.Background(), engine, &stored, bindings)
 	if err != nil {
 		t.Fatalf("unchanged Group with source-only dynamic checks cannot replay its receipt: %v", err)
 	}
@@ -83,13 +85,13 @@ func TestGroupedDynamicSourceReceiptReplaysWithoutDiscardingValidation(t *testin
 		}},
 	} {
 		change.apply()
-		if err := validateReceiptResolution(&stored, &replay); err == nil {
+		if err := receiptapi.ValidateResolution(&stored, &replay); err == nil {
 			t.Fatalf("receipt accepted changed source dynamic %s validation", change.name)
 		}
 		change.undo()
 	}
 	delete(stored.OutputColumnProvenance["patients"], "row_count")
-	if _, err := compileValidatedReceiptResolution(context.Background(), engine, &stored, bindings); err == nil || !strings.Contains(err.Error(), "provenance") {
+	if _, err := receiptapi.CompileValidatedResolution(context.Background(), engine, &stored, bindings); err == nil || !strings.Contains(err.Error(), "provenance") {
 		t.Fatalf("receipt accepted missing final Group column provenance: %v", err)
 	}
 }

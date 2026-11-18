@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
@@ -295,7 +296,7 @@ func applyConstructionPreviewRouteFixture(t *testing.T, failApplyCapture, emptyA
 			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previewCallCount++

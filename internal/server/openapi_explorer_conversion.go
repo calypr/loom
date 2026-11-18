@@ -3,6 +3,8 @@ package server
 import (
 	"strings"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -28,7 +30,7 @@ func v2ReceiptResponse(receipt *explorer.CompilationReceipt, workspace authoring
 	}
 	outputs := make([]loomapi.ReceiptOutput, 0, len(receipt.Bundle.Outputs))
 	for _, compiledOutput := range receipt.Bundle.Outputs {
-		document, found := semanticWorkspaceDocument(workspace, compiledOutput.Name)
+		document, found := receiptapi.SemanticWorkspaceDocument(workspace, compiledOutput.Name)
 		if !found {
 			continue
 		}

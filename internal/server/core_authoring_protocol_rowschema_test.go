@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
+
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
@@ -301,13 +303,13 @@ func c19NewFixture(t *testing.T) (*coreProtocolFixture, *c19RowStore) {
 			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, engine, domain, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
 		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
 			return domain.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 		},
 		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-			resolved, resolveErr := compileValidatedReceiptResolution(ctx, engine, receipt, bindings)
+			resolved, resolveErr := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
 			if resolveErr != nil {
 				return dataframeexecution.PreviewSummary{}, resolveErr
 			}
@@ -860,13 +862,13 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, engine, domain, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
 		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
 			return domain.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
 		},
 		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-			resolved, resolveErr := compileValidatedReceiptResolution(ctx, engine, receipt, bindings)
+			resolved, resolveErr := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
 			if resolveErr != nil {
 				return dataframeexecution.PreviewSummary{}, resolveErr
 			}

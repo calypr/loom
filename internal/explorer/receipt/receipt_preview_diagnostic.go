@@ -1,4 +1,4 @@
-package server
+package receipt
 
 import (
 	"errors"
@@ -7,11 +7,11 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
-func logReceiptPreviewContractFailure(logger *slog.Logger, requestID, receiptID, outputID string, err error) {
+func LogPreviewContractFailure(logger *slog.Logger, requestID, receiptID, outputID string, err error) {
 	if logger == nil || err == nil {
 		return
 	}
-	var mismatch *receiptContractMismatch
+	var mismatch *ContractMismatch
 	hasMismatch := errors.As(err, &mismatch)
 	userErr, hasUserError := dataframeerrors.AsUserError(err)
 	contractFailure := hasUserError && userErr.Code() == string(dataframeerrors.CodeRecipeContractViolation)

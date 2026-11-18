@@ -1,10 +1,12 @@
-package server
+package receipt
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"testing"
+
+	"github.com/calypr/loom/internal/testkit/recipetest"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -17,7 +19,7 @@ func TestValidateReceiptFullStreamScansPastPreviewCapAndOnlySelectedOutput(t *te
 	rowsVisited := 0
 	queries := 0
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{},
+		Registry: recipetest.Registry{},
 		QueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 			queries++
 			if queries != 1 {
@@ -56,7 +58,7 @@ func TestValidateReceiptFullStreamScansPastPreviewCapAndOnlySelectedOutput(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	fingerprints, provenance, err := resolvedOutputArtifacts(compiled)
+	fingerprints, provenance, err := ResolvedOutputArtifacts(compiled)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +72,7 @@ func TestValidateReceiptFullStreamScansPastPreviewCapAndOnlySelectedOutput(t *te
 		},
 	}
 
-	err = validateReceiptFullStream(context.Background(), recipeEngine, receipt, recipe.RuntimeBindings{
+	err = ValidateFullStream(context.Background(), recipeEngine, receipt, recipe.RuntimeBindings{
 		Project: "project-a", DatasetGeneration: "generation-a", PreviewLimit: 0, OutputNames: []string{"patients"},
 	})
 	if !errors.Is(err, lateViolation) {

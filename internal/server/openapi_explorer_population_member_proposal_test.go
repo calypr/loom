@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
@@ -247,7 +248,7 @@ func TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS(t *
 			return nil
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, engine, domain, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || receipt.PopulationMemberRemovalProposal == nil || receipt.PopulationMemberRemovalProposal.CandidateSelectionRevisionID == "" {

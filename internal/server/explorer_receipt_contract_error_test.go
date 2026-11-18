@@ -8,13 +8,15 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 )
 
 func TestConstructionInputNamesReportsTheMissingColumn(t *testing.T) {
-	_, err := constructionInputNames(map[string]string{"present": "name"}, []string{"present", "missing"})
-	var missing *constructionInputMissingError
+	_, err := receiptapi.ConstructionInputNames(map[string]string{"present": "name"}, []string{"present", "missing"})
+	var missing *receiptapi.ConstructionInputMissingError
 	if !errors.As(err, &missing) {
-		t.Fatalf("error = %v, want constructionInputMissingError", err)
+		t.Fatalf("error = %v, want receiptapi.ConstructionInputMissingError", err)
 	}
 	if missing.ColumnID != "missing" {
 		t.Fatalf("column ID = %q, want missing", missing.ColumnID)
@@ -23,7 +25,7 @@ func TestConstructionInputNamesReportsTheMissingColumn(t *testing.T) {
 
 func TestReceiptContractFailureIsDescriptive(t *testing.T) {
 	const columnID = "source_child_v1_missing"
-	err := receiptContractFailure(fmt.Errorf("reconcile output metadata: %w", &constructionInputMissingError{ColumnID: columnID, StepID: "pivot_1", OutputName: "missing_value"}))
+	err := receiptapi.ContractFailure(fmt.Errorf("reconcile output metadata: %w", &receiptapi.ConstructionInputMissingError{ColumnID: columnID, StepID: "pivot_1", OutputName: "missing_value"}))
 	status, response := authoringErrorForOpenAPI(context.Background(), "proposeExplorerConstruction", err)
 	if status != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d", status, http.StatusInternalServerError)
@@ -48,7 +50,7 @@ func TestReceiptContractFailureIsDescriptive(t *testing.T) {
 
 func TestReceiptContractFailureDoesNotLeakPrivateCause(t *testing.T) {
 	private := errors.New("private compiler memory address")
-	err := receiptContractFailure(fmt.Errorf("wrapped: %w", private))
+	err := receiptapi.ContractFailure(fmt.Errorf("wrapped: %w", private))
 	_, response := authoringErrorForOpenAPI(context.Background(), "proposeExplorerConstruction", err)
 	wire, marshalErr := json.Marshal(response)
 	if marshalErr != nil {

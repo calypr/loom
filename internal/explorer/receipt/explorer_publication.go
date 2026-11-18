@@ -1,4 +1,4 @@
-package server
+package receipt
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
-func explorerReceiptMaterializer(recipeEngine *dataframeexecution.Engine, target publication.Target, registry *materializationarango.Registry, degradation error, logger *slog.Logger, batchRows, batchBytes int, qualityMaxRows, qualityMaxDistinctKeys int64) lifecycle.ReceiptMaterializer {
+func NewMaterializer(recipeEngine *dataframeexecution.Engine, target publication.Target, registry *materializationarango.Registry, degradation error, logger *slog.Logger, batchRows, batchBytes int, qualityMaxRows, qualityMaxDistinctKeys int64) lifecycle.ReceiptMaterializer {
 	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (lifecycle.Execution, error) {
 		if receipt == nil {
 			return lifecycle.Execution{}, fmt.Errorf("compilation receipt is required")
@@ -42,7 +42,7 @@ func explorerReceiptMaterializer(recipeEngine *dataframeexecution.Engine, target
 		bindings.IncludeAuthResourcePath = true
 		var identity publication.BundleIdentity
 		_, err = recipeEngine.MaterializeResolvedBundle(ctx, receipt.Bundle, bindings, func(run context.Context, full dataframeexecution.Resolved) error {
-			if validationErr := validateReceiptResolution(receipt, &full); validationErr != nil {
+			if validationErr := ValidateResolution(receipt, &full); validationErr != nil {
 				return validationErr
 			}
 			var publishErr error

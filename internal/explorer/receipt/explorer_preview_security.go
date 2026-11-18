@@ -1,4 +1,4 @@
-package server
+package receipt
 
 import (
 	"fmt"
@@ -10,9 +10,9 @@ import (
 
 var ErrReceiptExecutionContract = explorer.ErrReceiptExecutionContract
 
-func validateReceiptEnginePublicColumns(receipt *explorer.CompilationReceipt, resolved dataframeexecution.Resolved) error {
+func ValidateEnginePublicColumns(receipt *explorer.CompilationReceipt, resolved dataframeexecution.Resolved) error {
 	if receipt == nil {
-		return receiptExecutionContractError("receipt is required")
+		return ExecutionContractError("receipt is required")
 	}
 	want := make(map[string][]string)
 	groupedOutputs := make(map[string]bool)
@@ -23,16 +23,16 @@ func validateReceiptEnginePublicColumns(receipt *explorer.CompilationReceipt, re
 	}
 	for _, emitted := range receipt.EmittedColumns {
 		if strings.TrimSpace(emitted.OutputID) == "" || strings.TrimSpace(emitted.PublicColumn) == "" {
-			return receiptExecutionContractError("receipt contains an invalid emitted column")
+			return ExecutionContractError("receipt contains an invalid emitted column")
 		}
 		want[emitted.OutputID] = append(want[emitted.OutputID], emitted.PublicColumn)
 	}
 	var groupedFingerprints map[string]string
 	if len(groupedOutputs) > 0 {
 		var err error
-		groupedFingerprints, _, err = resolvedOutputArtifacts(resolved)
+		groupedFingerprints, _, err = ResolvedOutputArtifacts(resolved)
 		if err != nil {
-			return receiptExecutionContractError("cannot reproduce grouped output fingerprints: %v", err)
+			return ExecutionContractError("cannot reproduce grouped output fingerprints: %v", err)
 		}
 	}
 	seen := make(map[string]bool)
@@ -52,12 +52,12 @@ func validateReceiptEnginePublicColumns(receipt *explorer.CompilationReceipt, re
 			}
 		}
 		if !sameUniqueStrings(actual, want[output.Name]) {
-			return receiptExecutionContractError("engine public columns for output %q differ from receipt", output.Name)
+			return ExecutionContractError("engine public columns for output %q differ from receipt", output.Name)
 		}
 	}
 	for output := range want {
 		if !seen[output] {
-			return receiptExecutionContractError("receipt contains columns for unknown output %q", output)
+			return ExecutionContractError("receipt contains columns for unknown output %q", output)
 		}
 	}
 	return nil
@@ -87,6 +87,6 @@ func sameUniqueStrings(left, right []string) bool {
 	return true
 }
 
-func receiptExecutionContractError(format string, args ...any) error {
+func ExecutionContractError(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrReceiptExecutionContract, fmt.Sprintf(format, args...))
 }

@@ -81,7 +81,7 @@ already exist.
 | `internal/explorer/capability/resolver` | `explorer_capability.go`; the scope half of `explorer_preview_security.go` (`validateAuthorizedReadScope`, scope digest) |
 | `internal/explorer/importedsource` | `explorer_imported_recipes.go`, `explorer_imported_source_edit.go`, `explorer_authoring_network.go` |
 | `internal/explorer/constructioninputs` | `construction_inputs_catalog.go` |
-| `internal/explorer/receipt` | `explorer_receipt_contract.go`, `explorer_receipt_validation.go`, `explorer_output_reconcile.go`, `explorer_combine_output_metadata.go`, `explorer_lifecycle_helpers.go`, `explorer_publication.go`, `receipt_preview_diagnostic.go`, the receipt half of `explorer_preview_security.go`, plus a `receipt.Runtime` type that replaces the lifecycle closures in `server.go` (preview, validate stream, population mapping, cell trace, row lineage, lookup, materialize) |
+| `internal/explorer/receipt` | `explorer_receipt_contract.go`, `explorer_receipt_validation.go`, `explorer_output_reconcile.go`, `explorer_combine_output_metadata.go`, `explorer_lifecycle_helpers.go`, `explorer_publication.go`, `receipt_preview_diagnostic.go`, the receipt half of `explorer_preview_security.go`, plus a `receipt.Runtime` type that replaces the lifecycle closures in `server.go` (compile, compile source stage, scan categories and column population, preview, validate stream, population mapping, cell trace, row lineage, lookup, materialize) |
 
 ### Transport: one handler type per domain
 

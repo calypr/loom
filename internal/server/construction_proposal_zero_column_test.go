@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
@@ -147,7 +148,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 			return sourceStage, nil
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, engine, domain, nil, nil)
+			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
 		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previewCalls++
@@ -156,7 +157,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 				!bindings.IncludeRowIdentity || !bindings.IncludeSourceIdentity {
 				t.Fatalf("apply preview was not bound to exact candidate receipt: receipt=%#v bindings=%#v", receipt, bindings)
 			}
-			resolved, err := compileValidatedReceiptResolution(ctx, engine, receipt, bindings)
+			resolved, err := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
 			if err != nil {
 				return dataframeexecution.PreviewSummary{}, err
 			}

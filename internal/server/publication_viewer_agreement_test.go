@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -213,7 +214,7 @@ func publicationAgreementFixture(t *testing.T) (*fiber.App, *agreementPublicatio
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := compileExplorerReceipt(context.Background(), lifecycle.CompileReceiptRequest{
+	receipt, err := receiptapi.Compile(context.Background(), lifecycle.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "publication-agreement", Workspace: workspace, SnapshotToken: snapshot.Token,
 		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 	}, nil, engine, service, nil, nil)

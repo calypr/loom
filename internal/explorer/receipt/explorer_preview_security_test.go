@@ -1,4 +1,4 @@
-package server
+package receipt
 
 import (
 	"context"
@@ -13,36 +13,37 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/testkit/recipetest"
 )
 
 func TestValidateReceiptEnginePublicColumnsUsesExactPublicColumnSet(t *testing.T) {
 	snapshot := testAuthorizedCapabilitySnapshot(t, "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	receipt := testSecurityReceipt(t, snapshot, "patients", []string{"id", "name"})
 	resolved := dataframeexecution.Resolved{Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{Name: "patients", OutputSchema: []lower.CompiledOutputColumn{{Name: "id"}, {Name: "__loom_row_id", Internal: true}, {Name: "__loom_identity", Identity: true}, {Name: "name"}}}}}}
-	if err := validateReceiptEnginePublicColumns(receipt, resolved); err != nil {
+	if err := ValidateEnginePublicColumns(receipt, resolved); err != nil {
 		t.Fatal(err)
 	}
 	wrongOrder := *receipt
 	wrongOrder.EmittedColumns = append([]explorer.EmittedColumn(nil), receipt.EmittedColumns...)
 	wrongOrder.EmittedColumns[0], wrongOrder.EmittedColumns[1] = wrongOrder.EmittedColumns[1], wrongOrder.EmittedColumns[0]
-	if err := validateReceiptEnginePublicColumns(&wrongOrder, resolved); err != nil {
+	if err := ValidateEnginePublicColumns(&wrongOrder, resolved); err != nil {
 		t.Fatalf("presentation order must not change execution compatibility: %v", err)
 	}
 	hidden := *receipt
 	hidden.EmittedColumns = append([]explorer.EmittedColumn(nil), receipt.EmittedColumns...)
 	hidden.EmittedColumns[0].PublicColumn = "__loom_row_id"
-	if err := validateReceiptEnginePublicColumns(&hidden, resolved); !errors.Is(err, ErrReceiptExecutionContract) {
+	if err := ValidateEnginePublicColumns(&hidden, resolved); !errors.Is(err, explorer.ErrReceiptExecutionContract) {
 		t.Fatalf("hidden-column error=%v, want contract mismatch", err)
 	}
 	duplicate := *receipt
 	duplicate.EmittedColumns = append([]explorer.EmittedColumn(nil), receipt.EmittedColumns...)
 	duplicate.EmittedColumns[1].PublicColumn = "id"
-	if err := validateReceiptEnginePublicColumns(&duplicate, resolved); !errors.Is(err, ErrReceiptExecutionContract) {
+	if err := ValidateEnginePublicColumns(&duplicate, resolved); !errors.Is(err, explorer.ErrReceiptExecutionContract) {
 		t.Fatalf("duplicate-column error=%v, want contract mismatch", err)
 	}
 	extra := *receipt
 	extra.EmittedColumns = append(append([]explorer.EmittedColumn(nil), receipt.EmittedColumns...), explorer.EmittedColumn{OutputID: "patients", PublicColumn: "extra"})
-	if err := validateReceiptEnginePublicColumns(&extra, resolved); !errors.Is(err, ErrReceiptExecutionContract) {
+	if err := ValidateEnginePublicColumns(&extra, resolved); !errors.Is(err, explorer.ErrReceiptExecutionContract) {
 		t.Fatalf("extra-column error=%v, want contract mismatch", err)
 	}
 }
@@ -59,7 +60,7 @@ func TestValidateReceiptEnginePublicColumnsUsesExplicitGroupSchema(t *testing.T)
 		}},
 	}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:     compilerTestRegistry{},
+		Registry:     recipetest.Registry{},
 		RootPageRows: 25,
 		QueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 			return visit(map[string]any{
@@ -76,7 +77,7 @@ func TestValidateReceiptEnginePublicColumnsUsesExplicitGroupSchema(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fingerprints, _, err := resolvedOutputArtifacts(resolved)
+	fingerprints, _, err := ResolvedOutputArtifacts(resolved)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,7 @@ func TestValidateReceiptEnginePublicColumnsUsesExplicitGroupSchema(t *testing.T)
 		Bundle: bundle, OutputFingerprints: fingerprints,
 		EmittedColumns: []explorer.EmittedColumn{{OutputID: "patients", PublicColumn: "id"}},
 	}
-	if err := validateReceiptEnginePublicColumns(receipt, resolved); err != nil {
+	if err := ValidateEnginePublicColumns(receipt, resolved); err != nil {
 		t.Fatalf("grouped row schema rejected despite stable explicit-group contract: %v", err)
 	}
 	var previewed []map[string]any
@@ -104,8 +105,8 @@ func TestValidateReceiptEnginePublicColumnsUsesExplicitGroupSchema(t *testing.T)
 	wrongSchema.Compiled.Outputs = append([]lower.CompiledRecipeOutput(nil), resolved.Compiled.Outputs...)
 	wrongSchema.Compiled.Outputs[0].OutputSchema = append([]lower.CompiledOutputColumn(nil), resolved.Compiled.Outputs[0].OutputSchema...)
 	wrongSchema.Compiled.Outputs[0].OutputSchema = append(wrongSchema.Compiled.Outputs[0].OutputSchema, lower.CompiledOutputColumn{Name: "unexpected"})
-	var mismatch *receiptContractMismatch
-	if err := validateReceiptEnginePublicColumns(receipt, wrongSchema); !errors.As(err, &mismatch) || mismatch.Component != "output_execution" {
+	var mismatch *ContractMismatch
+	if err := ValidateEnginePublicColumns(receipt, wrongSchema); !errors.As(err, &mismatch) || mismatch.Component != "output_execution" {
 		t.Fatalf("unexpected grouped output fingerprint error=%v, want output execution mismatch", err)
 	}
 }
@@ -139,8 +140,8 @@ func testSecurityReceipt(t *testing.T, snapshot capability.Snapshot, output stri
 }
 
 func TestReceiptExecutionContractErrorWrapsCause(t *testing.T) {
-	err := receiptExecutionContractError("generation %q changed", "generation-b")
-	if !errors.Is(err, ErrReceiptExecutionContract) || !strings.Contains(err.Error(), "generation-b") {
+	err := ExecutionContractError("generation %q changed", "generation-b")
+	if !errors.Is(err, explorer.ErrReceiptExecutionContract) || !strings.Contains(err.Error(), "generation-b") {
 		t.Fatalf("error=%v", err)
 	}
 }

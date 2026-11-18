@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
@@ -126,7 +127,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	}, ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 		return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}, Catalog: authoringv2.CatalogFromCapability}, CompileReceipt: func(ctx context.Context, r lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		result, err := compileExplorerReceipt(ctx, r, nil, engine, service, nil, nil)
+		result, err := receiptapi.Compile(ctx, r, nil, engine, service, nil, nil)
 		if err == nil {
 			compiled++
 		}
@@ -136,7 +137,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	}}
 	if rowClient != nil {
 		config.PreviewReceipt = func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-			resolved, err := compileValidatedReceiptResolution(ctx, engine, receipt, bindings)
+			resolved, err := receiptapi.CompileValidatedResolution(ctx, engine, receipt, bindings)
 			if err != nil {
 				return dataframeexecution.PreviewSummary{}, err
 			}

@@ -1,4 +1,4 @@
-package server
+package receipt
 
 import (
 	"errors"
@@ -19,7 +19,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
-type authoredOutputColumn struct {
+type AuthoredOutputColumn struct {
 	ConstructionID          string
 	Label                   string
 	InputColumns            []string
@@ -32,7 +32,7 @@ type authoredOutputColumn struct {
 	PriorStageSelfInput     bool
 	PreservesSourceIdentity bool
 	ExternalInputLineage    bool
-	Quality                 constructedOutputQuality
+	Quality                 ConstructedOutputQuality
 }
 
 type groupFieldSourceOutputIdentity struct {
@@ -97,20 +97,20 @@ func groupFieldSourceOutputIdentityForReconcile(
 	return identity, true
 }
 
-type constructedOutputQuality struct {
+type ConstructedOutputQuality struct {
 	Lossless              bool
 	Shape                 string
 	StructuralSuitability string
 	LossReasons           []string
 }
 
-const tableShapeMLReadinessUnassessed = "TABLE_SHAPE_ML_READINESS_UNASSESSED"
+const TableShapeMLReadinessUnassessed = "TABLE_SHAPE_ML_READINESS_UNASSESSED"
 
-func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult, resolved dataframeexecution.Resolved) (explorercompilation.WorkspaceResult, error) {
-	return reconcileFinalOutputMetadataWithCombineInputs(translated, resolved, nil, capability.Snapshot{})
+func ReconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult, resolved dataframeexecution.Resolved) (explorercompilation.WorkspaceResult, error) {
+	return ReconcileFinalOutputMetadataWithCombineInputs(translated, resolved, nil, capability.Snapshot{})
 }
 
-func reconcileFinalOutputMetadataWithCombineInputs(
+func ReconcileFinalOutputMetadataWithCombineInputs(
 	translated explorercompilation.WorkspaceResult,
 	resolved dataframeexecution.Resolved,
 	combineInputs map[string]map[int]ir.ResolvedClickHouseTable,
@@ -141,7 +141,7 @@ func reconcileFinalOutputMetadataWithCombineInputs(
 		}
 		compiledByOutput[output.Name] = output
 	}
-	documents, authoredColumns, err := authoredOutputColumnsWithCombineInputs(translated.Workspace, compiledByOutput, combineInputs, rowSourceSnapshot)
+	documents, authoredColumns, err := AuthoredOutputColumnsWithCombineInputs(translated.Workspace, compiledByOutput, combineInputs, rowSourceSnapshot)
 	if err != nil {
 		return explorercompilation.WorkspaceResult{}, err
 	}
@@ -469,7 +469,7 @@ func explicitGroupOutputEmission(document authoringv2.Document, outputID string,
 		Lossless:              false,
 		MLReady:               false,
 		StructuralSuitability: "requires-review",
-		LossReasons:           []string{"TABLE_SHAPE_GROUP_CHANGES_ROW_GRAIN", tableShapeMLReadinessUnassessed},
+		LossReasons:           []string{"TABLE_SHAPE_GROUP_CHANGES_ROW_GRAIN", TableShapeMLReadinessUnassessed},
 		Filterable:            filterable,
 		Chartable:             chartable,
 	}
@@ -508,18 +508,18 @@ func compiledUnpivotSourceSlotMatches(compiledOutput lower.CompiledRecipeOutput,
 	return compiledFilterSourceSlotMatches(compiledOutput, projection)
 }
 
-func authoredOutputColumns(workspace authoringv2.Workspace) (map[string]authoringv2.Document, map[string]map[string]authoredOutputColumn, error) {
-	return authoredOutputColumnsWithCombineInputs(workspace, nil, nil, capability.Snapshot{})
+func authoredOutputColumns(workspace authoringv2.Workspace) (map[string]authoringv2.Document, map[string]map[string]AuthoredOutputColumn, error) {
+	return AuthoredOutputColumnsWithCombineInputs(workspace, nil, nil, capability.Snapshot{})
 }
 
-func authoredOutputColumnsWithCombineInputs(
+func AuthoredOutputColumnsWithCombineInputs(
 	workspace authoringv2.Workspace,
 	compiledOutputs map[string]lower.CompiledRecipeOutput,
 	combineInputs map[string]map[int]ir.ResolvedClickHouseTable,
 	rowSourceSnapshot capability.Snapshot,
-) (map[string]authoringv2.Document, map[string]map[string]authoredOutputColumn, error) {
+) (map[string]authoringv2.Document, map[string]map[string]AuthoredOutputColumn, error) {
 	documents := make(map[string]authoringv2.Document, len(workspace.Documents))
-	columns := make(map[string]map[string]authoredOutputColumn, len(workspace.Documents))
+	columns := make(map[string]map[string]AuthoredOutputColumn, len(workspace.Documents))
 	for _, document := range workspace.Documents {
 		outputID := document.Output.ID
 		if strings.TrimSpace(outputID) == "" {
@@ -529,7 +529,7 @@ func authoredOutputColumnsWithCombineInputs(
 			return nil, nil, fmt.Errorf("duplicate workspace document output identity %q", outputID)
 		}
 		documents[outputID] = document
-		columns[outputID] = make(map[string]authoredOutputColumn)
+		columns[outputID] = make(map[string]AuthoredOutputColumn)
 		if document.Construction == nil {
 			continue
 		}
@@ -545,7 +545,7 @@ func authoredOutputColumnsWithCombineInputs(
 			if needsCompiledCombine && !exists {
 				return nil, nil, fmt.Errorf("compiled output %q is missing for Combine construction metadata", outputID)
 			}
-			if err := authoredConstructionOutputsWithCombineInputs(document, columns[outputID], compiledOutput, combineInputs[outputID], rowSourceSnapshot); err != nil {
+			if err := AuthoredConstructionOutputsWithCombineInputs(document, columns[outputID], compiledOutput, combineInputs[outputID], rowSourceSnapshot); err != nil {
 				return nil, nil, fmt.Errorf("construction outputs for document %q: %w", outputID, err)
 			}
 		}
@@ -553,13 +553,13 @@ func authoredOutputColumnsWithCombineInputs(
 	return documents, columns, nil
 }
 
-func authoredConstructionOutputs(document authoringv2.Document, authored map[string]authoredOutputColumn) error {
-	return authoredConstructionOutputsWithCombineInputs(document, authored, lower.CompiledRecipeOutput{}, nil, capability.Snapshot{})
+func authoredConstructionOutputs(document authoringv2.Document, authored map[string]AuthoredOutputColumn) error {
+	return AuthoredConstructionOutputsWithCombineInputs(document, authored, lower.CompiledRecipeOutput{}, nil, capability.Snapshot{})
 }
 
-func authoredConstructionOutputsWithCombineInputs(
+func AuthoredConstructionOutputsWithCombineInputs(
 	document authoringv2.Document,
-	authored map[string]authoredOutputColumn,
+	authored map[string]AuthoredOutputColumn,
 	compiledOutput lower.CompiledRecipeOutput,
 	resolvedInputs map[int]ir.ResolvedClickHouseTable,
 	rowSourceSnapshot capability.Snapshot,
@@ -618,7 +618,7 @@ func authoredConstructionOutputsWithCombineInputs(
 		}
 	}
 	for stepIndex, step := range document.Construction.Steps {
-		nextAuthored := make(map[string]authoredOutputColumn, len(step.Outputs))
+		nextAuthored := make(map[string]AuthoredOutputColumn, len(step.Outputs))
 		for _, output := range step.Outputs {
 			if prior[output.ID] == output.Name {
 				if metadata, exists := authored[output.Name]; exists {
@@ -626,7 +626,7 @@ func authoredConstructionOutputsWithCombineInputs(
 				}
 			}
 		}
-		addOutput := func(outputColumnID, constructionID string, inputIDs []string, quality constructedOutputQuality) error {
+		addOutput := func(outputColumnID, constructionID string, inputIDs []string, quality ConstructedOutputQuality) error {
 			if strings.TrimSpace(constructionID) == "" {
 				return fmt.Errorf("steps[%d] has no construction identity", stepIndex)
 			}
@@ -654,9 +654,9 @@ func authoredConstructionOutputsWithCombineInputs(
 				}
 				publicInputIDs = append(publicInputIDs, inputID)
 			}
-			inputColumns, err := constructionInputNames(prior, publicInputIDs)
+			inputColumns, err := ConstructionInputNames(prior, publicInputIDs)
 			if err != nil {
-				var missing *constructionInputMissingError
+				var missing *ConstructionInputMissingError
 				if errors.As(err, &missing) {
 					missing.StepID = step.ID
 					missing.OutputID = outputColumnID
@@ -679,7 +679,7 @@ func authoredConstructionOutputsWithCombineInputs(
 					break
 				}
 			}
-			nextAuthored[output.Name] = authoredOutputColumn{
+			nextAuthored[output.Name] = AuthoredOutputColumn{
 				ConstructionID: constructionID, Label: output.Label,
 				InputColumns: lineageInputs, TypedStageOutput: true,
 				PriorStageSelfInput: priorStageSelfInput, Quality: quality,
@@ -692,7 +692,7 @@ func authoredConstructionOutputsWithCombineInputs(
 				return fmt.Errorf("group step %q has no operation payload", step.ID)
 			}
 			group := step.Operation.Group
-			quality := constructedOutputQuality{
+			quality := ConstructedOutputQuality{
 				StructuralSuitability: "requires-review",
 				LossReasons:           []string{"TABLE_SHAPE_GROUP_CHANGES_ROW_GRAIN"},
 			}
@@ -819,7 +819,7 @@ func authoredConstructionOutputsWithCombineInputs(
 				return fmt.Errorf("coded group step %q has no operation payload", step.ID)
 			}
 			group := step.Operation.CodedGroup
-			quality := constructedOutputQuality{
+			quality := ConstructedOutputQuality{
 				Lossless: false, StructuralSuitability: "requires-review",
 				LossReasons: []string{"CODED_GROUP_REDUCES_TO_DISTINCT_SOURCE_RECORDS"},
 			}
@@ -860,7 +860,7 @@ func authoredConstructionOutputsWithCombineInputs(
 				return fmt.Errorf("expand step %q has no operation payload", step.ID)
 			}
 			expand := step.Operation.Expand
-			quality := constructedOutputQuality{
+			quality := ConstructedOutputQuality{
 				StructuralSuitability: "requires-review",
 				LossReasons:           []string{"TABLE_SHAPE_EXPAND_CHANGES_ROW_GRAIN"},
 			}
@@ -938,9 +938,9 @@ func authoredConstructionOutputsWithCombineInputs(
 				if _, duplicate := nextAuthored[declared.Name]; duplicate {
 					return fmt.Errorf("construction output %q is duplicated for document %q", declared.Name, document.Output.ID)
 				}
-				nextAuthored[declared.Name] = authoredOutputColumn{
+				nextAuthored[declared.Name] = AuthoredOutputColumn{
 					ConstructionID: declared.ID, Label: declared.Label, TypedStageOutput: true,
-					Quality: constructedOutputQuality{
+					Quality: ConstructedOutputQuality{
 						Lossless: false, StructuralSuitability: "requires-review",
 						LossReasons: []string{"CONSTRUCTION_DERIVE_SOURCE_ARITHMETIC_FROM_UNSELECTED_FIELD"},
 					},
@@ -966,7 +966,7 @@ func authoredConstructionOutputsWithCombineInputs(
 				for _, output := range step.Outputs {
 					if output.ID == keyID {
 						if privateSource {
-							priorMetadata = authoredOutputColumn{
+							priorMetadata = AuthoredOutputColumn{
 								ConstructionID: pivot.ConstructionID, TypedStageOutput: true, Quality: quality,
 							}
 						}
@@ -1137,9 +1137,9 @@ func authoredConstructionOutputsWithCombineInputs(
 				if _, duplicate := nextAuthored[declared.Name]; duplicate {
 					return fmt.Errorf("construction output %q is duplicated for document %q", declared.Name, document.Output.ID)
 				}
-				nextAuthored[declared.Name] = authoredOutputColumn{
+				nextAuthored[declared.Name] = AuthoredOutputColumn{
 					ConstructionID: declared.ID, Label: declared.Label, TypedStageOutput: true,
-					Quality: constructedOutputQuality{
+					Quality: ConstructedOutputQuality{
 						Lossless: false, StructuralSuitability: "requires-review",
 						LossReasons: []string{"CONSTRUCTION_FILTER_SOURCE_ROWS_FILTERED"},
 					},
@@ -1149,7 +1149,7 @@ func authoredConstructionOutputsWithCombineInputs(
 			if step.Operation.Combine == nil {
 				return fmt.Errorf("combine step %q has no operation payload", step.ID)
 			}
-			quality := constructedOutputQuality{
+			quality := ConstructedOutputQuality{
 				Lossless: false, StructuralSuitability: "requires-review",
 				LossReasons: []string{"CONSTRUCTION_COMBINE_CHANGES_ROW_SOURCE"},
 			}
@@ -1178,7 +1178,7 @@ func authoredConstructionOutputsWithCombineInputs(
 				if len(uniqueNames) == 0 {
 					return fmt.Errorf("combine step %q output %q has no compiler-resolved input columns", step.ID, output.Name)
 				}
-				nextAuthored[output.Name] = authoredOutputColumn{
+				nextAuthored[output.Name] = AuthoredOutputColumn{
 					ConstructionID: step.ID, Label: output.Label, InputColumns: uniqueNames,
 					ExternalInputLineage: true, Quality: quality,
 				}
@@ -1191,7 +1191,7 @@ func authoredConstructionOutputsWithCombineInputs(
 			if (related.Form != capability.ConstructionChoiceAll && related.Form != capability.ConstructionChoiceCount && related.Form != capability.ConstructionChoicePresence) || related.ContributorRule.Policy != authoringv2.ConstructionRelatedAllMatches {
 				return fmt.Errorf("related-source step %q has unsupported output form or contributor policy", step.ID)
 			}
-			quality := constructedOutputQuality{
+			quality := ConstructedOutputQuality{
 				Lossless: false, Shape: "array", StructuralSuitability: "requires-review",
 				LossReasons: []string{"RELATED_SOURCE_AUTHORIZED_MATCHES_ONLY"},
 			}
@@ -1221,7 +1221,7 @@ func authoredConstructionOutputsWithCombineInputs(
 				return fmt.Errorf("related-expansion step %q has no operation payload", step.ID)
 			}
 			related := step.Operation.RelatedExpand
-			quality := constructedOutputQuality{
+			quality := ConstructedOutputQuality{
 				Lossless: false, StructuralSuitability: "requires-review",
 				LossReasons: []string{"RELATED_EXPANSION_CHANGES_ROW_GRAIN"},
 			}
@@ -1247,7 +1247,7 @@ func authoredConstructionOutputsWithCombineInputs(
 				return fmt.Errorf("related-field step %q has no operation payload", step.ID)
 			}
 			related := step.Operation.RelatedField
-			quality := constructedOutputQuality{
+			quality := ConstructedOutputQuality{
 				Lossless: false, StructuralSuitability: "requires-review",
 				LossReasons: []string{"RELATED_FIELD_AUTHORIZED_EXACT_RECORD"},
 			}
@@ -1323,26 +1323,26 @@ func combineProjectionInputName(
 	return "", fmt.Errorf("published input %d exact schema has no column ID %q", inputIndex, columnID)
 }
 
-type constructionInputMissingError struct {
+type ConstructionInputMissingError struct {
 	ColumnID   string
 	StepID     string
 	OutputID   string
 	OutputName string
 }
 
-func (e *constructionInputMissingError) Error() string {
+func (e *ConstructionInputMissingError) Error() string {
 	if e.StepID != "" || e.OutputName != "" {
 		return fmt.Sprintf("construction step %q output %q references input column %q, which is absent from the prior stage", e.StepID, e.OutputName, e.ColumnID)
 	}
 	return fmt.Sprintf("input column ID %q is absent from the prior stage", e.ColumnID)
 }
 
-func constructionInputNames(schema map[string]string, ids []string) ([]string, error) {
+func ConstructionInputNames(schema map[string]string, ids []string) ([]string, error) {
 	names := make([]string, 0, len(ids))
 	for _, id := range ids {
 		name, exists := schema[id]
 		if !exists {
-			return nil, &constructionInputMissingError{ColumnID: id}
+			return nil, &ConstructionInputMissingError{ColumnID: id}
 		}
 		names = append(names, name)
 	}
@@ -1353,21 +1353,21 @@ func requiredConstructionID(value string) bool {
 	return strings.TrimSpace(value) != "" && value == strings.TrimSpace(value)
 }
 
-func derivedOutputQuality(operation string) (constructedOutputQuality, error) {
+func derivedOutputQuality(operation string) (ConstructedOutputQuality, error) {
 	operation = strings.ToUpper(strings.TrimSpace(operation))
 	switch operation {
 	case "ADD", "SUBTRACT", "MULTIPLY", "DIVIDE":
-		return constructedOutputQuality{
+		return ConstructedOutputQuality{
 			Lossless: false, StructuralSuitability: "requires-review",
 			LossReasons: []string{"TABLE_SHAPE_DERIVED_" + operation + "_NON_LOSSLESS"},
 		}, nil
 	default:
-		return constructedOutputQuality{}, fmt.Errorf("unsupported derived operation %q", operation)
+		return ConstructedOutputQuality{}, fmt.Errorf("unsupported derived operation %q", operation)
 	}
 }
 
-func pivotOutputQuality(duplicatePolicy, missingCellPolicy, unlistedCategoryPolicy string) (constructedOutputQuality, error) {
-	quality := constructedOutputQuality{
+func pivotOutputQuality(duplicatePolicy, missingCellPolicy, unlistedCategoryPolicy string) (ConstructedOutputQuality, error) {
+	quality := ConstructedOutputQuality{
 		Lossless: false, StructuralSuitability: "requires-review",
 		LossReasons: []string{"TABLE_SHAPE_PIVOT_BASE_COLUMNS_DROPPED"},
 	}
@@ -1377,12 +1377,12 @@ func pivotOutputQuality(duplicatePolicy, missingCellPolicy, unlistedCategoryPoli
 		quality.Lossless = false
 		quality.LossReasons = append(quality.LossReasons, "TABLE_SHAPE_PIVOT_DUPLICATES_AGGREGATED")
 	default:
-		return constructedOutputQuality{}, fmt.Errorf("unsupported duplicate policy %q", duplicatePolicy)
+		return ConstructedOutputQuality{}, fmt.Errorf("unsupported duplicate policy %q", duplicatePolicy)
 	}
 	switch missingCellPolicy {
 	case "NULL", "ERROR":
 	default:
-		return constructedOutputQuality{}, fmt.Errorf("unsupported missing-cell policy %q", missingCellPolicy)
+		return ConstructedOutputQuality{}, fmt.Errorf("unsupported missing-cell policy %q", missingCellPolicy)
 	}
 	switch unlistedCategoryPolicy {
 	case "ERROR":
@@ -1390,7 +1390,7 @@ func pivotOutputQuality(duplicatePolicy, missingCellPolicy, unlistedCategoryPoli
 		quality.Lossless = false
 		quality.LossReasons = append(quality.LossReasons, "TABLE_SHAPE_PIVOT_UNLISTED_CATEGORIES_EXCLUDED")
 	default:
-		return constructedOutputQuality{}, fmt.Errorf("unsupported unlisted-category policy %q", unlistedCategoryPolicy)
+		return ConstructedOutputQuality{}, fmt.Errorf("unsupported unlisted-category policy %q", unlistedCategoryPolicy)
 	}
 	if !quality.Lossless {
 		quality.StructuralSuitability = "requires-review"
@@ -1398,8 +1398,8 @@ func pivotOutputQuality(duplicatePolicy, missingCellPolicy, unlistedCategoryPoli
 	return quality, nil
 }
 
-func unpivotOutputQuality(nullRowPolicy string) (constructedOutputQuality, error) {
-	quality := constructedOutputQuality{Lossless: true, StructuralSuitability: "scalar"}
+func unpivotOutputQuality(nullRowPolicy string) (ConstructedOutputQuality, error) {
+	quality := ConstructedOutputQuality{Lossless: true, StructuralSuitability: "scalar"}
 	switch nullRowPolicy {
 	case "PRESERVE":
 	case "DROP":
@@ -1407,7 +1407,7 @@ func unpivotOutputQuality(nullRowPolicy string) (constructedOutputQuality, error
 		quality.StructuralSuitability = "requires-review"
 		quality.LossReasons = append(quality.LossReasons, "TABLE_SHAPE_UNPIVOT_NULL_ROWS_DROPPED")
 	default:
-		return constructedOutputQuality{}, fmt.Errorf("unsupported null-row policy %q", nullRowPolicy)
+		return ConstructedOutputQuality{}, fmt.Errorf("unsupported null-row policy %q", nullRowPolicy)
 	}
 	return quality, nil
 }
@@ -1422,7 +1422,7 @@ type constructedColumnProfile struct {
 	Chartable             bool
 }
 
-func constructedOutputProfileFor(quality constructedOutputQuality, column lower.CompiledOutputColumn) (constructedColumnProfile, error) {
+func constructedOutputProfileFor(quality ConstructedOutputQuality, column lower.CompiledOutputColumn) (constructedColumnProfile, error) {
 	cardinality := expression.Cardinality(column.Cardinality)
 	if cardinality == expression.Many {
 		if quality.Shape != "array" {
@@ -1431,7 +1431,7 @@ func constructedOutputProfileFor(quality constructedOutputQuality, column lower.
 		if !isSupportedConstructedScalarKind(expression.ValueKind(column.Kind)) {
 			return constructedColumnProfile{}, fmt.Errorf("constructed array element kind %q is not a supported scalar type", column.Kind)
 		}
-		reasons, err := uniqueColumnsInOrder(append(append([]string(nil), quality.LossReasons...), tableShapeMLReadinessUnassessed))
+		reasons, err := uniqueColumnsInOrder(append(append([]string(nil), quality.LossReasons...), TableShapeMLReadinessUnassessed))
 		if err != nil {
 			return constructedColumnProfile{}, fmt.Errorf("constructed output quality policy has an invalid reason: %w", err)
 		}
@@ -1456,7 +1456,7 @@ func constructedOutputProfileFor(quality constructedOutputQuality, column lower.
 	if quality.StructuralSuitability == "" {
 		return constructedColumnProfile{}, fmt.Errorf("constructed output quality policy is missing structural suitability")
 	}
-	reasons, err := uniqueColumnsInOrder(append(append([]string(nil), quality.LossReasons...), tableShapeMLReadinessUnassessed))
+	reasons, err := uniqueColumnsInOrder(append(append([]string(nil), quality.LossReasons...), TableShapeMLReadinessUnassessed))
 	if err != nil {
 		return constructedColumnProfile{}, fmt.Errorf("constructed output quality policy has an invalid reason: %w", err)
 	}
@@ -1477,7 +1477,7 @@ func isSupportedConstructedScalarKind(kind expression.ValueKind) bool {
 	}
 }
 
-func resolveAuthoredOutputLineage(constructed map[string]authoredOutputColumn, emitted map[string]explorer.EmittedColumn, sourceFreeGenerated map[string]struct{}) (map[string][]string, error) {
+func resolveAuthoredOutputLineage(constructed map[string]AuthoredOutputColumn, emitted map[string]explorer.EmittedColumn, sourceFreeGenerated map[string]struct{}) (map[string][]string, error) {
 	states := make(map[string]uint8, len(constructed))
 	resolved := make(map[string][]string, len(constructed))
 	baseLineage := func(column string) ([]string, error) {
@@ -1670,13 +1670,13 @@ func mergeReconciledContractQuality(contract *explorer.PublicOutputContract, emi
 		contract.StructuralSuitability = "array"
 	}
 	for _, reason := range emitted.LossReasons {
-		if !containsOutputContractString(contract.LossReasons, reason) {
+		if !ContainsOutputContractString(contract.LossReasons, reason) {
 			contract.LossReasons = append(contract.LossReasons, reason)
 		}
 	}
 }
 
-func containsOutputContractString(values []string, want string) bool {
+func ContainsOutputContractString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
 			return true

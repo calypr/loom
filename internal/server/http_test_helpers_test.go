@@ -12,28 +12,20 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
+	"github.com/calypr/loom/internal/testkit/recipetest"
 	"github.com/gofiber/fiber/v3"
 )
 
-type compilerTestRegistry struct{}
+type compilerTestRegistry = recipetest.Registry
 
 type testCapabilityStore = capabilityfixtures.Store
 
 func newTestCapabilityStore() *testCapabilityStore {
 	return capabilityfixtures.NewStore()
-}
-
-func (compilerTestRegistry) LoadRecipe(context.Context, string) (exec.Entry, error) {
-	return exec.Entry{}, nil
-}
-
-func (r compilerTestRegistry) LoadRecipeVersion(ctx context.Context, name, _ string) (exec.Entry, error) {
-	return r.LoadRecipe(ctx, name)
 }
 
 type testHTTPResponse struct {
