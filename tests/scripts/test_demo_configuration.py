@@ -7,6 +7,7 @@ import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+DEMO_COMPOSE = f"compose --project-name alternate-demo --project-directory {ROOT} -f {ROOT / 'deploy/compose.yaml'}"
 
 
 class DemoConfigurationTest(unittest.TestCase):
@@ -48,9 +49,9 @@ class DemoConfigurationTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             commands = log.read_text()
-            self.assertIn("compose --project-name alternate-demo up --build -d arangodb clickhouse loom-api", commands)
-            self.assertIn("compose --project-name alternate-demo run --rm --no-deps demo-seed", commands)
-            self.assertIn("compose --project-name alternate-demo up --build -d loom-ui", commands)
+            self.assertIn(f"{DEMO_COMPOSE} up --build -d arangodb clickhouse loom-api", commands)
+            self.assertIn(f"{DEMO_COMPOSE} run --rm --no-deps demo-seed", commands)
+            self.assertIn(f"{DEMO_COMPOSE} up --build -d loom-ui", commands)
             self.assertIn("http://127.0.0.3:13080", result.stdout)
 
     def test_demo_down_uses_custom_project(self):
@@ -83,7 +84,7 @@ class DemoConfigurationTest(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(log.read_text().strip(), "compose --project-name alternate-demo down --volumes")
+            self.assertEqual(log.read_text().strip(), f"{DEMO_COMPOSE} down --volumes")
 
     def test_demo_up_can_redeploy_without_seeding(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -192,7 +193,7 @@ class DemoConfigurationTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             command = log.read_text().strip()
-            self.assertIn("compose --project-name alternate-demo exec -T loom-api /app/loom-acceptance --smoke-only", command)
+            self.assertIn(f"{DEMO_COMPOSE} exec -T loom-api /app/loom-acceptance --smoke-only", command)
             self.assertIn("--project EXAMPLE_PROJECT", command)
             self.assertIn("--smoke-management REPOSITORY", command)
             self.assertIn("--generation example-generation", command)

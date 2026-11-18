@@ -45,7 +45,7 @@ services:
       - --database
       - loom_acceptance_${LOOM_DEMO_RUN_ID:-d000000000000001}
       - --schema
-      - /app/fhir/graph-fhir.json
+      - ${LOOM_DEMO_SCHEMA_PATH:-/app/fhir/graph-fhir.json}
       - --clickhouse-url
       - clickhouse://clickhouse:9000
       - --clickhouse-database

@@ -1,3 +1,5 @@
+name: experimental
+
 services:
   arangodb:
     image: arangodb:3.12
@@ -7,7 +9,7 @@ services:
     ports:
       - "8529:8529"
     volumes:
-      - ./data:/var/lib/arangodb3
+      - ./deploy/.data/arango:/var/lib/arangodb3
 
   clickhouse:
     image: clickhouse/clickhouse-server:25.3
@@ -16,4 +18,4 @@ services:
       - "8123:8123"
       - "9000:9000"
     volumes:
-      - ./clickhouse-data:/var/lib/clickhouse
+      - ./deploy/.data/clickhouse:/var/lib/clickhouse

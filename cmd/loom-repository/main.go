@@ -114,7 +114,7 @@ func newLaunchOptions(composeProject, apiHost string, apiPort int, uiHost string
 }
 
 func (options launchOptions) composeArgs(loomRoot string) []string {
-	return []string{"compose", "--project-name", options.composeProject, "-f", filepath.Join(loomRoot, "compose.yaml"), "-f", filepath.Join(loomRoot, "compose.repository.yaml")}
+	return []string{"compose", "--project-name", options.composeProject, "--project-directory", loomRoot, "-f", filepath.Join(loomRoot, "deploy", "compose.yaml"), "-f", filepath.Join(loomRoot, "deploy", "compose.repository.yaml")}
 }
 
 func (options launchOptions) composeEnvironment() []string {

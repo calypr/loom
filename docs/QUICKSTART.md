@@ -11,12 +11,12 @@ This guide gets a fresh local checkout to:
 
 The lightweight local compose file is:
 
-- [`experimental/docker-compose.yml`](../experimental/docker-compose.yml)
+- [`deploy/compose.local.yaml`](../deploy/compose.local.yaml)
 
 Bring it up:
 
 ```bash
-rtk docker compose -f experimental/docker-compose.yml up -d
+rtk docker compose --project-directory . -f deploy/compose.local.yaml up -d
 ```
 
 This starts:
@@ -113,5 +113,5 @@ timing, returned row count, and response bytes. See
 ## 7. Shut down local Arango
 
 ```bash
-rtk docker compose -f experimental/docker-compose.yml down
+rtk docker compose --project-directory . -f deploy/compose.local.yaml down
 ```

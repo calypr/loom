@@ -1,11 +1,13 @@
 # Local Arango development
 
-This directory contains the checked-in ArangoDB and ClickHouse compose setup
-used by the quickstart. Start it from the repository root:
+The quickstart uses this ArangoDB and ClickHouse Compose setup. Start it from the repository root:
 
 ```bash
-rtk docker compose -f experimental/docker-compose.yml up -d
+rtk docker compose --project-directory . -f deploy/compose.local.yaml up -d
 ```
+
+The stack stores ArangoDB and ClickHouse data under `deploy/.data/`. Existing
+data under `experimental/` remains in place.
 
 The runtime implementation lives under [`internal/store/arango/`](../internal/store/arango/)
 and [`internal/ingest/`](../internal/ingest/). This is not a home for a second

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+
 api_host=${LOOM_DEMO_API_HOST:-127.0.0.1}
 ui_host=${LOOM_DEMO_UI_HOST:-127.0.0.1}
 [[ $api_host == *:* ]] && api_host="[$api_host]"
@@ -17,7 +19,7 @@ output_title=${LOOM_DEMO_OUTPUT_TITLE:-TCGA-BRCA patient cohort}
 [[ $compose_project =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo "invalid LOOM_DEMO_COMPOSE_PROJECT: $compose_project" >&2; exit 2; }
 
 curl -fsS "$api_url/readyz" >/dev/null
-docker compose --project-name "$compose_project" exec -T loom-api \
+docker compose --project-name "$compose_project" --project-directory "$repo_root" -f "$repo_root/deploy/compose.yaml" exec -T loom-api \
   /app/loom-acceptance \
   --smoke-only \
   --project "$project" \

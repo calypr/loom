@@ -1,8 +1,0 @@
-*
-!go.mod
-!go.sum
-!.air.dev.toml
-!Dockerfile.dev
-!loom-dev-api-entrypoint.sh
-!loom-dev-build-stamp.sh
-!loom-dev-build.sh

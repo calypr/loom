@@ -20,3 +20,4 @@ Makefile
 README.md
 TODO.md
 **/*_test.go
+deploy/.data

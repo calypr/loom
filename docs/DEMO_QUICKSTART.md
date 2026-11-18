@@ -71,9 +71,9 @@ The seed job has already verified these deeper contracts:
 To inspect a service in the default project, run:
 
 ```bash
-docker compose logs loom-api
-docker compose logs loom-ui
-docker compose logs demo-seed
+docker compose --project-directory . -f deploy/compose.yaml logs loom-api
+docker compose --project-directory . -f deploy/compose.yaml logs loom-ui
+docker compose --project-directory . -f deploy/compose.yaml logs demo-seed
 ```
 
 ## Stop or reset the demo
