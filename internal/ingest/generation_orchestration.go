@@ -104,6 +104,9 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		return summary, err
 	}
 
+	writeStats := &generationWriteStats{samples: make(map[string][]generationWriteSample)}
+	ctx = context.WithValue(ctx, generationWriteStatsKey{}, writeStats)
+
 	resourceTypes := make([]string, 0, len(preflight.Resources))
 	for _, resource := range preflight.Resources {
 		resourceTypes = append(resourceTypes, resource.ResourceType)
@@ -319,6 +322,14 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		return summary, err
 	}
 
+	finalizationStart := time.Now()
+	recordFinalization := func(stage string) {
+		now := time.Now()
+		seconds := now.Sub(finalizationStart).Seconds()
+		summary.StageSeconds[stage] = seconds
+		emitEvent(opts.EventSink, "go_load_finalization", map[string]any{"stage": stage, "seconds": seconds})
+		finalizationStart = now
+	}
 	for _, key := range sortedGenerationCatalogKeys(catalogs) {
 		if err = ctx.Err(); err != nil {
 			return summary, err
@@ -348,6 +359,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err = ctx.Err(); err != nil {
 		return summary, err
 	}
+	recordFinalization("catalog_writes")
 	resourceInventorySummary, inventoryErr := catalogStore.RebuildResourceInventory(ctx, catalog.ResourceInventoryRebuildOptions{
 		Project: opts.Project, DatasetGeneration: plan.Dataset.Generation,
 		ResourceTypes: schemaIdentity.GeneratedResourceTypes, BatchSize: opts.BatchSize, WriteAPI: opts.WriteAPI,
@@ -360,23 +372,28 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		"resource_type_count": resourceInventorySummary.ResourceTypeCount, "count_row_count": resourceInventorySummary.CountRowCount,
 		"document_count": resourceInventorySummary.DocumentCount,
 	})
+	recordFinalization("resource_inventory")
 	if err = catalogStore.CompleteSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
 		return summary, fmt.Errorf("complete semantic inventory build: %w", err)
 	}
+	recordFinalization("semantic_inventory_completion")
 	inventoryComplete = true
 	stagedManifest, transitionErr := lifecycleStore.TransitionManifest(ctx, manifest, publication.StateStaged)
 	if transitionErr != nil {
 		return summary, transitionErr
 	}
+	recordFinalization("manifest_transition")
 	manifest = stagedManifest
 	manifestStaged = true
 	if !opts.StageOnly && !opts.DeferActivation {
 		if activationErr := lifecycleStore.Activate(ctx, manifest); activationErr != nil {
 			return summary, &ActivationOutcomeError{Dataset: plan.Dataset, Err: activationErr}
 		}
+		recordFinalization("activation")
 	}
 
 	emitEvent(opts.EventSink, "go_load_complete", map[string]any{
+		"write_stats":        writeStats.summary(),
 		"files":              summary.Files,
 		"vertices_inserted":  summary.VerticesInserted,
 		"edges_inserted":     summary.EdgesInserted,

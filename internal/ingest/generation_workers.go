@@ -44,6 +44,50 @@ func sortedGenerationCatalogKeys(catalogs map[generationCatalogKey]*catalog.Prof
 	return keys
 }
 
+type generationWriteStatsKey struct{}
+
+type generationWriteSample struct {
+	bytes      int64
+	permitWait time.Duration
+	duration   time.Duration
+}
+
+type generationWriteStats struct {
+	mu      sync.Mutex
+	samples map[string][]generationWriteSample
+}
+
+func (stats *generationWriteStats) record(class string, sample generationWriteSample) {
+	stats.mu.Lock()
+	defer stats.mu.Unlock()
+	stats.samples[class] = append(stats.samples[class], sample)
+}
+
+func (stats *generationWriteStats) summary() map[string]map[string]any {
+	stats.mu.Lock()
+	defer stats.mu.Unlock()
+	result := make(map[string]map[string]any, len(stats.samples))
+	for class, samples := range stats.samples {
+		var bytes int64
+		var permitWait, duration time.Duration
+		durations := make([]time.Duration, 0, len(samples))
+		for _, sample := range samples {
+			bytes += sample.bytes
+			permitWait += sample.permitWait
+			duration += sample.duration
+			durations = append(durations, sample.duration)
+		}
+		sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
+		result[class] = map[string]any{
+			"requests": len(samples), "request_bytes": bytes,
+			"writer_permit_wait_seconds": permitWait.Seconds(),
+			"request_seconds":            duration.Seconds(),
+			"p95_request_seconds":        durations[(95*len(samples)+99)/100-1].Seconds(),
+		}
+	}
+	return result
+}
+
 type fileLoadResult struct {
 	ResourceType             string
 	Rows                     int
@@ -535,6 +579,7 @@ func loadFile(
 		close(workerCatalogsChan)
 	}()
 
+	writeStats, _ := ctx.Value(generationWriteStatsKey{}).(*generationWriteStats)
 	var writersWG sync.WaitGroup
 	type writerResult struct {
 		timings            map[string]float64
@@ -559,9 +604,12 @@ func loadFile(
 						}
 						return
 					}
+					var permitWait time.Duration
 					if opts.fileWriterBudget != nil {
+						permitStart := time.Now()
 						select {
 						case opts.fileWriterBudget <- struct{}{}:
+							permitWait = time.Since(permitStart)
 						case <-fileCtx.Done():
 							return
 						}
@@ -569,7 +617,20 @@ func loadFile(
 					insertStart := time.Now()
 					var insertErr error
 					taskOverwrite := overwrite || task.replace
-					insertErr = insert(fileCtx, client, task.collection, task.docs, taskOverwrite, opts.WriteAPI)
+					insertCtx := fileCtx
+					if writeStats != nil {
+						class := "vertex"
+						switch task.collection {
+						case EdgeCollection:
+							class = "edge"
+						case catalog.SemanticInventoryCollection, catalog.SemanticInventoryEntryCollection:
+							class = "semantic_inventory"
+						}
+						insertCtx = arangostore.WithRawInsertObserver(fileCtx, func(bytes int64, duration time.Duration) {
+							writeStats.record(class, generationWriteSample{bytes: bytes, permitWait: permitWait, duration: duration})
+						})
+					}
+					insertErr = insert(insertCtx, client, task.collection, task.docs, taskOverwrite, opts.WriteAPI)
 					if opts.fileWriterBudget != nil {
 						<-opts.fileWriterBudget
 					}

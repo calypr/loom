@@ -442,6 +442,12 @@ func ensureIndexes(ctx context.Context, col driver.Collection, indexes [][]strin
 	return nil
 }
 
+type rawInsertObserverKey struct{}
+
+func WithRawInsertObserver(ctx context.Context, observe func(int64, time.Duration)) context.Context {
+	return context.WithValue(ctx, rawInsertObserverKey{}, observe)
+}
+
 func (c *Client) insertBatchDocumentRaw(ctx context.Context, collection string, docs []json.RawMessage, overwrite bool) error {
 	var url string
 	if overwrite {
@@ -469,6 +475,10 @@ func (c *Client) insertBatchDocumentRaw(ctx context.Context, collection string, 
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	if observe, ok := ctx.Value(rawInsertObserverKey{}).(func(int64, time.Duration)); ok {
+		start := time.Now()
+		defer func() { observe(req.ContentLength, time.Since(start)) }()
+	}
 	resp, err := c.client.Do(req)
 	bufferPool.Put(buf)
 	if err != nil {
@@ -509,6 +519,10 @@ func (c *Client) insertBatchImportRaw(ctx context.Context, collection string, do
 	}
 	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
 
+	if observe, ok := ctx.Value(rawInsertObserverKey{}).(func(int64, time.Duration)); ok {
+		start := time.Now()
+		defer func() { observe(req.ContentLength, time.Since(start)) }()
+	}
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return err
