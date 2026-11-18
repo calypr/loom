@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
-	loomapi "github.com/calypr/loom/generated/loomapi"
+	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"

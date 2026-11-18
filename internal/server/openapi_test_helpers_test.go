@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 
-	loomapi "github.com/calypr/loom/generated/loomapi"
+	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/lifecycle"

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	generatedschema "github.com/calypr/loom/generated/fhirschema"
+	generatedschema "github.com/calypr/loom/fhir/schema"
 )
 
 type DefinitionName string

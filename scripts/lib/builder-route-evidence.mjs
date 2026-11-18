@@ -64,7 +64,7 @@ let operationCache = null;
 function operationsByRoute() {
   if (operationCache) return operationCache;
   operationCache = new Map();
-  const lines = readFileSync(resolve(ROOT, 'openapi/openapi.yaml'), 'utf8').split('\n');
+  const lines = readFileSync(resolve(ROOT, 'api/openapi.yaml'), 'utf8').split('\n');
   let currentPath = null;
   for (let index = 0; index < lines.length; index += 1) {
     const pathMatch = lines[index].match(/^  (\/[^:]+):\s*$/);

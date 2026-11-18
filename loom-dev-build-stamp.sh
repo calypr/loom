@@ -7,7 +7,7 @@ source_digest() {
   # unchanged.
   {
   sha256sum /workspace/go.mod /workspace/go.sum
-  find /workspace/cmd /workspace/internal /workspace/generated /workspace/schemas \
+  find /workspace/cmd /workspace/internal /workspace/api /workspace/fhir \
     -type f ! -name '*_test.go' ! -path '*/testdata/*' -print0 2>/dev/null \
     | sort -z \
     | xargs -0 sha256sum

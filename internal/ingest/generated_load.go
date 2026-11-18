@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/bytedance/sonic"
-	fhir "github.com/calypr/loom/generated/fhir"
+	fhir "github.com/calypr/loom/fhir/model"
 )
 
 type generatedLoadResource interface {

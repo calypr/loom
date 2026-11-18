@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	loomapi "github.com/calypr/loom/generated/loomapi"
+	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/lifecycle"

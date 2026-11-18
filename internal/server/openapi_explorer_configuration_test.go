@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	loomapi "github.com/calypr/loom/generated/loomapi"
+	loomapi "github.com/calypr/loom/api/loomapi"
 )
 
 func TestRegisterRoutesRequiresExplorerHandlers(t *testing.T) {

@@ -196,7 +196,7 @@ The four TableShape routes and `APPLY_TABLE_SHAPE_PROPOSAL` are removed after ex
 | `internal/explorer/lifecycle/table_shape_proposal_test.go`: `TestTableShapeComparisonPropagatesStaleTraceAuthorization` | The legacy TableShape service accepts, resolves, previews, or rejects the case named by this test. The legacy service surface is retired. |
 | `internal/explorer/lifecycle/table_shape_proposal_test.go`: `TestProposeTableShapeUnpivotReproducesInternalError` | The legacy TableShape service accepts, resolves, previews, or rejects the case named by this test. The legacy service surface is retired. |
 | `internal/server/explorer_receipt_contract_test.go`: `TestCompileExplorerReceiptBindsTableShapeProposalBeforeIdentity` | Current receipt compilation accepts a legacy TableShape proposal binding. Current compilation no longer accepts that input; historical receipt bindings remain part of archive authentication and receipt identity. |
-| `generated/loomapi/request_boundary_test.go`: four TableShape request constructors; `strict_json.go`: five TableShape decoders | Strict decoding for removed TableShape request types. Current Construction request boundary coverage remains. |
+| `api/loomapi/request_boundary_test.go`: four TableShape request constructors; `strict_json.go`: five TableShape decoders | Strict decoding for removed TableShape request types. Current Construction request boundary coverage remains. |
 
 #### FE-17 step 2
 

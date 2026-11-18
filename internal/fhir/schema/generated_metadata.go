@@ -1,6 +1,6 @@
 package schema
 
-import generatedschema "github.com/calypr/loom/generated/fhirschema"
+import generatedschema "github.com/calypr/loom/fhir/schema"
 
 type TraversalSpec = generatedschema.Traversal
 type generatedProperty = generatedschema.Property

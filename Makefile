@@ -5,7 +5,7 @@ GO_VERSION ?= 1.26.5
 GO_TOOLCHAIN ?= go$(GO_VERSION)
 GOCACHE_DIR ?= $(CURDIR)/.gocache
 GOFLAGS ?=
-SCHEMA_PATH ?= schemas/graph-fhir.json
+SCHEMA_PATH ?= fhir/graph-fhir.json
 OAPI_CODEGEN_VERSION ?= v2.8.0
 IMAGE ?= arango-fhir-proto:local
 LOOM_URL ?= http://127.0.0.1:8080
@@ -52,12 +52,12 @@ build-server:
 
 generate-fhir:
 	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/generate -schema $(SCHEMA_PATH) -structs-out generated/fhir -metadata-out generated/fhirschema/generated.go
-	gofmt -w generated/fhir/*.go generated/fhirschema/generated.go
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/generate -schema $(SCHEMA_PATH) -structs-out fhir/model -metadata-out fhir/schema/generated.go
+	gofmt -w fhir/model/*.go fhir/schema/generated.go
 
 generate-openapi:
-	mkdir -p generated/loomapi $(GOCACHE_DIR)
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$(OAPI_CODEGEN_VERSION) --config openapi/oapi-codegen.yaml openapi/openapi.yaml
+	mkdir -p api/loomapi $(GOCACHE_DIR)
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$(OAPI_CODEGEN_VERSION) --config api/oapi-codegen.yaml api/openapi.yaml
 
 openapi-check:
 	bash scripts/check_openapi_route_ownership.sh

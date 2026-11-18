@@ -82,7 +82,7 @@ test('source fingerprint covers dependency manifests and embedded Go test fixtur
     const root = mkdtempSync(join(tmpdir(), 'loom-arango-fingerprint-'));
     const fixture = join(root, 'internal/server/testdata/patient_one_pre_one_saved_document.json');
     try {
-        for (const directory of ['generated', 'schemas', 'tests/fixtures', 'tests/scripts', 'scripts']) mkdirSync(join(root, directory), { recursive: true });
+        for (const directory of ['api', 'fhir', 'tests/fixtures', 'tests/scripts', 'scripts']) mkdirSync(join(root, directory), { recursive: true });
         mkdirSync(join(root, 'internal/server/testdata'), { recursive: true });
         writeFileSync(join(root, 'go.mod'), 'module loom\n');
         writeFileSync(join(root, 'go.sum'), '');

@@ -83,7 +83,7 @@ func TestSourceFileLostReceiptAcknowledgementPreservesAcceptedRows(t *testing.T)
 		t.Fatal(err)
 	}
 	loader, err := NewRepositorySourceLoader(SourceLoadPublisherConfig{
-		Client: client, DatasetStore: datasets, SchemaPath: "../../schemas/graph-fhir.json", BatchSize: 2,
+		Client: client, DatasetStore: datasets, SchemaPath: "../../fhir/graph-fhir.json", BatchSize: 2,
 		MaterializeAndSelect: func(context.Context, string, string, string, string, int64) (string, int64, error) {
 			return "", 0, fmt.Errorf("publish must not run in upload regression")
 		},
@@ -144,7 +144,7 @@ func TestSourceLoadReconcilesLostInitialActivationAcknowledgement(t *testing.T) 
 		t.Fatal(err)
 	}
 	calls := 0
-	loader, err := NewRepositorySourceLoader(SourceLoadPublisherConfig{Client: client, DatasetStore: datasets, SchemaPath: repoPath(t, "schemas", "graph-fhir.json"), BatchSize: 2, WriteAPI: "import", MaterializeAndSelect: func(ctx context.Context, project, generation, operationID, gitCommit string, expectedRevision int64) (string, int64, error) {
+	loader, err := NewRepositorySourceLoader(SourceLoadPublisherConfig{Client: client, DatasetStore: datasets, SchemaPath: repoPath(t, "fhir", "graph-fhir.json"), BatchSize: 2, WriteAPI: "import", MaterializeAndSelect: func(ctx context.Context, project, generation, operationID, gitCommit string, expectedRevision int64) (string, int64, error) {
 		calls++
 		release, err := datasets.SaveRelease(ctx, publication.ProjectRelease{ID: "review-" + operationID, Project: project, GitCommit: gitCommit, Generation: generation, CreatedAt: time.Now().UTC()})
 		if err != nil {

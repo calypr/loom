@@ -31,7 +31,7 @@ const (
 	defaultURL      = "http://127.0.0.1:8529"
 	defaultDatabase = "fhir_proto"
 	defaultProject  = "ARANGODB_PROTO"
-	defaultSchema   = "schemas/graph-fhir.json"
+	defaultSchema   = "fhir/graph-fhir.json"
 	defaultMetaDir  = "META"
 )
 

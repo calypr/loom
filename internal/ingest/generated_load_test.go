@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	fhir "github.com/calypr/loom/generated/fhir"
+	fhir "github.com/calypr/loom/fhir/model"
 )
 
 func TestGeneratedLoadCapabilityMatchesGeneratedFHIRMethods(t *testing.T) {

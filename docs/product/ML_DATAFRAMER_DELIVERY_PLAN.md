@@ -253,6 +253,6 @@ Risk controls include explicit unsupported metadata diagnostics, no implicit Car
 
 ## Appendix D. Read the relevant references
 
-- Read [current Explorer authoring](../EXPLORER_AUTHORING.md), [compiler architecture](../EXPLORER_COMPILATION_ARCHITECTURE.md), and [the OpenAPI source](../../openapi/openapi.yaml) before changing their boundaries.
+- Read [current Explorer authoring](../EXPLORER_AUTHORING.md), [compiler architecture](../EXPLORER_COMPILATION_ARCHITECTURE.md), and [the OpenAPI source](../../api/openapi.yaml) before changing their boundaries.
 - Read [the local verification skill](../../.codex/skills/verify/SKILL.md) before browser or watcher work. Read the project FHIR modeling skill before semantic changes.
 - Use first-principles redesign to replace duplicate source-specific decisions, Go patterns for implementation ownership, and TypeScript best practices for generated/parsed boundary variants. Use executable checks and one coherent final review, not repeated audit panels.

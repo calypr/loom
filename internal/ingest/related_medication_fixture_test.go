@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	generatedfhir "github.com/calypr/loom/generated/fhir"
+	generatedfhir "github.com/calypr/loom/fhir/model"
 
 	"github.com/calypr/loom/internal/testkit"
 )

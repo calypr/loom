@@ -404,7 +404,7 @@
         "internal/explorer/lifecycle/semantic_catalog.go",
         "internal/explorer/authoringv2/semantic_command.go",
         "internal/dataframe/compiler/ir/physical_values.go",
-        "openapi/openapi.yaml",
+        "api/openapi.yaml",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionDialog.tsx",

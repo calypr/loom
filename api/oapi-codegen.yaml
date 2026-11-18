@@ -5,8 +5,8 @@ generate:
   fiber-v3-server: true
   strict-server: true
   embedded-spec: true
-output: generated/loomapi/api.gen.go
+output: api/loomapi/api.gen.go
 output-options:
   skip-prune: false
   user-templates:
-    strict/strict-fiber-v3.tmpl: ./openapi/templates/strict-fiber-v3.tmpl
+    strict/strict-fiber-v3.tmpl: ./api/templates/strict-fiber-v3.tmpl

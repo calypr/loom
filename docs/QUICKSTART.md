@@ -92,7 +92,7 @@ diagnostics.
 
 Read [the Explorer authoring guide](EXPLORER_AUTHORING.md) for the current
 request/response behavior and the canonical
-[OpenAPI contract](../openapi/openapi.yaml) for exact wire schemas.
+[OpenAPI contract](../api/openapi.yaml) for exact wire schemas.
 
 ## 6. Run a sample dataframe query
 

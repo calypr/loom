@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/generated/loomapi"
+	"github.com/calypr/loom/api/loomapi"
 	dfpublication "github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/testkit"

@@ -49,12 +49,12 @@ func TestFHIRSchemaMetadataGenerationMatchesCheckedInArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("format generated metadata: %v", err)
 	}
-	want, err := os.ReadFile(filepath.Join("..", "..", "generated", "fhirschema", "generated.go"))
+	want, err := os.ReadFile(filepath.Join("..", "..", "fhir", "schema", "generated.go"))
 	if err != nil {
 		t.Fatalf("read checked-in metadata: %v", err)
 	}
 	if !bytes.Equal(got, want) {
-		t.Fatal("checked-in generated/fhirschema/generated.go is stale; run make generate-fhir")
+		t.Fatal("checked-in fhir/schema/generated.go is stale; run make generate-fhir")
 	}
 }
 

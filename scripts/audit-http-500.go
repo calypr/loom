@@ -564,7 +564,7 @@ func main() {
 	flag.Parse()
 	a := audit{fs: token.NewFileSet(), funcs: map[string]*ast.FuncDecl{}, factories: map[string]*ast.FuncDecl{}, active: map[string]bool{}}
 	files, _ := filepath.Glob(filepath.Join(*root, "openapi_*.go"))
-	generated, _ := filepath.Glob(filepath.Join(*root, "../../generated/loomapi/*.go"))
+	generated, _ := filepath.Glob(filepath.Join(*root, "../../api/loomapi/*.go"))
 	parse := func(paths []string, dst map[string]*ast.FuncDecl) {
 		for _, p := range paths {
 			if strings.HasSuffix(p, "_test.go") {

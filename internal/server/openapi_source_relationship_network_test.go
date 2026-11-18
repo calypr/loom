@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	loomapi "github.com/calypr/loom/generated/loomapi"
+	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"net/http"
 	"strings"

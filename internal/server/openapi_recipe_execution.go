@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	loomapi "github.com/calypr/loom/generated/loomapi"
+	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/api/authpolicy"
 	"github.com/calypr/loom/internal/api/columncapabilities"
 	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"

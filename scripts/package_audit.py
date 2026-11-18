@@ -51,9 +51,9 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
                         'owned Compose project.',
  'tests/conformance': 'Load and exercise the canonical dataframe compiler oracle corpus for conformance and '
                          'performance checks.',
- 'generated/fhir': 'Expose generated FHIR resource models and their validation and edge extraction helpers.',
- 'generated/fhirschema': 'Expose generated raw FHIR schema metadata tables.',
- 'generated/loomapi': 'Provide OpenAPI-generated HTTP request, response, and strict-server contracts.',
+ 'fhir/model': 'Expose generated FHIR resource models and their validation and edge extraction helpers.',
+ 'fhir/schema': 'Expose generated raw FHIR schema metadata tables.',
+ 'api/loomapi': 'Provide OpenAPI-generated HTTP request, response, and strict-server contracts.',
  'internal/api/bulk/load': 'Adapt multipart HTTP generation uploads and activation requests to ingest and dataset '
                            'services.',
  'internal/api/dataframe': 'Own typed dataframe request and publication representations.',
@@ -327,7 +327,7 @@ def is_generated(text: str) -> bool:
 def package_kind(location: str, generated_files: list[str], production_file_count: int) -> str:
     if location == "." or location.startswith("cmd/"):
         return "executable"
-    if location.startswith("generated/") or (
+    if location == "api/loomapi" or (
         production_file_count > 0 and len(generated_files) == production_file_count
     ):
         return "generated"

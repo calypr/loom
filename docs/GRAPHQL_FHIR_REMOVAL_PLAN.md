@@ -14,13 +14,13 @@ structs that validate resources and extract edges stay.
 
 ## What exists today (three outputs from one generator)
 
-`cmd/generate` reads `schemas/graph-fhir.json` and writes three separate things. It does **not** use gqlgen.
+`cmd/generate` reads `fhir/graph-fhir.json` and writes three separate things. It does **not** use gqlgen.
 gqlgen is a separate step (`make generate-graphql`).
 
 | Output | Lines | Who uses it | Fate |
 |---|---|---|---|
-| `generated/fhirschema/generated.go`: metadata (paths, types, cardinality, reference targets) | 55k | The compiler and Builder via `internal/fhir/schema` (`lower`, `semantic`, `ir`, `render/aql`, `spec`, `recipe`, `catalog`, `explorer/*`, `ingest`) | **Keep, unchanged** |
-| `generated/fhir/*.go`: Go structs + `Validate()` + `ExtractEdges()` | 72k | **Ingest** (see below), `dataframe/spec/filter.go:236,243` (date validators), `api/bulk/load`, and the GraphQL executor | **Keep.** Remove only the GraphQL-specific parts (`graphql.go`, `gqlgen:` struct tags) |
+| `fhir/schema/generated.go`: metadata (paths, types, cardinality, reference targets) | 55k | The compiler and Builder via `internal/fhir/schema` (`lower`, `semantic`, `ir`, `render/aql`, `spec`, `recipe`, `catalog`, `explorer/*`, `ingest`) | **Keep, unchanged** |
+| `fhir/model/*.go`: Go structs + `Validate()` + `ExtractEdges()` | 72k | **Ingest** (see below), `dataframe/spec/filter.go:236,243` (date validators), `api/bulk/load`, and the GraphQL executor | **Keep.** Remove only the GraphQL-specific parts (`graphql.go`, `gqlgen:` struct tags) |
 | `generated/graphql/graph/schema/fhir_schema.graphqls` → gqlgen → `executor/fhir_schema.generated.go` | 2.8k + 108k | The typed FHIR GraphQL API only | **Delete** |
 
 ## FHIR validation that must keep working (do not touch)
@@ -30,11 +30,11 @@ Ingest's default path for the 23 supported resource types is `GeneratedRowBuilde
 `loadRowGeneratedInternal` (`internal/ingest/generated_load.go`), which does:
 
 1. **Typed decode** into the generated struct (`sonic.Unmarshal`). Malformed JSON or a wrong type is a validation error.
-2. **`Validate()`** (`generated/fhir/validate.go`, 14.9k lines): 66 required-field checks
+2. **`Validate()`** (`fhir/model/validate.go`, 14.9k lines): 66 required-field checks
    (`MissingRequiredFieldError`, classified in `internal/ingest/row_error.go:31`), 357 regex pattern checks,
    and date, dateTime, time, binary, URI and UUID format checks.
 3. **A required string `id`.**
-4. **`ExtractEdges()`** (`generated/fhir/extract.go`, 53.8k lines): parses every `Reference`, normalizes the
+4. **`ExtractEdges()`** (`fhir/model/extract.go`, 53.8k lines): parses every `Reference`, normalizes the
    target type with `fhirschema.ConcreteResourceType`, and **only emits an edge when the target type is allowed
    for that field.** For example, `Specimen.parent` accepts only `Specimen`.
 5. **Edge document checks:** `EdgeFromGrip`, edge marshal, and auth-path stamping (`internal/ingest/row_builder.go:61-63,
@@ -79,7 +79,7 @@ Also ask the Calypr frontend owners directly: "Does anything query Loom's `/grap
 |---|---|
 | `cmd/generate/graphql.go` (301 lines), `cmd/generate/graphql_test.go` | Delete |
 | `cmd/generate/main.go:17,85-92` | Remove the `-graphql-out` flag and the `generateFHIRGraphQL` call |
-| `cmd/generate/main.go:70`, `cmd/generate/resources.go:~30-45` | Stop writing `generated/fhir/graphql.go`; remove the `IsFHIRResource` emission (`resources.go:39`) |
+| `cmd/generate/main.go:70`, `cmd/generate/resources.go:~30-45` | Stop writing `fhir/model/graphql.go`; remove the `IsFHIRResource` emission (`resources.go:39`) |
 | `cmd/generate/model.go:96-100` | Emit `` `json:"%s"` `` only; drop the `gqlgen:"%s"` tag and its comment |
 | `cmd/generate/*_test.go` | Update any golden that asserted the gqlgen tag or `graphql.go` |
 
@@ -88,8 +88,8 @@ Also ask the Calypr frontend owners directly: "Does anything query Loom's `/grap
 | Path | Result |
 |---|---|
 | `generated/graphql/graph/schema/fhir_schema.graphqls` | Deleted |
-| `generated/fhir/graphql.go` | Deleted |
-| `generated/fhir/model.go` | Regenerated: 2,498 `gqlgen:` tags removed. Field names, types and `json` tags must be **byte-identical otherwise**. Check with `git diff --word-diff` |
+| `fhir/model/graphql.go` | Deleted |
+| `fhir/model/model.go` | Regenerated: 2,498 `gqlgen:` tags removed. Field names, types and `json` tags must be **byte-identical otherwise**. Check with `git diff --word-diff` |
 | `generated/graphql/graph/executor/fhir_schema.generated.go` (108k) | Deleted by `make generate-graphql` |
 | `generated/graphql/graph/executor/root_.generated.go`, `model/models.go` | Regenerated and smaller (FHIR complexity, `FHIRResource`, `FHIRResourceType`, `FHIRPrimitiveExtension` gone) |
 
@@ -97,8 +97,8 @@ Also ask the Calypr frontend owners directly: "Does anything query Loom's `/grap
 
 | File | Edit |
 |---|---|
-| `gqlgen.yml` | Remove `generated/graphql/graph/schema/fhir_schema.graphqls` from `schema:`, `autobind: github.com/calypr/loom/generated/fhir`, and `struct_tag: gqlgen` |
-| `Makefile` `generate-fhir` | Unchanged except that no `.graphqls` is produced. Keep `gofmt` on `generated/fhir` and `generated/fhirschema` |
+| `gqlgen.yml` | Remove `generated/graphql/graph/schema/fhir_schema.graphqls` from `schema:`, `autobind: github.com/calypr/loom/fhir/model`, and `struct_tag: gqlgen` |
+| `Makefile` `generate-fhir` | Unchanged except that no `.graphqls` is produced. Keep `gofmt` on `fhir/model` and `fhir/schema` |
 
 ### 1d. Hand-written GraphQL code
 
@@ -164,7 +164,7 @@ Run `python3 scripts/package_audit_verify.py` before and after the move, then th
 
 ### Stages (separate commits, in order)
 
-- **2a. Add REST.** Add the endpoints to `openapi/openapi.yaml`, regenerate them, and add handlers in `internal/server` over the moved
+- **2a. Add REST.** Add the endpoints to `api/openapi.yaml`, regenerate them, and add handlers in `internal/server` over the moved
   service layer. GraphQL still works. Add a parity test: the same request through GraphQL and REST returns identical rows and aggregations.
 - **2b. Migrate callers.** Move the UI `api.ts` (with its zod schemas and `exportPopulation.unit.test.tsx`), acceptance, `loom-dev.mjs`, the b07 scripts,
   and `cmd/dataframe-query` onto REST. Rewrite `recipe_blank_project_test.go`.
@@ -192,5 +192,5 @@ cron job. The deployed Calypr Explorer broke once from an assumed-unused API, so
 
 ## Not in scope
 
-- Replacing `generated/fhir` with metadata-driven validation. The structs are the validation and edge-extraction engine; keep them.
-- Any change to `generated/fhirschema`, `internal/fhir/schema`, or the compiler.
+- Replacing `fhir/model` with metadata-driven validation. The structs are the validation and edge-extraction engine; keep them.
+- Any change to `fhir/schema`, `internal/fhir/schema`, or the compiler.

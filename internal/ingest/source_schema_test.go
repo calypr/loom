@@ -14,7 +14,7 @@ import (
 )
 
 func TestLoadSchemaSnapshot(t *testing.T) {
-	path := filepath.Join("..", "..", "schemas", "graph-fhir.json")
+	path := filepath.Join("..", "..", "fhir", "graph-fhir.json")
 	contents, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	fhir "github.com/calypr/loom/generated/fhir"
+	fhir "github.com/calypr/loom/fhir/model"
 	"github.com/calypr/loom/internal/catalog"
 
 	"github.com/bmeg/jsonschemagraph/graph"
@@ -16,7 +16,7 @@ import (
 )
 
 func BenchmarkValidateAndExtract(b *testing.B) {
-	schemaPath := benchRepoPath(b, "schemas", "graph-fhir.json")
+	schemaPath := benchRepoPath(b, "fhir", "graph-fhir.json")
 	schema, err := graph.Load(schemaPath)
 	if err != nil {
 		b.Fatalf("failed to load schema: %v", err)

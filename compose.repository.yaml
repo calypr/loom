@@ -9,7 +9,7 @@ services:
       - --database
       - loom_acceptance_d000000000000001
       - --schema
-      - /app/schemas/graph-fhir.json
+      - /app/fhir/graph-fhir.json
       - --clickhouse-url
       - clickhouse://clickhouse:9000
       - --clickhouse-database

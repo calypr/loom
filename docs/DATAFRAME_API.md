@@ -2,7 +2,7 @@
 
 The three dataframe operations use JSON POST requests under
 `/api/v1/projects/{project}/dataframes`. See the
-[OpenAPI contract](../openapi/openapi.yaml) for complete schemas and status codes.
+[OpenAPI contract](../api/openapi.yaml) for complete schemas and status codes.
 
 ## Page through published rows
 

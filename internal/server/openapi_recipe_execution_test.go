@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	loomapi "github.com/calypr/loom/generated/loomapi"
+	loomapi "github.com/calypr/loom/api/loomapi"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"

@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"time"
 
-	explorerv2api "github.com/calypr/loom/generated/loomapi"
+	explorerv2api "github.com/calypr/loom/api/loomapi"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/lifecycle"

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	loomapi "github.com/calypr/loom/generated/loomapi"
+	loomapi "github.com/calypr/loom/api/loomapi"
 )
 
 func TestOpenAPIAdapterStatusesMatchDeclaredResponses(t *testing.T) {
@@ -216,7 +216,7 @@ func adapterOpenAPIStatuses() (map[string]map[int]struct{}, error) {
 	}
 	handled := make(map[string]map[int]struct{})
 	fileSet := token.NewFileSet()
-	generatedFiles, err := filepath.Glob(filepath.Join(filepath.Dir(sourceFile), "../../generated/loomapi/*.go"))
+	generatedFiles, err := filepath.Glob(filepath.Join(filepath.Dir(sourceFile), "../../api/loomapi/*.go"))
 	if err != nil {
 		return nil, err
 	}

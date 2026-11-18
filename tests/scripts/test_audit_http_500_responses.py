@@ -14,7 +14,7 @@ class AuditTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             server = root/'internal/server'
-            generated = root/'generated/loomapi'
+            generated = root/'api/loomapi'
             server.mkdir(parents=True)
             generated.mkdir(parents=True)
             (server/'openapi_fixture.go').write_text('package fixture\n'+adapter+'\n'+helpers)

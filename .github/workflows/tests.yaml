@@ -59,7 +59,7 @@ jobs:
           path: ${{ runner.temp }}/go-test-list.txt
       - name: Run all ordinary Go packages and catalog witnesses
         run: |
-          package_list=$(go list . ./internal/... ./cmd/... ./generated/... ./tests/conformance/...)
+          package_list=$(go list . ./internal/... ./cmd/... ./api/... ./fhir/... ./tests/conformance/...)
           mapfile -t packages < <(printf '%s\n' "$package_list" | grep -vE '/(compiler/render/clickhouse|published|store/clickhouse)$')
           test "${#packages[@]}" -gt 0
           go test -timeout=10m -count=1 "${packages[@]}"
@@ -288,8 +288,8 @@ jobs:
         run: timeout 600s make generate-openapi
       - name: Check generated code is current
         run: |
-          timeout 600s git diff --exit-code -- generated/fhir generated/fhirschema generated/loomapi
-          timeout 600s sh -c 'test -z "$(git status --porcelain --untracked-files=all -- generated)"'
+          timeout 600s git diff --exit-code -- fhir/model fhir/schema api/loomapi
+          timeout 600s sh -c 'test -z "$(git status --porcelain --untracked-files=all -- api/loomapi fhir/model fhir/schema)"'
       - name: Check OpenAPI route ownership
         run: timeout 600s make openapi-check
       - name: Check preview-index migration

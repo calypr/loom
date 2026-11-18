@@ -14,7 +14,7 @@ import (
 )
 
 func TestPreflightFilesSelectsGeneratedAndGenericModesFromActiveSchema(t *testing.T) {
-	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))
+	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatalf("load schema: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestPreflightFilesSelectsGeneratedAndGenericModesFromActiveSchema(t *testin
 }
 
 func TestPreflightFilesReportsAllStagedInputProblems(t *testing.T) {
-	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))
+	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatalf("load schema: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestPreflightFilesReportsAllStagedInputProblems(t *testing.T) {
 }
 
 func TestPreflightFilesBoundsPayloadSamplingPerFile(t *testing.T) {
-	schema, err := graph.Load(repoPath(t, "schemas", "graph-fhir.json"))
+	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
 	if err != nil {
 		t.Fatalf("load schema: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestPreflightFilesBoundsPayloadSamplingPerFile(t *testing.T) {
 func TestLoadReturnsPreflightReportBeforeOpeningArango(t *testing.T) {
 	dir := t.TempDir()
 	writePreflightFixture(t, dir, "Unknown.ndjson", `{"resourceType":"Unknown"}`+"\n")
-	schemaPath := repoPath(t, "schemas", "graph-fhir.json")
+	schemaPath := repoPath(t, "fhir", "graph-fhir.json")
 	wantIdentity, err := loadSchemaSnapshot(schemaPath)
 	if err != nil {
 		t.Fatalf("load expected schema identity: %v", err)

@@ -10,9 +10,9 @@ import (
 
 func main() {
 	fs := flag.NewFlagSet("generate", flag.ExitOnError)
-	schemaPath := fs.String("schema", "schemas/graph-fhir.json", "Path to graph-fhir JSON schema")
-	structsDir := fs.String("structs-out", "generated/fhir", "Directory for generated FHIR Go structs, validation, and edge extraction")
-	metadataOut := fs.String("metadata-out", "generated/fhirschema/generated.go", "Path for generated compiler FHIR schema metadata")
+	schemaPath := fs.String("schema", "fhir/graph-fhir.json", "Path to graph-fhir JSON schema")
+	structsDir := fs.String("structs-out", "fhir/model", "Directory for generated FHIR Go structs, validation, and edge extraction")
+	metadataOut := fs.String("metadata-out", "fhir/schema/generated.go", "Path for generated compiler FHIR schema metadata")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
 		os.Exit(2)
@@ -66,7 +66,7 @@ func main() {
 	}
 
 	if err := generateFHIRSchema(&schema, *metadataOut); err != nil {
-		fmt.Fprintf(os.Stderr, "Error generating generated/fhirschema/generated.go: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error generating fhir/schema/generated.go: %v\n", err)
 		os.Exit(1)
 	}
 

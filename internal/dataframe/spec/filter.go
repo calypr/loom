@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	fhir "github.com/calypr/loom/generated/fhir"
+	fhir "github.com/calypr/loom/fhir/model"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 

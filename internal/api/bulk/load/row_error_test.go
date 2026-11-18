@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	fhir "github.com/calypr/loom/generated/fhir"
+	fhir "github.com/calypr/loom/fhir/model"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/ingest"
 )

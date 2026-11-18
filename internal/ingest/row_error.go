@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	fhir "github.com/calypr/loom/generated/fhir"
+	fhir "github.com/calypr/loom/fhir/model"
 )
 
 type RowError struct {

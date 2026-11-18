@@ -84,7 +84,7 @@ type graphSchemaDocument struct {
 
 func loadGeneratedBuilderTraversals(t *testing.T) []fhirschema.CompilerTraversal {
 	t.Helper()
-	path := filepath.Join("..", "..", "schemas", "graph-fhir.json")
+	path := filepath.Join("..", "..", "fhir", "graph-fhir.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read active graph schema %s: %v", path, err)

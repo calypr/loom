@@ -24,7 +24,7 @@ function sourceFiles(directory, files = []) {
 export function sourceFingerprint(sourceRoot = root) {
     const hash = createHash('sha256');
     const sources = [
-        ...['internal', 'generated', 'schemas', 'tests/fixtures'].flatMap(directory => sourceFiles(resolve(sourceRoot, directory))),
+        ...['internal', 'api', 'fhir', 'tests/fixtures'].flatMap(directory => sourceFiles(resolve(sourceRoot, directory))),
         resolve(sourceRoot, 'go.mod'),
         resolve(sourceRoot, 'go.sum'),
         resolve(sourceRoot, 'scripts/run-arango-integration.mjs'),

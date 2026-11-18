@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	loomapi "github.com/calypr/loom/generated/loomapi"
+	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )

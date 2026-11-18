@@ -60,9 +60,8 @@ services:
     volumes:
       - ${LOOM_DEV_SOURCE_ROOT:-.}/cmd:/workspace/cmd:ro
       - ${LOOM_DEV_SOURCE_ROOT:-.}/internal:/workspace/internal:ro
-      - ${LOOM_DEV_SOURCE_ROOT:-.}/generated:/workspace/generated:ro
-      - ${LOOM_DEV_SOURCE_ROOT:-.}/schemas:/workspace/schemas:ro
-      - ${LOOM_DEV_SOURCE_ROOT:-.}/openapi:/workspace/openapi:ro
+      - ${LOOM_DEV_SOURCE_ROOT:-.}/api:/workspace/api:ro
+      - ${LOOM_DEV_SOURCE_ROOT:-.}/fhir:/workspace/fhir:ro
       - ${LOOM_DEV_SOURCE_ROOT:-.}/go.mod:/workspace/go.mod:ro
       - ${LOOM_DEV_SOURCE_ROOT:-.}/go.sum:/workspace/go.sum:ro
       - ${LOOM_DEV_SOURCE_ROOT:-.}/.air.dev.toml:/workspace/.air.dev.toml:ro
