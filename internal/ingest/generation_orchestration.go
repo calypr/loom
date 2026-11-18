@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
@@ -188,39 +190,87 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	catalogs := make(map[generationCatalogKey]*catalog.Profiler)
 	relationshipCounts := make(map[catalog.RelationshipKey]int64)
 	lastInventoryCheckpoint := ""
-
-	var rowErrorCandidates [][]RowErrorSample
+	rowErrorCandidates := make([][]RowErrorSample, len(files))
 	defer func() {
 		summary.RowErrors = selectGenerationRowErrorSamples(rowErrorCandidates)
 	}()
-	if err = runGenerationFiles(ctx, opts, files, func(ctx context.Context, opts LoadOptions, _ int, file string) error {
+	outcomes := newGenerationFileOutcomes(opts.MetaDir, files, func(advanceCtx context.Context, scanned int64, checkpoint string) error {
+		return catalogStore.AdvanceSemanticInventoryBuild(advanceCtx, inventoryBuild, scanned, checkpoint)
+	})
+	insertCounters := &generationInsertCounters{}
+	eventSink := opts.EventSink
+	var eventMutex sync.Mutex
+	opts.EventSink = func(event string, fields map[string]any) {
+		eventMutex.Lock()
+		defer eventMutex.Unlock()
+		if event == "go_load_progress" {
+			fields["vertices_inserted"] = int(atomic.LoadInt64(&insertCounters.vertices))
+			fields["edges_inserted"] = int(atomic.LoadInt64(&insertCounters.edges))
+			fields["seconds"] = SecondsSince(start)
+		}
+		emitEvent(eventSink, event, fields)
+	}
+	opts.fileInsertedCounters = insertCounters
+	shapeCaches := make(map[string]*catalog.ShapePlanCache)
+	for _, file := range files {
+		resourceType := ResourceTypeFromPath(file)
+		if shapeCaches[resourceType] == nil {
+			shapeCaches[resourceType] = catalog.NewShapePlanCacheWithLimits(opts.CatalogLimits.MaxShapePlans, opts.CatalogLimits.MaxRetainedBytes)
+		}
+	}
+	loadErr := runGenerationFiles(ctx, opts, files, func(fileCtx context.Context, fileOpts LoadOptions, index int, file string) error {
 		fileStart := time.Now()
 		resourceType := ResourceTypeFromPath(file)
-		emitEvent(opts.EventSink, "go_load_file_start", map[string]any{"file": file, "resource": resourceType})
+		emitEvent(fileOpts.EventSink, "go_load_file_start", map[string]any{"file": file, "resource": resourceType})
+		fileOpts.fileShapePlanCache = shapeCaches[resourceType]
 
 		result, fileErr := loadFile(
-			ctx,
-			opts,
+			fileCtx,
+			fileOpts,
 			client,
 			schema,
 			file,
 			plan.Dataset.Generation,
 			false,
 			start,
-			summary.VerticesInserted,
-			summary.EdgesInserted,
+			0,
+			0,
 			insertRawDocuments,
 		)
-		if fileErr != nil {
-			return fileErr
+		checkpointErr := outcomes.complete(ctx, index, result, fileErr)
+		if fileErr == nil && checkpointErr == nil {
+			emitEvent(fileOpts.EventSink, "go_load_file_complete", map[string]any{
+				"file":          filepath.Base(file),
+				"resource":      result.ResourceType,
+				"file_rows":     result.Rows,
+				"file_vertices": result.VerticesBuilt,
+				"file_edges":    result.EdgesBuilt,
+				"seconds":       time.Since(fileStart).Seconds(),
+			})
 		}
-
+		return errors.Join(fileErr, checkpointErr)
+	})
+	fileResults := outcomes.results
+	fileErrors := outcomes.errors
+	fileFinished := outcomes.finished
+	lastInventoryCheckpoint = outcomes.lastCheckpoint
+	for index := range files {
+		if !fileFinished[index] {
+			continue
+		}
+		if fileErrors[index] != nil {
+			if loadErr == nil {
+				loadErr = fileErrors[index]
+			}
+			continue
+		}
+		result := fileResults[index]
 		summary.VerticesInserted += result.VerticesInserted
 		summary.EdgesInserted += result.EdgesInserted
 		summary.ValidationErrors += result.ValidationErrors
 		summary.GenerationErrors += result.GenerationErrors
 		summary.EdgeErrors += result.EdgeErrors
-		rowErrorCandidates = append(rowErrorCandidates, result.RowErrors)
+		rowErrorCandidates[index] = result.RowErrors
 		summary.Resources[result.ResourceType] += result.Rows
 		summary.BatchCounts["vertex_insert"] += result.VertexBatches
 		summary.BatchCounts["edge_insert"] += result.EdgeBatches
@@ -228,10 +278,6 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			summary.StageSeconds[name] += seconds
 		}
 		summary.BatchCounts["semantic_inventory"] += result.SemanticInventoryBatches
-		lastInventoryCheckpoint = semanticInventorySourceFileID(opts.MetaDir, file)
-		if err = catalogStore.AdvanceSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
-			return fmt.Errorf("advance semantic inventory checkpoint: %w", err)
-		}
 		catalog.MergeRelationshipCounts(relationshipCounts, result.RelationshipCounts)
 
 		key := generationCatalogKey{
@@ -247,26 +293,18 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 				key.datasetGeneration,
 				key.authResourcePath,
 				key.resourceType,
-				catalog.NewShapePlanCacheWithLimits(opts.CatalogLimits.MaxShapePlans, opts.CatalogLimits.MaxRetainedBytes),
+				nil,
 				opts.CatalogLimits,
 			)
 			catalogs[key] = merged
 		}
-		if err = merged.Merge(result.Catalog); err != nil {
-			return fmt.Errorf("merge catalog for dataset generation %s/%s %s: %w", plan.Dataset.Project, plan.Dataset.Generation, result.ResourceType, err)
+		if mergeErr := merged.Merge(result.Catalog); mergeErr != nil && loadErr == nil {
+			loadErr = fmt.Errorf("merge catalog for dataset generation %s/%s %s: %w", plan.Dataset.Project, plan.Dataset.Generation, result.ResourceType, mergeErr)
 		}
 
-		emitEvent(opts.EventSink, "go_load_file_complete", map[string]any{
-			"file":          filepath.Base(file),
-			"resource":      result.ResourceType,
-			"file_rows":     result.Rows,
-			"file_vertices": result.VerticesBuilt,
-			"file_edges":    result.EdgesBuilt,
-			"seconds":       time.Since(fileStart).Seconds(),
-		})
-		return nil
-	}); err != nil {
-		return summary, err
+	}
+	if loadErr != nil {
+		return summary, loadErr
 	}
 
 	if summary.ValidationErrors != 0 || summary.GenerationErrors != 0 || summary.EdgeErrors != 0 {

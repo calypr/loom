@@ -428,6 +428,7 @@ type ShapePlanCache struct {
 	retainedBytes int
 	truncated     bool
 	budget        *retentionBudget
+	sharedPlans   *ShapePlanCache
 }
 
 type retentionBudget struct {

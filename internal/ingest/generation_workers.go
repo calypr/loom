@@ -63,6 +63,11 @@ type fileLoadResult struct {
 	RowErrors                []RowErrorSample
 }
 
+type generationInsertCounters struct {
+	vertices int64
+	edges    int64
+}
+
 const rowErrorSampleLimit = 10
 
 func selectGenerationRowErrorSamples(fileSamples [][]RowErrorSample) []RowErrorSample {
@@ -237,6 +242,9 @@ func loadFile(
 	workerCatalogsChan := make(chan *catalog.Profiler, workerCount)
 	workerInventoryChan := make(chan *catalog.SemanticInventoryAggregator, workerCount)
 	shapeCache := catalog.NewShapePlanCacheWithLimits(opts.CatalogLimits.MaxShapePlans, opts.CatalogLimits.MaxRetainedBytes)
+	if opts.fileShapePlanCache != nil {
+		shapeCache = catalog.NewShapePlanCacheWithSharedPlans(opts.CatalogLimits.MaxShapePlans, opts.CatalogLimits.MaxRetainedBytes, opts.fileShapePlanCache)
+	}
 
 	var fileRows int64
 	var fileVertices int64
@@ -369,11 +377,24 @@ func loadFile(
 						workerInventoryChan <- localInventory
 						return
 					}
+					if opts.fileWorkerBudget != nil {
+						select {
+						case opts.fileWorkerBudget <- struct{}{}:
+						case <-fileCtx.Done():
+							return
+						}
+					}
+					releaseWorkerBudget := func() {
+						if opts.fileWorkerBudget != nil {
+							<-opts.fileWorkerBudget
+						}
+					}
 					built, errorType, buildErr := rowBuilder.Build(resourceType, []byte(line.text), localTimings)
 					if buildErr != nil {
 						if opts.FailFast {
 							setPipelineErr(&RowError{File: filepath.Base(file), ResourceType: resourceType,
 								Row: line.number, Category: string(errorType), Cause: buildErr})
+							releaseWorkerBudget()
 							return
 						}
 						recordRowError(line.number, errorType, buildErr)
@@ -385,12 +406,14 @@ func loadFile(
 						case rowErrorEdge:
 							atomic.AddInt64(&edgeErrors, 1)
 						}
+						releaseWorkerBudget()
 						continue
 					}
 
 					if semanticSourceFile == "" {
 						if observeErr := localCatalog.ObservePayload(built.payload, localTimings); observeErr != nil {
 							setPipelineErr(fmt.Errorf("observe payload for %s row %d: %w", filepath.Base(file), line.number, observeErr))
+							releaseWorkerBudget()
 							return
 						}
 					} else {
@@ -409,15 +432,18 @@ func loadFile(
 							setPipelineErr(fmt.Errorf("observe semantic inventory for %s row %d: %w", filepath.Base(file), line.number, observeErr))
 						}
 						if fileCtx.Err() != nil {
+							releaseWorkerBudget()
 							return
 						}
 						if localInventory.Len() >= semanticInventoryRunKeyLimit && !flushInventoryRun() {
+							releaseWorkerBudget()
 							return
 						}
 					}
 					vertexBatch = append(vertexBatch, built.vertex)
 					atomic.AddInt64(&fileVertices, 1)
 					if len(vertexBatch) >= opts.BatchSize && !flushVertexBatch() {
+						releaseWorkerBudget()
 						return
 					}
 					for edgeIndex, edge := range built.edges {
@@ -429,23 +455,31 @@ func loadFile(
 						edgeBatch = append(edgeBatch, edge)
 						atomic.AddInt64(&fileEdges, 1)
 						if len(edgeBatch) >= opts.BatchSize && !flushEdgeBatch() {
+							releaseWorkerBudget()
 							return
 						}
 					}
 
 					currentRows := atomic.AddInt64(&fileRows, 1)
 					if currentRows%int64(opts.ProgressEvery) == 0 {
+						verticesTotal := priorVertices + int(atomic.LoadInt64(&verticesInserted))
+						edgesTotal := priorEdges + int(atomic.LoadInt64(&edgesInserted))
+						if opts.fileInsertedCounters != nil {
+							verticesTotal = int(atomic.LoadInt64(&opts.fileInsertedCounters.vertices))
+							edgesTotal = int(atomic.LoadInt64(&opts.fileInsertedCounters.edges))
+						}
 						emitEvent(opts.EventSink, "go_load_progress", map[string]any{
 							"file":              filepath.Base(file),
 							"resource":          resourceType,
 							"file_rows":         currentRows,
 							"file_vertices":     atomic.LoadInt64(&fileVertices),
 							"file_edges":        atomic.LoadInt64(&fileEdges),
-							"vertices_inserted": priorVertices + int(atomic.LoadInt64(&verticesInserted)),
-							"edges_inserted":    priorEdges + int(atomic.LoadInt64(&edgesInserted)),
+							"vertices_inserted": verticesTotal,
+							"edges_inserted":    edgesTotal,
 							"seconds":           SecondsSince(start),
 						})
 					}
+					releaseWorkerBudget()
 				}
 			}
 		}()
@@ -525,10 +559,20 @@ func loadFile(
 						}
 						return
 					}
+					if opts.fileWriterBudget != nil {
+						select {
+						case opts.fileWriterBudget <- struct{}{}:
+						case <-fileCtx.Done():
+							return
+						}
+					}
 					insertStart := time.Now()
 					var insertErr error
 					taskOverwrite := overwrite || task.replace
 					insertErr = insert(fileCtx, client, task.collection, task.docs, taskOverwrite, opts.WriteAPI)
+					if opts.fileWriterBudget != nil {
+						<-opts.fileWriterBudget
+					}
 					if insertErr != nil {
 						setPipelineErr(insertErr)
 						return
@@ -538,6 +582,9 @@ func loadFile(
 					case EdgeCollection:
 						localTimings["edge_insert"] += elapsed
 						atomic.AddInt64(&edgesInserted, int64(len(task.docs)))
+						if opts.fileInsertedCounters != nil {
+							atomic.AddInt64(&opts.fileInsertedCounters.edges, int64(len(task.docs)))
+						}
 						catalog.MergeRelationshipCounts(localRelationships, task.relationshipCounts)
 					case catalog.SemanticInventoryCollection:
 						localTimings["semantic_inventory_insert"] += elapsed
@@ -545,6 +592,9 @@ func loadFile(
 					default:
 						localTimings["vertex_insert"] += elapsed
 						atomic.AddInt64(&verticesInserted, int64(len(task.docs)))
+						if opts.fileInsertedCounters != nil {
+							atomic.AddInt64(&opts.fileInsertedCounters.vertices, int64(len(task.docs)))
+						}
 					}
 				}
 			}
@@ -578,7 +628,7 @@ func loadFile(
 	result.RowErrors = rowErrors
 	result.StageSeconds = make(map[string]float64)
 	result.RelationshipCounts = make(map[catalog.RelationshipKey]int64)
-	mergedCatalog := catalog.NewProfilerForGenerationWithLimits(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, shapeCache, opts.CatalogLimits)
+	mergedCatalog := catalog.NewProfilerForGenerationWithLimits(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, catalog.NewShapePlanCacheWithLimits(opts.CatalogLimits.MaxShapePlans, opts.CatalogLimits.MaxRetainedBytes), opts.CatalogLimits)
 	for timings := range workerTimingsChan {
 		for key, value := range timings {
 			switch key {

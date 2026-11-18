@@ -166,10 +166,16 @@ func TestLoadFileBatchesAndPropagatesWriterFailure(t *testing.T) {
 	writeErr := errors.New("writer failed")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	_, err = loadFile(ctx, opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0, func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
+	writerBudget := make(chan struct{}, 1)
+	budgetedOpts := opts
+	budgetedOpts.fileWriterBudget = writerBudget
+	_, err = loadFile(ctx, budgetedOpts, nil, schema, file, "generation-1", false, time.Now(), 0, 0, func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
 		return writeErr
 	})
 	if !errors.Is(err, writeErr) {
 		t.Fatalf("error = %v, want %v", err, writeErr)
+	}
+	if len(writerBudget) != 0 {
+		t.Fatalf("writer permit leaked after insert error: %d permits held", len(writerBudget))
 	}
 }
