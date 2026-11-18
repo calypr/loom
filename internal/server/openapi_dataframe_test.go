@@ -98,7 +98,7 @@ func TestPublishedDataframeREST(t *testing.T) {
 		t.Fatal(err)
 	}
 	readRoutes := dataframeReadRoutes{published: dataframeapi.NewService(dataframeapi.Config{Reader: reader})}
-	if err := registerRoutes(server, load, authorizer, &explorerHTTPHandlers{}, readRoutes); err != nil {
+	if err := registerRoutes(server, load, authorizer, &explorerHandlers{}, readRoutes); err != nil {
 		t.Fatal(err)
 	}
 	post := func(path string, input any, status int) map[string]any {

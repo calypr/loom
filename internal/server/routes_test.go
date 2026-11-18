@@ -13,6 +13,8 @@ import (
 	"github.com/calypr/loom/internal/ingest"
 )
 
+type HTTPRoutes = routes
+
 type routeRunner struct{}
 
 func (routeRunner) RunGeneration(context.Context, loadapi.GenerationLoadRequest, ingest.EventSink) (ingest.LoadSummary, error) {
@@ -31,7 +33,7 @@ func TestRegisterRoutesExposesGenerationReleaseWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registerRoutes(server, resourceService, authscope.AllowAllAuthorizer{}, &explorerHTTPHandlers{}); err != nil {
+	if err := registerRoutes(server, resourceService, authscope.AllowAllAuthorizer{}, &explorerHandlers{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -89,5 +91,11 @@ func TestRegisterRoutesExposesGenerationReleaseWorkflow(t *testing.T) {
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("removed resource route status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+}
+
+func TestRegisterRoutesRequiresExplorerHandlers(t *testing.T) {
+	if err := registerRoutes(nil, nil, nil, nil); err == nil || err.Error() != "create Explorer HTTP routes: Explorer handlers are required" {
+		t.Fatalf("registerRoutes() error = %v, want missing Explorer handlers", err)
 	}
 }
