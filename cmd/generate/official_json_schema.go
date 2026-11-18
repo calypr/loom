@@ -286,6 +286,7 @@ func convertOfficialFHIRProperty(definitions map[string]officialFHIRDef, source 
 		}
 		if primitiveType != "" && primitiveType != "object" {
 			property.Type = normalizedFHIRPrimitiveType(name, primitiveType)
+			property.Primitive = name
 			pattern := definition.Pattern
 			if property.Type != "string" {
 				pattern = ""

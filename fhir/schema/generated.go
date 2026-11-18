@@ -18,10 +18,12 @@ type Property struct {
 	Name                 string
 	Kind                 string
 	Format               string
+	Integer64            bool
 	Ref                  string
 	Properties           []Property
 	ItemKind             string
 	ItemFormat           string
+	ItemInteger64        bool
 	ItemRef              string
 	ItemProperties       []Property
 	ChoiceGroup          string
@@ -539,6 +541,7 @@ var Definitions = map[string]Definition{
 			{
 				Name:        "size",
 				Kind:        "string",
+				Integer64:   true,
 				Title:       "Number of bytes of content (if url provided)",
 				Description: "The number of bytes of data that make up this attachment (before base64 encoding, if that is done).",
 			},
@@ -4361,6 +4364,7 @@ var Definitions = map[string]Definition{
 			{
 				Name:        "valueInteger64",
 				Kind:        "string",
+				Integer64:   true,
 				ChoiceGroup: "value",
 				Title:       "Value of extension",
 				Description: "Value of extension - must be one of a constrained set of the data types (see [Extensibility](extensibility.html) for a list).",
@@ -16429,6 +16433,7 @@ var Definitions = map[string]Definition{
 			{
 				Name:                "valueInteger64",
 				Kind:                "string",
+				Integer64:           true,
 				ChoiceGroup:         "value",
 				ChoiceGroupRequired: true,
 				ElementRequired:     true,
@@ -17114,6 +17119,7 @@ var Definitions = map[string]Definition{
 			{
 				Name:                "valueInteger64",
 				Kind:                "string",
+				Integer64:           true,
 				ChoiceGroup:         "value",
 				ChoiceGroupRequired: true,
 				ElementRequired:     true,

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -336,18 +337,57 @@ func validFHIRUUID(s string) bool {
 	return true
 }
 
-// Essential: The official JSON Schema anchors only one side of each alternative.
-func matchesFHIRInteger64Pattern(s string) bool {
-	if len(s) > 0 && s[0] == '0' {
+func validFHIRInteger64(s string) bool {
+	if s == "0" {
 		return true
 	}
-	for i := len(s) - 1; i >= 0; i-- {
-		if s[i] >= '1' && s[i] <= '9' {
-			return true
+	digits := s
+	if len(digits) > 0 && (digits[0] == '+' || digits[0] == '-') {
+		digits = digits[1:]
+	}
+	if len(digits) == 0 || digits[0] < '1' || digits[0] > '9' {
+		return false
+	}
+	_, err := strconv.ParseInt(s, 10, 64)
+	return err == nil
+}
+
+func validFHIRCalendarDate(s string) bool {
+	if len(s) < 10 {
+		return true
+	}
+	month := int(s[5]-'0')*10 + int(s[6]-'0')
+	day := int(s[8]-'0')*10 + int(s[9]-'0')
+	switch month {
+	case 2:
+		year := int(s[0]-'0')*1000 + int(s[1]-'0')*100 + int(s[2]-'0')*10 + int(s[3]-'0')
+		if year%4 == 0 && (year%100 != 0 || year%400 == 0) {
+			return day <= 29
 		}
-		if s[i] != '0' {
+		return day <= 28
+	case 4, 6, 9, 11:
+		return day <= 30
+	}
+	return true
+}
+
+func validFHIRBinaryContent(s string) bool {
+	symbols, padding := 0, 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == ' ' || c == '\t' || c == '\r' || c == '\n':
+			continue
+		case c == '=':
+			padding++
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '+', c == '/':
+			if padding != 0 {
+				return false
+			}
+			symbols++
+		default:
 			return false
 		}
 	}
-	return false
+	return symbols != 0 && padding <= 2 && (symbols+padding)%4 == 0
 }

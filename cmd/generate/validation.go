@@ -124,6 +124,8 @@ func generateValidate(schema *Schema, path string) error {
 				fmt.Fprintf(&sb, "%sif %s {\n%s\treturn fmt.Errorf(\"field '%s' does not match its schema pattern\")\n%s}\n", indent, condition, indent, pk, indent)
 			}
 
+			writePrimitiveValidation(&sb, prop, valExpr, indent, pk, false)
+
 			if prop.MinLength != nil {
 				sb.WriteString(fmt.Sprintf("%sif utf8.RuneCountInString(%s) < %d {\n", indent, valExpr, *prop.MinLength))
 				sb.WriteString(fmt.Sprintf("%s\treturn fmt.Errorf(\"field '%s' is too short (min %d characters)\")\n", indent, pk, *prop.MinLength))
@@ -155,7 +157,7 @@ func generateValidate(schema *Schema, path string) error {
 			}
 
 			if isSlice && prop.Items != nil {
-				hasItemValidation := hasStringPattern(prop.Items) || len(prop.Items.EnumValues) > 0 || propertyHasNestedValidation(prop.Items)
+				hasItemValidation := primitiveValidator(prop.Items) != "" || hasStringPattern(prop.Items) || len(prop.Items.EnumValues) > 0 || propertyHasNestedValidation(prop.Items)
 				if hasItemValidation {
 					itemName := "item"
 					sb.WriteString(fmt.Sprintf("%sfor i, %s := range %s {\n", indent, itemName, valExpr))
@@ -173,6 +175,8 @@ func generateValidate(schema *Schema, path string) error {
 						condition := invalidStringPattern(prop.Items.Pattern, itemValExpr, regexNames)
 						fmt.Fprintf(&sb, "%sif %s {\n%s\treturn fmt.Errorf(\"field '%s[%%d]' does not match its schema pattern\", i)\n%s}\n", loopIndent, condition, loopIndent, pk, loopIndent)
 					}
+
+					writePrimitiveValidation(&sb, prop.Items, itemValExpr, loopIndent, pk, true)
 
 					if propertyHasNestedValidation(prop.Items) {
 						sb.WriteString(fmt.Sprintf("%sif err := %s.Validate(); err != nil {\n", loopIndent, itemName))
@@ -205,6 +209,33 @@ func generateValidate(schema *Schema, path string) error {
 	}
 
 	return os.WriteFile(path, []byte(sb.String()), 0644)
+}
+
+func primitiveValidator(property *Property) string {
+	if property.Type != "string" {
+		return ""
+	}
+	switch property.Primitive {
+	case "date", "dateTime", "instant":
+		return "validFHIRCalendarDate"
+	case "base64Binary":
+		return "validFHIRBinaryContent"
+	}
+	return ""
+}
+
+func writePrimitiveValidation(sb *strings.Builder, property *Property, value, indent, field string, item bool) {
+	validator := primitiveValidator(property)
+	if validator == "" {
+		return
+	}
+	fmt.Fprintf(sb, "%sif !%s(%s) {\n", indent, validator, value)
+	if item {
+		fmt.Fprintf(sb, "%s\treturn fmt.Errorf(\"field '%s[%%d]' is not a valid FHIR %s\", i)\n", indent, field, property.Primitive)
+	} else {
+		fmt.Fprintf(sb, "%s\treturn fmt.Errorf(\"field '%s' is not a valid FHIR %s\")\n", indent, field, property.Primitive)
+	}
+	fmt.Fprintf(sb, "%s}\n", indent)
 }
 
 func hasStringPattern(property *Property) bool {

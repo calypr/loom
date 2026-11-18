@@ -23,6 +23,7 @@ type Definition struct {
 type BindingStrength string
 
 type Property struct {
+	Primitive            string               `json:"-"`
 	Ref                  string               `json:"$ref"`
 	Type                 any                  `json:"type"`
 	Items                *Property            `json:"items"`

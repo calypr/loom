@@ -256,6 +256,9 @@ func (x *Annotation) Validate() error {
 		if !validFHIRDateTime(*x.Time, false) {
 			return fmt.Errorf("field 'time' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.Time) {
+			return fmt.Errorf("field 'time' is not a valid FHIR dateTime")
+		}
 	}
 	return nil
 }
@@ -339,8 +342,14 @@ func (x *Attachment) Validate() error {
 		if !validFHIRDateTime(*x.Creation, false) {
 			return fmt.Errorf("field 'creation' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.Creation) {
+			return fmt.Errorf("field 'creation' is not a valid FHIR dateTime")
+		}
 	}
 	if x.Data != nil {
+		if !validFHIRBinaryContent(*x.Data) {
+			return fmt.Errorf("field 'data' is not a valid FHIR base64Binary")
+		}
 	}
 	if x.Duration != nil {
 	}
@@ -356,6 +365,9 @@ func (x *Attachment) Validate() error {
 	if x.Frames != nil {
 	}
 	if x.Hash != nil {
+		if !validFHIRBinaryContent(*x.Hash) {
+			return fmt.Errorf("field 'hash' is not a valid FHIR base64Binary")
+		}
 	}
 	if x.Height != nil {
 	}
@@ -372,7 +384,7 @@ func (x *Attachment) Validate() error {
 	if x.Pages != nil {
 	}
 	if x.Size != nil {
-		if !matchesFHIRInteger64Pattern(*x.Size) {
+		if !validFHIRInteger64(*x.Size) {
 			return fmt.Errorf("field 'size' does not match its schema pattern")
 		}
 	}
@@ -1069,6 +1081,9 @@ func (x *Condition) Validate() error {
 		if !validFHIRDateTime(*x.AbatementDateTime, false) {
 			return fmt.Errorf("field 'abatementDateTime' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.AbatementDateTime) {
+			return fmt.Errorf("field 'abatementDateTime' is not a valid FHIR dateTime")
+		}
 	}
 	if x.AbatementPeriod != nil {
 		if err := x.AbatementPeriod.Validate(); err != nil {
@@ -1197,6 +1212,9 @@ func (x *Condition) Validate() error {
 		if !validFHIRDateTime(*x.OnsetDateTime, false) {
 			return fmt.Errorf("field 'onsetDateTime' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.OnsetDateTime) {
+			return fmt.Errorf("field 'onsetDateTime' is not a valid FHIR dateTime")
+		}
 	}
 	if x.OnsetPeriod != nil {
 		if err := x.OnsetPeriod.Validate(); err != nil {
@@ -1225,6 +1243,9 @@ func (x *Condition) Validate() error {
 	if x.RecordedDate != nil {
 		if !validFHIRDateTime(*x.RecordedDate, false) {
 			return fmt.Errorf("field 'recordedDate' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.RecordedDate) {
+			return fmt.Errorf("field 'recordedDate' is not a valid FHIR dateTime")
 		}
 	}
 	if x.ResourceType == nil {
@@ -1768,6 +1789,9 @@ func (x *DataRequirementDateFilter) Validate() error {
 		if !validFHIRDateTime(*x.ValueDateTime, false) {
 			return fmt.Errorf("field 'valueDateTime' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.ValueDateTime) {
+			return fmt.Errorf("field 'valueDateTime' is not a valid FHIR dateTime")
+		}
 	}
 	if x.ValueDuration != nil {
 		if err := x.ValueDuration.Validate(); err != nil {
@@ -1900,6 +1924,9 @@ func (x *DataRequirementValueFilter) Validate() error {
 		if !validFHIRDateTime(*x.ValueDateTime, false) {
 			return fmt.Errorf("field 'valueDateTime' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.ValueDateTime) {
+			return fmt.Errorf("field 'valueDateTime' is not a valid FHIR dateTime")
+		}
 	}
 	if x.ValueDuration != nil {
 		if err := x.ValueDuration.Validate(); err != nil {
@@ -2000,6 +2027,9 @@ func (x *DiagnosticReport) Validate() error {
 		if !validFHIRDateTime(*x.EffectiveDateTime, false) {
 			return fmt.Errorf("field 'effectiveDateTime' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.EffectiveDateTime) {
+			return fmt.Errorf("field 'effectiveDateTime' is not a valid FHIR dateTime")
+		}
 	}
 	if x.EffectivePeriod != nil {
 		if err := x.EffectivePeriod.Validate(); err != nil {
@@ -2042,6 +2072,9 @@ func (x *DiagnosticReport) Validate() error {
 	if x.Issued != nil {
 		if !validFHIRDateTime(*x.Issued, true) {
 			return fmt.Errorf("field 'issued' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Issued) {
+			return fmt.Errorf("field 'issued' is not a valid FHIR instant")
 		}
 	}
 	if x.Language != nil {
@@ -2452,6 +2485,9 @@ func (x *DocumentReference) Validate() error {
 		if !validFHIRDateTime(*x.Date, true) {
 			return fmt.Errorf("field 'date' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.Date) {
+			return fmt.Errorf("field 'date' is not a valid FHIR instant")
+		}
 	}
 	if x.Description != nil {
 		if *x.Description == "" {
@@ -2646,6 +2682,9 @@ func (x *DocumentReferenceAttester) Validate() error {
 	if x.Time != nil {
 		if !validFHIRDateTime(*x.Time, false) {
 			return fmt.Errorf("field 'time' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Time) {
+			return fmt.Errorf("field 'time' is not a valid FHIR dateTime")
 		}
 	}
 	return nil
@@ -3375,6 +3414,9 @@ func (x *Extension) Validate() error {
 		if !validFHIRBase64(*x.ValueBase64Binary) {
 			return fmt.Errorf("field 'valueBase64Binary' does not match its schema pattern")
 		}
+		if !validFHIRBinaryContent(*x.ValueBase64Binary) {
+			return fmt.Errorf("field 'valueBase64Binary' is not a valid FHIR base64Binary")
+		}
 	}
 	if x.ValueBoolean != nil {
 	}
@@ -3427,10 +3469,16 @@ func (x *Extension) Validate() error {
 		if !validFHIRDate(*x.ValueDate) {
 			return fmt.Errorf("field 'valueDate' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.ValueDate) {
+			return fmt.Errorf("field 'valueDate' is not a valid FHIR date")
+		}
 	}
 	if x.ValueDateTime != nil {
 		if !validFHIRDateTime(*x.ValueDateTime, false) {
 			return fmt.Errorf("field 'valueDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueDateTime) {
+			return fmt.Errorf("field 'valueDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.ValueDecimal != nil {
@@ -3479,11 +3527,14 @@ func (x *Extension) Validate() error {
 		if !validFHIRDateTime(*x.ValueInstant, true) {
 			return fmt.Errorf("field 'valueInstant' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.ValueInstant) {
+			return fmt.Errorf("field 'valueInstant' is not a valid FHIR instant")
+		}
 	}
 	if x.ValueInteger != nil {
 	}
 	if x.ValueInteger64 != nil {
-		if !matchesFHIRInteger64Pattern(*x.ValueInteger64) {
+		if !validFHIRInteger64(*x.ValueInteger64) {
 			return fmt.Errorf("field 'valueInteger64' does not match its schema pattern")
 		}
 	}
@@ -3697,6 +3748,9 @@ func (x *FamilyMemberHistory) Validate() error {
 		if !validFHIRDate(*x.BornDate) {
 			return fmt.Errorf("field 'bornDate' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.BornDate) {
+			return fmt.Errorf("field 'bornDate' is not a valid FHIR date")
+		}
 	}
 	if x.BornPeriod != nil {
 		if err := x.BornPeriod.Validate(); err != nil {
@@ -3728,6 +3782,9 @@ func (x *FamilyMemberHistory) Validate() error {
 		if !validFHIRDateTime(*x.Date, false) {
 			return fmt.Errorf("field 'date' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.Date) {
+			return fmt.Errorf("field 'date' is not a valid FHIR dateTime")
+		}
 	}
 	if x.DeceasedAge != nil {
 		if err := x.DeceasedAge.Validate(); err != nil {
@@ -3739,6 +3796,9 @@ func (x *FamilyMemberHistory) Validate() error {
 	if x.DeceasedDate != nil {
 		if !validFHIRDate(*x.DeceasedDate) {
 			return fmt.Errorf("field 'deceasedDate' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.DeceasedDate) {
+			return fmt.Errorf("field 'deceasedDate' is not a valid FHIR date")
 		}
 	}
 	if x.DeceasedRange != nil {
@@ -4101,6 +4161,9 @@ func (x *FamilyMemberHistoryProcedure) Validate() error {
 	if x.PerformedDateTime != nil {
 		if !validFHIRDateTime(*x.PerformedDateTime, false) {
 			return fmt.Errorf("field 'performedDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.PerformedDateTime) {
+			return fmt.Errorf("field 'performedDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.PerformedPeriod != nil {
@@ -4781,6 +4844,9 @@ func (x *ImagingStudy) Validate() error {
 		if !validFHIRDateTime(*x.Started, false) {
 			return fmt.Errorf("field 'started' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.Started) {
+			return fmt.Errorf("field 'started' is not a valid FHIR dateTime")
+		}
 	}
 	if x.Status != nil {
 		if !validFHIRCode(*x.Status) {
@@ -5032,6 +5098,9 @@ func (x *ImagingStudySeries) Validate() error {
 	if x.Started != nil {
 		if !validFHIRDateTime(*x.Started, false) {
 			return fmt.Errorf("field 'started' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Started) {
+			return fmt.Errorf("field 'started' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Uid != nil {
@@ -5324,6 +5393,9 @@ func (x *MedicationAdministration) Validate() error {
 		if !validFHIRDateTime(*x.OccurenceDateTime, false) {
 			return fmt.Errorf("field 'occurenceDateTime' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.OccurenceDateTime) {
+			return fmt.Errorf("field 'occurenceDateTime' is not a valid FHIR dateTime")
+		}
 	}
 	if x.OccurencePeriod != nil {
 		if err := x.OccurencePeriod.Validate(); err != nil {
@@ -5365,6 +5437,9 @@ func (x *MedicationAdministration) Validate() error {
 	if x.Recorded != nil {
 		if !validFHIRDateTime(*x.Recorded, false) {
 			return fmt.Errorf("field 'recorded' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Recorded) {
+			return fmt.Errorf("field 'recorded' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Request != nil {
@@ -5562,6 +5637,9 @@ func (x *MedicationBatch) Validate() error {
 		if !validFHIRDateTime(*x.ExpirationDate, false) {
 			return fmt.Errorf("field 'expirationDate' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.ExpirationDate) {
+			return fmt.Errorf("field 'expirationDate' is not a valid FHIR dateTime")
+		}
 	}
 	if x.Extension != nil {
 		for i, item := range x.Extension {
@@ -5713,6 +5791,9 @@ func (x *MedicationRequest) Validate() error {
 	if x.AuthoredOn != nil {
 		if !validFHIRDateTime(*x.AuthoredOn, false) {
 			return fmt.Errorf("field 'authoredOn' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.AuthoredOn) {
+			return fmt.Errorf("field 'authoredOn' is not a valid FHIR dateTime")
 		}
 	}
 	if x.BasedOn != nil {
@@ -5942,6 +6023,9 @@ func (x *MedicationRequest) Validate() error {
 	if x.StatusChanged != nil {
 		if !validFHIRDateTime(*x.StatusChanged, false) {
 			return fmt.Errorf("field 'statusChanged' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.StatusChanged) {
+			return fmt.Errorf("field 'statusChanged' is not a valid FHIR dateTime")
 		}
 	}
 	if x.StatusReason != nil {
@@ -6205,6 +6289,9 @@ func (x *MedicationStatement) Validate() error {
 		if !validFHIRDateTime(*x.DateAsserted, false) {
 			return fmt.Errorf("field 'dateAsserted' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.DateAsserted) {
+			return fmt.Errorf("field 'dateAsserted' is not a valid FHIR dateTime")
+		}
 	}
 	if x.DerivedFrom != nil {
 		for i, item := range x.DerivedFrom {
@@ -6227,6 +6314,9 @@ func (x *MedicationStatement) Validate() error {
 	if x.EffectiveDateTime != nil {
 		if !validFHIRDateTime(*x.EffectiveDateTime, false) {
 			return fmt.Errorf("field 'effectiveDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.EffectiveDateTime) {
+			return fmt.Errorf("field 'effectiveDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.EffectivePeriod != nil {
@@ -6459,6 +6549,9 @@ func (x *Meta) Validate() error {
 	if x.LastUpdated != nil {
 		if !validFHIRDateTime(*x.LastUpdated, true) {
 			return fmt.Errorf("field 'lastUpdated' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.LastUpdated) {
+			return fmt.Errorf("field 'lastUpdated' is not a valid FHIR instant")
 		}
 	}
 	if x.Profile != nil {
@@ -6710,10 +6803,16 @@ func (x *Observation) Validate() error {
 		if !validFHIRDateTime(*x.EffectiveDateTime, false) {
 			return fmt.Errorf("field 'effectiveDateTime' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.EffectiveDateTime) {
+			return fmt.Errorf("field 'effectiveDateTime' is not a valid FHIR dateTime")
+		}
 	}
 	if x.EffectiveInstant != nil {
 		if !validFHIRDateTime(*x.EffectiveInstant, true) {
 			return fmt.Errorf("field 'effectiveInstant' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.EffectiveInstant) {
+			return fmt.Errorf("field 'effectiveInstant' is not a valid FHIR instant")
 		}
 	}
 	if x.EffectivePeriod != nil {
@@ -6799,6 +6898,9 @@ func (x *Observation) Validate() error {
 	if x.Issued != nil {
 		if !validFHIRDateTime(*x.Issued, true) {
 			return fmt.Errorf("field 'issued' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Issued) {
+			return fmt.Errorf("field 'issued' is not a valid FHIR instant")
 		}
 	}
 	if x.Language != nil {
@@ -6913,6 +7015,9 @@ func (x *Observation) Validate() error {
 	if x.ValueDateTime != nil {
 		if !validFHIRDateTime(*x.ValueDateTime, false) {
 			return fmt.Errorf("field 'valueDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueDateTime) {
+			return fmt.Errorf("field 'valueDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.ValueInteger != nil {
@@ -7059,6 +7164,9 @@ func (x *ObservationComponent) Validate() error {
 	if x.ValueDateTime != nil {
 		if !validFHIRDateTime(*x.ValueDateTime, false) {
 			return fmt.Errorf("field 'valueDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueDateTime) {
+			return fmt.Errorf("field 'valueDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.ValueInteger != nil {
@@ -7611,6 +7719,9 @@ func (x *Patient) Validate() error {
 		if !validFHIRDate(*x.BirthDate) {
 			return fmt.Errorf("field 'birthDate' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.BirthDate) {
+			return fmt.Errorf("field 'birthDate' is not a valid FHIR date")
+		}
 	}
 	if x.Communication != nil {
 		for i, item := range x.Communication {
@@ -7637,6 +7748,9 @@ func (x *Patient) Validate() error {
 	if x.DeceasedDateTime != nil {
 		if !validFHIRDateTime(*x.DeceasedDateTime, false) {
 			return fmt.Errorf("field 'deceasedDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.DeceasedDateTime) {
+			return fmt.Errorf("field 'deceasedDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Extension != nil {
@@ -7959,6 +8073,9 @@ func (x *Period) Validate() error {
 		if !validFHIRDateTime(*x.End, false) {
 			return fmt.Errorf("field 'end' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.End) {
+			return fmt.Errorf("field 'end' is not a valid FHIR dateTime")
+		}
 	}
 	if x.Extension != nil {
 		for i, item := range x.Extension {
@@ -7977,6 +8094,9 @@ func (x *Period) Validate() error {
 	if x.Start != nil {
 		if !validFHIRDateTime(*x.Start, false) {
 			return fmt.Errorf("field 'start' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Start) {
+			return fmt.Errorf("field 'start' is not a valid FHIR dateTime")
 		}
 	}
 	return nil
@@ -8037,6 +8157,9 @@ func (x *Practitioner) Validate() error {
 		if !validFHIRDate(*x.BirthDate) {
 			return fmt.Errorf("field 'birthDate' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.BirthDate) {
+			return fmt.Errorf("field 'birthDate' is not a valid FHIR date")
+		}
 	}
 	if x.Communication != nil {
 		for i, item := range x.Communication {
@@ -8054,6 +8177,9 @@ func (x *Practitioner) Validate() error {
 	if x.DeceasedDateTime != nil {
 		if !validFHIRDateTime(*x.DeceasedDateTime, false) {
 			return fmt.Errorf("field 'deceasedDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.DeceasedDateTime) {
+			return fmt.Errorf("field 'deceasedDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Extension != nil {
@@ -8651,6 +8777,9 @@ func (x *Procedure) Validate() error {
 		if !validFHIRDateTime(*x.OccurrenceDateTime, false) {
 			return fmt.Errorf("field 'occurrenceDateTime' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.OccurrenceDateTime) {
+			return fmt.Errorf("field 'occurrenceDateTime' is not a valid FHIR dateTime")
+		}
 	}
 	if x.OccurrencePeriod != nil {
 		if err := x.OccurrencePeriod.Validate(); err != nil {
@@ -8707,6 +8836,9 @@ func (x *Procedure) Validate() error {
 	if x.Recorded != nil {
 		if !validFHIRDateTime(*x.Recorded, false) {
 			return fmt.Errorf("field 'recorded' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Recorded) {
+			return fmt.Errorf("field 'recorded' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Recorder != nil {
@@ -9189,6 +9321,9 @@ func (x *RelatedArtifact) Validate() error {
 		if !validFHIRDate(*x.PublicationDate) {
 			return fmt.Errorf("field 'publicationDate' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.PublicationDate) {
+			return fmt.Errorf("field 'publicationDate' is not a valid FHIR date")
+		}
 	}
 	if x.PublicationStatus != nil {
 		if !validFHIRCode(*x.PublicationStatus) {
@@ -9309,6 +9444,9 @@ func (x *ResearchStudy) Validate() error {
 	if x.Date != nil {
 		if !validFHIRDateTime(*x.Date, false) {
 			return fmt.Errorf("field 'date' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Date) {
+			return fmt.Errorf("field 'date' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Description != nil {
@@ -10153,6 +10291,9 @@ func (x *ResearchSubjectProgress) Validate() error {
 		if !validFHIRDateTime(*x.EndDate, false) {
 			return fmt.Errorf("field 'endDate' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.EndDate) {
+			return fmt.Errorf("field 'endDate' is not a valid FHIR dateTime")
+		}
 	}
 	if x.Extension != nil {
 		for i, item := range x.Extension {
@@ -10190,6 +10331,9 @@ func (x *ResearchSubjectProgress) Validate() error {
 	if x.StartDate != nil {
 		if !validFHIRDateTime(*x.StartDate, false) {
 			return fmt.Errorf("field 'startDate' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.StartDate) {
+			return fmt.Errorf("field 'startDate' is not a valid FHIR dateTime")
 		}
 	}
 	if x.SubjectState != nil {
@@ -10339,6 +10483,9 @@ func (x *Signature) Validate() error {
 		}
 	}
 	if x.Data != nil {
+		if !validFHIRBinaryContent(*x.Data) {
+			return fmt.Errorf("field 'data' is not a valid FHIR base64Binary")
+		}
 	}
 	if x.Extension != nil {
 		for i, item := range x.Extension {
@@ -10381,6 +10528,9 @@ func (x *Signature) Validate() error {
 	if x.When != nil {
 		if !validFHIRDateTime(*x.When, true) {
 			return fmt.Errorf("field 'when' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.When) {
+			return fmt.Errorf("field 'when' is not a valid FHIR instant")
 		}
 	}
 	if x.Who != nil {
@@ -10543,6 +10693,9 @@ func (x *Specimen) Validate() error {
 		if !validFHIRDateTime(*x.ReceivedTime, false) {
 			return fmt.Errorf("field 'receivedTime' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.ReceivedTime) {
+			return fmt.Errorf("field 'receivedTime' is not a valid FHIR dateTime")
+		}
 	}
 	if x.Request != nil {
 		for i, item := range x.Request {
@@ -10611,6 +10764,9 @@ func (x *SpecimenCollection) Validate() error {
 	if x.CollectedDateTime != nil {
 		if !validFHIRDateTime(*x.CollectedDateTime, false) {
 			return fmt.Errorf("field 'collectedDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.CollectedDateTime) {
+			return fmt.Errorf("field 'collectedDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.CollectedPeriod != nil {
@@ -10843,6 +10999,9 @@ func (x *SpecimenProcessing) Validate() error {
 		if !validFHIRDateTime(*x.TimeDateTime, false) {
 			return fmt.Errorf("field 'timeDateTime' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.TimeDateTime) {
+			return fmt.Errorf("field 'timeDateTime' is not a valid FHIR dateTime")
+		}
 	}
 	if x.TimePeriod != nil {
 		if err := x.TimePeriod.Validate(); err != nil {
@@ -10914,6 +11073,9 @@ func (x *Substance) Validate() error {
 	if x.Expiry != nil {
 		if !validFHIRDateTime(*x.Expiry, false) {
 			return fmt.Errorf("field 'expiry' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Expiry) {
+			return fmt.Errorf("field 'expiry' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Extension != nil {
@@ -11382,6 +11544,9 @@ func (x *SubstanceDefinitionCode) Validate() error {
 		if !validFHIRDateTime(*x.StatusDate, false) {
 			return fmt.Errorf("field 'statusDate' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.StatusDate) {
+			return fmt.Errorf("field 'statusDate' is not a valid FHIR dateTime")
+		}
 	}
 	return nil
 }
@@ -11666,6 +11831,9 @@ func (x *SubstanceDefinitionOfficial) Validate() error {
 		if !validFHIRDateTime(*x.Date, false) {
 			return fmt.Errorf("field 'date' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.Date) {
+			return fmt.Errorf("field 'date' is not a valid FHIR dateTime")
+		}
 	}
 	if x.Extension != nil {
 		for i, item := range x.Extension {
@@ -11759,6 +11927,9 @@ func (x *SubstanceDefinitionProperty) Validate() error {
 	if x.ValueDate != nil {
 		if !validFHIRDate(*x.ValueDate) {
 			return fmt.Errorf("field 'valueDate' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueDate) {
+			return fmt.Errorf("field 'valueDate' is not a valid FHIR date")
 		}
 	}
 	if x.ValueQuantity != nil {
@@ -12178,6 +12349,9 @@ func (x *Task) Validate() error {
 		if !validFHIRDateTime(*x.AuthoredOn, false) {
 			return fmt.Errorf("field 'authoredOn' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.AuthoredOn) {
+			return fmt.Errorf("field 'authoredOn' is not a valid FHIR dateTime")
+		}
 	}
 	if x.BasedOn != nil {
 		for i, item := range x.BasedOn {
@@ -12301,6 +12475,9 @@ func (x *Task) Validate() error {
 	if x.LastModified != nil {
 		if !validFHIRDateTime(*x.LastModified, false) {
 			return fmt.Errorf("field 'lastModified' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.LastModified) {
+			return fmt.Errorf("field 'lastModified' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Location != nil {
@@ -12601,6 +12778,9 @@ func (x *TaskInput) Validate() error {
 		if !validFHIRBase64(*x.ValueBase64Binary) {
 			return fmt.Errorf("field 'valueBase64Binary' does not match its schema pattern")
 		}
+		if !validFHIRBinaryContent(*x.ValueBase64Binary) {
+			return fmt.Errorf("field 'valueBase64Binary' is not a valid FHIR base64Binary")
+		}
 	}
 	if x.ValueBoolean != nil {
 	}
@@ -12653,10 +12833,16 @@ func (x *TaskInput) Validate() error {
 		if !validFHIRDate(*x.ValueDate) {
 			return fmt.Errorf("field 'valueDate' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.ValueDate) {
+			return fmt.Errorf("field 'valueDate' is not a valid FHIR date")
+		}
 	}
 	if x.ValueDateTime != nil {
 		if !validFHIRDateTime(*x.ValueDateTime, false) {
 			return fmt.Errorf("field 'valueDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueDateTime) {
+			return fmt.Errorf("field 'valueDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.ValueDecimal != nil {
@@ -12705,11 +12891,14 @@ func (x *TaskInput) Validate() error {
 		if !validFHIRDateTime(*x.ValueInstant, true) {
 			return fmt.Errorf("field 'valueInstant' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.ValueInstant) {
+			return fmt.Errorf("field 'valueInstant' is not a valid FHIR instant")
+		}
 	}
 	if x.ValueInteger != nil {
 	}
 	if x.ValueInteger64 != nil {
-		if !matchesFHIRInteger64Pattern(*x.ValueInteger64) {
+		if !validFHIRInteger64(*x.ValueInteger64) {
 			return fmt.Errorf("field 'valueInteger64' does not match its schema pattern")
 		}
 	}
@@ -12995,6 +13184,9 @@ func (x *TaskOutput) Validate() error {
 		if !validFHIRBase64(*x.ValueBase64Binary) {
 			return fmt.Errorf("field 'valueBase64Binary' does not match its schema pattern")
 		}
+		if !validFHIRBinaryContent(*x.ValueBase64Binary) {
+			return fmt.Errorf("field 'valueBase64Binary' is not a valid FHIR base64Binary")
+		}
 	}
 	if x.ValueBoolean != nil {
 	}
@@ -13047,10 +13239,16 @@ func (x *TaskOutput) Validate() error {
 		if !validFHIRDate(*x.ValueDate) {
 			return fmt.Errorf("field 'valueDate' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.ValueDate) {
+			return fmt.Errorf("field 'valueDate' is not a valid FHIR date")
+		}
 	}
 	if x.ValueDateTime != nil {
 		if !validFHIRDateTime(*x.ValueDateTime, false) {
 			return fmt.Errorf("field 'valueDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueDateTime) {
+			return fmt.Errorf("field 'valueDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.ValueDecimal != nil {
@@ -13099,11 +13297,14 @@ func (x *TaskOutput) Validate() error {
 		if !validFHIRDateTime(*x.ValueInstant, true) {
 			return fmt.Errorf("field 'valueInstant' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.ValueInstant) {
+			return fmt.Errorf("field 'valueInstant' is not a valid FHIR instant")
+		}
 	}
 	if x.ValueInteger != nil {
 	}
 	if x.ValueInteger64 != nil {
-		if !matchesFHIRInteger64Pattern(*x.ValueInteger64) {
+		if !validFHIRInteger64(*x.ValueInteger64) {
 			return fmt.Errorf("field 'valueInteger64' does not match its schema pattern")
 		}
 	}
@@ -13343,6 +13544,9 @@ func (x *Timing) Validate() error {
 		for i, item := range x.Event {
 			if !validFHIRDateTime(item, false) {
 				return fmt.Errorf("field 'event[%d]' does not match its schema pattern", i)
+			}
+			if !validFHIRCalendarDate(item) {
+				return fmt.Errorf("field 'event[%d]' is not a valid FHIR dateTime", i)
 			}
 		}
 	}
@@ -13626,10 +13830,16 @@ func (x *TriggerDefinition) Validate() error {
 		if !validFHIRDate(*x.TimingDate) {
 			return fmt.Errorf("field 'timingDate' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.TimingDate) {
+			return fmt.Errorf("field 'timingDate' is not a valid FHIR date")
+		}
 	}
 	if x.TimingDateTime != nil {
 		if !validFHIRDateTime(*x.TimingDateTime, false) {
 			return fmt.Errorf("field 'timingDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.TimingDateTime) {
+			return fmt.Errorf("field 'timingDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.TimingReference != nil {

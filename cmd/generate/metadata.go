@@ -14,7 +14,7 @@ func generateFHIRSchema(schema *Schema, path string) error {
 	sb.WriteString("package schema\n\n")
 	fmt.Fprintf(&sb, "const (\n\tSchemaID = %q\n\tFHIRVersion = %q\n\tSourceSHA256 = %q\n)\n\n", schema.ID, schema.FHIRVersion, schema.SourceSHA256)
 	sb.WriteString("type Definition struct {\n\tTitle string\n\tDescription string\n\tRequired []string\n\tProperties []Property\n}\n\n")
-	sb.WriteString("type Property struct {\n\tName string\n\tKind string\n\tFormat string\n\tRef string\n\tProperties []Property\n\tItemKind string\n\tItemFormat string\n\tItemRef string\n\tItemProperties []Property\n\tChoiceGroup string\n\tChoiceGroupRequired bool\n\tElementRequired bool\n\tRequiredChildren []string\n\tBindingStrength string\n\tBindingURI string\n\tBindingVersion string\n\tBindingDescription string\n\tReferenceTargetTypes []string\n\tTitle string\n\tDescription string\n}\n\n")
+	sb.WriteString("type Property struct {\n\tName string\n\tKind string\n\tFormat string\n\tInteger64 bool\n\tRef string\n\tProperties []Property\n\tItemKind string\n\tItemFormat string\n\tItemInteger64 bool\n\tItemRef string\n\tItemProperties []Property\n\tChoiceGroup string\n\tChoiceGroupRequired bool\n\tElementRequired bool\n\tRequiredChildren []string\n\tBindingStrength string\n\tBindingURI string\n\tBindingVersion string\n\tBindingDescription string\n\tReferenceTargetTypes []string\n\tTitle string\n\tDescription string\n}\n\n")
 	sb.WriteString("type Traversal struct {\n\tFromType string\n\tEdgeLabel string\n\tToType string\n\tDirection []string\n\tMultiplicity []string\n\tBackref []string\n\tRegexMatch []string\n}\n\n")
 	sb.WriteString("var ResourceTypes = []string{\n")
 	for _, k := range schemaFHIRRootResourceTypes(schema) {
@@ -184,6 +184,10 @@ func writeGeneratedProperties(sb *strings.Builder, schema *Schema, props map[str
 		sb.WriteString(fmt.Sprintf("Name: %q,\n", k))
 		writeIndent(sb, indent+1)
 		sb.WriteString(fmt.Sprintf("Kind: %q,\n", propertyType(prop)))
+		if prop.Primitive == "integer64" {
+			writeIndent(sb, indent+1)
+			sb.WriteString("Integer64: true,\n")
+		}
 		if prop.Format != "" {
 			writeIndent(sb, indent+1)
 			sb.WriteString(fmt.Sprintf("Format: %q,\n", prop.Format))
@@ -237,6 +241,10 @@ func writeGeneratedProperties(sb *strings.Builder, schema *Schema, props map[str
 		if prop.Items != nil {
 			writeIndent(sb, indent+1)
 			sb.WriteString(fmt.Sprintf("ItemKind: %q,\n", propertyType(prop.Items)))
+			if prop.Items.Primitive == "integer64" {
+				writeIndent(sb, indent+1)
+				sb.WriteString("ItemInteger64: true,\n")
+			}
 			if prop.Items.Format != "" {
 				writeIndent(sb, indent+1)
 				sb.WriteString(fmt.Sprintf("ItemFormat: %q,\n", prop.Items.Format))

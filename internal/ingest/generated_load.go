@@ -44,19 +44,34 @@ func loadRowGeneratedInternal(resourceType string, line []byte, project string, 
 		return VertexDocument{}, nil, nil, rowErrorGeneration, fmt.Errorf("generated loader does not support %q", resourceType)
 	}
 
+	var payload map[string]any
+	var vertexPayload json.RawMessage
 	start := time.Now()
 	if err := sonic.ConfigFastest.Unmarshal(line, value); err != nil {
-		stageSeconds["decode"] += time.Since(start).Seconds()
-		return VertexDocument{}, nil, nil, rowErrorValidation, err
+		normalized, normalizedPayload := normalizeFHIRInteger64(line, resourceType, project)
+		if normalized == nil {
+			stageSeconds["decode"] += time.Since(start).Seconds()
+			return VertexDocument{}, nil, nil, rowErrorValidation, err
+		}
+		resource, _ := fhir.NewConcreteResource(resourceType)
+		value = resource.(generatedLoadResource)
+		if err := sonic.ConfigFastest.Unmarshal(normalized, value); err != nil {
+			stageSeconds["decode"] += time.Since(start).Seconds()
+			return VertexDocument{}, nil, nil, rowErrorValidation, err
+		}
+		vertexPayload = normalized
+		if includePayloadMap {
+			payload = normalizedPayload
+		}
 	}
 	stageSeconds["decode"] += time.Since(start).Seconds()
 
 	start = time.Now()
-	if err := value.Validate(); err != nil {
-		stageSeconds["validate"] += time.Since(start).Seconds()
+	err := value.Validate()
+	stageSeconds["validate"] += time.Since(start).Seconds()
+	if err != nil {
 		return VertexDocument{}, nil, nil, rowErrorValidation, err
 	}
-	stageSeconds["validate"] += time.Since(start).Seconds()
 
 	start = time.Now()
 	objectID := strings.TrimSpace(value.GetID())
@@ -72,18 +87,18 @@ func loadRowGeneratedInternal(resourceType string, line []byte, project string, 
 		return VertexDocument{}, nil, nil, rowErrorGeneration, err
 	}
 
-	var payload map[string]any
-	var vertexPayload json.RawMessage
-	if includePayloadMap {
-		start = time.Now()
-		payload, err = decodePayloadWithProjectID(line, project)
-		stageSeconds["payload_map_decode"] += time.Since(start).Seconds()
-		if err != nil {
-			return VertexDocument{}, nil, nil, rowErrorValidation, err
+	if vertexPayload == nil {
+		if includePayloadMap {
+			start = time.Now()
+			payload, err = decodePayloadWithProjectID(line, project)
+			stageSeconds["payload_map_decode"] += time.Since(start).Seconds()
+			if err != nil {
+				return VertexDocument{}, nil, nil, rowErrorValidation, err
+			}
+			vertexPayload = marshalPayloadWithFallback(payload, line)
+		} else {
+			vertexPayload = withProjectID(line, project)
 		}
-		vertexPayload = marshalPayloadWithFallback(payload, line)
-	} else {
-		vertexPayload = withProjectID(line, project)
 	}
 
 	return VertexDocument{

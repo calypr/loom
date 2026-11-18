@@ -153,6 +153,7 @@ func applyFHIRPrimitiveMetadata(property *Property, primitive string) {
 			return
 		}
 	}
+	value.Primitive = primitive
 	if value.Format == "" {
 		switch primitive {
 		case "date":

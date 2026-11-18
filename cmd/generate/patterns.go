@@ -36,7 +36,7 @@ func fastStringPattern(pattern, value string) string {
 	case `^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`:
 		return "!validFHIRUUID(" + value + ")"
 	case `^[0]|[-+]?[1-9][0-9]*$`:
-		return "!matchesFHIRInteger64Pattern(" + value + ")"
+		return "!validFHIRInteger64(" + value + ")"
 	default:
 		return ""
 	}

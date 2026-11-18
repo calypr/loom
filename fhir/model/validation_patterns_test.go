@@ -43,7 +43,6 @@ func TestFastValidatorsMatchOfficialFHIRPatterns(t *testing.T) {
 		{"time", validFHIRTime, []string{"00:00:00", "23:59:60", "23:59:00.", "23:59:00.999999999", "23:59:00.9999999999", "24:00:00", "00:00:00Z"}},
 		{"oid", validFHIROID, []string{"urn:oid:2.4", "urn:oid:1.0.11", "urn:oid:1.02", "urn:oid:3.20", "urn:oid:1.", "urn:oid:1.1."}},
 		{"uuid", validFHIRUUID, []string{"urn:uuid:00000000-0000-0000-0000-aabbccddeeff", "urn:uuid:00000000-0000-0000-0000-AABBCCDDEEFF", "urn:uuid:0000", "00000000-0000-0000-0000-aabbccddeeff"}},
-		{"integer64", matchesFHIRInteger64Pattern, []string{"", "0", "-1", "+1", "111", "a10", "0x", "x0", "0x0", "00"}},
 		{"base64Binary", validFHIRBase64, []string{"", "AAAA", "AAAAAA==", "AAA=", "AA==", "A===", "AABBCCDD", "AAB", "AA=-", "AA==AA==", "A A="}},
 	}
 	for _, field := range cases {
