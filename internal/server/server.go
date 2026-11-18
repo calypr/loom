@@ -706,7 +706,6 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	ingestRunner := loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
 		ConnectionOptions: connOpts,
-		Schema:            serverConfig.Server.Schema,
 	}}
 	generationService, err := loadapi.NewService(loadapi.ServiceConfig{
 		LoadGeneration:      ingestRunner.RunGeneration,
@@ -727,7 +726,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	var sourceLoader loadapi.SourceLoader
 	if bundleTarget != nil && configuredRecipeName != "" {
 		sourceLoader, err = ingest.NewRepositorySourceLoader(ingest.SourceLoadPublisherConfig{
-			Client: lifecycleClient, DatasetStore: lifecycleStore, SchemaPath: serverConfig.Server.Schema,
+			Client: lifecycleClient, DatasetStore: lifecycleStore,
 			ValidateProject: func(ctx context.Context, project string) error {
 				if scopeResolver == nil {
 					return nil

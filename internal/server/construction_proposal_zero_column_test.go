@@ -37,7 +37,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 		{"stage_assessment_Observation", "INBOUND"},
 		{"subject_Patient", "OUTBOUND"},
 		{"subject_Patient", "INBOUND"},
-		{"medication_reference_Medication", "OUTBOUND"},
+		{"medication", "OUTBOUND"},
 	}
 	route := make([]capability.ConstructionRouteStep, len(hopMetadata))
 	edges := make([]capability.Edge, len(hopMetadata))

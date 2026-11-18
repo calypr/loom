@@ -1,11 +1,10 @@
 .PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir openapi-check test test-scripts dev-test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui dev dev-rebuild dev-doctor verify-current verify-fast dev-down verify-api test-ui test-go test-integration e2e
 
 GO ?= go
-GO_VERSION ?= 1.26.5
+GO_VERSION ?= 1.27.4
 GO_TOOLCHAIN ?= go$(GO_VERSION)
 GOCACHE_DIR ?= $(CURDIR)/.gocache
 GOFLAGS ?=
-SCHEMA_PATH ?= fhir/graph-fhir.json
 OAPI_CODEGEN_VERSION ?= v2.8.0
 IMAGE ?= arango-fhir-proto:local
 LOOM_URL ?= http://127.0.0.1:8080
@@ -52,7 +51,7 @@ build-server:
 
 generate-fhir:
 	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/generate -schema $(SCHEMA_PATH) -structs-out fhir/model -metadata-out fhir/schema/generated.go
+	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/generate -structs-out fhir/model -metadata-out fhir/schema/generated.go
 	gofmt -w fhir/model/*.go fhir/schema/generated.go
 
 generate-openapi:

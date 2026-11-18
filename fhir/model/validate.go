@@ -3,173 +3,13 @@ package fhir
 
 import (
 	"fmt"
-	"regexp"
-	"unicode/utf8"
 )
 
-// MissingRequiredFieldError identifies a missing schema-owned field.
 type MissingRequiredFieldError struct{ Field string }
 
 func (e *MissingRequiredFieldError) Error() string {
 	return fmt.Sprintf("required field '%s' is missing", e.Field)
 }
-
-// Pre-compiled regular expressions for pattern validation
-var (
-	rx_Address_Type                                    = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Address_Use                                     = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Age_Code                                        = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Age_Comparator                                  = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Annotation_Text                                 = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_Attachment_ContentType                          = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Attachment_Language                             = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_AvailabilityAvailableTime_DaysOfWeek_items      = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_BodyStructure_Description                       = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_BodyStructure_ID                                = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_BodyStructure_Language                          = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Coding_Code                                     = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Condition_ID                                    = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_Condition_Language                              = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_ContactPoint_System                             = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_ContactPoint_Use                                = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Count_Code                                      = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Count_Comparator                                = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_DataRequirement_Type                            = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_DataRequirementSort_Direction                   = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_DataRequirementValueFilter_Comparator           = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_DiagnosticReport_Conclusion                     = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_DiagnosticReport_ID                             = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_DiagnosticReport_Language                       = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_DiagnosticReport_Status                         = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Directory_ID                                    = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_Distance_Code                                   = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Distance_Comparator                             = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_DocumentReference_Description                   = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_DocumentReference_DocStatus                     = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_DocumentReference_ID                            = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_DocumentReference_Language                      = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_DocumentReference_Status                        = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Duration_Code                                   = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Duration_Comparator                             = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Expression_Language                             = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Expression_Name                                 = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Extension_ValueCode                             = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Extension_ValueID                               = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_Extension_ValueMarkdown                         = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_Extension_ValueOid                              = regexp.MustCompile("^urn:oid:[0-2](\\.(0|[1-9][0-9]*))+$")
-	rx_FamilyMemberHistory_ID                          = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_FamilyMemberHistory_Language                    = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_FamilyMemberHistory_Status                      = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Group_Description                               = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_Group_ID                                        = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_Group_Language                                  = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Group_Membership                                = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Group_Type                                      = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_HumanName_Use                                   = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Identifier_Use                                  = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_ImagingStudy_ID                                 = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_ImagingStudy_Language                           = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_ImagingStudy_Status                             = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_ImagingStudySeries_Uid                          = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_ImagingStudySeriesInstance_Uid                  = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_Medication_ID                                   = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_Medication_Language                             = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Medication_Status                               = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_MedicationAdministration_ID                     = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_MedicationAdministration_Language               = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_MedicationAdministration_Status                 = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_MedicationRequest_ID                            = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_MedicationRequest_Intent                        = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_MedicationRequest_Language                      = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_MedicationRequest_Priority                      = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_MedicationRequest_RenderedDosageInstruction     = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_MedicationRequest_Status                        = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_MedicationStatement_ID                          = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_MedicationStatement_Language                    = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_MedicationStatement_RenderedDosageInstruction   = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_MedicationStatement_Status                      = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Meta_VersionID                                  = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_Money_Currency                                  = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Narrative_Status                                = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Observation_ID                                  = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_Observation_Language                            = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Observation_Status                              = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_ObservationReferenceRange_Text                  = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_ObservationTriggeredBy_Type                     = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Organization_Description                        = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_Organization_ID                                 = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_Organization_Language                           = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_ParameterDefinition_Name                        = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_ParameterDefinition_Type                        = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_ParameterDefinition_Use                         = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Patient_Gender                                  = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Patient_ID                                      = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_Patient_Language                                = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_PatientContact_Gender                           = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_PatientLink_Type                                = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Practitioner_Gender                             = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Practitioner_ID                                 = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_Practitioner_Language                           = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_PractitionerRole_ID                             = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_PractitionerRole_Language                       = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Procedure_ID                                    = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_Procedure_Language                              = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Procedure_Status                                = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Quantity_Code                                   = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Quantity_Comparator                             = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_RelatedArtifact_Citation                        = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_RelatedArtifact_PublicationStatus               = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_RelatedArtifact_Type                            = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_ResearchStudy_Description                       = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_ResearchStudy_DescriptionSummary                = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_ResearchStudy_ID                                = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_ResearchStudy_Language                          = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_ResearchStudy_Status                            = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_ResearchStudyComparisonGroup_Description        = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_ResearchStudyComparisonGroup_LinkID             = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_ResearchStudyObjective_Description              = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_ResearchStudyOutcomeMeasure_Description         = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_ResearchSubject_ActualComparisonGroup           = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_ResearchSubject_AssignedComparisonGroup         = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_ResearchSubject_ID                              = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_ResearchSubject_Language                        = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_ResearchSubject_Status                          = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Resource_ID                                     = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_Resource_Language                               = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_SampledData_IntervalUnit                        = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Signature_SigFormat                             = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Signature_TargetFormat                          = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Specimen_Combined                               = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Specimen_ID                                     = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_Specimen_Language                               = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Specimen_Status                                 = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Substance_Description                           = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_Substance_ID                                    = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_Substance_Language                              = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Substance_Status                                = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_SubstanceDefinition_Description                 = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_SubstanceDefinition_ID                          = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_SubstanceDefinition_Language                    = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_SubstanceDefinitionCharacterization_Description = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_Task_ID                                         = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_Task_Intent                                     = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Task_Language                                   = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Task_Priority                                   = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_Task_Status                                     = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_TaskInput_ValueCode                             = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_TaskInput_ValueID                               = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_TaskInput_ValueMarkdown                         = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_TaskInput_ValueOid                              = regexp.MustCompile("^urn:oid:[0-2](\\.(0|[1-9][0-9]*))+$")
-	rx_TaskOutput_ValueCode                            = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_TaskOutput_ValueID                              = regexp.MustCompile("^[A-Za-z0-9\\-.]+$")
-	rx_TaskOutput_ValueMarkdown                        = regexp.MustCompile("\\s*(\\S|\\s)*")
-	rx_TaskOutput_ValueOid                             = regexp.MustCompile("^urn:oid:[0-2](\\.(0|[1-9][0-9]*))+$")
-	rx_TimingRepeat_DayOfWeek_items                    = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_TimingRepeat_DurationUnit                       = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_TimingRepeat_PeriodUnit                         = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_TimingRepeat_When_items                         = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-	rx_TriggerDefinition_Type                          = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
-)
 
 // Validate validates a Address struct against its schema constraints.
 func (x *Address) Validate() error {
@@ -227,17 +67,17 @@ func (x *Address) Validate() error {
 	}
 	if x.City != nil {
 		if *x.City == "" {
-			return fmt.Errorf("field 'city' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'city' does not match its schema pattern")
 		}
 	}
 	if x.Country != nil {
 		if *x.Country == "" {
-			return fmt.Errorf("field 'country' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'country' does not match its schema pattern")
 		}
 	}
 	if x.District != nil {
 		if *x.District == "" {
-			return fmt.Errorf("field 'district' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'district' does not match its schema pattern")
 		}
 	}
 	if x.Extension != nil {
@@ -251,17 +91,15 @@ func (x *Address) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.Line != nil {
 		for i, item := range x.Line {
 			if item == "" {
-				return fmt.Errorf("field 'line[%d]' does not match pattern '[ \\r\\n\\t\\S]+'", i)
+				return fmt.Errorf("field 'line[%d]' does not match its schema pattern", i)
 			}
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Period != nil {
 		if err := x.Period.Validate(); err != nil {
@@ -270,32 +108,27 @@ func (x *Address) Validate() error {
 	}
 	if x.PostalCode != nil {
 		if *x.PostalCode == "" {
-			return fmt.Errorf("field 'postalCode' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Address" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Address'")
+			return fmt.Errorf("field 'postalCode' does not match its schema pattern")
 		}
 	}
 	if x.State != nil {
 		if *x.State == "" {
-			return fmt.Errorf("field 'state' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'state' does not match its schema pattern")
 		}
 	}
 	if x.Text != nil {
 		if *x.Text == "" {
-			return fmt.Errorf("field 'text' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'text' does not match its schema pattern")
 		}
 	}
 	if x.Type != nil {
-		if !rx_Address_Type.MatchString(*x.Type) {
-			return fmt.Errorf("field 'type' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !(*x.Type == "postal" || *x.Type == "physical" || *x.Type == "both") {
+			return fmt.Errorf("field 'type' has an unsupported value")
 		}
 	}
 	if x.Use != nil {
-		if !rx_Address_Use.MatchString(*x.Use) {
-			return fmt.Errorf("field 'use' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !(*x.Use == "home" || *x.Use == "work" || *x.Use == "temp" || *x.Use == "old" || *x.Use == "billing") {
+			return fmt.Errorf("field 'use' has an unsupported value")
 		}
 	}
 	return nil
@@ -332,13 +165,13 @@ func (x *Age) Validate() error {
 		}
 	}
 	if x.Code != nil {
-		if !rx_Age_Code.MatchString(*x.Code) {
-			return fmt.Errorf("field 'code' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Code) {
+			return fmt.Errorf("field 'code' does not match its schema pattern")
 		}
 	}
 	if x.Comparator != nil {
-		if !rx_Age_Comparator.MatchString(*x.Comparator) {
-			return fmt.Errorf("field 'comparator' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !(*x.Comparator == "<" || *x.Comparator == "<=" || *x.Comparator == ">=" || *x.Comparator == ">" || *x.Comparator == "ad") {
+			return fmt.Errorf("field 'comparator' has an unsupported value")
 		}
 	}
 	if x.Extension != nil {
@@ -352,21 +185,17 @@ func (x *Age) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Age" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Age'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.System != nil {
+		if hasFHIRSchemaSpace(*x.System) {
+			return fmt.Errorf("field 'system' does not match its schema pattern")
+		}
 	}
 	if x.Unit != nil {
 		if *x.Unit == "" {
-			return fmt.Errorf("field 'unit' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'unit' does not match its schema pattern")
 		}
 	}
 	if x.Value != nil {
@@ -401,7 +230,7 @@ func (x *Annotation) Validate() error {
 	}
 	if x.AuthorString != nil {
 		if *x.AuthorString == "" {
-			return fmt.Errorf("field 'authorString' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'authorString' does not match its schema pattern")
 		}
 	}
 	if x.Extension != nil {
@@ -415,24 +244,20 @@ func (x *Annotation) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Annotation" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Annotation'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.Text != nil {
-		if !rx_Annotation_Text.MatchString(*x.Text) {
-			return fmt.Errorf("field 'text' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.Text == "" {
+			return fmt.Errorf("field 'text' does not match its schema pattern")
 		}
 	}
 	if x.Time != nil {
-		if err := ValidateFhirDateTime(*x.Time); err != nil {
-			return fmt.Errorf("field 'time' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.Time, false) {
+			return fmt.Errorf("field 'time' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Time) {
+			return fmt.Errorf("field 'time' is not a valid FHIR dateTime")
 		}
 	}
 	return nil
@@ -509,18 +334,21 @@ func (x *Attachment) Validate() error {
 		}
 	}
 	if x.ContentType != nil {
-		if !rx_Attachment_ContentType.MatchString(*x.ContentType) {
-			return fmt.Errorf("field 'contentType' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.ContentType) {
+			return fmt.Errorf("field 'contentType' does not match its schema pattern")
 		}
 	}
 	if x.Creation != nil {
-		if err := ValidateFhirDateTime(*x.Creation); err != nil {
-			return fmt.Errorf("field 'creation' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.Creation, false) {
+			return fmt.Errorf("field 'creation' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Creation) {
+			return fmt.Errorf("field 'creation' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Data != nil {
-		if err := ValidateFhirBinary(*x.Data); err != nil {
-			return fmt.Errorf("field 'data' has invalid binary format: %w", err)
+		if !validFHIRBinaryContent(*x.Data) {
+			return fmt.Errorf("field 'data' is not a valid FHIR base64Binary")
 		}
 	}
 	if x.Duration != nil {
@@ -535,64 +363,42 @@ func (x *Attachment) Validate() error {
 		}
 	}
 	if x.Frames != nil {
-		if *x.Frames <= 0.000000 {
-			return fmt.Errorf("field 'frames' is below exclusive minimum 0.000000")
-		}
 	}
 	if x.Hash != nil {
-		if err := ValidateFhirBinary(*x.Hash); err != nil {
-			return fmt.Errorf("field 'hash' has invalid binary format: %w", err)
+		if !validFHIRBinaryContent(*x.Hash) {
+			return fmt.Errorf("field 'hash' is not a valid FHIR base64Binary")
 		}
 	}
 	if x.Height != nil {
-		if *x.Height <= 0.000000 {
-			return fmt.Errorf("field 'height' is below exclusive minimum 0.000000")
-		}
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.Language != nil {
-		if !rx_Attachment_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Pages != nil {
-		if *x.Pages <= 0.000000 {
-			return fmt.Errorf("field 'pages' is below exclusive minimum 0.000000")
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Attachment" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Attachment'")
-		}
 	}
 	if x.Size != nil {
+		if !validFHIRInteger64(*x.Size) {
+			return fmt.Errorf("field 'size' does not match its schema pattern")
+		}
 	}
 	if x.Title != nil {
 		if *x.Title == "" {
-			return fmt.Errorf("field 'title' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'title' does not match its schema pattern")
 		}
 	}
 	if x.URL != nil {
-		if utf8.RuneCountInString(*x.URL) < 1 {
-			return fmt.Errorf("field 'url' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.URL) > 65536 {
-			return fmt.Errorf("field 'url' is too long (max 65536 characters)")
-		}
-		if err := ValidateFhirURI(*x.URL); err != nil {
-			return fmt.Errorf("field 'url' has invalid URI format: %w", err)
+		if hasFHIRSchemaSpace(*x.URL) {
+			return fmt.Errorf("field 'url' does not match its schema pattern")
 		}
 	}
 	if x.Width != nil {
-		if *x.Width <= 0.000000 {
-			return fmt.Errorf("field 'width' is below exclusive minimum 0.000000")
-		}
 	}
 	return nil
 }
@@ -622,10 +428,8 @@ func (x *Availability) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.NotAvailableTime != nil {
 		for i, item := range x.NotAvailableTime {
@@ -634,11 +438,6 @@ func (x *Availability) Validate() error {
 					return fmt.Errorf("field 'notAvailableTime[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Availability" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Availability'")
 		}
 	}
 	return nil
@@ -676,19 +475,19 @@ func (x *AvailabilityAvailableTime) Validate() error {
 	if x.AllDay != nil {
 	}
 	if x.AvailableEndTime != nil {
-		if err := ValidateFhirTime(*x.AvailableEndTime); err != nil {
-			return fmt.Errorf("field 'availableEndTime' has invalid time format: %w", err)
+		if !validFHIRTime(*x.AvailableEndTime) {
+			return fmt.Errorf("field 'availableEndTime' does not match its schema pattern")
 		}
 	}
 	if x.AvailableStartTime != nil {
-		if err := ValidateFhirTime(*x.AvailableStartTime); err != nil {
-			return fmt.Errorf("field 'availableStartTime' has invalid time format: %w", err)
+		if !validFHIRTime(*x.AvailableStartTime) {
+			return fmt.Errorf("field 'availableStartTime' does not match its schema pattern")
 		}
 	}
 	if x.DaysOfWeek != nil {
 		for i, item := range x.DaysOfWeek {
-			if !rx_AvailabilityAvailableTime_DaysOfWeek_items.MatchString(item) {
-				return fmt.Errorf("field 'daysOfWeek[%d]' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'", i)
+			if !validFHIRCode(item) {
+				return fmt.Errorf("field 'daysOfWeek[%d]' does not match its schema pattern", i)
 			}
 		}
 	}
@@ -703,14 +502,16 @@ func (x *AvailabilityAvailableTime) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "AvailabilityAvailableTime" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'AvailabilityAvailableTime'")
+	if x.ModifierExtension != nil {
+		for i, item := range x.ModifierExtension {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
+				}
+			}
 		}
 	}
 	return nil
@@ -728,7 +529,7 @@ func (x *AvailabilityNotAvailableTime) Validate() error {
 	}
 	if x.Description != nil {
 		if *x.Description == "" {
-			return fmt.Errorf("field 'description' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'description' does not match its schema pattern")
 		}
 	}
 	if x.During != nil {
@@ -747,14 +548,16 @@ func (x *AvailabilityNotAvailableTime) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "AvailabilityNotAvailableTime" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'AvailabilityNotAvailableTime'")
+	if x.ModifierExtension != nil {
+		for i, item := range x.ModifierExtension {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
+				}
+			}
 		}
 	}
 	return nil
@@ -788,17 +591,10 @@ func (x *BodyStructure) Validate() error {
 	if x.Active != nil {
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.Description != nil {
-		if !rx_BodyStructure_Description.MatchString(*x.Description) {
-			return fmt.Errorf("field 'description' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.Description == "" {
+			return fmt.Errorf("field 'description' does not match its schema pattern")
 		}
 	}
 	if x.ExcludedStructure != nil {
@@ -820,14 +616,8 @@ func (x *BodyStructure) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_BodyStructure_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -849,6 +639,9 @@ func (x *BodyStructure) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
+		}
 	}
 	if x.IncludedStructure == nil {
 		return &MissingRequiredFieldError{Field: "includedStructure"}
@@ -863,11 +656,9 @@ func (x *BodyStructure) Validate() error {
 		}
 	}
 	if x.Language != nil {
-		if !rx_BodyStructure_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Meta != nil {
 		if err := x.Meta.Validate(); err != nil {
@@ -896,6 +687,9 @@ func (x *BodyStructure) Validate() error {
 			return fmt.Errorf("field 'patient' is invalid: %w", err)
 		}
 	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
+	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "BodyStructure" {
 			return fmt.Errorf("field 'resourceType' must be exactly 'BodyStructure'")
@@ -909,86 +703,8 @@ func (x *BodyStructure) Validate() error {
 	return nil
 }
 
-// Validate validates a BodyStructureIncludedStructure struct against its schema constraints.
-func (x *BodyStructureIncludedStructure) Validate() error {
-	if x == nil {
-		return nil
-	}
-	if x.BodyLandmarkOrientation != nil {
-		for i, item := range x.BodyLandmarkOrientation {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'bodyLandmarkOrientation[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
-	}
-	if x.Extension != nil {
-		for i, item := range x.Extension {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'extension[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
-	}
-	if x.ID != nil {
-		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Laterality != nil {
-		if err := x.Laterality.Validate(); err != nil {
-			return fmt.Errorf("field 'laterality' is invalid: %w", err)
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.ModifierExtension != nil {
-		for i, item := range x.ModifierExtension {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
-	}
-	if x.Qualifier != nil {
-		for i, item := range x.Qualifier {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'qualifier[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "BodyStructureIncludedStructure" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'BodyStructureIncludedStructure'")
-		}
-	}
-	if x.SpatialReference != nil {
-		for i, item := range x.SpatialReference {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'spatialReference[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
-	}
-	if x.Structure == nil {
-		return &MissingRequiredFieldError{Field: "structure"}
-	}
-	if x.Structure != nil {
-		if err := x.Structure.Validate(); err != nil {
-			return fmt.Errorf("field 'structure' is invalid: %w", err)
-		}
-	}
-	return nil
-}
-
-// Validate validates a BodyStructureIncludedStructureBodyLandmarkOrientation struct against its schema constraints.
-func (x *BodyStructureIncludedStructureBodyLandmarkOrientation) Validate() error {
+// Validate validates a BodyStructureBodyLandmarkOrientation struct against its schema constraints.
+func (x *BodyStructureBodyLandmarkOrientation) Validate() error {
 	if x == nil {
 		return nil
 	}
@@ -1021,7 +737,7 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientation) Validate() error
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.LandmarkDescription != nil {
@@ -1033,8 +749,6 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientation) Validate() error
 			}
 		}
 	}
-	if x.Links != nil {
-	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
 			if item != nil {
@@ -1042,11 +756,6 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientation) Validate() error
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "BodyStructureIncludedStructureBodyLandmarkOrientation" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'BodyStructureIncludedStructureBodyLandmarkOrientation'")
 		}
 	}
 	if x.SurfaceOrientation != nil {
@@ -1061,8 +770,8 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientation) Validate() error
 	return nil
 }
 
-// Validate validates a BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark struct against its schema constraints.
-func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark) Validate() error {
+// Validate validates a BodyStructureDistanceFromLandmark struct against its schema constraints.
+func (x *BodyStructureDistanceFromLandmark) Validate() error {
 	if x == nil {
 		return nil
 	}
@@ -1086,10 +795,8 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -1100,11 +807,6 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 			}
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark'")
-		}
-	}
 	if x.Value != nil {
 		for i, item := range x.Value {
 			if item != nil {
@@ -1112,6 +814,77 @@ func (x *BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandma
 					return fmt.Errorf("field 'value[%d]' is invalid: %w", i, err)
 				}
 			}
+		}
+	}
+	return nil
+}
+
+// Validate validates a BodyStructureIncludedStructure struct against its schema constraints.
+func (x *BodyStructureIncludedStructure) Validate() error {
+	if x == nil {
+		return nil
+	}
+	if x.BodyLandmarkOrientation != nil {
+		for i, item := range x.BodyLandmarkOrientation {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'bodyLandmarkOrientation[%d]' is invalid: %w", i, err)
+				}
+			}
+		}
+	}
+	if x.Extension != nil {
+		for i, item := range x.Extension {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'extension[%d]' is invalid: %w", i, err)
+				}
+			}
+		}
+	}
+	if x.ID != nil {
+		if *x.ID == "" {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
+		}
+	}
+	if x.Laterality != nil {
+		if err := x.Laterality.Validate(); err != nil {
+			return fmt.Errorf("field 'laterality' is invalid: %w", err)
+		}
+	}
+	if x.ModifierExtension != nil {
+		for i, item := range x.ModifierExtension {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
+				}
+			}
+		}
+	}
+	if x.Qualifier != nil {
+		for i, item := range x.Qualifier {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'qualifier[%d]' is invalid: %w", i, err)
+				}
+			}
+		}
+	}
+	if x.SpatialReference != nil {
+		for i, item := range x.SpatialReference {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'spatialReference[%d]' is invalid: %w", i, err)
+				}
+			}
+		}
+	}
+	if x.Structure == nil {
+		return &MissingRequiredFieldError{Field: "structure"}
+	}
+	if x.Structure != nil {
+		if err := x.Structure.Validate(); err != nil {
+			return fmt.Errorf("field 'structure' is invalid: %w", err)
 		}
 	}
 	return nil
@@ -1147,19 +920,12 @@ func (x *CodeableConcept) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "CodeableConcept" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'CodeableConcept'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.Text != nil {
 		if *x.Text == "" {
-			return fmt.Errorf("field 'text' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'text' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -1186,19 +952,12 @@ func (x *CodeableReference) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Reference != nil {
 		if err := x.Reference.Validate(); err != nil {
 			return fmt.Errorf("field 'reference' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "CodeableReference" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'CodeableReference'")
 		}
 	}
 	return nil
@@ -1235,13 +994,13 @@ func (x *Coding) Validate() error {
 		}
 	}
 	if x.Code != nil {
-		if !rx_Coding_Code.MatchString(*x.Code) {
-			return fmt.Errorf("field 'code' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Code) {
+			return fmt.Errorf("field 'code' does not match its schema pattern")
 		}
 	}
 	if x.Display != nil {
 		if *x.Display == "" {
-			return fmt.Errorf("field 'display' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'display' does not match its schema pattern")
 		}
 	}
 	if x.Extension != nil {
@@ -1255,23 +1014,19 @@ func (x *Coding) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Coding" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Coding'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.System != nil {
+		if hasFHIRSchemaSpace(*x.System) {
+			return fmt.Errorf("field 'system' does not match its schema pattern")
+		}
 	}
 	if x.UserSelected != nil {
 	}
 	if x.Version != nil {
 		if *x.Version == "" {
-			return fmt.Errorf("field 'version' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'version' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -1323,8 +1078,11 @@ func (x *Condition) Validate() error {
 		}
 	}
 	if x.AbatementDateTime != nil {
-		if err := ValidateFhirDateTime(*x.AbatementDateTime); err != nil {
-			return fmt.Errorf("field 'abatementDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.AbatementDateTime, false) {
+			return fmt.Errorf("field 'abatementDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.AbatementDateTime) {
+			return fmt.Errorf("field 'abatementDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.AbatementPeriod != nil {
@@ -1339,7 +1097,7 @@ func (x *Condition) Validate() error {
 	}
 	if x.AbatementString != nil {
 		if *x.AbatementString == "" {
-			return fmt.Errorf("field 'abatementString' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'abatementString' does not match its schema pattern")
 		}
 	}
 	if x.BodySite != nil {
@@ -1374,13 +1132,6 @@ func (x *Condition) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.Encounter != nil {
 		if err := x.Encounter.Validate(); err != nil {
@@ -1406,14 +1157,8 @@ func (x *Condition) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_Condition_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -1426,13 +1171,14 @@ func (x *Condition) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
-	}
-	if x.Language != nil {
-		if !rx_Condition_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
+	if x.Language != nil {
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
+		}
 	}
 	if x.Meta != nil {
 		if err := x.Meta.Validate(); err != nil {
@@ -1463,8 +1209,11 @@ func (x *Condition) Validate() error {
 		}
 	}
 	if x.OnsetDateTime != nil {
-		if err := ValidateFhirDateTime(*x.OnsetDateTime); err != nil {
-			return fmt.Errorf("field 'onsetDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.OnsetDateTime, false) {
+			return fmt.Errorf("field 'onsetDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.OnsetDateTime) {
+			return fmt.Errorf("field 'onsetDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.OnsetPeriod != nil {
@@ -1479,7 +1228,7 @@ func (x *Condition) Validate() error {
 	}
 	if x.OnsetString != nil {
 		if *x.OnsetString == "" {
-			return fmt.Errorf("field 'onsetString' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'onsetString' does not match its schema pattern")
 		}
 	}
 	if x.Participant != nil {
@@ -1492,9 +1241,15 @@ func (x *Condition) Validate() error {
 		}
 	}
 	if x.RecordedDate != nil {
-		if err := ValidateFhirDateTime(*x.RecordedDate); err != nil {
-			return fmt.Errorf("field 'recordedDate' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.RecordedDate, false) {
+			return fmt.Errorf("field 'recordedDate' does not match its schema pattern")
 		}
+		if !validFHIRCalendarDate(*x.RecordedDate) {
+			return fmt.Errorf("field 'recordedDate' is not a valid FHIR dateTime")
+		}
+	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
 	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "Condition" {
@@ -1565,10 +1320,8 @@ func (x *ConditionParticipant) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -1577,11 +1330,6 @@ func (x *ConditionParticipant) Validate() error {
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ConditionParticipant" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ConditionParticipant'")
 		}
 	}
 	return nil
@@ -1612,10 +1360,8 @@ func (x *ConditionStage) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -1624,11 +1370,6 @@ func (x *ConditionStage) Validate() error {
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ConditionStage" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ConditionStage'")
 		}
 	}
 	if x.Summary != nil {
@@ -1665,19 +1406,12 @@ func (x *ContactDetail) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Name != nil {
 		if *x.Name == "" {
-			return fmt.Errorf("field 'name' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ContactDetail" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ContactDetail'")
+			return fmt.Errorf("field 'name' does not match its schema pattern")
 		}
 	}
 	if x.Telecom != nil {
@@ -1728,10 +1462,8 @@ func (x *ContactPoint) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Period != nil {
 		if err := x.Period.Validate(); err != nil {
@@ -1739,28 +1471,20 @@ func (x *ContactPoint) Validate() error {
 		}
 	}
 	if x.Rank != nil {
-		if *x.Rank <= 0.000000 {
-			return fmt.Errorf("field 'rank' is below exclusive minimum 0.000000")
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ContactPoint" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ContactPoint'")
-		}
 	}
 	if x.System != nil {
-		if !rx_ContactPoint_System.MatchString(*x.System) {
-			return fmt.Errorf("field 'system' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !(*x.System == "phone" || *x.System == "fax" || *x.System == "email" || *x.System == "pager" || *x.System == "url" || *x.System == "sms" || *x.System == "other") {
+			return fmt.Errorf("field 'system' has an unsupported value")
 		}
 	}
 	if x.Use != nil {
-		if !rx_ContactPoint_Use.MatchString(*x.Use) {
-			return fmt.Errorf("field 'use' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !(*x.Use == "home" || *x.Use == "work" || *x.Use == "temp" || *x.Use == "old" || *x.Use == "mobile") {
+			return fmt.Errorf("field 'use' has an unsupported value")
 		}
 	}
 	if x.Value != nil {
 		if *x.Value == "" {
-			return fmt.Errorf("field 'value' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'value' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -1797,13 +1521,13 @@ func (x *Count) Validate() error {
 		}
 	}
 	if x.Code != nil {
-		if !rx_Count_Code.MatchString(*x.Code) {
-			return fmt.Errorf("field 'code' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Code) {
+			return fmt.Errorf("field 'code' does not match its schema pattern")
 		}
 	}
 	if x.Comparator != nil {
-		if !rx_Count_Comparator.MatchString(*x.Comparator) {
-			return fmt.Errorf("field 'comparator' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !(*x.Comparator == "<" || *x.Comparator == "<=" || *x.Comparator == ">=" || *x.Comparator == ">" || *x.Comparator == "ad") {
+			return fmt.Errorf("field 'comparator' has an unsupported value")
 		}
 	}
 	if x.Extension != nil {
@@ -1817,21 +1541,17 @@ func (x *Count) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Count" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Count'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.System != nil {
+		if hasFHIRSchemaSpace(*x.System) {
+			return fmt.Errorf("field 'system' does not match its schema pattern")
+		}
 	}
 	if x.Unit != nil {
 		if *x.Unit == "" {
-			return fmt.Errorf("field 'unit' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'unit' does not match its schema pattern")
 		}
 	}
 	if x.Value != nil {
@@ -1854,15 +1574,6 @@ func (x *DataRequirement) Validate() error {
 			if item != nil {
 				if err := item.Validate(); err != nil {
 					return fmt.Errorf("field '_mustSupport[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
-	}
-	if x.XProfile != nil {
-		for i, item := range x.XProfile {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field '_profile[%d]' is invalid: %w", i, err)
 				}
 			}
 		}
@@ -1901,28 +1612,23 @@ func (x *DataRequirement) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.Limit != nil {
-		if *x.Limit <= 0.000000 {
-			return fmt.Errorf("field 'limit' is below exclusive minimum 0.000000")
-		}
-	}
-	if x.Links != nil {
 	}
 	if x.MustSupport != nil {
 		for i, item := range x.MustSupport {
 			if item == "" {
-				return fmt.Errorf("field 'mustSupport[%d]' does not match pattern '[ \\r\\n\\t\\S]+'", i)
+				return fmt.Errorf("field 'mustSupport[%d]' does not match its schema pattern", i)
 			}
 		}
 	}
 	if x.Profile != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "DataRequirement" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'DataRequirement'")
+		for i, item := range x.Profile {
+			if hasFHIRSchemaSpace(item) {
+				return fmt.Errorf("field 'profile[%d]' does not match its schema pattern", i)
+			}
 		}
 	}
 	if x.Sort != nil {
@@ -1945,8 +1651,8 @@ func (x *DataRequirement) Validate() error {
 		}
 	}
 	if x.Type != nil {
-		if !rx_DataRequirement_Type.MatchString(*x.Type) {
-			return fmt.Errorf("field 'type' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Type) {
+			return fmt.Errorf("field 'type' does not match its schema pattern")
 		}
 	}
 	if x.ValueFilter != nil {
@@ -1976,11 +1682,6 @@ func (x *DataRequirementCodeFilter) Validate() error {
 			return fmt.Errorf("field '_searchParam' is invalid: %w", err)
 		}
 	}
-	if x.XValueSet != nil {
-		if err := x.XValueSet.Validate(); err != nil {
-			return fmt.Errorf("field '_valueSet' is invalid: %w", err)
-		}
-	}
 	if x.Code != nil {
 		for i, item := range x.Code {
 			if item != nil {
@@ -2001,27 +1702,32 @@ func (x *DataRequirementCodeFilter) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
+	if x.ModifierExtension != nil {
+		for i, item := range x.ModifierExtension {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
+				}
+			}
+		}
 	}
 	if x.Path != nil {
 		if *x.Path == "" {
-			return fmt.Errorf("field 'path' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "DataRequirementCodeFilter" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'DataRequirementCodeFilter'")
+			return fmt.Errorf("field 'path' does not match its schema pattern")
 		}
 	}
 	if x.SearchParam != nil {
 		if *x.SearchParam == "" {
-			return fmt.Errorf("field 'searchParam' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'searchParam' does not match its schema pattern")
 		}
 	}
 	if x.ValueSet != nil {
+		if hasFHIRSchemaSpace(*x.ValueSet) {
+			return fmt.Errorf("field 'valueSet' does not match its schema pattern")
+		}
 	}
 	return nil
 }
@@ -2057,29 +1763,34 @@ func (x *DataRequirementDateFilter) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
+	if x.ModifierExtension != nil {
+		for i, item := range x.ModifierExtension {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
+				}
+			}
+		}
 	}
 	if x.Path != nil {
 		if *x.Path == "" {
-			return fmt.Errorf("field 'path' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "DataRequirementDateFilter" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'DataRequirementDateFilter'")
+			return fmt.Errorf("field 'path' does not match its schema pattern")
 		}
 	}
 	if x.SearchParam != nil {
 		if *x.SearchParam == "" {
-			return fmt.Errorf("field 'searchParam' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'searchParam' does not match its schema pattern")
 		}
 	}
 	if x.ValueDateTime != nil {
-		if err := ValidateFhirDateTime(*x.ValueDateTime); err != nil {
-			return fmt.Errorf("field 'valueDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.ValueDateTime, false) {
+			return fmt.Errorf("field 'valueDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueDateTime) {
+			return fmt.Errorf("field 'valueDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.ValueDuration != nil {
@@ -2111,8 +1822,8 @@ func (x *DataRequirementSort) Validate() error {
 		}
 	}
 	if x.Direction != nil {
-		if !rx_DataRequirementSort_Direction.MatchString(*x.Direction) {
-			return fmt.Errorf("field 'direction' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !(*x.Direction == "ascending" || *x.Direction == "descending") {
+			return fmt.Errorf("field 'direction' has an unsupported value")
 		}
 	}
 	if x.Extension != nil {
@@ -2126,19 +1837,21 @@ func (x *DataRequirementSort) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
+	if x.ModifierExtension != nil {
+		for i, item := range x.ModifierExtension {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
+				}
+			}
+		}
 	}
 	if x.Path != nil {
 		if *x.Path == "" {
-			return fmt.Errorf("field 'path' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "DataRequirementSort" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'DataRequirementSort'")
+			return fmt.Errorf("field 'path' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -2170,8 +1883,8 @@ func (x *DataRequirementValueFilter) Validate() error {
 		}
 	}
 	if x.Comparator != nil {
-		if !rx_DataRequirementValueFilter_Comparator.MatchString(*x.Comparator) {
-			return fmt.Errorf("field 'comparator' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Comparator) {
+			return fmt.Errorf("field 'comparator' does not match its schema pattern")
 		}
 	}
 	if x.Extension != nil {
@@ -2185,29 +1898,34 @@ func (x *DataRequirementValueFilter) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
+	if x.ModifierExtension != nil {
+		for i, item := range x.ModifierExtension {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
+				}
+			}
+		}
 	}
 	if x.Path != nil {
 		if *x.Path == "" {
-			return fmt.Errorf("field 'path' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "DataRequirementValueFilter" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'DataRequirementValueFilter'")
+			return fmt.Errorf("field 'path' does not match its schema pattern")
 		}
 	}
 	if x.SearchParam != nil {
 		if *x.SearchParam == "" {
-			return fmt.Errorf("field 'searchParam' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'searchParam' does not match its schema pattern")
 		}
 	}
 	if x.ValueDateTime != nil {
-		if err := ValidateFhirDateTime(*x.ValueDateTime); err != nil {
-			return fmt.Errorf("field 'valueDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.ValueDateTime, false) {
+			return fmt.Errorf("field 'valueDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueDateTime) {
+			return fmt.Errorf("field 'valueDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.ValueDuration != nil {
@@ -2290,8 +2008,8 @@ func (x *DiagnosticReport) Validate() error {
 		}
 	}
 	if x.Conclusion != nil {
-		if !rx_DiagnosticReport_Conclusion.MatchString(*x.Conclusion) {
-			return fmt.Errorf("field 'conclusion' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.Conclusion == "" {
+			return fmt.Errorf("field 'conclusion' does not match its schema pattern")
 		}
 	}
 	if x.ConclusionCode != nil {
@@ -2304,17 +2022,13 @@ func (x *DiagnosticReport) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.EffectiveDateTime != nil {
-		if err := ValidateFhirDateTime(*x.EffectiveDateTime); err != nil {
-			return fmt.Errorf("field 'effectiveDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.EffectiveDateTime, false) {
+			return fmt.Errorf("field 'effectiveDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.EffectiveDateTime) {
+			return fmt.Errorf("field 'effectiveDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.EffectivePeriod != nil {
@@ -2337,14 +2051,8 @@ func (x *DiagnosticReport) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_DiagnosticReport_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -2357,18 +2065,22 @@ func (x *DiagnosticReport) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
+		}
 	}
 	if x.Issued != nil {
-		if err := ValidateFhirDateTime(*x.Issued); err != nil {
-			return fmt.Errorf("field 'issued' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.Issued, true) {
+			return fmt.Errorf("field 'issued' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Issued) {
+			return fmt.Errorf("field 'issued' is not a valid FHIR instant")
 		}
 	}
 	if x.Language != nil {
-		if !rx_DiagnosticReport_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Media != nil {
 		for i, item := range x.Media {
@@ -2420,6 +2132,9 @@ func (x *DiagnosticReport) Validate() error {
 			}
 		}
 	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
+	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "DiagnosticReport" {
 			return fmt.Errorf("field 'resourceType' must be exactly 'DiagnosticReport'")
@@ -2453,8 +2168,8 @@ func (x *DiagnosticReport) Validate() error {
 		}
 	}
 	if x.Status != nil {
-		if !rx_DiagnosticReport_Status.MatchString(*x.Status) {
-			return fmt.Errorf("field 'status' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Status) {
+			return fmt.Errorf("field 'status' does not match its schema pattern")
 		}
 	}
 	if x.Study != nil {
@@ -2500,7 +2215,7 @@ func (x *DiagnosticReportMedia) Validate() error {
 	}
 	if x.Comment != nil {
 		if *x.Comment == "" {
-			return fmt.Errorf("field 'comment' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'comment' does not match its schema pattern")
 		}
 	}
 	if x.Extension != nil {
@@ -2514,7 +2229,7 @@ func (x *DiagnosticReportMedia) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.Link == nil {
@@ -2525,8 +2240,6 @@ func (x *DiagnosticReportMedia) Validate() error {
 			return fmt.Errorf("field 'link' is invalid: %w", err)
 		}
 	}
-	if x.Links != nil {
-	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
 			if item != nil {
@@ -2534,11 +2247,6 @@ func (x *DiagnosticReportMedia) Validate() error {
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "DiagnosticReportMedia" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'DiagnosticReportMedia'")
 		}
 	}
 	return nil
@@ -2560,10 +2268,8 @@ func (x *DiagnosticReportSupportingInfo) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -2582,62 +2288,12 @@ func (x *DiagnosticReportSupportingInfo) Validate() error {
 			return fmt.Errorf("field 'reference' is invalid: %w", err)
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "DiagnosticReportSupportingInfo" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'DiagnosticReportSupportingInfo'")
-		}
-	}
 	if x.Type == nil {
 		return &MissingRequiredFieldError{Field: "type"}
 	}
 	if x.Type != nil {
 		if err := x.Type.Validate(); err != nil {
 			return fmt.Errorf("field 'type' is invalid: %w", err)
-		}
-	}
-	return nil
-}
-
-// Validate validates a Directory struct against its schema constraints.
-func (x *Directory) Validate() error {
-	if x == nil {
-		return nil
-	}
-	if x.Child == nil {
-		return &MissingRequiredFieldError{Field: "child"}
-	}
-	if x.Child != nil {
-		for i, item := range x.Child {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'child[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
-	}
-	if x.ID != nil {
-		if !rx_Directory_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.Name == nil {
-		return &MissingRequiredFieldError{Field: "name"}
-	}
-	if x.Name != nil {
-	}
-	if x.Path != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Directory" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Directory'")
 		}
 	}
 	return nil
@@ -2674,13 +2330,13 @@ func (x *Distance) Validate() error {
 		}
 	}
 	if x.Code != nil {
-		if !rx_Distance_Code.MatchString(*x.Code) {
-			return fmt.Errorf("field 'code' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Code) {
+			return fmt.Errorf("field 'code' does not match its schema pattern")
 		}
 	}
 	if x.Comparator != nil {
-		if !rx_Distance_Comparator.MatchString(*x.Comparator) {
-			return fmt.Errorf("field 'comparator' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !(*x.Comparator == "<" || *x.Comparator == "<=" || *x.Comparator == ">=" || *x.Comparator == ">" || *x.Comparator == "ad") {
+			return fmt.Errorf("field 'comparator' has an unsupported value")
 		}
 	}
 	if x.Extension != nil {
@@ -2694,21 +2350,17 @@ func (x *Distance) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Distance" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Distance'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.System != nil {
+		if hasFHIRSchemaSpace(*x.System) {
+			return fmt.Errorf("field 'system' does not match its schema pattern")
+		}
 	}
 	if x.Unit != nil {
 		if *x.Unit == "" {
-			return fmt.Errorf("field 'unit' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'unit' does not match its schema pattern")
 		}
 	}
 	if x.Value != nil {
@@ -2802,13 +2454,6 @@ func (x *DocumentReference) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.Content == nil {
 		return &MissingRequiredFieldError{Field: "content"}
@@ -2837,18 +2482,21 @@ func (x *DocumentReference) Validate() error {
 		}
 	}
 	if x.Date != nil {
-		if err := ValidateFhirDateTime(*x.Date); err != nil {
-			return fmt.Errorf("field 'date' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.Date, true) {
+			return fmt.Errorf("field 'date' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Date) {
+			return fmt.Errorf("field 'date' is not a valid FHIR instant")
 		}
 	}
 	if x.Description != nil {
-		if !rx_DocumentReference_Description.MatchString(*x.Description) {
-			return fmt.Errorf("field 'description' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.Description == "" {
+			return fmt.Errorf("field 'description' does not match its schema pattern")
 		}
 	}
 	if x.DocStatus != nil {
-		if !rx_DocumentReference_DocStatus.MatchString(*x.DocStatus) {
-			return fmt.Errorf("field 'docStatus' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.DocStatus) {
+			return fmt.Errorf("field 'docStatus' does not match its schema pattern")
 		}
 	}
 	if x.Event != nil {
@@ -2875,14 +2523,8 @@ func (x *DocumentReference) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_DocumentReference_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -2895,13 +2537,14 @@ func (x *DocumentReference) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
-	}
-	if x.Language != nil {
-		if !rx_DocumentReference_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
+	if x.Language != nil {
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
+		}
 	}
 	if x.Meta != nil {
 		if err := x.Meta.Validate(); err != nil {
@@ -2945,6 +2588,9 @@ func (x *DocumentReference) Validate() error {
 			}
 		}
 	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
+	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "DocumentReference" {
 			return fmt.Errorf("field 'resourceType' must be exactly 'DocumentReference'")
@@ -2960,8 +2606,8 @@ func (x *DocumentReference) Validate() error {
 		}
 	}
 	if x.Status != nil {
-		if !rx_DocumentReference_Status.MatchString(*x.Status) {
-			return fmt.Errorf("field 'status' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Status) {
+			return fmt.Errorf("field 'status' does not match its schema pattern")
 		}
 	}
 	if x.Subject != nil {
@@ -2981,7 +2627,7 @@ func (x *DocumentReference) Validate() error {
 	}
 	if x.Version != nil {
 		if *x.Version == "" {
-			return fmt.Errorf("field 'version' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'version' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -3008,10 +2654,8 @@ func (x *DocumentReferenceAttester) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Mode == nil {
 		return &MissingRequiredFieldError{Field: "mode"}
@@ -3035,14 +2679,12 @@ func (x *DocumentReferenceAttester) Validate() error {
 			return fmt.Errorf("field 'party' is invalid: %w", err)
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "DocumentReferenceAttester" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'DocumentReferenceAttester'")
-		}
-	}
 	if x.Time != nil {
-		if err := ValidateFhirDateTime(*x.Time); err != nil {
-			return fmt.Errorf("field 'time' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.Time, false) {
+			return fmt.Errorf("field 'time' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Time) {
+			return fmt.Errorf("field 'time' is not a valid FHIR dateTime")
 		}
 	}
 	return nil
@@ -3072,10 +2714,8 @@ func (x *DocumentReferenceContent) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -3095,16 +2735,11 @@ func (x *DocumentReferenceContent) Validate() error {
 			}
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "DocumentReferenceContent" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'DocumentReferenceContent'")
-		}
-	}
 	return nil
 }
 
-// Validate validates a DocumentReferenceContentProfile struct against its schema constraints.
-func (x *DocumentReferenceContentProfile) Validate() error {
+// Validate validates a DocumentReferenceProfile struct against its schema constraints.
+func (x *DocumentReferenceProfile) Validate() error {
 	if x == nil {
 		return nil
 	}
@@ -3129,10 +2764,8 @@ func (x *DocumentReferenceContentProfile) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -3143,12 +2776,10 @@ func (x *DocumentReferenceContentProfile) Validate() error {
 			}
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "DocumentReferenceContentProfile" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'DocumentReferenceContentProfile'")
-		}
-	}
 	if x.ValueCanonical != nil {
+		if hasFHIRSchemaSpace(*x.ValueCanonical) {
+			return fmt.Errorf("field 'valueCanonical' does not match its schema pattern")
+		}
 	}
 	if x.ValueCoding != nil {
 		if err := x.ValueCoding.Validate(); err != nil {
@@ -3156,6 +2787,9 @@ func (x *DocumentReferenceContentProfile) Validate() error {
 		}
 	}
 	if x.ValueURI != nil {
+		if hasFHIRSchemaSpace(*x.ValueURI) {
+			return fmt.Errorf("field 'valueUri' does not match its schema pattern")
+		}
 	}
 	return nil
 }
@@ -3184,10 +2818,8 @@ func (x *DocumentReferenceRelatesTo) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -3196,11 +2828,6 @@ func (x *DocumentReferenceRelatesTo) Validate() error {
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "DocumentReferenceRelatesTo" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'DocumentReferenceRelatesTo'")
 		}
 	}
 	if x.Target == nil {
@@ -3279,10 +2906,8 @@ func (x *Dosage) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.MaxDosePerAdministration != nil {
 		if err := x.MaxDosePerAdministration.Validate(); err != nil {
@@ -3319,12 +2944,7 @@ func (x *Dosage) Validate() error {
 	}
 	if x.PatientInstruction != nil {
 		if *x.PatientInstruction == "" {
-			return fmt.Errorf("field 'patientInstruction' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Dosage" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Dosage'")
+			return fmt.Errorf("field 'patientInstruction' does not match its schema pattern")
 		}
 	}
 	if x.Route != nil {
@@ -3341,7 +2961,7 @@ func (x *Dosage) Validate() error {
 	}
 	if x.Text != nil {
 		if *x.Text == "" {
-			return fmt.Errorf("field 'text' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'text' does not match its schema pattern")
 		}
 	}
 	if x.Timing != nil {
@@ -3378,10 +2998,17 @@ func (x *DosageDoseAndRate) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
+	if x.ModifierExtension != nil {
+		for i, item := range x.ModifierExtension {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
+				}
+			}
+		}
 	}
 	if x.RateQuantity != nil {
 		if err := x.RateQuantity.Validate(); err != nil {
@@ -3396,11 +3023,6 @@ func (x *DosageDoseAndRate) Validate() error {
 	if x.RateRatio != nil {
 		if err := x.RateRatio.Validate(); err != nil {
 			return fmt.Errorf("field 'rateRatio' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "DosageDoseAndRate" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'DosageDoseAndRate'")
 		}
 	}
 	if x.Type != nil {
@@ -3442,13 +3064,13 @@ func (x *Duration) Validate() error {
 		}
 	}
 	if x.Code != nil {
-		if !rx_Duration_Code.MatchString(*x.Code) {
-			return fmt.Errorf("field 'code' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Code) {
+			return fmt.Errorf("field 'code' does not match its schema pattern")
 		}
 	}
 	if x.Comparator != nil {
-		if !rx_Duration_Comparator.MatchString(*x.Comparator) {
-			return fmt.Errorf("field 'comparator' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !(*x.Comparator == "<" || *x.Comparator == "<=" || *x.Comparator == ">=" || *x.Comparator == ">" || *x.Comparator == "ad") {
+			return fmt.Errorf("field 'comparator' has an unsupported value")
 		}
 	}
 	if x.Extension != nil {
@@ -3462,24 +3084,42 @@ func (x *Duration) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Duration" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Duration'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.System != nil {
+		if hasFHIRSchemaSpace(*x.System) {
+			return fmt.Errorf("field 'system' does not match its schema pattern")
+		}
 	}
 	if x.Unit != nil {
 		if *x.Unit == "" {
-			return fmt.Errorf("field 'unit' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'unit' does not match its schema pattern")
 		}
 	}
 	if x.Value != nil {
+	}
+	return nil
+}
+
+// Validate validates a Element struct against its schema constraints.
+func (x *Element) Validate() error {
+	if x == nil {
+		return nil
+	}
+	if x.Extension != nil {
+		for i, item := range x.Extension {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'extension[%d]' is invalid: %w", i, err)
+				}
+			}
+		}
+	}
+	if x.ID != nil {
+		if *x.ID == "" {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
+		}
 	}
 	return nil
 }
@@ -3516,12 +3156,12 @@ func (x *Expression) Validate() error {
 	}
 	if x.Description != nil {
 		if *x.Description == "" {
-			return fmt.Errorf("field 'description' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'description' does not match its schema pattern")
 		}
 	}
 	if x.Expression != nil {
 		if *x.Expression == "" {
-			return fmt.Errorf("field 'expression' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'expression' does not match its schema pattern")
 		}
 	}
 	if x.Extension != nil {
@@ -3535,26 +3175,22 @@ func (x *Expression) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.Language != nil {
-		if !rx_Expression_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
-	}
 	if x.Name != nil {
-		if !rx_Expression_Name.MatchString(*x.Name) {
-			return fmt.Errorf("field 'name' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Name) {
+			return fmt.Errorf("field 'name' does not match its schema pattern")
 		}
 	}
 	if x.Reference != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Expression" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Expression'")
+		if hasFHIRSchemaSpace(*x.Reference) {
+			return fmt.Errorf("field 'reference' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -3581,10 +3217,8 @@ func (x *ExtendedContactDetail) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Name != nil {
 		for i, item := range x.Name {
@@ -3610,11 +3244,6 @@ func (x *ExtendedContactDetail) Validate() error {
 			return fmt.Errorf("field 'purpose' is invalid: %w", err)
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ExtendedContactDetail" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ExtendedContactDetail'")
-		}
-	}
 	if x.Telecom != nil {
 		for i, item := range x.Telecom {
 			if item != nil {
@@ -3632,6 +3261,111 @@ func (x *Extension) Validate() error {
 	if x == nil {
 		return nil
 	}
+	if x.XURL != nil {
+		if err := x.XURL.Validate(); err != nil {
+			return fmt.Errorf("field '_url' is invalid: %w", err)
+		}
+	}
+	if x.XValueBase64Binary != nil {
+		if err := x.XValueBase64Binary.Validate(); err != nil {
+			return fmt.Errorf("field '_valueBase64Binary' is invalid: %w", err)
+		}
+	}
+	if x.XValueBoolean != nil {
+		if err := x.XValueBoolean.Validate(); err != nil {
+			return fmt.Errorf("field '_valueBoolean' is invalid: %w", err)
+		}
+	}
+	if x.XValueCanonical != nil {
+		if err := x.XValueCanonical.Validate(); err != nil {
+			return fmt.Errorf("field '_valueCanonical' is invalid: %w", err)
+		}
+	}
+	if x.XValueCode != nil {
+		if err := x.XValueCode.Validate(); err != nil {
+			return fmt.Errorf("field '_valueCode' is invalid: %w", err)
+		}
+	}
+	if x.XValueDate != nil {
+		if err := x.XValueDate.Validate(); err != nil {
+			return fmt.Errorf("field '_valueDate' is invalid: %w", err)
+		}
+	}
+	if x.XValueDateTime != nil {
+		if err := x.XValueDateTime.Validate(); err != nil {
+			return fmt.Errorf("field '_valueDateTime' is invalid: %w", err)
+		}
+	}
+	if x.XValueDecimal != nil {
+		if err := x.XValueDecimal.Validate(); err != nil {
+			return fmt.Errorf("field '_valueDecimal' is invalid: %w", err)
+		}
+	}
+	if x.XValueID != nil {
+		if err := x.XValueID.Validate(); err != nil {
+			return fmt.Errorf("field '_valueId' is invalid: %w", err)
+		}
+	}
+	if x.XValueInstant != nil {
+		if err := x.XValueInstant.Validate(); err != nil {
+			return fmt.Errorf("field '_valueInstant' is invalid: %w", err)
+		}
+	}
+	if x.XValueInteger != nil {
+		if err := x.XValueInteger.Validate(); err != nil {
+			return fmt.Errorf("field '_valueInteger' is invalid: %w", err)
+		}
+	}
+	if x.XValueInteger64 != nil {
+		if err := x.XValueInteger64.Validate(); err != nil {
+			return fmt.Errorf("field '_valueInteger64' is invalid: %w", err)
+		}
+	}
+	if x.XValueMarkdown != nil {
+		if err := x.XValueMarkdown.Validate(); err != nil {
+			return fmt.Errorf("field '_valueMarkdown' is invalid: %w", err)
+		}
+	}
+	if x.XValueOid != nil {
+		if err := x.XValueOid.Validate(); err != nil {
+			return fmt.Errorf("field '_valueOid' is invalid: %w", err)
+		}
+	}
+	if x.XValuePositiveInt != nil {
+		if err := x.XValuePositiveInt.Validate(); err != nil {
+			return fmt.Errorf("field '_valuePositiveInt' is invalid: %w", err)
+		}
+	}
+	if x.XValueString != nil {
+		if err := x.XValueString.Validate(); err != nil {
+			return fmt.Errorf("field '_valueString' is invalid: %w", err)
+		}
+	}
+	if x.XValueTime != nil {
+		if err := x.XValueTime.Validate(); err != nil {
+			return fmt.Errorf("field '_valueTime' is invalid: %w", err)
+		}
+	}
+	if x.XValueUnsignedInt != nil {
+		if err := x.XValueUnsignedInt.Validate(); err != nil {
+			return fmt.Errorf("field '_valueUnsignedInt' is invalid: %w", err)
+		}
+	}
+	if x.XValueURI != nil {
+		if err := x.XValueURI.Validate(); err != nil {
+			return fmt.Errorf("field '_valueUri' is invalid: %w", err)
+		}
+	}
+	if x.XValueURL != nil {
+		if err := x.XValueURL.Validate(); err != nil {
+			return fmt.Errorf("field '_valueUrl' is invalid: %w", err)
+		}
+	}
+	if x.XValueUUID != nil {
+		if err := x.XValueUUID.Validate(); err != nil {
+			return fmt.Errorf("field '_valueUuid' is invalid: %w", err)
+		}
+	}
 	if x.Extension != nil {
 		for i, item := range x.Extension {
 			if item != nil {
@@ -3643,17 +3377,13 @@ func (x *Extension) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Extension" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Extension'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.URL != nil {
+		if hasFHIRSchemaSpace(*x.URL) {
+			return fmt.Errorf("field 'url' does not match its schema pattern")
+		}
 	}
 	if x.ValueAddress != nil {
 		if err := x.ValueAddress.Validate(); err != nil {
@@ -3681,17 +3411,23 @@ func (x *Extension) Validate() error {
 		}
 	}
 	if x.ValueBase64Binary != nil {
-		if err := ValidateFhirBinary(*x.ValueBase64Binary); err != nil {
-			return fmt.Errorf("field 'valueBase64Binary' has invalid binary format: %w", err)
+		if !validFHIRBase64(*x.ValueBase64Binary) {
+			return fmt.Errorf("field 'valueBase64Binary' does not match its schema pattern")
+		}
+		if !validFHIRBinaryContent(*x.ValueBase64Binary) {
+			return fmt.Errorf("field 'valueBase64Binary' is not a valid FHIR base64Binary")
 		}
 	}
 	if x.ValueBoolean != nil {
 	}
 	if x.ValueCanonical != nil {
+		if hasFHIRSchemaSpace(*x.ValueCanonical) {
+			return fmt.Errorf("field 'valueCanonical' does not match its schema pattern")
+		}
 	}
 	if x.ValueCode != nil {
-		if !rx_Extension_ValueCode.MatchString(*x.ValueCode) {
-			return fmt.Errorf("field 'valueCode' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.ValueCode) {
+			return fmt.Errorf("field 'valueCode' does not match its schema pattern")
 		}
 	}
 	if x.ValueCodeableConcept != nil {
@@ -3730,13 +3466,19 @@ func (x *Extension) Validate() error {
 		}
 	}
 	if x.ValueDate != nil {
-		if err := ValidateFhirDate(*x.ValueDate); err != nil {
-			return fmt.Errorf("field 'valueDate' has invalid date format: %w", err)
+		if !validFHIRDate(*x.ValueDate) {
+			return fmt.Errorf("field 'valueDate' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueDate) {
+			return fmt.Errorf("field 'valueDate' is not a valid FHIR date")
 		}
 	}
 	if x.ValueDateTime != nil {
-		if err := ValidateFhirDateTime(*x.ValueDateTime); err != nil {
-			return fmt.Errorf("field 'valueDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.ValueDateTime, false) {
+			return fmt.Errorf("field 'valueDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueDateTime) {
+			return fmt.Errorf("field 'valueDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.ValueDecimal != nil {
@@ -3772,14 +3514,8 @@ func (x *Extension) Validate() error {
 		}
 	}
 	if x.ValueID != nil {
-		if !rx_Extension_ValueID.MatchString(*x.ValueID) {
-			return fmt.Errorf("field 'valueId' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ValueID) < 1 {
-			return fmt.Errorf("field 'valueId' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ValueID) > 64 {
-			return fmt.Errorf("field 'valueId' is too long (max 64 characters)")
+		if !validFHIRID(*x.ValueID) {
+			return fmt.Errorf("field 'valueId' does not match its schema pattern")
 		}
 	}
 	if x.ValueIDentifier != nil {
@@ -3788,17 +3524,23 @@ func (x *Extension) Validate() error {
 		}
 	}
 	if x.ValueInstant != nil {
-		if err := ValidateFhirDateTime(*x.ValueInstant); err != nil {
-			return fmt.Errorf("field 'valueInstant' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.ValueInstant, true) {
+			return fmt.Errorf("field 'valueInstant' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueInstant) {
+			return fmt.Errorf("field 'valueInstant' is not a valid FHIR instant")
 		}
 	}
 	if x.ValueInteger != nil {
 	}
 	if x.ValueInteger64 != nil {
+		if !validFHIRInteger64(*x.ValueInteger64) {
+			return fmt.Errorf("field 'valueInteger64' does not match its schema pattern")
+		}
 	}
 	if x.ValueMarkdown != nil {
-		if !rx_Extension_ValueMarkdown.MatchString(*x.ValueMarkdown) {
-			return fmt.Errorf("field 'valueMarkdown' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.ValueMarkdown == "" {
+			return fmt.Errorf("field 'valueMarkdown' does not match its schema pattern")
 		}
 	}
 	if x.ValueMeta != nil {
@@ -3812,8 +3554,8 @@ func (x *Extension) Validate() error {
 		}
 	}
 	if x.ValueOid != nil {
-		if !rx_Extension_ValueOid.MatchString(*x.ValueOid) {
-			return fmt.Errorf("field 'valueOid' does not match pattern '^urn:oid:[0-2](\\.(0|[1-9][0-9]*))+$'")
+		if !validFHIROID(*x.ValueOid) {
+			return fmt.Errorf("field 'valueOid' does not match its schema pattern")
 		}
 	}
 	if x.ValueParameterDefinition != nil {
@@ -3827,9 +3569,6 @@ func (x *Extension) Validate() error {
 		}
 	}
 	if x.ValuePositiveInt != nil {
-		if *x.ValuePositiveInt <= 0.000000 {
-			return fmt.Errorf("field 'valuePositiveInt' is below exclusive minimum 0.000000")
-		}
 	}
 	if x.ValueQuantity != nil {
 		if err := x.ValueQuantity.Validate(); err != nil {
@@ -3873,12 +3612,12 @@ func (x *Extension) Validate() error {
 	}
 	if x.ValueString != nil {
 		if *x.ValueString == "" {
-			return fmt.Errorf("field 'valueString' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'valueString' does not match its schema pattern")
 		}
 	}
 	if x.ValueTime != nil {
-		if err := ValidateFhirTime(*x.ValueTime); err != nil {
-			return fmt.Errorf("field 'valueTime' has invalid time format: %w", err)
+		if !validFHIRTime(*x.ValueTime) {
+			return fmt.Errorf("field 'valueTime' does not match its schema pattern")
 		}
 	}
 	if x.ValueTiming != nil {
@@ -3892,21 +3631,15 @@ func (x *Extension) Validate() error {
 		}
 	}
 	if x.ValueUnsignedInt != nil {
-		if *x.ValueUnsignedInt < 0.000000 {
-			return fmt.Errorf("field 'valueUnsignedInt' is below minimum 0.000000")
-		}
 	}
 	if x.ValueURI != nil {
+		if hasFHIRSchemaSpace(*x.ValueURI) {
+			return fmt.Errorf("field 'valueUri' does not match its schema pattern")
+		}
 	}
 	if x.ValueURL != nil {
-		if utf8.RuneCountInString(*x.ValueURL) < 1 {
-			return fmt.Errorf("field 'valueUrl' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ValueURL) > 65536 {
-			return fmt.Errorf("field 'valueUrl' is too long (max 65536 characters)")
-		}
-		if err := ValidateFhirURI(*x.ValueURL); err != nil {
-			return fmt.Errorf("field 'valueUrl' has invalid URI format: %w", err)
+		if hasFHIRSchemaSpace(*x.ValueURL) {
+			return fmt.Errorf("field 'valueUrl' does not match its schema pattern")
 		}
 	}
 	if x.ValueUsageContext != nil {
@@ -3915,37 +3648,8 @@ func (x *Extension) Validate() error {
 		}
 	}
 	if x.ValueUUID != nil {
-		if err := ValidateFhirUUID(*x.ValueUUID); err != nil {
-			return fmt.Errorf("field 'valueUuid' has invalid UUID format: %w", err)
-		}
-	}
-	return nil
-}
-
-// Validate validates a FHIRPrimitiveExtension struct against its schema constraints.
-func (x *FHIRPrimitiveExtension) Validate() error {
-	if x == nil {
-		return nil
-	}
-	if x.Extension != nil {
-		for i, item := range x.Extension {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'extension[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
-	}
-	if x.ID != nil {
-		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "FHIRPrimitiveExtension" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'FHIRPrimitiveExtension'")
+		if !validFHIRUUID(*x.ValueUUID) {
+			return fmt.Errorf("field 'valueUuid' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -4001,15 +3705,6 @@ func (x *FamilyMemberHistory) Validate() error {
 			return fmt.Errorf("field '_implicitRules' is invalid: %w", err)
 		}
 	}
-	if x.XInstantiatesCanonical != nil {
-		for i, item := range x.XInstantiatesCanonical {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field '_instantiatesCanonical[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
-	}
 	if x.XInstantiatesURI != nil {
 		for i, item := range x.XInstantiatesURI {
 			if item != nil {
@@ -4046,12 +3741,15 @@ func (x *FamilyMemberHistory) Validate() error {
 	}
 	if x.AgeString != nil {
 		if *x.AgeString == "" {
-			return fmt.Errorf("field 'ageString' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'ageString' does not match its schema pattern")
 		}
 	}
 	if x.BornDate != nil {
-		if err := ValidateFhirDate(*x.BornDate); err != nil {
-			return fmt.Errorf("field 'bornDate' has invalid date format: %w", err)
+		if !validFHIRDate(*x.BornDate) {
+			return fmt.Errorf("field 'bornDate' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.BornDate) {
+			return fmt.Errorf("field 'bornDate' is not a valid FHIR date")
 		}
 	}
 	if x.BornPeriod != nil {
@@ -4061,7 +3759,7 @@ func (x *FamilyMemberHistory) Validate() error {
 	}
 	if x.BornString != nil {
 		if *x.BornString == "" {
-			return fmt.Errorf("field 'bornString' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'bornString' does not match its schema pattern")
 		}
 	}
 	if x.Condition != nil {
@@ -4074,13 +3772,6 @@ func (x *FamilyMemberHistory) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.DataAbsentReason != nil {
 		if err := x.DataAbsentReason.Validate(); err != nil {
@@ -4088,8 +3779,11 @@ func (x *FamilyMemberHistory) Validate() error {
 		}
 	}
 	if x.Date != nil {
-		if err := ValidateFhirDateTime(*x.Date); err != nil {
-			return fmt.Errorf("field 'date' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.Date, false) {
+			return fmt.Errorf("field 'date' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Date) {
+			return fmt.Errorf("field 'date' is not a valid FHIR dateTime")
 		}
 	}
 	if x.DeceasedAge != nil {
@@ -4100,8 +3794,11 @@ func (x *FamilyMemberHistory) Validate() error {
 	if x.DeceasedBoolean != nil {
 	}
 	if x.DeceasedDate != nil {
-		if err := ValidateFhirDate(*x.DeceasedDate); err != nil {
-			return fmt.Errorf("field 'deceasedDate' has invalid date format: %w", err)
+		if !validFHIRDate(*x.DeceasedDate) {
+			return fmt.Errorf("field 'deceasedDate' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.DeceasedDate) {
+			return fmt.Errorf("field 'deceasedDate' is not a valid FHIR date")
 		}
 	}
 	if x.DeceasedRange != nil {
@@ -4111,7 +3808,7 @@ func (x *FamilyMemberHistory) Validate() error {
 	}
 	if x.DeceasedString != nil {
 		if *x.DeceasedString == "" {
-			return fmt.Errorf("field 'deceasedString' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'deceasedString' does not match its schema pattern")
 		}
 	}
 	if x.EstimatedAge != nil {
@@ -4126,14 +3823,8 @@ func (x *FamilyMemberHistory) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_FamilyMemberHistory_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -4146,17 +3837,28 @@ func (x *FamilyMemberHistory) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
-	}
-	if x.InstantiatesCanonical != nil {
-	}
-	if x.InstantiatesURI != nil {
-	}
-	if x.Language != nil {
-		if !rx_FamilyMemberHistory_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
+	if x.InstantiatesCanonical != nil {
+		for i, item := range x.InstantiatesCanonical {
+			if hasFHIRSchemaSpace(item) {
+				return fmt.Errorf("field 'instantiatesCanonical[%d]' does not match its schema pattern", i)
+			}
+		}
+	}
+	if x.InstantiatesURI != nil {
+		for i, item := range x.InstantiatesURI {
+			if hasFHIRSchemaSpace(item) {
+				return fmt.Errorf("field 'instantiatesUri[%d]' does not match its schema pattern", i)
+			}
+		}
+	}
+	if x.Language != nil {
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
+		}
 	}
 	if x.Meta != nil {
 		if err := x.Meta.Validate(); err != nil {
@@ -4174,7 +3876,7 @@ func (x *FamilyMemberHistory) Validate() error {
 	}
 	if x.Name != nil {
 		if *x.Name == "" {
-			return fmt.Errorf("field 'name' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'name' does not match its schema pattern")
 		}
 	}
 	if x.Note != nil {
@@ -4229,6 +3931,9 @@ func (x *FamilyMemberHistory) Validate() error {
 			return fmt.Errorf("field 'relationship' is invalid: %w", err)
 		}
 	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
+	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "FamilyMemberHistory" {
 			return fmt.Errorf("field 'resourceType' must be exactly 'FamilyMemberHistory'")
@@ -4240,8 +3945,8 @@ func (x *FamilyMemberHistory) Validate() error {
 		}
 	}
 	if x.Status != nil {
-		if !rx_FamilyMemberHistory_Status.MatchString(*x.Status) {
-			return fmt.Errorf("field 'status' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Status) {
+			return fmt.Errorf("field 'status' does not match its schema pattern")
 		}
 	}
 	if x.Text != nil {
@@ -4288,10 +3993,8 @@ func (x *FamilyMemberHistoryCondition) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -4328,17 +4031,12 @@ func (x *FamilyMemberHistoryCondition) Validate() error {
 	}
 	if x.OnsetString != nil {
 		if *x.OnsetString == "" {
-			return fmt.Errorf("field 'onsetString' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'onsetString' does not match its schema pattern")
 		}
 	}
 	if x.Outcome != nil {
 		if err := x.Outcome.Validate(); err != nil {
 			return fmt.Errorf("field 'outcome' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "FamilyMemberHistoryCondition" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'FamilyMemberHistoryCondition'")
 		}
 	}
 	return nil
@@ -4373,10 +4071,8 @@ func (x *FamilyMemberHistoryParticipant) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -4385,11 +4081,6 @@ func (x *FamilyMemberHistoryParticipant) Validate() error {
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "FamilyMemberHistoryParticipant" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'FamilyMemberHistoryParticipant'")
 		}
 	}
 	return nil
@@ -4436,10 +4127,8 @@ func (x *FamilyMemberHistoryProcedure) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -4470,8 +4159,11 @@ func (x *FamilyMemberHistoryProcedure) Validate() error {
 		}
 	}
 	if x.PerformedDateTime != nil {
-		if err := ValidateFhirDateTime(*x.PerformedDateTime); err != nil {
-			return fmt.Errorf("field 'performedDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.PerformedDateTime, false) {
+			return fmt.Errorf("field 'performedDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.PerformedDateTime) {
+			return fmt.Errorf("field 'performedDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.PerformedPeriod != nil {
@@ -4486,12 +4178,7 @@ func (x *FamilyMemberHistoryProcedure) Validate() error {
 	}
 	if x.PerformedString != nil {
 		if *x.PerformedString == "" {
-			return fmt.Errorf("field 'performedString' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "FamilyMemberHistoryProcedure" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'FamilyMemberHistoryProcedure'")
+			return fmt.Errorf("field 'performedString' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -4559,17 +4246,10 @@ func (x *Group) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.Description != nil {
-		if !rx_Group_Description.MatchString(*x.Description) {
-			return fmt.Errorf("field 'description' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.Description == "" {
+			return fmt.Errorf("field 'description' does not match its schema pattern")
 		}
 	}
 	if x.Extension != nil {
@@ -4582,14 +4262,8 @@ func (x *Group) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_Group_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -4602,13 +4276,14 @@ func (x *Group) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
-	}
-	if x.Language != nil {
-		if !rx_Group_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
+	if x.Language != nil {
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
+		}
 	}
 	if x.ManagingEntity != nil {
 		if err := x.ManagingEntity.Validate(); err != nil {
@@ -4625,8 +4300,8 @@ func (x *Group) Validate() error {
 		}
 	}
 	if x.Membership != nil {
-		if !rx_Group_Membership.MatchString(*x.Membership) {
-			return fmt.Errorf("field 'membership' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Membership) {
+			return fmt.Errorf("field 'membership' does not match its schema pattern")
 		}
 	}
 	if x.Meta != nil {
@@ -4645,13 +4320,13 @@ func (x *Group) Validate() error {
 	}
 	if x.Name != nil {
 		if *x.Name == "" {
-			return fmt.Errorf("field 'name' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'name' does not match its schema pattern")
 		}
 	}
 	if x.Quantity != nil {
-		if *x.Quantity < 0.000000 {
-			return fmt.Errorf("field 'quantity' is below minimum 0.000000")
-		}
+	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
 	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "Group" {
@@ -4664,8 +4339,8 @@ func (x *Group) Validate() error {
 		}
 	}
 	if x.Type != nil {
-		if !rx_Group_Type.MatchString(*x.Type) {
-			return fmt.Errorf("field 'type' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Type) {
+			return fmt.Errorf("field 'type' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -4707,10 +4382,8 @@ func (x *GroupCharacteristic) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -4724,11 +4397,6 @@ func (x *GroupCharacteristic) Validate() error {
 	if x.Period != nil {
 		if err := x.Period.Validate(); err != nil {
 			return fmt.Errorf("field 'period' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "GroupCharacteristic" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'GroupCharacteristic'")
 		}
 	}
 	if x.ValueBoolean != nil {
@@ -4785,12 +4453,10 @@ func (x *GroupMember) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.Inactive != nil {
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -4804,11 +4470,6 @@ func (x *GroupMember) Validate() error {
 	if x.Period != nil {
 		if err := x.Period.Validate(); err != nil {
 			return fmt.Errorf("field 'period' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "GroupMember" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'GroupMember'")
 		}
 	}
 	return nil
@@ -4872,22 +4533,20 @@ func (x *HumanName) Validate() error {
 	}
 	if x.Family != nil {
 		if *x.Family == "" {
-			return fmt.Errorf("field 'family' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'family' does not match its schema pattern")
 		}
 	}
 	if x.Given != nil {
 		for i, item := range x.Given {
 			if item == "" {
-				return fmt.Errorf("field 'given[%d]' does not match pattern '[ \\r\\n\\t\\S]+'", i)
+				return fmt.Errorf("field 'given[%d]' does not match its schema pattern", i)
 			}
 		}
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Period != nil {
 		if err := x.Period.Validate(); err != nil {
@@ -4897,30 +4556,25 @@ func (x *HumanName) Validate() error {
 	if x.Prefix != nil {
 		for i, item := range x.Prefix {
 			if item == "" {
-				return fmt.Errorf("field 'prefix[%d]' does not match pattern '[ \\r\\n\\t\\S]+'", i)
+				return fmt.Errorf("field 'prefix[%d]' does not match its schema pattern", i)
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "HumanName" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'HumanName'")
 		}
 	}
 	if x.Suffix != nil {
 		for i, item := range x.Suffix {
 			if item == "" {
-				return fmt.Errorf("field 'suffix[%d]' does not match pattern '[ \\r\\n\\t\\S]+'", i)
+				return fmt.Errorf("field 'suffix[%d]' does not match its schema pattern", i)
 			}
 		}
 	}
 	if x.Text != nil {
 		if *x.Text == "" {
-			return fmt.Errorf("field 'text' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'text' does not match its schema pattern")
 		}
 	}
 	if x.Use != nil {
-		if !rx_HumanName_Use.MatchString(*x.Use) {
-			return fmt.Errorf("field 'use' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !(*x.Use == "usual" || *x.Use == "official" || *x.Use == "temp" || *x.Use == "nickname" || *x.Use == "anonymous" || *x.Use == "old" || *x.Use == "maiden") {
+			return fmt.Errorf("field 'use' has an unsupported value")
 		}
 	}
 	return nil
@@ -4962,22 +4616,18 @@ func (x *Identifier) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Period != nil {
 		if err := x.Period.Validate(); err != nil {
 			return fmt.Errorf("field 'period' is invalid: %w", err)
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Identifier" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Identifier'")
-		}
-	}
 	if x.System != nil {
+		if hasFHIRSchemaSpace(*x.System) {
+			return fmt.Errorf("field 'system' does not match its schema pattern")
+		}
 	}
 	if x.Type != nil {
 		if err := x.Type.Validate(); err != nil {
@@ -4985,13 +4635,13 @@ func (x *Identifier) Validate() error {
 		}
 	}
 	if x.Use != nil {
-		if !rx_Identifier_Use.MatchString(*x.Use) {
-			return fmt.Errorf("field 'use' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !(*x.Use == "usual" || *x.Use == "official" || *x.Use == "temp" || *x.Use == "secondary" || *x.Use == "old") {
+			return fmt.Errorf("field 'use' has an unsupported value")
 		}
 	}
 	if x.Value != nil {
 		if *x.Value == "" {
-			return fmt.Errorf("field 'value' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'value' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -5047,17 +4697,10 @@ func (x *ImagingStudy) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.Description != nil {
 		if *x.Description == "" {
-			return fmt.Errorf("field 'description' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'description' does not match its schema pattern")
 		}
 	}
 	if x.Encounter != nil {
@@ -5084,14 +4727,8 @@ func (x *ImagingStudy) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_ImagingStudy_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -5104,13 +4741,14 @@ func (x *ImagingStudy) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
-	}
-	if x.Language != nil {
-		if !rx_ImagingStudy_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
+	if x.Language != nil {
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
+		}
 	}
 	if x.Location != nil {
 		if err := x.Location.Validate(); err != nil {
@@ -5150,14 +4788,8 @@ func (x *ImagingStudy) Validate() error {
 		}
 	}
 	if x.NumberOfInstances != nil {
-		if *x.NumberOfInstances < 0.000000 {
-			return fmt.Errorf("field 'numberOfInstances' is below minimum 0.000000")
-		}
 	}
 	if x.NumberOfSeries != nil {
-		if *x.NumberOfSeries < 0.000000 {
-			return fmt.Errorf("field 'numberOfSeries' is below minimum 0.000000")
-		}
 	}
 	if x.PartOf != nil {
 		for i, item := range x.PartOf {
@@ -5191,6 +4823,9 @@ func (x *ImagingStudy) Validate() error {
 			return fmt.Errorf("field 'referrer' is invalid: %w", err)
 		}
 	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
+	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "ImagingStudy" {
 			return fmt.Errorf("field 'resourceType' must be exactly 'ImagingStudy'")
@@ -5206,13 +4841,16 @@ func (x *ImagingStudy) Validate() error {
 		}
 	}
 	if x.Started != nil {
-		if err := ValidateFhirDateTime(*x.Started); err != nil {
-			return fmt.Errorf("field 'started' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.Started, false) {
+			return fmt.Errorf("field 'started' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Started) {
+			return fmt.Errorf("field 'started' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Status != nil {
-		if !rx_ImagingStudy_Status.MatchString(*x.Status) {
-			return fmt.Errorf("field 'status' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Status) {
+			return fmt.Errorf("field 'status' does not match its schema pattern")
 		}
 	}
 	if x.Subject == nil {
@@ -5226,6 +4864,116 @@ func (x *ImagingStudy) Validate() error {
 	if x.Text != nil {
 		if err := x.Text.Validate(); err != nil {
 			return fmt.Errorf("field 'text' is invalid: %w", err)
+		}
+	}
+	return nil
+}
+
+// Validate validates a ImagingStudyInstance struct against its schema constraints.
+func (x *ImagingStudyInstance) Validate() error {
+	if x == nil {
+		return nil
+	}
+	if x.XNumber != nil {
+		if err := x.XNumber.Validate(); err != nil {
+			return fmt.Errorf("field '_number' is invalid: %w", err)
+		}
+	}
+	if x.XTitle != nil {
+		if err := x.XTitle.Validate(); err != nil {
+			return fmt.Errorf("field '_title' is invalid: %w", err)
+		}
+	}
+	if x.XUid != nil {
+		if err := x.XUid.Validate(); err != nil {
+			return fmt.Errorf("field '_uid' is invalid: %w", err)
+		}
+	}
+	if x.Extension != nil {
+		for i, item := range x.Extension {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'extension[%d]' is invalid: %w", i, err)
+				}
+			}
+		}
+	}
+	if x.ID != nil {
+		if *x.ID == "" {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
+		}
+	}
+	if x.ModifierExtension != nil {
+		for i, item := range x.ModifierExtension {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
+				}
+			}
+		}
+	}
+	if x.Number != nil {
+	}
+	if x.SopClass == nil {
+		return &MissingRequiredFieldError{Field: "sopClass"}
+	}
+	if x.SopClass != nil {
+		if err := x.SopClass.Validate(); err != nil {
+			return fmt.Errorf("field 'sopClass' is invalid: %w", err)
+		}
+	}
+	if x.Title != nil {
+		if *x.Title == "" {
+			return fmt.Errorf("field 'title' does not match its schema pattern")
+		}
+	}
+	if x.Uid != nil {
+		if !validFHIRID(*x.Uid) {
+			return fmt.Errorf("field 'uid' does not match its schema pattern")
+		}
+	}
+	return nil
+}
+
+// Validate validates a ImagingStudyPerformer struct against its schema constraints.
+func (x *ImagingStudyPerformer) Validate() error {
+	if x == nil {
+		return nil
+	}
+	if x.Actor == nil {
+		return &MissingRequiredFieldError{Field: "actor"}
+	}
+	if x.Actor != nil {
+		if err := x.Actor.Validate(); err != nil {
+			return fmt.Errorf("field 'actor' is invalid: %w", err)
+		}
+	}
+	if x.Extension != nil {
+		for i, item := range x.Extension {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'extension[%d]' is invalid: %w", i, err)
+				}
+			}
+		}
+	}
+	if x.Function != nil {
+		if err := x.Function.Validate(); err != nil {
+			return fmt.Errorf("field 'function' is invalid: %w", err)
+		}
+	}
+	if x.ID != nil {
+		if *x.ID == "" {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
+		}
+	}
+	if x.ModifierExtension != nil {
+		for i, item := range x.ModifierExtension {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
+				}
+			}
 		}
 	}
 	return nil
@@ -5268,7 +5016,7 @@ func (x *ImagingStudySeries) Validate() error {
 	}
 	if x.Description != nil {
 		if *x.Description == "" {
-			return fmt.Errorf("field 'description' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'description' does not match its schema pattern")
 		}
 	}
 	if x.Endpoint != nil {
@@ -5291,7 +5039,7 @@ func (x *ImagingStudySeries) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.Instance != nil {
@@ -5307,8 +5055,6 @@ func (x *ImagingStudySeries) Validate() error {
 		if err := x.Laterality.Validate(); err != nil {
 			return fmt.Errorf("field 'laterality' is invalid: %w", err)
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Modality == nil {
 		return &MissingRequiredFieldError{Field: "modality"}
@@ -5328,14 +5074,8 @@ func (x *ImagingStudySeries) Validate() error {
 		}
 	}
 	if x.Number != nil {
-		if *x.Number < 0.000000 {
-			return fmt.Errorf("field 'number' is below minimum 0.000000")
-		}
 	}
 	if x.NumberOfInstances != nil {
-		if *x.NumberOfInstances < 0.000000 {
-			return fmt.Errorf("field 'numberOfInstances' is below minimum 0.000000")
-		}
 	}
 	if x.Performer != nil {
 		for i, item := range x.Performer {
@@ -5344,11 +5084,6 @@ func (x *ImagingStudySeries) Validate() error {
 					return fmt.Errorf("field 'performer[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ImagingStudySeries" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ImagingStudySeries'")
 		}
 	}
 	if x.Specimen != nil {
@@ -5361,152 +5096,16 @@ func (x *ImagingStudySeries) Validate() error {
 		}
 	}
 	if x.Started != nil {
-		if err := ValidateFhirDateTime(*x.Started); err != nil {
-			return fmt.Errorf("field 'started' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.Started, false) {
+			return fmt.Errorf("field 'started' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Started) {
+			return fmt.Errorf("field 'started' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Uid != nil {
-		if !rx_ImagingStudySeries_Uid.MatchString(*x.Uid) {
-			return fmt.Errorf("field 'uid' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.Uid) < 1 {
-			return fmt.Errorf("field 'uid' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.Uid) > 64 {
-			return fmt.Errorf("field 'uid' is too long (max 64 characters)")
-		}
-	}
-	return nil
-}
-
-// Validate validates a ImagingStudySeriesInstance struct against its schema constraints.
-func (x *ImagingStudySeriesInstance) Validate() error {
-	if x == nil {
-		return nil
-	}
-	if x.XNumber != nil {
-		if err := x.XNumber.Validate(); err != nil {
-			return fmt.Errorf("field '_number' is invalid: %w", err)
-		}
-	}
-	if x.XTitle != nil {
-		if err := x.XTitle.Validate(); err != nil {
-			return fmt.Errorf("field '_title' is invalid: %w", err)
-		}
-	}
-	if x.XUid != nil {
-		if err := x.XUid.Validate(); err != nil {
-			return fmt.Errorf("field '_uid' is invalid: %w", err)
-		}
-	}
-	if x.Extension != nil {
-		for i, item := range x.Extension {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'extension[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
-	}
-	if x.ID != nil {
-		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.ModifierExtension != nil {
-		for i, item := range x.ModifierExtension {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
-	}
-	if x.Number != nil {
-		if *x.Number < 0.000000 {
-			return fmt.Errorf("field 'number' is below minimum 0.000000")
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ImagingStudySeriesInstance" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ImagingStudySeriesInstance'")
-		}
-	}
-	if x.SopClass == nil {
-		return &MissingRequiredFieldError{Field: "sopClass"}
-	}
-	if x.SopClass != nil {
-		if err := x.SopClass.Validate(); err != nil {
-			return fmt.Errorf("field 'sopClass' is invalid: %w", err)
-		}
-	}
-	if x.Title != nil {
-		if *x.Title == "" {
-			return fmt.Errorf("field 'title' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Uid != nil {
-		if !rx_ImagingStudySeriesInstance_Uid.MatchString(*x.Uid) {
-			return fmt.Errorf("field 'uid' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.Uid) < 1 {
-			return fmt.Errorf("field 'uid' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.Uid) > 64 {
-			return fmt.Errorf("field 'uid' is too long (max 64 characters)")
-		}
-	}
-	return nil
-}
-
-// Validate validates a ImagingStudySeriesPerformer struct against its schema constraints.
-func (x *ImagingStudySeriesPerformer) Validate() error {
-	if x == nil {
-		return nil
-	}
-	if x.Actor == nil {
-		return &MissingRequiredFieldError{Field: "actor"}
-	}
-	if x.Actor != nil {
-		if err := x.Actor.Validate(); err != nil {
-			return fmt.Errorf("field 'actor' is invalid: %w", err)
-		}
-	}
-	if x.Extension != nil {
-		for i, item := range x.Extension {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'extension[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
-	}
-	if x.Function != nil {
-		if err := x.Function.Validate(); err != nil {
-			return fmt.Errorf("field 'function' is invalid: %w", err)
-		}
-	}
-	if x.ID != nil {
-		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.ModifierExtension != nil {
-		for i, item := range x.ModifierExtension {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ImagingStudySeriesPerformer" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ImagingStudySeriesPerformer'")
+		if !validFHIRID(*x.Uid) {
+			return fmt.Errorf("field 'uid' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -5543,13 +5142,6 @@ func (x *Medication) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.Definition != nil {
 		if err := x.Definition.Validate(); err != nil {
@@ -5571,14 +5163,8 @@ func (x *Medication) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_Medication_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -5591,6 +5177,9 @@ func (x *Medication) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
+		}
 	}
 	if x.Ingredient != nil {
 		for i, item := range x.Ingredient {
@@ -5602,11 +5191,9 @@ func (x *Medication) Validate() error {
 		}
 	}
 	if x.Language != nil {
-		if !rx_Medication_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.MarketingAuthorizationHolder != nil {
 		if err := x.MarketingAuthorizationHolder.Validate(); err != nil {
@@ -5627,14 +5214,17 @@ func (x *Medication) Validate() error {
 			}
 		}
 	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
+	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "Medication" {
 			return fmt.Errorf("field 'resourceType' must be exactly 'Medication'")
 		}
 	}
 	if x.Status != nil {
-		if !rx_Medication_Status.MatchString(*x.Status) {
-			return fmt.Errorf("field 'status' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Status) {
+			return fmt.Errorf("field 'status' does not match its schema pattern")
 		}
 	}
 	if x.Text != nil {
@@ -5704,13 +5294,6 @@ func (x *MedicationAdministration) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.Device != nil {
 		for i, item := range x.Device {
@@ -5750,14 +5333,8 @@ func (x *MedicationAdministration) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_MedicationAdministration_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -5770,15 +5347,16 @@ func (x *MedicationAdministration) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
+		}
 	}
 	if x.IsSubPotent != nil {
 	}
 	if x.Language != nil {
-		if !rx_MedicationAdministration_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Medication == nil {
 		return &MissingRequiredFieldError{Field: "medication"}
@@ -5812,8 +5390,11 @@ func (x *MedicationAdministration) Validate() error {
 		}
 	}
 	if x.OccurenceDateTime != nil {
-		if err := ValidateFhirDateTime(*x.OccurenceDateTime); err != nil {
-			return fmt.Errorf("field 'occurenceDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.OccurenceDateTime, false) {
+			return fmt.Errorf("field 'occurenceDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.OccurenceDateTime) {
+			return fmt.Errorf("field 'occurenceDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.OccurencePeriod != nil {
@@ -5854,8 +5435,11 @@ func (x *MedicationAdministration) Validate() error {
 		}
 	}
 	if x.Recorded != nil {
-		if err := ValidateFhirDateTime(*x.Recorded); err != nil {
-			return fmt.Errorf("field 'recorded' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.Recorded, false) {
+			return fmt.Errorf("field 'recorded' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Recorded) {
+			return fmt.Errorf("field 'recorded' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Request != nil {
@@ -5863,14 +5447,17 @@ func (x *MedicationAdministration) Validate() error {
 			return fmt.Errorf("field 'request' is invalid: %w", err)
 		}
 	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
+	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "MedicationAdministration" {
 			return fmt.Errorf("field 'resourceType' must be exactly 'MedicationAdministration'")
 		}
 	}
 	if x.Status != nil {
-		if !rx_MedicationAdministration_Status.MatchString(*x.Status) {
-			return fmt.Errorf("field 'status' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Status) {
+			return fmt.Errorf("field 'status' does not match its schema pattern")
 		}
 	}
 	if x.StatusReason != nil {
@@ -5942,10 +5529,8 @@ func (x *MedicationAdministrationDosage) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Method != nil {
 		if err := x.Method.Validate(); err != nil {
@@ -5971,11 +5556,6 @@ func (x *MedicationAdministrationDosage) Validate() error {
 			return fmt.Errorf("field 'rateRatio' is invalid: %w", err)
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "MedicationAdministrationDosage" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'MedicationAdministrationDosage'")
-		}
-	}
 	if x.Route != nil {
 		if err := x.Route.Validate(); err != nil {
 			return fmt.Errorf("field 'route' is invalid: %w", err)
@@ -5988,7 +5568,7 @@ func (x *MedicationAdministrationDosage) Validate() error {
 	}
 	if x.Text != nil {
 		if *x.Text == "" {
-			return fmt.Errorf("field 'text' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'text' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -6023,10 +5603,8 @@ func (x *MedicationAdministrationPerformer) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -6035,11 +5613,6 @@ func (x *MedicationAdministrationPerformer) Validate() error {
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "MedicationAdministrationPerformer" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'MedicationAdministrationPerformer'")
 		}
 	}
 	return nil
@@ -6061,8 +5634,11 @@ func (x *MedicationBatch) Validate() error {
 		}
 	}
 	if x.ExpirationDate != nil {
-		if err := ValidateFhirDateTime(*x.ExpirationDate); err != nil {
-			return fmt.Errorf("field 'expirationDate' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.ExpirationDate, false) {
+			return fmt.Errorf("field 'expirationDate' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ExpirationDate) {
+			return fmt.Errorf("field 'expirationDate' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Extension != nil {
@@ -6076,14 +5652,12 @@ func (x *MedicationBatch) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.LotNumber != nil {
 		if *x.LotNumber == "" {
-			return fmt.Errorf("field 'lotNumber' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'lotNumber' does not match its schema pattern")
 		}
 	}
 	if x.ModifierExtension != nil {
@@ -6093,11 +5667,6 @@ func (x *MedicationBatch) Validate() error {
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "MedicationBatch" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'MedicationBatch'")
 		}
 	}
 	return nil
@@ -6124,7 +5693,7 @@ func (x *MedicationIngredient) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IsActive != nil {
@@ -6137,8 +5706,6 @@ func (x *MedicationIngredient) Validate() error {
 			return fmt.Errorf("field 'item' is invalid: %w", err)
 		}
 	}
-	if x.Links != nil {
-	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
 			if item != nil {
@@ -6146,11 +5713,6 @@ func (x *MedicationIngredient) Validate() error {
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "MedicationIngredient" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'MedicationIngredient'")
 		}
 	}
 	if x.StrengthCodeableConcept != nil {
@@ -6227,8 +5789,11 @@ func (x *MedicationRequest) Validate() error {
 		}
 	}
 	if x.AuthoredOn != nil {
-		if err := ValidateFhirDateTime(*x.AuthoredOn); err != nil {
-			return fmt.Errorf("field 'authoredOn' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.AuthoredOn, false) {
+			return fmt.Errorf("field 'authoredOn' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.AuthoredOn) {
+			return fmt.Errorf("field 'authoredOn' is not a valid FHIR dateTime")
 		}
 	}
 	if x.BasedOn != nil {
@@ -6250,13 +5815,6 @@ func (x *MedicationRequest) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.CourseOfTherapyType != nil {
 		if err := x.CourseOfTherapyType.Validate(); err != nil {
@@ -6322,14 +5880,8 @@ func (x *MedicationRequest) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_MedicationRequest_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -6342,6 +5894,9 @@ func (x *MedicationRequest) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
+		}
 	}
 	if x.InformationSource != nil {
 		for i, item := range x.InformationSource {
@@ -6362,16 +5917,14 @@ func (x *MedicationRequest) Validate() error {
 		}
 	}
 	if x.Intent != nil {
-		if !rx_MedicationRequest_Intent.MatchString(*x.Intent) {
-			return fmt.Errorf("field 'intent' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Intent) {
+			return fmt.Errorf("field 'intent' does not match its schema pattern")
 		}
 	}
 	if x.Language != nil {
-		if !rx_MedicationRequest_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Medication == nil {
 		return &MissingRequiredFieldError{Field: "medication"}
@@ -6424,8 +5977,8 @@ func (x *MedicationRequest) Validate() error {
 		}
 	}
 	if x.Priority != nil {
-		if !rx_MedicationRequest_Priority.MatchString(*x.Priority) {
-			return fmt.Errorf("field 'priority' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Priority) {
+			return fmt.Errorf("field 'priority' does not match its schema pattern")
 		}
 	}
 	if x.Reason != nil {
@@ -6443,8 +5996,8 @@ func (x *MedicationRequest) Validate() error {
 		}
 	}
 	if x.RenderedDosageInstruction != nil {
-		if !rx_MedicationRequest_RenderedDosageInstruction.MatchString(*x.RenderedDosageInstruction) {
-			return fmt.Errorf("field 'renderedDosageInstruction' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.RenderedDosageInstruction == "" {
+			return fmt.Errorf("field 'renderedDosageInstruction' does not match its schema pattern")
 		}
 	}
 	if x.Reported != nil {
@@ -6454,19 +6007,25 @@ func (x *MedicationRequest) Validate() error {
 			return fmt.Errorf("field 'requester' is invalid: %w", err)
 		}
 	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
+	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "MedicationRequest" {
 			return fmt.Errorf("field 'resourceType' must be exactly 'MedicationRequest'")
 		}
 	}
 	if x.Status != nil {
-		if !rx_MedicationRequest_Status.MatchString(*x.Status) {
-			return fmt.Errorf("field 'status' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Status) {
+			return fmt.Errorf("field 'status' does not match its schema pattern")
 		}
 	}
 	if x.StatusChanged != nil {
-		if err := ValidateFhirDateTime(*x.StatusChanged); err != nil {
-			return fmt.Errorf("field 'statusChanged' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.StatusChanged, false) {
+			return fmt.Errorf("field 'statusChanged' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.StatusChanged) {
+			return fmt.Errorf("field 'statusChanged' is not a valid FHIR dateTime")
 		}
 	}
 	if x.StatusReason != nil {
@@ -6554,15 +6113,13 @@ func (x *MedicationRequestDispenseRequest) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.InitialFill != nil {
 		if err := x.InitialFill.Validate(); err != nil {
 			return fmt.Errorf("field 'initialFill' is invalid: %w", err)
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -6574,18 +6131,10 @@ func (x *MedicationRequestDispenseRequest) Validate() error {
 		}
 	}
 	if x.NumberOfRepeatsAllowed != nil {
-		if *x.NumberOfRepeatsAllowed < 0.000000 {
-			return fmt.Errorf("field 'numberOfRepeatsAllowed' is below minimum 0.000000")
-		}
 	}
 	if x.Quantity != nil {
 		if err := x.Quantity.Validate(); err != nil {
 			return fmt.Errorf("field 'quantity' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "MedicationRequestDispenseRequest" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'MedicationRequestDispenseRequest'")
 		}
 	}
 	if x.ValidityPeriod != nil {
@@ -6596,8 +6145,8 @@ func (x *MedicationRequestDispenseRequest) Validate() error {
 	return nil
 }
 
-// Validate validates a MedicationRequestDispenseRequestInitialFill struct against its schema constraints.
-func (x *MedicationRequestDispenseRequestInitialFill) Validate() error {
+// Validate validates a MedicationRequestInitialFill struct against its schema constraints.
+func (x *MedicationRequestInitialFill) Validate() error {
 	if x == nil {
 		return nil
 	}
@@ -6617,10 +6166,8 @@ func (x *MedicationRequestDispenseRequestInitialFill) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -6634,11 +6181,6 @@ func (x *MedicationRequestDispenseRequestInitialFill) Validate() error {
 	if x.Quantity != nil {
 		if err := x.Quantity.Validate(); err != nil {
 			return fmt.Errorf("field 'quantity' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "MedicationRequestDispenseRequestInitialFill" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'MedicationRequestDispenseRequestInitialFill'")
 		}
 	}
 	return nil
@@ -6672,10 +6214,8 @@ func (x *MedicationRequestSubstitution) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -6689,11 +6229,6 @@ func (x *MedicationRequestSubstitution) Validate() error {
 	if x.Reason != nil {
 		if err := x.Reason.Validate(); err != nil {
 			return fmt.Errorf("field 'reason' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "MedicationRequestSubstitution" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'MedicationRequestSubstitution'")
 		}
 	}
 	return nil
@@ -6749,17 +6284,13 @@ func (x *MedicationStatement) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.DateAsserted != nil {
-		if err := ValidateFhirDateTime(*x.DateAsserted); err != nil {
-			return fmt.Errorf("field 'dateAsserted' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.DateAsserted, false) {
+			return fmt.Errorf("field 'dateAsserted' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.DateAsserted) {
+			return fmt.Errorf("field 'dateAsserted' is not a valid FHIR dateTime")
 		}
 	}
 	if x.DerivedFrom != nil {
@@ -6781,8 +6312,11 @@ func (x *MedicationStatement) Validate() error {
 		}
 	}
 	if x.EffectiveDateTime != nil {
-		if err := ValidateFhirDateTime(*x.EffectiveDateTime); err != nil {
-			return fmt.Errorf("field 'effectiveDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.EffectiveDateTime, false) {
+			return fmt.Errorf("field 'effectiveDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.EffectiveDateTime) {
+			return fmt.Errorf("field 'effectiveDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.EffectivePeriod != nil {
@@ -6810,14 +6344,8 @@ func (x *MedicationStatement) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_MedicationStatement_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -6830,6 +6358,9 @@ func (x *MedicationStatement) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
+		}
 	}
 	if x.InformationSource != nil {
 		for i, item := range x.InformationSource {
@@ -6841,11 +6372,9 @@ func (x *MedicationStatement) Validate() error {
 		}
 	}
 	if x.Language != nil {
-		if !rx_MedicationStatement_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Medication == nil {
 		return &MissingRequiredFieldError{Field: "medication"}
@@ -6906,9 +6435,12 @@ func (x *MedicationStatement) Validate() error {
 		}
 	}
 	if x.RenderedDosageInstruction != nil {
-		if !rx_MedicationStatement_RenderedDosageInstruction.MatchString(*x.RenderedDosageInstruction) {
-			return fmt.Errorf("field 'renderedDosageInstruction' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.RenderedDosageInstruction == "" {
+			return fmt.Errorf("field 'renderedDosageInstruction' does not match its schema pattern")
 		}
+	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
 	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "MedicationStatement" {
@@ -6916,8 +6448,8 @@ func (x *MedicationStatement) Validate() error {
 		}
 	}
 	if x.Status != nil {
-		if !rx_MedicationStatement_Status.MatchString(*x.Status) {
-			return fmt.Errorf("field 'status' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Status) {
+			return fmt.Errorf("field 'status' does not match its schema pattern")
 		}
 	}
 	if x.Subject == nil {
@@ -6960,10 +6492,8 @@ func (x *MedicationStatementAdherence) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -6979,11 +6509,6 @@ func (x *MedicationStatementAdherence) Validate() error {
 			return fmt.Errorf("field 'reason' is invalid: %w", err)
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "MedicationStatementAdherence" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'MedicationStatementAdherence'")
-		}
-	}
 	return nil
 }
 
@@ -6995,15 +6520,6 @@ func (x *Meta) Validate() error {
 	if x.XLastUpdated != nil {
 		if err := x.XLastUpdated.Validate(); err != nil {
 			return fmt.Errorf("field '_lastUpdated' is invalid: %w", err)
-		}
-	}
-	if x.XProfile != nil {
-		for i, item := range x.XProfile {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field '_profile[%d]' is invalid: %w", i, err)
-				}
-			}
 		}
 	}
 	if x.XSource != nil {
@@ -7027,21 +6543,22 @@ func (x *Meta) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.LastUpdated != nil {
-		if err := ValidateFhirDateTime(*x.LastUpdated); err != nil {
-			return fmt.Errorf("field 'lastUpdated' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.LastUpdated, true) {
+			return fmt.Errorf("field 'lastUpdated' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.LastUpdated) {
+			return fmt.Errorf("field 'lastUpdated' is not a valid FHIR instant")
 		}
 	}
-	if x.Links != nil {
-	}
 	if x.Profile != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Meta" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Meta'")
+		for i, item := range x.Profile {
+			if hasFHIRSchemaSpace(item) {
+				return fmt.Errorf("field 'profile[%d]' does not match its schema pattern", i)
+			}
 		}
 	}
 	if x.Security != nil {
@@ -7054,6 +6571,9 @@ func (x *Meta) Validate() error {
 		}
 	}
 	if x.Source != nil {
+		if hasFHIRSchemaSpace(*x.Source) {
+			return fmt.Errorf("field 'source' does not match its schema pattern")
+		}
 	}
 	if x.Tag != nil {
 		for i, item := range x.Tag {
@@ -7065,14 +6585,8 @@ func (x *Meta) Validate() error {
 		}
 	}
 	if x.VersionID != nil {
-		if !rx_Meta_VersionID.MatchString(*x.VersionID) {
-			return fmt.Errorf("field 'versionId' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.VersionID) < 1 {
-			return fmt.Errorf("field 'versionId' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.VersionID) > 64 {
-			return fmt.Errorf("field 'versionId' is too long (max 64 characters)")
+		if !validFHIRID(*x.VersionID) {
+			return fmt.Errorf("field 'versionId' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -7094,8 +6608,8 @@ func (x *Money) Validate() error {
 		}
 	}
 	if x.Currency != nil {
-		if !rx_Money_Currency.MatchString(*x.Currency) {
-			return fmt.Errorf("field 'currency' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Currency) {
+			return fmt.Errorf("field 'currency' does not match its schema pattern")
 		}
 	}
 	if x.Extension != nil {
@@ -7109,14 +6623,7 @@ func (x *Money) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Money" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Money'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.Value != nil {
@@ -7129,15 +6636,13 @@ func (x *Narrative) Validate() error {
 	if x == nil {
 		return nil
 	}
-	if x.XDiv != nil {
-		if err := x.XDiv.Validate(); err != nil {
-			return fmt.Errorf("field '_div' is invalid: %w", err)
-		}
-	}
 	if x.XStatus != nil {
 		if err := x.XStatus.Validate(); err != nil {
 			return fmt.Errorf("field '_status' is invalid: %w", err)
 		}
+	}
+	if x.Div == nil {
+		return &MissingRequiredFieldError{Field: "div"}
 	}
 	if x.Div != nil {
 	}
@@ -7152,19 +6657,12 @@ func (x *Narrative) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Narrative" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Narrative'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.Status != nil {
-		if !rx_Narrative_Status.MatchString(*x.Status) {
-			return fmt.Errorf("field 'status' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !(*x.Status == "generated" || *x.Status == "extensions" || *x.Status == "additional" || *x.Status == "empty") {
+			return fmt.Errorf("field 'status' has an unsupported value")
 		}
 	}
 	return nil
@@ -7281,13 +6779,6 @@ func (x *Observation) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.DataAbsentReason != nil {
 		if err := x.DataAbsentReason.Validate(); err != nil {
@@ -7309,13 +6800,19 @@ func (x *Observation) Validate() error {
 		}
 	}
 	if x.EffectiveDateTime != nil {
-		if err := ValidateFhirDateTime(*x.EffectiveDateTime); err != nil {
-			return fmt.Errorf("field 'effectiveDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.EffectiveDateTime, false) {
+			return fmt.Errorf("field 'effectiveDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.EffectiveDateTime) {
+			return fmt.Errorf("field 'effectiveDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.EffectiveInstant != nil {
-		if err := ValidateFhirDateTime(*x.EffectiveInstant); err != nil {
-			return fmt.Errorf("field 'effectiveInstant' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.EffectiveInstant, true) {
+			return fmt.Errorf("field 'effectiveInstant' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.EffectiveInstant) {
+			return fmt.Errorf("field 'effectiveInstant' is not a valid FHIR instant")
 		}
 	}
 	if x.EffectivePeriod != nil {
@@ -7361,14 +6858,8 @@ func (x *Observation) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_Observation_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -7381,8 +6872,14 @@ func (x *Observation) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
+		}
 	}
 	if x.InstantiatesCanonical != nil {
+		if hasFHIRSchemaSpace(*x.InstantiatesCanonical) {
+			return fmt.Errorf("field 'instantiatesCanonical' does not match its schema pattern")
+		}
 	}
 	if x.InstantiatesReference != nil {
 		if err := x.InstantiatesReference.Validate(); err != nil {
@@ -7399,16 +6896,17 @@ func (x *Observation) Validate() error {
 		}
 	}
 	if x.Issued != nil {
-		if err := ValidateFhirDateTime(*x.Issued); err != nil {
-			return fmt.Errorf("field 'issued' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.Issued, true) {
+			return fmt.Errorf("field 'issued' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Issued) {
+			return fmt.Errorf("field 'issued' is not a valid FHIR instant")
 		}
 	}
 	if x.Language != nil {
-		if !rx_Observation_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Meta != nil {
 		if err := x.Meta.Validate(); err != nil {
@@ -7465,6 +6963,9 @@ func (x *Observation) Validate() error {
 			}
 		}
 	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
+	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "Observation" {
 			return fmt.Errorf("field 'resourceType' must be exactly 'Observation'")
@@ -7476,8 +6977,8 @@ func (x *Observation) Validate() error {
 		}
 	}
 	if x.Status != nil {
-		if !rx_Observation_Status.MatchString(*x.Status) {
-			return fmt.Errorf("field 'status' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Status) {
+			return fmt.Errorf("field 'status' does not match its schema pattern")
 		}
 	}
 	if x.Subject != nil {
@@ -7512,8 +7013,11 @@ func (x *Observation) Validate() error {
 		}
 	}
 	if x.ValueDateTime != nil {
-		if err := ValidateFhirDateTime(*x.ValueDateTime); err != nil {
-			return fmt.Errorf("field 'valueDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.ValueDateTime, false) {
+			return fmt.Errorf("field 'valueDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueDateTime) {
+			return fmt.Errorf("field 'valueDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.ValueInteger != nil {
@@ -7550,12 +7054,12 @@ func (x *Observation) Validate() error {
 	}
 	if x.ValueString != nil {
 		if *x.ValueString == "" {
-			return fmt.Errorf("field 'valueString' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'valueString' does not match its schema pattern")
 		}
 	}
 	if x.ValueTime != nil {
-		if err := ValidateFhirTime(*x.ValueTime); err != nil {
-			return fmt.Errorf("field 'valueTime' has invalid time format: %w", err)
+		if !validFHIRTime(*x.ValueTime) {
+			return fmt.Errorf("field 'valueTime' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -7615,7 +7119,7 @@ func (x *ObservationComponent) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.Interpretation != nil {
@@ -7626,8 +7130,6 @@ func (x *ObservationComponent) Validate() error {
 				}
 			}
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -7647,11 +7149,6 @@ func (x *ObservationComponent) Validate() error {
 			}
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ObservationComponent" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ObservationComponent'")
-		}
-	}
 	if x.ValueAttachment != nil {
 		if err := x.ValueAttachment.Validate(); err != nil {
 			return fmt.Errorf("field 'valueAttachment' is invalid: %w", err)
@@ -7665,8 +7162,11 @@ func (x *ObservationComponent) Validate() error {
 		}
 	}
 	if x.ValueDateTime != nil {
-		if err := ValidateFhirDateTime(*x.ValueDateTime); err != nil {
-			return fmt.Errorf("field 'valueDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.ValueDateTime, false) {
+			return fmt.Errorf("field 'valueDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueDateTime) {
+			return fmt.Errorf("field 'valueDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.ValueInteger != nil {
@@ -7703,12 +7203,12 @@ func (x *ObservationComponent) Validate() error {
 	}
 	if x.ValueString != nil {
 		if *x.ValueString == "" {
-			return fmt.Errorf("field 'valueString' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'valueString' does not match its schema pattern")
 		}
 	}
 	if x.ValueTime != nil {
-		if err := ValidateFhirTime(*x.ValueTime); err != nil {
-			return fmt.Errorf("field 'valueTime' has invalid time format: %w", err)
+		if !validFHIRTime(*x.ValueTime) {
+			return fmt.Errorf("field 'valueTime' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -7754,10 +7254,8 @@ func (x *ObservationReferenceRange) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Low != nil {
 		if err := x.Low.Validate(); err != nil {
@@ -7778,14 +7276,9 @@ func (x *ObservationReferenceRange) Validate() error {
 			return fmt.Errorf("field 'normalValue' is invalid: %w", err)
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ObservationReferenceRange" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ObservationReferenceRange'")
-		}
-	}
 	if x.Text != nil {
-		if !rx_ObservationReferenceRange_Text.MatchString(*x.Text) {
-			return fmt.Errorf("field 'text' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.Text == "" {
+			return fmt.Errorf("field 'text' does not match its schema pattern")
 		}
 	}
 	if x.Type != nil {
@@ -7822,10 +7315,8 @@ func (x *ObservationTriggeredBy) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -7846,17 +7337,12 @@ func (x *ObservationTriggeredBy) Validate() error {
 	}
 	if x.Reason != nil {
 		if *x.Reason == "" {
-			return fmt.Errorf("field 'reason' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ObservationTriggeredBy" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ObservationTriggeredBy'")
+			return fmt.Errorf("field 'reason' does not match its schema pattern")
 		}
 	}
 	if x.Type != nil {
-		if !rx_ObservationTriggeredBy_Type.MatchString(*x.Type) {
-			return fmt.Errorf("field 'type' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Type) {
+			return fmt.Errorf("field 'type' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -7906,7 +7392,7 @@ func (x *Organization) Validate() error {
 	if x.Alias != nil {
 		for i, item := range x.Alias {
 			if item == "" {
-				return fmt.Errorf("field 'alias[%d]' does not match pattern '[ \\r\\n\\t\\S]+'", i)
+				return fmt.Errorf("field 'alias[%d]' does not match its schema pattern", i)
 			}
 		}
 	}
@@ -7920,17 +7406,10 @@ func (x *Organization) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.Description != nil {
-		if !rx_Organization_Description.MatchString(*x.Description) {
-			return fmt.Errorf("field 'description' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.Description == "" {
+			return fmt.Errorf("field 'description' does not match its schema pattern")
 		}
 	}
 	if x.Endpoint != nil {
@@ -7952,14 +7431,8 @@ func (x *Organization) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_Organization_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -7972,13 +7445,14 @@ func (x *Organization) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
-	}
-	if x.Language != nil {
-		if !rx_Organization_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
+	if x.Language != nil {
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
+		}
 	}
 	if x.Meta != nil {
 		if err := x.Meta.Validate(); err != nil {
@@ -7996,7 +7470,7 @@ func (x *Organization) Validate() error {
 	}
 	if x.Name != nil {
 		if *x.Name == "" {
-			return fmt.Errorf("field 'name' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'name' does not match its schema pattern")
 		}
 	}
 	if x.PartOf != nil {
@@ -8012,6 +7486,9 @@ func (x *Organization) Validate() error {
 				}
 			}
 		}
+	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
 	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "Organization" {
@@ -8059,7 +7536,7 @@ func (x *OrganizationQualification) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -8076,8 +7553,6 @@ func (x *OrganizationQualification) Validate() error {
 			return fmt.Errorf("field 'issuer' is invalid: %w", err)
 		}
 	}
-	if x.Links != nil {
-	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
 			if item != nil {
@@ -8090,11 +7565,6 @@ func (x *OrganizationQualification) Validate() error {
 	if x.Period != nil {
 		if err := x.Period.Validate(); err != nil {
 			return fmt.Errorf("field 'period' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "OrganizationQualification" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'OrganizationQualification'")
 		}
 	}
 	return nil
@@ -8125,11 +7595,6 @@ func (x *ParameterDefinition) Validate() error {
 			return fmt.Errorf("field '_name' is invalid: %w", err)
 		}
 	}
-	if x.XProfile != nil {
-		if err := x.XProfile.Validate(); err != nil {
-			return fmt.Errorf("field '_profile' is invalid: %w", err)
-		}
-	}
 	if x.XType != nil {
 		if err := x.XType.Validate(); err != nil {
 			return fmt.Errorf("field '_type' is invalid: %w", err)
@@ -8142,7 +7607,7 @@ func (x *ParameterDefinition) Validate() error {
 	}
 	if x.Documentation != nil {
 		if *x.Documentation == "" {
-			return fmt.Errorf("field 'documentation' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'documentation' does not match its schema pattern")
 		}
 	}
 	if x.Extension != nil {
@@ -8156,38 +7621,34 @@ func (x *ParameterDefinition) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Max != nil {
 		if *x.Max == "" {
-			return fmt.Errorf("field 'max' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'max' does not match its schema pattern")
 		}
 	}
 	if x.Min != nil {
 	}
 	if x.Name != nil {
-		if !rx_ParameterDefinition_Name.MatchString(*x.Name) {
-			return fmt.Errorf("field 'name' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Name) {
+			return fmt.Errorf("field 'name' does not match its schema pattern")
 		}
 	}
 	if x.Profile != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ParameterDefinition" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ParameterDefinition'")
+		if hasFHIRSchemaSpace(*x.Profile) {
+			return fmt.Errorf("field 'profile' does not match its schema pattern")
 		}
 	}
 	if x.Type != nil {
-		if !rx_ParameterDefinition_Type.MatchString(*x.Type) {
-			return fmt.Errorf("field 'type' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Type) {
+			return fmt.Errorf("field 'type' does not match its schema pattern")
 		}
 	}
 	if x.Use != nil {
-		if !rx_ParameterDefinition_Use.MatchString(*x.Use) {
-			return fmt.Errorf("field 'use' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Use) {
+			return fmt.Errorf("field 'use' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -8255,8 +7716,11 @@ func (x *Patient) Validate() error {
 		}
 	}
 	if x.BirthDate != nil {
-		if err := ValidateFhirDate(*x.BirthDate); err != nil {
-			return fmt.Errorf("field 'birthDate' has invalid date format: %w", err)
+		if !validFHIRDate(*x.BirthDate) {
+			return fmt.Errorf("field 'birthDate' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.BirthDate) {
+			return fmt.Errorf("field 'birthDate' is not a valid FHIR date")
 		}
 	}
 	if x.Communication != nil {
@@ -8278,19 +7742,15 @@ func (x *Patient) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.DeceasedBoolean != nil {
 	}
 	if x.DeceasedDateTime != nil {
-		if err := ValidateFhirDateTime(*x.DeceasedDateTime); err != nil {
-			return fmt.Errorf("field 'deceasedDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.DeceasedDateTime, false) {
+			return fmt.Errorf("field 'deceasedDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.DeceasedDateTime) {
+			return fmt.Errorf("field 'deceasedDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Extension != nil {
@@ -8303,8 +7763,8 @@ func (x *Patient) Validate() error {
 		}
 	}
 	if x.Gender != nil {
-		if !rx_Patient_Gender.MatchString(*x.Gender) {
-			return fmt.Errorf("field 'gender' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Gender) {
+			return fmt.Errorf("field 'gender' does not match its schema pattern")
 		}
 	}
 	if x.GeneralPractitioner != nil {
@@ -8317,14 +7777,8 @@ func (x *Patient) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_Patient_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -8337,10 +7791,13 @@ func (x *Patient) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
+		}
 	}
 	if x.Language != nil {
-		if !rx_Patient_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
 		}
 	}
 	if x.Link != nil {
@@ -8351,8 +7808,6 @@ func (x *Patient) Validate() error {
 				}
 			}
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ManagingOrganization != nil {
 		if err := x.ManagingOrganization.Validate(); err != nil {
@@ -8400,6 +7855,9 @@ func (x *Patient) Validate() error {
 			}
 		}
 	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
+	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "Patient" {
 			return fmt.Errorf("field 'resourceType' must be exactly 'Patient'")
@@ -8443,7 +7901,7 @@ func (x *PatientCommunication) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.Language == nil {
@@ -8453,8 +7911,6 @@ func (x *PatientCommunication) Validate() error {
 		if err := x.Language.Validate(); err != nil {
 			return fmt.Errorf("field 'language' is invalid: %w", err)
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -8466,11 +7922,6 @@ func (x *PatientCommunication) Validate() error {
 		}
 	}
 	if x.Preferred != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "PatientCommunication" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'PatientCommunication'")
-		}
 	}
 	return nil
 }
@@ -8500,16 +7951,14 @@ func (x *PatientContact) Validate() error {
 		}
 	}
 	if x.Gender != nil {
-		if !rx_PatientContact_Gender.MatchString(*x.Gender) {
-			return fmt.Errorf("field 'gender' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Gender) {
+			return fmt.Errorf("field 'gender' does not match its schema pattern")
 		}
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -8542,11 +7991,6 @@ func (x *PatientContact) Validate() error {
 					return fmt.Errorf("field 'relationship[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "PatientContact" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'PatientContact'")
 		}
 	}
 	if x.Telecom != nil {
@@ -8582,10 +8026,8 @@ func (x *PatientLink) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -8604,14 +8046,9 @@ func (x *PatientLink) Validate() error {
 			return fmt.Errorf("field 'other' is invalid: %w", err)
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "PatientLink" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'PatientLink'")
-		}
-	}
 	if x.Type != nil {
-		if !rx_PatientLink_Type.MatchString(*x.Type) {
-			return fmt.Errorf("field 'type' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Type) {
+			return fmt.Errorf("field 'type' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -8633,8 +8070,11 @@ func (x *Period) Validate() error {
 		}
 	}
 	if x.End != nil {
-		if err := ValidateFhirDateTime(*x.End); err != nil {
-			return fmt.Errorf("field 'end' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.End, false) {
+			return fmt.Errorf("field 'end' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.End) {
+			return fmt.Errorf("field 'end' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Extension != nil {
@@ -8648,19 +8088,15 @@ func (x *Period) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Period" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Period'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.Start != nil {
-		if err := ValidateFhirDateTime(*x.Start); err != nil {
-			return fmt.Errorf("field 'start' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.Start, false) {
+			return fmt.Errorf("field 'start' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Start) {
+			return fmt.Errorf("field 'start' is not a valid FHIR dateTime")
 		}
 	}
 	return nil
@@ -8718,8 +8154,11 @@ func (x *Practitioner) Validate() error {
 		}
 	}
 	if x.BirthDate != nil {
-		if err := ValidateFhirDate(*x.BirthDate); err != nil {
-			return fmt.Errorf("field 'birthDate' has invalid date format: %w", err)
+		if !validFHIRDate(*x.BirthDate) {
+			return fmt.Errorf("field 'birthDate' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.BirthDate) {
+			return fmt.Errorf("field 'birthDate' is not a valid FHIR date")
 		}
 	}
 	if x.Communication != nil {
@@ -8732,19 +8171,15 @@ func (x *Practitioner) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.DeceasedBoolean != nil {
 	}
 	if x.DeceasedDateTime != nil {
-		if err := ValidateFhirDateTime(*x.DeceasedDateTime); err != nil {
-			return fmt.Errorf("field 'deceasedDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.DeceasedDateTime, false) {
+			return fmt.Errorf("field 'deceasedDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.DeceasedDateTime) {
+			return fmt.Errorf("field 'deceasedDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Extension != nil {
@@ -8757,19 +8192,13 @@ func (x *Practitioner) Validate() error {
 		}
 	}
 	if x.Gender != nil {
-		if !rx_Practitioner_Gender.MatchString(*x.Gender) {
-			return fmt.Errorf("field 'gender' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Gender) {
+			return fmt.Errorf("field 'gender' does not match its schema pattern")
 		}
 	}
 	if x.ID != nil {
-		if !rx_Practitioner_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -8782,13 +8211,14 @@ func (x *Practitioner) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
-	}
-	if x.Language != nil {
-		if !rx_Practitioner_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
+	if x.Language != nil {
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
+		}
 	}
 	if x.Meta != nil {
 		if err := x.Meta.Validate(); err != nil {
@@ -8830,6 +8260,9 @@ func (x *Practitioner) Validate() error {
 				}
 			}
 		}
+	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
 	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "Practitioner" {
@@ -8874,7 +8307,7 @@ func (x *PractitionerCommunication) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.Language == nil {
@@ -8884,8 +8317,6 @@ func (x *PractitionerCommunication) Validate() error {
 		if err := x.Language.Validate(); err != nil {
 			return fmt.Errorf("field 'language' is invalid: %w", err)
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -8897,11 +8328,6 @@ func (x *PractitionerCommunication) Validate() error {
 		}
 	}
 	if x.Preferred != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "PractitionerCommunication" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'PractitionerCommunication'")
-		}
 	}
 	return nil
 }
@@ -8930,7 +8356,7 @@ func (x *PractitionerQualification) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -8947,8 +8373,6 @@ func (x *PractitionerQualification) Validate() error {
 			return fmt.Errorf("field 'issuer' is invalid: %w", err)
 		}
 	}
-	if x.Links != nil {
-	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
 			if item != nil {
@@ -8961,11 +8385,6 @@ func (x *PractitionerQualification) Validate() error {
 	if x.Period != nil {
 		if err := x.Period.Validate(); err != nil {
 			return fmt.Errorf("field 'period' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "PractitionerQualification" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'PractitionerQualification'")
 		}
 	}
 	return nil
@@ -9039,13 +8458,6 @@ func (x *PractitionerRole) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.Endpoint != nil {
 		for i, item := range x.Endpoint {
@@ -9075,14 +8487,8 @@ func (x *PractitionerRole) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_PractitionerRole_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -9095,13 +8501,14 @@ func (x *PractitionerRole) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
-	}
-	if x.Language != nil {
-		if !rx_PractitionerRole_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
+	if x.Language != nil {
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
+		}
 	}
 	if x.Location != nil {
 		for i, item := range x.Location {
@@ -9141,6 +8548,9 @@ func (x *PractitionerRole) Validate() error {
 			return fmt.Errorf("field 'practitioner' is invalid: %w", err)
 		}
 	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
+	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "PractitionerRole" {
 			return fmt.Errorf("field 'resourceType' must be exactly 'PractitionerRole'")
@@ -9171,15 +8581,6 @@ func (x *Procedure) Validate() error {
 	if x.XImplicitRules != nil {
 		if err := x.XImplicitRules.Validate(); err != nil {
 			return fmt.Errorf("field '_implicitRules' is invalid: %w", err)
-		}
-	}
-	if x.XInstantiatesCanonical != nil {
-		for i, item := range x.XInstantiatesCanonical {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field '_instantiatesCanonical[%d]' is invalid: %w", i, err)
-				}
-			}
 		}
 	}
 	if x.XInstantiatesURI != nil {
@@ -9263,13 +8664,6 @@ func (x *Procedure) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.Encounter != nil {
 		if err := x.Encounter.Validate(); err != nil {
@@ -9309,14 +8703,8 @@ func (x *Procedure) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_Procedure_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -9329,17 +8717,28 @@ func (x *Procedure) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
-	}
-	if x.InstantiatesCanonical != nil {
-	}
-	if x.InstantiatesURI != nil {
-	}
-	if x.Language != nil {
-		if !rx_Procedure_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
+	if x.InstantiatesCanonical != nil {
+		for i, item := range x.InstantiatesCanonical {
+			if hasFHIRSchemaSpace(item) {
+				return fmt.Errorf("field 'instantiatesCanonical[%d]' does not match its schema pattern", i)
+			}
+		}
+	}
+	if x.InstantiatesURI != nil {
+		for i, item := range x.InstantiatesURI {
+			if hasFHIRSchemaSpace(item) {
+				return fmt.Errorf("field 'instantiatesUri[%d]' does not match its schema pattern", i)
+			}
+		}
+	}
+	if x.Language != nil {
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
+		}
 	}
 	if x.Location != nil {
 		if err := x.Location.Validate(); err != nil {
@@ -9375,8 +8774,11 @@ func (x *Procedure) Validate() error {
 		}
 	}
 	if x.OccurrenceDateTime != nil {
-		if err := ValidateFhirDateTime(*x.OccurrenceDateTime); err != nil {
-			return fmt.Errorf("field 'occurrenceDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.OccurrenceDateTime, false) {
+			return fmt.Errorf("field 'occurrenceDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.OccurrenceDateTime) {
+			return fmt.Errorf("field 'occurrenceDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.OccurrencePeriod != nil {
@@ -9391,7 +8793,7 @@ func (x *Procedure) Validate() error {
 	}
 	if x.OccurrenceString != nil {
 		if *x.OccurrenceString == "" {
-			return fmt.Errorf("field 'occurrenceString' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'occurrenceString' does not match its schema pattern")
 		}
 	}
 	if x.OccurrenceTiming != nil {
@@ -9432,8 +8834,11 @@ func (x *Procedure) Validate() error {
 		}
 	}
 	if x.Recorded != nil {
-		if err := ValidateFhirDateTime(*x.Recorded); err != nil {
-			return fmt.Errorf("field 'recorded' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.Recorded, false) {
+			return fmt.Errorf("field 'recorded' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Recorded) {
+			return fmt.Errorf("field 'recorded' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Recorder != nil {
@@ -9457,14 +8862,17 @@ func (x *Procedure) Validate() error {
 			return fmt.Errorf("field 'reportedReference' is invalid: %w", err)
 		}
 	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
+	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "Procedure" {
 			return fmt.Errorf("field 'resourceType' must be exactly 'Procedure'")
 		}
 	}
 	if x.Status != nil {
-		if !rx_Procedure_Status.MatchString(*x.Status) {
-			return fmt.Errorf("field 'status' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Status) {
+			return fmt.Errorf("field 'status' does not match its schema pattern")
 		}
 	}
 	if x.StatusReason != nil {
@@ -9527,10 +8935,8 @@ func (x *ProcedureFocalDevice) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Manipulated == nil {
 		return &MissingRequiredFieldError{Field: "manipulated"}
@@ -9547,11 +8953,6 @@ func (x *ProcedureFocalDevice) Validate() error {
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ProcedureFocalDevice" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ProcedureFocalDevice'")
 		}
 	}
 	return nil
@@ -9586,10 +8987,8 @@ func (x *ProcedurePerformer) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -9608,11 +9007,6 @@ func (x *ProcedurePerformer) Validate() error {
 	if x.Period != nil {
 		if err := x.Period.Validate(); err != nil {
 			return fmt.Errorf("field 'period' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ProcedurePerformer" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ProcedurePerformer'")
 		}
 	}
 	return nil
@@ -9649,13 +9043,13 @@ func (x *Quantity) Validate() error {
 		}
 	}
 	if x.Code != nil {
-		if !rx_Quantity_Code.MatchString(*x.Code) {
-			return fmt.Errorf("field 'code' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Code) {
+			return fmt.Errorf("field 'code' does not match its schema pattern")
 		}
 	}
 	if x.Comparator != nil {
-		if !rx_Quantity_Comparator.MatchString(*x.Comparator) {
-			return fmt.Errorf("field 'comparator' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !(*x.Comparator == "<" || *x.Comparator == "<=" || *x.Comparator == ">=" || *x.Comparator == ">" || *x.Comparator == "ad") {
+			return fmt.Errorf("field 'comparator' has an unsupported value")
 		}
 	}
 	if x.Extension != nil {
@@ -9669,21 +9063,17 @@ func (x *Quantity) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Quantity" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Quantity'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.System != nil {
+		if hasFHIRSchemaSpace(*x.System) {
+			return fmt.Errorf("field 'system' does not match its schema pattern")
+		}
 	}
 	if x.Unit != nil {
 		if *x.Unit == "" {
-			return fmt.Errorf("field 'unit' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'unit' does not match its schema pattern")
 		}
 	}
 	if x.Value != nil {
@@ -9712,19 +9102,12 @@ func (x *Range) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Low != nil {
 		if err := x.Low.Validate(); err != nil {
 			return fmt.Errorf("field 'low' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Range" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Range'")
 		}
 	}
 	return nil
@@ -9751,19 +9134,12 @@ func (x *Ratio) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Numerator != nil {
 		if err := x.Numerator.Validate(); err != nil {
 			return fmt.Errorf("field 'numerator' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Ratio" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Ratio'")
 		}
 	}
 	return nil
@@ -9795,19 +9171,12 @@ func (x *RatioRange) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.LowNumerator != nil {
 		if err := x.LowNumerator.Validate(); err != nil {
 			return fmt.Errorf("field 'lowNumerator' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "RatioRange" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'RatioRange'")
 		}
 	}
 	return nil
@@ -9835,7 +9204,7 @@ func (x *Reference) Validate() error {
 	}
 	if x.Display != nil {
 		if *x.Display == "" {
-			return fmt.Errorf("field 'display' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'display' does not match its schema pattern")
 		}
 	}
 	if x.Extension != nil {
@@ -9849,7 +9218,7 @@ func (x *Reference) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -9857,19 +9226,15 @@ func (x *Reference) Validate() error {
 			return fmt.Errorf("field 'identifier' is invalid: %w", err)
 		}
 	}
-	if x.Links != nil {
-	}
 	if x.Reference != nil {
 		if *x.Reference == "" {
-			return fmt.Errorf("field 'reference' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Reference" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Reference'")
+			return fmt.Errorf("field 'reference' does not match its schema pattern")
 		}
 	}
 	if x.Type != nil {
+		if hasFHIRSchemaSpace(*x.Type) {
+			return fmt.Errorf("field 'type' does not match its schema pattern")
+		}
 	}
 	return nil
 }
@@ -9904,19 +9269,14 @@ func (x *RelatedArtifact) Validate() error {
 			return fmt.Errorf("field '_publicationStatus' is invalid: %w", err)
 		}
 	}
-	if x.XResource != nil {
-		if err := x.XResource.Validate(); err != nil {
-			return fmt.Errorf("field '_resource' is invalid: %w", err)
-		}
-	}
 	if x.XType != nil {
 		if err := x.XType.Validate(); err != nil {
 			return fmt.Errorf("field '_type' is invalid: %w", err)
 		}
 	}
 	if x.Citation != nil {
-		if !rx_RelatedArtifact_Citation.MatchString(*x.Citation) {
-			return fmt.Errorf("field 'citation' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.Citation == "" {
+			return fmt.Errorf("field 'citation' does not match its schema pattern")
 		}
 	}
 	if x.Classifier != nil {
@@ -9930,7 +9290,7 @@ func (x *RelatedArtifact) Validate() error {
 	}
 	if x.Display != nil {
 		if *x.Display == "" {
-			return fmt.Errorf("field 'display' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'display' does not match its schema pattern")
 		}
 	}
 	if x.Document != nil {
@@ -9949,41 +9309,40 @@ func (x *RelatedArtifact) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.Label != nil {
 		if *x.Label == "" {
-			return fmt.Errorf("field 'label' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'label' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
-	}
 	if x.PublicationDate != nil {
-		if err := ValidateFhirDate(*x.PublicationDate); err != nil {
-			return fmt.Errorf("field 'publicationDate' has invalid date format: %w", err)
+		if !validFHIRDate(*x.PublicationDate) {
+			return fmt.Errorf("field 'publicationDate' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.PublicationDate) {
+			return fmt.Errorf("field 'publicationDate' is not a valid FHIR date")
 		}
 	}
 	if x.PublicationStatus != nil {
-		if !rx_RelatedArtifact_PublicationStatus.MatchString(*x.PublicationStatus) {
-			return fmt.Errorf("field 'publicationStatus' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.PublicationStatus) {
+			return fmt.Errorf("field 'publicationStatus' does not match its schema pattern")
 		}
 	}
 	if x.Resource != nil {
+		if hasFHIRSchemaSpace(*x.Resource) {
+			return fmt.Errorf("field 'resource' does not match its schema pattern")
+		}
 	}
 	if x.ResourceReference != nil {
 		if err := x.ResourceReference.Validate(); err != nil {
 			return fmt.Errorf("field 'resourceReference' is invalid: %w", err)
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "RelatedArtifact" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'RelatedArtifact'")
-		}
-	}
 	if x.Type != nil {
-		if !rx_RelatedArtifact_Type.MatchString(*x.Type) {
-			return fmt.Errorf("field 'type' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !(*x.Type == "documentation" || *x.Type == "justification" || *x.Type == "citation" || *x.Type == "predecessor" || *x.Type == "successor" || *x.Type == "derived-from" || *x.Type == "depends-on" || *x.Type == "composed-of" || *x.Type == "part-of" || *x.Type == "amends" || *x.Type == "amended-with" || *x.Type == "appends" || *x.Type == "appended-with" || *x.Type == "cites" || *x.Type == "cited-by" || *x.Type == "comments-on" || *x.Type == "comment-in" || *x.Type == "contains" || *x.Type == "contained-in" || *x.Type == "corrects" || *x.Type == "correction-in" || *x.Type == "replaces" || *x.Type == "replaced-with" || *x.Type == "retracts" || *x.Type == "retracted-by" || *x.Type == "signs" || *x.Type == "similar-to" || *x.Type == "supports" || *x.Type == "supported-with" || *x.Type == "transforms" || *x.Type == "transformed-into" || *x.Type == "transformed-with" || *x.Type == "documents" || *x.Type == "specification-of" || *x.Type == "created-with" || *x.Type == "cite-as") {
+			return fmt.Errorf("field 'type' has an unsupported value")
 		}
 	}
 	return nil
@@ -10081,27 +9440,23 @@ func (x *ResearchStudy) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.Date != nil {
-		if err := ValidateFhirDateTime(*x.Date); err != nil {
-			return fmt.Errorf("field 'date' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.Date, false) {
+			return fmt.Errorf("field 'date' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Date) {
+			return fmt.Errorf("field 'date' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Description != nil {
-		if !rx_ResearchStudy_Description.MatchString(*x.Description) {
-			return fmt.Errorf("field 'description' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.Description == "" {
+			return fmt.Errorf("field 'description' does not match its schema pattern")
 		}
 	}
 	if x.DescriptionSummary != nil {
-		if !rx_ResearchStudy_DescriptionSummary.MatchString(*x.DescriptionSummary) {
-			return fmt.Errorf("field 'descriptionSummary' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.DescriptionSummary == "" {
+			return fmt.Errorf("field 'descriptionSummary' does not match its schema pattern")
 		}
 	}
 	if x.Extension != nil {
@@ -10123,14 +9478,8 @@ func (x *ResearchStudy) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_ResearchStudy_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -10143,6 +9492,9 @@ func (x *ResearchStudy) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
+		}
 	}
 	if x.Keyword != nil {
 		for i, item := range x.Keyword {
@@ -10163,11 +9515,9 @@ func (x *ResearchStudy) Validate() error {
 		}
 	}
 	if x.Language != nil {
-		if !rx_ResearchStudy_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Meta != nil {
 		if err := x.Meta.Validate(); err != nil {
@@ -10185,7 +9535,7 @@ func (x *ResearchStudy) Validate() error {
 	}
 	if x.Name != nil {
 		if *x.Name == "" {
-			return fmt.Errorf("field 'name' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'name' does not match its schema pattern")
 		}
 	}
 	if x.Note != nil {
@@ -10280,6 +9630,9 @@ func (x *ResearchStudy) Validate() error {
 			}
 		}
 	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
+	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "ResearchStudy" {
 			return fmt.Errorf("field 'resourceType' must be exactly 'ResearchStudy'")
@@ -10294,11 +9647,6 @@ func (x *ResearchStudy) Validate() error {
 			}
 		}
 	}
-	if x.RootDir != nil {
-		if err := x.RootDir.Validate(); err != nil {
-			return fmt.Errorf("field 'rootDir' is invalid: %w", err)
-		}
-	}
 	if x.Site != nil {
 		for i, item := range x.Site {
 			if item != nil {
@@ -10309,8 +9657,8 @@ func (x *ResearchStudy) Validate() error {
 		}
 	}
 	if x.Status != nil {
-		if !rx_ResearchStudy_Status.MatchString(*x.Status) {
-			return fmt.Errorf("field 'status' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Status) {
+			return fmt.Errorf("field 'status' does not match its schema pattern")
 		}
 	}
 	if x.StudyDesign != nil {
@@ -10329,14 +9677,17 @@ func (x *ResearchStudy) Validate() error {
 	}
 	if x.Title != nil {
 		if *x.Title == "" {
-			return fmt.Errorf("field 'title' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'title' does not match its schema pattern")
 		}
 	}
 	if x.URL != nil {
+		if hasFHIRSchemaSpace(*x.URL) {
+			return fmt.Errorf("field 'url' does not match its schema pattern")
+		}
 	}
 	if x.Version != nil {
 		if *x.Version == "" {
-			return fmt.Errorf("field 'version' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'version' does not match its schema pattern")
 		}
 	}
 	if x.WhyStopped != nil {
@@ -10377,10 +9728,8 @@ func (x *ResearchStudyAssociatedParty) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -10393,7 +9742,7 @@ func (x *ResearchStudyAssociatedParty) Validate() error {
 	}
 	if x.Name != nil {
 		if *x.Name == "" {
-			return fmt.Errorf("field 'name' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'name' does not match its schema pattern")
 		}
 	}
 	if x.Party != nil {
@@ -10408,11 +9757,6 @@ func (x *ResearchStudyAssociatedParty) Validate() error {
 					return fmt.Errorf("field 'period[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ResearchStudyAssociatedParty" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ResearchStudyAssociatedParty'")
 		}
 	}
 	if x.Role == nil {
@@ -10447,8 +9791,8 @@ func (x *ResearchStudyComparisonGroup) Validate() error {
 		}
 	}
 	if x.Description != nil {
-		if !rx_ResearchStudyComparisonGroup_Description.MatchString(*x.Description) {
-			return fmt.Errorf("field 'description' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.Description == "" {
+			return fmt.Errorf("field 'description' does not match its schema pattern")
 		}
 	}
 	if x.Extension != nil {
@@ -10462,7 +9806,7 @@ func (x *ResearchStudyComparisonGroup) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IntendedExposure != nil {
@@ -10475,17 +9819,9 @@ func (x *ResearchStudyComparisonGroup) Validate() error {
 		}
 	}
 	if x.LinkID != nil {
-		if !rx_ResearchStudyComparisonGroup_LinkID.MatchString(*x.LinkID) {
-			return fmt.Errorf("field 'linkId' does not match pattern '^[A-Za-z0-9\\-.]+$'")
+		if !validFHIRID(*x.LinkID) {
+			return fmt.Errorf("field 'linkId' does not match its schema pattern")
 		}
-		if utf8.RuneCountInString(*x.LinkID) < 1 {
-			return fmt.Errorf("field 'linkId' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.LinkID) > 64 {
-			return fmt.Errorf("field 'linkId' is too long (max 64 characters)")
-		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -10498,17 +9834,12 @@ func (x *ResearchStudyComparisonGroup) Validate() error {
 	}
 	if x.Name != nil {
 		if *x.Name == "" {
-			return fmt.Errorf("field 'name' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'name' does not match its schema pattern")
 		}
 	}
 	if x.ObservedGroup != nil {
 		if err := x.ObservedGroup.Validate(); err != nil {
 			return fmt.Errorf("field 'observedGroup' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ResearchStudyComparisonGroup" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ResearchStudyComparisonGroup'")
 		}
 	}
 	if x.Type != nil {
@@ -10540,10 +9871,8 @@ func (x *ResearchStudyLabel) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -10554,11 +9883,6 @@ func (x *ResearchStudyLabel) Validate() error {
 			}
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ResearchStudyLabel" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ResearchStudyLabel'")
-		}
-	}
 	if x.Type != nil {
 		if err := x.Type.Validate(); err != nil {
 			return fmt.Errorf("field 'type' is invalid: %w", err)
@@ -10566,7 +9890,7 @@ func (x *ResearchStudyLabel) Validate() error {
 	}
 	if x.Value != nil {
 		if *x.Value == "" {
-			return fmt.Errorf("field 'value' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'value' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -10588,8 +9912,8 @@ func (x *ResearchStudyObjective) Validate() error {
 		}
 	}
 	if x.Description != nil {
-		if !rx_ResearchStudyObjective_Description.MatchString(*x.Description) {
-			return fmt.Errorf("field 'description' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.Description == "" {
+			return fmt.Errorf("field 'description' does not match its schema pattern")
 		}
 	}
 	if x.Extension != nil {
@@ -10603,10 +9927,8 @@ func (x *ResearchStudyObjective) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -10619,12 +9941,7 @@ func (x *ResearchStudyObjective) Validate() error {
 	}
 	if x.Name != nil {
 		if *x.Name == "" {
-			return fmt.Errorf("field 'name' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ResearchStudyObjective" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ResearchStudyObjective'")
+			return fmt.Errorf("field 'name' does not match its schema pattern")
 		}
 	}
 	if x.Type != nil {
@@ -10651,8 +9968,8 @@ func (x *ResearchStudyOutcomeMeasure) Validate() error {
 		}
 	}
 	if x.Description != nil {
-		if !rx_ResearchStudyOutcomeMeasure_Description.MatchString(*x.Description) {
-			return fmt.Errorf("field 'description' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.Description == "" {
+			return fmt.Errorf("field 'description' does not match its schema pattern")
 		}
 	}
 	if x.Extension != nil {
@@ -10666,10 +9983,8 @@ func (x *ResearchStudyOutcomeMeasure) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -10682,17 +9997,12 @@ func (x *ResearchStudyOutcomeMeasure) Validate() error {
 	}
 	if x.Name != nil {
 		if *x.Name == "" {
-			return fmt.Errorf("field 'name' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'name' does not match its schema pattern")
 		}
 	}
 	if x.Reference != nil {
 		if err := x.Reference.Validate(); err != nil {
 			return fmt.Errorf("field 'reference' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ResearchStudyOutcomeMeasure" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ResearchStudyOutcomeMeasure'")
 		}
 	}
 	if x.Type != nil {
@@ -10730,10 +10040,8 @@ func (x *ResearchStudyProgressStatus) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -10747,11 +10055,6 @@ func (x *ResearchStudyProgressStatus) Validate() error {
 	if x.Period != nil {
 		if err := x.Period.Validate(); err != nil {
 			return fmt.Errorf("field 'period' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ResearchStudyProgressStatus" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ResearchStudyProgressStatus'")
 		}
 	}
 	if x.State == nil {
@@ -10786,9 +10089,6 @@ func (x *ResearchStudyRecruitment) Validate() error {
 		}
 	}
 	if x.ActualNumber != nil {
-		if *x.ActualNumber < 0.000000 {
-			return fmt.Errorf("field 'actualNumber' is below minimum 0.000000")
-		}
 	}
 	if x.Eligibility != nil {
 		if err := x.Eligibility.Validate(); err != nil {
@@ -10806,10 +10106,8 @@ func (x *ResearchStudyRecruitment) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -10820,15 +10118,7 @@ func (x *ResearchStudyRecruitment) Validate() error {
 			}
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ResearchStudyRecruitment" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ResearchStudyRecruitment'")
-		}
-	}
 	if x.TargetNumber != nil {
-		if *x.TargetNumber < 0.000000 {
-			return fmt.Errorf("field 'targetNumber' is below minimum 0.000000")
-		}
 	}
 	return nil
 }
@@ -10864,25 +10154,13 @@ func (x *ResearchSubject) Validate() error {
 		}
 	}
 	if x.ActualComparisonGroup != nil {
-		if !rx_ResearchSubject_ActualComparisonGroup.MatchString(*x.ActualComparisonGroup) {
-			return fmt.Errorf("field 'actualComparisonGroup' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ActualComparisonGroup) < 1 {
-			return fmt.Errorf("field 'actualComparisonGroup' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ActualComparisonGroup) > 64 {
-			return fmt.Errorf("field 'actualComparisonGroup' is too long (max 64 characters)")
+		if !validFHIRID(*x.ActualComparisonGroup) {
+			return fmt.Errorf("field 'actualComparisonGroup' does not match its schema pattern")
 		}
 	}
 	if x.AssignedComparisonGroup != nil {
-		if !rx_ResearchSubject_AssignedComparisonGroup.MatchString(*x.AssignedComparisonGroup) {
-			return fmt.Errorf("field 'assignedComparisonGroup' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.AssignedComparisonGroup) < 1 {
-			return fmt.Errorf("field 'assignedComparisonGroup' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.AssignedComparisonGroup) > 64 {
-			return fmt.Errorf("field 'assignedComparisonGroup' is too long (max 64 characters)")
+		if !validFHIRID(*x.AssignedComparisonGroup) {
+			return fmt.Errorf("field 'assignedComparisonGroup' does not match its schema pattern")
 		}
 	}
 	if x.Consent != nil {
@@ -10895,13 +10173,6 @@ func (x *ResearchSubject) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.Extension != nil {
 		for i, item := range x.Extension {
@@ -10913,14 +10184,8 @@ func (x *ResearchSubject) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_ResearchSubject_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -10933,13 +10198,14 @@ func (x *ResearchSubject) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
-	}
-	if x.Language != nil {
-		if !rx_ResearchSubject_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
+	if x.Language != nil {
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
+		}
 	}
 	if x.Meta != nil {
 		if err := x.Meta.Validate(); err != nil {
@@ -10969,14 +10235,17 @@ func (x *ResearchSubject) Validate() error {
 			}
 		}
 	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
+	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "ResearchSubject" {
 			return fmt.Errorf("field 'resourceType' must be exactly 'ResearchSubject'")
 		}
 	}
 	if x.Status != nil {
-		if !rx_ResearchSubject_Status.MatchString(*x.Status) {
-			return fmt.Errorf("field 'status' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Status) {
+			return fmt.Errorf("field 'status' does not match its schema pattern")
 		}
 	}
 	if x.Study == nil {
@@ -11019,8 +10288,11 @@ func (x *ResearchSubjectProgress) Validate() error {
 		}
 	}
 	if x.EndDate != nil {
-		if err := ValidateFhirDateTime(*x.EndDate); err != nil {
-			return fmt.Errorf("field 'endDate' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.EndDate, false) {
+			return fmt.Errorf("field 'endDate' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.EndDate) {
+			return fmt.Errorf("field 'endDate' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Extension != nil {
@@ -11034,10 +10306,8 @@ func (x *ResearchSubjectProgress) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Milestone != nil {
 		if err := x.Milestone.Validate(); err != nil {
@@ -11058,14 +10328,12 @@ func (x *ResearchSubjectProgress) Validate() error {
 			return fmt.Errorf("field 'reason' is invalid: %w", err)
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "ResearchSubjectProgress" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'ResearchSubjectProgress'")
-		}
-	}
 	if x.StartDate != nil {
-		if err := ValidateFhirDateTime(*x.StartDate); err != nil {
-			return fmt.Errorf("field 'startDate' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.StartDate, false) {
+			return fmt.Errorf("field 'startDate' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.StartDate) {
+			return fmt.Errorf("field 'startDate' is not a valid FHIR dateTime")
 		}
 	}
 	if x.SubjectState != nil {
@@ -11081,50 +10349,10 @@ func (x *ResearchSubjectProgress) Validate() error {
 	return nil
 }
 
-// Validate validates a Resource struct against its schema constraints.
-func (x *Resource) Validate() error {
+// Validate validates a ResourceList struct against its schema constraints.
+func (x *ResourceList) Validate() error {
 	if x == nil {
 		return nil
-	}
-	if x.XImplicitRules != nil {
-		if err := x.XImplicitRules.Validate(); err != nil {
-			return fmt.Errorf("field '_implicitRules' is invalid: %w", err)
-		}
-	}
-	if x.XLanguage != nil {
-		if err := x.XLanguage.Validate(); err != nil {
-			return fmt.Errorf("field '_language' is invalid: %w", err)
-		}
-	}
-	if x.ID != nil {
-		if !rx_Resource_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
-		}
-	}
-	if x.ImplicitRules != nil {
-	}
-	if x.Language != nil {
-		if !rx_Resource_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.Meta != nil {
-		if err := x.Meta.Validate(); err != nil {
-			return fmt.Errorf("field 'meta' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Resource" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Resource'")
-		}
 	}
 	return nil
 }
@@ -11133,11 +10361,6 @@ func (x *Resource) Validate() error {
 func (x *SampledData) Validate() error {
 	if x == nil {
 		return nil
-	}
-	if x.XCodeMap != nil {
-		if err := x.XCodeMap.Validate(); err != nil {
-			return fmt.Errorf("field '_codeMap' is invalid: %w", err)
-		}
 	}
 	if x.XData != nil {
 		if err := x.XData.Validate(); err != nil {
@@ -11180,16 +10403,16 @@ func (x *SampledData) Validate() error {
 		}
 	}
 	if x.CodeMap != nil {
+		if hasFHIRSchemaSpace(*x.CodeMap) {
+			return fmt.Errorf("field 'codeMap' does not match its schema pattern")
+		}
 	}
 	if x.Data != nil {
 		if *x.Data == "" {
-			return fmt.Errorf("field 'data' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'data' does not match its schema pattern")
 		}
 	}
 	if x.Dimensions != nil {
-		if *x.Dimensions <= 0.000000 {
-			return fmt.Errorf("field 'dimensions' is below exclusive minimum 0.000000")
-		}
 	}
 	if x.Extension != nil {
 		for i, item := range x.Extension {
@@ -11204,23 +10427,21 @@ func (x *SampledData) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.Interval != nil {
 	}
 	if x.IntervalUnit != nil {
-		if !rx_SampledData_IntervalUnit.MatchString(*x.IntervalUnit) {
-			return fmt.Errorf("field 'intervalUnit' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.IntervalUnit) {
+			return fmt.Errorf("field 'intervalUnit' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.LowerLimit != nil {
 	}
 	if x.Offsets != nil {
 		if *x.Offsets == "" {
-			return fmt.Errorf("field 'offsets' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'offsets' does not match its schema pattern")
 		}
 	}
 	if x.Origin == nil {
@@ -11229,11 +10450,6 @@ func (x *SampledData) Validate() error {
 	if x.Origin != nil {
 		if err := x.Origin.Validate(); err != nil {
 			return fmt.Errorf("field 'origin' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "SampledData" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'SampledData'")
 		}
 	}
 	if x.UpperLimit != nil {
@@ -11267,8 +10483,8 @@ func (x *Signature) Validate() error {
 		}
 	}
 	if x.Data != nil {
-		if err := ValidateFhirBinary(*x.Data); err != nil {
-			return fmt.Errorf("field 'data' has invalid binary format: %w", err)
+		if !validFHIRBinaryContent(*x.Data) {
+			return fmt.Errorf("field 'data' is not a valid FHIR base64Binary")
 		}
 	}
 	if x.Extension != nil {
@@ -11282,29 +10498,22 @@ func (x *Signature) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.OnBehalfOf != nil {
 		if err := x.OnBehalfOf.Validate(); err != nil {
 			return fmt.Errorf("field 'onBehalfOf' is invalid: %w", err)
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Signature" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Signature'")
-		}
-	}
 	if x.SigFormat != nil {
-		if !rx_Signature_SigFormat.MatchString(*x.SigFormat) {
-			return fmt.Errorf("field 'sigFormat' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.SigFormat) {
+			return fmt.Errorf("field 'sigFormat' does not match its schema pattern")
 		}
 	}
 	if x.TargetFormat != nil {
-		if !rx_Signature_TargetFormat.MatchString(*x.TargetFormat) {
-			return fmt.Errorf("field 'targetFormat' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.TargetFormat) {
+			return fmt.Errorf("field 'targetFormat' does not match its schema pattern")
 		}
 	}
 	if x.Type != nil {
@@ -11317,8 +10526,11 @@ func (x *Signature) Validate() error {
 		}
 	}
 	if x.When != nil {
-		if err := ValidateFhirDateTime(*x.When); err != nil {
-			return fmt.Errorf("field 'when' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.When, true) {
+			return fmt.Errorf("field 'when' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.When) {
+			return fmt.Errorf("field 'when' is not a valid FHIR instant")
 		}
 	}
 	if x.Who != nil {
@@ -11370,8 +10582,8 @@ func (x *Specimen) Validate() error {
 		}
 	}
 	if x.Combined != nil {
-		if !rx_Specimen_Combined.MatchString(*x.Combined) {
-			return fmt.Errorf("field 'combined' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Combined) {
+			return fmt.Errorf("field 'combined' does not match its schema pattern")
 		}
 	}
 	if x.Condition != nil {
@@ -11384,13 +10596,6 @@ func (x *Specimen) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.Container != nil {
 		for i, item := range x.Container {
@@ -11420,14 +10625,8 @@ func (x *Specimen) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_Specimen_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -11440,13 +10639,14 @@ func (x *Specimen) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
-	}
-	if x.Language != nil {
-		if !rx_Specimen_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
+	if x.Language != nil {
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
+		}
 	}
 	if x.Meta != nil {
 		if err := x.Meta.Validate(); err != nil {
@@ -11490,8 +10690,11 @@ func (x *Specimen) Validate() error {
 		}
 	}
 	if x.ReceivedTime != nil {
-		if err := ValidateFhirDateTime(*x.ReceivedTime); err != nil {
-			return fmt.Errorf("field 'receivedTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.ReceivedTime, false) {
+			return fmt.Errorf("field 'receivedTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ReceivedTime) {
+			return fmt.Errorf("field 'receivedTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Request != nil {
@@ -11502,6 +10705,9 @@ func (x *Specimen) Validate() error {
 				}
 			}
 		}
+	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
 	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "Specimen" {
@@ -11518,8 +10724,8 @@ func (x *Specimen) Validate() error {
 		}
 	}
 	if x.Status != nil {
-		if !rx_Specimen_Status.MatchString(*x.Status) {
-			return fmt.Errorf("field 'status' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Status) {
+			return fmt.Errorf("field 'status' does not match its schema pattern")
 		}
 	}
 	if x.Subject != nil {
@@ -11556,8 +10762,11 @@ func (x *SpecimenCollection) Validate() error {
 		}
 	}
 	if x.CollectedDateTime != nil {
-		if err := ValidateFhirDateTime(*x.CollectedDateTime); err != nil {
-			return fmt.Errorf("field 'collectedDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.CollectedDateTime, false) {
+			return fmt.Errorf("field 'collectedDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.CollectedDateTime) {
+			return fmt.Errorf("field 'collectedDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.CollectedPeriod != nil {
@@ -11601,10 +10810,8 @@ func (x *SpecimenCollection) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Method != nil {
 		if err := x.Method.Validate(); err != nil {
@@ -11628,11 +10835,6 @@ func (x *SpecimenCollection) Validate() error {
 	if x.Quantity != nil {
 		if err := x.Quantity.Validate(); err != nil {
 			return fmt.Errorf("field 'quantity' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "SpecimenCollection" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'SpecimenCollection'")
 		}
 	}
 	return nil
@@ -11662,10 +10864,8 @@ func (x *SpecimenContainer) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Location != nil {
 		if err := x.Location.Validate(); err != nil {
@@ -11679,11 +10879,6 @@ func (x *SpecimenContainer) Validate() error {
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "SpecimenContainer" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'SpecimenContainer'")
 		}
 	}
 	if x.SpecimenQuantity != nil {
@@ -11706,7 +10901,7 @@ func (x *SpecimenFeature) Validate() error {
 	}
 	if x.Description != nil {
 		if *x.Description == "" {
-			return fmt.Errorf("field 'description' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'description' does not match its schema pattern")
 		}
 	}
 	if x.Extension != nil {
@@ -11720,10 +10915,8 @@ func (x *SpecimenFeature) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -11732,11 +10925,6 @@ func (x *SpecimenFeature) Validate() error {
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "SpecimenFeature" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'SpecimenFeature'")
 		}
 	}
 	if x.Type == nil {
@@ -11776,7 +10964,7 @@ func (x *SpecimenProcessing) Validate() error {
 	}
 	if x.Description != nil {
 		if *x.Description == "" {
-			return fmt.Errorf("field 'description' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'description' does not match its schema pattern")
 		}
 	}
 	if x.Extension != nil {
@@ -11790,10 +10978,8 @@ func (x *SpecimenProcessing) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Method != nil {
 		if err := x.Method.Validate(); err != nil {
@@ -11809,14 +10995,12 @@ func (x *SpecimenProcessing) Validate() error {
 			}
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "SpecimenProcessing" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'SpecimenProcessing'")
-		}
-	}
 	if x.TimeDateTime != nil {
-		if err := ValidateFhirDateTime(*x.TimeDateTime); err != nil {
-			return fmt.Errorf("field 'timeDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.TimeDateTime, false) {
+			return fmt.Errorf("field 'timeDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.TimeDateTime) {
+			return fmt.Errorf("field 'timeDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.TimePeriod != nil {
@@ -11880,22 +11064,18 @@ func (x *Substance) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.Description != nil {
-		if !rx_Substance_Description.MatchString(*x.Description) {
-			return fmt.Errorf("field 'description' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.Description == "" {
+			return fmt.Errorf("field 'description' does not match its schema pattern")
 		}
 	}
 	if x.Expiry != nil {
-		if err := ValidateFhirDateTime(*x.Expiry); err != nil {
-			return fmt.Errorf("field 'expiry' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.Expiry, false) {
+			return fmt.Errorf("field 'expiry' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Expiry) {
+			return fmt.Errorf("field 'expiry' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Extension != nil {
@@ -11908,14 +11088,8 @@ func (x *Substance) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_Substance_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -11928,6 +11102,9 @@ func (x *Substance) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
+		}
 	}
 	if x.Ingredient != nil {
 		for i, item := range x.Ingredient {
@@ -11941,11 +11118,9 @@ func (x *Substance) Validate() error {
 	if x.Instance != nil {
 	}
 	if x.Language != nil {
-		if !rx_Substance_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Meta != nil {
 		if err := x.Meta.Validate(); err != nil {
@@ -11966,14 +11141,17 @@ func (x *Substance) Validate() error {
 			return fmt.Errorf("field 'quantity' is invalid: %w", err)
 		}
 	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
+	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "Substance" {
 			return fmt.Errorf("field 'resourceType' must be exactly 'Substance'")
 		}
 	}
 	if x.Status != nil {
-		if !rx_Substance_Status.MatchString(*x.Status) {
-			return fmt.Errorf("field 'status' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Status) {
+			return fmt.Errorf("field 'status' does not match its schema pattern")
 		}
 	}
 	if x.Text != nil {
@@ -12037,17 +11215,10 @@ func (x *SubstanceDefinition) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.Description != nil {
-		if !rx_SubstanceDefinition_Description.MatchString(*x.Description) {
-			return fmt.Errorf("field 'description' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.Description == "" {
+			return fmt.Errorf("field 'description' does not match its schema pattern")
 		}
 	}
 	if x.Domain != nil {
@@ -12074,14 +11245,8 @@ func (x *SubstanceDefinition) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_SubstanceDefinition_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -12094,6 +11259,9 @@ func (x *SubstanceDefinition) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
+		}
 	}
 	if x.InformationSource != nil {
 		for i, item := range x.InformationSource {
@@ -12105,11 +11273,9 @@ func (x *SubstanceDefinition) Validate() error {
 		}
 	}
 	if x.Language != nil {
-		if !rx_SubstanceDefinition_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Manufacturer != nil {
 		for i, item := range x.Manufacturer {
@@ -12208,6 +11374,9 @@ func (x *SubstanceDefinition) Validate() error {
 			}
 		}
 	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
+	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "SubstanceDefinition" {
 			return fmt.Errorf("field 'resourceType' must be exactly 'SubstanceDefinition'")
@@ -12244,7 +11413,7 @@ func (x *SubstanceDefinition) Validate() error {
 	}
 	if x.Version != nil {
 		if *x.Version == "" {
-			return fmt.Errorf("field 'version' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'version' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -12261,8 +11430,8 @@ func (x *SubstanceDefinitionCharacterization) Validate() error {
 		}
 	}
 	if x.Description != nil {
-		if !rx_SubstanceDefinitionCharacterization_Description.MatchString(*x.Description) {
-			return fmt.Errorf("field 'description' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.Description == "" {
+			return fmt.Errorf("field 'description' does not match its schema pattern")
 		}
 	}
 	if x.Extension != nil {
@@ -12290,10 +11459,8 @@ func (x *SubstanceDefinitionCharacterization) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -12302,11 +11469,6 @@ func (x *SubstanceDefinitionCharacterization) Validate() error {
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "SubstanceDefinitionCharacterization" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'SubstanceDefinitionCharacterization'")
 		}
 	}
 	if x.Technique != nil {
@@ -12343,10 +11505,8 @@ func (x *SubstanceDefinitionCode) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -12366,11 +11526,6 @@ func (x *SubstanceDefinitionCode) Validate() error {
 			}
 		}
 	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "SubstanceDefinitionCode" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'SubstanceDefinitionCode'")
-		}
-	}
 	if x.Source != nil {
 		for i, item := range x.Source {
 			if item != nil {
@@ -12386,8 +11541,11 @@ func (x *SubstanceDefinitionCode) Validate() error {
 		}
 	}
 	if x.StatusDate != nil {
-		if err := ValidateFhirDateTime(*x.StatusDate); err != nil {
-			return fmt.Errorf("field 'statusDate' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.StatusDate, false) {
+			return fmt.Errorf("field 'statusDate' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.StatusDate) {
+			return fmt.Errorf("field 'statusDate' is not a valid FHIR dateTime")
 		}
 	}
 	return nil
@@ -12420,7 +11578,7 @@ func (x *SubstanceDefinitionMoiety) Validate() error {
 	}
 	if x.AmountString != nil {
 		if *x.AmountString == "" {
-			return fmt.Errorf("field 'amountString' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'amountString' does not match its schema pattern")
 		}
 	}
 	if x.Extension != nil {
@@ -12434,15 +11592,13 @@ func (x *SubstanceDefinitionMoiety) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
 		if err := x.IDentifier.Validate(); err != nil {
 			return fmt.Errorf("field 'identifier' is invalid: %w", err)
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.MeasurementType != nil {
 		if err := x.MeasurementType.Validate(); err != nil {
@@ -12460,22 +11616,17 @@ func (x *SubstanceDefinitionMoiety) Validate() error {
 	}
 	if x.MolecularFormula != nil {
 		if *x.MolecularFormula == "" {
-			return fmt.Errorf("field 'molecularFormula' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'molecularFormula' does not match its schema pattern")
 		}
 	}
 	if x.Name != nil {
 		if *x.Name == "" {
-			return fmt.Errorf("field 'name' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'name' does not match its schema pattern")
 		}
 	}
 	if x.OpticalActivity != nil {
 		if err := x.OpticalActivity.Validate(); err != nil {
 			return fmt.Errorf("field 'opticalActivity' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "SubstanceDefinitionMoiety" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'SubstanceDefinitionMoiety'")
 		}
 	}
 	if x.Role != nil {
@@ -12515,10 +11666,8 @@ func (x *SubstanceDefinitionMolecularWeight) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Method != nil {
 		if err := x.Method.Validate(); err != nil {
@@ -12532,11 +11681,6 @@ func (x *SubstanceDefinitionMolecularWeight) Validate() error {
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "SubstanceDefinitionMolecularWeight" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'SubstanceDefinitionMolecularWeight'")
 		}
 	}
 	if x.Type != nil {
@@ -12582,7 +11726,7 @@ func (x *SubstanceDefinitionName) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.Jurisdiction != nil {
@@ -12603,8 +11747,6 @@ func (x *SubstanceDefinitionName) Validate() error {
 			}
 		}
 	}
-	if x.Links != nil {
-	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
 			if item != nil {
@@ -12616,7 +11758,7 @@ func (x *SubstanceDefinitionName) Validate() error {
 	}
 	if x.Name != nil {
 		if *x.Name == "" {
-			return fmt.Errorf("field 'name' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'name' does not match its schema pattern")
 		}
 	}
 	if x.Official != nil {
@@ -12629,11 +11771,6 @@ func (x *SubstanceDefinitionName) Validate() error {
 		}
 	}
 	if x.Preferred != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "SubstanceDefinitionName" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'SubstanceDefinitionName'")
-		}
 	}
 	if x.Source != nil {
 		for i, item := range x.Source {
@@ -12675,8 +11812,8 @@ func (x *SubstanceDefinitionName) Validate() error {
 	return nil
 }
 
-// Validate validates a SubstanceDefinitionNameOfficial struct against its schema constraints.
-func (x *SubstanceDefinitionNameOfficial) Validate() error {
+// Validate validates a SubstanceDefinitionOfficial struct against its schema constraints.
+func (x *SubstanceDefinitionOfficial) Validate() error {
 	if x == nil {
 		return nil
 	}
@@ -12691,8 +11828,11 @@ func (x *SubstanceDefinitionNameOfficial) Validate() error {
 		}
 	}
 	if x.Date != nil {
-		if err := ValidateFhirDateTime(*x.Date); err != nil {
-			return fmt.Errorf("field 'date' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.Date, false) {
+			return fmt.Errorf("field 'date' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.Date) {
+			return fmt.Errorf("field 'date' is not a valid FHIR dateTime")
 		}
 	}
 	if x.Extension != nil {
@@ -12706,10 +11846,8 @@ func (x *SubstanceDefinitionNameOfficial) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -12718,11 +11856,6 @@ func (x *SubstanceDefinitionNameOfficial) Validate() error {
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "SubstanceDefinitionNameOfficial" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'SubstanceDefinitionNameOfficial'")
 		}
 	}
 	if x.Status != nil {
@@ -12759,10 +11892,8 @@ func (x *SubstanceDefinitionProperty) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -12771,11 +11902,6 @@ func (x *SubstanceDefinitionProperty) Validate() error {
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "SubstanceDefinitionProperty" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'SubstanceDefinitionProperty'")
 		}
 	}
 	if x.Type == nil {
@@ -12799,8 +11925,11 @@ func (x *SubstanceDefinitionProperty) Validate() error {
 		}
 	}
 	if x.ValueDate != nil {
-		if err := ValidateFhirDate(*x.ValueDate); err != nil {
-			return fmt.Errorf("field 'valueDate' has invalid date format: %w", err)
+		if !validFHIRDate(*x.ValueDate) {
+			return fmt.Errorf("field 'valueDate' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueDate) {
+			return fmt.Errorf("field 'valueDate' is not a valid FHIR date")
 		}
 	}
 	if x.ValueQuantity != nil {
@@ -12838,7 +11967,7 @@ func (x *SubstanceDefinitionRelationship) Validate() error {
 	}
 	if x.AmountString != nil {
 		if *x.AmountString == "" {
-			return fmt.Errorf("field 'amountString' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'amountString' does not match its schema pattern")
 		}
 	}
 	if x.Comparator != nil {
@@ -12857,12 +11986,10 @@ func (x *SubstanceDefinitionRelationship) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IsDefining != nil {
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -12876,11 +12003,6 @@ func (x *SubstanceDefinitionRelationship) Validate() error {
 	if x.RatioHighLimitAmount != nil {
 		if err := x.RatioHighLimitAmount.Validate(); err != nil {
 			return fmt.Errorf("field 'ratioHighLimitAmount' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "SubstanceDefinitionRelationship" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'SubstanceDefinitionRelationship'")
 		}
 	}
 	if x.Source != nil {
@@ -12904,6 +12026,62 @@ func (x *SubstanceDefinitionRelationship) Validate() error {
 	}
 	if x.Type == nil {
 		return &MissingRequiredFieldError{Field: "type"}
+	}
+	if x.Type != nil {
+		if err := x.Type.Validate(); err != nil {
+			return fmt.Errorf("field 'type' is invalid: %w", err)
+		}
+	}
+	return nil
+}
+
+// Validate validates a SubstanceDefinitionRepresentation struct against its schema constraints.
+func (x *SubstanceDefinitionRepresentation) Validate() error {
+	if x == nil {
+		return nil
+	}
+	if x.XRepresentation != nil {
+		if err := x.XRepresentation.Validate(); err != nil {
+			return fmt.Errorf("field '_representation' is invalid: %w", err)
+		}
+	}
+	if x.Document != nil {
+		if err := x.Document.Validate(); err != nil {
+			return fmt.Errorf("field 'document' is invalid: %w", err)
+		}
+	}
+	if x.Extension != nil {
+		for i, item := range x.Extension {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'extension[%d]' is invalid: %w", i, err)
+				}
+			}
+		}
+	}
+	if x.Format != nil {
+		if err := x.Format.Validate(); err != nil {
+			return fmt.Errorf("field 'format' is invalid: %w", err)
+		}
+	}
+	if x.ID != nil {
+		if *x.ID == "" {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
+		}
+	}
+	if x.ModifierExtension != nil {
+		for i, item := range x.ModifierExtension {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
+				}
+			}
+		}
+	}
+	if x.Representation != nil {
+		if *x.Representation == "" {
+			return fmt.Errorf("field 'representation' does not match its schema pattern")
+		}
 	}
 	if x.Type != nil {
 		if err := x.Type.Validate(); err != nil {
@@ -12943,10 +12121,8 @@ func (x *SubstanceDefinitionSourceMaterial) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -12960,11 +12136,6 @@ func (x *SubstanceDefinitionSourceMaterial) Validate() error {
 	if x.Part != nil {
 		if err := x.Part.Validate(); err != nil {
 			return fmt.Errorf("field 'part' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "SubstanceDefinitionSourceMaterial" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'SubstanceDefinitionSourceMaterial'")
 		}
 	}
 	if x.Species != nil {
@@ -13006,10 +12177,8 @@ func (x *SubstanceDefinitionStructure) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -13022,12 +12191,12 @@ func (x *SubstanceDefinitionStructure) Validate() error {
 	}
 	if x.MolecularFormula != nil {
 		if *x.MolecularFormula == "" {
-			return fmt.Errorf("field 'molecularFormula' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'molecularFormula' does not match its schema pattern")
 		}
 	}
 	if x.MolecularFormulaByMoiety != nil {
 		if *x.MolecularFormulaByMoiety == "" {
-			return fmt.Errorf("field 'molecularFormulaByMoiety' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'molecularFormulaByMoiety' does not match its schema pattern")
 		}
 	}
 	if x.MolecularWeight != nil {
@@ -13047,11 +12216,6 @@ func (x *SubstanceDefinitionStructure) Validate() error {
 					return fmt.Errorf("field 'representation[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "SubstanceDefinitionStructure" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'SubstanceDefinitionStructure'")
 		}
 	}
 	if x.SourceDocument != nil {
@@ -13080,69 +12244,6 @@ func (x *SubstanceDefinitionStructure) Validate() error {
 	return nil
 }
 
-// Validate validates a SubstanceDefinitionStructureRepresentation struct against its schema constraints.
-func (x *SubstanceDefinitionStructureRepresentation) Validate() error {
-	if x == nil {
-		return nil
-	}
-	if x.XRepresentation != nil {
-		if err := x.XRepresentation.Validate(); err != nil {
-			return fmt.Errorf("field '_representation' is invalid: %w", err)
-		}
-	}
-	if x.Document != nil {
-		if err := x.Document.Validate(); err != nil {
-			return fmt.Errorf("field 'document' is invalid: %w", err)
-		}
-	}
-	if x.Extension != nil {
-		for i, item := range x.Extension {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'extension[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
-	}
-	if x.Format != nil {
-		if err := x.Format.Validate(); err != nil {
-			return fmt.Errorf("field 'format' is invalid: %w", err)
-		}
-	}
-	if x.ID != nil {
-		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.ModifierExtension != nil {
-		for i, item := range x.ModifierExtension {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
-	}
-	if x.Representation != nil {
-		if *x.Representation == "" {
-			return fmt.Errorf("field 'representation' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "SubstanceDefinitionStructureRepresentation" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'SubstanceDefinitionStructureRepresentation'")
-		}
-	}
-	if x.Type != nil {
-		if err := x.Type.Validate(); err != nil {
-			return fmt.Errorf("field 'type' is invalid: %w", err)
-		}
-	}
-	return nil
-}
-
 // Validate validates a SubstanceIngredient struct against its schema constraints.
 func (x *SubstanceIngredient) Validate() error {
 	if x == nil {
@@ -13159,10 +12260,8 @@ func (x *SubstanceIngredient) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -13176,11 +12275,6 @@ func (x *SubstanceIngredient) Validate() error {
 	if x.Quantity != nil {
 		if err := x.Quantity.Validate(); err != nil {
 			return fmt.Errorf("field 'quantity' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "SubstanceIngredient" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'SubstanceIngredient'")
 		}
 	}
 	if x.SubstanceCodeableConcept != nil {
@@ -13221,11 +12315,6 @@ func (x *Task) Validate() error {
 			return fmt.Errorf("field '_implicitRules' is invalid: %w", err)
 		}
 	}
-	if x.XInstantiatesCanonical != nil {
-		if err := x.XInstantiatesCanonical.Validate(); err != nil {
-			return fmt.Errorf("field '_instantiatesCanonical' is invalid: %w", err)
-		}
-	}
 	if x.XInstantiatesURI != nil {
 		if err := x.XInstantiatesURI.Validate(); err != nil {
 			return fmt.Errorf("field '_instantiatesUri' is invalid: %w", err)
@@ -13257,8 +12346,11 @@ func (x *Task) Validate() error {
 		}
 	}
 	if x.AuthoredOn != nil {
-		if err := ValidateFhirDateTime(*x.AuthoredOn); err != nil {
-			return fmt.Errorf("field 'authoredOn' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.AuthoredOn, false) {
+			return fmt.Errorf("field 'authoredOn' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.AuthoredOn) {
+			return fmt.Errorf("field 'authoredOn' is not a valid FHIR dateTime")
 		}
 	}
 	if x.BasedOn != nil {
@@ -13281,17 +12373,10 @@ func (x *Task) Validate() error {
 		}
 	}
 	if x.Contained != nil {
-		for i, item := range x.Contained {
-			if item != nil {
-				if err := item.Validate(); err != nil {
-					return fmt.Errorf("field 'contained[%d]' is invalid: %w", i, err)
-				}
-			}
-		}
 	}
 	if x.Description != nil {
 		if *x.Description == "" {
-			return fmt.Errorf("field 'description' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'description' does not match its schema pattern")
 		}
 	}
 	if x.DoNotPerform != nil {
@@ -13320,9 +12405,9 @@ func (x *Task) Validate() error {
 			return fmt.Errorf("field 'focus' is invalid: %w", err)
 		}
 	}
-	if x.ForFhir != nil {
-		if err := x.ForFhir.Validate(); err != nil {
-			return fmt.Errorf("field 'for_fhir' is invalid: %w", err)
+	if x.For != nil {
+		if err := x.For.Validate(); err != nil {
+			return fmt.Errorf("field 'for' is invalid: %w", err)
 		}
 	}
 	if x.GroupIDentifier != nil {
@@ -13331,14 +12416,8 @@ func (x *Task) Validate() error {
 		}
 	}
 	if x.ID != nil {
-		if !rx_Task_ID.MatchString(*x.ID) {
-			return fmt.Errorf("field 'id' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ID) < 1 {
-			return fmt.Errorf("field 'id' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ID) > 64 {
-			return fmt.Errorf("field 'id' is too long (max 64 characters)")
+		if !validFHIRID(*x.ID) {
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.IDentifier != nil {
@@ -13351,6 +12430,9 @@ func (x *Task) Validate() error {
 		}
 	}
 	if x.ImplicitRules != nil {
+		if hasFHIRSchemaSpace(*x.ImplicitRules) {
+			return fmt.Errorf("field 'implicitRules' does not match its schema pattern")
+		}
 	}
 	if x.Input != nil {
 		for i, item := range x.Input {
@@ -13362,8 +12444,14 @@ func (x *Task) Validate() error {
 		}
 	}
 	if x.InstantiatesCanonical != nil {
+		if hasFHIRSchemaSpace(*x.InstantiatesCanonical) {
+			return fmt.Errorf("field 'instantiatesCanonical' does not match its schema pattern")
+		}
 	}
 	if x.InstantiatesURI != nil {
+		if hasFHIRSchemaSpace(*x.InstantiatesURI) {
+			return fmt.Errorf("field 'instantiatesUri' does not match its schema pattern")
+		}
 	}
 	if x.Insurance != nil {
 		for i, item := range x.Insurance {
@@ -13375,21 +12463,22 @@ func (x *Task) Validate() error {
 		}
 	}
 	if x.Intent != nil {
-		if !rx_Task_Intent.MatchString(*x.Intent) {
-			return fmt.Errorf("field 'intent' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Intent) {
+			return fmt.Errorf("field 'intent' does not match its schema pattern")
 		}
 	}
 	if x.Language != nil {
-		if !rx_Task_Language.MatchString(*x.Language) {
-			return fmt.Errorf("field 'language' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Language) {
+			return fmt.Errorf("field 'language' does not match its schema pattern")
 		}
 	}
 	if x.LastModified != nil {
-		if err := ValidateFhirDateTime(*x.LastModified); err != nil {
-			return fmt.Errorf("field 'lastModified' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.LastModified, false) {
+			return fmt.Errorf("field 'lastModified' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
+		if !validFHIRCalendarDate(*x.LastModified) {
+			return fmt.Errorf("field 'lastModified' is not a valid FHIR dateTime")
+		}
 	}
 	if x.Location != nil {
 		if err := x.Location.Validate(); err != nil {
@@ -13452,8 +12541,8 @@ func (x *Task) Validate() error {
 		}
 	}
 	if x.Priority != nil {
-		if !rx_Task_Priority.MatchString(*x.Priority) {
-			return fmt.Errorf("field 'priority' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Priority) {
+			return fmt.Errorf("field 'priority' does not match its schema pattern")
 		}
 	}
 	if x.Reason != nil {
@@ -13493,6 +12582,9 @@ func (x *Task) Validate() error {
 			return fmt.Errorf("field 'requester' is invalid: %w", err)
 		}
 	}
+	if x.ResourceType == nil {
+		return &MissingRequiredFieldError{Field: "resourceType"}
+	}
 	if x.ResourceType != nil {
 		if *x.ResourceType != "Task" {
 			return fmt.Errorf("field 'resourceType' must be exactly 'Task'")
@@ -13504,8 +12596,8 @@ func (x *Task) Validate() error {
 		}
 	}
 	if x.Status != nil {
-		if !rx_Task_Status.MatchString(*x.Status) {
-			return fmt.Errorf("field 'status' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.Status) {
+			return fmt.Errorf("field 'status' does not match its schema pattern")
 		}
 	}
 	if x.StatusReason != nil {
@@ -13637,10 +12729,8 @@ func (x *TaskInput) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -13649,11 +12739,6 @@ func (x *TaskInput) Validate() error {
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "TaskInput" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'TaskInput'")
 		}
 	}
 	if x.Type == nil {
@@ -13690,17 +12775,23 @@ func (x *TaskInput) Validate() error {
 		}
 	}
 	if x.ValueBase64Binary != nil {
-		if err := ValidateFhirBinary(*x.ValueBase64Binary); err != nil {
-			return fmt.Errorf("field 'valueBase64Binary' has invalid binary format: %w", err)
+		if !validFHIRBase64(*x.ValueBase64Binary) {
+			return fmt.Errorf("field 'valueBase64Binary' does not match its schema pattern")
+		}
+		if !validFHIRBinaryContent(*x.ValueBase64Binary) {
+			return fmt.Errorf("field 'valueBase64Binary' is not a valid FHIR base64Binary")
 		}
 	}
 	if x.ValueBoolean != nil {
 	}
 	if x.ValueCanonical != nil {
+		if hasFHIRSchemaSpace(*x.ValueCanonical) {
+			return fmt.Errorf("field 'valueCanonical' does not match its schema pattern")
+		}
 	}
 	if x.ValueCode != nil {
-		if !rx_TaskInput_ValueCode.MatchString(*x.ValueCode) {
-			return fmt.Errorf("field 'valueCode' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.ValueCode) {
+			return fmt.Errorf("field 'valueCode' does not match its schema pattern")
 		}
 	}
 	if x.ValueCodeableConcept != nil {
@@ -13739,13 +12830,19 @@ func (x *TaskInput) Validate() error {
 		}
 	}
 	if x.ValueDate != nil {
-		if err := ValidateFhirDate(*x.ValueDate); err != nil {
-			return fmt.Errorf("field 'valueDate' has invalid date format: %w", err)
+		if !validFHIRDate(*x.ValueDate) {
+			return fmt.Errorf("field 'valueDate' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueDate) {
+			return fmt.Errorf("field 'valueDate' is not a valid FHIR date")
 		}
 	}
 	if x.ValueDateTime != nil {
-		if err := ValidateFhirDateTime(*x.ValueDateTime); err != nil {
-			return fmt.Errorf("field 'valueDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.ValueDateTime, false) {
+			return fmt.Errorf("field 'valueDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueDateTime) {
+			return fmt.Errorf("field 'valueDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.ValueDecimal != nil {
@@ -13781,14 +12878,8 @@ func (x *TaskInput) Validate() error {
 		}
 	}
 	if x.ValueID != nil {
-		if !rx_TaskInput_ValueID.MatchString(*x.ValueID) {
-			return fmt.Errorf("field 'valueId' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ValueID) < 1 {
-			return fmt.Errorf("field 'valueId' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ValueID) > 64 {
-			return fmt.Errorf("field 'valueId' is too long (max 64 characters)")
+		if !validFHIRID(*x.ValueID) {
+			return fmt.Errorf("field 'valueId' does not match its schema pattern")
 		}
 	}
 	if x.ValueIDentifier != nil {
@@ -13797,17 +12888,23 @@ func (x *TaskInput) Validate() error {
 		}
 	}
 	if x.ValueInstant != nil {
-		if err := ValidateFhirDateTime(*x.ValueInstant); err != nil {
-			return fmt.Errorf("field 'valueInstant' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.ValueInstant, true) {
+			return fmt.Errorf("field 'valueInstant' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueInstant) {
+			return fmt.Errorf("field 'valueInstant' is not a valid FHIR instant")
 		}
 	}
 	if x.ValueInteger != nil {
 	}
 	if x.ValueInteger64 != nil {
+		if !validFHIRInteger64(*x.ValueInteger64) {
+			return fmt.Errorf("field 'valueInteger64' does not match its schema pattern")
+		}
 	}
 	if x.ValueMarkdown != nil {
-		if !rx_TaskInput_ValueMarkdown.MatchString(*x.ValueMarkdown) {
-			return fmt.Errorf("field 'valueMarkdown' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.ValueMarkdown == "" {
+			return fmt.Errorf("field 'valueMarkdown' does not match its schema pattern")
 		}
 	}
 	if x.ValueMeta != nil {
@@ -13821,8 +12918,8 @@ func (x *TaskInput) Validate() error {
 		}
 	}
 	if x.ValueOid != nil {
-		if !rx_TaskInput_ValueOid.MatchString(*x.ValueOid) {
-			return fmt.Errorf("field 'valueOid' does not match pattern '^urn:oid:[0-2](\\.(0|[1-9][0-9]*))+$'")
+		if !validFHIROID(*x.ValueOid) {
+			return fmt.Errorf("field 'valueOid' does not match its schema pattern")
 		}
 	}
 	if x.ValueParameterDefinition != nil {
@@ -13836,9 +12933,6 @@ func (x *TaskInput) Validate() error {
 		}
 	}
 	if x.ValuePositiveInt != nil {
-		if *x.ValuePositiveInt <= 0.000000 {
-			return fmt.Errorf("field 'valuePositiveInt' is below exclusive minimum 0.000000")
-		}
 	}
 	if x.ValueQuantity != nil {
 		if err := x.ValueQuantity.Validate(); err != nil {
@@ -13882,12 +12976,12 @@ func (x *TaskInput) Validate() error {
 	}
 	if x.ValueString != nil {
 		if *x.ValueString == "" {
-			return fmt.Errorf("field 'valueString' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'valueString' does not match its schema pattern")
 		}
 	}
 	if x.ValueTime != nil {
-		if err := ValidateFhirTime(*x.ValueTime); err != nil {
-			return fmt.Errorf("field 'valueTime' has invalid time format: %w", err)
+		if !validFHIRTime(*x.ValueTime) {
+			return fmt.Errorf("field 'valueTime' does not match its schema pattern")
 		}
 	}
 	if x.ValueTiming != nil {
@@ -13901,21 +12995,15 @@ func (x *TaskInput) Validate() error {
 		}
 	}
 	if x.ValueUnsignedInt != nil {
-		if *x.ValueUnsignedInt < 0.000000 {
-			return fmt.Errorf("field 'valueUnsignedInt' is below minimum 0.000000")
-		}
 	}
 	if x.ValueURI != nil {
+		if hasFHIRSchemaSpace(*x.ValueURI) {
+			return fmt.Errorf("field 'valueUri' does not match its schema pattern")
+		}
 	}
 	if x.ValueURL != nil {
-		if utf8.RuneCountInString(*x.ValueURL) < 1 {
-			return fmt.Errorf("field 'valueUrl' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ValueURL) > 65536 {
-			return fmt.Errorf("field 'valueUrl' is too long (max 65536 characters)")
-		}
-		if err := ValidateFhirURI(*x.ValueURL); err != nil {
-			return fmt.Errorf("field 'valueUrl' has invalid URI format: %w", err)
+		if hasFHIRSchemaSpace(*x.ValueURL) {
+			return fmt.Errorf("field 'valueUrl' does not match its schema pattern")
 		}
 	}
 	if x.ValueUsageContext != nil {
@@ -13924,8 +13012,8 @@ func (x *TaskInput) Validate() error {
 		}
 	}
 	if x.ValueUUID != nil {
-		if err := ValidateFhirUUID(*x.ValueUUID); err != nil {
-			return fmt.Errorf("field 'valueUuid' has invalid UUID format: %w", err)
+		if !validFHIRUUID(*x.ValueUUID) {
+			return fmt.Errorf("field 'valueUuid' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -14047,10 +13135,8 @@ func (x *TaskOutput) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -14059,11 +13145,6 @@ func (x *TaskOutput) Validate() error {
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "TaskOutput" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'TaskOutput'")
 		}
 	}
 	if x.Type == nil {
@@ -14100,17 +13181,23 @@ func (x *TaskOutput) Validate() error {
 		}
 	}
 	if x.ValueBase64Binary != nil {
-		if err := ValidateFhirBinary(*x.ValueBase64Binary); err != nil {
-			return fmt.Errorf("field 'valueBase64Binary' has invalid binary format: %w", err)
+		if !validFHIRBase64(*x.ValueBase64Binary) {
+			return fmt.Errorf("field 'valueBase64Binary' does not match its schema pattern")
+		}
+		if !validFHIRBinaryContent(*x.ValueBase64Binary) {
+			return fmt.Errorf("field 'valueBase64Binary' is not a valid FHIR base64Binary")
 		}
 	}
 	if x.ValueBoolean != nil {
 	}
 	if x.ValueCanonical != nil {
+		if hasFHIRSchemaSpace(*x.ValueCanonical) {
+			return fmt.Errorf("field 'valueCanonical' does not match its schema pattern")
+		}
 	}
 	if x.ValueCode != nil {
-		if !rx_TaskOutput_ValueCode.MatchString(*x.ValueCode) {
-			return fmt.Errorf("field 'valueCode' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !validFHIRCode(*x.ValueCode) {
+			return fmt.Errorf("field 'valueCode' does not match its schema pattern")
 		}
 	}
 	if x.ValueCodeableConcept != nil {
@@ -14149,13 +13236,19 @@ func (x *TaskOutput) Validate() error {
 		}
 	}
 	if x.ValueDate != nil {
-		if err := ValidateFhirDate(*x.ValueDate); err != nil {
-			return fmt.Errorf("field 'valueDate' has invalid date format: %w", err)
+		if !validFHIRDate(*x.ValueDate) {
+			return fmt.Errorf("field 'valueDate' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueDate) {
+			return fmt.Errorf("field 'valueDate' is not a valid FHIR date")
 		}
 	}
 	if x.ValueDateTime != nil {
-		if err := ValidateFhirDateTime(*x.ValueDateTime); err != nil {
-			return fmt.Errorf("field 'valueDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.ValueDateTime, false) {
+			return fmt.Errorf("field 'valueDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueDateTime) {
+			return fmt.Errorf("field 'valueDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.ValueDecimal != nil {
@@ -14191,14 +13284,8 @@ func (x *TaskOutput) Validate() error {
 		}
 	}
 	if x.ValueID != nil {
-		if !rx_TaskOutput_ValueID.MatchString(*x.ValueID) {
-			return fmt.Errorf("field 'valueId' does not match pattern '^[A-Za-z0-9\\-.]+$'")
-		}
-		if utf8.RuneCountInString(*x.ValueID) < 1 {
-			return fmt.Errorf("field 'valueId' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ValueID) > 64 {
-			return fmt.Errorf("field 'valueId' is too long (max 64 characters)")
+		if !validFHIRID(*x.ValueID) {
+			return fmt.Errorf("field 'valueId' does not match its schema pattern")
 		}
 	}
 	if x.ValueIDentifier != nil {
@@ -14207,17 +13294,23 @@ func (x *TaskOutput) Validate() error {
 		}
 	}
 	if x.ValueInstant != nil {
-		if err := ValidateFhirDateTime(*x.ValueInstant); err != nil {
-			return fmt.Errorf("field 'valueInstant' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.ValueInstant, true) {
+			return fmt.Errorf("field 'valueInstant' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.ValueInstant) {
+			return fmt.Errorf("field 'valueInstant' is not a valid FHIR instant")
 		}
 	}
 	if x.ValueInteger != nil {
 	}
 	if x.ValueInteger64 != nil {
+		if !validFHIRInteger64(*x.ValueInteger64) {
+			return fmt.Errorf("field 'valueInteger64' does not match its schema pattern")
+		}
 	}
 	if x.ValueMarkdown != nil {
-		if !rx_TaskOutput_ValueMarkdown.MatchString(*x.ValueMarkdown) {
-			return fmt.Errorf("field 'valueMarkdown' does not match pattern '\\s*(\\S|\\s)*'")
+		if *x.ValueMarkdown == "" {
+			return fmt.Errorf("field 'valueMarkdown' does not match its schema pattern")
 		}
 	}
 	if x.ValueMeta != nil {
@@ -14231,8 +13324,8 @@ func (x *TaskOutput) Validate() error {
 		}
 	}
 	if x.ValueOid != nil {
-		if !rx_TaskOutput_ValueOid.MatchString(*x.ValueOid) {
-			return fmt.Errorf("field 'valueOid' does not match pattern '^urn:oid:[0-2](\\.(0|[1-9][0-9]*))+$'")
+		if !validFHIROID(*x.ValueOid) {
+			return fmt.Errorf("field 'valueOid' does not match its schema pattern")
 		}
 	}
 	if x.ValueParameterDefinition != nil {
@@ -14246,9 +13339,6 @@ func (x *TaskOutput) Validate() error {
 		}
 	}
 	if x.ValuePositiveInt != nil {
-		if *x.ValuePositiveInt <= 0.000000 {
-			return fmt.Errorf("field 'valuePositiveInt' is below exclusive minimum 0.000000")
-		}
 	}
 	if x.ValueQuantity != nil {
 		if err := x.ValueQuantity.Validate(); err != nil {
@@ -14292,12 +13382,12 @@ func (x *TaskOutput) Validate() error {
 	}
 	if x.ValueString != nil {
 		if *x.ValueString == "" {
-			return fmt.Errorf("field 'valueString' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'valueString' does not match its schema pattern")
 		}
 	}
 	if x.ValueTime != nil {
-		if err := ValidateFhirTime(*x.ValueTime); err != nil {
-			return fmt.Errorf("field 'valueTime' has invalid time format: %w", err)
+		if !validFHIRTime(*x.ValueTime) {
+			return fmt.Errorf("field 'valueTime' does not match its schema pattern")
 		}
 	}
 	if x.ValueTiming != nil {
@@ -14311,21 +13401,15 @@ func (x *TaskOutput) Validate() error {
 		}
 	}
 	if x.ValueUnsignedInt != nil {
-		if *x.ValueUnsignedInt < 0.000000 {
-			return fmt.Errorf("field 'valueUnsignedInt' is below minimum 0.000000")
-		}
 	}
 	if x.ValueURI != nil {
+		if hasFHIRSchemaSpace(*x.ValueURI) {
+			return fmt.Errorf("field 'valueUri' does not match its schema pattern")
+		}
 	}
 	if x.ValueURL != nil {
-		if utf8.RuneCountInString(*x.ValueURL) < 1 {
-			return fmt.Errorf("field 'valueUrl' is too short (min 1 characters)")
-		}
-		if utf8.RuneCountInString(*x.ValueURL) > 65536 {
-			return fmt.Errorf("field 'valueUrl' is too long (max 65536 characters)")
-		}
-		if err := ValidateFhirURI(*x.ValueURL); err != nil {
-			return fmt.Errorf("field 'valueUrl' has invalid URI format: %w", err)
+		if hasFHIRSchemaSpace(*x.ValueURL) {
+			return fmt.Errorf("field 'valueUrl' does not match its schema pattern")
 		}
 	}
 	if x.ValueUsageContext != nil {
@@ -14334,8 +13418,8 @@ func (x *TaskOutput) Validate() error {
 		}
 	}
 	if x.ValueUUID != nil {
-		if err := ValidateFhirUUID(*x.ValueUUID); err != nil {
-			return fmt.Errorf("field 'valueUuid' has invalid UUID format: %w", err)
+		if !validFHIRUUID(*x.ValueUUID) {
+			return fmt.Errorf("field 'valueUuid' does not match its schema pattern")
 		}
 	}
 	return nil
@@ -14370,10 +13454,8 @@ func (x *TaskPerformer) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -14382,11 +13464,6 @@ func (x *TaskPerformer) Validate() error {
 					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
 				}
 			}
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "TaskPerformer" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'TaskPerformer'")
 		}
 	}
 	return nil
@@ -14413,10 +13490,8 @@ func (x *TaskRestriction) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -14442,14 +13517,6 @@ func (x *TaskRestriction) Validate() error {
 		}
 	}
 	if x.Repetitions != nil {
-		if *x.Repetitions <= 0.000000 {
-			return fmt.Errorf("field 'repetitions' is below exclusive minimum 0.000000")
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "TaskRestriction" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'TaskRestriction'")
-		}
 	}
 	return nil
 }
@@ -14475,8 +13542,11 @@ func (x *Timing) Validate() error {
 	}
 	if x.Event != nil {
 		for i, item := range x.Event {
-			if err := ValidateFhirDateTime(item); err != nil {
-				return fmt.Errorf("field 'event[%d]' has invalid date-time format: %w", i, err)
+			if !validFHIRDateTime(item, false) {
+				return fmt.Errorf("field 'event[%d]' does not match its schema pattern", i)
+			}
+			if !validFHIRCalendarDate(item) {
+				return fmt.Errorf("field 'event[%d]' is not a valid FHIR dateTime", i)
 			}
 		}
 	}
@@ -14491,10 +13561,8 @@ func (x *Timing) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.ModifierExtension != nil {
 		for i, item := range x.ModifierExtension {
@@ -14508,11 +13576,6 @@ func (x *Timing) Validate() error {
 	if x.Repeat != nil {
 		if err := x.Repeat.Validate(); err != nil {
 			return fmt.Errorf("field 'repeat' is invalid: %w", err)
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "Timing" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'Timing'")
 		}
 	}
 	return nil
@@ -14621,19 +13684,13 @@ func (x *TimingRepeat) Validate() error {
 		}
 	}
 	if x.Count != nil {
-		if *x.Count <= 0.000000 {
-			return fmt.Errorf("field 'count' is below exclusive minimum 0.000000")
-		}
 	}
 	if x.CountMax != nil {
-		if *x.CountMax <= 0.000000 {
-			return fmt.Errorf("field 'countMax' is below exclusive minimum 0.000000")
-		}
 	}
 	if x.DayOfWeek != nil {
 		for i, item := range x.DayOfWeek {
-			if !rx_TimingRepeat_DayOfWeek_items.MatchString(item) {
-				return fmt.Errorf("field 'dayOfWeek[%d]' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'", i)
+			if !validFHIRCode(item) {
+				return fmt.Errorf("field 'dayOfWeek[%d]' does not match its schema pattern", i)
 			}
 		}
 	}
@@ -14642,8 +13699,8 @@ func (x *TimingRepeat) Validate() error {
 	if x.DurationMax != nil {
 	}
 	if x.DurationUnit != nil {
-		if !rx_TimingRepeat_DurationUnit.MatchString(*x.DurationUnit) {
-			return fmt.Errorf("field 'durationUnit' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !(*x.DurationUnit == "s" || *x.DurationUnit == "min" || *x.DurationUnit == "h" || *x.DurationUnit == "d" || *x.DurationUnit == "wk" || *x.DurationUnit == "mo" || *x.DurationUnit == "a") {
+			return fmt.Errorf("field 'durationUnit' has an unsupported value")
 		}
 	}
 	if x.Extension != nil {
@@ -14656,52 +13713,45 @@ func (x *TimingRepeat) Validate() error {
 		}
 	}
 	if x.Frequency != nil {
-		if *x.Frequency <= 0.000000 {
-			return fmt.Errorf("field 'frequency' is below exclusive minimum 0.000000")
-		}
 	}
 	if x.FrequencyMax != nil {
-		if *x.FrequencyMax <= 0.000000 {
-			return fmt.Errorf("field 'frequencyMax' is below exclusive minimum 0.000000")
-		}
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
-	if x.Links != nil {
+	if x.ModifierExtension != nil {
+		for i, item := range x.ModifierExtension {
+			if item != nil {
+				if err := item.Validate(); err != nil {
+					return fmt.Errorf("field 'modifierExtension[%d]' is invalid: %w", i, err)
+				}
+			}
+		}
 	}
 	if x.Offset != nil {
-		if *x.Offset < 0.000000 {
-			return fmt.Errorf("field 'offset' is below minimum 0.000000")
-		}
 	}
 	if x.Period != nil {
 	}
 	if x.PeriodMax != nil {
 	}
 	if x.PeriodUnit != nil {
-		if !rx_TimingRepeat_PeriodUnit.MatchString(*x.PeriodUnit) {
-			return fmt.Errorf("field 'periodUnit' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "TimingRepeat" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'TimingRepeat'")
+		if !(*x.PeriodUnit == "s" || *x.PeriodUnit == "min" || *x.PeriodUnit == "h" || *x.PeriodUnit == "d" || *x.PeriodUnit == "wk" || *x.PeriodUnit == "mo" || *x.PeriodUnit == "a") {
+			return fmt.Errorf("field 'periodUnit' has an unsupported value")
 		}
 	}
 	if x.TimeOfDay != nil {
 		for i, item := range x.TimeOfDay {
-			if err := ValidateFhirTime(item); err != nil {
-				return fmt.Errorf("field 'timeOfDay[%d]' has invalid time format: %w", i, err)
+			if !validFHIRTime(item) {
+				return fmt.Errorf("field 'timeOfDay[%d]' does not match its schema pattern", i)
 			}
 		}
 	}
 	if x.When != nil {
 		for i, item := range x.When {
-			if !rx_TimingRepeat_When_items.MatchString(item) {
-				return fmt.Errorf("field 'when[%d]' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'", i)
+			if !(item == "MORN" || item == "MORN.early" || item == "MORN.late" || item == "NOON" || item == "AFT" || item == "AFT.early" || item == "AFT.late" || item == "EVE" || item == "EVE.early" || item == "EVE.late" || item == "NIGHT" || item == "PHS" || item == "IMD" || item == "HS" || item == "WAKE" || item == "C" || item == "CM" || item == "CD" || item == "CV" || item == "AC" || item == "ACM" || item == "ACD" || item == "ACV" || item == "PC" || item == "PCM" || item == "PCD" || item == "PCV") {
+				return fmt.Errorf("field 'when[%d]' has an unsupported value", i)
 			}
 		}
 	}
@@ -14716,11 +13766,6 @@ func (x *TriggerDefinition) Validate() error {
 	if x.XName != nil {
 		if err := x.XName.Validate(); err != nil {
 			return fmt.Errorf("field '_name' is invalid: %w", err)
-		}
-	}
-	if x.XSubscriptionTopic != nil {
-		if err := x.XSubscriptionTopic.Validate(); err != nil {
-			return fmt.Errorf("field '_subscriptionTopic' is invalid: %w", err)
 		}
 	}
 	if x.XTimingDate != nil {
@@ -14768,31 +13813,33 @@ func (x *TriggerDefinition) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
-	}
-	if x.Links != nil {
 	}
 	if x.Name != nil {
 		if *x.Name == "" {
-			return fmt.Errorf("field 'name' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "TriggerDefinition" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'TriggerDefinition'")
+			return fmt.Errorf("field 'name' does not match its schema pattern")
 		}
 	}
 	if x.SubscriptionTopic != nil {
+		if hasFHIRSchemaSpace(*x.SubscriptionTopic) {
+			return fmt.Errorf("field 'subscriptionTopic' does not match its schema pattern")
+		}
 	}
 	if x.TimingDate != nil {
-		if err := ValidateFhirDate(*x.TimingDate); err != nil {
-			return fmt.Errorf("field 'timingDate' has invalid date format: %w", err)
+		if !validFHIRDate(*x.TimingDate) {
+			return fmt.Errorf("field 'timingDate' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.TimingDate) {
+			return fmt.Errorf("field 'timingDate' is not a valid FHIR date")
 		}
 	}
 	if x.TimingDateTime != nil {
-		if err := ValidateFhirDateTime(*x.TimingDateTime); err != nil {
-			return fmt.Errorf("field 'timingDateTime' has invalid date-time format: %w", err)
+		if !validFHIRDateTime(*x.TimingDateTime, false) {
+			return fmt.Errorf("field 'timingDateTime' does not match its schema pattern")
+		}
+		if !validFHIRCalendarDate(*x.TimingDateTime) {
+			return fmt.Errorf("field 'timingDateTime' is not a valid FHIR dateTime")
 		}
 	}
 	if x.TimingReference != nil {
@@ -14806,8 +13853,8 @@ func (x *TriggerDefinition) Validate() error {
 		}
 	}
 	if x.Type != nil {
-		if !rx_TriggerDefinition_Type.MatchString(*x.Type) {
-			return fmt.Errorf("field 'type' does not match pattern '^[^\\s]+(\\s[^\\s]+)*$'")
+		if !(*x.Type == "named-event" || *x.Type == "periodic" || *x.Type == "data-changed" || *x.Type == "data-added" || *x.Type == "data-modified" || *x.Type == "data-removed" || *x.Type == "data-accessed" || *x.Type == "data-access-ended") {
+			return fmt.Errorf("field 'type' has an unsupported value")
 		}
 	}
 	return nil
@@ -14837,14 +13884,7 @@ func (x *UsageContext) Validate() error {
 	}
 	if x.ID != nil {
 		if *x.ID == "" {
-			return fmt.Errorf("field 'id' does not match pattern '[ \\r\\n\\t\\S]+'")
-		}
-	}
-	if x.Links != nil {
-	}
-	if x.ResourceType != nil {
-		if *x.ResourceType != "UsageContext" {
-			return fmt.Errorf("field 'resourceType' must be exactly 'UsageContext'")
+			return fmt.Errorf("field 'id' does not match its schema pattern")
 		}
 	}
 	if x.ValueCodeableConcept != nil {

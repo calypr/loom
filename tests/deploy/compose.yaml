@@ -44,8 +44,6 @@ services:
       - http://arangodb:8529
       - --database
       - loom_acceptance_${LOOM_DEMO_RUN_ID:-d000000000000001}
-      - --schema
-      - ${LOOM_DEMO_SCHEMA_PATH:-/app/fhir/graph-fhir.json}
       - --clickhouse-url
       - clickhouse://clickhouse:9000
       - --clickhouse-database

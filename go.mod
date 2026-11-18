@@ -1,13 +1,11 @@
 module github.com/calypr/loom
 
-go 1.26.5
+go 1.27.4
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.47.0
 	github.com/arangodb/go-driver/v2 v2.3.1
-	github.com/bmeg/jsonschema/v6 v6.0.5
-	github.com/bmeg/jsonschemagraph v0.0.6
-	github.com/bytedance/sonic v1.15.2
+	github.com/bytedance/sonic v1.15.3
 	github.com/getkin/kin-openapi v0.142.0
 	github.com/gofiber/fiber/v3 v3.4.0
 	github.com/google/uuid v1.6.0
@@ -23,7 +21,7 @@ require (
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/arangodb/go-velocypack v0.0.0-20200318135517-5af53c29c67e // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
-	github.com/bytedance/sonic/loader v0.5.1 // indirect
+	github.com/bytedance/sonic/loader v0.5.2 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.7 // indirect
 	github.com/dchest/siphash v1.2.3 // indirect
@@ -33,8 +31,6 @@ require (
 	github.com/go-openapi/swag/jsonname v0.25.5 // indirect
 	github.com/gofiber/schema v1.8.3 // indirect
 	github.com/gofiber/utils/v2 v2.4.1 // indirect
-	github.com/hashicorp/errwrap v1.1.0 // indirect
-	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/kkdai/maglev v0.2.0 // indirect
 	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
@@ -60,5 +56,4 @@ require (
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
 )

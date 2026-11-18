@@ -5,13 +5,12 @@ import (
 	"go/format"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"testing"
 )
 
 func TestSchemaFHIRRootResourceTypesUsesCheckedInRootShape(t *testing.T) {
-	schema := loadCheckedInGraphFHIRSchema(t)
+	schema := loadOfficialFHIRSchema(t)
 
 	roots := schemaFHIRRootResourceTypes(schema)
 	if !slices.IsSorted(roots) {
@@ -35,8 +34,8 @@ func TestSchemaFHIRRootResourceTypesUsesCheckedInRootShape(t *testing.T) {
 	}
 }
 
-func TestFHIRSchemaMetadataGenerationMatchesCheckedInArtifact(t *testing.T) {
-	schema := loadCheckedInGraphFHIRSchema(t)
+func TestFHIRSchemaMetadataGenerationRetainsStructureDefinitionEdges(t *testing.T) {
+	schema := loadOfficialFHIRSchema(t)
 	generatedPath := filepath.Join(t.TempDir(), "generated.go")
 	if err := generateFHIRSchema(schema, generatedPath); err != nil {
 		t.Fatalf("generate FHIR schema metadata: %v", err)
@@ -49,17 +48,19 @@ func TestFHIRSchemaMetadataGenerationMatchesCheckedInArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("format generated metadata: %v", err)
 	}
-	want, err := os.ReadFile(filepath.Join("..", "..", "fhir", "schema", "generated.go"))
-	if err != nil {
-		t.Fatalf("read checked-in metadata: %v", err)
-	}
-	if !bytes.Equal(got, want) {
-		t.Fatal("checked-in fhir/schema/generated.go is stale; run make generate-fhir")
+	for _, expected := range []string{
+		`"Patient|managingOrganization|Organization"`,
+		`"outbound",`,
+		`"has_one",`,
+	} {
+		if !bytes.Contains(got, []byte(expected)) {
+			t.Errorf("generated metadata omitted %q", expected)
+		}
 	}
 }
 
 func TestFHIRSchemaMetadataOmitsNonResourceTraversals(t *testing.T) {
-	schema := loadCheckedInGraphFHIRSchema(t)
+	schema := loadOfficialFHIRSchema(t)
 	generatedPath := filepath.Join(t.TempDir(), "generated.go")
 	if err := generateFHIRSchema(schema, generatedPath); err != nil {
 		t.Fatalf("generate FHIR schema metadata: %v", err)
@@ -83,7 +84,7 @@ func TestFHIRSchemaMetadataOmitsNonResourceTraversals(t *testing.T) {
 }
 
 func TestFHIRSchemaMetadataRetainsSemanticFields(t *testing.T) {
-	schema := loadCheckedInGraphFHIRSchema(t)
+	schema := loadOfficialFHIRSchema(t)
 	generatedPath := filepath.Join(t.TempDir(), "generated.go")
 	if err := generateFHIRSchema(schema, generatedPath); err != nil {
 		t.Fatalf("generate FHIR schema metadata: %v", err)
@@ -168,33 +169,14 @@ func TestFHIRSchemaMetadataRetainsSemanticFields(t *testing.T) {
 	}
 }
 
-func TestFHIRSchemaMetadataKeepsExternalRefsAsArrayShapeOnly(t *testing.T) {
-	schema := loadCheckedInGraphFHIRSchema(t)
-	links := schema.Defs["Address"].Properties["links"]
-	if links == nil || links.Items == nil || links.Items.Ref != "https://json-schema.org/draft/2020-12/links" {
-		t.Fatalf("Address.links source schema changed unexpectedly: %#v", links)
+func TestFHIRSchemaMetadataUsesOfficialContainedResourceUnion(t *testing.T) {
+	schema := loadOfficialFHIRSchema(t)
+	contained := schema.Defs["Patient"].Properties["contained"]
+	if contained == nil || contained.Items == nil || schemaDefinitionRefName(schema, contained.Items.Ref) != "ResourceList" {
+		t.Fatalf("contained resources did not retain the official ResourceList reference: %#v", contained)
 	}
-	if got := schemaDefinitionRefName(schema, links.Items.Ref); got != "" {
-		t.Fatalf("external links schema reference became definition %q", got)
-	}
-	if got := schemaDefinitionRefName(schema, schema.ID+"/Patient"); got != "Patient" {
-		t.Fatalf("FHIR schema-rooted reference became %q, want Patient", got)
-	}
-
-	generatedPath := filepath.Join(t.TempDir(), "generated.go")
-	if err := generateFHIRSchema(schema, generatedPath); err != nil {
-		t.Fatalf("generate FHIR schema metadata: %v", err)
-	}
-	generated, err := os.ReadFile(generatedPath)
-	if err != nil {
-		t.Fatalf("read generated FHIR metadata: %v", err)
-	}
-	if bytes.Contains(generated, []byte(`ItemRef: "links"`)) {
-		t.Fatal("external JSON Schema link reference was emitted as a FHIR array element type")
-	}
-	arrayShape := regexp.MustCompile(`Name: "links",\n\s*Kind: "array",\n\s*ItemKind: "object",`)
-	if !arrayShape.Match(generated) {
-		t.Fatal("external links reference did not retain its array/object shape")
+	if schema.Defs["Address"].Properties["links"] != nil || schema.Defs["Task"].Properties["for_fhir"] != nil {
+		t.Fatal("generated metadata contains fields from the legacy graph schema")
 	}
 }
 

@@ -12,7 +12,6 @@ import (
 
 type LoadOptions struct {
 	arangostore.ConnectionOptions
-	Schema           string
 	MetaDir          string
 	Project          string
 	AuthResourcePath string
@@ -25,11 +24,9 @@ type LoadOptions struct {
 	CatalogLimits    catalog.ProfileLimits
 	Truncate         bool
 	FailFast         bool
-	UseGeneric       bool
-
-	SourceFileOwner string
-	WriteAPI        string
-	EventSink       EventSink
+	SourceFileOwner  string
+	WriteAPI         string
+	EventSink        EventSink
 
 	Dataset *publication.Ref
 

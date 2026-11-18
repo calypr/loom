@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/bmeg/jsonschemagraph/graph"
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 )
@@ -48,11 +47,7 @@ func loadResource(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 		return LoadSummary{}, err
 	}
 	summary := LoadSummary{Files: len(files), Resources: map[string]int{}, BatchCounts: map[string]int{}, StageSeconds: map[string]float64{}}
-	schema, err := graph.Load(opts.Schema)
-	if err != nil {
-		return summary, err
-	}
-	schemaIdentity, err := loadSchemaSnapshot(opts.Schema)
+	schemaIdentity, schema, err := loadSchema()
 	if err != nil {
 		return summary, err
 	}

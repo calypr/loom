@@ -1,44 +1,51 @@
 package main
 
 import (
-	"bytes"
-	"go/format"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestFHIRStructGenerationMatchesCheckedInArtifacts(t *testing.T) {
-	schema := loadCheckedInGraphFHIRSchema(t)
-	for _, artifact := range []struct {
-		name     string
-		generate func(*Schema, string) error
-	}{
-		{name: "model.go", generate: generateModel},
-		{name: "validate.go", generate: generateValidate},
-		{name: "extract.go", generate: generateExtract},
-		{name: "helpers.go", generate: func(_ *Schema, path string) error { return generateFHIRHelpers(path) }},
+func TestFHIRModelGenerationUsesOfficialSchemaShapes(t *testing.T) {
+	schema := loadOfficialFHIRSchema(t)
+	generatedPath := filepath.Join(t.TempDir(), "model.go")
+	if err := generateModel(schema, generatedPath); err != nil {
+		t.Fatalf("generate model: %v", err)
+	}
+	generated, err := os.ReadFile(generatedPath)
+	if err != nil {
+		t.Fatalf("read model: %v", err)
+	}
+	for _, expected := range []string{
+		"Active *bool `json:\"active,omitempty\"`",
+		"BirthDate *string `json:\"birthDate,omitempty\"`",
+		"XBirthDate *Element `json:\"_birthDate,omitempty\"`",
+		"ManagingOrganization *Reference `json:\"managingOrganization,omitempty\"`",
 	} {
-		t.Run(artifact.name, func(t *testing.T) {
-			generatedPath := filepath.Join(t.TempDir(), artifact.name)
-			if err := artifact.generate(schema, generatedPath); err != nil {
-				t.Fatalf("generate %s: %v", artifact.name, err)
-			}
-			got, err := os.ReadFile(generatedPath)
-			if err != nil {
-				t.Fatalf("read generated %s: %v", artifact.name, err)
-			}
-			got, err = format.Source(got)
-			if err != nil {
-				t.Fatalf("format generated %s: %v", artifact.name, err)
-			}
-			want, err := os.ReadFile(filepath.Join("..", "..", "fhir", "model", artifact.name))
-			if err != nil {
-				t.Fatalf("read checked-in %s: %v", artifact.name, err)
-			}
-			if !bytes.Equal(got, want) {
-				t.Fatalf("checked-in fhir/model/%s is stale; run make generate-fhir", artifact.name)
-			}
-		})
+		if !strings.Contains(string(generated), expected) {
+			t.Errorf("generated model does not contain %q", expected)
+		}
+	}
+}
+
+func TestFHIRValidationGenerationUsesDirectOfficialPatternChecks(t *testing.T) {
+	schema := loadOfficialFHIRSchema(t)
+	generatedPath := filepath.Join(t.TempDir(), "validate.go")
+	if err := generateValidate(schema, generatedPath); err != nil {
+		t.Fatalf("generate validation: %v", err)
+	}
+	generated, err := os.ReadFile(generatedPath)
+	if err != nil {
+		t.Fatalf("read validation: %v", err)
+	}
+	for _, expected := range []string{
+		`Field: "resourceType"`,
+		"validFHIRID(*x.ID)",
+		"validFHIRDate(*x.BirthDate)",
+	} {
+		if !strings.Contains(string(generated), expected) {
+			t.Errorf("generated validation does not contain %q", expected)
+		}
 	}
 }

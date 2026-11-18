@@ -11,8 +11,6 @@ import (
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publication "github.com/calypr/loom/internal/dataset"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
-
-	"github.com/bmeg/jsonschemagraph/graph"
 )
 
 func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
@@ -61,11 +59,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		StageSeconds: map[string]float64{},
 	}
 
-	schema, err := graph.Load(opts.Schema)
-	if err != nil {
-		return summary, err
-	}
-	schemaIdentity, err := loadSchemaSnapshot(opts.Schema)
+	schemaIdentity, schema, err := loadSchema()
 	if err != nil {
 		return summary, err
 	}

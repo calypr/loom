@@ -25,7 +25,6 @@ type ServerConfig struct {
 	Listen                        string                      `yaml:"listen"`
 	URL                           string                      `yaml:"url"`
 	Database                      string                      `yaml:"database"`
-	Schema                        string                      `yaml:"schema"`
 	ClickHouse                    ClickHouseConfig            `yaml:"clickhouse"`
 	Dataframer                    DataframerConfig            `yaml:"dataframer"`
 	RecipeBatchRows               int                         `yaml:"recipe_batch_rows"`
@@ -86,7 +85,7 @@ func DefaultConfig() Config {
 	return Config{
 		Server: ServerConfig{
 			Listen: ":8080", URL: "http://127.0.0.1:8529", Database: "fhir_proto",
-			Schema: "fhir/graph-fhir.json", ClickHouse: ClickHouseConfig{Enabled: true, URL: "clickhouse://127.0.0.1:9000", Database: "loom", Username: "default"},
+			ClickHouse:      ClickHouseConfig{Enabled: true, URL: "clickhouse://127.0.0.1:9000", Database: "loom", Username: "default"},
 			RecipeBatchRows: 1000, RecipeBatchBytes: 4 << 20, RecipeQueryPageRows: defaultRecipeQueryPageRows,
 			RecipeQualityMaxRows: 1_000_000, RecipeQualityMaxDistinctKeys: 1_000_000,
 			SourceLoadMaxFileBytes: 1 << 30,
@@ -104,7 +103,6 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 		noAuth                  bool
 		url                     string
 		database                string
-		schema                  string
 		clickhouseURL           string
 		clickhouseDatabase      string
 		clickhouseUsername      string
@@ -124,7 +122,6 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 	fs.BoolVar(&noAuth, "no-auth", false, "disable scoped authorization for local development")
 	fs.StringVar(&url, "url", "http://127.0.0.1:8529", "ArangoDB URL")
 	fs.StringVar(&database, "database", "fhir_proto", "ArangoDB database")
-	fs.StringVar(&schema, "schema", "fhir/graph-fhir.json", "FHIR graph schema path for imports")
 	fs.StringVar(&clickhouseURL, "clickhouse-url", "clickhouse://127.0.0.1:9000", "ClickHouse native URL for published dataframe reads")
 	fs.StringVar(&clickhouseDatabase, "clickhouse-database", "loom", "ClickHouse database for published dataframe reads")
 	fs.StringVar(&clickhouseUsername, "clickhouse-username", "default", "ClickHouse username for published dataframe reads")
@@ -171,7 +168,6 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 	cfg.Server.Listen = listen
 	cfg.Server.URL = url
 	cfg.Server.Database = database
-	cfg.Server.Schema = schema
 	cfg.Server.ClickHouse.URL = clickhouseURL
 	cfg.Server.ClickHouse.Database = clickhouseDatabase
 	cfg.Server.ClickHouse.Username = clickhouseUsername

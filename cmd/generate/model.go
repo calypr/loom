@@ -13,6 +13,9 @@ func getGoType(prop *Property, isField bool) string {
 		if name == "links" {
 			return "[]any"
 		}
+		if name == "ResourceList" {
+			return "map[string]any"
+		}
 		return "*" + name
 	}
 

@@ -8,8 +8,6 @@ services:
       - http://arangodb:8529
       - --database
       - loom_acceptance_d000000000000001
-      - --schema
-      - /app/fhir/graph-fhir.json
       - --clickhouse-url
       - clickhouse://clickhouse:9000
       - --clickhouse-database

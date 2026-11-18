@@ -247,8 +247,8 @@ func authoringWriteArangoResponseCases() []authoringWriteArangoResponseCase {
 		{name: "deadline-is-retryable-outage", fault: context.DeadlineExceeded, wantStorage: true},
 		{name: "pretyped-backend-code-without-cause-remains-denial", fault: dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "pretyped"), wantStorage: false},
 		{name: "pretyped-error-with-backend-sentinel-is-outage", fault: dataframeerrors.Wrap(authscope.ErrAuthorizationBackendUnavailable, dataframeerrors.CodeForbidden, "pretyped"), wantStorage: true},
-		{name: "pointer-query-fault", fault: fmt.Errorf("arango query: %w", &shared.ArangoError{HasError: true, Code: http.StatusBadRequest, ErrorNum: 1552, ErrorMessage: "bind fault"}), wantStorage: true},
-		{name: "pointer-http-permission", fault: fmt.Errorf("arango: %w", &shared.ArangoError{Code: http.StatusForbidden, ErrorNum: shared.ErrForbidden}), wantStorage: false},
+		{name: "pointer-query-fault", fault: fmt.Errorf("arango query: %w", error(&shared.ArangoError{HasError: true, Code: http.StatusBadRequest, ErrorNum: 1552, ErrorMessage: "bind fault"})), wantStorage: true},
+		{name: "pointer-http-permission", fault: fmt.Errorf("arango: %w", error(&shared.ArangoError{Code: http.StatusForbidden, ErrorNum: shared.ErrForbidden})), wantStorage: false},
 	}
 }
 

@@ -1,73 +1,73 @@
 package ingest
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"errors"
-	"os"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"testing"
 
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	generated "github.com/calypr/loom/fhir/schema"
+	publication "github.com/calypr/loom/internal/dataset"
 )
 
-func TestLoadSchemaSnapshot(t *testing.T) {
-	path := filepath.Join("..", "..", "fhir", "graph-fhir.json")
-	contents, err := os.ReadFile(path)
+func TestLoadSchemaSnapshotUsesOfficialGeneratedIdentity(t *testing.T) {
+	snapshot, err := loadSchemaSnapshot()
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := loadSchemaSnapshot(path)
-	if err != nil {
-		t.Fatal(err)
+	if snapshot.SchemaID != generated.SchemaID || snapshot.FHIRVersion != generated.FHIRVersion || snapshot.SchemaSHA256 != generated.SourceSHA256 {
+		t.Fatalf("snapshot = %#v, want generated schema identity", snapshot)
 	}
-	digest := sha256.Sum256(contents)
-	if snapshot.SchemaSHA256 != hex.EncodeToString(digest[:]) {
-		t.Fatalf("digest = %q", snapshot.SchemaSHA256)
+	if len(snapshot.SchemaSHA256) != 64 {
+		t.Fatalf("schema SHA-256 = %q", snapshot.SchemaSHA256)
 	}
-	if snapshot.SchemaID != "http://graph-fhir.io/schema/0.0.2" || snapshot.FHIRVersion != "" {
-		t.Fatalf("metadata = %#v", snapshot)
-	}
-	if !reflect.DeepEqual(snapshot.GeneratedResourceTypes, fhirschema.ResourceTypes()) || !sort.StringsAreSorted(snapshot.GeneratedResourceTypes) {
-		t.Fatalf("resource types = %#v", snapshot.GeneratedResourceTypes)
+	resourceTypes := append([]string(nil), generated.ResourceTypes...)
+	sort.Strings(resourceTypes)
+	if !reflect.DeepEqual(snapshot.GeneratedResourceTypes, resourceTypes) {
+		t.Fatalf("resource types = %#v, want %#v", snapshot.GeneratedResourceTypes, resourceTypes)
 	}
 }
 
-func TestLoadSchemaSnapshotUsesExactBytesAndExplicitMetadata(t *testing.T) {
-	contents := []byte("{\n  \"$id\": \"urn:example:graph\",\n  \"fhirVersion\": \"R5\"\n}\n")
-	first := writeTempSchemaBytes(t, contents)
-	second := writeTempSchemaBytes(t, append([]byte(" "), contents...))
-	one, err := loadSchemaSnapshot(first)
-	if err != nil {
-		t.Fatal(err)
+func TestRuntimeGraphSchemaUsesGeneratedResourceRegistry(t *testing.T) {
+	schema := loadRuntimeFHIRSchema()
+	for _, resourceType := range generated.ResourceTypes {
+		if !schema.HasClass(resourceType) {
+			t.Errorf("generated resource %q is missing from runtime registry", resourceType)
+		}
 	}
-	two, err := loadSchemaSnapshot(second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if one.SchemaID != "urn:example:graph" || one.FHIRVersion != "R5" || one.SchemaSHA256 == two.SchemaSHA256 {
-		t.Fatalf("snapshots = %#v %#v", one, two)
-	}
-}
-
-func TestLoadSchemaSnapshotRejectsMalformedInputs(t *testing.T) {
-	if _, err := loadSchemaSnapshot("  "); !errors.Is(err, ErrGraphSchemaPathRequired) {
-		t.Fatalf("blank path = %v", err)
-	}
-	for _, contents := range []string{"{", "[]", "null", `{"$id":7}`, `{"$id":null}`, `{"fhirVersion":false}`, `{"$id":"one","$id":"two"}`, `{} {}`} {
-		if _, err := loadSchemaSnapshot(writeTempSchemaBytes(t, []byte(contents))); !errors.Is(err, ErrMalformedGraphSchema) {
-			t.Errorf("load %q = %v", contents, err)
+	for _, resourceType := range []string{"Directory", "Unknown"} {
+		if schema.HasClass(resourceType) {
+			t.Errorf("unregistered resource %q is accepted", resourceType)
 		}
 	}
 }
 
-func writeTempSchemaBytes(t *testing.T, contents []byte) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "graph.json")
-	if err := os.WriteFile(path, contents, 0o600); err != nil {
-		t.Fatal(err)
+func TestPreviousSchemaSnapshotsRemainReadable(t *testing.T) {
+	previous, err := publication.NewSchemaSnapshot(
+		"http://graph-fhir.io/schema/0.0.2",
+		"",
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		[]string{"Observation", "Patient"},
+	)
+	if err != nil {
+		t.Fatalf("validate prior published identity: %v", err)
 	}
-	return path
+	if err := previous.Validate(); err != nil {
+		t.Fatalf("read prior published identity: %v", err)
+	}
+}
+
+func TestSourceSchemaChangeRequiresFullReload(t *testing.T) {
+	current := publication.SchemaSnapshot{
+		SchemaSHA256: "current", GeneratedResourceTypes: []string{"Observation", "Patient"},
+	}
+	previous := publication.SchemaSnapshot{SchemaSHA256: "previous"}
+	if copySource, err := sourceSchemaAllowsCopy(current, current, []string{"Patient"}); err != nil || !copySource {
+		t.Fatalf("same schema partial update copy = %t, err = %v", copySource, err)
+	}
+	if copySource, err := sourceSchemaAllowsCopy(previous, current, []string{"Patient"}); err == nil || copySource {
+		t.Fatalf("different schema partial update copy = %t, err = %v", copySource, err)
+	}
+	if copySource, err := sourceSchemaAllowsCopy(previous, current, []string{"Patient", "Observation"}); err != nil || copySource {
+		t.Fatalf("different schema full update copy = %t, err = %v", copySource, err)
+	}
 }

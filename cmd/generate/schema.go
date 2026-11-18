@@ -1,8 +1,11 @@
 package main
 
 type Schema struct {
-	ID   string                 `json:"$id"`
-	Defs map[string]*Definition `json:"$defs"`
+	ID                string                 `json:"$id"`
+	FHIRVersion       string                 `json:"-"`
+	SourceSHA256      string                 `json:"-"`
+	RootResourceTypes []string               `json:"-"`
+	Defs              map[string]*Definition `json:"$defs"`
 }
 
 type Definition struct {
@@ -10,6 +13,7 @@ type Definition struct {
 	Type                 string               `json:"type"`
 	Title                string               `json:"title"`
 	Description          string               `json:"description"`
+	Abstract             bool                 `json:"abstract"`
 	Properties           map[string]*Property `json:"properties"`
 	Required             []string             `json:"required"`
 	AdditionalProperties bool                 `json:"additionalProperties"`
@@ -19,6 +23,7 @@ type Definition struct {
 type BindingStrength string
 
 type Property struct {
+	Primitive            string               `json:"-"`
 	Ref                  string               `json:"$ref"`
 	Type                 any                  `json:"type"`
 	Items                *Property            `json:"items"`
@@ -30,6 +35,7 @@ type Property struct {
 	Minimum              *float64             `json:"minimum"`
 	ExclusiveMinimum     *float64             `json:"exclusiveMinimum"`
 	Const                any                  `json:"const"`
+	EnumValues           []string             `json:"enum"`
 	Format               string               `json:"format"`
 	ChoiceGroup          string               `json:"one_of_many"`
 	ChoiceGroupRequired  bool                 `json:"one_of_many_required"`

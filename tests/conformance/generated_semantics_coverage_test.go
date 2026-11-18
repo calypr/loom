@@ -1,15 +1,12 @@
 package compilerfixture
 
 import (
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"testing"
 
+	generated "github.com/calypr/loom/fhir/schema"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
@@ -71,67 +68,24 @@ func TestPublicCompilerRejectsUnadvertisedRootBeforeRenderingAQL(t *testing.T) {
 	}
 }
 
-type graphSchemaDocument struct {
-	Definitions map[string]struct {
-		Links []struct {
-			Relation string `json:"rel"`
-			Target   struct {
-				Reference string `json:"$ref"`
-			} `json:"targetSchema"`
-		} `json:"links"`
-	} `json:"$defs"`
-}
-
 func loadGeneratedBuilderTraversals(t *testing.T) []fhirschema.CompilerTraversal {
 	t.Helper()
-	path := filepath.Join("..", "..", "fhir", "graph-fhir.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read active graph schema %s: %v", path, err)
-	}
-	var document graphSchemaDocument
-	if err := json.Unmarshal(data, &document); err != nil {
-		t.Fatalf("decode active graph schema: %v", err)
-	}
-
-	seen := map[string]fhirschema.CompilerTraversal{}
-	for childType, definition := range document.Definitions {
-		if !fhirschema.HasResource(childType) {
-			continue
-		}
-		for _, link := range definition.Links {
-			parentType := referenceName(link.Target.Reference)
-			if !fhirschema.HasResource(parentType) {
-				continue
-			}
-			traversal, found, err := fhirschema.ResolveCompilerTraversal(parentType, link.Relation, childType)
-			if err != nil {
-				t.Fatalf("normalize generated builder traversal %s -> %s (%s): %v", parentType, childType, link.Relation, err)
-			}
-			if !found {
-				t.Fatalf("generated builder traversal missing from compiler API: %s -> %s (%s)", parentType, childType, link.Relation)
-			}
-			key := fmt.Sprintf("%s\x00%s\x00%s", traversal.FromType, traversal.EdgeLabel, traversal.ToType)
-			seen[key] = traversal
-		}
-	}
-	keys := make([]string, 0, len(seen))
-	for key := range seen {
+	keys := make([]string, 0, len(generated.Traversals))
+	for key := range generated.Traversals {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
+
 	out := make([]fhirschema.CompilerTraversal, 0, len(keys))
 	for _, key := range keys {
-		out = append(out, seen[key])
+		definition := generated.Traversals[key]
+		traversal, found, err := fhirschema.ResolveCompilerTraversal(definition.FromType, definition.EdgeLabel, definition.ToType)
+		if err != nil || !found {
+			t.Fatalf("resolve generated compiler traversal %s: found = %t, err = %v", key, found, err)
+		}
+		out = append(out, traversal)
 	}
 	return out
-}
-
-func referenceName(reference string) string {
-	if index := strings.LastIndex(reference, "/"); index >= 0 {
-		return reference[index+1:]
-	}
-	return reference
 }
 
 var collectionIteration = regexp.MustCompile(`(?m)^FOR\s+[A-Za-z_][A-Za-z0-9_]*\s+IN\s+([A-Za-z_][A-Za-z0-9_]*)\s*$`)

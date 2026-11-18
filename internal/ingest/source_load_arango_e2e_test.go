@@ -38,7 +38,7 @@ func TestRepositorySourceLoaderArangoResumeCopyAndEmptyReplacement(t *testing.T)
 	const repository = "https://github.com/example/clinical-data"
 	const commit = "0123456789abcdef0123456789abcdef01234567"
 	loader, err := NewRepositorySourceLoader(SourceLoadPublisherConfig{
-		Client: client, DatasetStore: datasets, SchemaPath: repoPath(t, "fhir", "graph-fhir.json"),
+		Client: client, DatasetStore: datasets,
 		BatchSize: 2, WriteAPI: "import",
 		MaterializeAndSelect: func(ctx context.Context, project, generation, operationID, gitCommit string, expectedRevision int64) (string, int64, error) {
 			release := publication.ProjectRelease{
@@ -115,8 +115,8 @@ RETURN {document: doc}`
 		t.Fatalf("active generation = %q, want %q", initialActive.Release.Generation, status.Generation)
 	}
 	initialEdges := sourceLoadEdges(t, ctx, client, project, initialActive.Release.Generation)
-	if len(initialEdges) != 6 {
-		t.Fatalf("initial Patient edge count = %d, want six edges across three rows", len(initialEdges))
+	if len(initialEdges) != 3 {
+		t.Fatalf("initial Patient edge count = %d, want one forward edge per Patient", len(initialEdges))
 	}
 	for _, edge := range initialEdges {
 		if edge.SourceFile != "Patient" {
@@ -169,8 +169,8 @@ RETURN {document: doc}`
 		t.Fatal(err)
 	}
 	repairedEdges := sourceLoadEdges(t, ctx, client, project, repairedActive.Release.Generation)
-	if len(repairedEdges) != 6 {
-		t.Fatalf("copied Patient edge count = %d, want 6", len(repairedEdges))
+	if len(repairedEdges) != 3 {
+		t.Fatalf("copied Patient edge count = %d, want 3", len(repairedEdges))
 	}
 	organizationKey := "Organization/" + generationDocumentKey(project, repairedActive.Release.Generation, "Organization", SanitizeKey("org-1"))
 	patientKeys := map[string]bool{}
@@ -181,7 +181,7 @@ RETURN {document: doc}`
 		if edge.SourceFile != "Patient" {
 			t.Fatalf("copied edge owner = %q, want Patient", edge.SourceFile)
 		}
-		if !(patientKeys[edge.From] && edge.To == organizationKey || edge.From == organizationKey && patientKeys[edge.To]) {
+		if !patientKeys[edge.From] || edge.To != organizationKey {
 			t.Fatalf("copied edge endpoints = (%q,%q), want candidate Patient/Organization endpoints", edge.From, edge.To)
 		}
 	}

@@ -2,26 +2,10 @@ package ingest
 
 import (
 	"encoding/json"
-	"maps"
 	"time"
 
-	"github.com/bmeg/jsonschema/v6"
-	"github.com/bmeg/jsonschemagraph/graph"
-	"github.com/bmeg/jsonschemagraph/util"
 	"github.com/bytedance/sonic"
 )
-
-func graphObjectID(payload map[string]any, class *jsonschema.Schema) (string, error) {
-	return util.GetObjectID(payload, class)
-}
-
-func graphExtraArgs(project, authResourcePath string) map[string]any {
-	extraArgs := map[string]any{"project_id": project}
-	if authResourcePath != "" {
-		extraArgs["auth_resource_path"] = authResourcePath
-	}
-	return extraArgs
-}
 
 type rowErrorType string
 
@@ -91,96 +75,4 @@ func edgeWithAuthResourcePath(edge json.RawMessage, authResourcePath string) (js
 		return nil, err
 	}
 	return json.RawMessage(out), nil
-}
-
-type GenericRowBuilder struct {
-	project   string
-	class     *jsonschema.Schema
-	schema    *graph.GraphSchema
-	extraArgs map[string]any
-}
-
-func NewGenericRowBuilder(project string, class *jsonschema.Schema, schema *graph.GraphSchema, extraArgs map[string]any) *GenericRowBuilder {
-	return &GenericRowBuilder{
-		project:   project,
-		class:     class,
-		schema:    schema,
-		extraArgs: extraArgs,
-	}
-}
-
-func (b *GenericRowBuilder) Build(resourceType string, line []byte, stageSeconds map[string]float64) (rowBuildResult, rowErrorType, error) {
-
-	extraArgs := maps.Clone(b.extraArgs)
-
-	var payload map[string]any
-	decodeStart := time.Now()
-	if err := sonic.ConfigFastest.Unmarshal(line, &payload); err != nil {
-		stageSeconds["decode"] += time.Since(decodeStart).Seconds()
-		return rowBuildResult{}, rowErrorValidation, err
-	}
-	stageSeconds["decode"] += time.Since(decodeStart).Seconds()
-
-	validateStart := time.Now()
-	if err := b.class.ValidateFast(payload); err != nil {
-		stageSeconds["validate"] += time.Since(validateStart).Seconds()
-		return rowBuildResult{}, rowErrorValidation, err
-	}
-	stageSeconds["validate"] += time.Since(validateStart).Seconds()
-	payload["project_id"] = b.project
-
-	vertexStart := time.Now()
-	vDoc, err := VertexFromFHIRWithExtra(b.project, resourceType, payload, extraArgs)
-	stageSeconds["vertex_build"] += time.Since(vertexStart).Seconds()
-	if err != nil {
-		return rowBuildResult{}, rowErrorValidation, err
-	}
-
-	edgeStart := time.Now()
-	objectIDStart := time.Now()
-	objectID, err := graphObjectID(payload, b.class)
-	stageSeconds["object_id"] += time.Since(objectIDStart).Seconds()
-	if err != nil {
-		return rowBuildResult{}, rowErrorGeneration, err
-	}
-	gripEdges, err := b.schema.BuildEdgesWithID(resourceType, objectID, payload, extraArgs, true)
-	stageSeconds["edge_generation"] += time.Since(edgeStart).Seconds()
-	if err != nil {
-		return rowBuildResult{}, rowErrorGeneration, err
-	}
-
-	convertedEdges := make([]json.RawMessage, 0, len(gripEdges))
-	authResourcePath, _ := b.extraArgs["auth_resource_path"].(string)
-	for _, generatedEdge := range gripEdges {
-		edge, err := EdgeFromGrip(b.project, resourceType, generatedEdge)
-		if err != nil {
-			return rowBuildResult{}, rowErrorEdge, err
-		}
-		marshalStart := time.Now()
-		eBytes, err := sonic.ConfigFastest.Marshal(&edge)
-		stageSeconds["edge_marshal"] += time.Since(marshalStart).Seconds()
-		if err != nil {
-			return rowBuildResult{}, rowErrorEdge, err
-		}
-		if authResourcePath != "" {
-			eBytes, err = edgeWithAuthResourcePath(eBytes, authResourcePath)
-			if err != nil {
-				return rowBuildResult{}, rowErrorEdge, err
-			}
-		}
-		convertedEdges = append(convertedEdges, json.RawMessage(eBytes))
-	}
-
-	marshalStart := time.Now()
-	vBytes, err := sonic.ConfigFastest.Marshal(&vDoc)
-	stageSeconds["vertex_marshal"] += time.Since(marshalStart).Seconds()
-	if err != nil {
-		return rowBuildResult{}, rowErrorValidation, err
-	}
-
-	return rowBuildResult{
-		vertex:  json.RawMessage(vBytes),
-		edges:   convertedEdges,
-		payload: payload,
-	}, "", nil
 }

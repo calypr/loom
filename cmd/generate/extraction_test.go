@@ -8,7 +8,7 @@ import (
 )
 
 func TestGenerateExtractUsesRuntimeConcreteReferenceType(t *testing.T) {
-	schema := loadCheckedInGraphFHIRSchema(t)
+	schema := loadOfficialFHIRSchema(t)
 	generatedPath := filepath.Join(t.TempDir(), "extract.go")
 	if err := generateExtract(schema, generatedPath); err != nil {
 		t.Fatalf("generate FHIR edge extractor: %v", err)
@@ -33,8 +33,11 @@ func TestGenerateExtractUsesRuntimeConcreteReferenceType(t *testing.T) {
 	if !strings.Contains(section, `collectionID(refType, targetID)`) {
 		t.Fatalf("generated extractor does not use the concrete runtime target type:\n%s", section)
 	}
-	if !strings.Contains(section, `seen[backrefKey] = struct{}{}`) {
-		t.Fatalf("generated extractor does not deduplicate repeated backreferences:\n%s", section)
+	if !strings.Contains(section, `getEdgeUUID(sourceType, id, refType, targetID,`) {
+		t.Fatalf("generated edge key omits a typed endpoint:\n%s", section)
+	}
+	if strings.Contains(section, "backrefKey") {
+		t.Fatalf("generated extractor creates an inferred reverse edge:\n%s", section)
 	}
 	if strings.Contains(section, `collectionID("study", targetID)`) || strings.Contains(section, `collectionID("ResearchStudy", targetID)`) {
 		t.Fatalf("ResearchSubject.study forward edge still hard-codes a label-derived target collection:\n%s", section)
@@ -42,7 +45,7 @@ func TestGenerateExtractUsesRuntimeConcreteReferenceType(t *testing.T) {
 }
 
 func TestGenerateExtractEmitsOnlyConcreteRootLoaders(t *testing.T) {
-	schema := loadCheckedInGraphFHIRSchema(t)
+	schema := loadOfficialFHIRSchema(t)
 	generatedPath := filepath.Join(t.TempDir(), "extract.go")
 	if err := generateExtract(schema, generatedPath); err != nil {
 		t.Fatalf("generate FHIR edge extractor: %v", err)

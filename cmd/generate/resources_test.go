@@ -9,7 +9,7 @@ import (
 )
 
 func TestFHIRResourceRegistryMatchesCheckedInFile(t *testing.T) {
-	schema := loadCheckedInGraphFHIRSchema(t)
+	schema := loadOfficialFHIRSchema(t)
 	dir := t.TempDir()
 	resourcesPath := filepath.Join(dir, "resources.go")
 	if err := generateFHIRResources(schema, resourcesPath); err != nil {
@@ -29,7 +29,7 @@ func TestFHIRResourceRegistryMatchesCheckedInFile(t *testing.T) {
 }
 
 func TestFHIRResourceRegistryHasEveryConcreteRoot(t *testing.T) {
-	schema := loadCheckedInGraphFHIRSchema(t)
+	schema := loadOfficialFHIRSchema(t)
 	dir := t.TempDir()
 	resourcesPath := filepath.Join(dir, "resources.go")
 	if err := generateFHIRResources(schema, resourcesPath); err != nil {

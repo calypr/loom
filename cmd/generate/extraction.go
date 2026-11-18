@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 )
 
@@ -23,7 +22,12 @@ func generateExtract(schema *Schema, path string) error {
 	sb.WriteString("\t\"sync\"\n")
 	sb.WriteString("\t\"github.com/google/uuid\"\n")
 	sb.WriteString("\t\"github.com/bytedance/sonic\"\n")
-	sb.WriteString("\tfhirschema \"github.com/calypr/loom/internal/fhir/schema\"\n")
+	for _, root := range schemaFHIRRootResourceTypes(schema) {
+		if len(schema.Defs[root].Links) != 0 {
+			sb.WriteString("\tfhirschema \"github.com/calypr/loom/internal/fhir/schema\"\n")
+			break
+		}
+	}
 	sb.WriteString(")\n\n")
 
 	sb.WriteString(`// EdgeDocument represents an edge in ArangoDB.
@@ -88,14 +92,18 @@ func fastUUIDSHA1(space uuid.UUID, data []byte) string {
 	return string(buf[:])
 }
 
-func getEdgeUUID(a, b, c string) string {
+func getEdgeUUID(sourceType, sourceID, targetType, targetID, label string) string {
 	buf := bufferPool.Get().(*bytes.Buffer)
 	buf.Reset()
-	buf.WriteString(a)
-	buf.WriteByte('-')
-	buf.WriteString(b)
-	buf.WriteByte('-')
-	buf.WriteString(c)
+	buf.WriteString(sourceType)
+	buf.WriteByte(0)
+	buf.WriteString(sourceID)
+	buf.WriteByte(0)
+	buf.WriteString(targetType)
+	buf.WriteByte(0)
+	buf.WriteString(targetID)
+	buf.WriteByte(0)
+	buf.WriteString(label)
 	uuidStr := fastUUIDSHA1(namespaceUUID, buf.Bytes())
 	bufferPool.Put(buf)
 	return uuidStr
@@ -181,22 +189,9 @@ func buildEdgeRawJSON(key, from, to, label, projectJSON, fromType, toType string
 
 `)
 
-	var keys []string
-	for k := range schema.Defs {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	supportedResources := []string{}
-
-	for _, k := range keys {
+	supportedResources := schemaFHIRRootResourceTypes(schema)
+	for _, k := range supportedResources {
 		def := schema.Defs[k]
-
-		if !isFHIRRootResourceDefinition(k, def) {
-			continue
-		}
-
-		supportedResources = append(supportedResources, k)
 
 		sb.WriteString(fmt.Sprintf("// ExtractEdges extracts graph links from %s.\n", k))
 		sb.WriteString(fmt.Sprintf("func (x *%s) ExtractEdges(project string) ([]json.RawMessage, error) {\n", k))
@@ -288,7 +283,7 @@ func generateTraversalCode(schema *Schema, structName string, path []string, var
 			bodyIndent += "\t"
 		}
 
-		sb.WriteString(fmt.Sprintf("%sforwardKey := getEdgeUUID(targetID, id, %q)\n", bodyIndent, link.Rel))
+		sb.WriteString(fmt.Sprintf("%sforwardKey := getEdgeUUID(sourceType, id, refType, targetID, %q)\n", bodyIndent, link.Rel))
 		sb.WriteString(fmt.Sprintf("%sif seen == nil {\n", bodyIndent))
 		sb.WriteString(fmt.Sprintf("%s\tseen = make(map[string]struct{}, 4)\n", bodyIndent))
 		sb.WriteString(fmt.Sprintf("%s}\n", bodyIndent))
@@ -304,26 +299,6 @@ func generateTraversalCode(schema *Schema, structName string, path []string, var
 		sb.WriteString(fmt.Sprintf("%s\t\trefType,\n", bodyIndent))
 		sb.WriteString(fmt.Sprintf("%s\t))\n", bodyIndent))
 		sb.WriteString(fmt.Sprintf("%s}\n", bodyIndent))
-
-		if len(link.TargetHints.Backref) > 0 && link.TargetHints.Backref[0] != "" {
-			backref := link.TargetHints.Backref[0]
-			sb.WriteString(fmt.Sprintf("%sbackrefKey := getEdgeUUID(id, targetID, %q)\n", bodyIndent, backref))
-			sb.WriteString(fmt.Sprintf("%sif seen == nil {\n", bodyIndent))
-			sb.WriteString(fmt.Sprintf("%s\tseen = make(map[string]struct{}, 4)\n", bodyIndent))
-			sb.WriteString(fmt.Sprintf("%s}\n", bodyIndent))
-			sb.WriteString(fmt.Sprintf("%sif _, exists := seen[backrefKey]; !exists {\n", bodyIndent))
-			sb.WriteString(fmt.Sprintf("%s\tseen[backrefKey] = struct{}{}\n", bodyIndent))
-			sb.WriteString(fmt.Sprintf("%s\tedges = append(edges, buildEdgeRawJSON(\n", bodyIndent))
-			sb.WriteString(fmt.Sprintf("%s\t\tbackrefKey,\n", bodyIndent))
-			sb.WriteString(fmt.Sprintf("%s\t\tcollectionID(refType, targetID),\n", bodyIndent))
-			sb.WriteString(fmt.Sprintf("%s\t\tcollectionID(sourceType, id),\n", bodyIndent))
-			sb.WriteString(fmt.Sprintf("%s\t\t%q,\n", bodyIndent, backref))
-			sb.WriteString(fmt.Sprintf("%s\t\tprojectJSON,\n", bodyIndent))
-			sb.WriteString(fmt.Sprintf("%s\t\trefType,\n", bodyIndent))
-			sb.WriteString(fmt.Sprintf("%s\t\tsourceType,\n", bodyIndent))
-			sb.WriteString(fmt.Sprintf("%s\t))\n", bodyIndent))
-			sb.WriteString(fmt.Sprintf("%s}\n", bodyIndent))
-		}
 
 		if !allowAnyMatch && matchPrefix != "" {
 			bodyIndent = bodyIndent[:len(bodyIndent)-1]

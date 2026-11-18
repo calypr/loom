@@ -116,7 +116,7 @@ func (p *RepositorySourceLoader) Begin(ctx context.Context, project, operationID
 	if err != nil {
 		return SourceLoadStatus{}, err
 	}
-	schemaIdentity, err := loadSchemaSnapshot(p.schemaPath)
+	schemaIdentity, err := loadSchemaSnapshot()
 	if err != nil {
 		return SourceLoadStatus{}, err
 	}
@@ -403,7 +403,7 @@ func (p *RepositorySourceLoader) ensureSourceLoadCandidate(ctx context.Context, 
 	workCtx, stopLease := p.renewCandidateCopyLease(ctx, record.Key, owner)
 	defer stopLease()
 
-	schemaIdentity, err := loadSchemaSnapshot(p.schemaPath)
+	schemaIdentity, err := loadSchemaSnapshot()
 	if err != nil {
 		return err
 	}

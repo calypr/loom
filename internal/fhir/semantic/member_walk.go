@@ -266,7 +266,7 @@ func walkMemberScope(
 	sort.Strings(requiredOrder)
 	for _, name := range requiredOrder {
 		value, ok := object[name]
-		if ok && !isNull(value) {
+		if ok && !isNull(value) || !ok && depth == 0 && name == "resourceType" {
 			continue
 		}
 		canonicalPath := joinPath(canonicalPrefix, name)
@@ -350,7 +350,7 @@ func visitMemberValue(
 		fact := memberFact(root, declaringType, element.ReferencedType(), memberPath, ownerPath, repeated, metadata, value)
 		fact.ResourceBoundaries = cloneResourceBoundaries(resources)
 		referencedType := element.ReferencedType()
-		if !fact.Null && referencedType == "Resource" && state.options.allowedResourceTypes != nil {
+		if !fact.Null && resourceUnion(referencedType) && state.options.allowedResourceTypes != nil {
 			selectedType, boundary, resolved, err := resolveResourceType(index, value, memberPath, ownerPath, state.options.allowedResourceTypes)
 			if err != nil {
 				return err
@@ -403,7 +403,7 @@ func visitMemberValue(
 		fact.ItemIndex = &indexCopy
 		fact.ResourceBoundaries = cloneResourceBoundaries(resources)
 		itemType := element.ArrayElementType()
-		if !fact.Null && itemType == "Resource" && state.options.allowedResourceTypes != nil {
+		if !fact.Null && resourceUnion(itemType) && state.options.allowedResourceTypes != nil {
 			selectedType, boundary, resolved, err := resolveResourceType(index, item, canonicalPath, itemOwnerPath, state.options.allowedResourceTypes)
 			if err != nil {
 				return err
@@ -430,6 +430,10 @@ func visitMemberValue(
 		}
 	}
 	return nil
+}
+
+func resourceUnion(name schema.DefinitionName) bool {
+	return name == "ResourceList" || name == "Resource"
 }
 
 func walkObjectMembers(

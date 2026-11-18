@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bmeg/jsonschemagraph/graph"
 	"github.com/calypr/loom/internal/catalog"
 	publication "github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -111,7 +110,6 @@ func TestGenerationLoadPreflightRunsBeforeOptionRejectionOrBackend(t *testing.T)
 	}
 	var events []string
 	summary, err := Load(context.Background(), LoadOptions{
-		Schema:   repoPath(t, "fhir", "graph-fhir.json"),
 		MetaDir:  dir,
 		Project:  ref.Project,
 		Dataset:  &ref,
@@ -146,7 +144,6 @@ func TestGenerationLoadEmptyDirectoryDoesNotOpenBackend(t *testing.T) {
 	}
 	var events []string
 	summary, err := Load(context.Background(), LoadOptions{
-		Schema:  repoPath(t, "fhir", "graph-fhir.json"),
 		MetaDir: dir,
 		Project: ref.Project,
 		Dataset: &ref,
@@ -341,10 +338,7 @@ func TestSelectGenerationRowErrorSamplesEdges(t *testing.T) {
 }
 
 func TestGenerationRowErrorSamplesCoverEveryFailingStagedFile(t *testing.T) {
-	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := loadRuntimeFHIRSchema()
 	dir := t.TempDir()
 	invalid := "{\n"
 
@@ -427,10 +421,7 @@ func TestGenerationRowErrorSamplesCoverEveryFailingStagedFile(t *testing.T) {
 }
 
 func TestGenerationRowErrorSamplesLeaveCleanLoadWithoutSamples(t *testing.T) {
-	schema, err := graph.Load(repoPath(t, "fhir", "graph-fhir.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := loadRuntimeFHIRSchema()
 	dir := t.TempDir()
 	writePreflightFixture(t, dir, "Patient.ndjson", `{"resourceType":"Patient","id":"patient-1"}`+"\n")
 	writePreflightFixture(t, dir, "Practitioner.ndjson", `{"resourceType":"Practitioner","id":"practitioner-1"}`+"\n")
@@ -477,7 +468,7 @@ func TestSortedGenerationCatalogKeysKeepFullIdentityDistinct(t *testing.T) {
 
 func loadGenerationSchemaIdentity(t *testing.T) publication.SchemaSnapshot {
 	t.Helper()
-	identity, err := loadSchemaSnapshot(repoPath(t, "fhir", "graph-fhir.json"))
+	identity, err := loadSchemaSnapshot()
 	if err != nil {
 		t.Fatalf("load schema identity: %v", err)
 	}
