@@ -4,8 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+
+	recipeapi "github.com/calypr/loom/internal/api/recipe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+
+	"strings"
+	"testing"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
@@ -13,8 +19,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/explorer/recipeimport"
-	"strings"
-	"testing"
 )
 
 func TestImportedRelationshipAddMatchRemoveRoundTripPreservesPin(t *testing.T) {
@@ -28,7 +32,7 @@ func TestImportedRelationshipAddMatchRemoveRoundTripPreservesPin(t *testing.T) {
 	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry: registry, ScopeDigest: recipeScopeDigest,
-		ResolveBundle: recipeSchemaResolver(func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+		ResolveBundle: recipeapi.RecipeSchemaResolver(func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 			if options.ResourceType != "Patient" {
 				return nil, nil
 			}

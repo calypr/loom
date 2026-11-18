@@ -1,4 +1,4 @@
-package server
+package explorer
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 )
 
 func TestLocalWorkspaceWriterIsOptInAndAtomic(t *testing.T) {
-	if writer, err := localWorkspaceWriter("", ""); err != nil || writer != nil {
+	if writer, err := LocalWorkspaceWriter("", ""); err != nil || writer != nil {
 		t.Fatalf("disabled writer should be nil; error = %v", err)
 	}
 	directory := t.TempDir()
@@ -16,7 +16,7 @@ func TestLocalWorkspaceWriterIsOptInAndAtomic(t *testing.T) {
 	if err := os.WriteFile(path, []byte("old\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	writer, err := localWorkspaceWriter(path, "HTAN_INT/BForePC")
+	writer, err := LocalWorkspaceWriter(path, "HTAN_INT/BForePC")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,15 +38,15 @@ func TestLocalWorkspaceWriterIsOptInAndAtomic(t *testing.T) {
 
 func TestLocalWorkspaceWriterRequiresExactAbsoluteJSONPath(t *testing.T) {
 	for _, path := range []string{"relative.json", filepath.Join(t.TempDir(), "workspace.txt"), filepath.Join(t.TempDir(), "missing", "workspace.json")} {
-		if _, err := localWorkspaceWriter(path, "project-a"); err == nil {
-			t.Fatalf("localWorkspaceWriter(%q) unexpectedly succeeded", path)
+		if _, err := LocalWorkspaceWriter(path, "project-a"); err == nil {
+			t.Fatalf("LocalWorkspaceWriter(%q) unexpectedly succeeded", path)
 		}
 	}
 }
 
 func TestLocalWorkspaceWriterRejectsAnotherProject(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "workspace.json")
-	writer, err := localWorkspaceWriter(path, "HTAN_INT/BForePC")
+	writer, err := LocalWorkspaceWriter(path, "HTAN_INT/BForePC")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestLocalWorkspaceWriterRejectsNonDefaultExplorerWithoutChangingFile(t *tes
 	if err := os.WriteFile(path, original, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	writer, err := localWorkspaceWriter(path, "project-a")
+	writer, err := LocalWorkspaceWriter(path, "project-a")
 	if err != nil {
 		t.Fatal(err)
 	}

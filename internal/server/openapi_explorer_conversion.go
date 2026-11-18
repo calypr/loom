@@ -1,9 +1,6 @@
 package server
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
 	"strings"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
@@ -11,19 +8,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 )
-
-func decodeStrict(raw []byte, value any) error {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(value); err != nil {
-		return err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err == nil {
-		return fmt.Errorf("multiple JSON values")
-	}
-	return nil
-}
 
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {

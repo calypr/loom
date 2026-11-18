@@ -4,7 +4,10 @@ import (
 	"context"
 	"time"
 
+	explorer "github.com/calypr/loom/internal/explorer"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -17,7 +20,7 @@ func (h *explorerHTTPHandlers) proposeConstructionChoiceDirect(ctx context.Conte
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("construction-choice-proposal", nil)
+		return result, explorer.MalformedRouteError("construction-choice-proposal", nil)
 	}
 	choices := make([]lifecycle.ConstructionChoiceProposalSelection, len(body.ConstructionChoices))
 	for index, choice := range body.ConstructionChoices {
@@ -51,7 +54,7 @@ func (h *explorerHTTPHandlers) proposeConstructionChoiceDirect(ctx context.Conte
 		return result, err
 	}
 	if value.PreviewReceiptID == "" || value.CandidateWorkspaceDigest == "" || len(value.CandidateColumnIDs) != len(value.ConstructionChoices) {
-		return result, malformedRouteError("construction-choice-proposal", nil)
+		return result, explorer.MalformedRouteError("construction-choice-proposal", nil)
 	}
 	limit := dataframeexecution.DefaultPreviewLimit
 	if body.Limit != nil {

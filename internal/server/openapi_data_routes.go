@@ -2,10 +2,7 @@ package server
 
 import (
 	"context"
-	"encoding/json"
-	"log/slog"
 	"net/http"
-	"time"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
@@ -15,7 +12,7 @@ import (
 
 func (r *HTTPRoutes) GetHealth(ctx context.Context, _ loomapi.GetHealthRequestObject) (loomapi.GetHealthResponseObject, error) {
 	body, status := r.server.Health(ctx)
-	value, err := rawJSON(body)
+	value, err := httpapi.RawJSON(body)
 	if err != nil {
 		return nil, err
 	}
@@ -25,24 +22,24 @@ func (r *HTTPRoutes) GetHealth(ctx context.Context, _ loomapi.GetHealthRequestOb
 	if status == http.StatusServiceUnavailable {
 		return loomapi.NewGetHealthErrorResponse(status, value)
 	}
-	return nil, unexpectedResponseStatus("getHealth", status)
+	return nil, httpapi.UnexpectedResponseStatus("getHealth", status)
 }
 
 func (r *HTTPRoutes) GetLiveness(ctx context.Context, _ loomapi.GetLivenessRequestObject) (loomapi.GetLivenessResponseObject, error) {
 	body, status := r.server.Liveness(ctx)
-	value, err := rawJSON(body)
+	value, err := httpapi.RawJSON(body)
 	if err != nil {
 		return nil, err
 	}
 	if status != http.StatusOK {
-		return nil, unexpectedResponseStatus("getLiveness", status)
+		return nil, httpapi.UnexpectedResponseStatus("getLiveness", status)
 	}
 	return loomapi.GetLiveness200JSONResponse(value), nil
 }
 
 func (r *HTTPRoutes) GetReadiness(ctx context.Context, _ loomapi.GetReadinessRequestObject) (loomapi.GetReadinessResponseObject, error) {
 	body, status := r.server.Readiness(ctx)
-	value, err := rawJSON(body)
+	value, err := httpapi.RawJSON(body)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +49,7 @@ func (r *HTTPRoutes) GetReadiness(ctx context.Context, _ loomapi.GetReadinessReq
 	if status == http.StatusServiceUnavailable {
 		return loomapi.NewGetReadinessErrorResponse(status, value)
 	}
-	return nil, unexpectedResponseStatus("getReadiness", status)
+	return nil, httpapi.UnexpectedResponseStatus("getReadiness", status)
 }
 
 func (r *HTTPRoutes) GetDatasetGenerationStatus(ctx context.Context, request loomapi.GetDatasetGenerationStatusRequestObject) (loomapi.GetDatasetGenerationStatusResponseObject, error) {
@@ -61,7 +58,7 @@ func (r *HTTPRoutes) GetDatasetGenerationStatus(ctx context.Context, request loo
 	if err == nil {
 		return loomapi.GetDatasetGenerationStatus200JSONResponse(generationStatusResponse(result)), nil
 	}
-	status, body := mapServiceError(err, ctx)
+	status, body := httpapi.MapServiceError(err, ctx)
 	return loomapi.NewGetDatasetGenerationStatusErrorResponse(status, body)
 }
 
@@ -69,13 +66,13 @@ func (r *HTTPRoutes) CreateDatasetGeneration(ctx context.Context, request loomap
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	result, err := r.load.CreateDatasetGeneration(ctx, request.Project, request.Generation, request.Body, principal)
 	if err == nil {
-		value, conversionErr := rawJSON(result)
+		value, conversionErr := httpapi.RawJSON(result)
 		if conversionErr != nil {
 			return nil, conversionErr
 		}
 		return loomapi.CreateDatasetGeneration200JSONResponse(value), nil
 	}
-	status, body := mapServiceError(err, ctx)
+	status, body := httpapi.MapServiceError(err, ctx)
 	return loomapi.NewCreateDatasetGenerationErrorResponse(status, body)
 }
 
@@ -85,7 +82,7 @@ func (r *HTTPRoutes) ActivateDatasetGeneration(ctx context.Context, request loom
 	if err == nil {
 		return loomapi.ActivateDatasetGeneration200JSONResponse(generationActivationResponse(result)), nil
 	}
-	status, body := mapServiceError(err, ctx)
+	status, body := httpapi.MapServiceError(err, ctx)
 	return loomapi.NewActivateDatasetGenerationErrorResponse(status, body)
 }
 
@@ -120,31 +117,4 @@ func generationActivationResponse(result *loadapi.GenerationActivationResult) lo
 		DataframeExecutionId: result.DataframeExecutionID,
 		Activated:            result.Activated,
 	}
-}
-
-func mapServiceError(err error, ctx context.Context) (int, loomapi.ServiceErrorResponse) {
-	mapped := httpapi.MapDataframeError(err, httpapi.RequestIDFromContext(ctx))
-	if mapped.Status >= http.StatusInternalServerError {
-		logServerDiagnostic(slog.Default(), slog.LevelError, "data request failed",
-			httpapi.RequestIDFromContext(ctx), "response", time.Duration(0), err)
-	}
-	return mapped.Status, serviceErrorResponse(mapped.Body)
-}
-
-func rawJSON(value any) (loomapi.RawJSON, error) {
-	if value == nil {
-		return loomapi.RawJSON{}, nil
-	}
-	if raw, ok := value.(loomapi.RawJSON); ok {
-		return raw, nil
-	}
-	payload, err := json.Marshal(value)
-	if err != nil {
-		return nil, err
-	}
-	var result loomapi.RawJSON
-	if err := json.Unmarshal(payload, &result); err != nil {
-		return nil, err
-	}
-	return result, nil
 }

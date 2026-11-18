@@ -17,10 +17,10 @@ func (h *explorerHTTPHandlers) prepareArtifactDirect(ctx context.Context, projec
 		return response, err
 	}
 	if h == nil || h.application == nil {
-		return response, explorerUnavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact export is not configured")
+		return response, explorer.ExplorerUnavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact export is not configured")
 	}
 	if body == nil {
-		return response, malformedRouteError("artifact", errors.New("request body is required"))
+		return response, explorer.MalformedRouteError("artifact", errors.New("request body is required"))
 	}
 	result, err := h.application.PrepareArtifact(ctx, lifecycle.ArtifactRequest{
 		Project: project, ExplorerID: explorerID, RevisionID: body.RevisionId,
@@ -30,7 +30,7 @@ func (h *explorerHTTPHandlers) prepareArtifactDirect(ctx context.Context, projec
 		return response, err
 	}
 	if result.Record == nil || result.Record.State != explorer.ArtifactComplete || result.Record.CompletedAt == nil {
-		return response, explorerUnavailable("artifact", "ARTIFACT_NOT_COMPLETE", "artifact preparation did not produce a complete archive")
+		return response, explorer.ExplorerUnavailable("artifact", "ARTIFACT_NOT_COMPLETE", "artifact preparation did not produce a complete archive")
 	}
 	return directAuthoringJSON[loomapi.Artifact](*result.Record)
 }
@@ -41,7 +41,7 @@ func (h *explorerHTTPHandlers) openArtifactDirect(ctx context.Context, project, 
 		return response, err
 	}
 	if h == nil || h.application == nil {
-		return response, explorerUnavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact export is not configured")
+		return response, explorer.ExplorerUnavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact export is not configured")
 	}
 	reader, record, err := h.application.OpenArtifact(ctx, lifecycle.ArtifactOpenRequest{Project: project, ExplorerID: explorerID, ArtifactID: artifactID})
 	if err != nil {
@@ -51,7 +51,7 @@ func (h *explorerHTTPHandlers) openArtifactDirect(ctx context.Context, project, 
 		if reader != nil {
 			_ = reader.Close()
 		}
-		return response, explorerUnavailable("artifact", "ARTIFACT_NOT_COMPLETE", "artifact is not complete")
+		return response, explorer.ExplorerUnavailable("artifact", "ARTIFACT_NOT_COMPLETE", "artifact is not complete")
 	}
 	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": record.Filename})
 	digest := record.ArchiveSHA256

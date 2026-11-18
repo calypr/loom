@@ -1,55 +1,72 @@
 package server
 
 import (
+	"net/http"
+
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+
+	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
+
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
-	"regexp"
 	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 
-	shared "github.com/arangodb/go-driver/v2/arangodb/shared"
+	recipeapi "github.com/calypr/loom/internal/api/recipe"
+
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
+
 	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
+
 	queryapi "github.com/calypr/loom/internal/api/dataframe/query"
+
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
-	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
+
 	chartifactarango "github.com/calypr/loom/internal/dataframe/execution/chartifact/arango"
+
 	publication "github.com/calypr/loom/internal/dataframe/publication"
+
 	bundlearango "github.com/calypr/loom/internal/dataframe/publication/arango"
+
 	publicationclickhouse "github.com/calypr/loom/internal/dataframe/publication/clickhouse"
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+
 	recipearango "github.com/calypr/loom/internal/dataframe/recipe/exec/arango"
+
 	publicationcontract "github.com/calypr/loom/internal/dataset"
+
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/explorer"
+
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/explorer/artifactfs"
 	"github.com/calypr/loom/internal/explorer/capability"
-	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
+
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/ingest"
 	"github.com/calypr/loom/internal/projectid"
+
 	arangostore "github.com/calypr/loom/internal/store/arango"
+
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
 
@@ -82,81 +99,8 @@ func recordDegradation(logger *slog.Logger, current error, stage string, cause e
 	return errors.Join(current, fmt.Errorf("%s: %w", stage, cause))
 }
 
-func classifyDataframeQueryError(err error) error {
-	if err == nil {
-		return err
-	}
-	switch {
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTablePivotCellCardinality)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeTablePivotCellCardinality, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTablePivotUnlistedCategory)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeTablePivotUnlistedCategory, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeConstructionRowValueMultipleValues)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeConstructionRowValueMultipleValues, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeConstructionExpansionEmpty)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeConstructionExpansionEmpty, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeExplicitGroupUnassignedMember)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeExplicitGroupUnassignedMember, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeRelationshipCardinalityViolation)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeRelationshipCardinalityViolation, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTemporalAnchorInvalid)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeTemporalAnchorInvalid, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTemporalPrecisionUnsupported)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeTemporalPrecisionUnsupported, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTemporalTieAmbiguous)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeTemporalTieAmbiguous, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeUnitIdentityUnknown)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeUnitIdentityUnknown, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeUnitDimensionIncompatible)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeUnitDimensionIncompatible, "")
-	case arangostore.IsQueryMemoryLimitExceeded(err):
-		return dataframeerrors.Wrap(
-			err,
-			dataframeerrors.CodeQueryMemoryLimitExceeded,
-			"",
-			dataframeerrors.WithDetails(map[string]any{"backend": "arangodb", "resource": "query_memory"}),
-		)
-	case arangostore.IsQueryResourceLimitExceeded(err):
-		return dataframeerrors.Wrap(
-			err,
-			dataframeerrors.CodeQueryResourceLimitExceeded,
-			"",
-			dataframeerrors.WithDetails(map[string]any{"backend": "arangodb", "resource": "query"}),
-		)
-	case arangostore.IsQueryOutOfMemory(err):
-		return dataframeerrors.Wrap(
-			err,
-			dataframeerrors.CodeQueryBackendOutOfMemory,
-			"",
-			dataframeerrors.WithDetails(map[string]any{"backend": "arangodb", "resource": "memory"}),
-		)
-	default:
-		return err
-	}
-}
-
-func configuredAQLQueryRows(logger *slog.Logger, phase string, execute dataframeexecution.QueryRows) dataframeexecution.QueryRows {
-	return func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
-		started := time.Now()
-		digest := sha256.Sum256([]byte(query))
-		queryHash := hex.EncodeToString(digest[:])
-		if logger != nil {
-			logger.Info("dataframe AQL started", "request_id", requestIDFromContext(ctx), "phase", phase+"_start",
-				"query_hash", queryHash, "query_bytes", len(query), "bind_vars", len(bindVars), "cursor_batch_size", batchSize)
-		}
-		err := preserveConfiguredQueryError(execute(ctx, query, batchSize, bindVars, visit))
-		level := slog.LevelInfo
-		if err != nil {
-			level = slog.LevelError
-		}
-		logServerDiagnostic(logger, level, "dataframe AQL execution", requestIDFromContext(ctx), phase, time.Since(started), err,
-			"query_hash", queryHash)
-		return err
-	}
-}
-
 func preserveConfiguredQueryError(err error) error {
-	err = classifyDataframeQueryError(err)
+	err = executionarango.ClassifyDataframeQueryError(err)
 	if err == nil || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
@@ -179,145 +123,6 @@ func preserveConfiguredQueryError(err error) error {
 	return err
 }
 
-func loggedPreviewIndexPreparation(logger *slog.Logger, prepare func(context.Context, compiler.PreviewCoveringIndexSpec) error) func(context.Context, compiler.PreviewCoveringIndexSpec) error {
-	return func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
-		started := time.Now()
-		err := prepare(ctx, spec)
-		level := slog.LevelInfo
-		if err != nil {
-			level = slog.LevelWarn
-		}
-		logServerDiagnostic(logger, level, "dataframe preview index preparation", requestIDFromContext(ctx), "index_prepare", time.Since(started), err,
-			"collection", spec.Collection, "index", spec.Name, "prewarm", spec.PrepareAfterPreview)
-		return err
-	}
-}
-
-func diagnosticErrorAttrs(err error) []any {
-	if err == nil {
-		return []any{"success", true}
-	}
-	attrs := []any{"success", false, "error_type", fmt.Sprintf("%T", err)}
-	if code := diagnosticErrorCode(err); code != "" {
-		attrs = append(attrs, "error_code", code)
-	}
-	attrs = append(attrs, "cause", diagnosticErrorCause(err))
-	return attrs
-}
-
-func diagnosticErrorCause(err error) string {
-	return capDiagnosticCause(redactDiagnosticCause(diagnosticErrorCauseValue(err)))
-}
-
-func diagnosticErrorCauseValue(err error) string {
-	if err == nil {
-		return ""
-	}
-	if _, ok := dataframeerrors.AsUserError(err); ok {
-		return dataframeerrors.PublicMessage(err)
-	}
-	var lifecycleErr *lifecycle.Error
-	if errors.As(err, &lifecycleErr) && lifecycleErr.Message != "" {
-		return lifecycleErr.Message
-	}
-	var authoringErr *explorer.AuthoringError
-	if errors.As(err, &authoringErr) && authoringErr.Diagnostic.Message != "" {
-		return authoringErr.Diagnostic.Message
-	}
-	var compilationErr *explorercompilation.Error
-	if errors.As(err, &compilationErr) && compilationErr.Message != "" {
-		return compilationErr.Message
-	}
-	switch {
-	case errors.Is(err, context.Canceled):
-		return "operation canceled"
-	case errors.Is(err, context.DeadlineExceeded):
-		return "operation deadline exceeded"
-	}
-	var arangoErr shared.ArangoError
-	if errors.As(err, &arangoErr) {
-		return arangoDiagnosticCause(arangoErr)
-	}
-	var arangoErrPointer *shared.ArangoError
-	if errors.As(err, &arangoErrPointer) && arangoErrPointer != nil {
-		return arangoDiagnosticCause(*arangoErrPointer)
-	}
-	return err.Error()
-}
-
-const maxDiagnosticCauseBytes = 256
-
-func capDiagnosticCause(cause string) string {
-	if len(cause) <= maxDiagnosticCauseBytes {
-		return cause
-	}
-	return strings.ToValidUTF8(cause[:maxDiagnosticCauseBytes-3], "") + "..."
-}
-
-func arangoDiagnosticCause(err shared.ArangoError) string {
-	cause := fmt.Sprintf("ArangoDB error number %d (HTTP %d)", err.ErrorNum, err.Code)
-	if err.ErrorMessage != "" {
-		cause += ": " + err.ErrorMessage
-	}
-	return cause
-}
-
-var (
-	diagnosticCredentialAssignment = regexp.MustCompile(`(?i)((?:"|')?(?:authorization|proxy-authorization|access[_ -]?token|refresh[_ -]?token|token|password|secret|api[_ -]?key|apikey|credential)(?:"|')?\s*[:=]\s*)(?:(?:bearer|basic)\s+)?(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)`)
-	diagnosticBearerCredential     = regexp.MustCompile(`(?i)\b(?:bearer|basic)\s+[A-Za-z0-9._~+/-]+=*`)
-	diagnosticURLCredential        = regexp.MustCompile(`(?i)(https?://)[^/\s:@]+:[^/\s@]+@`)
-	diagnosticPayloadAssignment    = regexp.MustCompile(`(?i)\b((?:"|')?(?:query|bind[_ -]?vars?|bind[_ -]?values?|(?:request|response)[_ -]?body|body)(?:"|')?\s*[:=]\s*)`)
-)
-
-func redactDiagnosticCause(cause string) string {
-	cause = diagnosticCredentialAssignment.ReplaceAllString(cause, "${1}[redacted]")
-	cause = diagnosticBearerCredential.ReplaceAllString(cause, "[redacted credential]")
-	cause = diagnosticURLCredential.ReplaceAllString(cause, "${1}[redacted]@")
-	if match := diagnosticPayloadAssignment.FindStringIndex(cause); match != nil {
-		return cause[:match[0]] + cause[match[0]:match[1]] + "[redacted]"
-	}
-	return cause
-}
-
-func diagnosticErrorCode(err error) string {
-	if err == nil {
-		return ""
-	}
-	if userErr, ok := dataframeerrors.AsUserError(err); ok {
-		return userErr.Code()
-	}
-	var lifecycleErr *lifecycle.Error
-	if errors.As(err, &lifecycleErr) {
-		return lifecycleErr.Code
-	}
-	var compilationErr *explorercompilation.Error
-	if errors.As(err, &compilationErr) {
-		return compilationErr.Code
-	}
-	var authoringErr *explorer.AuthoringError
-	if errors.As(err, &authoringErr) {
-		return authoringErr.Diagnostic.Code
-	}
-	switch {
-	case errors.Is(err, context.Canceled):
-		return "CANCELED"
-	case errors.Is(err, context.DeadlineExceeded):
-		return "DEADLINE_EXCEEDED"
-	default:
-		return ""
-	}
-}
-
-func logServerDiagnostic(logger *slog.Logger, level slog.Level, message, requestID, phase string, duration time.Duration, err error, fields ...any) {
-	if logger == nil {
-		return
-	}
-	attrs := []any{"request_id", requestID, "phase", phase, "duration_ms", duration.Milliseconds()}
-	attrs = append(attrs, diagnosticErrorAttrs(err)...)
-	attrs = append(attrs, fields...)
-	logger.Log(context.Background(), level, message, attrs...)
-}
-
 func categoryScanReceiptResolutionError(receiptID string, err error) error {
 	classified := classifyReceiptPreviewResolutionError(receiptID, err)
 	var resolution *receiptPreviewResolutionError
@@ -327,51 +132,26 @@ func categoryScanReceiptResolutionError(receiptID string, err error) error {
 	return classified
 }
 
-const pivotCategoryScanTimeout = 30 * time.Second
-
-type pivotPreviewQueryBudgetContextKey struct{}
-
-func withPivotPreviewQueryBudget(ctx context.Context) context.Context {
-	return context.WithValue(ctx, pivotPreviewQueryBudgetContextKey{}, true)
-}
-
-func previewQueryMaxRuntime(ctx context.Context) time.Duration {
-	if ctx != nil {
-		if extended, _ := ctx.Value(pivotPreviewQueryBudgetContextKey{}).(bool); extended {
-			return pivotCategoryScanTimeout
-		}
-	}
-	return explorerPreviewTimeout
-}
-
-func withPreviewQueryTimeout(query dataframeexecution.QueryRows) dataframeexecution.QueryRows {
-	return func(ctx context.Context, text string, batchSize int, binds map[string]any, visit func(map[string]any) error) error {
-		queryCtx, cancel := context.WithTimeout(ctx, previewQueryMaxRuntime(ctx))
-		defer cancel()
-		return query(queryCtx, text, batchSize, binds, visit)
-	}
-}
-
 func configuredCategoryScanner(logger *slog.Logger, recipeEngine *dataframeexecution.Engine) lifecycle.CategoryScanner {
 	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 
-		scanCtx, cancel := context.WithTimeout(ctx, pivotCategoryScanTimeout)
+		scanCtx, cancel := context.WithTimeout(ctx, executionarango.PivotCategoryScanTimeout)
 		defer cancel()
-		scanCtx = withPivotPreviewQueryBudget(scanCtx)
+		scanCtx = executionarango.WithPivotPreviewQueryBudget(scanCtx)
 		started := time.Now()
 		attrs := []any{"output_id", request.Output, "stage_id", request.StageID, "category_column_id", request.ColumnID, "value_column_id", request.ValueColumnID}
 		if receipt == nil {
 			err := fmt.Errorf("compilation receipt is missing")
-			logServerDiagnostic(logger, slog.LevelError, "Explorer table-shape category scan resolution", requestIDFromContext(ctx), "category_scan_resolution", time.Since(started), err, attrs...)
+			httpapi.LogServerDiagnostic(logger, slog.LevelError, "Explorer table-shape category scan resolution", httpapi.RequestIDFromContext(ctx), "category_scan_resolution", time.Since(started), err, attrs...)
 			return dataframeexecution.CategoryScanResult{}, err
 		}
 		resolved, err := compileValidatedReceiptResolution(scanCtx, recipeEngine, receipt, bindings)
 		if err != nil {
 			resultErr := categoryScanReceiptResolutionError(receipt.ID, err)
-			logServerDiagnostic(logger, slog.LevelError, "Explorer table-shape category scan resolution", requestIDFromContext(ctx), "category_scan_resolution", time.Since(started), resultErr, attrs...)
+			httpapi.LogServerDiagnostic(logger, slog.LevelError, "Explorer table-shape category scan resolution", httpapi.RequestIDFromContext(ctx), "category_scan_resolution", time.Since(started), resultErr, attrs...)
 			return dataframeexecution.CategoryScanResult{}, resultErr
 		}
-		logServerDiagnostic(logger, slog.LevelInfo, "Explorer table-shape category scan resolution", requestIDFromContext(ctx), "category_scan_resolution", time.Since(started), nil, attrs...)
+		httpapi.LogServerDiagnostic(logger, slog.LevelInfo, "Explorer table-shape category scan resolution", httpapi.RequestIDFromContext(ctx), "category_scan_resolution", time.Since(started), nil, attrs...)
 
 		scanStarted := time.Now()
 		result, err := recipeEngine.ScanCategories(scanCtx, resolved, request)
@@ -379,7 +159,7 @@ func configuredCategoryScanner(logger *slog.Logger, recipeEngine *dataframeexecu
 		if err != nil {
 			level = slog.LevelError
 		}
-		logServerDiagnostic(logger, level, "Explorer table-shape category scan", requestIDFromContext(ctx), "category_scan", time.Since(scanStarted), err, attrs...)
+		httpapi.LogServerDiagnostic(logger, level, "Explorer table-shape category scan", httpapi.RequestIDFromContext(ctx), "category_scan", time.Since(scanStarted), err, attrs...)
 		return result, err
 	}
 }
@@ -392,16 +172,16 @@ func configuredColumnPopulationScanner(logger *slog.Logger, recipeEngine *datafr
 		attrs := []any{"output_id", request.Output, "stage_id", request.StageID, "column_ids", request.ColumnIDs}
 		if receipt == nil {
 			err := fmt.Errorf("compilation receipt is missing")
-			logServerDiagnostic(logger, slog.LevelError, "Explorer construction column population resolution", requestIDFromContext(ctx), "column_population_resolution", time.Since(started), err, attrs...)
+			httpapi.LogServerDiagnostic(logger, slog.LevelError, "Explorer construction column population resolution", httpapi.RequestIDFromContext(ctx), "column_population_resolution", time.Since(started), err, attrs...)
 			return dataframeexecution.ColumnPopulationResult{}, err
 		}
 		resolved, err := compileValidatedReceiptResolution(scanCtx, recipeEngine, receipt, bindings)
 		if err != nil {
 			resultErr := categoryScanReceiptResolutionError(receipt.ID, err)
-			logServerDiagnostic(logger, slog.LevelError, "Explorer construction column population resolution", requestIDFromContext(ctx), "column_population_resolution", time.Since(started), resultErr, attrs...)
+			httpapi.LogServerDiagnostic(logger, slog.LevelError, "Explorer construction column population resolution", httpapi.RequestIDFromContext(ctx), "column_population_resolution", time.Since(started), resultErr, attrs...)
 			return dataframeexecution.ColumnPopulationResult{}, resultErr
 		}
-		logServerDiagnostic(logger, slog.LevelInfo, "Explorer construction column population resolution", requestIDFromContext(ctx), "column_population_resolution", time.Since(started), nil, attrs...)
+		httpapi.LogServerDiagnostic(logger, slog.LevelInfo, "Explorer construction column population resolution", httpapi.RequestIDFromContext(ctx), "column_population_resolution", time.Since(started), nil, attrs...)
 
 		scanStarted := time.Now()
 		result, err := recipeEngine.ScanColumnPopulation(scanCtx, resolved, request)
@@ -409,7 +189,7 @@ func configuredColumnPopulationScanner(logger *slog.Logger, recipeEngine *datafr
 		if err != nil {
 			level = slog.LevelError
 		}
-		logServerDiagnostic(logger, level, "Explorer construction column population", requestIDFromContext(ctx), "column_population", time.Since(scanStarted), err, attrs...)
+		httpapi.LogServerDiagnostic(logger, level, "Explorer construction column population", httpapi.RequestIDFromContext(ctx), "column_population", time.Since(scanStarted), err, attrs...)
 		return result, err
 	}
 }
@@ -519,7 +299,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	authenticator, authorizer, scopeResolver := auth.authenticator, auth.authorizer, auth.scopeResolver
 
 	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{QueryRows: func(ctx context.Context, query string, batch int, binds map[string]any, visit func(map[string]any) error) error {
-		return classifyDataframeQueryError(lifecycleClient.QueryRows(ctx, query, batch, binds, visit))
+		return executionarango.ClassifyDataframeQueryError(lifecycleClient.QueryRows(ctx, query, batch, binds, visit))
 	}})
 
 	publishedRegistry, err := bundlearango.New(lifecycleClient)
@@ -579,8 +359,8 @@ func run(ctx context.Context, serverConfig Config) error {
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry:      recipeRegistry,
 		Revisions:     recipeRevisions,
-		ResolveBundle: recipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
-		PreparePreviewIndex: loggedPreviewIndexPreparation(logger, func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
+		ResolveBundle: recipeapi.RecipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
+		PreparePreviewIndex: executionarango.LoggedPreviewIndexPreparation(logger, func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
 			var err error
 			if len(spec.StoredValues) != 0 {
 				err = lifecycleClient.EnsurePreviewCoveringIndexWithStoredValues(ctx, spec.Collection, spec.Name, spec.Fields, spec.StoredValues)
@@ -596,8 +376,8 @@ func run(ctx context.Context, serverConfig Config) error {
 		},
 		PreviewCollectionCount: lifecycleClient.CollectionCount,
 		ClickHouseQueryRows:    clickHouseQueryRows,
-		PreviewQueryRows: configuredAQLQueryRows(logger, "preview_query_rows", func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
-			return lifecycleClient.QueryRowsWithMaxRuntime(ctx, query, batchSize, bindVars, previewQueryMaxRuntime(ctx), arangostore.RowVisitor(visit))
+		PreviewQueryRows: executionarango.ConfiguredAQLQueryRows(logger, "preview_query_rows", preserveConfiguredQueryError, func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+			return lifecycleClient.QueryRowsWithMaxRuntime(ctx, query, batchSize, bindVars, executionarango.PreviewQueryMaxRuntime(ctx), arangostore.RowVisitor(visit))
 		}),
 		WithPreviewReadSnapshot: func(ctx context.Context, run func(context.Context, dataframeexecution.QueryRows) error) error {
 			collections, err := lifecycleClient.ListReadSnapshotCollections(ctx)
@@ -605,7 +385,7 @@ func run(ctx context.Context, serverConfig Config) error {
 				return err
 			}
 			return lifecycleClient.WithReadSnapshot(ctx, collections, func(snapshotCtx context.Context, reader arangostore.RowQueryer) error {
-				query := configuredAQLQueryRows(logger, "preview_query_rows", withPreviewQueryTimeout(func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+				query := executionarango.ConfiguredAQLQueryRows(logger, "preview_query_rows", preserveConfiguredQueryError, executionarango.WithPreviewQueryTimeout(func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
 					ctx = arangostore.WithQueryMaxNumberOfPlans(ctx, 1)
 					return reader.QueryRows(ctx, query, batchSize, bindVars, arangostore.RowVisitor(visit))
 				}))
@@ -615,7 +395,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		ResolveClickHouseInputs:    resolveClickHouseInputs,
 		WithExecutionReadPins:      withExecutionReadPins,
 		PrivateClickHouseArtifacts: privateClickHouseArtifacts,
-		QueryRows: configuredAQLQueryRows(logger, "query_rows", func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+		QueryRows: executionarango.ConfiguredAQLQueryRows(logger, "query_rows", preserveConfiguredQueryError, func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
 			return lifecycleClient.QueryRows(ctx, query, batchSize, bindVars, arangostore.RowVisitor(visit))
 		}),
 		ScopeDigest:  recipeScopeDigest,
@@ -639,7 +419,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			bundleTarget = bundleStore
 		}
 	}
-	verificationStore := publicationVerificationStore{executions: publishedRegistry}
+	verificationStore := publication.NewPublicationVerifier(publishedRegistry)
 	releaseService := &publicationcontract.ReleaseService{Manifests: lifecycleStore, Releases: lifecycleStore, Verifier: verificationStore, Required: serverConfig.Server.RequiredDataframeSelectors}
 	var activationConflictOnce atomic.Bool
 	activationConflictOnce.Store(serverConfig.Server.DevActivationConflictOnce)
@@ -694,7 +474,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		ScopeResolver:          scopeResolver,
 		ActiveManifestResolver: activeManifestResolver,
 		Explain: func(ctx context.Context, compiled dataframeexecution.CompiledQuery) error {
-			_, err := explainCompiledQuery(ctx, lifecycleClient, compiled)
+			_, err := executionarango.ExplainCompiledQuery(ctx, lifecycleClient, compiled)
 			return err
 		},
 	}
@@ -778,7 +558,7 @@ func run(ctx context.Context, serverConfig Config) error {
 				if err != nil {
 					return "", 0, fmt.Errorf("load project-owned Explorer views: %w", err)
 				}
-				definitions, expectedConfigRevisionIDs, err := projectConfigsForSourcePublication(
+				definitions, expectedConfigRevisionIDs, err := explorer.ProjectConfigsForSourcePublication(
 					owners, configuredRecipeName, catalogAnchored, catalogSnapshot,
 				)
 				if err != nil {
@@ -830,7 +610,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 		return compileExplorerReceipt(ctx, request, capabilityResolver, recipeEngine, explorerService, logger, resolveCombineSchemas, importedSources)
 	}
-	persistPublishedWorkspace, err := localWorkspaceWriter(serverConfig.Server.LocalWorkspaceWriteback, serverConfig.Server.LocalWorkspaceProject)
+	persistPublishedWorkspace, err := explorer.LocalWorkspaceWriter(serverConfig.Server.LocalWorkspaceWriteback, serverConfig.Server.LocalWorkspaceProject)
 	if err != nil {
 		return fmt.Errorf("configure local workspace writeback: %w", err)
 	}
@@ -842,7 +622,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	if materializationReader != nil {
 		artifactPublishedReader = materializationReader
 		if serverConfig.Server.DevArtifactRowDelay > 0 {
-			artifactPublishedReader = artifactDelayReader{next: artifactPublishedReader, delay: serverConfig.Server.DevArtifactRowDelay}
+			artifactPublishedReader = lifecycle.DelayArtifactRows(artifactPublishedReader, serverConfig.Server.DevArtifactRowDelay)
 		}
 	}
 	schemaIndex, err := fhirschema.GeneratedIndex()
@@ -920,7 +700,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			}
 			summary, previewErr := recipeEngine.PreviewOutput(ctx, resolved, dataframeexecution.PreviewRequest{Output: output, Limit: bindings.PreviewLimit, IncludeRowIdentity: bindings.IncludeRowIdentity}, visit)
 			if previewErr != nil {
-				logReceiptPreviewContractFailure(logger, requestIDFromContext(ctx), receipt.ID, output, previewErr)
+				logReceiptPreviewContractFailure(logger, httpapi.RequestIDFromContext(ctx), receipt.ID, output, previewErr)
 			}
 			return summary, previewErr
 		},
@@ -1021,7 +801,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	if privateClickHouseArtifacts != nil {
 		reconcileCtx, cancelReconciler := context.WithCancel(ctx)
-		reconcilerDone := startPrivateArtifactReconciler(reconcileCtx, privateClickHouseArtifacts, logger)
+		reconcilerDone := artifactfs.StartPrivateArtifactReconciler(reconcileCtx, privateClickHouseArtifacts, logger)
 		defer func() {
 			cancelReconciler()
 			timer := time.NewTimer(cleanupTimeout)
@@ -1035,7 +815,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	if artifactStore != nil {
 		artifactReconcileCtx, cancelArtifactReconciler := context.WithCancel(ctx)
-		artifactReconcilerDone := startArtifactFSReconciler(artifactReconcileCtx, artifactStore, logger)
+		artifactReconcilerDone := artifactfs.StartArtifactFSReconciler(artifactReconcileCtx, artifactStore, logger)
 		defer func() {
 			cancelArtifactReconciler()
 			timer := time.NewTimer(cleanupTimeout)

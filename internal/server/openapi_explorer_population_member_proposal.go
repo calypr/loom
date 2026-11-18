@@ -16,11 +16,11 @@ func (h *explorerHTTPHandlers) proposePopulationMemberRemovalDirect(ctx context.
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("population-member-proposal", nil)
+		return result, explorer.MalformedRouteError("population-member-proposal", nil)
 	}
 	removedMember, err := directAuthoringJSON[explorer.ResourceRef](body.RemovedMember)
 	if err != nil {
-		return result, malformedRouteError("population-member-proposal", err)
+		return result, explorer.MalformedRouteError("population-member-proposal", err)
 	}
 	request := lifecycle.PopulationMemberRemovalProposalRequest{
 		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
@@ -35,7 +35,7 @@ func (h *explorerHTTPHandlers) proposePopulationMemberRemovalDirect(ctx context.
 		return result, err
 	}
 	if value.ProposalID == "" || value.BaseSelection == nil || value.CandidateSelection == nil || value.PreviewStatus != "PREVIEW_PENDING" {
-		return result, malformedRouteError("population-member-proposal", nil)
+		return result, explorer.MalformedRouteError("population-member-proposal", nil)
 	}
 	result, err = directAuthoringJSON[loomapi.PopulationMemberRemovalProposalResponse](value)
 	if err != nil {
@@ -54,7 +54,7 @@ func (h *explorerHTTPHandlers) proposePopulationMemberRemovalDirect(ctx context.
 		return result, err
 	}
 	if preview.ReceiptId != value.ProposalID || preview.OutputId != body.OutputId {
-		return result, malformedRouteError("population-member-proposal", nil)
+		return result, explorer.MalformedRouteError("population-member-proposal", nil)
 	}
 	result.Preview = preview
 	result.PreviewStatus = loomapi.PopulationMemberRemovalProposalResponsePreviewStatusREADY
@@ -63,7 +63,7 @@ func (h *explorerHTTPHandlers) proposePopulationMemberRemovalDirect(ctx context.
 
 func (r *HTTPRoutes) ProposeExplorerPopulationMemberRemoval(ctx context.Context, request loomapi.ProposeExplorerPopulationMemberRemovalRequestObject) (loomapi.ProposeExplorerPopulationMemberRemovalResponseObject, error) {
 	if r.explorer.application == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerPopulationMemberRemoval", explorerUnavailable("population-member-proposal", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
+		_, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerPopulationMemberRemoval", explorer.ExplorerUnavailable("population-member-proposal", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
 		return loomapi.ProposeExplorerPopulationMemberRemoval503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
 	}
 	value, err := r.explorer.proposePopulationMemberRemovalDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)

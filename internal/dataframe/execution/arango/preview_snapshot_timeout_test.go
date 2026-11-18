@@ -1,4 +1,4 @@
-package server
+package arango
 
 import (
 	"context"
@@ -12,11 +12,11 @@ func TestSnapshotPreviewQueryHasRuntimeBudget(t *testing.T) {
 		ctx  context.Context
 		want time.Duration
 	}{
-		{"ordinary", context.Background(), explorerPreviewTimeout},
-		{"pivot", withPivotPreviewQueryBudget(context.Background()), pivotCategoryScanTimeout},
+		{"ordinary", context.Background(), ExplorerPreviewTimeout},
+		{"pivot", WithPivotPreviewQueryBudget(context.Background()), PivotCategoryScanTimeout},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			query := withPreviewQueryTimeout(func(ctx context.Context, _ string, _ int, _ map[string]any, _ func(map[string]any) error) error {
+			query := WithPreviewQueryTimeout(func(ctx context.Context, _ string, _ int, _ map[string]any, _ func(map[string]any) error) error {
 				deadline, ok := ctx.Deadline()
 				if !ok {
 					t.Fatal("snapshot query has no deadline")

@@ -2,6 +2,9 @@ package server
 
 import (
 	"context"
+
+	explorer "github.com/calypr/loom/internal/explorer"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
@@ -12,11 +15,11 @@ func (h *explorerHTTPHandlers) describeAuthoringNetworkDirect(ctx context.Contex
 		return empty, err
 	}
 	if body == nil {
-		return empty, malformedRouteError("describeExplorerAuthoringNetwork", nil)
+		return empty, explorer.MalformedRouteError("describeExplorerAuthoringNetwork", nil)
 	}
 	input, err := directAuthoringJSON[lifecycle.AuthoringNetworkRequest](*body)
 	if err != nil {
-		return empty, malformedRouteError("describeExplorerAuthoringNetwork", err)
+		return empty, explorer.MalformedRouteError("describeExplorerAuthoringNetwork", err)
 	}
 	input.Project, input.ExplorerID = project, explorerID
 	value, err := h.application.DescribeAuthoringNetwork(ctx, input)

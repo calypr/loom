@@ -1,15 +1,13 @@
-package server
+package httpapi
 
 import (
 	"reflect"
 	"testing"
-
-	httpapi "github.com/calypr/loom/internal/api/http"
 )
 
 func TestServiceErrorResponsePreservesOrderedFieldPath(t *testing.T) {
 	want := []string{"input", "outputs", "0", "columns", "2"}
-	response := serviceErrorResponse(httpapi.ErrorResponse{Error: httpapi.HTTPErrorBody{
+	response := ServiceErrorResponse(ErrorResponse{Error: HTTPErrorBody{
 		Code: "INVALID_REQUEST", Message: "the request is invalid", FieldPath: want,
 	}})
 	if response.Error.FieldPath == nil || !reflect.DeepEqual(*response.Error.FieldPath, want) {

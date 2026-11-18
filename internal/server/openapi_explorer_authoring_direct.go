@@ -1,6 +1,8 @@
 package server
 
 import (
+	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,10 +11,14 @@ import (
 	"net/http"
 	"time"
 
+	httpapi "github.com/calypr/loom/internal/api/http"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/api/authpolicy"
 	"github.com/calypr/loom/internal/authscope"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -33,7 +39,7 @@ func directAuthoringJSON[T any](value any) (T, error) {
 
 func (h *explorerHTTPHandlers) authoringReadDirect(ctx context.Context, project string) error {
 	if h == nil || h.authorizeRead == nil {
-		return explorerUnavailable("authorization", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured")
+		return explorer.ExplorerUnavailable("authorization", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured")
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := h.authorizeRead(ctx, principal, project); err != nil {
@@ -68,7 +74,7 @@ func authorizerResponseStatus(err error) int {
 
 func (h *explorerHTTPHandlers) authoringWriteDirect(ctx context.Context, project, authResourcePath string) error {
 	if h == nil || h.authorizer == nil {
-		return explorerUnavailable("authorization", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured")
+		return explorer.ExplorerUnavailable("authorization", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured")
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := h.authorizer.AuthorizeWrite(ctx, principal, project, authResourcePath); err != nil {
@@ -135,15 +141,15 @@ func (h *explorerHTTPHandlers) createInterpretationRevisionDirect(ctx context.Co
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("interpretations", errors.New("request body is required"))
+		return result, explorer.MalformedRouteError("interpretations", errors.New("request body is required"))
 	}
 	applicability, err := directAuthoringJSON[explorer.InterpretationApplicability](body.Applicability)
 	if err != nil {
-		return result, malformedRouteError("interpretations", err)
+		return result, explorer.MalformedRouteError("interpretations", err)
 	}
 	rules, err := directAuthoringJSON[[]explorer.InterpretationRule](body.Rules)
 	if err != nil {
-		return result, malformedRouteError("interpretations", err)
+		return result, explorer.MalformedRouteError("interpretations", err)
 	}
 	parentRevisionID := ""
 	if body.ParentRevisionId != nil {
@@ -152,7 +158,7 @@ func (h *explorerHTTPHandlers) createInterpretationRevisionDirect(ctx context.Co
 	value, err := h.application.CreateInterpretationRevision(ctx, lifecycle.CreateInterpretationRevisionRequest{
 		Project: project, LibraryID: body.LibraryId, ParentRevisionID: parentRevisionID,
 		Applicability: applicability, Rules: rules, Explanation: body.Explanation,
-		Author: subjectFromContext(ctx),
+		Author: authscope.SubjectFromContext(ctx),
 	})
 	if err != nil {
 		return result, err
@@ -166,7 +172,7 @@ func (h *explorerHTTPHandlers) resolveConfiguredColumnContextDirect(ctx context.
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("interpretation-context", errors.New("request body is required"))
+		return result, explorer.MalformedRouteError("interpretation-context", errors.New("request body is required"))
 	}
 	value, err := h.application.ConfiguredColumnContext(ctx, lifecycle.ConfiguredColumnContextRequest{
 		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
@@ -241,7 +247,7 @@ func (h *explorerHTTPHandlers) createInterpretationRevisionFromColumnDirect(ctx 
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("interpretation-create", errors.New("request body is required"))
+		return result, explorer.MalformedRouteError("interpretation-create", errors.New("request body is required"))
 	}
 	parentRevisionID := ""
 	if body.ParentRevisionId != nil {
@@ -251,7 +257,7 @@ func (h *explorerHTTPHandlers) createInterpretationRevisionFromColumnDirect(ctx 
 		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
 		ExpectedDraftVersion: body.ExpectedDraftVersion, ExpectedDraftDigest: body.ExpectedDraftDigest,
 		OutputID: body.OutputId, Column: body.Column, LibraryID: body.LibraryId, ParentRevisionID: parentRevisionID,
-		Explanation: body.Explanation, Author: subjectFromContext(ctx),
+		Explanation: body.Explanation, Author: authscope.SubjectFromContext(ctx),
 	})
 	if err != nil {
 		return result, err
@@ -265,13 +271,13 @@ func (h *explorerHTTPHandlers) previewInterpretationCandidateDirect(ctx context.
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("interpretation-preview", errors.New("request body is required"))
+		return result, explorer.MalformedRouteError("interpretation-preview", errors.New("request body is required"))
 	}
 	limit := dataframeexecution.DefaultPreviewLimit
 	if body.Limit != nil {
 		limit = *body.Limit
 	}
-	previewCtx, cancel := context.WithTimeout(ctx, explorerPreviewTimeout)
+	previewCtx, cancel := context.WithTimeout(ctx, executionarango.ExplorerPreviewTimeout)
 	defer cancel()
 	value, err := h.application.PreviewInterpretationCandidate(previewCtx, lifecycle.PreviewInterpretationCandidateRequest{
 		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
@@ -305,7 +311,7 @@ func (h *explorerHTTPHandlers) searchAuthoringSuggestionsDirect(ctx context.Cont
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("suggestions", errors.New("request body is required"))
+		return result, explorer.MalformedRouteError("suggestions", errors.New("request body is required"))
 	}
 	query := ""
 	if body.Query != nil {
@@ -332,7 +338,7 @@ func (h *explorerHTTPHandlers) searchAuthoringSchemaFieldsDirect(ctx context.Con
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("schema-fields", errors.New("request body is required"))
+		return result, explorer.MalformedRouteError("schema-fields", errors.New("request body is required"))
 	}
 	request := lifecycle.SearchSchemaFieldsRequest{
 		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken, NodeID: body.NodeId,
@@ -374,11 +380,11 @@ func (h *explorerHTTPHandlers) applyAuthoringCommandsDirect(ctx context.Context,
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("commands", errors.New("request body is required"))
+		return result, explorer.MalformedRouteError("commands", errors.New("request body is required"))
 	}
 	request, err := directAuthoringJSON[authoringv2.ApplyCommandsRequest](*body)
 	if err != nil {
-		return result, malformedRouteError("commands", err)
+		return result, explorer.MalformedRouteError("commands", err)
 	}
 	if len(request.Commands) == 1 && request.Commands[0].Type == authoringv2.CommandApplyConstructionProposal {
 		var encoder *previewResponseEncoder
@@ -390,12 +396,12 @@ func (h *explorerHTTPHandlers) applyAuthoringCommandsDirect(ctx context.Context,
 			}
 			return encoder.Visit, nil
 		}
-		applied, err := h.application.ApplyCommandsWithConstructionPreview(ctx, project, explorerID, request, subjectFromContext(ctx), sinkFactory)
+		applied, err := h.application.ApplyCommandsWithConstructionPreview(ctx, project, explorerID, request, authscope.SubjectFromContext(ctx), sinkFactory)
 		if err != nil {
 			return result, err
 		}
 		if applied == nil || applied.Commands == nil {
-			return result, explorerUnavailable("commands", "AUTHORING_UNAVAILABLE", "construction Apply returned no command response")
+			return result, explorer.ExplorerUnavailable("commands", "AUTHORING_UNAVAILABLE", "construction Apply returned no command response")
 		}
 		result, err = directAuthoringJSON[loomapi.ApplyCommandsResponse](applied.Commands)
 		if err != nil {
@@ -416,7 +422,7 @@ func (h *explorerHTTPHandlers) applyAuthoringCommandsDirect(ctx context.Context,
 		}
 		return result, nil
 	}
-	value, err := h.application.ApplyCommands(ctx, project, explorerID, request, subjectFromContext(ctx))
+	value, err := h.application.ApplyCommands(ctx, project, explorerID, request, authscope.SubjectFromContext(ctx))
 	if err != nil {
 		return result, err
 	}
@@ -450,7 +456,7 @@ func (h *explorerHTTPHandlers) assessAuthoringRowChangeDirect(ctx context.Contex
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("row-change", errors.New("request body is required"))
+		return result, explorer.MalformedRouteError("row-change", errors.New("request body is required"))
 	}
 	rootOccurrenceID := ""
 	if body.RootOccurrenceId != nil {
@@ -460,7 +466,7 @@ func (h *explorerHTTPHandlers) assessAuthoringRowChangeDirect(ctx context.Contex
 	if body.RouteRebase != nil {
 		converted, err := directAuthoringJSON[[]authoringv2.RouteRebaseChoice](*body.RouteRebase)
 		if err != nil {
-			return result, malformedRouteError("row-change", err)
+			return result, explorer.MalformedRouteError("row-change", err)
 		}
 		routeRebase = converted
 	}
@@ -506,7 +512,7 @@ func (h *explorerHTTPHandlers) reconcileAuthoringDirect(ctx context.Context, pro
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("reconcile", errors.New("request body is required"))
+		return result, explorer.MalformedRouteError("reconcile", errors.New("request body is required"))
 	}
 	reconciled, err := h.application.ReconcileWithWorkspace(ctx, lifecycle.ReconcileRequest{Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken, DraftVersion: body.DraftVersion, DraftDigest: body.DraftDigest, OutputID: optionalString(body.OutputId)})
 	if err != nil {
@@ -516,7 +522,7 @@ func (h *explorerHTTPHandlers) reconcileAuthoringDirect(ctx context.Context, pro
 }
 
 func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, project, explorerID string, body *loomapi.PreviewExplorerJSONRequestBody) (loomapi.PreviewResponse, error) {
-	return h.previewAuthoringDirectWithTimeout(ctx, project, explorerID, body, explorerPreviewTimeout, false)
+	return h.previewAuthoringDirectWithTimeout(ctx, project, explorerID, body, executionarango.ExplorerPreviewTimeout, false)
 }
 
 func (h *explorerHTTPHandlers) previewAuthoringDirectWithTimeout(ctx context.Context, project, explorerID string, body *loomapi.PreviewExplorerJSONRequestBody, timeout time.Duration, allowSampledAggregate bool) (loomapi.PreviewResponse, error) {
@@ -525,7 +531,7 @@ func (h *explorerHTTPHandlers) previewAuthoringDirectWithTimeout(ctx context.Con
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("preview", errors.New("receiptId and outputId are required"))
+		return result, explorer.MalformedRouteError("preview", errors.New("receiptId and outputId are required"))
 	}
 	limit := dataframeexecution.DefaultPreviewLimit
 	if body.Limit != nil {
@@ -592,7 +598,7 @@ func (h *explorerHTTPHandlers) traceExplorerCellDirect(ctx context.Context, proj
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("trace", errors.New("receiptId, outputId, rowId, and column are required"))
+		return result, explorer.MalformedRouteError("trace", errors.New("receiptId, outputId, rowId, and column are required"))
 	}
 	request := lifecycle.CellTraceRequest{
 		Project: project, ExplorerID: explorerID,
@@ -657,7 +663,7 @@ func (h *explorerHTTPHandlers) traceExplorerRowLineageDirect(ctx context.Context
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("rowLineage", errors.New("receiptId, outputId, and rowId are required"))
+		return result, explorer.MalformedRouteError("rowLineage", errors.New("receiptId, outputId, and rowId are required"))
 	}
 	request := lifecycle.RowLineageRequest{
 		Project: project, ExplorerID: explorerID,
@@ -704,7 +710,7 @@ func (h *explorerHTTPHandlers) populationMappingDirect(ctx context.Context, proj
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("populationMapping", errors.New("receiptId and outputId are required"))
+		return result, explorer.MalformedRouteError("populationMapping", errors.New("receiptId and outputId are required"))
 	}
 	request := lifecycle.PopulationMappingRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId}
 	if body.Cursor != nil {
@@ -748,9 +754,9 @@ func (h *explorerHTTPHandlers) publishAuthoringDirect(ctx context.Context, proje
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("publish", errors.New("receiptId is required"))
+		return result, explorer.MalformedRouteError("publish", errors.New("receiptId is required"))
 	}
-	value, err := h.application.Publish(ctx, lifecycle.PublishRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, Actor: subjectFromContext(ctx)})
+	value, err := h.application.Publish(ctx, lifecycle.PublishRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, Actor: authscope.SubjectFromContext(ctx)})
 	if err != nil {
 		return result, err
 	}
@@ -762,7 +768,7 @@ func (h *explorerHTTPHandlers) publishAuthoringDirect(ctx context.Context, proje
 }
 
 func authoringErrorForOpenAPI(ctx context.Context, operation string, err error) (int, loomapi.ErrorResponse) {
-	requestID := requestIDFromContext(ctx)
+	requestID := httpapi.RequestIDFromContext(ctx)
 	status := http.StatusInternalServerError
 	code, message, stage, path := "INTERNAL_ERROR", "", "internal", ""
 	var details map[string]any

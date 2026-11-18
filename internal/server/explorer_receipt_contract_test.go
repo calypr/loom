@@ -15,6 +15,8 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -22,6 +24,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
@@ -2127,11 +2130,11 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 			if !ok {
 				t.Fatal("builder preview context has no deadline")
 			}
-			if remaining := time.Until(deadline); remaining > explorerPreviewTimeout || remaining < explorerPreviewTimeout-time.Second {
-				t.Fatalf("direct preview deadline remaining = %s, want approximately %s", remaining, explorerPreviewTimeout)
+			if remaining := time.Until(deadline); remaining > executionarango.ExplorerPreviewTimeout || remaining < executionarango.ExplorerPreviewTimeout-time.Second {
+				t.Fatalf("direct preview deadline remaining = %s, want approximately %s", remaining, executionarango.ExplorerPreviewTimeout)
 			}
-			if got := previewQueryMaxRuntime(ctx); got != explorerPreviewTimeout {
-				t.Fatalf("direct preview query max runtime = %s, want %s", got, explorerPreviewTimeout)
+			if got := executionarango.PreviewQueryMaxRuntime(ctx); got != executionarango.ExplorerPreviewTimeout {
+				t.Fatalf("direct preview query max runtime = %s, want %s", got, executionarango.ExplorerPreviewTimeout)
 			}
 			if receipt == nil || bindings.AuthScopeMode != authscope.ReadScopeUnrestricted || bindings.IncludeAuthResourcePath || !bindings.IncludeRowIdentity || !bindings.IncludeSourceIdentity {
 				t.Fatalf("preview bindings changed authorization or omitted preview-only row metadata: receipt=%#v bindings=%#v", receipt, bindings)

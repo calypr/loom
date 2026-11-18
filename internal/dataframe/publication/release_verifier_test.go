@@ -1,22 +1,21 @@
-package server
+package publication
 
 import (
 	"context"
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataset"
 )
 
 type exactExecutionFixture struct {
 	project, generation string
 	selector            dataset.DataframeSelector
-	execution           publication.BundleExecution
-	output              publication.BundleOutputRecord
+	execution           BundleExecution
+	output              BundleOutputRecord
 }
 
-func (f *exactExecutionFixture) FindExecutionBySelector(_ context.Context, project, generation string, selector publication.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
+func (f *exactExecutionFixture) FindExecutionBySelector(_ context.Context, project, generation string, selector DataframeSelector) (BundleExecution, BundleOutputRecord, error) {
 	f.project, f.generation, f.selector = project, generation, selector
 	return f.execution, f.output, nil
 }
@@ -25,8 +24,8 @@ func TestPublicationVerificationUsesExactSelectorAndQueryableEvidence(t *testing
 	verifiedAt := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
 	selector := dataset.DataframeSelector{Recipe: "core", TranslationVersion: "v1", Output: "Patient"}
 	exact := &exactExecutionFixture{
-		execution: publication.BundleExecution{ID: "execution-a", BundleIdentity: publication.BundleIdentity{DatasetGeneration: "commit-a"}, State: publication.BundleReady},
-		output:    publication.BundleOutputRecord{Selector: selector, Name: "Patient", State: publication.BundleReady, VerifiedAt: &verifiedAt, PhysicalTable: "patient_a"},
+		execution: BundleExecution{ID: "execution-a", BundleIdentity: BundleIdentity{DatasetGeneration: "commit-a"}, State: BundleReady},
+		output:    BundleOutputRecord{Selector: selector, Name: "Patient", State: BundleReady, VerifiedAt: &verifiedAt, PhysicalTable: "patient_a"},
 	}
 	result, err := (publicationVerificationStore{executions: exact}).VerifyPublication(context.Background(), "project-a", "commit-a", selector)
 	if err != nil {

@@ -7,10 +7,14 @@ import (
 	"strings"
 	"testing"
 
+	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+
 	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
 )
 
@@ -123,7 +127,7 @@ func TestRecipeAuthorizationTreatsWhitespaceProjectAsEmpty(t *testing.T) {
 
 func TestRecipeControlForeignFaultStaysInternal(t *testing.T) {
 	err := errors.New("arango: invalid collection name")
-	status, response := mapServiceError(err, context.Background())
+	status, response := httpapi.MapServiceError(err, context.Background())
 	if status != http.StatusInternalServerError || response.Error.Code != string(dataframeerrors.CodeInternalError) {
 		t.Fatalf("foreign control fault mapped to %d %s", status, response.Error.Code)
 	}

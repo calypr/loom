@@ -7,14 +7,17 @@ import (
 	"strings"
 	"testing"
 
+	recipeapi "github.com/calypr/loom/internal/api/recipe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/explorer/recipeimport"
@@ -417,7 +420,7 @@ func TestImportedSourceDiscoveredCollisionPreservesWinnerIdentity(t *testing.T) 
 		t.Fatal(err)
 	}
 	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: registry, ScopeDigest: recipeScopeDigest, ResolveBundle: recipeSchemaResolver(func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: registry, ScopeDigest: recipeScopeDigest, ResolveBundle: recipeapi.RecipeSchemaResolver(func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 		if options.Project != "project-a" || options.DatasetGeneration != "generation-a" || options.ResourceType != "Specimen" {
 			t.Fatalf("discovery lost exact scope: %+v", options)
 		}
@@ -526,7 +529,7 @@ func newSourceIdentityFixture(t *testing.T, output recipe.Output, fields []catal
 		t.Fatal(err)
 	}
 	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: registry, ScopeDigest: recipeScopeDigest, ResolveBundle: recipeSchemaResolver(func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: registry, ScopeDigest: recipeScopeDigest, ResolveBundle: recipeapi.RecipeSchemaResolver(func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 		if options.Project != "project-a" || options.DatasetGeneration != "generation-a" || options.ResourceType != output.RootResourceType {
 			t.Fatal("native identity discovery escaped its exact authorized scope")
 		}

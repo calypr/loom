@@ -15,11 +15,16 @@ import (
 	"testing"
 	"time"
 
+	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
+
 	shared "github.com/arangodb/go-driver/v2/arangodb/shared"
+
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -36,7 +41,7 @@ func TestConfiguredAQLQueryRowsLogsSafeRequestCorrelatedRecords(t *testing.T) {
 			query := "FOR d IN patients FILTER d.id == @secret RETURN d"
 			bindVars := map[string]any{"secret": "private-bind-value"}
 			failure := errors.New("arangodb unavailable: connection refused; query=RETURN @secret auth_token=private-auth-value")
-			gotErr := configuredAQLQueryRows(logger, phase, func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+			gotErr := executionarango.ConfiguredAQLQueryRows(logger, phase, preserveConfiguredQueryError, func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
 				return failure
 			})(ctx, query, 16, bindVars, func(map[string]any) error { return nil })
 			if gotErr != failure {
@@ -73,8 +78,8 @@ func TestConfiguredAQLQueryRowsLogsSafeRequestCorrelatedRecords(t *testing.T) {
 			if record["cause"] != "arangodb unavailable: connection refused; query=[redacted]" {
 				t.Fatalf("bounded cause = %#v", record["cause"])
 			}
-			if len(record["cause"].(string)) > maxDiagnosticCauseBytes {
-				t.Fatalf("AQL cause exceeds %d bytes: %d", maxDiagnosticCauseBytes, len(record["cause"].(string)))
+			if len(record["cause"].(string)) > 256 {
+				t.Fatalf("AQL cause exceeds %d bytes: %d", 256, len(record["cause"].(string)))
 			}
 			for _, forbidden := range []string{query, "private-bind-value", "private-auth-value", failure.Error()} {
 				if strings.Contains(output.String(), forbidden) {
@@ -144,7 +149,7 @@ func TestLoggedPreviewIndexPreparationUsesSafeFields(t *testing.T) {
 		HasError: true, Code: http.StatusConflict, ErrorNum: 12345, ErrorMessage: "AQL: persistent index field is unsupported; access_token=private-auth-value",
 	})
 	spec := compiler.PreviewCoveringIndexSpec{Collection: "patients", Name: "idx_patient_category"}
-	gotErr := loggedPreviewIndexPreparation(logger, func(context.Context, compiler.PreviewCoveringIndexSpec) error { return failure })(ctx, spec)
+	gotErr := executionarango.LoggedPreviewIndexPreparation(logger, func(context.Context, compiler.PreviewCoveringIndexSpec) error { return failure })(ctx, spec)
 	if gotErr != failure {
 		t.Fatalf("preparation error = %v, want original error", gotErr)
 	}
@@ -155,8 +160,8 @@ func TestLoggedPreviewIndexPreparationUsesSafeFields(t *testing.T) {
 	if records[0]["cause"] != "ArangoDB error number 12345 (HTTP 409): AQL: persistent index field is unsupported; access_token=[redacted]" {
 		t.Fatalf("index cause = %#v", records[0]["cause"])
 	}
-	if len(records[0]["cause"].(string)) > maxDiagnosticCauseBytes {
-		t.Fatalf("index cause exceeds %d bytes: %d", maxDiagnosticCauseBytes, len(records[0]["cause"].(string)))
+	if len(records[0]["cause"].(string)) > 256 {
+		t.Fatalf("index cause exceeds %d bytes: %d", 256, len(records[0]["cause"].(string)))
 	}
 	if strings.Contains(output.String(), failure.Error()) {
 		t.Fatalf("index logs contain raw backend error: %s", output.String())
@@ -237,17 +242,17 @@ func TestConfiguredCategoryScannerUsesPivotTimeoutAndPreservesBackendErrors(t *t
 	if err != nil {
 		t.Fatalf("compile receipt fixture: %v", err)
 	}
-	if pivotCategoryScanTimeout != 30*time.Second {
-		t.Fatalf("Pivot category timeout = %s, want 30s", pivotCategoryScanTimeout)
+	if executionarango.PivotCategoryScanTimeout != 30*time.Second {
+		t.Fatalf("Pivot category timeout = %s, want 30s", executionarango.PivotCategoryScanTimeout)
 	}
-	if explorerPreviewTimeout != 10*time.Second {
-		t.Fatalf("ordinary proposal/direct preview timeout = %s, want unchanged 10s", explorerPreviewTimeout)
+	if executionarango.ExplorerPreviewTimeout != 10*time.Second {
+		t.Fatalf("ordinary proposal/direct preview timeout = %s, want unchanged 10s", executionarango.ExplorerPreviewTimeout)
 	}
-	if got := previewQueryMaxRuntime(context.Background()); got != explorerPreviewTimeout {
-		t.Fatalf("ordinary preview query max runtime = %s, want %s", got, explorerPreviewTimeout)
+	if got := executionarango.PreviewQueryMaxRuntime(context.Background()); got != executionarango.ExplorerPreviewTimeout {
+		t.Fatalf("ordinary preview query max runtime = %s, want %s", got, executionarango.ExplorerPreviewTimeout)
 	}
-	if got := previewQueryMaxRuntime(withPivotPreviewQueryBudget(context.Background())); got != pivotCategoryScanTimeout {
-		t.Fatalf("Pivot preview query max runtime = %s, want %s", got, pivotCategoryScanTimeout)
+	if got := executionarango.PreviewQueryMaxRuntime(executionarango.WithPivotPreviewQueryBudget(context.Background())); got != executionarango.PivotCategoryScanTimeout {
+		t.Fatalf("Pivot preview query max runtime = %s, want %s", got, executionarango.PivotCategoryScanTimeout)
 	}
 
 	var queryDeadline time.Time
@@ -258,7 +263,7 @@ func TestConfiguredCategoryScannerUsesPivotTimeoutAndPreservesBackendErrors(t *t
 		if !ok {
 			t.Fatal("Pivot category query has no scanner deadline")
 		}
-		queryRuntime = previewQueryMaxRuntime(ctx)
+		queryRuntime = executionarango.PreviewQueryMaxRuntime(ctx)
 		return visit(map[string]any{"present": true, "value": "patient-1"})
 	}
 	scanEngine, err := dataframeexecution.New(dataframeexecution.Config{
@@ -272,11 +277,11 @@ func TestConfiguredCategoryScannerUsesPivotTimeoutAndPreservesBackendErrors(t *t
 		t.Fatalf("category scan: %v", err)
 	}
 	remaining := time.Until(queryDeadline)
-	if remaining > pivotCategoryScanTimeout || remaining < pivotCategoryScanTimeout-time.Second {
-		t.Fatalf("category query deadline remaining = %s, want approximately %s", remaining, pivotCategoryScanTimeout)
+	if remaining > executionarango.PivotCategoryScanTimeout || remaining < executionarango.PivotCategoryScanTimeout-time.Second {
+		t.Fatalf("category query deadline remaining = %s, want approximately %s", remaining, executionarango.PivotCategoryScanTimeout)
 	}
-	if queryRuntime != pivotCategoryScanTimeout {
-		t.Fatalf("category Arango max runtime = %s, want %s", queryRuntime, pivotCategoryScanTimeout)
+	if queryRuntime != executionarango.PivotCategoryScanTimeout {
+		t.Fatalf("category Arango max runtime = %s, want %s", queryRuntime, executionarango.PivotCategoryScanTimeout)
 	}
 
 	parentDeadline := time.Now().Add(2 * time.Second)
@@ -331,56 +336,11 @@ func TestConfiguredCategoryScannerReturnsTransportNeutralReceiptConflict(t *test
 	if records[0]["cause"] != authoringErr.Diagnostic.Message {
 		t.Fatalf("category resolution cause = %#v, want the safe conflict message", records[0]["cause"])
 	}
-	if len(records[0]["cause"].(string)) > maxDiagnosticCauseBytes {
-		t.Fatalf("category cause exceeds %d bytes: %d", maxDiagnosticCauseBytes, len(records[0]["cause"].(string)))
+	if len(records[0]["cause"].(string)) > 256 {
+		t.Fatalf("category cause exceeds %d bytes: %d", 256, len(records[0]["cause"].(string)))
 	}
 	if strings.Contains(output.String(), "private-mismatch-value") || strings.Contains(output.String(), "receipt_id") {
 		t.Fatalf("category conflict logs contain private mismatch details: %s", output.String())
-	}
-}
-
-func TestDiagnosticErrorCauseCapsTypedSafeMessages(t *testing.T) {
-	message := strings.Repeat("safe diagnostic ", 32)
-	cause := diagnosticErrorCause(&lifecycle.Error{Code: "SAFE_TEST", Message: message})
-	if len(cause) != maxDiagnosticCauseBytes || !strings.HasSuffix(cause, "...") {
-		t.Fatalf("diagnostic cause length/suffix = %d/%q, want exactly %d bytes with ellipsis", len(cause), cause[len(cause)-3:], maxDiagnosticCauseBytes)
-	}
-	if strings.Contains(cause, "\uFFFD") {
-		t.Fatalf("diagnostic cause contains invalid UTF-8 replacement: %q", cause)
-	}
-}
-
-func TestDiagnosticErrorCausePreservesOrdinaryErrorsAndRedactsSensitiveShapes(t *testing.T) {
-	ordinary := errors.New("category result lacks expected field")
-	if got := diagnosticErrorCause(ordinary); got != ordinary.Error() {
-		t.Fatalf("ordinary cause = %q, want original diagnostic %q", got, ordinary.Error())
-	}
-
-	cases := []struct {
-		name   string
-		error  string
-		secret string
-	}{
-		{name: "authorization header", error: "request failed: Authorization: Bearer private-auth-value", secret: "private-auth-value"},
-		{name: "token assignment", error: "request failed: token=private-token-value", secret: "private-token-value"},
-		{name: "query payload", error: "AQL execution failed; query=FOR d IN users FILTER d.api_token == 'private-query-value'", secret: "private-query-value"},
-		{name: "bind values", error: "category result failed; bind_vars=map[x:private-bind-value]", secret: "private-bind-value"},
-		{name: "request body", error: `request body: {"resource":"private-body-value"}`, secret: "private-body-value"},
-		{name: "URL credentials", error: "backend at https://user:private-password-value@example.test refused connection", secret: "private-password-value"},
-	}
-	for _, test := range cases {
-		t.Run(test.name, func(t *testing.T) {
-			got := diagnosticErrorCause(errors.New(test.error))
-			if strings.Contains(got, test.secret) {
-				t.Fatalf("diagnostic cause %q retained sensitive value %q", got, test.secret)
-			}
-			if !strings.Contains(got, "[redacted") {
-				t.Fatalf("diagnostic cause = %q, want a targeted redaction", got)
-			}
-			if strings.Contains(got, "unclassified execution failure") {
-				t.Fatalf("diagnostic cause discarded the original failure: %q", got)
-			}
-		})
 	}
 }
 

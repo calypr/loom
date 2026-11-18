@@ -4,10 +4,16 @@ import (
 	"context"
 	"encoding/json"
 
+	httpapi "github.com/calypr/loom/internal/api/http"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
+
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
+
 	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
+
 	queryapi "github.com/calypr/loom/internal/api/dataframe/query"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -20,7 +26,7 @@ type dataframeReadRoutes struct {
 func (r *HTTPRoutes) PostDataframeRows(ctx context.Context, request loomapi.PostDataframeRowsRequestObject) (loomapi.PostDataframeRowsResponseObject, error) {
 	result, err := r.dataframes.rows(ctx, request.Project, request.Body)
 	if err != nil {
-		status, body := mapServiceError(err, ctx)
+		status, body := httpapi.MapServiceError(err, ctx)
 		return loomapi.NewPostDataframeRowsErrorResponse(status, body)
 	}
 	return loomapi.PostDataframeRows200JSONResponse(result), nil
@@ -29,7 +35,7 @@ func (r *HTTPRoutes) PostDataframeRows(ctx context.Context, request loomapi.Post
 func (r *HTTPRoutes) PostDataframeAggregations(ctx context.Context, request loomapi.PostDataframeAggregationsRequestObject) (loomapi.PostDataframeAggregationsResponseObject, error) {
 	result, err := r.dataframes.aggregations(ctx, request.Project, request.Body)
 	if err != nil {
-		status, body := mapServiceError(err, ctx)
+		status, body := httpapi.MapServiceError(err, ctx)
 		return loomapi.NewPostDataframeAggregationsErrorResponse(status, body)
 	}
 	return loomapi.PostDataframeAggregations200JSONResponse(result), nil
@@ -38,7 +44,7 @@ func (r *HTTPRoutes) PostDataframeAggregations(ctx context.Context, request loom
 func (r *HTTPRoutes) PostFhirDataframe(ctx context.Context, request loomapi.PostFhirDataframeRequestObject) (loomapi.PostFhirDataframeResponseObject, error) {
 	result, err := r.dataframes.run(ctx, request.Project, request.Body)
 	if err != nil {
-		status, body := mapServiceError(err, ctx)
+		status, body := httpapi.MapServiceError(err, ctx)
 		return loomapi.NewPostFhirDataframeErrorResponse(status, body)
 	}
 	return loomapi.PostFhirDataframe200JSONResponse(result), nil

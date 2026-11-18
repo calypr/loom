@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 
+	explorer "github.com/calypr/loom/internal/explorer"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
@@ -13,7 +15,7 @@ func (h *explorerHTTPHandlers) browseFrameSourceOptionsDirect(ctx context.Contex
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("frame-source-options", nil)
+		return result, explorer.MalformedRouteError("frame-source-options", nil)
 	}
 	request := lifecycle.BrowseFrameSourceOptionsRequest{
 		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken, OutputID: body.OutputId,

@@ -8,16 +8,20 @@ import (
 	"reflect"
 	"testing"
 
+	recipeapi "github.com/calypr/loom/internal/api/recipe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/explorer/recipeimport"
+
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -78,7 +82,7 @@ func newUnifiedAuthoringFixture(t *testing.T) unifiedAuthoringFixture {
 	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry: registry, ScopeDigest: recipeScopeDigest,
-		ResolveBundle: recipeSchemaResolver(func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+		ResolveBundle: recipeapi.RecipeSchemaResolver(func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 			return nil, nil
 		}, nil),
 		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {

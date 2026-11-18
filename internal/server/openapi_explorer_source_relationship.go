@@ -15,11 +15,11 @@ func (h *explorerHTTPHandlers) proposeSourceRelationshipDirect(ctx context.Conte
 		return empty, err
 	}
 	if body == nil {
-		return empty, malformedRouteError("proposeExplorerSourceRelationship", nil)
+		return empty, explorer.MalformedRouteError("proposeExplorerSourceRelationship", nil)
 	}
 	input, err := directAuthoringJSON[lifecycle.SourceRelationshipProposalRequest](*body)
 	if err != nil {
-		return empty, malformedRouteError("proposeExplorerSourceRelationship", err)
+		return empty, explorer.MalformedRouteError("proposeExplorerSourceRelationship", err)
 	}
 	input.Project, input.ExplorerID = project, explorerID
 	var encoder *previewResponseEncoder

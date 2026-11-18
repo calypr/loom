@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 
+	httpapi "github.com/calypr/loom/internal/api/http"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/ingest"
 )
@@ -42,7 +45,7 @@ func (r *HTTPRoutes) BeginDatasetSourceLoad(ctx context.Context, request loomapi
 	if err == nil {
 		return loomapi.BeginDatasetSourceLoad200JSONResponse(sourceLoadStatusValue(status)), nil
 	}
-	code, body := mapServiceError(err, ctx)
+	code, body := httpapi.MapServiceError(err, ctx)
 	return loomapi.NewBeginDatasetSourceLoadErrorResponse(code, body)
 }
 
@@ -52,7 +55,7 @@ func (r *HTTPRoutes) GetDatasetSourceLoadStatus(ctx context.Context, request loo
 	if err == nil {
 		return loomapi.GetDatasetSourceLoadStatus200JSONResponse(sourceLoadStatusValue(status)), nil
 	}
-	code, body := mapServiceError(err, ctx)
+	code, body := httpapi.MapServiceError(err, ctx)
 	return loomapi.NewGetDatasetSourceLoadStatusErrorResponse(code, body)
 }
 
@@ -62,7 +65,7 @@ func (r *HTTPRoutes) UploadDatasetSourceLoadFile(ctx context.Context, request lo
 	if err == nil {
 		return loomapi.UploadDatasetSourceLoadFile200JSONResponse(sourceFileReceiptValue(receipt)), nil
 	}
-	code, body := mapServiceError(err, ctx)
+	code, body := httpapi.MapServiceError(err, ctx)
 	if code == http.StatusUnprocessableEntity {
 		return sourceLoadValidationErrorResponse(body), nil
 	}
@@ -79,7 +82,7 @@ func (r *HTTPRoutes) PublishDatasetSourceLoad(ctx context.Context, request looma
 			State: loomapi.SourcePublishReceiptState(receipt.State), Reused: receipt.Reused,
 		}, nil
 	}
-	code, body := mapServiceError(err, ctx)
+	code, body := httpapi.MapServiceError(err, ctx)
 	return loomapi.NewPublishDatasetSourceLoadErrorResponse(code, body)
 }
 

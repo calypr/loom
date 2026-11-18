@@ -1,4 +1,4 @@
-package server
+package artifactfs
 
 import (
 	"context"
@@ -21,14 +21,14 @@ type artifactFSReconcileTarget interface {
 	Reconcile(context.Context, time.Time, int) (int, error)
 }
 
-func startPrivateArtifactReconciler(ctx context.Context, manager privateArtifactReconcileTarget, logger *slog.Logger) <-chan struct{} {
+func StartPrivateArtifactReconciler(ctx context.Context, manager privateArtifactReconcileTarget, logger *slog.Logger) <-chan struct{} {
 	sweep := func(sweepCtx context.Context) error {
 		return manager.Reconcile(sweepCtx, time.Now().UTC(), privateArtifactReconcileLimit)
 	}
 	return startTickerReconciler(ctx, sweep, logger, privateArtifactReconcileInterval, "private ClickHouse artifact")
 }
 
-func startArtifactFSReconciler(ctx context.Context, store artifactFSReconcileTarget, logger *slog.Logger) <-chan struct{} {
+func StartArtifactFSReconciler(ctx context.Context, store artifactFSReconcileTarget, logger *slog.Logger) <-chan struct{} {
 	if store == nil {
 		done := make(chan struct{})
 		close(done)
@@ -67,7 +67,7 @@ func runReconcilerLoop(ctx context.Context, sweep func(context.Context) error, t
 		return
 	}
 	reconcile := func() {
-		sweepCtx, cancel := context.WithTimeout(ctx, cleanupTimeout)
+		sweepCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		if err := sweep(sweepCtx); err != nil && ctx.Err() == nil && logger != nil {
 			logger.Error(label+" reconciliation failed", "error", err)

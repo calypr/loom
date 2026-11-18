@@ -6,11 +6,15 @@ import (
 	"net/http"
 	"strings"
 
+	httpapi "github.com/calypr/loom/internal/api/http"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/api/authpolicy"
 	"github.com/calypr/loom/internal/api/columncapabilities"
+
 	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
 	"github.com/calypr/loom/internal/authscope"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
@@ -101,9 +105,9 @@ func recipeExecutionLookupResponse(ctx context.Context, err error) (loomapi.GetR
 	} else {
 		classified = dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
-	status, response := mapServiceError(classified, ctx)
+	status, response := httpapi.MapServiceError(classified, ctx)
 	if status != http.StatusServiceUnavailable {
-		status, response = mapServiceError(dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)), ctx)
+		status, response = httpapi.MapServiceError(dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)), ctx)
 	}
 	return recipeExecutionServiceResponse(status, response)
 }
@@ -116,9 +120,9 @@ func recipeExecutionAuthorizationResponse(ctx context.Context, err error) (looma
 	if status == http.StatusNotFound {
 		return recipeExecutionNotFoundResponse(), nil
 	}
-	mappedStatus, response := mapServiceError(err, ctx)
+	mappedStatus, response := httpapi.MapServiceError(err, ctx)
 	if mappedStatus != http.StatusServiceUnavailable {
-		_, response = mapServiceError(dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)), ctx)
+		_, response = httpapi.MapServiceError(dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)), ctx)
 	}
 	return loomapi.NewGetRecipeExecutionErrorResponse(http.StatusServiceUnavailable, response)
 }
@@ -159,7 +163,7 @@ func recipeExecutionServiceResponse(status int, response loomapi.ServiceErrorRes
 	if status == http.StatusForbidden || status == http.StatusNotFound {
 		return nil, errors.New("legacy error response is missing a string error")
 	}
-	return nil, unexpectedResponseStatus("getRecipeExecution", status)
+	return nil, httpapi.UnexpectedResponseStatus("getRecipeExecution", status)
 }
 
 func recipeExecutionNotFoundResponse() loomapi.GetRecipeExecution404JSONResponse {

@@ -7,9 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	recipeapi "github.com/calypr/loom/internal/api/recipe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
@@ -17,6 +19,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/explorer/recipeimport"
+
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -432,7 +435,7 @@ func TestRemoveOutputDisablesExactNestedExtensionMappingAcrossReload(t *testing.
 		Registry:    registry,
 		QueryRows:   func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
 		ScopeDigest: recipeScopeDigest,
-		ResolveBundle: recipeSchemaResolver(func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+		ResolveBundle: recipeapi.RecipeSchemaResolver(func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 			if options.ResourceType != "DocumentReference" {
 				return nil, fmt.Errorf("unexpected discovery resource type %q", options.ResourceType)
 			}
@@ -531,7 +534,7 @@ func TestRemoveOutputDisablesExactDynamicKeyAndPreservesSibling(t *testing.T) {
 		Registry:    registry,
 		QueryRows:   func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
 		ScopeDigest: recipeScopeDigest,
-		ResolveBundle: recipeSchemaResolver(func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+		ResolveBundle: recipeapi.RecipeSchemaResolver(func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 			return nil, nil
 		}, nil),
 	})

@@ -11,16 +11,20 @@ import (
 	"testing"
 	"time"
 
+	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
+
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/gofiber/fiber/v3"
 )
@@ -85,8 +89,8 @@ func TestConstructionProposalPreviewBudgetExtendsOnlyPivot(t *testing.T) {
 	pivotContext, pivotTimeout := constructionProposalPreviewBudget(context.Background(), authoringv2.Construction{
 		Steps: []authoringv2.ConstructionStep{{Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot}}},
 	})
-	if pivotTimeout != 30*time.Second || previewQueryMaxRuntime(pivotContext) != pivotCategoryScanTimeout {
-		t.Fatalf("Pivot proposal preview budget = %s / query max runtime %s, want 30s", pivotTimeout, previewQueryMaxRuntime(pivotContext))
+	if pivotTimeout != 30*time.Second || executionarango.PreviewQueryMaxRuntime(pivotContext) != executionarango.PivotCategoryScanTimeout {
+		t.Fatalf("Pivot proposal preview budget = %s / query max runtime %s, want 30s", pivotTimeout, executionarango.PreviewQueryMaxRuntime(pivotContext))
 	}
 
 	parentDeadline := time.Now().Add(2 * time.Second)
@@ -102,8 +106,8 @@ func TestConstructionProposalPreviewBudgetExtendsOnlyPivot(t *testing.T) {
 	ordinaryContext, ordinaryTimeout := constructionProposalPreviewBudget(context.Background(), authoringv2.Construction{
 		Steps: []authoringv2.ConstructionStep{{Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter}}},
 	})
-	if ordinaryTimeout != explorerPreviewTimeout || previewQueryMaxRuntime(ordinaryContext) != explorerPreviewTimeout {
-		t.Fatalf("ordinary proposal preview budget = %s / query max runtime %s, want 10s", ordinaryTimeout, previewQueryMaxRuntime(ordinaryContext))
+	if ordinaryTimeout != executionarango.ExplorerPreviewTimeout || executionarango.PreviewQueryMaxRuntime(ordinaryContext) != executionarango.ExplorerPreviewTimeout {
+		t.Fatalf("ordinary proposal preview budget = %s / query max runtime %s, want 10s", ordinaryTimeout, executionarango.PreviewQueryMaxRuntime(ordinaryContext))
 	}
 }
 
@@ -220,7 +224,7 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 		},
 		PreviewReceipt: func(previewCtx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			proposalPreviewCalls++
-			proposalPreviewQueryRuntime = previewQueryMaxRuntime(previewCtx)
+			proposalPreviewQueryRuntime = executionarango.PreviewQueryMaxRuntime(previewCtx)
 			if receipt == nil || receipt.ConstructionProposal == nil || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "patients" {
 				t.Fatalf("unexpected exact candidate preview receipt/bindings: %#v / %#v", receipt, bindings)
 			}
@@ -386,8 +390,8 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 	if proposal.ProposalId == nil || *proposal.ProposalId == "" || proposal.ChangedStepId != "" || proposal.PreviewStatus != "READY" || proposal.Preview == nil || proposal.Preview.RowCount != 1 || proposal.PreviewDurationMs < 0 {
 		t.Fatalf("proposal omitted exact preview evidence or removal identity: %#v", proposal)
 	}
-	if proposalPreviewQueryRuntime != explorerPreviewTimeout {
-		t.Fatalf("ordinary proposal inline preview max runtime = %s, want %s", proposalPreviewQueryRuntime, explorerPreviewTimeout)
+	if proposalPreviewQueryRuntime != executionarango.ExplorerPreviewTimeout {
+		t.Fatalf("ordinary proposal inline preview max runtime = %s, want %s", proposalPreviewQueryRuntime, executionarango.ExplorerPreviewTimeout)
 	}
 	if proposal.Preview.ReceiptId != *proposal.ProposalId || proposal.Preview.OutputId != "patients" {
 		t.Fatalf("preview is not bound to the proposal receipt/output: %#v", proposal.Preview)

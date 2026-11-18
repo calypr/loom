@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
+	explorer "github.com/calypr/loom/internal/explorer"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
@@ -28,11 +30,11 @@ func (h *explorerHTTPHandlers) proposeRowDefinitionDirect(ctx context.Context, p
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("row-definition-proposal", nil)
+		return result, explorer.MalformedRouteError("row-definition-proposal", nil)
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
-		return result, malformedRouteError("row-definition-proposal", err)
+		return result, explorer.MalformedRouteError("row-definition-proposal", err)
 	}
 	var input struct {
 		SnapshotToken        string                           `json:"snapshotToken"`
@@ -43,7 +45,7 @@ func (h *explorerHTTPHandlers) proposeRowDefinitionDirect(ctx context.Context, p
 		Limit                int                              `json:"limit,omitempty"`
 	}
 	if err := json.Unmarshal(raw, &input); err != nil {
-		return result, malformedRouteError("row-definition-proposal", err)
+		return result, explorer.MalformedRouteError("row-definition-proposal", err)
 	}
 	value, err := h.application.ProposeRowDefinition(ctx, lifecycle.RowDefinitionProposalRequest{
 		Project: project, ExplorerID: explorerID, SnapshotToken: input.SnapshotToken,

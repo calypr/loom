@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	explorer "github.com/calypr/loom/internal/explorer"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
@@ -14,7 +16,7 @@ func (h *explorerHTTPHandlers) browseSemanticInventoryDirect(ctx context.Context
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("catalog", errors.New("request body is required"))
+		return result, explorer.MalformedRouteError("catalog", errors.New("request body is required"))
 	}
 	req := lifecycle.BrowseSemanticInventoryRequest{Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken, RowRoot: body.RowRoot}
 	if body.SelectionMode != nil {

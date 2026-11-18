@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	authscope "github.com/calypr/loom/internal/authscope"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/explorer"
@@ -24,11 +26,11 @@ func (h *explorerHTTPHandlers) createSelectionDirect(ctx context.Context, reques
 		return result, err
 	}
 	if request.Body == nil {
-		return result, malformedRouteError("selection", errors.New("request body is required"))
+		return result, explorer.MalformedRouteError("selection", errors.New("request body is required"))
 	}
 	body := request.Body
 	intent := lifecycle.SelectionIntentCreateRequest{
-		Project: string(request.Project), ExplorerID: string(request.ExplorerId), Actor: subjectFromContext(ctx),
+		Project: string(request.Project), ExplorerID: string(request.ExplorerId), Actor: authscope.SubjectFromContext(ctx),
 		SnapshotToken: body.SnapshotToken, IdempotencyKey: body.IdempotencyKey,
 		Source: lifecycle.SelectionSourceIntent{Kind: string(body.Source.Kind)},
 	}
@@ -43,7 +45,7 @@ func (h *explorerHTTPHandlers) createSelectionDirect(ctx context.Context, reques
 		if source.Filters != nil {
 			filters, err := directAuthoringJSON[[]published.Filter](*source.Filters)
 			if err != nil {
-				return result, malformedRouteError("selection", err)
+				return result, explorer.MalformedRouteError("selection", err)
 			}
 			intent.Source.PublishedOutput.Filters = filters
 		}
@@ -100,7 +102,7 @@ func (r *HTTPRoutes) CreateExplorerSelection(ctx context.Context, request loomap
 	var value loomapi.SelectionRevision
 	var err error
 	if r.explorer.application == nil {
-		err = explorerUnavailable("selection", "AUTHORING_UNAVAILABLE", "Explorer selections are not configured")
+		err = explorer.ExplorerUnavailable("selection", "AUTHORING_UNAVAILABLE", "Explorer selections are not configured")
 	} else {
 		value, err = r.explorer.createSelectionDirect(ctx, request)
 	}
@@ -115,7 +117,7 @@ func (r *HTTPRoutes) GetExplorerSelection(ctx context.Context, request loomapi.G
 	var value loomapi.SelectionPage
 	var err error
 	if r.explorer.application == nil {
-		err = explorerUnavailable("selection", "AUTHORING_UNAVAILABLE", "Explorer selections are not configured")
+		err = explorer.ExplorerUnavailable("selection", "AUTHORING_UNAVAILABLE", "Explorer selections are not configured")
 	} else {
 		value, err = r.explorer.getSelectionDirect(ctx, request)
 	}

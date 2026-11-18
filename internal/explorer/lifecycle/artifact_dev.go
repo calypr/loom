@@ -1,15 +1,14 @@
-package server
+package lifecycle
 
 import (
 	"context"
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/published"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
 type artifactDelayReader struct {
-	next  lifecycle.ArtifactPublishedReader
+	next  ArtifactPublishedReader
 	delay time.Duration
 }
 
@@ -30,4 +29,8 @@ func (r artifactDelayReader) StreamExactExport(ctx context.Context, request publ
 	})
 }
 
-var _ lifecycle.ArtifactPublishedReader = artifactDelayReader{}
+var _ ArtifactPublishedReader = artifactDelayReader{}
+
+func DelayArtifactRows(next ArtifactPublishedReader, delay time.Duration) ArtifactPublishedReader {
+	return artifactDelayReader{next: next, delay: delay}
+}

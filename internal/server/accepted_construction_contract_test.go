@@ -6,8 +6,9 @@ import (
 	"os"
 	"testing"
 
-	loomapi "github.com/calypr/loom/api/loomapi"
+	httpapi "github.com/calypr/loom/internal/api/http"
 
+	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/testkit"
 )
 
@@ -17,7 +18,7 @@ func TestAcceptedConstructionSharedContractFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	var response loomapi.ApplyCommandsResponse
-	if err := decodeStrict(fixture, &response); err != nil {
+	if err := httpapi.DecodeStrict(fixture, &response); err != nil {
 		t.Fatalf("strictly decode accepted construction fixture: %v", err)
 	}
 	accepted := response.AcceptedConstruction
@@ -52,7 +53,7 @@ func TestAcceptedConstructionSharedContractFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := decodeStrict(withPrivateBinding, &loomapi.ApplyCommandsResponse{}); err == nil {
+	if err := httpapi.DecodeStrict(withPrivateBinding, &loomapi.ApplyCommandsResponse{}); err == nil {
 		t.Fatal("strict accepted-construction contract accepted a private proposal binding")
 	}
 }

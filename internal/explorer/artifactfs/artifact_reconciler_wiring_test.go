@@ -1,4 +1,4 @@
-package server
+package artifactfs
 
 import (
 	"bytes"
@@ -34,7 +34,7 @@ func TestRunPrivateArtifactReconcilerUntypedNilReturnsCleanly(t *testing.T) {
 }
 
 func TestStartArtifactFSReconcilerUntypedNilReturnsClosedChannel(t *testing.T) {
-	done := startArtifactFSReconciler(context.Background(), nil, slog.New(slog.DiscardHandler))
+	done := StartArtifactFSReconciler(context.Background(), nil, slog.New(slog.DiscardHandler))
 	select {
 	case <-done:
 	case <-time.After(time.Second):
@@ -45,7 +45,7 @@ func TestStartArtifactFSReconcilerUntypedNilReturnsClosedChannel(t *testing.T) {
 func TestStartArtifactFSReconcilerSweepsImmediatelyAndStopsOnCancel(t *testing.T) {
 	target := &countingFSReconciler{calls: make(chan struct{}, 4)}
 	ctx, cancel := context.WithCancel(context.Background())
-	done := startArtifactFSReconciler(ctx, target, slog.New(slog.DiscardHandler))
+	done := StartArtifactFSReconciler(ctx, target, slog.New(slog.DiscardHandler))
 	select {
 	case <-target.calls:
 	case <-time.After(2 * time.Second):

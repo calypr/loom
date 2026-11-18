@@ -7,8 +7,11 @@ import (
 	"net/http"
 	"strings"
 
+	httpapi "github.com/calypr/loom/internal/api/http"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
@@ -148,10 +151,10 @@ func (r *explorerHTTPHandlers) createExplorer(ctx context.Context, rawProject, a
 		SourceExplorerID string `json:"sourceExplorerId,omitempty"`
 	}
 	raw, err := json.Marshal(*body)
-	if err != nil || decodeStrict(raw, &request) != nil {
+	if err != nil || httpapi.DecodeStrict(raw, &request) != nil {
 		return result, legacyOperationFailure(http.StatusBadRequest, "MALFORMED_REQUEST", "name is required", err)
 	}
-	value, err := r.application.Create(ctx, lifecycle.CreateRequest{Project: project, Name: request.Name, Title: request.Title, SourceExplorerID: request.SourceExplorerID, Actor: subjectFromContext(ctx)})
+	value, err := r.application.Create(ctx, lifecycle.CreateRequest{Project: project, Name: request.Name, Title: request.Title, SourceExplorerID: request.SourceExplorerID, Actor: authscope.SubjectFromContext(ctx)})
 	if err != nil {
 		return result, lifecycleLegacyFailure(err)
 	}
@@ -188,7 +191,7 @@ func (r *explorerHTTPHandlers) getExplorer(ctx context.Context, rawProject, rawI
 			if concealed && dataframeerrors.ErrorCode(userErr.Code()) == dataframeerrors.CodeRecipeExecutionNotFound && !userErr.Retryable() {
 				return result, legacyOperationFailure(http.StatusNotFound, "EXPLORER_NOT_FOUND", "Explorer not found", err)
 			}
-			status, body := mapServiceError(err, ctx)
+			status, body := httpapi.MapServiceError(err, ctx)
 			if status == http.StatusNotFound {
 				return result, legacyOperationFailure(status, "EXPLORER_NOT_FOUND", "Explorer not found", err)
 			}
@@ -241,7 +244,7 @@ func (r *explorerHTTPHandlers) publishRepositoryExplorerConfig(ctx context.Conte
 	if commit == "" {
 		return result, legacyOperationFailure(http.StatusBadRequest, "MALFORMED_REQUEST", "X-Loom-Source-Commit is required", nil)
 	}
-	value, err := r.application.PublishRepository(ctx, lifecycle.RepositoryPublishRequest{Project: project, Generation: generation, Workspace: workspace, Commit: commit, Actor: subjectFromContext(ctx)})
+	value, err := r.application.PublishRepository(ctx, lifecycle.RepositoryPublishRequest{Project: project, Generation: generation, Workspace: workspace, Commit: commit, Actor: authscope.SubjectFromContext(ctx)})
 	if err != nil {
 		return result, lifecycleLegacyFailure(err)
 	}

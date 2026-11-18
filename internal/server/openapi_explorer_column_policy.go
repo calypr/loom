@@ -2,6 +2,9 @@ package server
 
 import (
 	"context"
+
+	explorer "github.com/calypr/loom/internal/explorer"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
@@ -12,11 +15,11 @@ func (h *explorerHTTPHandlers) proposeColumnPolicyDirect(ctx context.Context, pr
 		return empty, err
 	}
 	if body == nil {
-		return empty, malformedRouteError("proposeExplorerColumnPolicy", nil)
+		return empty, explorer.MalformedRouteError("proposeExplorerColumnPolicy", nil)
 	}
 	input, err := directAuthoringJSON[lifecycle.ColumnPolicyProposalRequest](*body)
 	if err != nil {
-		return empty, malformedRouteError("proposeExplorerColumnPolicy", err)
+		return empty, explorer.MalformedRouteError("proposeExplorerColumnPolicy", err)
 	}
 	input.Project, input.ExplorerID = project, explorerID
 	value, err := h.application.ProposeColumnPolicy(ctx, input)

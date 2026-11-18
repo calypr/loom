@@ -1,17 +1,15 @@
-package server
+package explorer
 
 import (
 	"fmt"
-
-	"github.com/calypr/loom/internal/explorer"
 )
 
-func projectConfigsForSourcePublication(
-	owners []explorer.Explorer,
+func ProjectConfigsForSourcePublication(
+	owners []Explorer,
 	recipeName string,
 	catalogAnchored bool,
-	snapshot explorer.Revision,
-) ([]explorer.ProjectConfig, map[string]string, error) {
+	snapshot Revision,
+) ([]ProjectConfig, map[string]string, error) {
 	if recipeName == "" || snapshot.Recipe.Name != recipeName {
 		return nil, nil, fmt.Errorf("catalog snapshot recipe %q does not match configured recipe %q", snapshot.Recipe.Name, recipeName)
 	}
@@ -19,9 +17,9 @@ func projectConfigsForSourcePublication(
 		return nil, nil, fmt.Errorf("catalog snapshot for recipe %q has no project identity", recipeName)
 	}
 
-	definitions := make([]explorer.ProjectConfig, 0)
+	definitions := make([]ProjectConfig, 0)
 	expectedRevisionIDs := make(map[string]string)
-	ownersByID := make(map[string]explorer.Explorer, len(owners))
+	ownersByID := make(map[string]Explorer, len(owners))
 	for _, owner := range owners {
 		if owner.ExplorerID == "" {
 			return nil, nil, fmt.Errorf("project has an Explorer owner with an empty ID")
@@ -36,7 +34,7 @@ func projectConfigsForSourcePublication(
 		if owner.ProjectConfig == nil || owner.ProjectConfig.RecipeRef.Name != recipeName {
 			continue
 		}
-		if owner.ManagementMode != explorer.ManagementRepository || owner.ProjectConfig.ID != owner.ExplorerID {
+		if owner.ManagementMode != ManagementRepository || owner.ProjectConfig.ID != owner.ExplorerID {
 			return nil, nil, fmt.Errorf("project config owner %q has inconsistent identity or management mode", owner.ExplorerID)
 		}
 		if owner.ActiveRevisionID == "" {
@@ -53,7 +51,7 @@ func projectConfigsForSourcePublication(
 		return nil, nil, fmt.Errorf("catalog snapshot for recipe %q has no outputs", recipeName)
 	}
 
-	definition, err := explorer.InitialProjectConfigForRecipe(snapshot.Recipe)
+	definition, err := InitialProjectConfigForRecipe(snapshot.Recipe)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create initial project config: %w", err)
 	}
@@ -63,7 +61,7 @@ func projectConfigsForSourcePublication(
 	return definitions, expectedRevisionIDs, nil
 }
 
-func initialProjectConfigID(recipeName string, owners map[string]explorer.Explorer) string {
+func initialProjectConfigID(recipeName string, owners map[string]Explorer) string {
 	if _, exists := owners[recipeName]; !exists {
 		return recipeName
 	}

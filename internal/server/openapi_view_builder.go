@@ -7,8 +7,11 @@ import (
 	"net/http"
 	"strings"
 
+	httpapi "github.com/calypr/loom/internal/api/http"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/projectid"
@@ -83,7 +86,7 @@ func (h *explorerHTTPHandlers) authorizeViewBuilderExecution(ctx context.Context
 	if ok && dataframeerrors.ErrorCode(userErr.Code()) == dataframeerrors.CodeRecipeExecutionNotFound && !userErr.Retryable() {
 		return legacyOperationFailure(http.StatusNotFound, "VIEW_NOT_FOUND", "Published data is unavailable in this scope", err)
 	}
-	status, _ := mapServiceError(err, ctx)
+	status, _ := httpapi.MapServiceError(err, ctx)
 	if status == http.StatusForbidden {
 		return legacyOperationFailure(http.StatusForbidden, "FORBIDDEN", "Published data is unavailable in this scope", err)
 	}
@@ -109,7 +112,7 @@ func decodeViewBuilderBody(body any, target any) error {
 	}
 	raw, err := json.Marshal(body)
 	if err == nil {
-		err = decodeStrict(raw, target)
+		err = httpapi.DecodeStrict(raw, target)
 	}
 	if err != nil {
 		return legacyOperationFailure(http.StatusBadRequest, "INVALID_REQUEST", "The view request contains invalid or unknown fields", err)
@@ -249,7 +252,7 @@ func (r *HTTPRoutes) SaveProjectViewConfig(ctx context.Context, request loomapi.
 	if err = decodeViewBuilderBody(request.Body, &body); err != nil {
 		return fail(err)
 	}
-	_, err = h.views.SaveViewBuilderConfig(ctx, project, string(request.ExplorerId), body, subjectFromContext(ctx))
+	_, err = h.views.SaveViewBuilderConfig(ctx, project, string(request.ExplorerId), body, authscope.SubjectFromContext(ctx))
 	if err != nil {
 		return fail(viewBuilderFailure(err))
 	}

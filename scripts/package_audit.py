@@ -88,6 +88,7 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
                                                   'inputs as deterministic ClickHouse SQL.',
  'internal/dataframe/errors': 'Define and normalize stable structured dataframe errors for transport presentation.',
  'internal/dataframe/execution': 'Prepare, authorize, execute, explain, and post-process compiled dataframe requests.',
+ 'internal/dataframe/execution/arango': 'Adapt Arango queries, explain results, and preview budgets for dataframe execution.',
  'internal/dataframe/execution/chartifact': 'Manage private ClickHouse staging tables and leases used to cross '
                                             'execution boundaries without publishing outputs.',
  'internal/dataframe/execution/chartifact/arango': 'Persist private ClickHouse artifact manifests and leases in a '

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 
+	explorer "github.com/calypr/loom/internal/explorer"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
@@ -15,15 +17,15 @@ func (h *explorerHTTPHandlers) searchConstructionChoicesDirect(ctx context.Conte
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("construction-choices", errors.New("request body and exact source identity are required"))
+		return result, explorer.MalformedRouteError("construction-choices", errors.New("request body and exact source identity are required"))
 	}
 	sourceJSON, err := body.Source.MarshalJSON()
 	if err != nil {
-		return result, malformedRouteError("construction-choices", err)
+		return result, explorer.MalformedRouteError("construction-choices", err)
 	}
 	var source lifecycle.ConstructionChoiceSearchSource
 	if err := json.Unmarshal(sourceJSON, &source); err != nil {
-		return result, malformedRouteError("construction-choices", err)
+		return result, explorer.MalformedRouteError("construction-choices", err)
 	}
 	request := lifecycle.ConstructionChoiceSearchRequest{
 		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken, OutputID: body.OutputId, Source: source,
@@ -50,7 +52,7 @@ func (h *explorerHTTPHandlers) searchRelatedExpandChoicesDirect(ctx context.Cont
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("related-expand-choices", errors.New("request body with exact stage and target identities is required"))
+		return result, explorer.MalformedRouteError("related-expand-choices", errors.New("request body with exact stage and target identities is required"))
 	}
 	request := lifecycle.RelatedExpandChoiceSearchRequest{
 		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
@@ -79,7 +81,7 @@ func (h *explorerHTTPHandlers) searchRelatedFieldChoicesDirect(ctx context.Conte
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("related-field-choices", errors.New("request body with exact stage identity is required"))
+		return result, explorer.MalformedRouteError("related-field-choices", errors.New("request body with exact stage identity is required"))
 	}
 	request := lifecycle.RelatedFieldChoiceSearchRequest{
 		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
@@ -108,7 +110,7 @@ func (h *explorerHTTPHandlers) searchRelatedExpandContributorsDirect(ctx context
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("related-expand-contributors", errors.New("request body with exact stage and route choice identities is required"))
+		return result, explorer.MalformedRouteError("related-expand-contributors", errors.New("request body with exact stage and route choice identities is required"))
 	}
 	request := lifecycle.RelatedExpandContributorChoiceSearchRequest{
 		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
@@ -137,7 +139,7 @@ func (h *explorerHTTPHandlers) searchPopulationRoutesDirect(ctx context.Context,
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("population-routes", errors.New("request body is required"))
+		return result, explorer.MalformedRouteError("population-routes", errors.New("request body is required"))
 	}
 	request := lifecycle.PopulationRoutesRequest{
 		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
@@ -162,7 +164,7 @@ func (h *explorerHTTPHandlers) columnSourceDirect(ctx context.Context, project, 
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("column-source", errors.New("request body is required"))
+		return result, explorer.MalformedRouteError("column-source", errors.New("request body is required"))
 	}
 	value, err := h.application.ColumnSource(ctx, lifecycle.ColumnSourceRequest{
 		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,

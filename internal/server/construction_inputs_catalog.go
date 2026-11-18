@@ -142,14 +142,14 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 	response := constructionInputsResponse{Entries: []constructionInputEntry{}}
 	query, limit, cursor, err := validateConstructionInputsRequest(request)
 	if err != nil {
-		return response, malformedRouteError("construction-inputs", err)
+		return response, explorer.MalformedRouteError("construction-inputs", err)
 	}
 	if c.reader == nil || c.catalog == nil || c.capabilities.ForCompilation == nil || c.explorers == nil {
-		return response, explorerUnavailable("construction-inputs", "AUTHORING_UNAVAILABLE", "published construction inputs are not configured")
+		return response, explorer.ExplorerUnavailable("construction-inputs", "AUTHORING_UNAVAILABLE", "published construction inputs are not configured")
 	}
 	project = projectid.Canonical(project)
 	if project == "" || strings.TrimSpace(explorerID) == "" || strings.TrimSpace(explorerID) != explorerID {
-		return response, malformedRouteError("construction-inputs", errors.New("project and explorerId are required"))
+		return response, explorer.MalformedRouteError("construction-inputs", errors.New("project and explorerId are required"))
 	}
 
 	owner, snapshot, scope, err := c.authorizedSnapshot(ctx, project, explorerID, request)
@@ -314,7 +314,7 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 				return fmt.Errorf("reauthorize exact published construction input: %w", err)
 			}
 			if effectiveScope.Mode == authscope.ReadScopeRestricted && len(effectiveScope.AuthResourcePaths) == 0 || !sameClickHouseReadScope(effectiveScope, scope) {
-				return explorerConflict("construction-inputs", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil)
+				return explorer.ExplorerConflict("construction-inputs", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil)
 			}
 			if _, err := resolvedClickHouseColumns(materialization.Columns); err != nil {
 				return fmt.Errorf("exact published construction input schema is invalid: %w", err)
@@ -360,7 +360,7 @@ func (c constructionInputsCatalog) authorizedSnapshot(ctx context.Context, proje
 	authorized, err := c.capabilities.ForCompilation(ctx, project, request.SnapshotToken)
 	if err != nil {
 		if errors.Is(err, capability.ErrStaleSnapshot) {
-			return nil, capability.Snapshot{}, authscope.ReadScope{}, explorerConflict("construction-inputs", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil)
+			return nil, capability.Snapshot{}, authscope.ReadScope{}, explorer.ExplorerConflict("construction-inputs", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil)
 		}
 		if errors.Is(err, authscope.ErrAuthorizationBackendUnavailable) || errors.Is(err, capability.ErrSnapshotUnavailable) {
 			return nil, capability.Snapshot{}, authscope.ReadScope{}, constructionInputsUnavailable(err)
@@ -372,10 +372,10 @@ func (c constructionInputsCatalog) authorizedSnapshot(ctx context.Context, proje
 	}
 	snapshot := authorized.Snapshot.Clone()
 	if snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != project {
-		return nil, capability.Snapshot{}, authscope.ReadScope{}, explorerConflict("construction-inputs", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil)
+		return nil, capability.Snapshot{}, authscope.ReadScope{}, explorer.ExplorerConflict("construction-inputs", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil)
 	}
 	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
-		return nil, capability.Snapshot{}, authscope.ReadScope{}, explorerConflict("construction-inputs", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil)
+		return nil, capability.Snapshot{}, authscope.ReadScope{}, explorer.ExplorerConflict("construction-inputs", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil)
 	}
 	owner, err := c.explorers.Get(ctx, project, explorerID)
 	if err != nil {
@@ -388,15 +388,15 @@ func (c constructionInputsCatalog) authorizedSnapshot(ctx context.Context, proje
 		return nil, capability.Snapshot{}, authscope.ReadScope{}, explorer.ErrNotFound
 	}
 	if owner.DraftVersion != request.ExpectedDraftVersion || owner.DraftDigest != request.ExpectedDraftDigest {
-		return nil, capability.Snapshot{}, authscope.ReadScope{}, explorerConflict("construction-inputs", "DRAFT_CONFLICT", "the Explorer draft changed; reload before requesting construction inputs", nil)
+		return nil, capability.Snapshot{}, authscope.ReadScope{}, explorer.ExplorerConflict("construction-inputs", "DRAFT_CONFLICT", "the Explorer draft changed; reload before requesting construction inputs", nil)
 	}
 	workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
 	if err != nil {
-		return nil, capability.Snapshot{}, authscope.ReadScope{}, explorerConflict("construction-inputs", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be verified", nil)
+		return nil, capability.Snapshot{}, authscope.ReadScope{}, explorer.ExplorerConflict("construction-inputs", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be verified", nil)
 	}
 	draftDigest, err := workspace.Digest()
 	if err != nil || draftDigest != owner.DraftDigest {
-		return nil, capability.Snapshot{}, authscope.ReadScope{}, explorerConflict("construction-inputs", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil)
+		return nil, capability.Snapshot{}, authscope.ReadScope{}, explorer.ExplorerConflict("construction-inputs", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil)
 	}
 	return owner, snapshot, authorized.Scope.Clone(), nil
 }
@@ -657,7 +657,7 @@ func (h *explorerHTTPHandlers) getConstructionInputsDirect(ctx context.Context, 
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("construction-inputs", errors.New("request body is required"))
+		return result, explorer.MalformedRouteError("construction-inputs", errors.New("request body is required"))
 	}
 	return h.constructionInputs.list(ctx, project, explorerID, *body)
 }

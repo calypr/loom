@@ -1,10 +1,15 @@
 package server
 
 import (
+	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
+
 	"context"
 	"time"
 
+	explorer "github.com/calypr/loom/internal/explorer"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
@@ -16,7 +21,7 @@ func (h *explorerHTTPHandlers) getConstructionCapabilitiesDirect(ctx context.Con
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("construction-capabilities", nil)
+		return result, explorer.MalformedRouteError("construction-capabilities", nil)
 	}
 	groupStepID := ""
 	if body.GroupStepId != nil {
@@ -40,11 +45,11 @@ func (h *explorerHTTPHandlers) discoverConstructionCategoriesDirect(ctx context.
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("construction-category-discovery", nil)
+		return result, explorer.MalformedRouteError("construction-category-discovery", nil)
 	}
 	request, err := directAuthoringJSON[lifecycle.ConstructionCategoryDiscoveryRequest](body)
 	if err != nil {
-		return result, malformedRouteError("construction-category-discovery", err)
+		return result, explorer.MalformedRouteError("construction-category-discovery", err)
 	}
 	request.Project, request.ExplorerID = project, explorerID
 	value, err := h.application.DiscoverConstructionCategories(ctx, request)
@@ -60,7 +65,7 @@ func (h *explorerHTTPHandlers) getConstructionColumnPopulationDirect(ctx context
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("construction-column-population", nil)
+		return result, explorer.MalformedRouteError("construction-column-population", nil)
 	}
 	value, err := h.application.GetConstructionColumnPopulation(ctx, lifecycle.ConstructionColumnPopulationRequest{
 		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
@@ -76,10 +81,10 @@ func (h *explorerHTTPHandlers) getConstructionColumnPopulationDirect(ctx context
 func constructionProposalPreviewBudget(ctx context.Context, candidate authoringv2.Construction) (context.Context, time.Duration) {
 	for _, step := range candidate.Steps {
 		if step.Operation.Kind == authoringv2.ConstructionOperationPivot {
-			return withPivotPreviewQueryBudget(ctx), pivotCategoryScanTimeout
+			return executionarango.WithPivotPreviewQueryBudget(ctx), executionarango.PivotCategoryScanTimeout
 		}
 	}
-	return ctx, explorerPreviewTimeout
+	return ctx, executionarango.ExplorerPreviewTimeout
 }
 
 func (h *explorerHTTPHandlers) proposeConstructionDirect(ctx context.Context, project, explorerID string, body *loomapi.ConstructionProposalRequest) (loomapi.ConstructionProposalResponse, error) {
@@ -88,11 +93,11 @@ func (h *explorerHTTPHandlers) proposeConstructionDirect(ctx context.Context, pr
 		return result, err
 	}
 	if body == nil {
-		return result, malformedRouteError("construction-proposal", nil)
+		return result, explorer.MalformedRouteError("construction-proposal", nil)
 	}
 	candidate, err := directAuthoringJSON[authoringv2.Construction](body.CandidateConstruction)
 	if err != nil {
-		return result, malformedRouteError("construction-proposal", err)
+		return result, explorer.MalformedRouteError("construction-proposal", err)
 	}
 	changedStepID := ""
 	if body.ChangedStepId != nil {
@@ -174,10 +179,10 @@ func (h *explorerHTTPHandlers) proposeConstructionDirect(ctx context.Context, pr
 		return result, nil
 	}
 	if result.PreviewStatus != loomapi.ConstructionProposalResponsePreviewStatus("PREVIEW_PENDING") {
-		return result, malformedRouteError("construction-proposal", nil)
+		return result, explorer.MalformedRouteError("construction-proposal", nil)
 	}
 	if result.ProposalId == nil || *result.ProposalId == "" {
-		return result, malformedRouteError("construction-proposal", nil)
+		return result, explorer.MalformedRouteError("construction-proposal", nil)
 	}
 	limit := dataframeexecution.DefaultPreviewLimit
 	if body.Limit != nil {
@@ -217,7 +222,7 @@ func (r *HTTPRoutes) DiscoverExplorerConstructionCategories(ctx context.Context,
 
 func (r *HTTPRoutes) GetExplorerConstructionColumnPopulation(ctx context.Context, request loomapi.GetExplorerConstructionColumnPopulationRequestObject) (loomapi.GetExplorerConstructionColumnPopulationResponseObject, error) {
 	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "getExplorerConstructionColumnPopulation", explorerUnavailable("construction-column-population", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
+		_, failure := authoringErrorForOpenAPI(ctx, "getExplorerConstructionColumnPopulation", explorer.ExplorerUnavailable("construction-column-population", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
 		return loomapi.GetExplorerConstructionColumnPopulation503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
 	}
 	value, err := r.explorer.getConstructionColumnPopulationDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)

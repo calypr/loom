@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 
+	explorer "github.com/calypr/loom/internal/explorer"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
@@ -12,7 +14,7 @@ func (h *explorerHTTPHandlers) createExplicitGroupRevisionDirect(ctx context.Con
 		return loomapi.ExplicitGroupRevisionSummary{}, err
 	}
 	if request.Body == nil {
-		return loomapi.ExplicitGroupRevisionSummary{}, malformedRouteError("explicit-groups", nil)
+		return loomapi.ExplicitGroupRevisionSummary{}, explorer.MalformedRouteError("explicit-groups", nil)
 	}
 	groups := make([]lifecycle.ExplicitGroupInput, len(request.Body.Groups))
 	for i, group := range request.Body.Groups {
@@ -40,7 +42,7 @@ func (r *HTTPRoutes) CreateExplorerExplicitGroupRevision(ctx context.Context, re
 	var value loomapi.ExplicitGroupRevisionSummary
 	var err error
 	if r.explorer.application == nil {
-		err = explorerUnavailable("explicit-groups", "AUTHORING_UNAVAILABLE", "explicit group authoring is not configured")
+		err = explorer.ExplorerUnavailable("explicit-groups", "AUTHORING_UNAVAILABLE", "explicit group authoring is not configured")
 	} else {
 		value, err = r.explorer.createExplicitGroupRevisionDirect(ctx, request)
 	}

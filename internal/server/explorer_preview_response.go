@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"time"
 
 	explorerv2api "github.com/calypr/loom/api/loomapi"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -17,7 +16,6 @@ import (
 )
 
 const (
-	explorerPreviewTimeout          = 10 * time.Second
 	maxExplorerPreviewResponseBytes = 32 << 20
 )
 

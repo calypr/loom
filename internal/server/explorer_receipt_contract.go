@@ -12,14 +12,17 @@ import (
 	"strings"
 	"time"
 
+	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/projectid"
@@ -113,7 +116,7 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 		if retErr != nil {
 			level = slog.LevelError
 		}
-		logServerDiagnostic(logger, level, "Explorer receipt compilation", requestIDFromContext(ctx), "compile_receipt", time.Since(started), retErr,
+		httpapi.LogServerDiagnostic(logger, level, "Explorer receipt compilation", httpapi.RequestIDFromContext(ctx), "compile_receipt", time.Since(started), retErr,
 			"project", request.Project, "explorer_id", request.ExplorerID, "receipt_id", receiptID,
 			"compile_role", request.RequestID, "output_ids", outputIDs, "stage_ids", stageIDs, "output_column_ids", columnIDs,
 			"prepare_ms", prepareDuration.Milliseconds(), "compile_workspace_ms", compileWorkspaceDuration.Milliseconds(),
@@ -381,7 +384,7 @@ func receiptMismatchDetails(receiptID string, err error) map[string]any {
 }
 
 func receiptCompilationConflict(receiptID string, cause error) error {
-	value := explorerConflict("compile", "COMPILATION_CONTRACT_MISMATCH", "the compiler could not reproduce the stored receipt execution contract", receiptMismatchDetails(receiptID, cause))
+	value := explorer.ExplorerConflict("compile", "COMPILATION_CONTRACT_MISMATCH", "the compiler could not reproduce the stored receipt execution contract", receiptMismatchDetails(receiptID, cause))
 	if authoring, ok := value.(*explorer.AuthoringError); ok {
 		authoring.Cause = cause
 	}

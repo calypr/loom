@@ -1,4 +1,4 @@
-package server
+package explorer
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-func localWorkspaceWriter(path, configuredProject string) (func(context.Context, string, string, []byte) error, error) {
+func LocalWorkspaceWriter(path, configuredProject string) (func(context.Context, string, string, []byte) error, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return nil, nil

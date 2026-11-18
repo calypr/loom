@@ -1,19 +1,18 @@
-package server
+package recipeapi
 
 import (
 	"context"
 
-	recipeapi "github.com/calypr/loom/internal/api/recipe"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/schema"
 )
 
-func recipeSchemaResolver(read func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error), cache *catalog.Cache) func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error) {
+func RecipeSchemaResolver(read func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error), cache *catalog.Cache) func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error) {
 	if cache != nil {
 		read = cache.DiscoverFields(read)
 	}
-	discovery := recipeapi.NewFieldDiscovery(read)
+	discovery := NewFieldDiscovery(read)
 	return func(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (recipe.Bundle, error) {
 		resolved, err := schema.Resolve(ctx, bundle, schema.Scope{
 			Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration,
