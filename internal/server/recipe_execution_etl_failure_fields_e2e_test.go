@@ -97,7 +97,7 @@ func fr20SucceededExecution() publication.BundleExecution {
 func fr20HTTPGet(t *testing.T, store *fr20Store, id string) (int, string, map[string]any) {
 	t.Helper()
 	principal := &authscope.Principal{Subject: "operator-P", Projects: []string{fr20Project}}
-	app := twinHTTPStack(&HTTPRoutes{releases: store}, principal)
+	app := twinHTTPStack(recipeExecutionTestRoutes(&HTTPRoutes{releases: store}), principal)
 	resp, err := app.Test(httptest.NewRequest(http.MethodGet, twinRoutePrefix+id, nil))
 	if err != nil {
 		t.Fatalf("GET %s%s: %v", twinRoutePrefix, id, err)

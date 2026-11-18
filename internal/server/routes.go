@@ -5,6 +5,7 @@ import (
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
+	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
 	api "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
@@ -42,12 +43,15 @@ func registerRoutes(server *api.HTTPServer, generationService *loadapi.Service, 
 		}
 	}
 	routes := &HTTPRoutes{
-		server:     server,
-		load:       loadHandler,
-		releases:   releases,
-		scopes:     scopes,
-		explorer:   explorerHandlers,
-		dataframes: dataframes,
+		HealthHandlers: api.NewHealthHandlers(server),
+		StrictHandlers: loadapi.NewStrictHandlers(loadHandler),
+		Handlers:       dataframeapi.NewHandlers(dataframes.published, dataframes.query, newRecipeExecutionReader(releases, scopes)),
+		server:         server,
+		load:           loadHandler,
+		releases:       releases,
+		scopes:         scopes,
+		explorer:       explorerHandlers,
+		dataframes:     dataframes,
 	}
 	handler := loomapi.NewStrictHandler(routes, nil)
 	loomapi.RegisterHandlersWithOptions(server.App(), handler, loomapi.FiberServerOptions{})

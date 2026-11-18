@@ -210,9 +210,20 @@ func adapterOpenAPIStatuses() (map[string]map[int]struct{}, error) {
 	if !ok {
 		return nil, fmt.Errorf("locate status coverage test source")
 	}
-	files, err := filepath.Glob(filepath.Join(filepath.Dir(sourceFile), "openapi*.go"))
-	if err != nil {
-		return nil, fmt.Errorf("find OpenAPI route adapters: %w", err)
+	base := filepath.Dir(sourceFile)
+	packageDirs := []string{
+		base,
+		filepath.Join(base, "../api/http"),
+		filepath.Join(base, "../api/bulk/load"),
+		filepath.Join(base, "../api/dataframe/dataframe"),
+	}
+	packageFiles := make([][]string, 0, len(packageDirs))
+	for _, directory := range packageDirs {
+		files, err := filepath.Glob(filepath.Join(directory, "openapi*.go"))
+		if err != nil {
+			return nil, fmt.Errorf("find OpenAPI route adapters in %s: %w", directory, err)
+		}
+		packageFiles = append(packageFiles, files)
 	}
 	handled := make(map[string]map[int]struct{})
 	fileSet := token.NewFileSet()
@@ -235,55 +246,57 @@ func adapterOpenAPIStatuses() (map[string]map[int]struct{}, error) {
 			}
 		}
 	}
-	localHelpers := make(map[string]*ast.FuncDecl)
-	for _, file := range files {
-		if strings.HasSuffix(file, "_test.go") {
-			continue
-		}
-		parsed, err := parser.ParseFile(fileSet, file, nil, 0)
-		if err != nil {
-			return nil, err
-		}
-		for _, declaration := range parsed.Decls {
-			if function, ok := declaration.(*ast.FuncDecl); ok && function.Recv == nil && function.Body != nil {
-				localHelpers[function.Name.Name] = function
-			}
-		}
-	}
-	for _, file := range files {
-		if strings.HasSuffix(file, "_test.go") {
-			continue
-		}
-		parsed, err := parser.ParseFile(fileSet, file, nil, 0)
-		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", file, err)
-		}
-		for _, declaration := range parsed.Decls {
-			function, ok := declaration.(*ast.FuncDecl)
-			if !ok || function.Recv == nil || function.Body == nil || function.Name == nil {
+	for _, files := range packageFiles {
+		localHelpers := make(map[string]*ast.FuncDecl)
+		for _, file := range files {
+			if strings.HasSuffix(file, "_test.go") {
 				continue
 			}
-			if !isHTTPRoutesReceiver(function.Recv) {
+			parsed, err := parser.ParseFile(fileSet, file, nil, 0)
+			if err != nil {
+				return nil, fmt.Errorf("parse %s: %w", file, err)
+			}
+			for _, declaration := range parsed.Decls {
+				if function, ok := declaration.(*ast.FuncDecl); ok && function.Recv == nil && function.Body != nil {
+					localHelpers[function.Name.Name] = function
+				}
+			}
+		}
+		for _, file := range files {
+			if strings.HasSuffix(file, "_test.go") {
 				continue
 			}
-			operationID := matchingOperationID(function.Name.Name)
-			if operationID == "" {
-				continue
+			parsed, err := parser.ParseFile(fileSet, file, nil, 0)
+			if err != nil {
+				return nil, fmt.Errorf("parse %s: %w", file, err)
 			}
-			if _, exists := handled[operationID]; exists {
-				return nil, fmt.Errorf("adapter for operationId %q is duplicated", operationID)
+			for _, declaration := range parsed.Decls {
+				function, ok := declaration.(*ast.FuncDecl)
+				if !ok || function.Recv == nil || function.Body == nil || function.Name == nil {
+					continue
+				}
+				if !isStrictHandlerReceiver(function.Recv) {
+					continue
+				}
+				operationID := matchingOperationID(function.Name.Name)
+				if operationID == "" {
+					continue
+				}
+				if _, exists := handled[operationID]; exists {
+					return nil, fmt.Errorf("adapter for operationId %q is duplicated", operationID)
+				}
+				statuses := make(map[int]struct{})
+				if err := collectAdapterStatuses(function.Body, function.Name.Name, statuses, factories, localHelpers); err != nil {
+					return nil, fmt.Errorf("%s: %w", operationID, err)
+				}
+				handled[operationID] = statuses
 			}
-			statuses := make(map[int]struct{})
-			if err := collectAdapterStatuses(function.Body, function.Name.Name, statuses, factories, localHelpers); err != nil {
-				return nil, fmt.Errorf("%s: %w", operationID, err)
-			}
-			handled[operationID] = statuses
 		}
 	}
 	return handled, nil
 }
 
-func isHTTPRoutesReceiver(fieldList *ast.FieldList) bool {
+func isStrictHandlerReceiver(fieldList *ast.FieldList) bool {
 	if fieldList == nil || len(fieldList.List) != 1 {
 		return false
 	}
@@ -293,7 +306,7 @@ func isHTTPRoutesReceiver(fieldList *ast.FieldList) bool {
 		return false
 	}
 	name, ok := star.X.(*ast.Ident)
-	return ok && name.Name == "HTTPRoutes"
+	return ok && (name.Name == "HTTPRoutes" || strings.HasSuffix(name.Name, "Handlers"))
 }
 
 func matchingOperationID(functionName string) string {

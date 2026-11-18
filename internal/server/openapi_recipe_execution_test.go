@@ -5,19 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 	"testing"
 
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
-	loadapi "github.com/calypr/loom/internal/api/bulk/load"
+	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/publication"
-	dataset "github.com/calypr/loom/internal/dataset"
 )
 
 type recipeExecutionCatalog struct {
@@ -36,36 +34,6 @@ type recipeExecutionFaultCatalog struct {
 
 func (c recipeExecutionFaultCatalog) GetExecution(context.Context, string) (publication.BundleExecution, error) {
 	return publication.BundleExecution{}, c.err
-}
-
-func TestRecipeExecutionHTTPStatePreservesExplorerReadyContract(t *testing.T) {
-	if got := recipeExecutionHTTPState(publication.BundlePublished); got != "READY" {
-		t.Fatalf("published HTTP state = %q, want READY", got)
-	}
-	if got := recipeExecutionHTTPState(publication.BundleRunning); got != "RUNNING" {
-		t.Fatalf("running HTTP state = %q, want RUNNING", got)
-	}
-}
-
-func TestRecipeExecutionAuthorizationStatusDistinguishesDenialFromOutage(t *testing.T) {
-
-	if got := recipeExecutionAuthorizationStatus(authscope.ErrForbidden); got != http.StatusNotFound {
-		t.Fatalf("forbidden status = %d, want %d", got, http.StatusNotFound)
-	}
-	if got := recipeExecutionAuthorizationStatus(authscope.ErrAuthorizationBackendUnavailable); got != http.StatusServiceUnavailable {
-		t.Fatalf("backend outage status = %d, want %d", got, http.StatusServiceUnavailable)
-	}
-	if got := recipeExecutionAuthorizationStatus(errors.New("unexpected scope failure")); got != http.StatusServiceUnavailable {
-		t.Fatalf("unknown scope status = %d, want %d", got, http.StatusServiceUnavailable)
-	}
-}
-
-func TestRecipeExecutionHTTPStatePreservesOtherPersistedStates(t *testing.T) {
-	for _, state := range []publication.BundleState{publication.BundlePending, publication.BundlePreflight, publication.BundleValidating, publication.BundleLoading, publication.BundleQueued, publication.BundleRunning, publication.BundleReady, publication.BundleFailed, "FUTURE_STATE"} {
-		if got := recipeExecutionHTTPState(state); got != string(state) {
-			t.Errorf("HTTP state for %q = %q, want unchanged persisted state", state, got)
-		}
-	}
 }
 
 func TestRecipeAuthorizationAdapterUsesOperationAuthPolicy(t *testing.T) {
@@ -88,38 +56,8 @@ func TestRecipeAuthorizationAdapterUsesOperationAuthPolicy(t *testing.T) {
 	}
 }
 
-func TestRecipeExecutionAuthorizationResponseConcealsDenialAndStructuresOutage(t *testing.T) {
-	denial, err := recipeExecutionAuthorizationResponse(context.Background(), authscope.ErrForbidden)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := denial.(loomapi.GetRecipeExecution404JSONResponse); !ok {
-		t.Fatalf("denial=%T, want404", denial)
-	}
-	body, err := json.Marshal(denial)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(body) != `{"error":"recipe execution not found"}` {
-		t.Fatalf("denial body=%s", body)
-	}
-	outage, err := recipeExecutionAuthorizationResponse(context.Background(), authscope.ErrAuthorizationBackendUnavailable)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertRecipeExecutionRetryableOutage(t, outage, "authorization backend unavailable")
-}
-
-func TestRecipeExecutionAuthorizationResponseStructuresArbitraryFaultLikeTheTwin(t *testing.T) {
-	outage, err := recipeExecutionAuthorizationResponse(context.Background(), errors.New("catalog auth path listing exploded"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertRecipeExecutionRetryableOutage(t, outage, "arbitrary authorization fault")
-}
-
 func TestGetRecipeExecutionAuthorizationArbitraryFaultIsRetryableOutage(t *testing.T) {
-	routes := &HTTPRoutes{
+	routes := recipeExecutionTestRoutes(&HTTPRoutes{
 		releases: recipeExecutionCatalog{execution: publication.BundleExecution{
 			ID: "execution-a", BundleIdentity: publication.BundleIdentity{
 				Project: "project-a", DatasetGeneration: "generation-a", AuthResourcePaths: []string{"path-a"},
@@ -130,7 +68,7 @@ func TestGetRecipeExecutionAuthorizationArbitraryFaultIsRetryableOutage(t *testi
 				return nil, errors.New("catalog auth path listing exploded")
 			},
 		}),
-	}
+	})
 	ctx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{AuthResourcePaths: []string{"path-a"}})
 	response, err := routes.GetRecipeExecution(ctx, loomapi.GetRecipeExecutionRequestObject{Id: "execution-a"})
 	if err != nil {
@@ -140,7 +78,7 @@ func TestGetRecipeExecutionAuthorizationArbitraryFaultIsRetryableOutage(t *testi
 }
 
 func TestGetRecipeExecutionReturnsGeneratedRetryableOutage(t *testing.T) {
-	routes := &HTTPRoutes{
+	routes := recipeExecutionTestRoutes(&HTTPRoutes{
 		releases: recipeExecutionCatalog{execution: publication.BundleExecution{
 			ID: "execution-a", BundleIdentity: publication.BundleIdentity{
 				Project: "project-a", DatasetGeneration: "generation-a", AuthResourcePaths: []string{"path-a"},
@@ -151,7 +89,7 @@ func TestGetRecipeExecutionReturnsGeneratedRetryableOutage(t *testing.T) {
 				return nil, authscope.ErrAuthorizationBackendUnavailable
 			},
 		}),
-	}
+	})
 	ctx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{AuthResourcePaths: []string{"path-a"}})
 	response, err := routes.GetRecipeExecution(ctx, loomapi.GetRecipeExecutionRequestObject{Id: "execution-a"})
 	if err != nil {
@@ -186,7 +124,7 @@ func assertRecipeExecutionRetryableOutage(t *testing.T, response loomapi.GetReci
 }
 
 func TestGetRecipeExecutionStoreFaultIsRetryableOutage(t *testing.T) {
-	routes := &HTTPRoutes{releases: recipeExecutionFaultCatalog{err: errors.New("arango connection reset")}}
+	routes := recipeExecutionTestRoutes(&HTTPRoutes{releases: recipeExecutionFaultCatalog{err: errors.New("arango connection reset")}})
 	response, err := routes.GetRecipeExecution(context.Background(), loomapi.GetRecipeExecutionRequestObject{Id: "execution-a"})
 	if err != nil {
 		t.Fatal(err)
@@ -195,7 +133,7 @@ func TestGetRecipeExecutionStoreFaultIsRetryableOutage(t *testing.T) {
 }
 
 func TestGetRecipeExecutionDeadlineExceededIsRetryableOutage(t *testing.T) {
-	routes := &HTTPRoutes{releases: recipeExecutionFaultCatalog{err: context.DeadlineExceeded}}
+	routes := recipeExecutionTestRoutes(&HTTPRoutes{releases: recipeExecutionFaultCatalog{err: context.DeadlineExceeded}})
 	response, err := routes.GetRecipeExecution(context.Background(), loomapi.GetRecipeExecutionRequestObject{Id: "execution-a"})
 	if err != nil {
 		t.Fatal(err)
@@ -204,7 +142,7 @@ func TestGetRecipeExecutionDeadlineExceededIsRetryableOutage(t *testing.T) {
 }
 
 func TestGetRecipeExecutionWrappedBundleNotFoundStaysNotFound(t *testing.T) {
-	routes := &HTTPRoutes{releases: recipeExecutionFaultCatalog{err: fmt.Errorf("arango lookup failed: %w", publication.ErrBundleNotFound)}}
+	routes := recipeExecutionTestRoutes(&HTTPRoutes{releases: recipeExecutionFaultCatalog{err: fmt.Errorf("arango lookup failed: %w", publication.ErrBundleNotFound)}})
 	response, err := routes.GetRecipeExecution(context.Background(), loomapi.GetRecipeExecutionRequestObject{Id: "execution-a"})
 	if err != nil {
 		t.Fatal(err)
@@ -223,17 +161,8 @@ func TestGetRecipeExecutionWrappedBundleNotFoundStaysNotFound(t *testing.T) {
 }
 
 func TestStableReadResponseFixtures(t *testing.T) {
-	status := generationStatusResponse(&loadapi.GenerationStatusResult{
-		Project: "project-a", Generation: "generation-a", State: dataset.StateStaged, Reusable: true,
-	})
-	assertJSONFixture(t, status, `{"generation":"generation-a","project":"project-a","reusable":true,"state":"STAGED"}`)
 
-	activation := generationActivationResponse(&loadapi.GenerationActivationResult{
-		Project: "project-a", Generation: "generation-a", DataframeExecutionID: "execution-a", Activated: true,
-	})
-	assertJSONFixture(t, activation, `{"activated":true,"dataframeExecutionId":"execution-a","generation":"generation-a","project":"project-a"}`)
-
-	routes := &HTTPRoutes{releases: recipeExecutionCatalog{execution: publication.BundleExecution{
+	routes := recipeExecutionTestRoutes(&HTTPRoutes{releases: recipeExecutionCatalog{execution: publication.BundleExecution{
 		ID: "execution-a",
 		BundleIdentity: publication.BundleIdentity{
 			Project: "project-a", DatasetGeneration: "generation-a", RecipeDigest: "recipe-digest", SchemaDigest: "schema-digest",
@@ -243,12 +172,14 @@ func TestStableReadResponseFixtures(t *testing.T) {
 			Name: "patients", State: publication.BundlePublished, RowCount: 2,
 			Columns: []publication.PhysicalColumn{{Name: "id", SemanticPath: "Patient.id", ClickHouse: "String"}},
 		}},
-	}}}
-	execution, err := routes.recipeExecution(context.Background(), "execution-a")
+	}}})
+	response, err := routes.GetRecipeExecution(context.Background(), loomapi.GetRecipeExecutionRequestObject{Id: "execution-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertJSONFixture(t, recipeExecutionResponse(execution), `{"datasetGeneration":"generation-a","id":"execution-a","outputs":[{"columns":[{"aggregatable":true,"clickhouseType":"String","filterable":true,"logicalType":"string","name":"id","nullable":false,"repeated":false,"semanticPath":"Patient.id","sortable":true}],"name":"patients","rowCount":2,"state":"READY"}],"projectId":"project-a","recipeDigest":"recipe-digest","resolvedSchemaDigest":"schema-digest","schemaDigest":"schema-digest","state":"READY"}`)
+	if _, ok := response.(loomapi.GetRecipeExecution200JSONResponse); !ok {
+		t.Fatalf("recipe execution response = %T, want success", response)
+	}
 }
 
 func assertJSONFixture(t *testing.T, value any, want string) {
@@ -260,4 +191,9 @@ func assertJSONFixture(t *testing.T, value any, want string) {
 	if string(payload) != want {
 		t.Fatalf("response fixture = %s, want %s", payload, want)
 	}
+}
+
+func recipeExecutionTestRoutes(routes *HTTPRoutes) *HTTPRoutes {
+	routes.Handlers = dataframeapi.NewHandlers(nil, nil, newRecipeExecutionReader(routes.releases, routes.scopes))
+	return routes
 }

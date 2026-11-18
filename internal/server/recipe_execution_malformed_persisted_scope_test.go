@@ -103,7 +103,7 @@ func mscRoutesWith(probe *mscProbe, resourceAccess authscope.ResourceAccessClien
 		ResourceAccess:                resourceAccess,
 		ListExistingAuthResourcePaths: probe.listExisting,
 	})
-	return &HTTPRoutes{releases: mscStore(), scopes: resolver}
+	return recipeExecutionTestRoutes(&HTTPRoutes{releases: mscStore(), scopes: resolver})
 }
 
 func mscMemberPrincipal() *authscope.Principal {
@@ -293,6 +293,7 @@ func TestRESTRecipeExecutionMalformedScopePreservesAuthorizationArms(t *testing.
 	probeStore := &mscProbe{pathsByProjectGeneration: mscKnownPaths()}
 	routesStore := mscRoutesWith(probeStore, nil)
 	routesStore.releases = mscFailingStore{err: storeFault}
+	routesStore = recipeExecutionTestRoutes(routesStore)
 	storeStatus, storeBody, storeFields := twinGetExecution(t, twinHTTPStack(routesStore, mscMemberPrincipal()), mscMalformedExecID)
 	if storeStatus != http.StatusServiceUnavailable {
 		t.Fatalf("store fault must stay 503, got %d %s", storeStatus, storeBody)

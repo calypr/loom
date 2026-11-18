@@ -88,7 +88,7 @@ already exist.
 | Package | Strict-server methods it owns |
 |---|---|
 | `internal/api/http` | `GetHealth`, `GetLiveness`, `GetReadiness` |
-| `internal/api/bulk/load` | generation create/status/activate; source-load begin/status/upload/publish (`openapi_data_routes.go`, `openapi_source_load.go`) |
+| `internal/api/bulk/load` | `StrictHandlers` adapts the existing load `Handler` without method name collisions. Generation create/status/activate; source-load begin/status/upload/publish (`openapi_data_routes.go`, `openapi_source_load.go`) |
 | `internal/api/dataframe/dataframe` | dataframe rows, aggregations, FHIR dataframe, recipe execution (`openapi_dataframe.go`, `openapi_recipe_execution.go`) |
 | `internal/api/explorer` (new) | All explorer, construction, selection, artifact, interpretation, and view-builder operations: `explorer_config_route.go`, `explorer_preview_response.go`, the 16 `openapi_explorer_*.go`, `openapi_frame_source_options.go`, `openapi_semantic_inventory.go`, `openapi_view_builder.go`. `*Direct` methods merge into the strict-server methods. Move `preserveConfiguredQueryError` with `previewRouteError`. |
 
@@ -140,7 +140,7 @@ edits `server.go` wiring, so merges are serialized and later phases rebase.
 3. Export only what a caller outside the new package needs.
 4. Move each subject's tests and the fakes they need. If several packages need a fake (`http_test_helpers_test.go`, `openapi_test_helpers_test.go`), move it to `internal/testkit`. Do not copy it.
 5. `go build ./... && go vet ./...`, `make lint-go-comments`, `make test-go`; also `make test-integration` for phases 4, 6, 7b, and 7c.
-6. `openapi_route_inventory_test.go` and `openapi_status_coverage_test.go` pass unchanged. They prove the strict-server surface did not drift.
+6. Keep `openapi_route_inventory_test.go` unchanged and preserve the status coverage assertions and negative cases. In Phase 7, update status coverage discovery to follow the moved handlers.
 7. `python3 scripts/package_audit_verify.py --full` afterward. Inspect the dependency diff: no package other than `main` and `cmd/*` imports `internal/server`, and there are no new cycles.
 8. Update the `docs/PACKAGE_AUDIT.csv` rows for touched packages.
 9. Run `pstack:interrogate` on phases 6, 7b, and 7c, per AGENTS.md.

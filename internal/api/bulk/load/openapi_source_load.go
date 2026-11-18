@@ -1,4 +1,4 @@
-package server
+package load
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"github.com/calypr/loom/internal/ingest"
 )
 
-func (r *HTTPRoutes) BeginDatasetSourceLoad(ctx context.Context, request loomapi.BeginDatasetSourceLoadRequestObject) (loomapi.BeginDatasetSourceLoadResponseObject, error) {
+func (r *StrictHandlers) BeginDatasetSourceLoad(ctx context.Context, request loomapi.BeginDatasetSourceLoadRequestObject) (loomapi.BeginDatasetSourceLoadResponseObject, error) {
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	var status ingest.SourceLoadStatus
 	var err error
@@ -40,7 +40,7 @@ func (r *HTTPRoutes) BeginDatasetSourceLoad(ctx context.Context, request loomapi
 			}
 			plan.Files = append(plan.Files, item)
 		}
-		status, err = r.load.BeginSourceLoad(ctx, string(request.Project), request.Operation, plan, principal)
+		status, err = r.service.BeginSourceLoad(ctx, string(request.Project), request.Operation, plan, principal)
 	}
 	if err == nil {
 		return loomapi.BeginDatasetSourceLoad200JSONResponse(sourceLoadStatusValue(status)), nil
@@ -49,9 +49,9 @@ func (r *HTTPRoutes) BeginDatasetSourceLoad(ctx context.Context, request loomapi
 	return loomapi.NewBeginDatasetSourceLoadErrorResponse(code, body)
 }
 
-func (r *HTTPRoutes) GetDatasetSourceLoadStatus(ctx context.Context, request loomapi.GetDatasetSourceLoadStatusRequestObject) (loomapi.GetDatasetSourceLoadStatusResponseObject, error) {
+func (r *StrictHandlers) GetDatasetSourceLoadStatus(ctx context.Context, request loomapi.GetDatasetSourceLoadStatusRequestObject) (loomapi.GetDatasetSourceLoadStatusResponseObject, error) {
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	status, err := r.load.GetSourceLoadStatus(ctx, string(request.Project), request.Operation, principal)
+	status, err := r.service.GetSourceLoadStatus(ctx, string(request.Project), request.Operation, principal)
 	if err == nil {
 		return loomapi.GetDatasetSourceLoadStatus200JSONResponse(sourceLoadStatusValue(status)), nil
 	}
@@ -59,9 +59,9 @@ func (r *HTTPRoutes) GetDatasetSourceLoadStatus(ctx context.Context, request loo
 	return loomapi.NewGetDatasetSourceLoadStatusErrorResponse(code, body)
 }
 
-func (r *HTTPRoutes) UploadDatasetSourceLoadFile(ctx context.Context, request loomapi.UploadDatasetSourceLoadFileRequestObject) (loomapi.UploadDatasetSourceLoadFileResponseObject, error) {
+func (r *StrictHandlers) UploadDatasetSourceLoadFile(ctx context.Context, request loomapi.UploadDatasetSourceLoadFileRequestObject) (loomapi.UploadDatasetSourceLoadFileResponseObject, error) {
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	receipt, err := r.load.UploadSourceLoadFile(ctx, string(request.Project), request.Operation, request.ResourceType, request.Body, principal)
+	receipt, err := r.service.UploadSourceLoadFile(ctx, string(request.Project), request.Operation, request.ResourceType, request.Body, principal)
 	if err == nil {
 		return loomapi.UploadDatasetSourceLoadFile200JSONResponse(sourceFileReceiptValue(receipt)), nil
 	}
@@ -72,9 +72,9 @@ func (r *HTTPRoutes) UploadDatasetSourceLoadFile(ctx context.Context, request lo
 	return loomapi.NewUploadDatasetSourceLoadFileErrorResponse(code, body)
 }
 
-func (r *HTTPRoutes) PublishDatasetSourceLoad(ctx context.Context, request loomapi.PublishDatasetSourceLoadRequestObject) (loomapi.PublishDatasetSourceLoadResponseObject, error) {
+func (r *StrictHandlers) PublishDatasetSourceLoad(ctx context.Context, request loomapi.PublishDatasetSourceLoadRequestObject) (loomapi.PublishDatasetSourceLoadResponseObject, error) {
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	receipt, err := r.load.PublishSourceLoad(ctx, string(request.Project), request.Operation, principal)
+	receipt, err := r.service.PublishSourceLoad(ctx, string(request.Project), request.Operation, principal)
 	if err == nil {
 		return loomapi.PublishDatasetSourceLoad200JSONResponse{
 			OperationId: receipt.OperationID, SourceRevision: receipt.SourceRevision,

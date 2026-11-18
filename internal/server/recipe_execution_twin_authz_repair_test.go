@@ -19,7 +19,7 @@ func TestRecipeExecutionTwinRefusesForeignProjectPrincipal(t *testing.T) {
 		},
 		State: publication.BundlePublished,
 	}
-	routes := &HTTPRoutes{releases: recipeExecutionCatalog{execution: foreign}}
+	routes := recipeExecutionTestRoutes(&HTTPRoutes{releases: recipeExecutionCatalog{execution: foreign}})
 
 	foreignCtx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{
 		Subject:  "operator-a",

@@ -43,7 +43,8 @@ const (
 const twinRowCount = int64(7373737)
 
 const (
-	twinHandlerFile = "openapi_recipe_execution.go"
+	twinHandlerFile = "../api/dataframe/dataframe/openapi_handlers.go"
+	twinWiringFile  = "openapi_recipe_execution.go"
 	twinReaderFile  = "../api/dataframe/dataframe/recipe_execution.go"
 	twinRoutePrefix = "/api/v1/dataframe/recipe-executions/"
 )
@@ -199,8 +200,16 @@ func twinRequireRepairedGuards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(source, "NewAuthorizedRecipeExecutionRecordReader(r.releases, r.scopes, resolveScope, true)") {
-		t.Fatal("REST no longer calls the shared authorized reader")
+	if !strings.Contains(source, "r.readRecipeExecution(ctx, request.Id)") {
+		t.Fatal("REST handler no longer delegates recipe execution reads to the authorized reader")
+	}
+	wiringRaw, err := os.ReadFile(twinWiringFile)
+	if err != nil {
+		t.Fatalf("STEP 0 drift: cannot read %s: %v", twinWiringFile, err)
+	}
+	wiringSource := string(wiringRaw)
+	if !strings.Contains(wiringSource, "NewAuthorizedRecipeExecutionRecordReader(releases, scopes, resolveScope, true)") {
+		t.Fatal("REST wiring no longer uses the shared authorized reader")
 	}
 	for _, fact := range twinQuotedFacts {
 		factRaw, err := os.ReadFile(fact.source)
@@ -222,7 +231,7 @@ func twinRequireRepairedGuards(t *testing.T) {
 	if strings.Contains(string(readerRaw), "if scopeResolver != nil {\n\t\t\tprincipal, _ := authscope.PrincipalFromContext(ctx)") {
 		t.Fatal("shared reader restored resolver-conditional project membership")
 	}
-	if strings.Contains(source, archivedMembershipFreeGate) {
+	if strings.Contains(wiringSource, archivedMembershipFreeGate) {
 		t.Fatalf("FB20-TWIN REGRESSION | %s restored the archived membership-free gate (principal consulted only inside the resolver-conditional block)", twinHandlerFile)
 	}
 	t.Logf("FB20-TWIN GATE | archived-gate-stays-absent | %s keeps the shipped membership-free gate removed", twinHandlerFile)
@@ -322,13 +331,13 @@ func twinWiredRoutes() (*HTTPRoutes, *twinExecutionStore, *twinScopeProbe) {
 	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 		ListExistingAuthResourcePaths: probe.listExisting,
 	})
-	return &HTTPRoutes{releases: store, scopes: resolver}, store, probe
+	return recipeExecutionTestRoutes(&HTTPRoutes{releases: store, scopes: resolver}), store, probe
 }
 
 func TestFB20RESTTwinNilScopesRefusesForeignPrincipalOverHTTP(t *testing.T) {
 	twinRequireRepairedGuards(t)
 	store := twinForeignStore()
-	routes := &HTTPRoutes{releases: store}
+	routes := recipeExecutionTestRoutes(&HTTPRoutes{releases: store})
 	principal := &authscope.Principal{Subject: "operator-" + twinHomeProject, Projects: []string{twinHomeProject}}
 	app := twinHTTPStack(routes, principal)
 
@@ -461,7 +470,7 @@ func TestFB20RESTTwinCoversSubsetGateIsSoleDisclosureGate(t *testing.T) {
 	store.executions[twinCoversSupersetExecID] = superset
 	probe := &twinScopeProbe{existingByProject: map[string][]string{twinForeignProject: {twinCallerPath, twinCoversExtraPath}}}
 	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{ListExistingAuthResourcePaths: probe.listExisting})
-	routes := &HTTPRoutes{releases: store, scopes: resolver}
+	routes := recipeExecutionTestRoutes(&HTTPRoutes{releases: store, scopes: resolver})
 	principal := &authscope.Principal{
 		Subject:           "operator-" + twinForeignProject,
 		Projects:          []string{twinForeignProject},
