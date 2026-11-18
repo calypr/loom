@@ -6,10 +6,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/catalog"
+	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publication "github.com/calypr/loom/internal/dataset"
 	datasetarango "github.com/calypr/loom/internal/dataset/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -80,9 +83,9 @@ RETURN {document: doc}`
 	t.Log("copy-query control returned")
 
 	patientPath := writeSourceLoadTempFile(t, strings.Join([]string{
-		`{"resourceType":"Patient","id":"patient-1","managingOrganization":{"reference":"Organization/org-1"}}`,
-		`{"resourceType":"Patient","id":"patient-2","managingOrganization":{"reference":"Organization/org-1"}}`,
-		`{"resourceType":"Patient","id":"patient-3","managingOrganization":{"reference":"Organization/org-1"}}`,
+		`{"resourceType":"Patient","id":"patient-1","identifier":[{"system":"urn:source-load:test-one","value":"shared-one"},{"system":"urn:source-load:test-two","value":"shared-two"}],"managingOrganization":{"reference":"Organization/org-1"}}`,
+		`{"resourceType":"Patient","id":"patient-2","identifier":[{"system":"urn:source-load:test-one","value":"shared-one"},{"system":"urn:source-load:test-two","value":"shared-two"}],"managingOrganization":{"reference":"Organization/org-1"}}`,
+		`{"resourceType":"Patient","id":"patient-3","identifier":[{"system":"urn:source-load:test-one","value":"shared-one"},{"system":"urn:source-load:test-two","value":"shared-two"}],"managingOrganization":{"reference":"Organization/org-1"}}`,
 	}, "\n")+"\n")
 	organizationPath := writeSourceLoadTempFile(t, `{"resourceType":"Organization","id":"org-1"}`+"\n")
 	status, err := loader.Begin(ctx, project, "initial", SourceLoadPlan{
@@ -168,6 +171,7 @@ RETURN {document: doc}`
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertCopiedSourceLoadInventory(t, ctx, client, project, initialActive.Release.Generation, repairedActive.Release.Generation)
 	repairedEdges := sourceLoadEdges(t, ctx, client, project, repairedActive.Release.Generation)
 	if len(repairedEdges) != 3 {
 		t.Fatalf("copied Patient edge count = %d, want 3", len(repairedEdges))
@@ -229,6 +233,72 @@ RETURN {document: doc}`
 	for _, edge := range clearedEdges {
 		if edge.SourceFile != "Patient" || !clearedPatientKeys[edge.From] || edge.To != clearedOrganizationKey {
 			t.Fatalf("retained edge endpoints = (%q,%q) owner=%q, want Patient/Organization endpoints owned by Patient", edge.From, edge.To, edge.SourceFile)
+		}
+	}
+}
+
+func assertCopiedSourceLoadInventory(t *testing.T, ctx context.Context, client *arangostore.Client, project, source, target string) {
+	t.Helper()
+	store, err := catalogarango.New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unrestricted := true
+	entries := func(generation string) []catalog.SemanticInventoryEntry {
+		t.Helper()
+		page, err := store.PageSemanticInventory(ctx, catalog.SemanticInventoryPageOptions{
+			Project: project, DatasetGeneration: generation, ResourceType: "Patient", AuthResourcePathsUnrestricted: &unrestricted,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Entries) != 2 {
+			t.Fatalf("generation %q retained %d inventory entries, want 2", generation, len(page.Entries))
+		}
+		for _, entry := range page.Entries {
+			if entry.Observation.Population != 3 {
+				t.Fatalf("generation %q entry %q population = %d, want 3", generation, entry.ConceptID, entry.Observation.Population)
+			}
+		}
+		return page.Entries
+	}
+	before, after := entries(source), entries(target)
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("copied inventory differs: before %#v, after %#v", before, after)
+	}
+
+	readRows := func(generation string) []catalog.SemanticInventoryContribution {
+		t.Helper()
+		var rows []catalog.SemanticInventoryContribution
+		err := client.QueryRows(ctx, `FOR doc IN fhir_semantic_inventory
+FILTER doc.project == @project AND doc.dataset_generation == @generation AND doc.resource_type == "Patient"
+SORT doc.source_id, doc.ordinal
+RETURN doc`, 10, map[string]any{"project": project, "generation": generation}, func(doc map[string]any) error {
+			raw, err := json.Marshal(doc)
+			if err != nil {
+				return err
+			}
+			var row catalog.SemanticInventoryContribution
+			if err := json.Unmarshal(raw, &row); err != nil {
+				return err
+			}
+			rows = append(rows, row)
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 2 || rows[0].Key == rows[1].Key {
+			t.Fatalf("generation %q has %d inventory rows or duplicate keys", generation, len(rows))
+		}
+		return rows
+	}
+	sourceRows, targetRows := readRows(source), readRows(target)
+	for i, row := range targetRows {
+		prior := sourceRows[i]
+		wantKey := semanticInventoryContributionKey(project, target, row.AuthResourcePath, row.ResourceType, row.BuildID, row.SourceID, row.Ordinal, row.SourceKind)
+		if row.SourceID == "" || row.SourceID != prior.SourceID || row.Ordinal < 0 || row.Ordinal != prior.Ordinal || row.Key != wantKey || row.Key == prior.Key {
+			t.Fatalf("invalid copied inventory identity: source=%#v, target=%#v, wanted key %q", prior, row, wantKey)
 		}
 	}
 }

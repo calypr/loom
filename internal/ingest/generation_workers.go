@@ -235,6 +235,7 @@ func loadFile(
 	var workersWG sync.WaitGroup
 	workerTimingsChan := make(chan map[string]float64, workerCount)
 	workerCatalogsChan := make(chan *catalog.Profiler, workerCount)
+	workerInventoryChan := make(chan *catalog.SemanticInventoryAggregator, workerCount)
 	shapeCache := catalog.NewShapePlanCacheWithLimits(opts.CatalogLimits.MaxShapePlans, opts.CatalogLimits.MaxRetainedBytes)
 
 	var fileRows int64
@@ -245,6 +246,9 @@ func loadFile(
 	var validationErrors int64
 	var generationErrors int64
 	var edgeErrors int64
+	var inventoryBuildSeconds float64
+	var inventoryRunsMu sync.Mutex
+	var inventoryRuns []string
 	var rowErrorsMu sync.Mutex
 	rowErrors := make([]RowErrorSample, 0, rowErrorSampleLimit)
 	recordRowError := func(line int, category rowErrorType, buildErr error) {
@@ -278,12 +282,29 @@ func loadFile(
 			defer workersWG.Done()
 			localTimings := make(map[string]float64)
 			localCatalog := catalog.NewProfilerForGenerationWithLimits(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, shapeCache, opts.CatalogLimits)
+			localInventory := catalog.NewSemanticInventoryAggregator(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, semanticSourceFile)
 			vertexBatch := make([]json.RawMessage, 0, opts.BatchSize)
 			edgeBatch := make([]json.RawMessage, 0, opts.BatchSize)
 			edgeRelationshipCounts := make(map[catalog.RelationshipKey]int64)
 			edgeRelationshipsKnown := true
-			semanticInventoryBatch := make([]json.RawMessage, 0, opts.BatchSize)
 			semanticInventoryFailed := false
+			flushInventoryRun := func() bool {
+				if localInventory.Len() == 0 {
+					return true
+				}
+				spillStart := time.Now()
+				path, spillErr := writeSemanticInventoryRun(localInventory)
+				localTimings["semantic_inventory_spill"] += time.Since(spillStart).Seconds()
+				if spillErr != nil {
+					semanticInventoryFailed = true
+					setPipelineErr(fmt.Errorf("spill semantic inventory for %s: %w", filepath.Base(file), spillErr))
+					return false
+				}
+				inventoryRunsMu.Lock()
+				inventoryRuns = append(inventoryRuns, path)
+				inventoryRunsMu.Unlock()
+				return true
+			}
 
 			flushVertexBatch := func() bool {
 				if len(vertexBatch) == 0 {
@@ -328,29 +349,13 @@ func loadFile(
 					return false
 				}
 			}
-			flushSemanticInventoryBatch := func() bool {
-				if len(semanticInventoryBatch) == 0 {
-					return true
-				}
-				waitStart := time.Now()
-				select {
-				case writeChan <- fileWriteTask{collection: catalog.SemanticInventoryCollection, docs: semanticInventoryBatch, replace: true}:
-					localTimings["semantic_inventory_queue_wait"] += time.Since(waitStart).Seconds()
-					localTimings["semantic_inventory_batches"]++
-					semanticInventoryBatch = make([]json.RawMessage, 0, opts.BatchSize)
-					return true
-				case <-fileCtx.Done():
-					localTimings["semantic_inventory_queue_wait"] += time.Since(waitStart).Seconds()
-					return false
-				}
-			}
 			for {
 				select {
 				case <-fileCtx.Done():
 					return
 				case line, open := <-linesChan:
 					if !open {
-						if !flushVertexBatch() || !flushEdgeBatch() || !flushSemanticInventoryBatch() {
+						if !flushVertexBatch() || !flushEdgeBatch() {
 							return
 						}
 						select {
@@ -361,6 +366,7 @@ func loadFile(
 						case workerCatalogsChan <- localCatalog:
 						case <-ctx.Done():
 						}
+						workerInventoryChan <- localInventory
 						return
 					}
 					built, errorType, buildErr := rowBuilder.Build(resourceType, []byte(line.text), localTimings)
@@ -393,15 +399,9 @@ func loadFile(
 							if semanticInventoryFailed || fileCtx.Err() != nil {
 								return
 							}
-							encoded, encodeErr := json.Marshal(contribution)
-							if encodeErr != nil {
+							if addErr := localInventory.Add(contribution); addErr != nil {
 								semanticInventoryFailed = true
-								setPipelineErr(fmt.Errorf("encode semantic inventory contribution for %s row %d: %w", filepath.Base(file), line.number, encodeErr))
-								return
-							}
-							semanticInventoryBatch = append(semanticInventoryBatch, encoded)
-							if len(semanticInventoryBatch) >= opts.BatchSize && !flushSemanticInventoryBatch() {
-								semanticInventoryFailed = true
+								setPipelineErr(fmt.Errorf("aggregate semantic inventory contribution for %s row %d: %w", filepath.Base(file), line.number, addErr))
 							}
 						}
 						if observeErr := localCatalog.ObservePayloadWithInventory(built.payload, localTimings, sourceID, semanticSink); observeErr != nil {
@@ -409,6 +409,9 @@ func loadFile(
 							setPipelineErr(fmt.Errorf("observe semantic inventory for %s row %d: %w", filepath.Base(file), line.number, observeErr))
 						}
 						if fileCtx.Err() != nil {
+							return
+						}
+						if localInventory.Len() >= semanticInventoryRunKeyLimit && !flushInventoryRun() {
 							return
 						}
 					}
@@ -450,6 +453,49 @@ func loadFile(
 
 	go func() {
 		workersWG.Wait()
+		mergeStart := time.Now()
+		inventoryRunsMu.Lock()
+		runs := append([]string(nil), inventoryRuns...)
+		inventoryRunsMu.Unlock()
+		close(workerInventoryChan)
+		workers := make([]*catalog.SemanticInventoryAggregator, 0, workerCount)
+		for worker := range workerInventoryChan {
+			workers = append(workers, worker)
+		}
+		batch := make([]catalog.SemanticInventoryContribution, 0, opts.BatchSize)
+		ordinal := 0
+		flush := func() error {
+			if len(batch) == 0 {
+				return nil
+			}
+			encoded, encodeErr := encodeSemanticInventoryBatch(batch, opts.Project, catalog.NormalizeDatasetGeneration(datasetGeneration), opts.AuthResourcePath,
+				resourceType, catalog.SemanticInventoryBuildID(opts.Project, datasetGeneration), semanticSourceFile, ordinal)
+			if encodeErr != nil {
+				return encodeErr
+			}
+			select {
+			case writeChan <- fileWriteTask{collection: catalog.SemanticInventoryCollection, docs: encoded, replace: true}:
+				ordinal += len(batch)
+				batch = make([]catalog.SemanticInventoryContribution, 0, opts.BatchSize)
+				return nil
+			case <-fileCtx.Done():
+				return fileCtx.Err()
+			}
+		}
+		mergeErr := mergeWorkerSemanticInventory(fileCtx, runs, workers, func(contribution catalog.SemanticInventoryContribution) error {
+			batch = append(batch, contribution)
+			if len(batch) == opts.BatchSize {
+				return flush()
+			}
+			return nil
+		})
+		if mergeErr == nil {
+			mergeErr = flush()
+		}
+		if mergeErr != nil {
+			setPipelineErr(fmt.Errorf("merge semantic inventory runs for %s: %w", resourceType, mergeErr))
+		}
+		inventoryBuildSeconds = time.Since(mergeStart).Seconds()
 		close(writeChan)
 		close(workerTimingsChan)
 		close(workerCatalogsChan)
@@ -495,6 +541,7 @@ func loadFile(
 						catalog.MergeRelationshipCounts(localRelationships, task.relationshipCounts)
 					case catalog.SemanticInventoryCollection:
 						localTimings["semantic_inventory_insert"] += elapsed
+						localTimings["semantic_inventory_batches"]++
 					default:
 						localTimings["vertex_insert"] += elapsed
 						atomic.AddInt64(&verticesInserted, int64(len(task.docs)))
@@ -553,10 +600,15 @@ func loadFile(
 	}
 	for writerResult := range writerTimingsChan {
 		for key, value := range writerResult.timings {
-			result.StageSeconds[key] += value
+			if key == "semantic_inventory_batches" {
+				result.SemanticInventoryBatches += int(value)
+			} else {
+				result.StageSeconds[key] += value
+			}
 		}
 		catalog.MergeRelationshipCounts(result.RelationshipCounts, writerResult.relationshipCounts)
 	}
+	result.StageSeconds["semantic_inventory_aggregate_encode"] = inventoryBuildSeconds
 	result.Catalog = mergedCatalog
 	return result, nil
 }

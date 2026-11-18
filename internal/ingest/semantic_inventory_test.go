@@ -59,8 +59,8 @@ func TestLoadFilePersistsSemanticInventoryFromSharedEmitter(t *testing.T) {
 	if err := json.Unmarshal(inventoryDocs[0], &contribution); err != nil {
 		t.Fatal(err)
 	}
-	if contribution.SourceID != "Observation.ndjson#1" || contribution.AuthResourcePath != "" {
-		t.Fatalf("inventory source/scope = %q/%q, want stable relative source locator and unscoped path", contribution.SourceID, contribution.AuthResourcePath)
+	if contribution.SourceID != "Observation.ndjson" || contribution.AuthResourcePath != "" {
+		t.Fatalf("inventory source/scope = %q/%q, want stable file locator and unscoped path", contribution.SourceID, contribution.AuthResourcePath)
 	}
 	if contribution.ConceptID == "" || contribution.BindingID == "" || contribution.Observation.Key.Version != "v1" {
 		t.Fatalf("inventory identity/observation = %+v", contribution)
