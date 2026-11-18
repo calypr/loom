@@ -98,7 +98,7 @@ func newCoreProtocolReceiptsFixture(t *testing.T) *coreProtocolReceiptsFixture {
 				}
 				return lifecycle.AuthorizedCapability{Snapshot: *stored, Scope: readScope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return compileExplorerReceipt(ctx, request, nil, engine, domain, nil, nil)
@@ -212,14 +212,9 @@ func (f *coreProtocolReceiptsFixture) insertReceipt(receipt explorer.Compilation
 	return *stored
 }
 
-func (s *testCapabilityStore) deleteAll() {
-	s.byToken = make(map[string]capability.Snapshot)
-	s.byIdentity = make(map[capability.SnapshotIdentity]string)
-}
-
 func (f *coreProtocolReceiptsFixture) revokeSnapshot() {
 	f.t.Helper()
-	f.capabilities.deleteAll()
+	f.capabilities.Reset()
 }
 
 func (f *coreProtocolReceiptsFixture) retainSnapshot() {

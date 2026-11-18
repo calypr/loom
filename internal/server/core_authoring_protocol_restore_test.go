@@ -335,7 +335,7 @@ func newCoreProtocolPendingFixture(t *testing.T) *coreProtocolPendingFixture {
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: base.snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			if base.beforeCompile != nil {

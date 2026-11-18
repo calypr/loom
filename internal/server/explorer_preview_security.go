@@ -1,33 +1,14 @@
 package server
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer"
 )
 
-var ErrReceiptExecutionContract = errors.New("receipt execution contract mismatch")
-
-func validateAuthorizedReadScope(scope authscope.ReadScope, expectedDigest string) error {
-	switch scope.Mode {
-	case authscope.ReadScopeUnrestricted:
-		if len(scope.AuthResourcePaths) != 0 {
-			return receiptExecutionContractError("unrestricted scope must not carry resource paths")
-		}
-	case authscope.ReadScopeRestricted:
-
-	default:
-		return receiptExecutionContractError("authorization scope mode is missing or invalid")
-	}
-	if explorerScopeDigest(scope) != expectedDigest {
-		return receiptExecutionContractError("authorized scope does not match receipt scope digest")
-	}
-	return nil
-}
+var ErrReceiptExecutionContract = explorer.ErrReceiptExecutionContract
 
 func validateReceiptEnginePublicColumns(receipt *explorer.CompilationReceipt, resolved dataframeexecution.Resolved) error {
 	if receipt == nil {

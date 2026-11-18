@@ -1,4 +1,4 @@
-package server
+package resolver
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -116,7 +117,7 @@ func TestCapabilityConceptsSurviveBuilderProofOnScalarValuePath(t *testing.T) {
 	if statusBySystem["urn:study:A"] != "SUPPORTED" || statusBySystem["urn:study:B"] != "SUPPORTED" || statusBySystem[""] != "UNRESOLVED_SYSTEM" {
 		t.Fatalf("concept statuses = %#v", statusBySystem)
 	}
-	authoring := authoringV2Catalog(snapshot, "observations")
+	authoring := authoringv2.CatalogFromCapability(snapshot, "observations")
 	if len(authoring.Candidates) != 1 || len(authoring.Candidates[0].ConceptCandidates) != 3 {
 		t.Fatalf("authoring catalog concepts = %#v", authoring.Candidates)
 	}

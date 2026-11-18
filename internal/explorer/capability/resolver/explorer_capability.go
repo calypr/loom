@@ -1,4 +1,4 @@
-package server
+package resolver
 
 import (
 	"context"
@@ -16,7 +16,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
@@ -25,21 +24,21 @@ import (
 )
 
 const (
-	explorerCapabilityCompilerVersion = "loom-dataframe-compiler-v4"
-	explorerCapabilityProtocolVersion = "loom.calypr.org/explorer-authoring/v2"
-	explorerCapabilityCacheVersion    = "observed-availability-v2"
-	explorerTraversalPolicyVersion    = "finite-unbounded-v1"
-	explorerProjectionPolicyVersion   = "compiler-probed-v2"
+	CompilerVersion         = "loom-dataframe-compiler-v4"
+	ProtocolVersion         = "loom.calypr.org/explorer-authoring/v2"
+	cacheVersion            = "observed-availability-v2"
+	TraversalPolicyVersion  = "finite-unbounded-v1"
+	ProjectionPolicyVersion = "compiler-probed-v2"
 )
 
-func explorerScopeDigest(scope authscope.ReadScope) string {
+func ScopeDigest(scope authscope.ReadScope) string {
 	paths := append([]string(nil), scope.AuthResourcePaths...)
 	sort.Strings(paths)
 	sum := sha256.Sum256([]byte(string(scope.Mode) + "\x00" + strings.Join(paths, "\x00")))
 	return hex.EncodeToString(sum[:])
 }
 
-type explorerCapabilityResolver struct {
+type Resolver struct {
 	evidence  catalog.CapabilityEvidenceReader
 	scopes    *authscope.ScopeResolver
 	manifests dataset.ActiveResolver
@@ -47,14 +46,14 @@ type explorerCapabilityResolver struct {
 	builds    singleflight.Group
 }
 
-func newExplorerCapabilityResolver(evidence catalog.CapabilityEvidenceReader, scopes *authscope.ScopeResolver, manifests dataset.ActiveResolver, snapshots capability.Repository) (*explorerCapabilityResolver, error) {
+func NewResolver(evidence catalog.CapabilityEvidenceReader, scopes *authscope.ScopeResolver, manifests dataset.ActiveResolver, snapshots capability.Repository) (*Resolver, error) {
 	if evidence == nil || manifests == nil || snapshots == nil {
 		return nil, fmt.Errorf("Explorer capability evidence, manifest resolver, and snapshot repository are required")
 	}
-	return &explorerCapabilityResolver{evidence: evidence, scopes: scopes, manifests: manifests, snapshots: snapshots}, nil
+	return &Resolver{evidence: evidence, scopes: scopes, manifests: manifests, snapshots: snapshots}, nil
 }
 
-func (r *explorerCapabilityResolver) Resolve(ctx context.Context, project, requestedGeneration string) (capability.Snapshot, error) {
+func (r *Resolver) Resolve(ctx context.Context, project, requestedGeneration string) (capability.Snapshot, error) {
 	project = projectid.Canonical(project)
 	storageProject := projectid.Legacy(project)
 	principal, _ := authscope.PrincipalFromContext(ctx)
@@ -88,16 +87,16 @@ func (r *explorerCapabilityResolver) Resolve(ctx context.Context, project, reque
 	}
 	identity := capability.SnapshotIdentity{
 		Project: project, Generation: generation,
-		AuthorizationScopeDigest: explorerScopeDigest(scope),
-		CacheVersion:             explorerCapabilityCacheVersion,
+		AuthorizationScopeDigest: ScopeDigest(scope),
+		CacheVersion:             cacheVersion,
 		SchemaDigest:             manifest.SchemaIdentity.SchemaSHA256,
 		ResourceInventoryDigest:  evidence.ResourceInventory.Digest,
 		RelationshipDigest:       evidence.Relationships.Digest,
 		FieldDigest:              evidence.FieldEnrichment.Digest,
-		ProtocolVersion:          explorerCapabilityProtocolVersion,
-		CompilerVersion:          explorerCapabilityCompilerVersion,
-		TraversalPolicyVersion:   explorerTraversalPolicyVersion,
-		ProjectionPolicyVersion:  explorerProjectionPolicyVersion,
+		ProtocolVersion:          ProtocolVersion,
+		CompilerVersion:          CompilerVersion,
+		TraversalPolicyVersion:   TraversalPolicyVersion,
+		ProjectionPolicyVersion:  ProjectionPolicyVersion,
 	}
 	identity.ShapeDigest, err = catalog.RepeatedShapeDigest(evidence.FieldEnrichment.Values)
 	if err != nil {
@@ -128,8 +127,8 @@ func (r *explorerCapabilityResolver) Resolve(ctx context.Context, project, reque
 		})
 		builder.EntityIdentity = entityIdentity
 		builder.Policy = capability.Policy{
-			Route:      capability.RoutePolicy{Version: explorerTraversalPolicyVersion, MaxHops: 0, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
-			Projection: capability.ProjectionPolicy{Version: explorerProjectionPolicyVersion, SuggestionLimit: capability.DefaultSuggestionLimit},
+			Route:      capability.RoutePolicy{Version: TraversalPolicyVersion, MaxHops: 0, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
+			Projection: capability.ProjectionPolicy{Version: ProjectionPolicyVersion, SuggestionLimit: capability.DefaultSuggestionLimit},
 		}
 		built, buildErr := builder.Build(ctx)
 		if buildErr != nil {
@@ -152,7 +151,7 @@ func (r *explorerCapabilityResolver) Resolve(ctx context.Context, project, reque
 	return value.(capability.Snapshot).Clone(), nil
 }
 
-func (r *explorerCapabilityResolver) ResolveToken(ctx context.Context, project, token string) (capability.Snapshot, error) {
+func (r *Resolver) ResolveToken(ctx context.Context, project, token string) (capability.Snapshot, error) {
 	authorized, err := r.ResolveForExecution(ctx, project, token)
 	if err != nil {
 		return capability.Snapshot{}, err
@@ -160,7 +159,7 @@ func (r *explorerCapabilityResolver) ResolveToken(ctx context.Context, project, 
 	return authorized.Snapshot.Clone(), nil
 }
 
-func (r *explorerCapabilityResolver) ResolveForExecution(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {
+func (r *Resolver) ResolveForExecution(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {
 	project = projectid.Canonical(project)
 	token = strings.TrimSpace(token)
 	snapshot, err := r.snapshots.GetByToken(ctx, token)
@@ -178,7 +177,7 @@ func (r *explorerCapabilityResolver) ResolveForExecution(ctx context.Context, pr
 	if err != nil {
 		return lifecycle.AuthorizedCapability{}, err
 	}
-	if explorerScopeDigest(scope) != snapshot.Identity.AuthorizationScopeDigest {
+	if ScopeDigest(scope) != snapshot.Identity.AuthorizationScopeDigest {
 		return lifecycle.AuthorizedCapability{}, capability.ErrStaleSnapshot
 	}
 	if err := snapshot.ValidateToken(token); err != nil {
@@ -187,7 +186,7 @@ func (r *explorerCapabilityResolver) ResolveForExecution(ctx context.Context, pr
 	return lifecycle.AuthorizedCapability{Snapshot: snapshot.Clone(), Scope: scope.Clone()}, nil
 }
 
-func (r *explorerCapabilityResolver) ResolveForCompilation(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {
+func (r *Resolver) ResolveForCompilation(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {
 	project = projectid.Canonical(project)
 	authorized, err := r.ResolveForExecution(ctx, project, token)
 	if err != nil {
@@ -203,7 +202,7 @@ func (r *explorerCapabilityResolver) ResolveForCompilation(ctx context.Context, 
 	return authorized.Clone(), nil
 }
 
-func (r *explorerCapabilityResolver) resolveScope(ctx context.Context, principal *authscope.Principal, project, generation string) (authscope.ReadScope, error) {
+func (r *Resolver) resolveScope(ctx context.Context, principal *authscope.Principal, project, generation string) (authscope.ReadScope, error) {
 	if r.scopes == nil {
 		return authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, nil
 	}
@@ -572,10 +571,6 @@ func (c explorerCapabilityCompiler) ProbeCandidate(ctx context.Context, candidat
 	}
 	proof.AggregateOperations = valueOperations
 	return proof, nil
-}
-
-func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
-	return authoringv2.CatalogFromCapability(snapshot, explorerID)
 }
 
 func catalogAvailabilityReadiness(value catalog.CapabilityEvidence) capability.AvailabilityReadiness {

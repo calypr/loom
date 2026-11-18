@@ -169,11 +169,11 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 		Outputs: columns,
 	}}
 	workspace.Documents[0] = document
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringV2Catalog(snapshot, "custom"))
+	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringv2.CatalogFromCapability(snapshot, "custom"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringV2Catalog(snapshot, "custom")).NormalizePresentationOrders()
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringv2.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate initial staged workspace: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
@@ -439,11 +439,11 @@ func TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringV2Catalog(snapshot, "custom"))
+	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringv2.CatalogFromCapability(snapshot, "custom"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringV2Catalog(snapshot, "custom")).NormalizePresentationOrders()
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringv2.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate route-choice workspace: %v", err)
 	}
@@ -482,7 +482,7 @@ func TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute(t *testing.T) {
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return compileExplorerReceipt(ctx, request, nil, engine, service, nil, nil)
@@ -674,7 +674,7 @@ func TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata
 		t.Fatal(err)
 	}
 	workspace.Documents[0] = document
-	catalogSnapshot := authoringV2Catalog(snapshot, "specimen-explorer")
+	catalogSnapshot := authoringv2.CatalogFromCapability(snapshot, "specimen-explorer")
 	workspace, err = authoringv2.MigrateLegacyContributors(workspace, catalogSnapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -720,7 +720,7 @@ func TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		SemanticInventory: func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
 			return catalog.SemanticInventoryPage{
@@ -901,7 +901,7 @@ func TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP(t *tes
 	workspace.Documents[0] = document
 	workspace.Tabs[0].OutputID = "observations"
 	workspace.Tabs[0].Title = "Observations"
-	catalogSnapshot := authoringV2Catalog(snapshot, "observation-explorer")
+	catalogSnapshot := authoringv2.CatalogFromCapability(snapshot, "observation-explorer")
 	workspace, err = authoringv2.MigrateLegacyContributors(workspace, catalogSnapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -945,7 +945,7 @@ func TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP(t *tes
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		RowChoicePlanner: rowChoices,
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
@@ -1344,7 +1344,7 @@ func TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP(t *
 		t.Fatal(err)
 	}
 	workspace.Documents[0] = document
-	catalogSnapshot := authoringV2Catalog(snapshot, "patient-specimen-related-group")
+	catalogSnapshot := authoringv2.CatalogFromCapability(snapshot, "patient-specimen-related-group")
 	workspace, err = authoringv2.MigrateLegacyContributors(workspace, catalogSnapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -1386,7 +1386,7 @@ func TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP(t *
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 			return compileConstructionSourceStage(ctx, request, recipeEngine)
@@ -1828,11 +1828,11 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 		t.Fatalf("related-source proposal predicate changed during API JSON round trip: %#v", decodedPredicate)
 	}
 	workspace.Documents[0] = document
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringV2Catalog(snapshot, "custom"))
+	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringv2.CatalogFromCapability(snapshot, "custom"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringV2Catalog(snapshot, "custom")).NormalizePresentationOrders()
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringv2.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
@@ -1871,7 +1871,7 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
@@ -2056,7 +2056,7 @@ func TestBuilderHTTPSerializesEmptyConstructionStepsAsArray(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	migration, err := authoringv2.MigrateStoredWorkspace(draft, authoringV2Catalog(snapshot, "custom"))
+	migration, err := authoringv2.MigrateStoredWorkspace(draft, authoringv2.CatalogFromCapability(snapshot, "custom"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2083,7 +2083,7 @@ func TestBuilderHTTPSerializesEmptyConstructionStepsAsArray(t *testing.T) {
 		ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 			return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 		},
-		Catalog: authoringV2Catalog,
+		Catalog: authoringv2.CatalogFromCapability,
 	}, ConstructionSourceStage: func(context.Context, lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 		return explorer.ReceiptConstructionStage{
 			ID: "source_projection", RowIdentityColumn: "__loom_row_id",
@@ -2182,7 +2182,7 @@ func TestConstructionProposalCurrentCodingGroupSpecimenFocusObservationHTTP(t *t
 	workspace.Documents[0] = document
 	workspace.Tabs[0].OutputID = outputID
 	workspace.Tabs[0].Title = "Specimen coding groups"
-	catalogSnapshot := authoringV2Catalog(snapshot, explorerID)
+	catalogSnapshot := authoringv2.CatalogFromCapability(snapshot, explorerID)
 	workspace, err = authoringv2.MigrateLegacyContributors(workspace, catalogSnapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -2233,7 +2233,7 @@ func TestConstructionProposalCurrentCodingGroupSpecimenFocusObservationHTTP(t *t
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		RowChoicePlanner: rowChoices,
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
@@ -2452,7 +2452,7 @@ func TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation(t *testing.
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)

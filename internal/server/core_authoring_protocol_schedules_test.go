@@ -242,7 +242,7 @@ func coreProtocolReplayArangoStores(t *testing.T, client *storearango.Client, gr
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			if fixture.beforeCompile != nil {

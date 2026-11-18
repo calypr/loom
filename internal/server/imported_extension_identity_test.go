@@ -4,6 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/authoringv2"
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -32,7 +35,7 @@ func TestSavedExtensionIdentitiesSurviveCorrelatedCompiler(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "document", ResourceType: "DocumentReference", RowRootEligible: true}}, nil, nil, nil)
+	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "document", ResourceType: "DocumentReference", RowRootEligible: true}}, nil, nil, nil)
 	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	resolver := importedRecipeSources{registry: &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
 	source, err := resolver.load(ctx, "project-a", bundle.Name, bundle.TranslationVersion, digest, authorized)
@@ -54,7 +57,7 @@ func TestSavedExtensionIdentitiesSurviveCorrelatedCompiler(t *testing.T) {
 			schemas[output.Name] = append(schemas[output.Name], column.Column)
 		}
 	}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringV2Catalog(snapshot, "DocumentReference"), schemas)
+	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "DocumentReference"), schemas)
 	if err != nil {
 		t.Fatal(err)
 	}

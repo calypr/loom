@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 
 	recipeapi "github.com/calypr/loom/internal/api/recipe"
 	"github.com/calypr/loom/internal/authscope"
@@ -98,7 +99,7 @@ func newUnifiedAuthoringFixture(t *testing.T) unifiedAuthoringFixture {
 	resolver := importedRecipeSources{registry: registry, engine: engine, defaultName: bundle.Name}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := capability.NewSnapshot(
-		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(scope)},
+		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)},
 		capability.Policy{}, capability.StatusReady, true, false,
 		[]capability.Node{{ID: "n_medication_administration", ResourceType: "MedicationAdministration", RowRootEligible: true, RowGrain: "resource"}},
 		nil,
@@ -123,7 +124,7 @@ func newUnifiedAuthoringFixture(t *testing.T) unifiedAuthoringFixture {
 			schemas[output.Name] = append(schemas[output.Name], column.Column)
 		}
 	}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringV2Catalog(snapshot, "test"), schemas)
+	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "test"), schemas)
 	if err != nil {
 		t.Fatalf("import checked-in recipe into Builder document: %v", err)
 	}

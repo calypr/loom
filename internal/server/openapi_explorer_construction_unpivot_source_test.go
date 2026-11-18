@@ -126,11 +126,11 @@ func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(
 		},
 	}
 	workspace.Documents[0] = document
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringV2Catalog(snapshot, "custom"))
+	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringv2.CatalogFromCapability(snapshot, "custom"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringV2Catalog(snapshot, "custom")).NormalizePresentationOrders()
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringv2.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate staged unpivot-source workspace: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 			return compileConstructionSourceStage(ctx, request, recipeEngine)
@@ -512,7 +512,7 @@ func newUnpivotMeltFirstEnvWithCandidates(t *testing.T, extra ...capability.Cand
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 			return compileConstructionSourceStage(ctx, request, recipeEngine)

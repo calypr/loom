@@ -70,11 +70,11 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	initial := construction(routeA)
 	document.Construction = &initial
 	workspace.Documents[0] = document
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringV2Catalog(snapshot, "route-roundtrip"))
+	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringv2.CatalogFromCapability(snapshot, "route-roundtrip"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringV2Catalog(snapshot, "route-roundtrip")).NormalizePresentationOrders()
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringv2.CatalogFromCapability(snapshot, "route-roundtrip")).NormalizePresentationOrders()
 	if err := workspace.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 		return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}, ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 		return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
-	}, Catalog: authoringV2Catalog}, CompileReceipt: func(ctx context.Context, r lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	}, Catalog: authoringv2.CatalogFromCapability}, CompileReceipt: func(ctx context.Context, r lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		result, err := compileExplorerReceipt(ctx, r, nil, engine, service, nil, nil)
 		if err == nil {
 			compiled++

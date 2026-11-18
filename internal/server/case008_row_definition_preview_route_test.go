@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -61,15 +62,15 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 	snapshot := capability.NewSnapshot(
 		capability.SnapshotIdentity{
 			Project: projectid.Canonical(case008Project), Generation: "devloop-v1",
-			AuthorizationScopeDigest: explorerScopeDigest(scope), SchemaDigest: "case008-schema",
+			AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope), SchemaDigest: "case008-schema",
 			ResourceInventoryDigest: "case008-inventory", RelationshipDigest: "case008-relationships",
 			FieldDigest: "case008-fields", ShapeDigest: "case008-shape",
-			ProtocolVersion: explorerCapabilityProtocolVersion, CompilerVersion: explorerCapabilityCompilerVersion,
-			TraversalPolicyVersion: explorerTraversalPolicyVersion, ProjectionPolicyVersion: explorerProjectionPolicyVersion,
+			ProtocolVersion: capabilityresolver.ProtocolVersion, CompilerVersion: capabilityresolver.CompilerVersion,
+			TraversalPolicyVersion: capabilityresolver.TraversalPolicyVersion, ProjectionPolicyVersion: capabilityresolver.ProjectionPolicyVersion,
 		},
 		capability.Policy{
-			Route:      capability.RoutePolicy{Version: explorerTraversalPolicyVersion, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
-			Projection: capability.ProjectionPolicy{Version: explorerProjectionPolicyVersion},
+			Route:      capability.RoutePolicy{Version: capabilityresolver.TraversalPolicyVersion, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
+			Projection: capability.ProjectionPolicy{Version: capabilityresolver.ProjectionPolicyVersion},
 		},
 		capability.StatusReady, true, false,
 		[]capability.Node{{ID: "n_88fd86589e77093ea1cd19a7", ResourceType: "Patient", RowRootEligible: true, RowGrain: "patient", Populated: true, DocumentCount: 2, SupportedOperations: []capability.Operation{capability.OperationSelect}}},
@@ -78,7 +79,7 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 		nil,
 	)
 
-	migration, err := authoringv2.MigrateStoredWorkspace(draft, authoringV2Catalog(snapshot, case008ExplorerID))
+	migration, err := authoringv2.MigrateStoredWorkspace(draft, authoringv2.CatalogFromCapability(snapshot, case008ExplorerID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +142,7 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			receipt, err := compileExplorerReceipt(ctx, request, nil, engine, service, nil, nil)

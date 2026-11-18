@@ -34,6 +34,7 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
  'tests/scripts': 'Hold explicit-file Go tests for standalone repository scripts.',
  'internal/testkit/arangotest': 'Provide isolated Arango and ClickHouse service clients, database ownership, and '
                                 'cleanup for integration tests.',
+ 'internal/testkit/capabilityfixtures': 'Share Explorer capability snapshots, stores, and catalog evidence fixtures.',
  'internal/testkit/recipefixtures': 'Share recipe authorization and combine materialization fixtures across package tests.',
  '.': 'Start the default Loom server process through the internal server composition root.',
  'client/ingest': 'Upload versioned source files and publish durable Loom source loads through the HTTP client '
@@ -127,6 +128,7 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
  'internal/explorer/authoringv2': 'Define, validate, canonicalize, and mutate the V2 Explorer Builder authoring '
                                   'workspace.',
  'internal/explorer/capability': 'Build the immutable compiler-backed capability contract exposed to Explorer Builder.',
+ 'internal/explorer/capability/resolver': 'Resolve scoped Explorer capability snapshots and compiler-proven catalog evidence.',
  'internal/explorer/compilation': 'Translate validated Explorer authoring intent into native recipe and compilation '
                                   'artifacts.',
  'internal/explorer/lifecycle': 'Coordinate transport-neutral Explorer authoring, preview, publication, query, and '

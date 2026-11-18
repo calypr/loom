@@ -15,6 +15,7 @@ import (
 	"github.com/calypr/loom/internal/testkit/recipefixtures"
 
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -163,15 +164,15 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := capability.NewSnapshot(
 		capability.SnapshotIdentity{
-			Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(readScope),
+			Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(readScope),
 			SchemaDigest: strings.Repeat("c", 64), ResourceInventoryDigest: "inventory", RelationshipDigest: "relationships",
-			FieldDigest: "fields", ShapeDigest: strings.Repeat("d", 64), ProtocolVersion: explorerCapabilityProtocolVersion,
-			CompilerVersion: explorerCapabilityCompilerVersion, TraversalPolicyVersion: explorerTraversalPolicyVersion,
-			ProjectionPolicyVersion: explorerProjectionPolicyVersion,
+			FieldDigest: "fields", ShapeDigest: strings.Repeat("d", 64), ProtocolVersion: capabilityresolver.ProtocolVersion,
+			CompilerVersion: capabilityresolver.CompilerVersion, TraversalPolicyVersion: capabilityresolver.TraversalPolicyVersion,
+			ProjectionPolicyVersion: capabilityresolver.ProjectionPolicyVersion,
 		},
 		capability.Policy{
-			Route:      capability.RoutePolicy{Version: explorerTraversalPolicyVersion, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
-			Projection: capability.ProjectionPolicy{Version: explorerProjectionPolicyVersion},
+			Route:      capability.RoutePolicy{Version: capabilityresolver.TraversalPolicyVersion, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
+			Projection: capability.ProjectionPolicy{Version: capabilityresolver.ProjectionPolicyVersion},
 		},
 		capability.StatusReady, true, false,
 		[]capability.Node{{ID: "n_specimen", ResourceType: "Specimen", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, DocumentCount: 1, SupportedOperations: []capability.Operation{capability.OperationSelect}}},
@@ -305,15 +306,15 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 	snapshot := capability.NewSnapshot(
 		capability.SnapshotIdentity{
 			Project: "project-a", Generation: "generation-a",
-			AuthorizationScopeDigest: explorerScopeDigest(readScope),
+			AuthorizationScopeDigest: capabilityresolver.ScopeDigest(readScope),
 			SchemaDigest:             strings.Repeat("c", 64), ResourceInventoryDigest: "inventory",
 			RelationshipDigest: "relationships", FieldDigest: "fields", ShapeDigest: strings.Repeat("d", 64),
-			ProtocolVersion: explorerCapabilityProtocolVersion, CompilerVersion: explorerCapabilityCompilerVersion,
-			TraversalPolicyVersion: explorerTraversalPolicyVersion, ProjectionPolicyVersion: explorerProjectionPolicyVersion,
+			ProtocolVersion: capabilityresolver.ProtocolVersion, CompilerVersion: capabilityresolver.CompilerVersion,
+			TraversalPolicyVersion: capabilityresolver.TraversalPolicyVersion, ProjectionPolicyVersion: capabilityresolver.ProjectionPolicyVersion,
 		},
 		capability.Policy{
-			Route:      capability.RoutePolicy{Version: explorerTraversalPolicyVersion, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
-			Projection: capability.ProjectionPolicy{Version: explorerProjectionPolicyVersion},
+			Route:      capability.RoutePolicy{Version: capabilityresolver.TraversalPolicyVersion, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
+			Projection: capability.ProjectionPolicy{Version: capabilityresolver.ProjectionPolicyVersion},
 		},
 		capability.StatusReady, true, false,
 		[]capability.Node{{ID: "n_specimen", ResourceType: "Specimen", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, DocumentCount: 1, SupportedOperations: []capability.Operation{capability.OperationSelect}}},
@@ -345,11 +346,11 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 	document.Columns[0].Label = "Specimen ID"
 	workspace.Tabs[0].OutputID = "specimens"
 	workspace.Documents[0] = document
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringV2Catalog(snapshot, "custom"))
+	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringv2.CatalogFromCapability(snapshot, "custom"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringV2Catalog(snapshot, "custom")).NormalizePresentationOrders()
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringv2.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
 	baseWorkspace := workspace
 	document = workspace.Documents[0]
 	document, err = authoringv2.StartDocumentConstruction(document)
@@ -434,7 +435,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 		Capability: lifecycle.CapabilityResolver{
 			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) { return authorized, nil },
 			ForExecution:   func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) { return authorized, nil },
-			Catalog:        authoringV2Catalog,
+			Catalog:        authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
@@ -622,11 +623,11 @@ func TestCompileExplorerReceiptReconcilesTypedConstructionOutputs(t *testing.T) 
 		Outputs: outputs,
 	}}
 	workspace.Documents[0] = document
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringV2Catalog(snapshot, "custom"))
+	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringv2.CatalogFromCapability(snapshot, "custom"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringV2Catalog(snapshot, "custom")).NormalizePresentationOrders()
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringv2.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate typed derived construction: %v", err)
 	}
@@ -2209,7 +2210,7 @@ func TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt(t *testing.T) {
 			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return persistTestNativeReceipt(ctx, t, service, request, snapshot)

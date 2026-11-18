@@ -88,7 +88,7 @@ func TestCompileExplorerReceiptBindsPopulationRemovalWithGroupedRelatedSummary(t
 	}
 	workspace.Documents[0] = document
 	workspace.Documents[0].Population = &authoringv2.Population{SelectionRevisionID: "selection-candidate", Route: []authoringv2.PopulationRouteStep{}}
-	catalog := authoringV2Catalog(snapshot, "custom")
+	catalog := authoringv2.CatalogFromCapability(snapshot, "custom")
 	choiceRoute := []capability.ConstructionRouteStep{{
 		EdgeID: "e_patient_observation", FromNodeID: "n_patient", ToNodeID: "n_observation",
 		FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",

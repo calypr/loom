@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -23,7 +25,7 @@ func TestRowDefinitionHTTPContractListsChoicesAndPreviewsWithoutDraftMutation(t 
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := capability.NewSnapshot(
 		capability.SnapshotIdentity{
-			Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(scope),
+			Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope),
 			SchemaDigest: "schema-digest", ResourceInventoryDigest: "inventory", RelationshipDigest: "relationships",
 			FieldDigest: "fields", ShapeDigest: "shape-digest", ProtocolVersion: "protocol", CompilerVersion: "compiler",
 			TraversalPolicyVersion: "route-policy", ProjectionPolicyVersion: "projection-policy",
@@ -82,7 +84,7 @@ func TestRowDefinitionHTTPContractListsChoicesAndPreviewsWithoutDraftMutation(t 
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		RowChoiceResolver: rowChoices,
 		RowChoicePlanner:  rowChoices,

@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
@@ -178,7 +180,7 @@ FOR d IN Patient
 	identity := baseSnapshot.Identity
 	identity.Project = project
 	identity.Generation = generation
-	identity.AuthorizationScopeDigest = explorerScopeDigest(scope)
+	identity.AuthorizationScopeDigest = capabilityresolver.ScopeDigest(scope)
 	snapshot := capability.NewSnapshot(identity, baseSnapshot.Policy, baseSnapshot.Status, baseSnapshot.Complete, baseSnapshot.Truncated,
 		baseSnapshot.Nodes, baseSnapshot.Edges, baseSnapshot.Candidates, baseSnapshot.Diagnostics)
 	resolveCapability := func(ctx context.Context, requestedProject, token string) (lifecycle.AuthorizedCapability, error) {
@@ -187,7 +189,7 @@ FOR d IN Patient
 		if err != nil {
 			return lifecycle.AuthorizedCapability{}, err
 		}
-		if token != snapshot.Token || explorerScopeDigest(currentScope) != snapshot.Identity.AuthorizationScopeDigest {
+		if token != snapshot.Token || capabilityresolver.ScopeDigest(currentScope) != snapshot.Identity.AuthorizationScopeDigest {
 			return lifecycle.AuthorizedCapability{}, capability.ErrStaleSnapshot
 		}
 		return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: currentScope}, nil

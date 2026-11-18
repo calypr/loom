@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
@@ -73,15 +74,15 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := capability.NewSnapshot(
 		capability.SnapshotIdentity{
-			Project: projectid.Canonical(project), Generation: "devloop-v1", AuthorizationScopeDigest: explorerScopeDigest(readScope),
+			Project: projectid.Canonical(project), Generation: "devloop-v1", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(readScope),
 			SchemaDigest: "patient-one-schema", ResourceInventoryDigest: "patient-one-inventory",
 			RelationshipDigest: "patient-one-relationships", FieldDigest: "patient-one-fields", ShapeDigest: "patient-one-shape",
-			ProtocolVersion: explorerCapabilityProtocolVersion, CompilerVersion: explorerCapabilityCompilerVersion,
-			TraversalPolicyVersion: explorerTraversalPolicyVersion, ProjectionPolicyVersion: explorerProjectionPolicyVersion,
+			ProtocolVersion: capabilityresolver.ProtocolVersion, CompilerVersion: capabilityresolver.CompilerVersion,
+			TraversalPolicyVersion: capabilityresolver.TraversalPolicyVersion, ProjectionPolicyVersion: capabilityresolver.ProjectionPolicyVersion,
 		},
 		capability.Policy{
-			Route:      capability.RoutePolicy{Version: explorerTraversalPolicyVersion, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
-			Projection: capability.ProjectionPolicy{Version: explorerProjectionPolicyVersion},
+			Route:      capability.RoutePolicy{Version: capabilityresolver.TraversalPolicyVersion, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
+			Projection: capability.ProjectionPolicy{Version: capabilityresolver.ProjectionPolicyVersion},
 		},
 		capability.StatusReady, true, false,
 		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, DocumentCount: 2, SupportedOperations: []capability.Operation{capability.OperationSelect}}},
@@ -95,7 +96,7 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 		nil,
 	)
 
-	catalog := authoringV2Catalog(snapshot, explorerID)
+	catalog := authoringv2.CatalogFromCapability(snapshot, explorerID)
 	var choiceID string
 	for _, candidate := range catalog.Candidates {
 		if candidate.ID == "c_patient_id" && candidate.FieldPath == "id" && candidate.ConstructionChoice != nil {
@@ -184,7 +185,7 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			receipt, err := compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)

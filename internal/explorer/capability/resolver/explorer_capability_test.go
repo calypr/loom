@@ -1,11 +1,10 @@
-package server
+package resolver
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"reflect"
 	"slices"
 	"strings"
@@ -17,17 +16,29 @@ import (
 	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
-	"github.com/gofiber/fiber/v3"
+	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 )
 
-type staticCapabilityEvidence struct {
-	inventory     catalog.ResourceInventoryResult
-	relationships catalog.RelationshipObservationResult
-	fields        catalog.FieldEnrichmentResult
+type staticCapabilityEvidence = capabilityfixtures.StaticEvidence
+
+type staticActiveManifest = capabilityfixtures.StaticActiveManifest
+
+func testAuthorizedCapabilitySnapshot(t *testing.T, generation string, scope authscope.ReadScope) capability.Snapshot {
+	t.Helper()
+	return capability.NewSnapshot(
+		capability.SnapshotIdentity{
+			Project: "project-a", Generation: generation, AuthorizationScopeDigest: ScopeDigest(scope),
+			SchemaDigest: strings.Repeat("a", 64), ResourceInventoryDigest: "inventory", RelationshipDigest: "relationships", FieldDigest: "fields",
+			ProtocolVersion: ProtocolVersion, CompilerVersion: CompilerVersion,
+			TraversalPolicyVersion: TraversalPolicyVersion, ProjectionPolicyVersion: ProjectionPolicyVersion,
+		},
+		capability.Policy{Route: capability.RoutePolicy{Version: TraversalPolicyVersion, AllowsRepeatedEdges: true, AllowsSelfLoops: true}, Projection: capability.ProjectionPolicy{Version: ProjectionPolicyVersion}},
+		capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, SupportedOperations: []capability.Operation{capability.OperationSelect}}},
+		nil, nil, nil,
+	)
 }
 
 func TestAuthoringV2CatalogMatchesCompilerCatalog(t *testing.T) {
@@ -41,7 +52,7 @@ func TestAuthoringV2CatalogMatchesCompilerCatalog(t *testing.T) {
 			SupportedOperations: []capability.Operation{capability.OperationFilter, capability.OperationChart},
 		}}, nil,
 	)
-	want := authoringV2Catalog(snapshot, "default")
+	want := authoringv2.CatalogFromCapability(snapshot, "default")
 	got := authoringv2.CatalogFromCapability(snapshot, "default")
 	digest, err := want.Digest()
 	if err != nil {
@@ -55,42 +66,10 @@ func TestAuthoringV2CatalogMatchesCompilerCatalog(t *testing.T) {
 	}
 }
 
-func (s staticCapabilityEvidence) DiscoverResourceInventory(context.Context, catalog.ResourceInventoryOptions) (catalog.ResourceInventoryResult, error) {
-	return s.inventory, nil
-}
-func (s staticCapabilityEvidence) DiscoverRelationshipObservations(context.Context, catalog.RelationshipObservationOptions) (catalog.RelationshipObservationResult, error) {
-	return s.relationships, nil
-}
-func (s staticCapabilityEvidence) DiscoverFieldEnrichment(context.Context, catalog.FieldEnrichmentOptions) (catalog.FieldEnrichmentResult, error) {
-	return s.fields, nil
-}
-
-type staticActiveManifest struct{ manifest dataset.Manifest }
-
-func (s staticActiveManifest) ResolveActiveManifest(context.Context, string) (dataset.Manifest, error) {
-	return s.manifest, nil
-}
-
 type capabilityTestResourceAccess struct{ resources []string }
 
 func (c capabilityTestResourceAccess) GetAllowedResources(context.Context, string, string, string) ([]string, error) {
 	return append([]string(nil), c.resources...), nil
-}
-
-func testAuthorizedCapabilitySnapshot(t *testing.T, generation string, scope authscope.ReadScope) capability.Snapshot {
-	t.Helper()
-	return capability.NewSnapshot(
-		capability.SnapshotIdentity{
-			Project: "project-a", Generation: generation, AuthorizationScopeDigest: explorerScopeDigest(scope),
-			SchemaDigest: strings.Repeat("a", 64), ResourceInventoryDigest: "inventory", RelationshipDigest: "relationships", FieldDigest: "fields",
-			ProtocolVersion: explorerCapabilityProtocolVersion, CompilerVersion: explorerCapabilityCompilerVersion,
-			TraversalPolicyVersion: explorerTraversalPolicyVersion, ProjectionPolicyVersion: explorerProjectionPolicyVersion,
-		},
-		capability.Policy{Route: capability.RoutePolicy{Version: explorerTraversalPolicyVersion, AllowsRepeatedEdges: true, AllowsSelfLoops: true}, Projection: capability.ProjectionPolicy{Version: explorerProjectionPolicyVersion}},
-		capability.StatusReady, true, false,
-		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, SupportedOperations: []capability.Operation{capability.OperationSelect}}},
-		nil, nil, nil,
-	)
 }
 
 func testCapabilityScopeResolver(paths []string) *authscope.ScopeResolver {
@@ -120,7 +99,7 @@ func TestAuthoringV2CatalogExposesCandidateFieldPath(t *testing.T) {
 		nil,
 	)
 
-	wire := authoringV2Catalog(snapshot, "default")
+	wire := authoringv2.CatalogFromCapability(snapshot, "default")
 	if len(wire.Candidates) != 1 || wire.Candidates[0].FieldPath != "birthDate" {
 		t.Fatalf("catalog candidates = %#v", wire.Candidates)
 	}
@@ -176,7 +155,7 @@ func TestAuthoringV2CatalogExposesCandidatePopulationWithoutChangingSnapshotIden
 	beforeToken := snapshot.Token
 	beforeCanonicalPayload := append([]byte(nil), snapshot.CanonicalPayload()...)
 
-	wire := authoringV2Catalog(snapshot, "default")
+	wire := authoringv2.CatalogFromCapability(snapshot, "default")
 	if len(wire.Candidates) != 2 {
 		t.Fatalf("catalog candidates = %#v", wire.Candidates)
 	}
@@ -307,7 +286,7 @@ func TestBuilderStateGeneratedContractPreservesCandidateCapabilities(t *testing.
 		}},
 		nil,
 	)
-	noOperationCatalog := authoringV2Catalog(noOperationSnapshot, "default")
+	noOperationCatalog := authoringv2.CatalogFromCapability(noOperationSnapshot, "default")
 	if len(noOperationCatalog.Candidates) != 1 {
 		t.Fatalf("no-operation catalog candidates = %#v, want one candidate", noOperationCatalog.Candidates)
 	}
@@ -316,7 +295,7 @@ func TestBuilderStateGeneratedContractPreservesCandidateCapabilities(t *testing.
 	}
 	state.Catalog.Candidates = append(state.Catalog.Candidates, noOperationCatalog.Candidates[0])
 
-	generated, err := directAuthoringJSON[loomapi.BuilderState](state)
+	generated, err := roundTripGeneratedContract[loomapi.BuilderState](state)
 	if err != nil {
 		t.Fatalf("convert Builder state through generated contract: %v", err)
 	}
@@ -400,7 +379,7 @@ func TestAuthoringV2CatalogPreservesDistinctArrayProjectionMode(t *testing.T) {
 		nil,
 	)
 
-	wire := authoringV2Catalog(snapshot, "default")
+	wire := authoringv2.CatalogFromCapability(snapshot, "default")
 	if len(wire.Candidates) != 1 || len(wire.Candidates[0].ProjectionModes) != 2 {
 		t.Fatalf("catalog candidates = %#v", wire.Candidates)
 	}
@@ -437,7 +416,7 @@ func TestAuthoringV2CatalogAdvertisesScalarRecodingAndCodedIdentityRefusal(t *te
 		nil,
 	)
 
-	wire := authoringV2Catalog(snapshot, "default")
+	wire := authoringv2.CatalogFromCapability(snapshot, "default")
 	if len(wire.Candidates) != 1 || !wire.Candidates[0].ValueTransformations.ExactCategoryRecode.Available {
 		t.Fatalf("scalar recoding capability = %#v", wire.Candidates)
 	}
@@ -464,7 +443,7 @@ func TestGeneratedAuthoringCommandPreservesColumnTransformationUnion(t *testing.
 	if err := json.Unmarshal([]byte(requestJSON), &generated); err != nil {
 		t.Fatalf("generated OpenAPI command decoder rejected transformation union: %v", err)
 	}
-	request, err := directAuthoringJSON[authoringv2.ApplyCommandsRequest](generated)
+	request, err := roundTripGeneratedContract[authoringv2.ApplyCommandsRequest](generated)
 	if err != nil {
 		t.Fatalf("generated command conversion failed: %v", err)
 	}
@@ -490,7 +469,7 @@ func TestAuthoringV2CatalogOmitsCandidateWithoutExecutableConstructionChoice(t *
 		nil,
 	)
 
-	wire := authoringV2Catalog(snapshot, "default")
+	wire := authoringv2.CatalogFromCapability(snapshot, "default")
 	if len(wire.Candidates) != 0 || len(wire.Diagnostics) != 1 || wire.Diagnostics[0].Code != "CONSTRUCTION_CHOICE_UNAVAILABLE" {
 		t.Fatalf("catalog=%#v, want candidate omitted with diagnostic", wire)
 	}
@@ -507,7 +486,7 @@ func TestAuthoringV2CatalogBlocksObjectProjectionWithTypedChildHint(t *testing.T
 		}, nil,
 	)
 
-	wire := authoringV2Catalog(snapshot, "default")
+	wire := authoringv2.CatalogFromCapability(snapshot, "default")
 	if len(wire.Candidates) != 1 || wire.Candidates[0].FieldPath != "type.coding[].system" {
 		t.Fatalf("catalog candidates = %#v, want only the typed child field", wire.Candidates)
 	}
@@ -520,12 +499,12 @@ func TestAuthoringV2CatalogBlocksObjectProjectionWithTypedChildHint(t *testing.T
 
 func TestExplorerCapabilityResolverAuthorizedCompilationRequiresActiveGeneration(t *testing.T) {
 	manifest := testCapabilityManifest(t)
-	store := newTestCapabilityStore()
+	store := capabilityfixtures.NewStore()
 	snapshot := testAuthorizedCapabilitySnapshot(t, "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	if _, err := store.Put(context.Background(), snapshot); err != nil {
 		t.Fatal(err)
 	}
-	resolver, err := newExplorerCapabilityResolver(staticCapabilityEvidence{}, nil, staticActiveManifest{manifest: manifest}, store)
+	resolver, err := NewResolver(staticCapabilityEvidence{}, nil, staticActiveManifest{Manifest: manifest}, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -548,12 +527,12 @@ func TestExplorerCapabilityResolverAuthorizedCompilationRequiresActiveGeneration
 
 func TestExplorerCapabilityResolverAuthorizedExecutionRetainsInactiveGeneration(t *testing.T) {
 	manifest := testCapabilityManifest(t)
-	store := newTestCapabilityStore()
+	store := capabilityfixtures.NewStore()
 	snapshot := testAuthorizedCapabilitySnapshot(t, "generation-old", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	if _, err := store.Put(context.Background(), snapshot); err != nil {
 		t.Fatal(err)
 	}
-	resolver, err := newExplorerCapabilityResolver(staticCapabilityEvidence{}, nil, staticActiveManifest{manifest: manifest}, store)
+	resolver, err := NewResolver(staticCapabilityEvidence{}, nil, staticActiveManifest{Manifest: manifest}, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,12 +547,12 @@ func TestExplorerCapabilityResolverAuthorizedExecutionRetainsInactiveGeneration(
 
 func TestExplorerCapabilityResolverEnforcesProjectAuthorizationWithoutScopeResolver(t *testing.T) {
 	manifest := testCapabilityManifest(t)
-	store := newTestCapabilityStore()
+	store := capabilityfixtures.NewStore()
 	snapshot := testAuthorizedCapabilitySnapshot(t, "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	if _, err := store.Put(context.Background(), snapshot); err != nil {
 		t.Fatal(err)
 	}
-	resolver, err := newExplorerCapabilityResolver(staticCapabilityEvidence{}, nil, staticActiveManifest{manifest: manifest}, store)
+	resolver, err := NewResolver(staticCapabilityEvidence{}, nil, staticActiveManifest{Manifest: manifest}, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -585,12 +564,12 @@ func TestExplorerCapabilityResolverEnforcesProjectAuthorizationWithoutScopeResol
 
 func TestExplorerCapabilityResolverRejectsChangedScopeAndPreservesRestrictedEmpty(t *testing.T) {
 	manifest := testCapabilityManifest(t)
-	store := newTestCapabilityStore()
+	store := capabilityfixtures.NewStore()
 	unrestricted := testAuthorizedCapabilitySnapshot(t, "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	if _, err := store.Put(context.Background(), unrestricted); err != nil {
 		t.Fatal(err)
 	}
-	scopedResolver, err := newExplorerCapabilityResolver(staticCapabilityEvidence{}, testCapabilityScopeResolver([]string{"example-other"}), staticActiveManifest{manifest: manifest}, store)
+	scopedResolver, err := NewResolver(staticCapabilityEvidence{}, testCapabilityScopeResolver([]string{"example-other"}), staticActiveManifest{Manifest: manifest}, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -630,12 +609,12 @@ func TestExplorerCapabilityResolverBuildsAndReusesCompilerProvenSnapshot(t *test
 	relationshipDigest, _ := catalog.RelationshipObservationDigest(nil)
 	fieldDigest, _ := catalog.FieldEnrichmentDigest(fields, true, true, false)
 	evidence := staticCapabilityEvidence{
-		inventory:     catalog.ResourceInventoryResult{Values: inventory, Available: true, Complete: true, Status: catalog.EvidenceAvailable, Digest: inventoryDigest},
-		relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{}, Available: true, Complete: true, Status: catalog.EvidenceEmpty, Digest: relationshipDigest},
-		fields:        catalog.FieldEnrichmentResult{Values: fields, Available: true, Complete: true, FieldCoverageKnown: true, Status: catalog.EvidenceAvailable, Digest: fieldDigest},
+		Inventory:     catalog.ResourceInventoryResult{Values: inventory, Available: true, Complete: true, Status: catalog.EvidenceAvailable, Digest: inventoryDigest},
+		Relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{}, Available: true, Complete: true, Status: catalog.EvidenceEmpty, Digest: relationshipDigest},
+		Fields:        catalog.FieldEnrichmentResult{Values: fields, Available: true, Complete: true, FieldCoverageKnown: true, Status: catalog.EvidenceAvailable, Digest: fieldDigest},
 	}
-	repository := newTestCapabilityStore()
-	resolver, err := newExplorerCapabilityResolver(evidence, nil, staticActiveManifest{manifest: manifest}, repository)
+	repository := capabilityfixtures.NewStore()
+	resolver, err := NewResolver(evidence, nil, staticActiveManifest{Manifest: manifest}, repository)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -673,12 +652,12 @@ func TestExplorerCapabilityResolverRebuildsLegacyIdentityAndRetainsOldToken(t *t
 	relationshipDigest, _ := catalog.RelationshipObservationDigest(nil)
 	fieldDigest, _ := catalog.FieldEnrichmentDigest(fields, false, true, false)
 	evidence := staticCapabilityEvidence{
-		inventory:     catalog.ResourceInventoryResult{Values: inventory, Available: true, Complete: true, Status: catalog.EvidenceAvailable, Digest: inventoryDigest},
-		relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{}, Available: true, Complete: true, Status: catalog.EvidenceEmpty, Digest: relationshipDigest},
-		fields:        catalog.FieldEnrichmentResult{Values: fields, Available: true, Complete: true, FieldCoverageKnown: false, Status: catalog.EvidenceAvailable, Digest: fieldDigest},
+		Inventory:     catalog.ResourceInventoryResult{Values: inventory, Available: true, Complete: true, Status: catalog.EvidenceAvailable, Digest: inventoryDigest},
+		Relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{}, Available: true, Complete: true, Status: catalog.EvidenceEmpty, Digest: relationshipDigest},
+		Fields:        catalog.FieldEnrichmentResult{Values: fields, Available: true, Complete: true, FieldCoverageKnown: false, Status: catalog.EvidenceAvailable, Digest: fieldDigest},
 	}
-	repository := newTestCapabilityStore()
-	resolver, err := newExplorerCapabilityResolver(evidence, nil, staticActiveManifest{manifest: manifest}, repository)
+	repository := capabilityfixtures.NewStore()
+	resolver, err := NewResolver(evidence, nil, staticActiveManifest{Manifest: manifest}, repository)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -698,13 +677,13 @@ func TestExplorerCapabilityResolverRebuildsLegacyIdentityAndRetainsOldToken(t *t
 	if _, err := repository.Put(context.Background(), legacy); err != nil {
 		t.Fatal(err)
 	}
-	delete(repository.byIdentity, current.Identity)
+	repository.DeleteIdentity(current.Identity)
 
 	rebuilt, err := resolver.Resolve(context.Background(), "project-a", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rebuilt.Identity.CacheVersion != explorerCapabilityCacheVersion || rebuilt.Availability == nil || rebuilt.Token == legacy.Token {
+	if rebuilt.Identity.CacheVersion != cacheVersion || rebuilt.Availability == nil || rebuilt.Token == legacy.Token {
 		t.Fatalf("current identity did not rebuild metadata: %#v", rebuilt)
 	}
 	retained, err := resolver.ResolveToken(context.Background(), "project-a", legacy.Token)
@@ -737,13 +716,13 @@ func TestExplorerCapabilityCacheSeparatesFieldCoverageReadiness(t *testing.T) {
 			t.Fatal(err)
 		}
 		return staticCapabilityEvidence{
-			inventory:     catalog.ResourceInventoryResult{Values: inventory, Available: true, Complete: true, Status: catalog.EvidenceAvailable, Digest: inventoryDigest},
-			relationships: catalog.RelationshipObservationResult{Values: relationships, Available: true, Complete: true, Status: catalog.EvidenceAvailable, Digest: relationshipDigest},
-			fields:        catalog.FieldEnrichmentResult{Values: fields, Available: true, Complete: true, FieldCoverageKnown: coverageKnown, Status: catalog.EvidenceAvailable, Digest: fieldDigest},
+			Inventory:     catalog.ResourceInventoryResult{Values: inventory, Available: true, Complete: true, Status: catalog.EvidenceAvailable, Digest: inventoryDigest},
+			Relationships: catalog.RelationshipObservationResult{Values: relationships, Available: true, Complete: true, Status: catalog.EvidenceAvailable, Digest: relationshipDigest},
+			Fields:        catalog.FieldEnrichmentResult{Values: fields, Available: true, Complete: true, FieldCoverageKnown: coverageKnown, Status: catalog.EvidenceAvailable, Digest: fieldDigest},
 		}
 	}
-	repository := newTestCapabilityStore()
-	knownResolver, err := newExplorerCapabilityResolver(makeEvidence(true), nil, staticActiveManifest{manifest: manifest}, repository)
+	repository := capabilityfixtures.NewStore()
+	knownResolver, err := NewResolver(makeEvidence(true), nil, staticActiveManifest{Manifest: manifest}, repository)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -751,7 +730,7 @@ func TestExplorerCapabilityCacheSeparatesFieldCoverageReadiness(t *testing.T) {
 	if err != nil || !known.Usable() || known.Availability.Readiness.Status != "COMPLETE" {
 		t.Fatalf("known profile readiness = %#v, %v", known.Availability, err)
 	}
-	legacyResolver, err := newExplorerCapabilityResolver(makeEvidence(false), nil, staticActiveManifest{manifest: manifest}, repository)
+	legacyResolver, err := NewResolver(makeEvidence(false), nil, staticActiveManifest{Manifest: manifest}, repository)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -777,13 +756,13 @@ func TestExplorerCapabilityCacheSeparatesFieldCoverageReadiness(t *testing.T) {
 	}}
 	baselineEvidence := makeEvidence(true)
 	baselineBuilder := capability.NewBuilder(preAvailabilityIdentity, capabilityEvidenceFromCatalog(catalog.CapabilityEvidence{
-		ResourceInventory: baselineEvidence.inventory,
-		Relationships:     baselineEvidence.relationships,
-		FieldEnrichment:   baselineEvidence.fields,
+		ResourceInventory: baselineEvidence.Inventory,
+		Relationships:     baselineEvidence.Relationships,
+		FieldEnrichment:   baselineEvidence.Fields,
 	}), capability.CompilerCallbacks{Node: compiler.ProbeNode, Edge: compiler.ProbeEdge, Candidate: compiler.ProbeCandidate})
 	baselineBuilder.Policy = capability.Policy{
-		Route:      capability.RoutePolicy{Version: explorerTraversalPolicyVersion, MaxHops: 0, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
-		Projection: capability.ProjectionPolicy{Version: explorerProjectionPolicyVersion, SuggestionLimit: capability.DefaultSuggestionLimit},
+		Route:      capability.RoutePolicy{Version: TraversalPolicyVersion, MaxHops: 0, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
+		Projection: capability.ProjectionPolicy{Version: ProjectionPolicyVersion, SuggestionLimit: capability.DefaultSuggestionLimit},
 	}
 	preAvailability, err := baselineBuilder.Build(context.Background())
 	if err != nil {
@@ -825,47 +804,16 @@ func TestExplorerCapabilityResolverFailsClosedOnIncompleteFieldEnrichment(t *tes
 	inventory := []catalog.ResourceInventoryObservation{{Project: "project-a", DatasetGeneration: "generation-a", ResourceType: "Patient", DocumentCount: 1}}
 	digest, _ := catalog.ResourceInventoryDigest(inventory)
 	evidence := staticCapabilityEvidence{
-		inventory:     catalog.ResourceInventoryResult{Values: inventory, Available: true, Complete: true, Status: catalog.EvidenceAvailable, Digest: digest},
-		relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{}, Available: true, Complete: true, Status: catalog.EvidenceEmpty, Digest: "sha256:relationships"},
-		fields:        catalog.FieldEnrichmentResult{Values: []catalog.FieldEnrichmentObservation{}, Available: true, Complete: false, Status: catalog.EvidenceIncomplete, Digest: "sha256:fields"},
+		Inventory:     catalog.ResourceInventoryResult{Values: inventory, Available: true, Complete: true, Status: catalog.EvidenceAvailable, Digest: digest},
+		Relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{}, Available: true, Complete: true, Status: catalog.EvidenceEmpty, Digest: "sha256:relationships"},
+		Fields:        catalog.FieldEnrichmentResult{Values: []catalog.FieldEnrichmentObservation{}, Available: true, Complete: false, Status: catalog.EvidenceIncomplete, Digest: "sha256:fields"},
 	}
-	resolver, err := newExplorerCapabilityResolver(evidence, nil, staticActiveManifest{manifest: manifest}, newTestCapabilityStore())
+	resolver, err := NewResolver(evidence, nil, staticActiveManifest{Manifest: manifest}, capabilityfixtures.NewStore())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := resolver.Resolve(context.Background(), "project-a", ""); err == nil || !strings.Contains(err.Error(), "field profile enrichment") {
 		t.Fatalf("Resolve() error=%v", err)
-	}
-}
-
-func TestBuilderUnavailableResponseExplainsResourceInventoryRebuild(t *testing.T) {
-	evidence := staticCapabilityEvidence{
-		inventory:     catalog.ResourceInventoryResult{Available: false, Complete: false, Status: catalog.EvidenceUnavailable},
-		relationships: catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{}, Available: true, Complete: true, Status: catalog.EvidenceEmpty},
-		fields:        catalog.FieldEnrichmentResult{Values: []catalog.FieldEnrichmentObservation{}, Available: true, Complete: true, Status: catalog.EvidenceEmpty},
-	}
-	resolver, err := newExplorerCapabilityResolver(evidence, nil, staticActiveManifest{manifest: testCapabilityManifest(t)}, newTestCapabilityStore())
-	if err != nil {
-		t.Fatal(err)
-	}
-	service, err := explorer.NewService(newTestExplorerStore())
-	if err != nil {
-		t.Fatal(err)
-	}
-	config := lifecycle.Config{Capability: lifecycle.CapabilityResolver{
-		Current: func(ctx context.Context, project, _, generation string) (capability.Snapshot, error) {
-			return resolver.Resolve(ctx, project, generation)
-		},
-		Catalog: authoringV2Catalog,
-	}}
-	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
-	response := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default/authoring/v2/builder", "")
-	if response.StatusCode != http.StatusServiceUnavailable || !strings.Contains(response.Body, `"code":"CAPABILITY_UNAVAILABLE"`) || !strings.Contains(response.Body, "resource inventory is unavailable") || !strings.Contains(response.Body, "rebuild the generation inventory") {
-		t.Fatalf("unavailable Builder response status=%d body=%s", response.StatusCode, response.Body)
-	}
-	if strings.Contains(response.Body, `"code":"INTERNAL_ERROR"`) || strings.Contains(response.Body, `"nodes":[]`) {
-		t.Fatalf("unavailable resource inventory became an internal error or empty catalog: %s", response.Body)
 	}
 }
 
@@ -974,7 +922,7 @@ func TestAuthoringV2CatalogCarriesAdditiveObservedAvailability(t *testing.T) {
 		Fields:        []capability.ObservedField{{ResourceType: "Organization", Path: "name", ShapeKind: "string-ish", PathObservedCount: 1, Examples: []string{"Clinic"}, ExamplesTruncated: true, SemanticObservations: []capability.ConceptCandidate{}}},
 		Relationships: []capability.ObservedRelationship{{SourceResourceType: "Patient", TargetResourceType: "Organization", Label: "managingOrganization", StorageDirection: "OUTBOUND", BuilderDirection: "INBOUND", ObservedEdgeCount: 2}},
 	}
-	wire := authoringV2Catalog(snapshot, "default")
+	wire := authoringv2.CatalogFromCapability(snapshot, "default")
 	if len(wire.Nodes) != 1 || len(wire.Candidates) != 0 || wire.Availability == nil || len(wire.Availability.Fields) != 1 || wire.Availability.Fields[0].ObservedShapeKind != "string-ish" {
 		t.Fatalf("wire catalog changed compiler graph or lost observations: %#v", wire)
 	}
@@ -1040,14 +988,12 @@ func testCapabilityManifest(t *testing.T) dataset.Manifest {
 	return manifest
 }
 
-func testAuthoringV2CapabilitySnapshot() capability.Snapshot {
-	return capability.NewSnapshot(
-		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}), SchemaDigest: strings.Repeat("a", 64), ResourceInventoryDigest: "inventory", RelationshipDigest: "relationships", FieldDigest: "fields", ShapeDigest: strings.Repeat("b", 64), ProtocolVersion: explorerCapabilityProtocolVersion, CompilerVersion: explorerCapabilityCompilerVersion, TraversalPolicyVersion: explorerTraversalPolicyVersion, ProjectionPolicyVersion: explorerProjectionPolicyVersion},
-		capability.Policy{Route: capability.RoutePolicy{Version: explorerTraversalPolicyVersion, AllowsRepeatedEdges: true, AllowsSelfLoops: true}, Projection: capability.ProjectionPolicy{Version: explorerProjectionPolicyVersion}},
-		capability.StatusReady, true, false,
-		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, DocumentCount: 1, SupportedOperations: []capability.Operation{capability.OperationSelect}}},
-		nil,
-		[]capability.Candidate{{ID: "c_patient_id", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", Label: "ID", LogicalType: "string", Cardinality: "OPTIONAL_ONE", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar, capability.ProjectionFirst}, SupportedOperations: []capability.Operation{capability.OperationSelect}, Observed: true, Populated: true, SuggestedValues: []string{"patient-1"}, SuggestionsComplete: true}},
-		nil,
-	)
+func roundTripGeneratedContract[T any](value any) (T, error) {
+	var result T
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return result, err
+	}
+	err = json.Unmarshal(payload, &result)
+	return result, err
 }

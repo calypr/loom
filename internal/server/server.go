@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 
@@ -456,7 +458,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create Explorer capability snapshot store: %w", err)
 	}
-	capabilityResolver, err := newExplorerCapabilityResolver(catalogStore, scopeResolver, activeManifestResolver, capabilitySnapshots)
+	capabilityResolver, err := capabilityresolver.NewResolver(catalogStore, scopeResolver, activeManifestResolver, capabilitySnapshots)
 	if err != nil {
 		return fmt.Errorf("create Explorer capability resolver: %w", err)
 	}
@@ -677,7 +679,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			Token:          capabilityResolver.ResolveToken,
 			ForCompilation: capabilityResolver.ResolveForCompilation,
 			ForExecution:   capabilityResolver.ResolveForExecution,
-			Catalog:        authoringV2Catalog,
+			Catalog:        authoringv2.CatalogFromCapability,
 		},
 		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
 			return explorerService.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)

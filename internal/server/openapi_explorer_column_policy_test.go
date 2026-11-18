@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -22,7 +24,7 @@ import (
 func TestColumnPolicyHTTPContractPreviewApplyAndClosedIntent(t *testing.T) {
 	ctx := context.Background()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(scope), SchemaDigest: "schema", ShapeDigest: "shape"}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}, nil, []capability.Candidate{{ID: "candidate-id", NodeID: "patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient ID", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar, capability.ProjectionFirst}, SupportedOperations: []capability.Operation{capability.OperationSelect}, Populated: true}}, nil)
+	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope), SchemaDigest: "schema", ShapeDigest: "shape"}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}, nil, []capability.Candidate{{ID: "candidate-id", NodeID: "patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient ID", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar, capability.ProjectionFirst}, SupportedOperations: []capability.Operation{capability.OperationSelect}, Populated: true}}, nil)
 	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion, Explorer: authoringv2.ExplorerMetadata{Title: "Patients"}, Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition(), Columns: []authoringv2.Column{{ColumnID: "patient-id", Column: "c_patient", Label: "Patient ID", LogicalType: "string", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}}, Tabs: []authoringv2.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Visible: true}}}
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -42,7 +44,7 @@ func TestColumnPolicyHTTPContractPreviewApplyAndClosedIntent(t *testing.T) {
 		return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}, ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 		return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
-	}, Catalog: authoringV2Catalog}, CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	}, Catalog: authoringv2.CatalogFromCapability}, CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt, err := persistTestNativeReceipt(ctx, t, service, request, snapshot)
 		if err != nil {
 			return nil, err

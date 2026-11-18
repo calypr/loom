@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -105,7 +107,7 @@ func receiptContractFailure(err error) error {
 	}
 }
 
-func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceiptRequest, capabilityResolver *explorerCapabilityResolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger, combineResolver combineInputSchemaResolver, importedSources ...importedRecipeSources) (result *explorer.CompilationReceipt, retErr error) {
+func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceiptRequest, capabilityResolver *capabilityresolver.Resolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger, combineResolver combineInputSchemaResolver, importedSources ...importedRecipeSources) (result *explorer.CompilationReceipt, retErr error) {
 	started := time.Now()
 	var outputIDs, stageIDs, columnIDs []string
 	var prepareDuration, compileWorkspaceDuration, compileResolvedDuration, contractBuildDuration, validatePersistDuration time.Duration
@@ -139,11 +141,11 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 		return nil, capability.ErrStaleSnapshot
 	}
 	snapshot := authorized.Snapshot
-	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+	if err := capabilityresolver.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return nil, capability.ErrStaleSnapshot
 	}
 	prepareStarted := time.Now()
-	catalog := authoringV2Catalog(snapshot, request.ExplorerID)
+	catalog := authoringv2.CatalogFromCapability(snapshot, request.ExplorerID)
 	workspace, err := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, catalog)
 	if err != nil {
 		return nil, &explorercompilation.Error{

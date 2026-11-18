@@ -30,7 +30,7 @@ func rebuildSourceOutput(t *testing.T, fixture unifiedAuthoringFixture) recipe.O
 }
 
 func rebuildSourceCatalog(fixture unifiedAuthoringFixture) authoringv2.CatalogSnapshot {
-	return authoringV2Catalog(fixture.authorized.Snapshot, "")
+	return authoringv2.CatalogFromCapability(fixture.authorized.Snapshot, "")
 }
 
 func TestRebuildImportedDocumentPreservesAuthoredColumnsAcrossSchemaChanges(t *testing.T) {

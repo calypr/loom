@@ -15,19 +15,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-func TestValidateAuthorizedReadScopePreservesRestrictedEmpty(t *testing.T) {
-	expected := explorerScopeDigest(authscope.ReadScope{Mode: authscope.ReadScopeRestricted})
-	if err := validateAuthorizedReadScope(authscope.ReadScope{Mode: authscope.ReadScopeRestricted}, expected); err != nil {
-		t.Fatalf("restricted-empty scope rejected: %v", err)
-	}
-	if err := validateAuthorizedReadScope(authscope.ReadScope{}, expected); !errors.Is(err, ErrReceiptExecutionContract) {
-		t.Fatalf("empty scope error=%v, want contract mismatch", err)
-	}
-	if err := validateAuthorizedReadScope(authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, expected); !errors.Is(err, ErrReceiptExecutionContract) {
-		t.Fatalf("widened scope error=%v, want contract mismatch", err)
-	}
-}
-
 func TestValidateReceiptEnginePublicColumnsUsesExactPublicColumnSet(t *testing.T) {
 	snapshot := testAuthorizedCapabilitySnapshot(t, "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	receipt := testSecurityReceipt(t, snapshot, "patients", []string{"id", "name"})

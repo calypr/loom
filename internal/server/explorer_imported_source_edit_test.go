@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 
 	recipeapi "github.com/calypr/loom/internal/api/recipe"
 	"github.com/calypr/loom/internal/authscope"
@@ -40,7 +41,7 @@ func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
 	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
 	resolver := importedRecipeSources{registry: registry, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false,
+	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false,
 		[]capability.Node{{ID: "specimen", ResourceType: "Specimen", RowRootEligible: true}, {ID: "patient", ResourceType: "Patient", RowRootEligible: true}},
 		[]capability.Edge{{ID: "subject", FromNodeID: "specimen", ToNodeID: "patient", Label: "subject", StorageDirection: "OUTBOUND"}}, nil, nil)
 	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
@@ -58,7 +59,7 @@ func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
 			schemas[compiled.Name] = append(schemas[compiled.Name], column.Column)
 		}
 	}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringV2Catalog(snapshot, "test"), schemas)
+	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "test"), schemas)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +365,7 @@ func TestImportedSourceAtomicExpansionAliasPreservesUUIDAndFieldDependencies(t *
 	}
 	resolver := importedRecipeSources{registry: &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "group", ResourceType: "Group", RowRootEligible: true}}, nil, nil, nil)
+	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "group", ResourceType: "Group", RowRootEligible: true}}, nil, nil, nil)
 	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	source, err := resolver.load(ctx, "project-a", bundle.Name, bundle.TranslationVersion, digest, authorized)
 	if err != nil {
@@ -380,7 +381,7 @@ func TestImportedSourceAtomicExpansionAliasPreservesUUIDAndFieldDependencies(t *
 			schemas[o.Name] = append(schemas[o.Name], c.Column)
 		}
 	}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringV2Catalog(snapshot, "test"), schemas)
+	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "test"), schemas)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -436,7 +437,7 @@ func TestImportedSourceDiscoveredCollisionPreservesWinnerIdentity(t *testing.T) 
 	}
 	resolver := importedRecipeSources{registry: registry, engine: engine, defaultName: bundle.Name}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "specimen", ResourceType: "Specimen", RowRootEligible: true}}, nil, nil, nil)
+	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "specimen", ResourceType: "Specimen", RowRootEligible: true}}, nil, nil, nil)
 	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	source, err := resolver.load(ctx, "project-a", bundle.Name, bundle.TranslationVersion, digest, authorized)
 	if err != nil {
@@ -452,7 +453,7 @@ func TestImportedSourceDiscoveredCollisionPreservesWinnerIdentity(t *testing.T) 
 			schemas[o.Name] = append(schemas[o.Name], c.Column)
 		}
 	}
-	w, err := recipeimport.ImportWorkspace(bundle, authoringV2Catalog(snapshot, "test"), schemas)
+	w, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "test"), schemas)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -545,7 +546,7 @@ func newSourceIdentityFixture(t *testing.T, output recipe.Output, fields []catal
 	}
 	resolver := importedRecipeSources{registry: registry, engine: engine, defaultName: bundle.Name}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "root", ResourceType: output.RootResourceType, RowRootEligible: true}}, nil, nil, nil)
+	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "root", ResourceType: output.RootResourceType, RowRootEligible: true}}, nil, nil, nil)
 	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	source, err := resolver.load(ctx, "project-a", bundle.Name, bundle.TranslationVersion, digest, authorized)
 	if err != nil {
@@ -561,7 +562,7 @@ func newSourceIdentityFixture(t *testing.T, output recipe.Output, fields []catal
 			schemas[o.Name] = append(schemas[o.Name], c.Column)
 		}
 	}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringV2Catalog(snapshot, "test"), schemas)
+	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "test"), schemas)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,10 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/semantic"
-	"github.com/google/uuid"
 	"reflect"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/semantic"
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+	"github.com/google/uuid"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -70,7 +72,7 @@ func (r importedRecipeSources) editSources(ctx context.Context, project string, 
 	if projectid.Canonical(project) != projectid.Canonical(authorized.Snapshot.Identity.Project) {
 		return authoringv2.Document{}, capability.ErrStaleSnapshot
 	}
-	if err := validateAuthorizedReadScope(authorized.Scope, authorized.Snapshot.Identity.AuthorizationScopeDigest); err != nil {
+	if err := capabilityresolver.ValidateAuthorizedReadScope(authorized.Scope, authorized.Snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return authoringv2.Document{}, err
 	}
 	entry, err := r.registry.LoadRecipeVersion(ctx, ref.Name, ref.TranslationVersion)
@@ -102,7 +104,7 @@ func (r importedRecipeSources) editSources(ctx context.Context, project string, 
 	if err != nil {
 		return authoringv2.Document{}, err
 	}
-	catalog := authoringV2Catalog(authorized.Snapshot, "")
+	catalog := authoringv2.CatalogFromCapability(authorized.Snapshot, "")
 	input := recipeimport.PlanEditInput{}
 	previousSourceLabels := map[string]string{}
 	for _, change := range changes {

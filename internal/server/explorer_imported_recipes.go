@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/expression"
@@ -25,7 +27,7 @@ import (
 type importedRecipeSources struct {
 	registry       exec.Reader
 	engine         *dataframeexecution.Engine
-	capabilities   *explorerCapabilityResolver
+	capabilities   *capabilityresolver.Resolver
 	defaultName    string
 	defaultVersion string
 }
@@ -44,7 +46,7 @@ func (r importedRecipeSources) load(ctx context.Context, project, name, version,
 	if projectid.Canonical(project) != projectid.Canonical(authorized.Snapshot.Identity.Project) {
 		return importedRecipeResolution{}, capability.ErrStaleSnapshot
 	}
-	if err := validateAuthorizedReadScope(authorized.Scope, authorized.Snapshot.Identity.AuthorizationScopeDigest); err != nil {
+	if err := capabilityresolver.ValidateAuthorizedReadScope(authorized.Scope, authorized.Snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return importedRecipeResolution{}, err
 	}
 	entry, err := r.registry.LoadRecipeVersion(ctx, name, version)
@@ -120,7 +122,7 @@ func (r importedRecipeSources) load(ctx context.Context, project, name, version,
 						return importedRecipeResolution{}, err
 					}
 				}
-				if err := recipeimport.ValidateRelationshipOverlay(effective.Outputs[i], document.ImportedSource, authoringV2Catalog(authorized.Snapshot, "")); err != nil {
+				if err := recipeimport.ValidateRelationshipOverlay(effective.Outputs[i], document.ImportedSource, authoringv2.CatalogFromCapability(authorized.Snapshot, "")); err != nil {
 					return importedRecipeResolution{}, err
 				}
 				output, applyErr := recipeimport.ApplySourcePlan(effective.Outputs[i], document.ImportedSource)
@@ -165,7 +167,7 @@ func (r importedRecipeSources) load(ctx context.Context, project, name, version,
 				if !ok || native == nil {
 					return importedRecipeResolution{}, fmt.Errorf("source projection identity proof is unavailable")
 				}
-				if err := preserveImportedGeneratedIDs(document, original, &plan, baseline, pinnedNative[output.Name], output, *native, authoringV2Catalog(authorized.Snapshot, "")); err != nil {
+				if err := preserveImportedGeneratedIDs(document, original, &plan, baseline, pinnedNative[output.Name], output, *native, authoringv2.CatalogFromCapability(authorized.Snapshot, "")); err != nil {
 					return importedRecipeResolution{}, err
 				}
 			}

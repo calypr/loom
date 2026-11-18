@@ -48,11 +48,11 @@ func TestPopulationMappingRouteUsesReceiptBoundAuthoredFilterConstruction(t *tes
 	selectionID := "selection-filter-exists"
 	document.Population = &authoringv2.Population{SelectionRevisionID: selectionID, Route: []authoringv2.PopulationRouteStep{}}
 	workspace.Documents[0] = document
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringV2Catalog(snapshot, "custom"))
+	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringv2.CatalogFromCapability(snapshot, "custom"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringV2Catalog(snapshot, "custom")).NormalizePresentationOrders()
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringv2.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate saved FILTER EXISTS workspace: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestPopulationMappingRouteUsesReceiptBoundAuthoredFilterConstruction(t *tes
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		ReceiptLookup: domain.CompilationReceiptForExplorer,
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {

@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -164,7 +166,7 @@ func TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS(t *
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/programs/alpha"}}
 	baseSnapshot := testAuthoringV2CapabilitySnapshot()
 	identity := baseSnapshot.Identity
-	identity.AuthorizationScopeDigest = explorerScopeDigest(scope)
+	identity.AuthorizationScopeDigest = capabilityresolver.ScopeDigest(scope)
 	snapshot := capability.NewSnapshot(identity, baseSnapshot.Policy, baseSnapshot.Status, baseSnapshot.Complete, baseSnapshot.Truncated,
 		baseSnapshot.Nodes, baseSnapshot.Edges, baseSnapshot.Candidates, baseSnapshot.Diagnostics)
 
@@ -175,7 +177,7 @@ func TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS(t *
 	workspace.SemanticsVersion = authoringv2.CurrentSemanticsVersion
 	workspace.Documents[0].Rows = authoringv2.RecordsRowDefinition()
 	workspace.Documents[0].Population = &authoringv2.Population{SelectionRevisionID: "selection-base", Route: []authoringv2.PopulationRouteStep{}}
-	catalog := authoringV2Catalog(snapshot, explorerID)
+	catalog := authoringv2.CatalogFromCapability(snapshot, explorerID)
 	workspace, err = authoringv2.MigrateLegacyContributors(workspace, catalog)
 	if err != nil {
 		t.Fatal(err)
@@ -229,7 +231,7 @@ func TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS(t *
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		SelectionReferenceValidator: func(_ context.Context, gotProject, generation string, gotScope authscope.ReadScope, refs []explorer.ResourceRef) error {
 			if gotProject != project || generation != snapshot.Identity.Generation || gotScope.Mode != scope.Mode || !reflect.DeepEqual(gotScope.AuthResourcePaths, scope.AuthResourcePaths) {

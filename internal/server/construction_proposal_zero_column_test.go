@@ -70,11 +70,11 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 	document.Columns = []authoringv2.Column{}
 	document.Population = &authoringv2.Population{SelectionRevisionID: "selection-zero-column"}
 	workspace.Documents[0] = document
-	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringV2Catalog(snapshot, "custom"))
+	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringv2.CatalogFromCapability(snapshot, "custom"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringV2Catalog(snapshot, "custom")).NormalizePresentationOrders()
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringv2.CatalogFromCapability(snapshot, "custom")).NormalizePresentationOrders()
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate base population workspace: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 		Capability: lifecycle.CapabilityResolver{
 			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) { return authorized, nil },
 			ForExecution:   func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) { return authorized, nil },
-			Catalog:        authoringV2Catalog,
+			Catalog:        authoringv2.CatalogFromCapability,
 		},
 		ConstructionSourceStage: func(context.Context, lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 			return sourceStage, nil

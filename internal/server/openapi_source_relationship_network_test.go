@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	loomapi "github.com/calypr/loom/api/loomapi"
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	"net/http"
 	"strings"
 	"testing"
+
+	loomapi "github.com/calypr/loom/api/loomapi"
+	"github.com/calypr/loom/internal/dataframe/compiler"
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -26,10 +28,10 @@ import (
 func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	ctx := context.Background()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(scope), SchemaDigest: "schema", ShapeDigest: "shape"}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}, nil, nil, nil)
+	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope), SchemaDigest: "schema", ShapeDigest: "shape"}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}, nil, nil, nil)
 	output := recipe.Output{Name: "patients", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "c_patient", Expr: recipe.Expression{Select: "root.id"}}}}
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "default", TranslationVersion: "v1", Outputs: []recipe.Output{output}}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringV2Catalog(snapshot, "custom"), map[string][]recipe.StageColumn{"patients": {{ID: "patient-id", Name: "c_patient", Label: "Patient ID", Type: "string"}}})
+	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "custom"), map[string][]recipe.StageColumn{"patients": {{ID: "patient-id", Name: "c_patient", Label: "Patient ID", Type: "string"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +60,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 		},
 		ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 			return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
-		}, Catalog: authoringV2Catalog,
+		}, Catalog: authoringv2.CatalogFromCapability,
 	},
 		EditImportedRelationship: func(_ context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
 			edits++

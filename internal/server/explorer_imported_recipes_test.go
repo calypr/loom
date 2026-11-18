@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -61,7 +63,7 @@ func TestImportedSourceResolutionRejectsChangedPinsAndForeignScopes(t *testing.T
 	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
 	resolver := importedRecipeSources{registry: registry, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	authorized := lifecycle.AuthorizedCapability{Snapshot: capability.Snapshot{Identity: capability.SnapshotIdentity{Project: "HTAN_INT/BForePC", AuthorizationScopeDigest: explorerScopeDigest(scope)}}, Scope: scope}
+	authorized := lifecycle.AuthorizedCapability{Snapshot: capability.Snapshot{Identity: capability.SnapshotIdentity{Project: "HTAN_INT/BForePC", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}}, Scope: scope}
 	if _, err := resolver.load(context.Background(), "HTAN_INT/other", bundle.Name, bundle.TranslationVersion, digest, authorized); err == nil {
 		t.Fatal("foreign project accepted")
 	}

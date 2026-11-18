@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -142,16 +144,16 @@ func c19CapabilitySnapshot() capability.Snapshot {
 	return capability.NewSnapshot(
 		capability.SnapshotIdentity{
 			Project: c19Project, Generation: "generation-a",
-			AuthorizationScopeDigest: explorerScopeDigest(authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}),
+			AuthorizationScopeDigest: capabilityresolver.ScopeDigest(authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}),
 			SchemaDigest:             strings.Repeat("a", 64),
 			ResourceInventoryDigest:  "inventory", RelationshipDigest: "relationships",
 			FieldDigest: "fields", ShapeDigest: strings.Repeat("b", 64),
-			ProtocolVersion: explorerCapabilityProtocolVersion, CompilerVersion: explorerCapabilityCompilerVersion,
-			TraversalPolicyVersion: explorerTraversalPolicyVersion, ProjectionPolicyVersion: explorerProjectionPolicyVersion,
+			ProtocolVersion: capabilityresolver.ProtocolVersion, CompilerVersion: capabilityresolver.CompilerVersion,
+			TraversalPolicyVersion: capabilityresolver.TraversalPolicyVersion, ProjectionPolicyVersion: capabilityresolver.ProjectionPolicyVersion,
 		},
 		capability.Policy{
-			Route:      capability.RoutePolicy{Version: explorerTraversalPolicyVersion, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
-			Projection: capability.ProjectionPolicy{Version: explorerProjectionPolicyVersion},
+			Route:      capability.RoutePolicy{Version: capabilityresolver.TraversalPolicyVersion, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
+			Projection: capability.ProjectionPolicy{Version: capabilityresolver.ProjectionPolicyVersion},
 		},
 		capability.StatusReady, true, false,
 		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, DocumentCount: 1, SupportedOperations: []capability.Operation{capability.OperationSelect}}},
@@ -169,7 +171,7 @@ func c19CapabilitySnapshot() capability.Snapshot {
 func c19Workspace(t *testing.T, snapshot capability.Snapshot) authoringv2.Workspace {
 	t.Helper()
 	raw := c19AuthoredWorkspace()
-	prepared, err := authoringv2.PrepareWorkspaceForCompilation(raw, authoringV2Catalog(snapshot, c19ExplorerID))
+	prepared, err := authoringv2.PrepareWorkspaceForCompilation(raw, authoringv2.CatalogFromCapability(snapshot, c19ExplorerID))
 	if err != nil {
 		t.Fatalf("prepare seed workspace: %v", err)
 	}
@@ -296,7 +298,7 @@ func c19NewFixture(t *testing.T) (*coreProtocolFixture, *c19RowStore) {
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return compileExplorerReceipt(ctx, request, nil, engine, domain, nil, nil)
@@ -855,7 +857,7 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return compileExplorerReceipt(ctx, request, nil, engine, domain, nil, nil)

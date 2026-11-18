@@ -4,18 +4,20 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"strings"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/explorer/recipeimport"
 	"github.com/calypr/loom/internal/projectid"
-	"strings"
 )
 
 func (r importedRecipeSources) Network(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
-	catalog := authoringV2Catalog(authorized.Snapshot, "")
+	catalog := authoringv2.CatalogFromCapability(authorized.Snapshot, "")
 	if document.ImportedRecipe == nil {
 		return authoringv2.NetworkForDocument(document, catalog)
 	}
@@ -93,7 +95,7 @@ func (r importedRecipeSources) RemoveOutput(
 	if len(compiledSchema) == 0 {
 		return authoringv2.Document{}, fmt.Errorf("pinned output schema is unavailable")
 	}
-	network, err := recipeimport.HydrateNetwork(document, *original, authoringV2Catalog(authorized.Snapshot, ""))
+	network, err := recipeimport.HydrateNetwork(document, *original, authoringv2.CatalogFromCapability(authorized.Snapshot, ""))
 	if err != nil {
 		return authoringv2.Document{}, err
 	}
@@ -296,7 +298,7 @@ func (r importedRecipeSources) RemoveField(
 	if projectid.Canonical(project) != projectid.Canonical(authorized.Snapshot.Identity.Project) {
 		return authoringv2.Document{}, capability.ErrStaleSnapshot
 	}
-	if err := validateAuthorizedReadScope(authorized.Scope, authorized.Snapshot.Identity.AuthorizationScopeDigest); err != nil {
+	if err := capabilityresolver.ValidateAuthorizedReadScope(authorized.Scope, authorized.Snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return authoringv2.Document{}, err
 	}
 	entry, err := r.registry.LoadRecipeVersion(ctx, ref.Name, ref.TranslationVersion)

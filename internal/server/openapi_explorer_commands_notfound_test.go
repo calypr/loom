@@ -104,7 +104,7 @@ func newGroupFieldSourceProposalFixture(t *testing.T) *groupFieldSourceProposalF
 	workspace.Documents[0] = document
 	workspace.Tabs[0].OutputID = "observations"
 	workspace.Tabs[0].Title = "Observations"
-	catalogSnapshot := authoringV2Catalog(snapshot, "observation-explorer")
+	catalogSnapshot := authoringv2.CatalogFromCapability(snapshot, "observation-explorer")
 	workspace, err = authoringv2.MigrateLegacyContributors(workspace, catalogSnapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +147,7 @@ func newGroupFieldSourceProposalFixture(t *testing.T) *groupFieldSourceProposalF
 			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			Catalog: authoringV2Catalog,
+			Catalog: authoringv2.CatalogFromCapability,
 		},
 		RowChoicePlanner: rowChoices,
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {

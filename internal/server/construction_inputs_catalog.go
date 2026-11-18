@@ -11,6 +11,7 @@ import (
 	"time"
 
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 
 	"github.com/calypr/loom/internal/api/columncapabilities"
 	"github.com/calypr/loom/internal/authscope"
@@ -376,7 +377,7 @@ func (c constructionInputsCatalog) authorizedSnapshot(ctx context.Context, proje
 	if snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != project {
 		return nil, capability.Snapshot{}, authscope.ReadScope{}, explorer.ExplorerConflict("construction-inputs", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil)
 	}
-	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+	if err := capabilityresolver.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return nil, capability.Snapshot{}, authscope.ReadScope{}, explorer.ExplorerConflict("construction-inputs", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil)
 	}
 	owner, err := c.explorers.Get(ctx, project, explorerID)

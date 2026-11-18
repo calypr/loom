@@ -12,47 +12,22 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 	"github.com/gofiber/fiber/v3"
 )
 
 type compilerTestRegistry struct{}
 
-type testCapabilityStore struct {
-	byToken    map[string]capability.Snapshot
-	byIdentity map[capability.SnapshotIdentity]string
-}
+type testCapabilityStore = capabilityfixtures.Store
 
 func newTestCapabilityStore() *testCapabilityStore {
-	return &testCapabilityStore{byToken: make(map[string]capability.Snapshot), byIdentity: make(map[capability.SnapshotIdentity]string)}
-}
-
-func (s *testCapabilityStore) Put(_ context.Context, snapshot capability.Snapshot) (*capability.Snapshot, error) {
-	stored := snapshot.Clone()
-	s.byToken[stored.Token] = stored
-	s.byIdentity[stored.Identity] = stored.Token
-	result := stored.Clone()
-	return &result, nil
-}
-
-func (s *testCapabilityStore) GetByToken(_ context.Context, token string) (*capability.Snapshot, error) {
-	stored, ok := s.byToken[token]
-	if !ok {
-		return nil, capability.ErrNotFound
-	}
-	result := stored.Clone()
-	return &result, nil
-}
-
-func (s *testCapabilityStore) GetByIdentity(_ context.Context, identity capability.SnapshotIdentity) (*capability.Snapshot, error) {
-	token, ok := s.byIdentity[identity]
-	if !ok {
-		return nil, capability.ErrNotFound
-	}
-	return s.GetByToken(context.Background(), token)
+	return capabilityfixtures.NewStore()
 }
 
 func (compilerTestRegistry) LoadRecipe(context.Context, string) (exec.Entry, error) {
@@ -266,4 +241,13 @@ func baselineExplorerWorkspaceV2() []byte {
 	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion, Explorer: authoringv2.ExplorerMetadata{Title: "Patients"}, Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(), Output: authoringv2.Output{ID: "patients", Title: "Patients", RowLabel: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient"}, Columns: []authoringv2.Column{{Column: "c_patient", Label: "Patient ID", LogicalType: "string", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "FIRST"}}, Table: &authoringv2.TablePresentation{Visible: &visible, Order: &order}}}}}, Tabs: []authoringv2.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}}
 	raw, _ := json.Marshal(workspace)
 	return raw
+}
+
+func testAuthorizedCapabilitySnapshot(t testing.TB, generation string, scope authscope.ReadScope) capability.Snapshot {
+	t.Helper()
+	return capabilityfixtures.AuthorizedCapabilitySnapshot(generation, capabilityresolver.ScopeDigest(scope))
+}
+
+func testAuthoringV2CapabilitySnapshot() capability.Snapshot {
+	return capabilityfixtures.AuthoringV2CapabilitySnapshot(capabilityresolver.ScopeDigest(authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}))
 }

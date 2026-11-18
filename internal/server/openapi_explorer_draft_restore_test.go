@@ -75,7 +75,7 @@ func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 		ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 			return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 		},
-		Catalog: authoringV2Catalog,
+		Catalog: authoringv2.CatalogFromCapability,
 	}}
 	app := fiber.New()
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config)

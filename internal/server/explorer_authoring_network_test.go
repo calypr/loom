@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 
 	recipeapi "github.com/calypr/loom/internal/api/recipe"
 	"github.com/calypr/loom/internal/authscope"
@@ -39,7 +40,7 @@ func TestRemoveFieldEditsLegacyPinAndPreservesAuthoredAddition(t *testing.T) {
 	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	resolver := importedRecipeSources{registry: registry, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
-	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false,
+	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false,
 		[]capability.Node{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}, nil, nil, nil)
 	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	source, err := resolver.load(ctx, "project-a", bundle.Name, bundle.TranslationVersion, digest, authorized)
@@ -59,7 +60,7 @@ func TestRemoveFieldEditsLegacyPinAndPreservesAuthoredAddition(t *testing.T) {
 			schemas[compiled.Name] = append(schemas[compiled.Name], column.Column)
 		}
 	}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringV2Catalog(snapshot, "patients"), schemas)
+	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "patients"), schemas)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +147,7 @@ func TestPinnedFieldRemovalInventoryKeepsUneditedTraversalFieldActionable(t *tes
 	}
 	resolver := importedRecipeSources{registry: &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false,
+	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false,
 		[]capability.Node{{ID: "specimen", ResourceType: "Specimen", RowRootEligible: true}, {ID: "patient", ResourceType: "Patient"}},
 		[]capability.Edge{{ID: "subject", FromNodeID: "specimen", ToNodeID: "patient", Label: "subject", StorageDirection: "OUTBOUND"}}, nil, nil)
 	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
@@ -167,7 +168,7 @@ func TestPinnedFieldRemovalInventoryKeepsUneditedTraversalFieldActionable(t *tes
 			schemas[compiled.Name] = append(schemas[compiled.Name], column.Column)
 		}
 	}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringV2Catalog(snapshot, "Specimen"), schemas)
+	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "Specimen"), schemas)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,7 +449,7 @@ func TestRemoveOutputDisablesExactNestedExtensionMappingAcrossReload(t *testing.
 		t.Fatal(err)
 	}
 	resolver := importedRecipeSources{registry: registry, engine: engine, defaultName: bundle.Name}
-	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false,
+	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false,
 		[]capability.Node{{ID: "document-reference", ResourceType: "DocumentReference", RowRootEligible: true}}, nil, nil, nil)
 	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	resolved, err := resolver.load(ctx, "project-a", bundle.Name, bundle.TranslationVersion, digest, authorized)
@@ -478,7 +479,7 @@ func TestRemoveOutputDisablesExactNestedExtensionMappingAcrossReload(t *testing.
 			schemas[compiled.Name] = append(schemas[compiled.Name], column.Column)
 		}
 	}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringV2Catalog(snapshot, "DocumentReference"), schemas)
+	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "DocumentReference"), schemas)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -544,7 +545,7 @@ func TestRemoveOutputDisablesExactDynamicKeyAndPreservesSibling(t *testing.T) {
 		t.Fatal(err)
 	}
 	resolver := importedRecipeSources{registry: registry, engine: engine, defaultName: bundle.Name}
-	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false,
+	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false,
 		[]capability.Node{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}, nil, nil, nil)
 	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	resolved, err := resolver.load(ctx, "project-a", bundle.Name, bundle.TranslationVersion, digest, authorized)
@@ -564,7 +565,7 @@ func TestRemoveOutputDisablesExactDynamicKeyAndPreservesSibling(t *testing.T) {
 			schemas[compiled.Name] = append(schemas[compiled.Name], column.Column)
 		}
 	}
-	workspace, err := recipeimport.ImportWorkspace(bundle, authoringV2Catalog(snapshot, "patients"), schemas)
+	workspace, err := recipeimport.ImportWorkspace(bundle, authoringv2.CatalogFromCapability(snapshot, "patients"), schemas)
 	if err != nil {
 		t.Fatal(err)
 	}
