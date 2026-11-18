@@ -5,6 +5,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/constructioninputs"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
@@ -15,7 +16,7 @@ type explorerHTTPHandlers struct {
 	authorizeRead      explorerConfigReadAuthorizer
 	views              *explorer.Service
 	application        *lifecycle.Service
-	constructionInputs constructionInputsCatalog
+	constructionInputs constructioninputs.Catalog
 	authorizeExecution func(context.Context, string) error
 }
 

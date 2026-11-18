@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
+
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -73,11 +75,11 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 	}
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
 
-	request := requestJSONWithHeaders(t, app, http.MethodPost, "/api/v1/projects/project-a/generations/generation-a/explorer-config", string(baselineExplorerWorkspaceV2()), map[string]string{"X-Loom-Source-Commit": "commit-a"})
+	request := requestJSONWithHeaders(t, app, http.MethodPost, "/api/v1/projects/project-a/generations/generation-a/explorer-config", string(constructionfixtures.BaselineExplorerWorkspace()), map[string]string{"X-Loom-Source-Commit": "commit-a"})
 	if request.StatusCode != http.StatusOK {
 		t.Fatalf("deploy status=%d body=%s", request.StatusCode, request.Body)
 	}
-	repeated := requestJSONWithHeaders(t, app, http.MethodPost, "/api/v1/projects/project-a/generations/generation-a/explorer-config", string(baselineExplorerWorkspaceV2()), map[string]string{"X-Loom-Source-Commit": "commit-a"})
+	repeated := requestJSONWithHeaders(t, app, http.MethodPost, "/api/v1/projects/project-a/generations/generation-a/explorer-config", string(constructionfixtures.BaselineExplorerWorkspace()), map[string]string{"X-Loom-Source-Commit": "commit-a"})
 	if repeated.StatusCode != http.StatusOK {
 		t.Fatalf("repeated deploy status=%d body=%s", repeated.StatusCode, repeated.Body)
 	}

@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
+
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -48,7 +50,7 @@ func fs1New(t *testing.T) *fs1Env {
 			Observed:            true, Populated: true, ObservedDocumentCount: 135,
 		},
 	)
-	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}

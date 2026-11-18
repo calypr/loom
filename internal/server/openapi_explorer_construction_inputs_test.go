@@ -12,17 +12,24 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataset"
+	"github.com/calypr/loom/internal/explorer/constructioninputs"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 	"github.com/gofiber/fiber/v3"
 )
 
 func TestConstructionInputsGeneratedHTTPRouteReturnsExactCatalog(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	service, reader, bundleCatalog, snapshot, digest := newConstructionInputsFixture(t, scope)
+	fixture, err := constructionfixtures.New(scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := constructioninputs.New(fixture.Reader, fixture.Catalog, fixture.Capabilities, nil, fixture.Explorers, fixture.Revisions)
+	reader, bundleCatalog, snapshot, digest := fixture.Reader, fixture.Catalog, fixture.Snapshot, fixture.Digest
 	selector := dataset.DataframeSelector{Recipe: "lab_summary", TranslationVersion: "v1", Output: "observations"}
-	execution := constructionInputsExecution("revision-current", selector, "project-a", "generation-a", time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC))
-	bundleCatalog.executions = []publication.BundleExecution{execution}
-	bundleCatalog.pointers[execution.PointerName()] = publication.BundlePointer{Name: execution.PointerName(), ExecutionID: execution.ID}
-	reader.values[execution.ID+"/"+selector.Output] = constructionInputsMaterialization(execution, selector, scope)
+	execution := constructionfixtures.Execution("revision-current", selector, "project-a", "generation-a", time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC))
+	bundleCatalog.Executions = []publication.BundleExecution{execution}
+	bundleCatalog.Pointers[execution.PointerName()] = publication.BundlePointer{Name: execution.PointerName(), ExecutionID: execution.ID}
+	reader.Values[execution.ID+"/"+selector.Output] = constructionfixtures.Materialization(execution, selector, scope)
 
 	app := fiber.New()
 	routes := &HTTPRoutes{explorer: &explorerHTTPHandlers{

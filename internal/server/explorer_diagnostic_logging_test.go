@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
+
 	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
 
 	shared "github.com/arangodb/go-driver/v2/arangodb/shared"
@@ -347,7 +349,7 @@ func TestConfiguredCategoryScannerReturnsTransportNeutralReceiptConflict(t *test
 func diagnosticCompileFixture(t *testing.T, compileRole string) (lifecycle.CompileReceiptRequest, *dataframeexecution.Engine, *explorer.Service) {
 	t.Helper()
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}

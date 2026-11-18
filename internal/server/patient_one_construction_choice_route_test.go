@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
+
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 
@@ -52,7 +54,7 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 		t.Fatalf("retained fixture no longer contains the captured empty-key Patient Group: %#v", document)
 	}
 
-	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}

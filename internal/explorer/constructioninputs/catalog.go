@@ -1,4 +1,4 @@
-package server
+package constructioninputs
 
 import (
 	"context"
@@ -31,7 +31,7 @@ const (
 	constructionInputsMaxQuery     = 200
 )
 
-type constructionInputsRequest struct {
+type Request struct {
 	SnapshotToken        string `json:"snapshotToken"`
 	ExpectedDraftVersion int64  `json:"expectedDraftVersion"`
 	ExpectedDraftDigest  string `json:"expectedDraftDigest"`
@@ -40,29 +40,29 @@ type constructionInputsRequest struct {
 	Limit                int    `json:"limit,omitempty"`
 }
 
-type constructionInputsResponse struct {
-	SnapshotToken     string                   `json:"snapshotToken"`
-	DraftVersion      int64                    `json:"draftVersion"`
-	DraftDigest       string                   `json:"draftDigest"`
-	DatasetGeneration string                   `json:"datasetGeneration"`
-	Entries           []constructionInputEntry `json:"entries"`
-	NextCursor        string                   `json:"nextCursor,omitempty"`
+type Response struct {
+	SnapshotToken     string       `json:"snapshotToken"`
+	DraftVersion      int64        `json:"draftVersion"`
+	DraftDigest       string       `json:"draftDigest"`
+	DatasetGeneration string       `json:"datasetGeneration"`
+	Entries           []inputEntry `json:"entries"`
+	NextCursor        string       `json:"nextCursor,omitempty"`
 }
 
-type constructionInputEntry struct {
-	Kind        string                    `json:"kind"`
-	TableID     string                    `json:"tableId"`
-	RevisionID  string                    `json:"revisionId"`
-	OutputID    string                    `json:"outputId"`
-	TableTitle  string                    `json:"tableTitle"`
-	OutputTitle string                    `json:"outputTitle"`
-	RowMeaning  string                    `json:"rowMeaning"`
-	IsCurrent   bool                      `json:"isCurrent"`
-	CreatedAt   time.Time                 `json:"createdAt"`
-	Columns     []constructionInputColumn `json:"columns"`
+type inputEntry struct {
+	Kind        string        `json:"kind"`
+	TableID     string        `json:"tableId"`
+	RevisionID  string        `json:"revisionId"`
+	OutputID    string        `json:"outputId"`
+	TableTitle  string        `json:"tableTitle"`
+	OutputTitle string        `json:"outputTitle"`
+	RowMeaning  string        `json:"rowMeaning"`
+	IsCurrent   bool          `json:"isCurrent"`
+	CreatedAt   time.Time     `json:"createdAt"`
+	Columns     []inputColumn `json:"columns"`
 }
 
-type constructionInputColumn struct {
+type inputColumn struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
 	Label          string `json:"label"`
@@ -73,31 +73,35 @@ type constructionInputColumn struct {
 	SemanticPath   string `json:"semanticPath,omitempty"`
 }
 
-type constructionInputsExactReader interface {
+type ExactReader interface {
 	ExactExecutionMaterialization(context.Context, string, string) (published.Materialization, error)
 	WithExecutionReadPins(context.Context, []string, func(context.Context) error) error
 }
 
-type constructionInputsCatalogReader interface {
+type publicationCatalog interface {
 	ListExecutions(context.Context, publication.BundleState, time.Time) ([]publication.BundleExecution, error)
 	GetPointer(context.Context, string) (publication.BundlePointer, error)
 }
 
-type constructionInputsExplorerReader interface {
+type explorerReader interface {
 	Get(context.Context, string, string) (*explorer.Explorer, error)
 }
 
-type constructionInputsRevisionReader interface {
+type revisionReader interface {
 	GetRevision(context.Context, string) (*explorer.Revision, error)
 }
 
-type constructionInputsCatalog struct {
-	reader       constructionInputsExactReader
-	catalog      constructionInputsCatalogReader
+type Catalog struct {
+	reader       ExactReader
+	catalog      publicationCatalog
 	capabilities lifecycle.CapabilityResolver
 	scopes       *authscope.ScopeResolver
-	explorers    constructionInputsExplorerReader
-	revisions    constructionInputsRevisionReader
+	explorers    explorerReader
+	revisions    revisionReader
+}
+
+func New(reader ExactReader, catalog publicationCatalog, capabilities lifecycle.CapabilityResolver, scopes *authscope.ScopeResolver, explorers explorerReader, revisions revisionReader) Catalog {
+	return Catalog{reader: reader, catalog: catalog, capabilities: capabilities, scopes: scopes, explorers: explorers, revisions: revisions}
 }
 
 type constructionInputReference struct {
@@ -108,7 +112,7 @@ type constructionInputReference struct {
 
 type constructionInputCandidate struct {
 	reference    constructionInputReference
-	entry        constructionInputEntry
+	entry        inputEntry
 	presentation constructionInputPresentation
 }
 
@@ -141,8 +145,8 @@ type constructionInputsCursor struct {
 	RevisionID    string `json:"r"`
 }
 
-func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID string, request constructionInputsRequest) (constructionInputsResponse, error) {
-	response := constructionInputsResponse{Entries: []constructionInputEntry{}}
+func (c Catalog) List(ctx context.Context, project, explorerID string, request Request) (Response, error) {
+	response := Response{Entries: []inputEntry{}}
 	query, limit, cursor, err := validateConstructionInputsRequest(request)
 	if err != nil {
 		return response, explorer.MalformedRouteError("construction-inputs", err)
@@ -169,7 +173,7 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 
 	executions, err := c.catalog.ListExecutions(ctx, publication.BundlePublished, time.Now().UTC().Add(time.Second))
 	if err != nil {
-		return constructionInputsResponse{}, constructionInputsUnavailable(err)
+		return Response{}, constructionInputsUnavailable(err)
 	}
 	references := make([]constructionInputReference, 0)
 	for _, execution := range executions {
@@ -219,7 +223,7 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 			if errors.Is(err, authscope.ErrForbidden) || errors.Is(err, authscope.ErrUnauthenticated) {
 				continue
 			}
-			return constructionInputsResponse{}, constructionInputsUnavailable(err)
+			return Response{}, constructionInputsUnavailable(err)
 		}
 		if effectiveScope.Mode == authscope.ReadScopeRestricted && len(effectiveScope.AuthResourcePaths) == 0 || !reciperuntime.SameClickHouseReadScope(effectiveScope, scope) {
 			continue
@@ -231,20 +235,20 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 		if !publicationMetadataLoaded[metadataKey] {
 			metadata, err := c.constructionInputPublicationMetadata(ctx, reference.execution, project)
 			if err != nil {
-				return constructionInputsResponse{}, constructionInputsUnavailable(err)
+				return Response{}, constructionInputsUnavailable(err)
 			}
 			publicationMetadata[metadataKey] = metadata
 			publicationMetadataLoaded[metadataKey] = true
 		}
 		presentation, err := constructionInputPresentationFor(materialization, publicationMetadata[metadataKey])
 		if err != nil {
-			return constructionInputsResponse{}, constructionInputsUnavailable(err)
+			return Response{}, constructionInputsUnavailable(err)
 		}
 		columns := constructionInputColumns(materialization.Columns, presentation.columnLabels)
 		if len(columns) == 0 {
 			continue
 		}
-		entry := constructionInputEntry{
+		entry := inputEntry{
 			Kind: "TABLE_REVISION", TableID: materialization.Selector.Key(), RevisionID: materialization.Revision,
 			OutputID: materialization.Selector.Output, TableTitle: presentation.tableTitle,
 			OutputTitle: presentation.outputTitle,
@@ -290,7 +294,7 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 			seenPagePins[id] = true
 		}
 	}
-	page := make([]constructionInputEntry, 0, len(pageCandidates))
+	page := make([]inputEntry, 0, len(pageCandidates))
 	err = c.reader.WithExecutionReadPins(ctx, pagePins, func(scanCtx context.Context) error {
 		for _, candidate := range pageCandidates {
 			reference := candidate.reference
@@ -331,7 +335,7 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 			if err != nil && !errors.Is(err, publication.ErrBundleNotFound) {
 				return fmt.Errorf("resolve current marker for exact published input %q: %w", reference.execution.ID, err)
 			}
-			entry := constructionInputEntry{
+			entry := inputEntry{
 				Kind: "TABLE_REVISION", TableID: materialization.Selector.Key(), RevisionID: materialization.Revision,
 				OutputID: materialization.Selector.Output, TableTitle: candidate.presentation.tableTitle,
 				OutputTitle: candidate.presentation.outputTitle, RowMeaning: candidate.presentation.rowMeaning,
@@ -344,22 +348,22 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 	if err != nil {
 		var authoringErr *explorer.AuthoringError
 		if errors.As(err, &authoringErr) {
-			return constructionInputsResponse{}, err
+			return Response{}, err
 		}
-		return constructionInputsResponse{}, constructionInputsUnavailable(err)
+		return Response{}, constructionInputsUnavailable(err)
 	}
 	if hasMore {
 		last := page[len(page)-1]
 		response.NextCursor, err = encodeConstructionInputsCursor(query, request.SnapshotToken, request.ExpectedDraftVersion, request.ExpectedDraftDigest, last)
 		if err != nil {
-			return constructionInputsResponse{}, fmt.Errorf("encode construction input catalog cursor: %w", err)
+			return Response{}, fmt.Errorf("encode construction input catalog cursor: %w", err)
 		}
 	}
 	response.Entries = page
 	return response, nil
 }
 
-func (c constructionInputsCatalog) authorizedSnapshot(ctx context.Context, project, explorerID string, request constructionInputsRequest) (*explorer.Explorer, capability.Snapshot, authscope.ReadScope, error) {
+func (c Catalog) authorizedSnapshot(ctx context.Context, project, explorerID string, request Request) (*explorer.Explorer, capability.Snapshot, authscope.ReadScope, error) {
 	authorized, err := c.capabilities.ForCompilation(ctx, project, request.SnapshotToken)
 	if err != nil {
 		if errors.Is(err, capability.ErrStaleSnapshot) {
@@ -404,7 +408,7 @@ func (c constructionInputsCatalog) authorizedSnapshot(ctx context.Context, proje
 	return owner, snapshot, authorized.Scope.Clone(), nil
 }
 
-func validateConstructionInputsRequest(request constructionInputsRequest) (string, int, *constructionInputsCursor, error) {
+func validateConstructionInputsRequest(request Request) (string, int, *constructionInputsCursor, error) {
 	for name, value := range map[string]string{
 		"snapshotToken": request.SnapshotToken, "expectedDraftDigest": request.ExpectedDraftDigest,
 	} {
@@ -445,7 +449,7 @@ func validateConstructionInputsRequest(request constructionInputsRequest) (strin
 	return query, limit, &cursor, nil
 }
 
-func (c constructionInputsCatalog) effectiveConstructionInputScope(ctx context.Context, persisted authscope.ReadScope, materialization published.Materialization) (authscope.ReadScope, error) {
+func (c Catalog) effectiveConstructionInputScope(ctx context.Context, persisted authscope.ReadScope, materialization published.Materialization) (authscope.ReadScope, error) {
 	if c.scopes == nil {
 		return persisted, nil
 	}
@@ -496,7 +500,7 @@ func constructionInputMaterialization(reference constructionInputReference) publ
 	}
 }
 
-func (c constructionInputsCatalog) constructionInputPublicationMetadata(ctx context.Context, execution publication.BundleExecution, project string) (*constructionInputPublicationMetadata, error) {
+func (c Catalog) constructionInputPublicationMetadata(ctx context.Context, execution publication.BundleExecution, project string) (*constructionInputPublicationMetadata, error) {
 	if c.revisions == nil || !strings.HasPrefix(execution.ReceiptID, "receipt_") {
 		return nil, nil
 	}
@@ -582,8 +586,8 @@ func constructionInputPresentationFor(materialization published.Materialization,
 	return presentation, nil
 }
 
-func constructionInputColumns(columns []published.Column, labels map[string]string) []constructionInputColumn {
-	result := make([]constructionInputColumn, 0, len(columns))
+func constructionInputColumns(columns []published.Column, labels map[string]string) []inputColumn {
+	result := make([]inputColumn, 0, len(columns))
 	for _, column := range columns {
 		if strings.TrimSpace(column.ID) == "" {
 			continue
@@ -593,7 +597,7 @@ func constructionInputColumns(columns []published.Column, labels map[string]stri
 		if pinnedLabel := labels[column.Name]; strings.TrimSpace(pinnedLabel) != "" {
 			label = pinnedLabel
 		}
-		result = append(result, constructionInputColumn{
+		result = append(result, inputColumn{
 			ID: column.ID, Name: column.Name, Label: label, Type: capabilities.Logical,
 			ClickHouseType: column.ClickHouse, Nullable: capabilities.Nullable,
 			Repeated: capabilities.Repeated, SemanticPath: column.SemanticPath,
@@ -609,7 +613,7 @@ func constructionInputRowMeaning(materialization published.Materialization) stri
 	return materialization.Name
 }
 
-func constructionInputMatchesQuery(entry constructionInputEntry, query string) bool {
+func constructionInputMatchesQuery(entry inputEntry, query string) bool {
 	if query == "" {
 		return true
 	}
@@ -625,7 +629,7 @@ func constructionInputMatchesQuery(entry constructionInputEntry, query string) b
 	return false
 }
 
-func constructionInputAfterCursor(entry constructionInputEntry, cursor constructionInputsCursor) bool {
+func constructionInputAfterCursor(entry inputEntry, cursor constructionInputsCursor) bool {
 	if entry.TableID != cursor.TableID {
 		return entry.TableID > cursor.TableID
 	}
@@ -635,7 +639,7 @@ func constructionInputAfterCursor(entry constructionInputEntry, cursor construct
 	return entry.RevisionID > cursor.RevisionID
 }
 
-func encodeConstructionInputsCursor(query, snapshotToken string, draftVersion int64, draftDigest string, entry constructionInputEntry) (string, error) {
+func encodeConstructionInputsCursor(query, snapshotToken string, draftVersion int64, draftDigest string, entry inputEntry) (string, error) {
 	value, err := json.Marshal(constructionInputsCursor{
 		Version: 1, Query: query, SnapshotToken: snapshotToken, DraftVersion: draftVersion, DraftDigest: draftDigest,
 		TableID: entry.TableID, OutputID: entry.OutputID, RevisionID: entry.RevisionID,
@@ -654,17 +658,6 @@ func constructionInputsUnavailable(err error) error {
 	}
 }
 
-func (h *explorerHTTPHandlers) getConstructionInputsDirect(ctx context.Context, project, explorerID string, body *constructionInputsRequest) (constructionInputsResponse, error) {
-	var result constructionInputsResponse
-	if err := h.authoringReadDirect(ctx, project); err != nil {
-		return result, err
-	}
-	if body == nil {
-		return result, explorer.MalformedRouteError("construction-inputs", errors.New("request body is required"))
-	}
-	return h.constructionInputs.list(ctx, project, explorerID, *body)
-}
-
-var _ constructionInputsExactReader = (*published.Reader)(nil)
-var _ constructionInputsCatalogReader = (publication.BundleCatalog)(nil)
-var _ constructionInputsExplorerReader = (*explorer.Service)(nil)
+var _ ExactReader = (*published.Reader)(nil)
+var _ publicationCatalog = (publication.BundleCatalog)(nil)
+var _ explorerReader = (*explorer.Service)(nil)

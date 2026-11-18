@@ -4,6 +4,7 @@ import (
 	"context"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
+	"github.com/calypr/loom/internal/explorer/constructioninputs"
 )
 
 func (h *explorerHTTPHandlers) getConstructionInputsOpenAPIDirect(ctx context.Context, project, explorerID string, body *loomapi.ConstructionInputsRequest) (loomapi.ConstructionInputsResponse, error) {
@@ -12,7 +13,7 @@ func (h *explorerHTTPHandlers) getConstructionInputsOpenAPIDirect(ctx context.Co
 		_, err := h.getConstructionInputsDirect(ctx, project, explorerID, nil)
 		return result, err
 	}
-	request := &constructionInputsRequest{
+	request := &constructioninputs.Request{
 		SnapshotToken: body.SnapshotToken, ExpectedDraftVersion: int64(body.ExpectedDraftVersion),
 		ExpectedDraftDigest: body.ExpectedDraftDigest,
 	}

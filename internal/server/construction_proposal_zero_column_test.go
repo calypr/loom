@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
+
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -60,7 +62,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 
-	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -69,7 +71,7 @@ func TestConstructionFilterSourceHTTPContractPreservesCapabilitiesAndProposals(t
 		SupportedOperations: []capability.Operation{capability.OperationSelect},
 		Observed:            true, Populated: true, ObservedDocumentCount: 135,
 	})
-	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +356,7 @@ func filterSourceF1HonestProjection() authoringv2.ConstructionSourceProjection {
 
 func filterSourceF1Workspace(t *testing.T, snapshot capability.Snapshot, projection authoringv2.ConstructionSourceProjection) authoringv2.Workspace {
 	t.Helper()
-	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}

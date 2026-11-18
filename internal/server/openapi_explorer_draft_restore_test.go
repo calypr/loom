@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -19,7 +21,7 @@ import (
 
 func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	previous, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	previous, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}

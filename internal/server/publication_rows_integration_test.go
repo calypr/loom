@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
+
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	publicationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
@@ -92,7 +94,7 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 		}
 	})
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}

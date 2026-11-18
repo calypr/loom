@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
+
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
@@ -170,7 +172,7 @@ func TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS(t *
 	snapshot := capability.NewSnapshot(identity, baseSnapshot.Policy, baseSnapshot.Status, baseSnapshot.Complete, baseSnapshot.Truncated,
 		baseSnapshot.Nodes, baseSnapshot.Edges, baseSnapshot.Candidates, baseSnapshot.Diagnostics)
 
-	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}

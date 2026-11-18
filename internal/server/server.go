@@ -61,6 +61,7 @@ import (
 
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/constructioninputs"
 
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/explorer/artifactfs"
@@ -794,14 +795,11 @@ func run(ctx context.Context, serverConfig Config) error {
 	explorerHandlers.authorizeExecution = func(ctx context.Context, id string) error {
 		return readRecipeExecution(ctx, id)
 	}
-	var constructionInputsReader constructionInputsExactReader
+	var constructionInputsReader constructioninputs.ExactReader
 	if materializationReader != nil {
 		constructionInputsReader = materializationReader
 	}
-	explorerHandlers.constructionInputs = constructionInputsCatalog{
-		reader: constructionInputsReader, catalog: publishedRegistry, capabilities: lifecycleConfig.Capability,
-		scopes: scopeResolver, explorers: explorerService, revisions: explorerService,
-	}
+	explorerHandlers.constructionInputs = constructioninputs.New(constructionInputsReader, publishedRegistry, lifecycleConfig.Capability, scopeResolver, explorerService, explorerService)
 	if err := registerRoutes(server, generationService, authorizer, explorerHandlers, publishedRegistry, scopeResolver, sourceLoader, sourceLoadLimits, dataframeReads); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
 	}

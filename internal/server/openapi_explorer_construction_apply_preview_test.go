@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
+
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
@@ -225,7 +227,7 @@ func proposeConstructionRemovalForApplyPreview(t *testing.T, app *fiber.App, bas
 func applyConstructionPreviewRouteFixture(t *testing.T, failApplyCapture, emptyApplyPreview, overCapApplyCapture bool) (*fiber.App, *explorer.Service, capability.Snapshot, string, *int) {
 	t.Helper()
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
 		t.Fatal(err)
 	}
