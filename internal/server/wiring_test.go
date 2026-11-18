@@ -3,10 +3,7 @@ package server
 import (
 	"testing"
 
-	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
-
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 func TestWireAuthNoAuthOverridesConfiguredMode(t *testing.T) {
@@ -26,23 +23,5 @@ func TestWireAuthRejectsUnknownMode(t *testing.T) {
 	cfg.Auth.Mode = "unknown"
 	if _, err := wireAuth(cfg, false, nil); err == nil {
 		t.Fatal("unknown auth mode unexpectedly accepted")
-	}
-}
-
-func TestRecipeScopeDigestIsOrderIndependent(t *testing.T) {
-	a := recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation", AuthResourcePaths: []string{"b", "a"}}
-	b := a
-	b.AuthResourcePaths = []string{"a", "b"}
-	if got, want := reciperuntime.ScopeDigest(a), reciperuntime.ScopeDigest(b); got != want {
-		t.Fatalf("scope digest changed with path order: %q != %q", got, want)
-	}
-}
-
-func TestRecipeScopeDigestDistinguishesRestrictedEmptyScope(t *testing.T) {
-	unrestricted := recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation", AuthScopeMode: authscope.ReadScopeUnrestricted}
-	restricted := unrestricted
-	restricted.AuthScopeMode = authscope.ReadScopeRestricted
-	if reciperuntime.ScopeDigest(unrestricted) == reciperuntime.ScopeDigest(restricted) {
-		t.Fatal("restricted-empty and unrestricted bindings shared a scope digest")
 	}
 }

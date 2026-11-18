@@ -120,7 +120,7 @@ jobs:
       - name: Verify derived arithmetic policies against Arango
         env:
           LOOM_TEST_ARANGO_URL: http://127.0.0.1:8529
-        run: go test -json -timeout=10m -count=1 -run '^TestDerivedArithmeticPoliciesAgainstArango$' ./internal/server | node tests/scripts/assert-go-tests.mjs TestDerivedArithmeticPoliciesAgainstArango
+        run: go test -json -timeout=10m -count=1 -run '^TestDerivedArithmeticPoliciesAgainstArango$' ./internal/dataframe/execution/arango | node tests/scripts/assert-go-tests.mjs TestDerivedArithmeticPoliciesAgainstArango
 
   go-publication-rows:
     name: Compiled publication rows across Arango and ClickHouse
@@ -168,14 +168,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24.x
-      - name: Compile server tests separately from runtime proof
-        run: go test -timeout=10m -run '^$' ./internal/server
+      - name: Compile publication and execution tests separately from runtime proof
+        run: go test -timeout=10m -run '^$' ./internal/api/explorer ./internal/dataframe/execution
       - name: Verify literal compiled and stored rows through fresh Viewer
-        run: go test -json -timeout=10m -count=1 -run '^TestPublicationRowsAndFreshViewerAgainstArangoClickHouse$' ./internal/server | node tests/scripts/assert-go-tests.mjs TestPublicationRowsAndFreshViewerAgainstArangoClickHouse
+        run: go test -json -timeout=10m -count=1 -run '^TestPublicationRowsAndFreshViewerAgainstArangoClickHouse$' ./internal/api/explorer | node tests/scripts/assert-go-tests.mjs TestPublicationRowsAndFreshViewerAgainstArangoClickHouse
       - name: Verify active release tables survive cleanup races
         run: go test -json -timeout=10m -count=1 -run '^TestReconcileDanglesActiveReleaseAgainstArangoClickHouse$' ./internal/dataframe/publication/arango | node tests/scripts/assert-go-tests.mjs TestReconcileDanglesActiveReleaseAgainstArangoClickHouse
       - name: Verify current draft APPEND rows
-        run: go test -json -timeout=10m -count=1 -run '^TestCurrentDraftAppendRowsAgainstArangoClickHouse$' ./internal/server | node tests/scripts/assert-go-tests.mjs TestCurrentDraftAppendRowsAgainstArangoClickHouse
+        run: go test -json -timeout=10m -count=1 -run '^TestCurrentDraftAppendRowsAgainstArangoClickHouse$' ./internal/dataframe/execution | node tests/scripts/assert-go-tests.mjs TestCurrentDraftAppendRowsAgainstArangoClickHouse
 
   go-clickhouse:
     name: Go ClickHouse integration tests
