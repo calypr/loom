@@ -19,11 +19,10 @@ fhir/          graph FHIR schema and its generated Go code
   graph-fhir.json   (was schemas/graph-fhir.json)
   model/       (was generated/fhir)
   schema/      (was generated/fhirschema)
-deploy/        compose files, dev container, local stack
-  compose.yaml, compose.dev.yaml, compose.repository.yaml, compose.local.yaml
-  dev/         Dockerfile.dev(+ .dockerignore), .air.dev.toml, loom-dev-*.sh
 scripts/       runnable tools only, no tests
-tests/         everything that is only for testing
+tests/         tests and local development infrastructure
+  deploy/      Compose files, dev container, and local stack
+    dev/       Dockerfile.dev, its ignore file, Air config, and helper scripts
   fixtures/    (was testdata/)
   conformance/ (was conformance/compiler)
   e2e/         (was scripts/e2e)
@@ -111,20 +110,20 @@ Go package move.
 - Regenerate with `make generate`, and confirm a zero diff apart from paths
   and package names.
 
-### 3. `deploy/` (compose, dev container, local stack)
+### 3. `tests/deploy/` (compose, dev container, local stack)
 
-- `compose*.yaml` → `deploy/`. Compose resolves relative paths from the
+- `compose*.yaml` → `tests/deploy/`. Compose resolves relative paths from the
   compose file's directory, so rewrite `context: .` → `..`, `./ui` → `../ui`,
   and the fixture paths, or set `--project-directory .` in every invocation.
   Pick one approach and use it everywhere. Callers: the Makefile `demo-*`,
   `dev*`, and `repository-up` targets, `scripts/loom-dev.mjs`,
   `scripts/loom-repo-up.sh`, `scripts/acceptance-*.sh`, `README.md`, and the
   verify skills.
-- `experimental/docker-compose.yml` → `deploy/compose.local.yaml`, then remove
+- `experimental/docker-compose.yml` → `tests/deploy/compose.local.yaml`, then remove
   `experimental/`. Its bind mounts (`./data`, `./clickhouse-data`) move to
-  named volumes, or to an ignored `deploy/.data/`.
+  named volumes, or to an ignored `tests/deploy/.data/`.
 - `Dockerfile.dev`, `Dockerfile.dev.dockerignore`, `.air.dev.toml`, and
-  `loom-dev-*.sh` → `deploy/dev/`. Update the `dockerfile:` path in
+  `loom-dev-*.sh` → `tests/deploy/dev/`. Update the `dockerfile:` path in
   `compose.dev.yaml` and the `COPY` sources in `Dockerfile.dev` (the build
   context stays at the repository root). The scripts keep their in-container
   `/workspace/...` paths, so only the `COPY` lines change.

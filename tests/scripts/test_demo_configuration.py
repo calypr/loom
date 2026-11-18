@@ -7,7 +7,7 @@ import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-DEMO_COMPOSE = f"compose --project-name alternate-demo --project-directory {ROOT} -f {ROOT / 'deploy/compose.yaml'}"
+DEMO_COMPOSE = f"compose --project-name alternate-demo --project-directory {ROOT} -f {ROOT / 'tests/deploy/compose.yaml'}"
 
 
 class DemoConfigurationTest(unittest.TestCase):

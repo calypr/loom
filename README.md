@@ -116,7 +116,7 @@ at a time.
 For backend-only development, the lightweight Compose stack starts ArangoDB and ClickHouse:
 
 ```bash
-rtk docker compose --project-directory . -f deploy/compose.local.yaml up -d
+rtk docker compose --project-directory . -f tests/deploy/compose.local.yaml up -d
 make generate-fhir
 make build
 ```

@@ -73,7 +73,7 @@ ui_url_host=$ui_host
 [[ $ui_url_host == *:* ]] && ui_url_host="[$ui_url_host]"
 api_url=${LOOM_DEMO_API_URL:-http://$api_url_host:$api_port}
 ui_url=${LOOM_DEMO_UI_URL:-http://$ui_url_host:$ui_port}
-compose=(docker compose --project-name "$compose_project" --project-directory "$repo_root" -f "$repo_root/deploy/compose.yaml")
+compose=(docker compose --project-name "$compose_project" --project-directory "$repo_root" -f "$repo_root/tests/deploy/compose.yaml")
 
 "${compose[@]}" up --build -d arangodb clickhouse loom-api
 

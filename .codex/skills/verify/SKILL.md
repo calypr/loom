@@ -31,8 +31,8 @@ and GraphQL correctness, use [verify-loom](../verify-loom/SKILL.md).
 ## Bind the development target
 
 Discover projects with `docker compose ls --all`. Inspect the chosen project
-with `docker compose --project-directory . -f deploy/compose.dev.yaml -p <project> ps`. Use `deploy/compose.dev.yaml` for the dev stack.
-`deploy/compose.yaml` describes canonical `loom-demo`.
+with `docker compose --project-directory . -f tests/deploy/compose.dev.yaml -p <project> ps`. Use `tests/deploy/compose.dev.yaml` for the dev stack.
+`tests/deploy/compose.yaml` describes canonical `loom-demo`.
 Read published ports from the running containers; a session file can be stale.
 A stopped or missing project is an environment blocker.
 

@@ -60,4 +60,4 @@ META/
 /ticket-backlog-*/
 /node_modules/
 
-/deploy/.data/
+/tests/deploy/.data/

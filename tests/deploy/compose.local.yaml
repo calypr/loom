@@ -9,7 +9,7 @@ services:
     ports:
       - "8529:8529"
     volumes:
-      - ./deploy/.data/arango:/var/lib/arangodb3
+      - ./tests/deploy/.data/arango:/var/lib/arangodb3
 
   clickhouse:
     image: clickhouse/clickhouse-server:25.3
@@ -18,4 +18,4 @@ services:
       - "8123:8123"
       - "9000:9000"
     volumes:
-      - ./deploy/.data/clickhouse:/var/lib/clickhouse
+      - ./tests/deploy/.data/clickhouse:/var/lib/clickhouse

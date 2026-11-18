@@ -3,14 +3,14 @@
 The quickstart uses this ArangoDB and ClickHouse Compose setup. Start it from the repository root:
 
 ```bash
-rtk docker compose --project-directory . -f deploy/compose.local.yaml up -d
+rtk docker compose --project-directory . -f tests/deploy/compose.local.yaml up -d
 ```
 
-The stack stores ArangoDB and ClickHouse data under `deploy/.data/`. Existing
+The stack stores ArangoDB and ClickHouse data under `tests/deploy/.data/`. Existing
 data under `experimental/` remains in place.
 
-The runtime implementation lives under [`internal/store/arango/`](../internal/store/arango/)
-and [`internal/ingest/`](../internal/ingest/). This is not a home for a second
+The runtime implementation lives under [`internal/store/arango/`](../../internal/store/arango/)
+and [`internal/ingest/`](../../internal/ingest/). This is not a home for a second
 query engine or manually maintained AQL recipes.
 
 ClickHouse is available at native `clickhouse://127.0.0.1:9000` (and HTTP

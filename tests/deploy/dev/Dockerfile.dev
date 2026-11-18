@@ -15,10 +15,10 @@ ENV CGO_ENABLED=0 \
 
 COPY go.mod go.sum /workspace/
 RUN GOTOOLCHAIN=local go mod download
-COPY deploy/dev/.air.dev.toml /workspace/.air.dev.toml
-COPY deploy/dev/loom-dev-api-entrypoint.sh /workspace/loom-dev-api-entrypoint.sh
-COPY deploy/dev/loom-dev-build-stamp.sh /workspace/loom-dev-build-stamp.sh
-COPY deploy/dev/loom-dev-build.sh /workspace/loom-dev-build.sh
+COPY tests/deploy/dev/.air.dev.toml /workspace/.air.dev.toml
+COPY tests/deploy/dev/loom-dev-api-entrypoint.sh /workspace/loom-dev-api-entrypoint.sh
+COPY tests/deploy/dev/loom-dev-build-stamp.sh /workspace/loom-dev-build-stamp.sh
+COPY tests/deploy/dev/loom-dev-build.sh /workspace/loom-dev-build.sh
 RUN chmod 0755 /workspace/loom-dev-api-entrypoint.sh /workspace/loom-dev-build-stamp.sh /workspace/loom-dev-build.sh
 
 ENTRYPOINT ["/workspace/loom-dev-api-entrypoint.sh"]

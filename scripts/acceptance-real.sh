@@ -44,7 +44,7 @@ if [[ "$isolated" == false ]]; then
   LOOM_DEMO_SEED=false \
     LOOM_DEMO_SOURCE_ROOT="$source_root" \
     "$repo_root/scripts/demo-up.sh"
-  docker compose --project-name "$deployment_project" --project-directory "$repo_root" -f "$repo_root/deploy/compose.yaml" ps -a >"$artifacts/deployment-compose-ps.txt" 2>&1 || true
+  docker compose --project-name "$deployment_project" --project-directory "$repo_root" -f "$repo_root/tests/deploy/compose.yaml" ps -a >"$artifacts/deployment-compose-ps.txt" 2>&1 || true
 
   acceptance_project="loom-acceptance-$acceptance_id"
   read -r api_port ui_port <<<"$(free_ports)"
@@ -55,7 +55,7 @@ if [[ "$isolated" == false ]]; then
   teardown_acceptance=true
 fi
 
-compose=(docker compose --project-name "$acceptance_project" --project-directory "$repo_root" -f "$repo_root/deploy/compose.yaml")
+compose=(docker compose --project-name "$acceptance_project" --project-directory "$repo_root" -f "$repo_root/tests/deploy/compose.yaml")
 report_exported=false
 
 capture_compose_evidence() {

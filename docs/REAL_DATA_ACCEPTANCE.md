@@ -48,7 +48,7 @@ After correctness succeeds, require all of the following:
 - `cleanup.json` has string `status: "0"` and `cleanup_status: "0"`.
 - `cleanup.json` names `loom-demo` as `deployment_project` and a generated
   `loom-acceptance-<id>` as `acceptance_project` for the normal correctness run.
-- `docker compose --project-directory . -f deploy/compose.yaml --project-name loom-demo ps` shows canonical services running.
+- `docker compose --project-directory . -f tests/deploy/compose.yaml --project-name loom-demo ps` shows canonical services running.
 - `docker compose ls --all` shows no generated acceptance project from that run.
 
 Canonical readiness at `http://127.0.0.1:8080/readyz` and the UI at port 3080

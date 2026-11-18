@@ -19,7 +19,7 @@ output_title=${LOOM_DEMO_OUTPUT_TITLE:-TCGA-BRCA patient cohort}
 [[ $compose_project =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo "invalid LOOM_DEMO_COMPOSE_PROJECT: $compose_project" >&2; exit 2; }
 
 curl -fsS "$api_url/readyz" >/dev/null
-docker compose --project-name "$compose_project" --project-directory "$repo_root" -f "$repo_root/deploy/compose.yaml" exec -T loom-api \
+docker compose --project-name "$compose_project" --project-directory "$repo_root" -f "$repo_root/tests/deploy/compose.yaml" exec -T loom-api \
   /app/loom-acceptance \
   --smoke-only \
   --project "$project" \
