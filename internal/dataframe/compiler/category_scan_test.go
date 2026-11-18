@@ -313,8 +313,8 @@ func TestCompileCategoryScanCollapsesParentPreservingRelatedPrefixToRootCategori
 	if strings.Contains(scanned.Query, "LET __loom_category_rows =") {
 		t.Fatalf("direct root category scan should stream its terminal source projection:\n%s", scanned.Query)
 	}
-	wantFields := []string{"project", "dataset_generation", "resourceType", "payload.gender", "auth_resource_path"}
-	if scanned.CategoryIndex == nil || !reflect.DeepEqual(scanned.CategoryIndex.Fields, wantFields) {
+	wantFields := []string{"project", "dataset_generation", "payload.gender"}
+	if scanned.CategoryIndex == nil || !reflect.DeepEqual(scanned.CategoryIndex.Fields, wantFields) || !reflect.DeepEqual(scanned.CategoryIndex.StoredValues, []string{"auth_resource_path", "resourceType"}) {
 		t.Fatalf("direct root category index = %+v, want the shared exact category index", scanned.CategoryIndex)
 	}
 	if !strings.Contains(scanned.Query, "forceIndexHint: false") || !strings.Contains(scanned.Query, scanned.CategoryIndex.Name) ||
@@ -706,7 +706,7 @@ func TestCompileSourceProjectionCategoryScanOffersCoveringIndexForExplicitPivotP
 	if index == nil {
 		t.Fatalf("direct source category discovery did not emit an explicit-pair covering-index spec:\n%s", scanned.Query)
 	}
-	wantFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.gender", "payload.id", "payload.multipleBirthInteger"}
+	wantFields := []string{"project", "dataset_generation", "_key", "payload.gender", "payload.id", "payload.multipleBirthInteger"}
 	if index.Collection != "Patient" || !strings.HasPrefix(index.Name, previewCoveringIndexNamePrefix) || !reflect.DeepEqual(index.Fields, wantFields) {
 		t.Fatalf("category scan covering-index metadata = %+v, want collection Patient fields %#v", index, wantFields)
 	}

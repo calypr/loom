@@ -106,7 +106,7 @@ func (p *RepositorySourceLoader) copySourceCollection(ctx context.Context, colle
 	if !exists {
 		return nil
 	}
-	query := `FOR doc IN @@collection
+	query := `FOR doc IN @@collection OPTIONS { indexHint: "primary", forceIndexHint: true }
 FILTER doc.project == @project
 FILTER (@source_generation == "" AND NOT_NULL(doc.dataset_generation, "") == "") OR doc.dataset_generation == @source_generation
 FILTER doc._key > @after_key
@@ -114,7 +114,7 @@ SORT doc._key
 LIMIT @limit
 RETURN {document: doc}`
 	if collection == EdgeCollection {
-		query = `FOR doc IN @@collection
+		query = `FOR doc IN @@collection OPTIONS { indexHint: "primary", forceIndexHint: true }
 FILTER doc.project == @project
 FILTER (@source_generation == "" AND NOT_NULL(doc.dataset_generation, "") == "") OR doc.dataset_generation == @source_generation
 FILTER doc._key > @after_key

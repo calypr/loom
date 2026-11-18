@@ -105,17 +105,32 @@ func TestPreviewCoveringIndexDefinitionsListOnlySafeCompilerIndexes(t *testing.T
 	wrongType.Type = driver.IndexType("hash")
 	wrongFields := previewIndexResponse("loom_pivot_preview_wrong_fields", "Observation/wrong-fields", []string{"project", "dataset_generation", "payload.valueQuantity.code"})
 	want := previewIndexResponse("loom_pivot_preview_existing", "Observation/existing", fields)
-	indexes := []driver.IndexResponse{foreign, sparse, unique, wrongType, wrongFields, want}
+	storedFields := []string{"project", "dataset_generation", "_key", "payload.id"}
+	storedValues := []string{"auth_resource_path"}
+	stored := previewIndexResponseWithStoredValues(
+		previewCoveringIndexNameWithStoredValues("Observation", storedFields, storedValues),
+		"Observation/stored", storedFields, storedValues,
+	)
+	indexes := []driver.IndexResponse{foreign, sparse, unique, wrongType, wrongFields, want, stored}
 	definitions := previewCoveringIndexDefinitions("Observation", indexes)
-	if len(definitions) != 1 {
-		t.Fatalf("preview index definitions = %+v, want only the safe compiler-owned index", definitions)
+	if len(definitions) != 2 {
+		t.Fatalf("preview index definitions = %+v, want the safe legacy and stored-auth compiler indexes", definitions)
 	}
-	if definitions[0].Collection != "Observation" || definitions[0].Name != want.Name || !slices.Equal(definitions[0].Fields, fields) {
-		t.Fatalf("preview index definition = %+v, want %q with fields %v", definitions[0], want.Name, fields)
+	legacyFound, storedFound := false, false
+	for _, definition := range definitions {
+		legacyFound = legacyFound || definition.Name == want.Name && slices.Equal(definition.Fields, fields)
+		storedFound = storedFound || definition.Name == stored.Name && slices.Equal(definition.Fields, storedFields) && slices.Equal(definition.StoredValues, storedValues)
 	}
-	fields[0] = "mutated"
-	if definitions[0].Fields[0] != "project" {
-		t.Fatal("preview index metadata aliases the Arango response fields")
+	if !legacyFound || !storedFound {
+		t.Fatalf("preview index definitions = %+v, want both legacy=%+v and stored=%+v", definitions, want, stored)
+	}
+	for _, definition := range definitions {
+		if definition.Name == want.Name {
+			fields[0] = "mutated"
+			if definition.Fields[0] != "project" {
+				t.Fatal("preview index metadata aliases the Arango response fields")
+			}
+		}
 	}
 }
 
@@ -157,6 +172,19 @@ func TestStoredValuesPreviewIndexRequiresExactProjectionContract(t *testing.T) {
 	}
 	if validPreviewCoveringIndexWithStoredValues("Observation", "loom_pivot_preview_projection", fields, tooMany) {
 		t.Fatal("more than 32 stored values were accepted")
+	}
+	newFields := []string{"project", "dataset_generation", "_key", "payload.id", "payload.status"}
+	newStoredValues := []string{"auth_resource_path", "payload.valueQuantity"}
+	if !validPreviewCoveringIndexWithStoredValues("Observation", "loom_pivot_preview_projection_v2", newFields, newStoredValues) {
+		t.Fatal("new root preview definition with auth stored value was rejected")
+	}
+	for _, invalid := range [][]string{{"other_scope"}, {"payload.valueQuantity", "other_scope"}, {"auth_resource_path", "payload.id"}} {
+		if validPreviewCoveringIndexWithStoredValues("Observation", "loom_pivot_preview_projection_v2", newFields, invalid) {
+			t.Fatalf("invalid non-payload stored value set was accepted: %v", invalid)
+		}
+	}
+	if validPreviewCoveringIndex("Observation", "loom_pivot_preview_projection_v2", newFields) {
+		t.Fatal("new preview fields without the required auth stored value were accepted")
 	}
 }
 

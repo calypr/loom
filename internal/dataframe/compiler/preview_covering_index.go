@@ -14,7 +14,7 @@ import (
 
 const previewCoveringIndexNamePrefix = "loom_pivot_preview_"
 
-var previewCoveringIndexPrefixFields = []string{"project", "dataset_generation", "auth_resource_path"}
+var previewCoveringIndexPrefixFields = []string{"project", "dataset_generation"}
 
 func RenderPreviewPhysicalPlanWithRootIndexHint(plan ir.PhysicalPlan, indexName string) (string, map[string]any, error) {
 	rendered, err := aql.RenderPhysicalPlanWithRootIndexHint(plan, indexName)
@@ -163,6 +163,10 @@ func streamingMissingCategoryPivotIndexSpec(plan ir.PhysicalPlan) *PreviewCoveri
 		keyPaths = append(keyPaths, path)
 	}
 	sort.Strings(keyPaths)
+	storedPathSet["auth_resource_path"] = struct{}{}
+	if plan.Source.ResourceType != "" && plan.Source.ResourceType == collection {
+		storedPathSet["resourceType"] = struct{}{}
+	}
 	storedValues := make([]string, 0, len(storedPathSet))
 	for path := range storedPathSet {
 		storedValues = append(storedValues, path)
@@ -171,12 +175,6 @@ func streamingMissingCategoryPivotIndexSpec(plan ir.PhysicalPlan) *PreviewCoveri
 	fields := append([]string(nil), previewCoveringIndexPrefixFields...)
 	fields = append(fields, "_key")
 	fields = append(fields, keyPaths...)
-	legacyFields := append([]string(nil), fields...)
-	if collection == "Observation" && collection == strings.TrimSpace(plan.Source.ResourceType) &&
-		reflect.DeepEqual(legacyFields, previewQuantityCategoryLegacyFields()) &&
-		reflect.DeepEqual(storedValues, previewQuantityCategoryStoredValues()) {
-		fields = append(fields, "resourceType")
-	}
 	if len(fields) > 32 || len(storedValues) > 32 {
 		return nil
 	}
@@ -193,16 +191,12 @@ func streamingMissingCategoryPivotIndexSpec(plan ir.PhysicalPlan) *PreviewCoveri
 	}
 }
 
-func previewQuantityCategoryLegacyFields() []string {
-	return []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"}
-}
-
 func previewQuantityCategoryFields() []string {
-	return append(previewQuantityCategoryLegacyFields(), "resourceType")
+	return []string{"project", "dataset_generation", "_key", "payload.id", "payload.status"}
 }
 
 func previewQuantityCategoryStoredValues() []string {
-	return []string{"payload.valueQuantity"}
+	return []string{"auth_resource_path", "payload.valueQuantity", "resourceType"}
 }
 
 func previewCoveringIndexPathsOverlap(left, right string) bool {
@@ -425,6 +419,9 @@ func previewCoveringIndexSpecForSourcePaths(collection string, projectionPaths [
 		pathSet[field] = struct{}{}
 	}
 	for _, path := range projectionPaths {
+		if path == "auth_resource_path" {
+			continue
+		}
 		pathSet[path] = struct{}{}
 	}
 	pathSet["_key"] = struct{}{}
@@ -440,11 +437,12 @@ func previewCoveringIndexSpecForSourcePaths(collection string, projectionPaths [
 		}
 		fields = append(fields, path)
 	}
-	if len(fields) < 4 || len(fields) > 32 {
+	if len(fields) < 3 || len(fields) > 32 {
 		return nil
 	}
-	name := previewCoveringIndexName(collection, fields)
-	return &PreviewCoveringIndexSpec{Collection: collection, Name: name, Fields: fields}
+	storedValues := []string{"auth_resource_path"}
+	name := previewCoveringIndexNameWithStoredValues(collection, fields, storedValues)
+	return &PreviewCoveringIndexSpec{Collection: collection, Name: name, Fields: fields, StoredValues: storedValues}
 }
 
 func previewCoveringGroupIndexSpec(collection string, projectionPaths []string) *PreviewCoveringIndexSpec {
@@ -453,6 +451,9 @@ func previewCoveringGroupIndexSpec(collection string, projectionPaths []string) 
 	}
 	projectionPathSet := make(map[string]struct{}, len(projectionPaths))
 	for _, path := range projectionPaths {
+		if path == "auth_resource_path" {
+			continue
+		}
 		if !validPreviewIndexPath(strings.Split(path, ".")) {
 			return nil
 		}
@@ -468,7 +469,11 @@ func previewCoveringGroupIndexSpec(collection string, projectionPaths []string) 
 	sort.Strings(projectionPaths)
 	fields := append([]string(nil), previewCoveringIndexPrefixFields...)
 	fields = append(fields, projectionPaths...)
-	return &PreviewCoveringIndexSpec{Collection: collection, Name: previewCoveringIndexName(collection, fields), Fields: fields}
+	storedValues := []string{"auth_resource_path"}
+	return &PreviewCoveringIndexSpec{
+		Collection: collection, Name: previewCoveringIndexNameWithStoredValues(collection, fields, storedValues),
+		Fields: fields, StoredValues: storedValues,
+	}
 }
 
 func previewCoveringIndexSource(plan ir.PhysicalPlan) (*ir.PhysicalRootScan, *ir.PhysicalReturn, bool) {

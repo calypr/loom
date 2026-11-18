@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -193,17 +194,20 @@ func (c *Client) Bootstrap(ctx context.Context, spec BootstrapSpec) error {
 		reportBootstrap(spec, "go_bootstrap_collection_indexes_start", map[string]any{
 			"backend":    "arango",
 			"collection": collection.Name,
-			"indexes":    len(collection.Indexes),
+			"indexes":    len(collection.Indexes) + len(collection.PersistentIndexes),
 			"position":   i + 1,
 			"total":      total,
 		})
 		if err := ensureIndexes(ctx, col, collection.Indexes); err != nil {
 			return err
 		}
+		if err := ensurePersistentIndexSpecs(ctx, col, collection.PersistentIndexes); err != nil {
+			return err
+		}
 		reportBootstrap(spec, "go_bootstrap_collection_complete", map[string]any{
 			"backend":    "arango",
 			"collection": collection.Name,
-			"indexes":    len(collection.Indexes),
+			"indexes":    len(collection.Indexes) + len(collection.PersistentIndexes),
 			"position":   i + 1,
 			"total":      total,
 		})
@@ -437,6 +441,30 @@ func ensureIndexes(ctx context.Context, col driver.Collection, indexes [][]strin
 		})
 		if err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+type persistentIndexEnsurer interface {
+	EnsurePersistentIndex(context.Context, []string, *driver.CreatePersistentIndexOptions) (driver.IndexResponse, bool, error)
+}
+
+func ensurePersistentIndexSpecs(ctx context.Context, col persistentIndexEnsurer, indexes []PersistentIndexSpec) error {
+	for _, index := range indexes {
+		created, _, err := col.EnsurePersistentIndex(ctx, index.Fields, &driver.CreatePersistentIndexOptions{
+			StoredValues: append([]string(nil), index.StoredValues...),
+			Unique:       utils.NewType(false),
+			Sparse:       utils.NewType(index.Sparse),
+		})
+		if err != nil {
+			return err
+		}
+		if created.Type != driver.IndexType("persistent") || created.RegularIndex == nil ||
+			created.Unique == nil || *created.Unique || created.Sparse == nil || *created.Sparse != index.Sparse ||
+			!slices.Equal(created.RegularIndex.Fields, index.Fields) ||
+			!slices.Equal(created.RegularIndex.StoredValues, index.StoredValues) {
+			return fmt.Errorf("Arango persistent index differs from bootstrap definition")
 		}
 	}
 	return nil

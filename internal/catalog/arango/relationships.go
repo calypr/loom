@@ -299,9 +299,9 @@ FOR e IN fhir_edge
   FILTER e.dataset_generation == @dataset_generation
   FILTER @auth_resource_paths_unrestricted == true OR e.auth_resource_path IN @auth_resource_paths
   FILTER e.from_type IN @resource_types AND e.to_type IN @resource_types
-  COLLECT project = e.project, dataset_generation = e.dataset_generation, auth_resource_path = e.auth_resource_path,
-    from_type = e.from_type, label = e.label, to_type = e.to_type WITH COUNT INTO edge_count
-  RETURN { project, dataset_generation, auth_resource_path, from_type, label, to_type, edge_count }`
+  COLLECT auth_resource_path = e.auth_resource_path, from_type = e.from_type, label = e.label, to_type = e.to_type
+    WITH COUNT INTO edge_count
+  RETURN { project: @project, dataset_generation: @dataset_generation, auth_resource_path, from_type, label, to_type, edge_count }`
 const relationshipAuditAQL = `
 FOR e IN fhir_edge
   FILTER e.project == @project

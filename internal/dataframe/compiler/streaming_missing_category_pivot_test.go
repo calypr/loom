@@ -60,7 +60,7 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 	}
 	index := query.PreviewCoveringIndex
 	wantFields := previewQuantityCategoryFields()
-	wantStoredValues := []string{"payload.valueQuantity"}
+	wantStoredValues := previewQuantityCategoryStoredValues()
 	if index == nil || index.Name != previewCoveringIndexNameWithStoredValues("Observation", wantFields, wantStoredValues) ||
 		!reflect.DeepEqual(index.Fields, wantFields) || !reflect.DeepEqual(index.StoredValues, wantStoredValues) {
 		t.Fatalf("streaming missing-category Pivot index = %+v, want fields=%v storedValues=%v", index, wantFields, wantStoredValues)

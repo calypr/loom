@@ -273,7 +273,7 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 			}
 		}
 	}
-	if categoryIndex != nil && len(categoryIndex.StoredValues) != 0 {
+	if categoryIndex != nil && reflect.DeepEqual(categoryIndex.StoredValues, previewQuantityCategoryStoredValues()) {
 
 		previewCoveringIndex = nil
 	}
@@ -595,10 +595,11 @@ func categoryScanCategoryIndexSpec(plan ir.PhysicalPlan, category lower.Compiled
 			StoredValues: legacyStoredValues,
 		}
 	}
-	fields := []string{"project", "dataset_generation", path, "auth_resource_path"}
-	if rootType != "" && collection == rootType {
-		fields = []string{"project", "dataset_generation", "resourceType", path, "auth_resource_path"}
+	if rootType == "" || collection != rootType {
+		fields := []string{"project", "dataset_generation", path, "auth_resource_path"}
+		return &PreviewCoveringIndexSpec{Collection: collection, Name: previewCoveringIndexName(collection, fields), Fields: fields}
 	}
+	fields := []string{"project", "dataset_generation", path}
 	seen := make(map[string]struct{}, len(fields))
 	for _, field := range fields {
 		if _, duplicate := seen[field]; duplicate {
@@ -606,8 +607,13 @@ func categoryScanCategoryIndexSpec(plan ir.PhysicalPlan, category lower.Compiled
 		}
 		seen[field] = struct{}{}
 	}
+	storedValues := []string{"auth_resource_path"}
+	if rootType != "" && collection == rootType {
+		storedValues = append(storedValues, "resourceType")
+	}
 	return &PreviewCoveringIndexSpec{
-		Collection: collection, Name: previewCoveringIndexName(collection, fields), Fields: fields,
+		Collection: collection, Name: previewCoveringIndexNameWithStoredValues(collection, fields, storedValues),
+		Fields: fields, StoredValues: storedValues,
 	}
 }
 
@@ -641,7 +647,7 @@ func categoryScanIndexedRootQueries(plan ir.PhysicalPlan, category lower.Compile
 	}
 	indexed := &ir.PhysicalIndexedCategoryScan{RootVariable: root.Variable, ValuePath: append([]string(nil), value.Path...), ResourceType: resourceType}
 	if categoryScanUsesStoredQuantityParent(index, value.Path) {
-		indexed.StoredParentPath = strings.Split(index.StoredValues[0], ".")
+		indexed.StoredParentPath = strings.Split(index.StoredValues[1], ".")
 	}
 	rendered, err := aql.RenderCategoryScan(plan, ir.PhysicalCategoryScanReturn{CategoryColumn: category.Name, MaxValues: maxValues, RootIndexHint: index.Name, IndexedRoot: indexed})
 	if err != nil {
@@ -657,10 +663,10 @@ func categoryScanIndexedRootQueries(plan ir.PhysicalPlan, category lower.Compile
 func categoryScanUsesStoredQuantityParent(index *PreviewCoveringIndexSpec, valuePath []string) bool {
 	if index == nil || index.Collection != "Observation" ||
 		!reflect.DeepEqual(index.Fields, previewQuantityCategoryFields()) ||
-		!reflect.DeepEqual(index.StoredValues, previewQuantityCategoryStoredValues()) {
+		!reflect.DeepEqual(index.StoredValues, previewQuantityCategoryStoredValues()) || len(index.StoredValues) < 2 {
 		return false
 	}
-	parent := strings.Split(index.StoredValues[0], ".")
+	parent := strings.Split(index.StoredValues[1], ".")
 	return len(valuePath) == len(parent)+1 && samePathPrefix(valuePath, parent) && valuePath[len(valuePath)-1] == "code"
 }
 
@@ -689,9 +695,6 @@ func categoryScanRootResourceType(plan ir.PhysicalPlan, root *ir.PhysicalRootSca
 		return "", fmt.Errorf("category index collection does not match the direct root scan")
 	}
 	categoryPath := strings.Join(path, ".")
-	if sameCategoryIndexFields(index.Fields, []string{"project", "dataset_generation", categoryPath, "auth_resource_path"}) {
-		return "", nil
-	}
 	rootType := strings.TrimSpace(plan.Source.ResourceType)
 	if categoryScanUsesStoredQuantityParent(index, path) {
 		if rootType != "Observation" || collection != rootType {
@@ -699,7 +702,16 @@ func categoryScanRootResourceType(plan ir.PhysicalPlan, root *ir.PhysicalRootSca
 		}
 		return rootType, nil
 	}
-	if !sameCategoryIndexFields(index.Fields, []string{"project", "dataset_generation", "resourceType", categoryPath, "auth_resource_path"}) || rootType == "" || collection != rootType {
+	if sameCategoryIndexFields(index.Fields, []string{"project", "dataset_generation", categoryPath, "auth_resource_path"}) {
+		return "", nil
+	}
+	if !sameCategoryIndexFields(index.Fields, []string{"project", "dataset_generation", categoryPath}) {
+		return "", fmt.Errorf("category index does not match the exact source collection type and path")
+	}
+	if rootType == "" {
+		return "", nil
+	}
+	if collection != rootType {
 		return "", fmt.Errorf("category index does not match the exact source collection type and path")
 	}
 	return rootType, nil
