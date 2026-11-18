@@ -1,0 +1,514 @@
+{
+  "schemaVersion": 1,
+  "provenance": "Hand-authored synthetic expectation; never derived from Loom compilation or preview responses.",
+  "recordCounts": {
+    "ResearchSubject": 4,
+    "Patient": 4,
+    "Observation": 3,
+    "Condition": 3,
+    "ResearchStudy": 2,
+    "DocumentReference": 1,
+    "Specimen": 1,
+    "MedicationAdministration": 1,
+    "Group": 1
+  },
+  "preserving": [
+    {
+      "identity": [
+        "rs-zero"
+      ],
+      "patientId": "p-zero",
+      "observationIds": [],
+      "observationValues": [],
+      "observationCount": 0,
+      "hasObservation": false,
+      "conditionIds": []
+    },
+    {
+      "identity": [
+        "rs-one"
+      ],
+      "patientId": "p-one",
+      "observationIds": [
+        "obs-one"
+      ],
+      "observationValues": [
+        7
+      ],
+      "observationCount": 1,
+      "hasObservation": true,
+      "conditionIds": []
+    },
+    {
+      "identity": [
+        "rs-many"
+      ],
+      "patientId": "p-many",
+      "observationIds": [
+        "obs-many-A",
+        "obs-many-B"
+      ],
+      "observationValues": [
+        11,
+        13
+      ],
+      "observationCount": 2,
+      "hasObservation": true,
+      "conditionIds": [
+        "condition-A",
+        "condition-B",
+        "condition-C"
+      ]
+    },
+    {
+      "identity": [
+        "rs-shared"
+      ],
+      "patientId": "p-many",
+      "observationIds": [
+        "obs-many-A",
+        "obs-many-B"
+      ],
+      "observationValues": [
+        11,
+        13
+      ],
+      "observationCount": 2,
+      "hasObservation": true,
+      "conditionIds": [
+        "condition-A",
+        "condition-B",
+        "condition-C"
+      ]
+    }
+  ],
+  "requiredObservationIdentities": [
+    [
+      "rs-one"
+    ],
+    [
+      "rs-many"
+    ],
+    [
+      "rs-shared"
+    ]
+  ],
+  "expandedDropMissing": [
+    {
+      "identity": [
+        "rs-one",
+        "obs-one"
+      ],
+      "patientId": "p-one",
+      "observationValue": 7,
+      "subjectStatus": "active"
+    },
+    {
+      "identity": [
+        "rs-many",
+        "obs-many-A"
+      ],
+      "patientId": "p-many",
+      "observationValue": 11,
+      "subjectStatus": "active"
+    },
+    {
+      "identity": [
+        "rs-many",
+        "obs-many-B"
+      ],
+      "patientId": "p-many",
+      "observationValue": 13,
+      "subjectStatus": "active"
+    },
+    {
+      "identity": [
+        "rs-shared",
+        "obs-many-A"
+      ],
+      "patientId": "p-many",
+      "observationValue": 11,
+      "subjectStatus": "completed"
+    },
+    {
+      "identity": [
+        "rs-shared",
+        "obs-many-B"
+      ],
+      "patientId": "p-many",
+      "observationValue": 13,
+      "subjectStatus": "completed"
+    }
+  ],
+  "expandedKeepMissingExtra": {
+    "identity": [
+      "rs-zero",
+      null
+    ],
+    "patientId": "p-zero",
+    "observationValue": null,
+    "subjectStatus": "active"
+  },
+  "groupKeepMissing": [
+    {
+      "identity": [
+        null,
+        "active"
+      ],
+      "contributorSubjectIds": [
+        "rs-zero"
+      ],
+      "count": 1,
+      "observationValues": []
+    },
+    {
+      "identity": [
+        "female",
+        "active"
+      ],
+      "contributorSubjectIds": [
+        "rs-one"
+      ],
+      "count": 1,
+      "observationValues": [
+        7
+      ]
+    },
+    {
+      "identity": [
+        "male",
+        "active"
+      ],
+      "contributorSubjectIds": [
+        "rs-many"
+      ],
+      "count": 1,
+      "observationValues": [
+        11,
+        13
+      ]
+    },
+    {
+      "identity": [
+        "male",
+        "completed"
+      ],
+      "contributorSubjectIds": [
+        "rs-shared"
+      ],
+      "count": 1,
+      "observationValues": [
+        11,
+        13
+      ]
+    }
+  ],
+  "groupExcludeMissing": [
+    {
+      "identity": [
+        "female",
+        "active"
+      ],
+      "contributorSubjectIds": [
+        "rs-one"
+      ],
+      "count": 1,
+      "observationValues": [
+        7
+      ]
+    },
+    {
+      "identity": [
+        "male",
+        "active"
+      ],
+      "contributorSubjectIds": [
+        "rs-many"
+      ],
+      "count": 1,
+      "observationValues": [
+        11,
+        13
+      ]
+    },
+    {
+      "identity": [
+        "male",
+        "completed"
+      ],
+      "contributorSubjectIds": [
+        "rs-shared"
+      ],
+      "count": 1,
+      "observationValues": [
+        11,
+        13
+      ]
+    }
+  ],
+  "sourceExpandedDropEmpty": [
+    {
+      "identity": [
+        "rs-one",
+        0
+      ],
+      "value": "one-A"
+    },
+    {
+      "identity": [
+        "rs-many",
+        0
+      ],
+      "value": "many-A"
+    },
+    {
+      "identity": [
+        "rs-many",
+        1
+      ],
+      "value": "many-B"
+    },
+    {
+      "identity": [
+        "rs-shared",
+        0
+      ],
+      "value": "shared-A"
+    }
+  ],
+  "sourceExpandedKeepEmptyExtra": {
+    "identity": [
+      "rs-zero",
+      null
+    ],
+    "value": null
+  },
+  "explicitGroups": [
+    {
+      "identity": [
+        "named-active"
+      ],
+      "contributorSubjectIds": [
+        "rs-zero",
+        "rs-one",
+        "rs-many"
+      ],
+      "count": 3
+    },
+    {
+      "identity": [
+        "named-empty"
+      ],
+      "contributorSubjectIds": [],
+      "count": 0
+    }
+  ],
+  "distinctPatientOccurrences": {
+    "rootSubjectPatient": "p-many",
+    "observationPerformerPatients": [
+      "p-performer"
+    ]
+  },
+  "unsupported": {
+    "independentBranchProduct": {
+      "operation": "RELATED_EXPAND",
+      "branches": [
+        "observations",
+        "conditions"
+      ],
+      "reason": "Independent many-valued branches must not be expanded as an implicit Cartesian product.",
+      "savedIdentityCount": 4
+    },
+    "sourceFieldGroups": {
+      "kind": "GROUPS",
+      "basis": "FIELD",
+      "reason": "Use construction GROUP for field-key grouping."
+    }
+  },
+  "nativeStudy": [
+    {
+      "identity": [
+        "rs-zero"
+      ],
+      "studyIds": [],
+      "studyTitles": []
+    },
+    {
+      "identity": [
+        "rs-one"
+      ],
+      "studyIds": [
+        "study-one"
+      ],
+      "studyTitles": [
+        "One study"
+      ]
+    },
+    {
+      "identity": [
+        "rs-many"
+      ],
+      "studyIds": [
+        "study-many"
+      ],
+      "studyTitles": [
+        "Many study"
+      ]
+    },
+    {
+      "identity": [
+        "rs-shared"
+      ],
+      "studyIds": [
+        "study-many"
+      ],
+      "studyTitles": [
+        "Many study"
+      ]
+    }
+  ],
+  "defaultOutputIdentities": {
+    "DocumentReference": [
+      "document-one"
+    ],
+    "Specimen": [
+      "specimen-one"
+    ],
+    "MedicationAdministration": [
+      "medication-one"
+    ],
+    "GroupMember": [
+      [
+        "group-one",
+        "p-one"
+      ],
+      [
+        "group-one",
+        "p-many"
+      ]
+    ]
+  },
+  "observationPatientOccurrences": [
+    {
+      "identity": [
+        "obs-one"
+      ],
+      "subjectPatientIds": [
+        "p-one"
+      ],
+      "performerPatientIds": [
+        "p-performer"
+      ]
+    },
+    {
+      "identity": [
+        "obs-many-A"
+      ],
+      "subjectPatientIds": [
+        "p-many"
+      ],
+      "performerPatientIds": [
+        "p-performer"
+      ]
+    },
+    {
+      "identity": [
+        "obs-many-B"
+      ],
+      "subjectPatientIds": [
+        "p-many"
+      ],
+      "performerPatientIds": [
+        "p-performer"
+      ]
+    }
+  ],
+  "missingStudyReference": {
+    "subjectId": "rs-zero",
+    "reference": "ResearchStudy/study-unmatched",
+    "targetPresent": false,
+    "meaning": "A required FHIR study Reference is present, but its referenced target is absent; the related source therefore has zero matches."
+  },
+  "expandedListsAndExplicitScalars": [
+    {
+      "identity": [
+        "rs-one",
+        "obs-one"
+      ],
+      "patientId": "p-one",
+      "subjectStatus": "active",
+      "observationValues": [
+        7
+      ],
+      "perMatchObservationValue": 7
+    },
+    {
+      "identity": [
+        "rs-many",
+        "obs-many-A"
+      ],
+      "patientId": "p-many",
+      "subjectStatus": "active",
+      "observationValues": [
+        11,
+        13
+      ],
+      "perMatchObservationValue": 11
+    },
+    {
+      "identity": [
+        "rs-many",
+        "obs-many-B"
+      ],
+      "patientId": "p-many",
+      "subjectStatus": "active",
+      "observationValues": [
+        11,
+        13
+      ],
+      "perMatchObservationValue": 13
+    },
+    {
+      "identity": [
+        "rs-shared",
+        "obs-many-A"
+      ],
+      "patientId": "p-many",
+      "subjectStatus": "completed",
+      "observationValues": [
+        11,
+        13
+      ],
+      "perMatchObservationValue": 11
+    },
+    {
+      "identity": [
+        "rs-shared",
+        "obs-many-B"
+      ],
+      "patientId": "p-many",
+      "subjectStatus": "completed",
+      "observationValues": [
+        11,
+        13
+      ],
+      "perMatchObservationValue": 13
+    }
+  ],
+  "expandedListsKeepMissingExtra": {
+    "identity": [
+      "rs-zero",
+      null
+    ],
+    "patientId": "p-zero",
+    "subjectStatus": "active",
+    "observationValues": [],
+    "perMatchObservationValue": null
+  },
+  "replacementPatientIDs": [
+    "p-zero",
+    "p-one",
+    "p-many",
+    "p-performer"
+  ]
+}

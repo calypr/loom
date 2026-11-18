@@ -1,10 +1,7 @@
-// Package columncapabilities defines the transport-neutral capability policy
-// derived from a published ClickHouse column type.
 package columncapabilities
 
 import "strings"
 
-// Tuple is the shared selector capability contract for a published column.
 type Tuple struct {
 	Logical      string
 	Nullable     bool
@@ -14,9 +11,6 @@ type Tuple struct {
 	Aggregatable bool
 }
 
-// FromClickHouse classifies nested Nullable and Array wrappers before
-// applying the primitive type policy. Wrapper order is intentionally
-// insignificant because ClickHouse can emit either nesting order.
 func FromClickHouse(clickHouseType string) Tuple {
 	typ := strings.TrimSpace(clickHouseType)
 	result := Tuple{}
@@ -36,6 +30,18 @@ func FromClickHouse(clickHouseType string) Tuple {
 			return result
 		}
 	}
+}
+
+func Resolve(clickHouseType, logical string, nullable, repeated bool) Tuple {
+	result := FromClickHouse(clickHouseType)
+	if logical != "" {
+		result.Logical = logical
+	}
+	result.Nullable = result.Nullable || nullable
+	result.Repeated = result.Repeated || repeated
+	result.Sortable = !result.Repeated
+	result.Aggregatable = !result.Repeated && result.Logical != "json"
+	return result
 }
 
 func logicalType(typ string) string {

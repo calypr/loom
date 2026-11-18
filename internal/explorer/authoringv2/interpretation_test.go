@@ -65,9 +65,9 @@ func TestApplyInterpretationCandidatePinsAndClearsContributorWithoutChangingSour
 
 func interpretationWorkspace(revisionID string) Workspace {
 	return Workspace{
-		APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Interpretations"},
+		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion, Explorer: ExplorerMetadata{Title: "Interpretations"},
 		Documents: []Document{{
-			Kind: Kind, Output: Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+			Kind: Kind, Output: Output{ID: "patients", Title: "Patients"}, Rows: RecordsRowDefinition(), RootResourceType: "Patient",
 			Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"},
 			Columns: []Column{{
 				Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID,

@@ -2,9 +2,6 @@ package authoringv2
 
 import "fmt"
 
-// OutputDependencyOrder returns document indexes in deterministic dependency
-// order. References are to stable output IDs in this exact workspace; it does
-// not consult publications or mutable table heads.
 func (w Workspace) OutputDependencyOrder() ([]int, error) {
 	indexes := make(map[string]int, len(w.Documents))
 	for index, document := range w.Documents {

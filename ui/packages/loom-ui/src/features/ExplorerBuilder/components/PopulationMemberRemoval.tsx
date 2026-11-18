@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { canonicalProject, type LoomClient } from '../../../api';
 import { useQuery } from '../../../react';
 import type { ResourceRef, SelectionPage, SelectionRevision } from '../../../selection';
@@ -198,6 +199,10 @@ export const PopulationMemberRemoval = ({
   }, [client, intentKey], Boolean(currentIntent));
   const proposal = proposalQuery.data;
   const activeApplyState = intentKey && applyState?.intentKey === intentKey ? applyState : undefined;
+  useEscapeToClose(Boolean(currentIntent) && activeApplyState?.pending !== true, () => {
+    setIntent(undefined);
+    setApplyState(undefined);
+  });
 
   const loadNextPage = () => {
     if (!memberQuery.data?.nextCursor || memberQuery.isLoading) return;

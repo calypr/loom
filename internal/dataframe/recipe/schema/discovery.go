@@ -1,6 +1,3 @@
-// Package schema resolves catalog-backed recipe declarations into a
-// concrete, typed recipe before semantic compilation. It deliberately knows
-// nothing about AQL, Arango collections, or output-specific behavior.
 package schema
 
 import (
@@ -25,10 +22,7 @@ func resolveProjectionSets(ctx context.Context, scope Scope, discovery Discovery
 			return nil, err
 		}
 		selected := filterCandidates(candidates, set)
-		// Catalog projections are optional shape discovery. A resource type can
-		// be absent from a valid dataset (or have no populated fields matching
-		// the requested kind); retain the static recipe fields and resolve this
-		// projection set to zero columns rather than rejecting the whole bundle.
+
 		if len(selected) == 0 {
 			continue
 		}
@@ -37,18 +31,41 @@ func resolveProjectionSets(ctx context.Context, scope Scope, discovery Discovery
 		}
 		sort.SliceStable(selected, func(i, j int) bool { return selected[i].Path < selected[j].Path })
 		for _, candidate := range selected {
+			override, hasOverride := catalogOutputOverride(set.OutputOverrides, candidate.Path)
 			name := uniqueProjectionName(set, candidate.Path, seen)
 			seen[name] = struct{}{}
+			if hasOverride && !override.Enabled {
+				continue
+			}
+			if hasOverride && override.Name != "" {
+				name = override.Name
+			}
 			selectPath := strings.TrimPrefix(candidate.Path, ".")
 			if alias != "" && alias != "root" {
 				selectPath = alias + "." + selectPath
 			} else {
 				selectPath = "root." + selectPath
 			}
-			fields = append(fields, recipe.Field{Name: name, FieldRef: candidate.Path, ValueMode: set.ValueMode, Expr: recipe.Expression{Select: selectPath}, Discovered: true})
+			fields = append(fields, recipe.Field{Name: name, FieldRef: candidate.Path, ValueMode: set.ValueMode, Expr: recipe.Expression{Select: selectPath}, Discovered: true, SourceKey: set.Name})
 		}
 	}
+	usedNames := map[string]string{}
+	for _, field := range fields {
+		if previousPath, exists := usedNames[field.Name]; exists {
+			return nil, fmt.Errorf("catalog output name %q collides between field paths %q and %q", field.Name, previousPath, field.FieldRef)
+		}
+		usedNames[field.Name] = field.FieldRef
+	}
 	return fields, nil
+}
+
+func catalogOutputOverride(overrides []recipe.CatalogProjectionOutputOverride, fieldPath string) (recipe.CatalogProjectionOutputOverride, bool) {
+	for _, override := range overrides {
+		if override.FieldPath == fieldPath {
+			return override, true
+		}
+	}
+	return recipe.CatalogProjectionOutputOverride{}, false
 }
 
 func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resourceType, alias string, pivots []recipe.Pivot) ([]recipe.Pivot, error) {
@@ -56,6 +73,16 @@ func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resour
 	for index := range pivots {
 		pivot := &pivots[index]
 		if pivot.Discovery == nil {
+			columns, aliases, err := applyPivotOutputOverrides(pivot.Name, pivot.Columns, pivot.ColumnAliases, pivot.OutputOverrides, true)
+			if err != nil {
+				return nil, fmt.Errorf("pivot %q: %w", pivot.Name, err)
+			}
+			pivot.Columns = columns
+			pivot.ColumnAliases = aliases
+			pivot.OutputOverrides = nil
+			if len(pivot.Columns) == 0 {
+				continue
+			}
 			resolved = append(resolved, *pivot)
 			continue
 		}
@@ -84,9 +111,7 @@ func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resour
 				}
 				if spec, ok := fhirschema.DefaultPivotSpec(resourceType, candidate.Path, observedValuePath); ok {
 					pivotSpec, hasPivotSpec = spec, true
-					// Persisted catalog metadata is an immutable observation of
-					// the loaded shape. Prefer it when present, while retaining the
-					// generated schema default for older catalog documents.
+
 					if candidate.PivotColumnSelect != "" {
 						pivotSpec.ColumnSelector = fhirschema.FieldSelectorSpecFromPath(candidate.PivotColumnSelect)
 					}
@@ -133,7 +158,12 @@ func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resour
 		if len(columns) > pivot.Discovery.MaxColumns {
 			return nil, fmt.Errorf("pivot %q discovery found %d columns, exceeding maxColumns %d", pivot.Name, len(columns), pivot.Discovery.MaxColumns)
 		}
-		pivot.Columns = sortedValues(columns)
+		discoveredColumns := sortedValues(columns)
+		pivot.Columns, pivot.ColumnAliases, err = applyPivotOutputOverrides(pivot.Name, discoveredColumns, pivot.ColumnAliases, pivot.OutputOverrides, false)
+		if err != nil {
+			return nil, fmt.Errorf("pivot %q: %w", pivot.Name, err)
+		}
+		pivot.OutputOverrides = nil
 		if len(pivot.Columns) == 0 {
 			log.Printf("dataframe schema discovery: omit pivot %q for %s: no columns matched", pivot.Name, resourceType)
 			continue
@@ -169,6 +199,73 @@ func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resour
 	return resolved, nil
 }
 
+func applyPivotOutputOverrides(family string, columns []string, aliases map[string]string, overrides []recipe.PivotOutputOverride, requireKnownKeys bool) ([]string, map[string]string, error) {
+	if len(overrides) == 0 {
+		return columns, aliases, nil
+	}
+	known := make(map[string]struct{}, len(columns))
+	for _, column := range columns {
+		known[column] = struct{}{}
+	}
+	byKey := make(map[string]recipe.PivotOutputOverride, len(overrides))
+	for _, override := range overrides {
+		if _, exists := known[override.Key]; !exists && requireKnownKeys {
+			return nil, nil, fmt.Errorf("output override key %q is not a pinned pivot column", override.Key)
+		}
+		byKey[override.Key] = override
+	}
+	updated := make([]string, 0, len(columns))
+	updatedAliases := make(map[string]string, len(aliases))
+	for key, name := range aliases {
+		updatedAliases[key] = name
+	}
+	for _, key := range columns {
+		override, hasOverride := byKey[key]
+		if hasOverride && !override.Enabled {
+			delete(updatedAliases, key)
+			continue
+		}
+		if hasOverride && override.Name != nil {
+			if *override.Name == "" {
+				delete(updatedAliases, key)
+			} else {
+				updatedAliases[key] = *override.Name
+			}
+		}
+		updated = append(updated, key)
+	}
+	if len(updatedAliases) == 0 {
+		updatedAliases = nil
+	}
+	if len(updatedAliases) > 0 {
+		used := map[string]string{}
+		for _, key := range updated {
+			name := nativePivotOutputName(family, key, updatedAliases)
+			if previous, exists := used[name]; exists {
+				return nil, nil, fmt.Errorf("output name %q collides between pivot keys %q and %q", name, previous, key)
+			}
+			used[name] = key
+		}
+	}
+	return updated, updatedAliases, nil
+}
+
+func nativePivotOutputName(family, key string, aliases map[string]string) string {
+	if alias, exists := aliases[key]; exists {
+		return alias
+	}
+	var sanitized strings.Builder
+	sanitized.Grow(len(key))
+	for _, r := range key {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			sanitized.WriteRune(r)
+		} else {
+			sanitized.WriteByte('_')
+		}
+	}
+	return family + "__" + sanitized.String()
+}
+
 func qualifyPivotSelector(alias, itemSource, selector string) string {
 	path := strings.TrimSpace(selector)
 	if itemSource != "" {
@@ -190,8 +287,7 @@ func relativePivotPath(itemSource, selector string) string {
 func resolveDynamicColumns(ctx context.Context, scope Scope, discovery Discovery, resourceType, alias string, dynamics []recipe.DynamicColumn) error {
 	for index := range dynamics {
 		dynamic := &dynamics[index]
-		wasUnresolved := len(dynamic.Columns) == 0
-		if len(dynamic.Columns) > 0 {
+		if dynamic.Columns != nil {
 			continue
 		}
 		if dynamic.Key == nil {
@@ -231,23 +327,12 @@ func resolveDynamicColumns(ctx context.Context, scope Scope, discovery Discovery
 			return fmt.Errorf("dynamic column %q discovery found %d columns, exceeding maxColumns %d", dynamic.Name, len(values), dynamic.MaxColumns)
 		}
 		dynamic.Columns = sortedValues(values)
-		if wasUnresolved {
-			dynamic.Discovered = true
-		}
-		// A keyed family is optional: a valid FHIR dataset may have no values
-		// for an extension/identifier family at all. Keep the declaration with
-		// an empty frozen column set so resolution remains schema-stable and the
-		// compiler emits no columns for that family instead of rejecting the
-		// entire dataframe.
+		dynamic.Discovered = true
+
 	}
 	return nil
 }
 
-// dynamicDiscoveryKey derives the catalog path that supplies raw dynamic keys
-// and the deterministic transforms the physical key expression applies. The
-// catalog stores only observed scalar paths, so a transformed key (for
-// example last_segment(item.url)) must be frozen from the transformed catalog
-// values; freezing the original URL would make physical map lookups miss.
 func dynamicDiscoveryKey(dynamic recipe.DynamicColumn, alias string) (string, string, []string, error) {
 	source := strings.TrimPrefix(strings.TrimSpace(dynamic.Source.Select), alias+".")
 	if source == "" {
@@ -385,11 +470,6 @@ func projectionName(set recipe.CatalogProjection, fieldPath string) string {
 	return strings.Trim(b.String(), "_")
 }
 
-// uniqueProjectionName preserves the established PATH column spelling when it
-// is unambiguous. FHIR catalogs may contain both scalar and repeated variants
-// of a path (for example author.reference and author[].reference), which
-// normalize to the same SQL-safe name. Keep both catalog-backed fields rather
-// than rejecting an otherwise valid, dataset-independent recipe.
 func uniqueProjectionName(set recipe.CatalogProjection, fieldPath string, used map[string]struct{}) string {
 	base := projectionName(set, fieldPath)
 	if _, exists := used[base]; !exists {
@@ -424,6 +504,36 @@ func hasCatalogDeclarations(bundle recipe.Bundle) bool {
 		}
 		for _, traversal := range output.Traversals {
 			if traversalHasCatalog(traversal) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasPivotOutputOverrides(bundle recipe.Bundle) bool {
+	var traversalHasOverrides func(recipe.Traversal) bool
+	traversalHasOverrides = func(traversal recipe.Traversal) bool {
+		for _, pivot := range traversal.Pivots {
+			if len(pivot.OutputOverrides) > 0 {
+				return true
+			}
+		}
+		for _, child := range traversal.Traversals {
+			if traversalHasOverrides(child) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, output := range bundle.Outputs {
+		for _, pivot := range output.Pivots {
+			if len(pivot.OutputOverrides) > 0 {
+				return true
+			}
+		}
+		for _, traversal := range output.Traversals {
+			if traversalHasOverrides(traversal) {
 				return true
 			}
 		}

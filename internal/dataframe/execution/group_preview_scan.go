@@ -17,8 +17,7 @@ import (
 const (
 	groupScanAssessmentTimeout    = 500 * time.Millisecond
 	groupScanFullCollectionCutoff = 0.90
-	// Projection assessment and execution use a fixed per-query cap; admission
-	// leaves most of that cap available to other query state.
+
 	groupPreviewQueryMemoryLimitBytes   int64 = 256 << 20
 	groupPreviewProjectionMemoryShare         = 4
 	groupPreviewProjectionSafetyFactor        = 8
@@ -71,7 +70,6 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 				selected.Name = index.Name
 				selected.Fields = append([]string(nil), index.Fields...)
 				selected.StoredValues = append([]string(nil), index.StoredValues...)
-				selected.Supersedes = nil
 				selected.PrepareAfterPreview = false
 				query.PreviewCoveringIndex = &selected
 				selectedDefinition := index
@@ -91,7 +89,7 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 		plan, err := e.previewExplainQuery(assessmentCtx, query.Query, query.BindVars)
 		if err == nil && assessmentCtx.Err() == nil && hasNonCoveringRootIndex(plan, query.PreviewGroupScan.Collection) {
 			if e.previewCollectionCount == nil && query.PreviewGroupProjection == nil {
-				// Keep the canonical indexed query when the broad-scan decision lacks exact evidence.
+
 			} else {
 				projectionScopeCount := scopeCountMatchesProjection(query)
 				assessedScopeCountAttempted = projectionScopeCount

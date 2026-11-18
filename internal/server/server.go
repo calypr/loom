@@ -19,8 +19,8 @@ import (
 
 	shared "github.com/arangodb/go-driver/v2/arangodb/shared"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
-	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
-	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
+	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
+	queryapi "github.com/calypr/loom/internal/api/dataframe/query"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
@@ -48,11 +48,11 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/projectid"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
 
-// Run starts the Loom HTTP server using the process command-line flags.
 func Run() {
 	options, err := parseServerOptions(os.Args[1:], flag.ContinueOnError)
 	if err != nil {
@@ -344,9 +344,17 @@ func previewQueryMaxRuntime(ctx context.Context) time.Duration {
 	return explorerPreviewTimeout
 }
 
+func withPreviewQueryTimeout(query dataframeexecution.QueryRows) dataframeexecution.QueryRows {
+	return func(ctx context.Context, text string, batchSize int, binds map[string]any, visit func(map[string]any) error) error {
+		queryCtx, cancel := context.WithTimeout(ctx, previewQueryMaxRuntime(ctx))
+		defer cancel()
+		return query(queryCtx, text, batchSize, binds, visit)
+	}
+}
+
 func configuredCategoryScanner(logger *slog.Logger, recipeEngine *dataframeexecution.Engine) lifecycle.CategoryScanner {
 	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
-		// Category discovery is Pivot-only and uses the extended query runtime limit.
+
 		scanCtx, cancel := context.WithTimeout(ctx, pivotCategoryScanTimeout)
 		defer cancel()
 		scanCtx = withPivotPreviewQueryBudget(scanCtx)
@@ -376,51 +384,45 @@ func configuredCategoryScanner(logger *slog.Logger, recipeEngine *dataframeexecu
 	}
 }
 
-// newExplorerReleaseActivator builds the dataset release activation hook for
-// the repository publish path (lifecycle repository_publish.go ActivateRelease).
-// It reads the live release revision and submits it as the store's
-// compare-and-swap input, so a concurrent winning publication makes the
-// store's own guard reject: internal/dataset/arango/release_store.go
-// activateReleaseAQL compares it with `FILTER currentRevision ==
-// @expected_revision OR alreadyActive`, and the emptied result becomes
-// dataset.ErrReleaseActivationConflict (release_store.go:99-100), which the
-// lifecycle types as the repair-34 409 repository_publish
-// PUBLICATION_ACTIVATION_CONFLICT with the prior revision retained.
-//
-// devReleaseCASFault is the dev-only repository sibling of the
-// prepareExplorerRelease fault (LOOM_DEV_ACTIVATION_CONFLICT_ONCE) below: it
-// is armed only through applyDevFaultOverrides, therefore only under the
-// local no-auth mode. Consumed exactly once, it corrupts the expected-revision
-// CAS input after a successful Active read so the release CAS legitimately
-// loses while the retained candidate release stays durable. The seam sits
-// above the store on purpose: the second, Explorer-side activation leg
-// (internal/explorer/arango/activation.go compositeActivationReadAQL guards
-// plus activateRevisionAndOwner) never yields dataset.ErrReleaseActivationConflict
-// — every guard on that leg produces only explorer.ErrDraftConflict or plain
-// faults — so the sentinel this contract classifies can only come from the
-// release CAS input computed here. A rival document could not be activated
-// instead: activateReleaseAQL's alreadyActive guard makes same-content
-// re-activation a zero-write no-op, so bumping the pointer revision would
-// require minting a competing release document that no publish flow created
-// (invented state) and would itself leave the dataset pointer on the rival
-// while the Explorer pointer stayed on the prior revision (split-brain).
-// The fault therefore corrupts one number instead: the store still decides
-// the outcome, zero writes happen on the loss, and no successful activation
-// is ever hidden behind a synthetic error.
+func configuredColumnPopulationScanner(logger *slog.Logger, recipeEngine *dataframeexecution.Engine) lifecycle.ColumnPopulationScanner {
+	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.ColumnPopulationRequest) (dataframeexecution.ColumnPopulationResult, error) {
+		scanCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		started := time.Now()
+		attrs := []any{"output_id", request.Output, "stage_id", request.StageID, "column_ids", request.ColumnIDs}
+		if receipt == nil {
+			err := fmt.Errorf("compilation receipt is missing")
+			logServerDiagnostic(logger, slog.LevelError, "Explorer construction column population resolution", requestIDFromContext(ctx), "column_population_resolution", time.Since(started), err, attrs...)
+			return dataframeexecution.ColumnPopulationResult{}, err
+		}
+		resolved, err := compileValidatedReceiptResolution(scanCtx, recipeEngine, receipt, bindings)
+		if err != nil {
+			resultErr := categoryScanReceiptResolutionError(receipt.ID, err)
+			logServerDiagnostic(logger, slog.LevelError, "Explorer construction column population resolution", requestIDFromContext(ctx), "column_population_resolution", time.Since(started), resultErr, attrs...)
+			return dataframeexecution.ColumnPopulationResult{}, resultErr
+		}
+		logServerDiagnostic(logger, slog.LevelInfo, "Explorer construction column population resolution", requestIDFromContext(ctx), "column_population_resolution", time.Since(started), nil, attrs...)
+
+		scanStarted := time.Now()
+		result, err := recipeEngine.ScanColumnPopulation(scanCtx, resolved, request)
+		level := slog.LevelInfo
+		if err != nil {
+			level = slog.LevelError
+		}
+		logServerDiagnostic(logger, level, "Explorer construction column population", requestIDFromContext(ctx), "column_population", time.Since(scanStarted), err, attrs...)
+		return result, err
+	}
+}
+
 func newExplorerReleaseActivator(releaseService *publicationcontract.ReleaseService, devReleaseCASFault *atomic.Bool) func(context.Context, string, string, []publicationcontract.DataframeSelector) error {
 	return func(ctx context.Context, project, generation string, selectors []publicationcontract.DataframeSelector) error {
 		expectedRevision := int64(0)
-		// Consume the one-shot arm at request entry, never conditionally: an
-		// armed request whose Active read has no pointer to corrupt must not
-		// leave the fault live to silently hijack a LATER publish request.
+
 		devFaultArmed := devReleaseCASFault != nil && devReleaseCASFault.CompareAndSwap(true, false)
 		active, err := releaseService.Active(ctx, project)
 		if err == nil {
 			expectedRevision = active.Revision
-			// Feed a stale expected revision so the real
-			// store CAS loses exactly once. Corrupt only after a successful
-			// Active read: with no prior pointer the store rejects on the
-			// missing-pointer precondition instead of the compare-and-swap.
+
 			if devFaultArmed {
 				expectedRevision++
 			}
@@ -454,6 +456,14 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err := lifecycleClient.Bootstrap(ctx, publicationarango.BootstrapSpec()); err != nil {
 		return fmt.Errorf("bootstrap dataset lifecycle store: %w", err)
 	}
+	if err := lifecycleClient.Bootstrap(ctx, arangostore.BootstrapSpec{
+		Collections: []arangostore.CollectionSpec{
+			{Name: catalog.FieldCatalogCollection},
+			catalogarango.SemanticCoverageCollectionSpec(),
+		},
+	}); err != nil {
+		return fmt.Errorf("bootstrap authorization catalog: %w", err)
+	}
 	var degradation error
 	if err := lifecycleClient.Bootstrap(ctx, recipearango.BootstrapSpec()); err != nil {
 		degradation = recordDegradation(logger, degradation, "bootstrap recipe registry", err)
@@ -464,10 +474,15 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err := lifecycleClient.Bootstrap(ctx, explorerarango.BootstrapSpec()); err != nil {
 		return fmt.Errorf("bootstrap Explorer store: %w", err)
 	}
+	explorerStore, err := explorerarango.New(lifecycleClient)
+	if err != nil {
+		return fmt.Errorf("create Explorer store: %w", err)
+	}
 	recipeRegistry, err := recipearango.New(lifecycleClient)
 	if err != nil {
 		return fmt.Errorf("create recipe registry: %w", err)
 	}
+	var configuredRecipeName, configuredRecipeVersion string
 	if serverConfig.Server.ClickHouse.Enabled {
 		data, err := os.ReadFile(serverConfig.Server.Dataframer.Recipe)
 		if err != nil {
@@ -477,6 +492,8 @@ func run(ctx context.Context, serverConfig Config) error {
 		if err != nil {
 			return fmt.Errorf("parse dataframer recipe %q: %w", serverConfig.Server.Dataframer.Recipe, err)
 		}
+		configuredRecipeName = defaultBundle.Name
+		configuredRecipeVersion = defaultBundle.TranslationVersion
 		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterVersion(ctx, defaultBundle); err != nil {
 			degradation = recordDegradation(logger, degradation, "register default dataframe recipe", err)
 		}
@@ -504,8 +521,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{QueryRows: func(ctx context.Context, query string, batch int, binds map[string]any, visit func(map[string]any) error) error {
 		return classifyDataframeQueryError(lifecycleClient.QueryRows(ctx, query, batch, binds, visit))
 	}})
-	// The lifecycle client already owns this Arango database. Reusing it avoids
-	// a second connection that can fail independently during optional startup.
+
 	publishedRegistry, err := bundlearango.New(lifecycleClient)
 	if err != nil {
 		return fmt.Errorf("create published dataframe registry: %w", err)
@@ -524,9 +540,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			return fmt.Errorf("create ClickHouse client: %w", err)
 		}
 		defer clickhouse.Close()
-		// The Arango-backed dataframe loader publishes into this database. Create
-		// it during server startup so a fresh ClickHouse instance does not require
-		// an operator to run a separate DDL/API step before materialization.
+
 		if err := clickhouse.EnsureDatabase(ctx); err != nil {
 			degradation = recordDegradation(logger, degradation, "ClickHouse database", err)
 			publicationReady = false
@@ -569,16 +583,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		PreparePreviewIndex: loggedPreviewIndexPreparation(logger, func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
 			var err error
 			if len(spec.StoredValues) != 0 {
-				if spec.Supersedes != nil {
-					err = lifecycleClient.EnsurePreviewCoveringIndexWithStoredValuesReplacing(
-						ctx, spec.Collection, spec.Name, spec.Fields, spec.StoredValues,
-						spec.Supersedes.Name, spec.Supersedes.Fields, spec.Supersedes.StoredValues,
-					)
-				} else {
-					err = lifecycleClient.EnsurePreviewCoveringIndexWithStoredValues(ctx, spec.Collection, spec.Name, spec.Fields, spec.StoredValues)
-				}
-			} else if spec.Supersedes != nil {
-				err = lifecycleClient.EnsurePreviewCoveringIndexReplacing(ctx, spec.Collection, spec.Name, spec.Fields, spec.Supersedes.Name, spec.Supersedes.Fields)
+				err = lifecycleClient.EnsurePreviewCoveringIndexWithStoredValues(ctx, spec.Collection, spec.Name, spec.Fields, spec.StoredValues)
 			} else {
 				err = lifecycleClient.EnsurePreviewCoveringIndex(ctx, spec.Collection, spec.Name, spec.Fields)
 			}
@@ -594,6 +599,19 @@ func run(ctx context.Context, serverConfig Config) error {
 		PreviewQueryRows: configuredAQLQueryRows(logger, "preview_query_rows", func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
 			return lifecycleClient.QueryRowsWithMaxRuntime(ctx, query, batchSize, bindVars, previewQueryMaxRuntime(ctx), arangostore.RowVisitor(visit))
 		}),
+		WithPreviewReadSnapshot: func(ctx context.Context, run func(context.Context, dataframeexecution.QueryRows) error) error {
+			collections, err := lifecycleClient.ListReadSnapshotCollections(ctx)
+			if err != nil {
+				return err
+			}
+			return lifecycleClient.WithReadSnapshot(ctx, collections, func(snapshotCtx context.Context, reader arangostore.RowQueryer) error {
+				query := configuredAQLQueryRows(logger, "preview_query_rows", withPreviewQueryTimeout(func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+					ctx = arangostore.WithQueryMaxNumberOfPlans(ctx, 1)
+					return reader.QueryRows(ctx, query, batchSize, bindVars, arangostore.RowVisitor(visit))
+				}))
+				return run(snapshotCtx, query)
+			})
+		},
 		ResolveClickHouseInputs:    resolveClickHouseInputs,
 		WithExecutionReadPins:      withExecutionReadPins,
 		PrivateClickHouseArtifacts: privateClickHouseArtifacts,
@@ -640,10 +658,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			Project: project, Generation: generation, GitCommit: generation,
 			OptionalSelectors: selectors,
 		})
-		// Return a deliberately stale CAS revision exactly once in the isolated
-		// dev fault scenario. The candidate remains retained for audit, while
-		// PublishAuthoring's atomic activation fails without moving the prior
-		// active release pointer or exposing candidate rows.
+
 		if err == nil && activationConflictOnce.CompareAndSwap(true, false) {
 			expectedRevision++
 		}
@@ -651,10 +666,6 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	validateExplorerReleaseGeneration := func(ctx context.Context, project, generation string) error {
 		return releaseService.ValidateGeneration(ctx, project, generation)
-	}
-	explorerStore, err := explorerarango.New(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("create Explorer store: %w", err)
 	}
 	if err := explorerStore.MigrateLegacyRepositoryConfigs(ctx); err != nil {
 		return fmt.Errorf("migrate legacy Explorer repository configs: %w", err)
@@ -675,27 +686,24 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create Explorer artifact store: %w", err)
 	}
-	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
-		DataframeQuery: queryapi.Config{
-			DiscoverReferences:     discoverReferences,
-			DiscoverFields:         discoverFields,
-			Dataframes:             dataframes,
-			ScopeResolver:          scopeResolver,
-			ActiveManifestResolver: activeManifestResolver,
-			Explain: func(ctx context.Context, compiled dataframeexecution.CompiledQuery) error {
-				_, err := explainCompiledQuery(ctx, lifecycleClient, compiled)
-				return err
-			},
+	readRecipeExecution := dataframeapi.NewRecipeExecutionAuthorizer(publishedRegistry, scopeResolver)
+	queryConfig := queryapi.Config{
+		DiscoverReferences:     discoverReferences,
+		DiscoverFields:         discoverFields,
+		Dataframes:             dataframes,
+		ScopeResolver:          scopeResolver,
+		ActiveManifestResolver: activeManifestResolver,
+		Explain: func(ctx context.Context, compiled dataframeexecution.CompiledQuery) error {
+			_, err := explainCompiledQuery(ctx, lifecycleClient, compiled)
+			return err
 		},
-		MaterializationReader: materializationReader,
-		Logger:                logger,
-		RecipeControl: dataframeexecution.Control{Engine: recipeEngine, ExplainConnection: func(ctx context.Context, compiled dataframeexecution.CompiledQuery) (dataframeexecution.ExplainAssessment, error) {
-			return explainCompiledQuery(ctx, lifecycleClient, compiled)
-		}},
-		RecipeAuthorizer: recipeAuthorization{resolver: scopeResolver},
-		RecipeRevisions:  recipeRevisions,
-		RecipeExecutions: graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver),
-	})
+	}
+	dataframeReads := dataframeReadRoutes{
+		query: queryapi.NewService(queryConfig),
+		published: dataframeapi.NewService(dataframeapi.Config{
+			Reader: materializationReader, ScopeResolver: scopeResolver, Logger: logger,
+		}),
+	}
 	ingestRunner := loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
 		ConnectionOptions: connOpts,
 		Schema:            serverConfig.Server.Schema,
@@ -715,6 +723,105 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create generation load service: %w", err)
 	}
+	sourceLoadLimits := loadapi.SourceLoadLimits{MaxFileBytes: serverConfig.Server.SourceLoadMaxFileBytes}
+	var sourceLoader loadapi.SourceLoader
+	if bundleTarget != nil && configuredRecipeName != "" {
+		sourceLoader, err = ingest.NewRepositorySourceLoader(ingest.SourceLoadPublisherConfig{
+			Client: lifecycleClient, DatasetStore: lifecycleStore, SchemaPath: serverConfig.Server.Schema,
+			ValidateProject: func(ctx context.Context, project string) error {
+				if scopeResolver == nil {
+					return nil
+				}
+				principal, _ := authscope.PrincipalFromContext(ctx)
+				if err := scopeResolver.AuthorizeReadProject(ctx, principal, project); err != nil {
+					return recipeAuthorizationError(err)
+				}
+				return nil
+			},
+			MaterializeAndSelect: func(ctx context.Context, project, generation, operationID, commit string, expectedRevision int64) (string, int64, error) {
+				bindings, err := (recipeAuthorization{resolver: scopeResolver}).AuthorizeRead(ctx, recipe.RuntimeBindings{Project: project, DatasetGeneration: generation})
+				if err != nil {
+					return "", 0, err
+				}
+				var identity publication.BundleIdentity
+				resolved, err := recipeEngine.Materialize(ctx, configuredRecipeName, bindings, func(publishCtx context.Context, full dataframeexecution.Resolved) error {
+					var publishErr error
+					identity, publishErr = publishResolvedRecipe(
+						publishCtx, recipeEngine, bundleTarget, configuredRecipeName, bindings, full,
+						operationID, nil, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes,
+						serverConfig.Server.RecipeQualityMaxRows, serverConfig.Server.RecipeQualityMaxDistinctKeys,
+					)
+					return publishErr
+				})
+				if err != nil {
+					return "", 0, err
+				}
+				execution, err := publishedRegistry.FindExecutionByKey(ctx, identity.Key())
+				if err != nil {
+					return "", 0, err
+				}
+				if execution.State.Canonical() != publication.BundlePublished || execution.ReceiptID != operationID || execution.Project != project || execution.DatasetGeneration != generation {
+					return "", 0, fmt.Errorf("configured recipe did not publish the candidate generation")
+				}
+				catalogSnapshot, err := explorer.PrepareViewBuilderCatalogSnapshot(resolved, execution, commit)
+				if err != nil {
+					return "", 0, fmt.Errorf("prepare view builder catalog snapshot: %w", err)
+				}
+				settings, err := explorerStore.GetViewBuilderSettings(ctx, project)
+				if err != nil {
+					return "", 0, fmt.Errorf("load project view builder settings: %w", err)
+				}
+				catalogRevisionID, catalogAnchored := settings.Catalogs[configuredRecipeName]
+				if catalogAnchored && (strings.TrimSpace(catalogRevisionID) == "" || catalogRevisionID != strings.TrimSpace(catalogRevisionID)) {
+					return "", 0, fmt.Errorf("project view builder catalog anchor for recipe %q is invalid", configuredRecipeName)
+				}
+				owners, err := explorerStore.List(ctx, projectid.Legacy(project))
+				if err != nil {
+					return "", 0, fmt.Errorf("load project-owned Explorer views: %w", err)
+				}
+				definitions, expectedConfigRevisionIDs, err := projectConfigsForSourcePublication(
+					owners, configuredRecipeName, catalogAnchored, catalogSnapshot,
+				)
+				if err != nil {
+					return "", 0, fmt.Errorf("resolve project views for source publication: %w", err)
+				}
+				selectors := make([]publicationcontract.DataframeSelector, 0, len(execution.Outputs))
+				for _, output := range execution.Outputs {
+					selectors = append(selectors, execution.Selector(output.Name))
+				}
+				configs, err := explorer.PrepareProjectConfigsForPublication(definitions, resolved, execution, commit)
+				if err != nil {
+					return "", 0, fmt.Errorf("prepare project configs: %w", err)
+				}
+				candidateReleaseService := *releaseService
+				candidateReleaseService.Required = append(append([]publicationcontract.DataframeSelector(nil), releaseService.Required...), selectors...)
+				release, err := candidateReleaseService.Create(ctx, publicationcontract.ActivationRequest{
+					Project: project, Generation: generation, GitCommit: commit,
+					ExpectedRevision: expectedRevision,
+				})
+				if err != nil {
+					return "", 0, err
+				}
+				active, err := explorerStore.PublishProjectConfigs(ctx, explorer.ProjectConfigPublishRequest{
+					RecipeName: configuredRecipeName, Configs: configs, Release: release,
+					ExpectedReleaseRevision: expectedRevision, ExpectedConfigRevisionIDs: expectedConfigRevisionIDs,
+					CatalogSnapshot: &catalogSnapshot,
+				})
+				if err != nil {
+					return "", 0, fmt.Errorf("activate project publication: %w", err)
+				}
+				discoveryCache.InvalidateProject(project)
+				if scopeResolver != nil {
+					scopeResolver.InvalidateProject(project)
+				}
+				return execution.ID, active.Revision, nil
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("create per-file source loader: %w", err)
+		}
+	}
+	importedSources := importedRecipeSources{registry: recipeRegistry, engine: recipeEngine, capabilities: capabilityResolver, defaultName: configuredRecipeName, defaultVersion: configuredRecipeVersion}
 	compileReceipt := func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		var resolveCombineSchemas combineInputSchemaResolver
 		if materializationReader != nil {
@@ -722,7 +829,7 @@ func run(ctx context.Context, serverConfig Config) error {
 				return exactPublishedCombineInputSchemas(ctx, output, bindings, materializationReader, materializationReader.WithExecutionReadPins, scopeResolver)
 			}
 		}
-		return compileExplorerReceipt(ctx, request, capabilityResolver, recipeEngine, explorerService, logger, resolveCombineSchemas)
+		return compileExplorerReceipt(ctx, request, capabilityResolver, recipeEngine, explorerService, logger, resolveCombineSchemas, importedSources)
 	}
 	persistPublishedWorkspace, err := localWorkspaceWriter(serverConfig.Server.LocalWorkspaceWriteback, serverConfig.Server.LocalWorkspaceProject)
 	if err != nil {
@@ -751,27 +858,36 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("configure explicit group revision resolver: %w", err)
 	}
-	tableShapeCapabilities, err := explorerarango.NewTableShapeCapabilityRepository(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("configure table-shape capability repository: %w", err)
+	var selectionSourceResolver lifecycle.SelectionSourceResolver
+	if materializationReader != nil {
+		selectionSourceResolver = published.SelectionSourceAdapter{Reader: materializationReader}
 	}
 	lifecycleConfig := lifecycle.Config{
+		DefaultDataframeWorkspace:          importedSources.DefaultWorkspace,
+		EditImportedSource:                 importedSources.Edit,
+		CreateImportedSourceRule:           importedSources.CreateSourceRule,
+		EditImportedSources:                importedSources.EditBatch,
+		RemoveImportedField:                importedSources.RemoveField,
+		RemoveImportedOutput:               importedSources.RemoveOutput,
+		EditImportedRelationship:           importedSources.EditRelationship,
+		AuthoringNetwork:                   importedSources.Network,
 		SemanticInventory:                  catalogStore.PageSemanticInventory,
+		SemanticCoverage:                   catalogStore.LookupSemanticCoverage,
 		ResolveSemanticInventorySelections: catalogStore.ResolveSemanticInventorySelections,
 		SelectionMembersCollection:         explorerarango.SelectionMembersCollection,
 		InterpretationRepository:           explorerStore,
 		PopulationMappingCursorCodec:       populationMappingCursorCodec,
-		SelectionSourceResolver:            published.SelectionSourceAdapter{Reader: materializationReader},
+		SelectionSourceResolver:            selectionSourceResolver,
 		SelectionReferenceValidator:        explorerStore.ValidateSelectionReferences,
 		RowChoiceResolver:                  rowChoiceResolver,
 		RowChoicePlanner:                   rowChoiceResolver,
 		ExplicitGroupResolver:              explicitGroupResolver,
 		ExplicitGroupRepository:            explorerStore,
-		TableShapeCapabilities:             tableShapeCapabilities,
 		ScanCategories:                     configuredCategoryScanner(logger, recipeEngine),
+		ScanColumnPopulation:               configuredColumnPopulationScanner(logger, recipeEngine),
 		CompileReceipt:                     compileReceipt,
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
-			return compileConstructionSourceStage(ctx, request, recipeEngine)
+			return compileConstructionSourceStage(ctx, request, recipeEngine, importedSources)
 		},
 		Capability: lifecycle.CapabilityResolver{
 			Current: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {
@@ -857,17 +973,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			}
 			return recipeEngine.RowLineage(ctx, resolved, request)
 		},
-		TableShapeExclusions: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.TableShapeExclusionRequest) (dataframeexecution.TableShapeExclusionResult, error) {
-			if receipt == nil {
-				return dataframeexecution.TableShapeExclusionResult{}, fmt.Errorf("compilation receipt is required")
-			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer receipt table-shape exclusion resolution failed", "receipt_id", receipt.ID, "error", err)
-				return dataframeexecution.TableShapeExclusionResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
-			}
-			return recipeEngine.TableShapeExclusions(ctx, resolved, request)
-		},
+
 		MaterializeReceipt: explorerReceiptMaterializer(
 			recipeEngine, bundleTarget, publishedRegistry, degradation, logger,
 			serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes,
@@ -900,11 +1006,18 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 		return scopeResolver.AuthorizeReadProject(ctx, principal, project)
 	}, explorerService, lifecycleConfig)
+	explorerHandlers.authorizeExecution = func(ctx context.Context, id string) error {
+		return readRecipeExecution(ctx, id)
+	}
+	var constructionInputsReader constructionInputsExactReader
+	if materializationReader != nil {
+		constructionInputsReader = materializationReader
+	}
 	explorerHandlers.constructionInputs = constructionInputsCatalog{
-		reader: materializationReader, catalog: publishedRegistry, capabilities: lifecycleConfig.Capability,
+		reader: constructionInputsReader, catalog: publishedRegistry, capabilities: lifecycleConfig.Capability,
 		scopes: scopeResolver, explorers: explorerService, revisions: explorerService,
 	}
-	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, publishedRegistry, scopeResolver); err != nil {
+	if err := registerRoutes(server, generationService, authorizer, explorerHandlers, publishedRegistry, scopeResolver, sourceLoader, sourceLoadLimits, dataframeReads); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
 	}
 	if privateClickHouseArtifacts != nil {

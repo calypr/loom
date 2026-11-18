@@ -13,9 +13,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// legacyRepositoryConfig contains only the fields needed to recover the
-// canonical default Explorer owner. Immutable generated state already lives in
-// the referenced revision and is deliberately not decoded or copied here.
 type legacyRepositoryConfig struct {
 	Project          string          `json:"project"`
 	Workspace        json.RawMessage `json:"workspace"`
@@ -24,9 +21,6 @@ type legacyRepositoryConfig struct {
 	UpdatedAt        time.Time       `json:"updatedAt"`
 }
 
-// MigrateLegacyRepositoryConfigs is an idempotent startup migration. It
-// recovers only missing repository owners and never overwrites a current owner
-// or deletes the legacy source document.
 func (s *Store) MigrateLegacyRepositoryConfigs(ctx context.Context) error {
 	legacy := []legacyRepositoryConfig{}
 	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d.activeRevisionId != null AND d.activeRevisionId != "" RETURN d`, 1000, map[string]any{"@c": LegacyRepositoryConfigsCollection}, func(row map[string]any) error {
@@ -51,14 +45,44 @@ func (s *Store) MigrateLegacyRepositoryConfigs(ctx context.Context) error {
 			return fmt.Errorf("migrate legacy Explorer %q revision %q: %w", project, value.ActiveRevisionID, err)
 		}
 		draft := value.Workspace
+		digest := value.IntentDigest
 		if len(draft) == 0 {
-			draft = revision.AuthoringBundle
+			draft = revision.AuthoringWorkspaceBytes()
+			if len(revision.AuthoringBundle) == 0 {
+				object, _ := auditObject(revision.Config)
+				if !auditWorkspaceShape(object) {
+					draft = nil
+				}
+			}
+			if len(draft) != 0 {
+				domain, err := explorer.NewService(s)
+				if err != nil {
+					return err
+				}
+				workspace, err := domain.RevisionWorkspace(ctx, *revision)
+				if err != nil {
+					return fmt.Errorf("legacy repository authoring state requires explicit workspace migration: %w", err)
+				}
+				draft, err = workspace.CanonicalJSON()
+				if err != nil {
+					return err
+				}
+				digest, err = workspace.Digest()
+				if err != nil {
+					return err
+				}
+			}
 		}
 		title := "Default"
-		if workspace, decodeErr := authoringv2.DecodeWorkspace(draft); decodeErr == nil && strings.TrimSpace(workspace.Explorer.Title) != "" {
-			title = workspace.Explorer.Title
+		if len(draft) != 0 {
+			workspace, decodeErr := authoringv2.DecodeCurrentWorkspace(draft)
+			if decodeErr != nil {
+				return fmt.Errorf("legacy repository draft requires explicit workspace migration: %w", decodeErr)
+			}
+			if strings.TrimSpace(workspace.Explorer.Title) != "" {
+				title = workspace.Explorer.Title
+			}
 		}
-		digest := value.IntentDigest
 		if digest == "" {
 			digest = revision.IntentDigest
 		}

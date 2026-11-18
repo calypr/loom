@@ -84,10 +84,10 @@ func lifecycleInterpretationWorkspace(revisionID string, inline bool) authoringv
 	return authoringv2.Workspace{
 		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Interpretations"},
 		Documents: []authoringv2.Document{
-			{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients_a", Title: "Patients A"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{column}},
-			{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients_b", Title: "Patients B"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{column}},
+			{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients_a", Title: "Patients A"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{column}, Rows: authoringv2.RecordsRowDefinition()},
+			{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients_b", Title: "Patients B"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{column}, Rows: authoringv2.RecordsRowDefinition()},
 		},
-		Tabs: []authoringv2.Tab{{ID: "patients_a", Title: "Patients A", OutputID: "patients_a", Order: 0, Visible: true}, {ID: "patients_b", Title: "Patients B", OutputID: "patients_b", Order: 1, Visible: true}},
+		Tabs: []authoringv2.Tab{{ID: "patients_a", Title: "Patients A", OutputID: "patients_a", Order: 0, Visible: true}, {ID: "patients_b", Title: "Patients B", OutputID: "patients_b", Order: 1, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -14,10 +15,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// PreviewInterpretationCandidate compiles the current draft and an immutable
-// candidate workspace, then executes both receipts with one authorization
-// binding. It deliberately has no persistence side effect other than the
-// immutable compilation receipts returned by the configured compiler.
 func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request PreviewInterpretationCandidateRequest) (PreviewInterpretationCandidateResult, error) {
 	if err := validateInterpretationCandidatePreviewRequest(request); err != nil {
 		return PreviewInterpretationCandidateResult{}, malformed("interpretation-preview", err.Error(), err)
@@ -43,7 +40,7 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request Pr
 	if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(request.Project) {
 		return PreviewInterpretationCandidateResult{}, conflict("interpretation-preview", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
 	}
-	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
+	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return PreviewInterpretationCandidateResult{}, err
 	}
@@ -86,7 +83,7 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request Pr
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, request.Project, request.SnapshotToken)
 	if err != nil {
-		return PreviewInterpretationCandidateResult{}, conflict("interpretation-preview", "RECEIPT_STALE", "the candidate receipt's capability snapshot is no longer authorized or retained", nil, err)
+		return PreviewInterpretationCandidateResult{}, receiptCapabilityFailure("interpretation-preview", "the candidate receipt's capability snapshot is no longer authorized or retained", err)
 	}
 	if authorized.Snapshot.Token != request.SnapshotToken || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(authorized.Snapshot.Identity.Project) != projectid.Canonical(request.Project) || authorized.Snapshot.Identity.Generation != snapshot.Identity.Generation || authorized.Snapshot.Identity.ShapeDigest != snapshot.Identity.ShapeDigest {
 		return PreviewInterpretationCandidateResult{}, conflict("interpretation-preview", "RECEIPT_STALE", "the candidate receipt's capability snapshot is no longer authorized or retained", nil, nil)
@@ -154,9 +151,9 @@ func previewWorkspace(ctx context.Context, store *explorer.Service, owner *explo
 		if err != nil {
 			return authoringv2.Workspace{}, err
 		}
-		return authoringv2.DecodeWorkspace(revision.AuthoringBundle)
+		return store.RevisionWorkspace(ctx, *revision)
 	}
-	return authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: owner.Title}, Documents: []authoringv2.Document{}, Tabs: []authoringv2.Tab{}}, nil
+	return authoringv2.NewWorkspace(owner.Title), nil
 }
 
 type interpretationPreviewRows struct {
@@ -177,9 +174,7 @@ func (s *Service) previewInterpretationReceipt(ctx context.Context, receipt *exp
 		}
 		copy := make(map[string]any, len(row))
 		for key, item := range row {
-			// Preview rows are already transport-safe values. Keep their native
-			// numeric representation instead of a JSON round trip that could
-			// turn int64/uint64 values into float64.
+
 			copy[key] = item
 		}
 		rows.Rows[rowID] = copy
@@ -197,9 +192,8 @@ func authoredInterpretationEmissions(receipt *explorer.CompilationReceipt, outpu
 	}
 	emissions := make([]explorer.EmittedColumn, 0)
 	for _, emission := range receipt.EmittedColumns {
-		// Preview rows expose public column names. An internal emission ID is
-		// not a row key and must never leak into the comparison sample.
-		if emission.OutputID != outputID || emission.PublicColumn == "" || !containsString(emission.AuthoredColumns, column) {
+
+		if emission.OutputID != outputID || emission.PublicColumn == "" || !slices.Contains(emission.AuthoredColumns, column) {
 			continue
 		}
 		emissions = append(emissions, emission)
@@ -346,13 +340,4 @@ func verifyPreviewReceiptIntent(receipt *explorer.CompilationReceipt, workspace 
 		return fmt.Errorf("receipt intent digest %q does not match workspace digest %q", receipt.IntentDigest, digest)
 	}
 	return nil
-}
-
-func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }

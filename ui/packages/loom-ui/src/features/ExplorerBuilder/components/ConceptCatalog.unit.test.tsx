@@ -19,7 +19,6 @@ import type {
   SemanticInventoryItem,
 } from '../../../types';
 import type { CatalogInitialSelection } from './CatalogSelectionOptions';
-import type { PairedColumnSuggestion } from '../constructionWorkspace/PairedColumnSuggestions';
 import {
   ConceptCatalog,
   type CatalogRelatedSourceAvailability,
@@ -473,12 +472,17 @@ describe('ConceptCatalog', () => {
     );
 
     await screen.findByRole('searchbox', { name: 'Search coded values by code or label' });
-    fireEvent.click(within(screen.getByTestId('feature-catalog-raw-fields')).getByText('Fields'));
-    expect(await screen.findByRole('button', { name: 'Select Patient.id' })).toBeEnabled();
+    const fields = screen.getByTestId('feature-catalog-raw-fields');
+    expect(fields).toHaveAttribute('open');
+    expect(await within(fields).findByRole('button', { name: 'Select Patient.id' })).toBeEnabled();
+    fireEvent.click(within(fields).getByText('Fields'));
+    expect(fields).not.toHaveAttribute('open');
+    fireEvent.click(within(fields).getByText('Fields'));
+    expect(fields).toHaveAttribute('open');
     expect(fetch.mock.calls.some(([url]) => String(url).endsWith('/schema-fields'))).toBe(false);
   });
 
-  it('explains unknown source coverage while keeping a complete inventory selectable', async () => {
+  it('keeps a complete inventory selectable when source coverage is unknown', async () => {
     const concept = item('coverage-unknown', 'Coverage example', 1);
     const response: SemanticInventoryBrowseResponse = {
       ...page([concept]),
@@ -490,9 +494,6 @@ describe('ConceptCatalog', () => {
     renderCatalog(fetch);
 
     expect(await screen.findByRole('button', { name: 'Select Coverage example' })).toBeEnabled();
-    expect(screen.getByText(
-      'This concept list may be incomplete. If a concept is missing, check the Other fields tab.',
-    )).toBeInTheDocument();
   });
 
   it('keeps the unproven source-coverage warning', async () => {
@@ -750,56 +751,6 @@ describe('ConceptCatalog', () => {
     expect(screen.getByRole('button', { name: 'Select Current scope result' })).toBeInTheDocument();
   });
 
-  it('opens the existing route and result-form dialog for a ready-to-add paired concept without adding it', async () => {
-    const daysToCollection = item('days_to_collection', 'Days to collection', 202195, 'Specimen');
-    const resolvedChoice = semanticChoice('days-to-collection-route', daysToCollection, [
-      choiceOption('VALUE', 'REQUIRES_DECISION'),
-      choiceOption('ALL', 'REQUIRES_DECISION'),
-    ]);
-    const pairedSuggestion: PairedColumnSuggestion = {
-      requestId: 'paired-selection-1',
-      snapshotToken: 'snapshot-a',
-      outputId: 'specimens',
-      contextToken: 'context-1',
-      buildId: 'build-1',
-      item: daysToCollection,
-      choices: {
-        snapshotToken: 'snapshot-a',
-        outputId: 'specimens',
-        complete: true,
-        truncated: false,
-        choices: [resolvedChoice],
-      },
-    };
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
-      new Response(JSON.stringify(page([daysToCollection])), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    );
-    const onAddSelected = vi.fn().mockResolvedValue(undefined);
-    render(
-      <LoomProvider client={createLoomClient({ fetch })}>
-        <ConceptCatalog
-          project="project-a"
-          explorerId="explorer-a"
-          snapshotToken="snapshot-a"
-          outputId="specimens"
-          rowRoot="Specimen"
-          catalog={catalog}
-          pairedColumnSuggestion={pairedSuggestion}
-          onAddSelected={onAddSelected}
-        />
-      </LoomProvider>,
-    );
-
-    const dialog = await screen.findByRole('region', { name: 'Advanced route and form choices' });
-    expect(within(dialog).getByRole('heading', { name: /Days to collection/ })).toBeInTheDocument();
-    expect(within(dialog).getByRole('radio', { name: 'Days to collection: Use the matching value' })).toBeInTheDocument();
-    expect(within(dialog).getByRole('radio', { name: 'Days to collection: Keep all matching values' })).toBeInTheDocument();
-    expect(onAddSelected).not.toHaveBeenCalled();
-  });
-
   it('searches root fields and concepts, shows available forms, and submits only choice IDs and forms', async () => {
     const hemoglobin = item('4548-4', 'Hemoglobin A1c', 91);
     const offRoot = item('718-7', 'Off-root concept', 64, 'Observation');
@@ -956,6 +907,26 @@ describe('ConceptCatalog', () => {
     expect(screen.queryByRole('button', { name: 'Select Substance identifier' })).not.toBeInTheDocument();
     const request = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { outputId?: string };
     expect(request.outputId).toBe('patients');
+  });
+
+  it('lists populated identifier and extension choices for the selected resource', async () => {
+    const entries = [
+      item('identifier', 'Research identifier', 5, 'Patient', 'IDENTIFIER_SYSTEM_VALUE'),
+      item('extension', 'Recruitment status', 3, 'Patient', 'EXTENSION_URL_VALUE'),
+      item('empty', 'Empty identifier', 0, 'Patient', 'IDENTIFIER_SYSTEM_VALUE'),
+      item('other-resource', 'Observation identifier', 2, 'Observation', 'IDENTIFIER_SYSTEM_VALUE'),
+      item('code', 'Other code', 4, 'Patient'),
+    ];
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () =>
+      new Response(JSON.stringify(page(entries)), { status: 200, headers: { 'content-type': 'application/json' } }));
+    render(<LoomProvider client={createLoomClient({ fetch })}>
+      <ConceptCatalog project="project-a" explorerId="explorer-a" snapshotToken="snapshot-a" outputId="patients"
+        rowRoot="Patient" resourceType="Patient" catalog={catalog} dense scopeToSource structuredOnly />
+    </LoomProvider>);
+    const list = await screen.findByRole('listbox', { name: 'Available identifier and extension columns' });
+    expect(await within(list).findByRole('option', { name: /Research identifier/ })).toBeEnabled();
+    expect(within(list).getByRole('option', { name: /Recruitment status/ })).toBeEnabled();
+    expect(within(list).getAllByRole('option')).toHaveLength(2);
   });
 
   it('shows compiler-proven coded concepts and paired values while excluding other semantic families', async () => {

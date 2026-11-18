@@ -1089,8 +1089,6 @@ func TestCompileConstructionPivotRowLineageUsesTypedScopedPreimageAndPagination(
 		}
 	}
 
-	// Reducers consume only non-null values of the declared type, and an
-	// ERROR-on-missing Pivot validates that each requested cell has one.
 	compiledOutput.Plan.StageSequence.Stages[0].GroupedPivot.DuplicatePolicy = "SUM"
 	compiledOutput.Plan.StageSequence.Stages[0].GroupedPivot.MissingCellPolicy = "ERROR"
 	summed, err := CompileRowLineageOutput(compiledOutput, string(rowID), 0, 7, ir.DefaultPhysicalOptimizationPolicy())

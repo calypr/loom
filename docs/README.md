@@ -22,12 +22,13 @@ and operating guides. Superseded product plans and their evidence live under
   defines the five active work packages, implementation ownership, and user outcomes.
   [The product index](product/README.md) links the current verification protocol,
   execution ledger, and archived history.
-- [Builder formal verification plan](verification/BUILDER_FORMAL_VERIFICATION_PLAN.md) covers Tier 1 lifecycle and Tier 2 route-conformance work.
-- [Developer journey native cases](DEV_JOURNEY_NATIVE_CASES.md) maps the current `loom-dev` journeys to native Playwright cases.
-- [Builder reconcile transitions](verification/builder-reconcile-transitions.md) maps reconcile states, guards, effects, and model actions to the implementation.
-- [Route proof chain](verification/ROUTE_PROOF_CHAIN.md) defines the evidence a route needs before it is route-proven.
-- [GraphQL API](GRAPHQL_API.md) — graph, FHIR dataframe, and published-data
-  GraphQL contracts.
+- [Local verification](../.codex/skills/verify/SKILL.md) — focused UI/Go checks,
+  owned development Doctor, and the five real-Chrome e2e specs.
+- [Real-data acceptance](REAL_DATA_ACCEPTANCE.md) — locked NCPI ingestion,
+  publication, physical storage, REST, performance, and cleanup.
+- [Product backlog](BACKLOG.md) — open findings, incomplete acceptance, and
+  deferred product decisions, with their current reproduction boundaries.
+- [Dataframe API](DATAFRAME_API.md) covers FHIR queries and published-data reads.
 
 ## Developer and operator references
 
@@ -47,8 +48,10 @@ and operating guides. Superseded product plans and their evidence live under
   guidance.
 - [Reliability contract](loom-reliability-contract.md) — immutable generations,
   publication, selectors, and error-state guarantees.
-- [UI interaction verification](UI_VERIFICATION.md) — current native Playwright
-  commands, owned-stack requirements, and evidence interpretation.
+- [Verification script guide](../scripts/README.md) — current commands and
+  their test boundaries.
+- [Retired verification guarantees](verification/DELETED_GUARANTEES.md) —
+  deleted harness disposition and recovery information.
 - [Repository cleanup goal](REPO_CLEANUP_GOAL.md) — active cleanup policy,
   candidate queues, decision rules, and acceptance criteria.
 

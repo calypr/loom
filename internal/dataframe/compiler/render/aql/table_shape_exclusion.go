@@ -39,8 +39,14 @@ func (r *physicalPlanRenderer) renderTableShapeExclusionReturn(terminal ir.Physi
 	if err != nil {
 		return nil, err
 	}
-	categoryTypeBind := r.newInternalBindKey("exclusion_category_type")
-	r.bindVars[categoryTypeBind] = categoryType
+	categoryTypeBind := ""
+	for _, category := range pivot.Categories {
+		if category.MatchKind == ir.PhysicalPivotCategoryValueMatch {
+			categoryTypeBind = r.newInternalBindKey("exclusion_category_type")
+			r.bindVars[categoryTypeBind] = categoryType
+			break
+		}
+	}
 	categoryKindBind := r.newInternalBindKey("exclusion_category_kind")
 	r.bindVars[categoryKindBind] = pivot.CategoryType
 

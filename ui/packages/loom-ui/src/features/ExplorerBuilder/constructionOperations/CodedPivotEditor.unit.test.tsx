@@ -247,8 +247,8 @@ describe('CodedPivotEditor', () => {
     });
     expect(savedSelection).toHaveAttribute('title', 'Specimen type; system https://cda.readthedocs.io; code specimen_type');
     expect(screen.queryByText('Code specimen_type')).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: /^Coded values as columns$/ })).not.toBeInTheDocument();
-    const editor = screen.getByRole('region', { name: 'Coded values as columns' });
+    expect(screen.queryByRole('heading', { name: /^Pivot coded values into columns$/ })).not.toBeInTheDocument();
+    const editor = screen.getByRole('region', { name: 'Pivot coded values into columns' });
     expect([...editor.querySelectorAll('p')].every((paragraph) => paragraph.classList.contains('m-0'))).toBe(true);
   });
 

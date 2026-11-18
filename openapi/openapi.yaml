@@ -5,6 +5,93 @@ info:
 servers:
   - url: /
 paths:
+  /api/v1/projects/{project}/dataframes/rows:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+    post:
+      operationId: postDataframeRows
+      summary: Page through the selected published dataframe.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DataframeRowsInput'}
+      responses:
+        '200':
+          description: Successful dataframe query.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DataframeRowConnection'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '409': {$ref: '#/components/responses/ServiceConflict'}
+        '413': {$ref: '#/components/responses/ServicePayloadTooLarge'}
+        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
+        '429': {$ref: '#/components/responses/ServiceTooManyRequests'}
+        '499': {$ref: '#/components/responses/ServiceClientClosedRequest'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+        '504': {$ref: '#/components/responses/ServiceGatewayTimeout'}
+  /api/v1/projects/{project}/dataframes/aggregations:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+    post:
+      operationId: postDataframeAggregations
+      summary: Evaluate named aggregations against the selected published dataframe.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DataframeAggregationsInput'}
+      responses:
+        '200':
+          description: Successful dataframe query.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DataframeAggregationsResult'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '409': {$ref: '#/components/responses/ServiceConflict'}
+        '413': {$ref: '#/components/responses/ServicePayloadTooLarge'}
+        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
+        '429': {$ref: '#/components/responses/ServiceTooManyRequests'}
+        '499': {$ref: '#/components/responses/ServiceClientClosedRequest'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+        '504': {$ref: '#/components/responses/ServiceGatewayTimeout'}
+  /api/v1/projects/{project}/dataframes/run:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+    post:
+      operationId: postFhirDataframe
+      summary: Compile and run an authorized FHIR dataframe query.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FhirDataframeRequest'}
+      responses:
+        '200':
+          description: Successful dataframe query.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FhirDataframeResult'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '409': {$ref: '#/components/responses/ServiceConflict'}
+        '413': {$ref: '#/components/responses/ServicePayloadTooLarge'}
+        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
+        '429': {$ref: '#/components/responses/ServiceTooManyRequests'}
+        '499': {$ref: '#/components/responses/ServiceClientClosedRequest'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+        '504': {$ref: '#/components/responses/ServiceGatewayTimeout'}
   /api/v1/projects/{project}/interpretation-libraries:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -83,7 +170,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/SelectionRevision'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -114,7 +201,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/SelectionPage'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -145,7 +232,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ExplicitGroupRevisionSummary'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -165,9 +252,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthoringCapability'
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -188,7 +276,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/CandidateSearchResponse'
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
@@ -211,7 +299,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/SchemaFieldSearchResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
@@ -235,7 +323,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/SemanticInventoryBrowseResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
@@ -260,7 +348,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/FrameSourceOptionsResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -285,7 +373,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ConstructionChoiceSearchResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -310,7 +398,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelatedExpandChoiceSearchResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -335,7 +423,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelatedFieldChoiceSearchResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -360,7 +448,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelatedExpandContributorChoiceSearchResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -389,7 +477,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RowDefinitionChoicesResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -414,107 +502,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RowDefinitionProposal'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/AuthoringForbidden'}
-        '404': {$ref: '#/components/responses/AuthoringNotFound'}
-        '409': {$ref: '#/components/responses/AuthoringConflict'}
-        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
-        '500': {$ref: '#/components/responses/AuthoringInternalError'}
-        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
-  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-capabilities:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/ExplorerId'
-    post:
-      operationId: getExplorerTableShapeCapabilities
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/TableShapeCapabilitiesRequest'}
-      responses:
-        '200':
-          description: Server-derived column, reshape, operator, policy, and saved intent choices for the exact Explorer draft and compiler output.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/TableShapeCapabilitiesResponse'}
-        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/AuthoringForbidden'}
-        '404': {$ref: '#/components/responses/AuthoringNotFound'}
-        '409': {$ref: '#/components/responses/AuthoringConflict'}
-        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
-        '500': {$ref: '#/components/responses/AuthoringInternalError'}
-        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
-  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-category-discoveries:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/ExplorerId'
-    post:
-      operationId: discoverExplorerTableShapeCategories
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/TableShapeCategoryDiscoveryRequest'}
-      responses:
-        '200':
-          description: A complete, catalog-bound list of server-discovered category values and safe output-name suggestions.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/TableShapeCategoryDiscoveryResponse'}
-        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/AuthoringForbidden'}
-        '404': {$ref: '#/components/responses/AuthoringNotFound'}
-        '409': {$ref: '#/components/responses/AuthoringConflict'}
-        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
-        '500': {$ref: '#/components/responses/AuthoringInternalError'}
-        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
-  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-resolutions:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/ExplorerId'
-    post:
-      operationId: resolveExplorerTableShape
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/TableShapeResolutionRequest'}
-      responses:
-        '200':
-          description: An immutable catalog-bound pivot, unpivot, or derived-column resolution with compiler-proved output type facts.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/TableShapeResolutionResponse'}
-        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/AuthoringForbidden'}
-        '404': {$ref: '#/components/responses/AuthoringNotFound'}
-        '409': {$ref: '#/components/responses/AuthoringConflict'}
-        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
-        '500': {$ref: '#/components/responses/AuthoringInternalError'}
-        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
-  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-proposals:
-    parameters:
-      - $ref: '#/components/parameters/Project'
-      - $ref: '#/components/parameters/ExplorerId'
-    post:
-      operationId: proposeExplorerTableShape
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/TableShapeProposalRequest'}
-      responses:
-        '200':
-          description: A nonmutating receipt-backed table-shape proposal with bounded before-and-after cell values and contributor evidence.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/TableShapeProposal'}
-        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -538,6 +526,31 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ConstructionCapabilitiesResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-column-population:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: getExplorerConstructionColumnPopulation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConstructionColumnPopulationRequest'}
+      responses:
+        '200':
+          description: Exact non-null population summaries for a bounded batch of columns in the authorized current stage.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConstructionColumnPopulationResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
@@ -564,7 +577,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ConstructionCategoryDiscoveryResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -589,13 +602,94 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ConstructionInputsResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/authoring-network:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: describeExplorerAuthoringNetwork
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AuthoringNetworkRequest'}
+      responses:
+        '200':
+          description: The effective record network and source and construction row identities for one exact saved draft.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuthoringNetworkResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+        '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/source-relationship-proposals:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: proposeExplorerSourceRelationship
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SourceRelationshipProposalRequest'}
+      responses:
+        '200':
+          description: A project-local native relationship candidate bound to the saved draft and successful receipt preview.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourceRelationshipProposal'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '413': {$ref: '#/components/responses/AuthoringPayloadTooLarge'}
+        '429': {$ref: '#/components/responses/AuthoringTooManyRequests'}
+        '499': {$ref: '#/components/responses/AuthoringClientClosedRequest'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+        '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-policy-proposals:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: proposeExplorerColumnPolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ColumnPolicyProposalRequest'}
+      responses:
+        '200':
+          description: An existing ordinary source column policy candidate bound to the saved draft and successful receipt preview.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ColumnPolicyProposal'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+        '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -614,7 +708,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ConstructionProposalResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -640,7 +734,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/PopulationMemberRemovalProposalResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -666,7 +760,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ConstructionChoiceProposalResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -692,7 +786,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/PopulationRoutesResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -717,7 +811,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ColumnSourceResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -736,7 +830,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BuilderState'
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -764,7 +858,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApplyCommandsResponse'
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -791,7 +885,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RowChangeAssessmentResponse'
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -820,7 +914,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/CompileResponse'
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -847,7 +941,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PreviewResponse'
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -878,7 +972,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/CellTraceResponse'
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -905,7 +999,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RowLineageResponse'
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -931,7 +1025,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/InterpretationPreviewResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -960,7 +1054,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ConfiguredColumnContextResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -987,7 +1081,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/InterpretationRevision'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -1014,7 +1108,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PopulationMappingResponse'
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -1044,7 +1138,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PublishResponse'
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -1069,7 +1163,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Artifact'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -1099,7 +1193,7 @@ paths:
           content:
             application/zip:
               schema: {type: string, format: binary}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -1230,6 +1324,123 @@ paths:
         '409': {$ref: '#/components/responses/ServiceConflict'}
         '500': {$ref: '#/components/responses/ServiceInternalError'}
         '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/datasets/{project}/source-loads/{operation}:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - name: operation
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 200}
+    put:
+      operationId: beginDatasetSourceLoad
+      summary: Create or retrieve a durable source-load plan.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SourceLoadPlan'}
+      responses:
+        '200':
+          description: The durable source-load plan and completed file receipts.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourceLoadStatus'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '409': {$ref: '#/components/responses/ServiceConflict'}
+        '413': {$ref: '#/components/responses/ServicePayloadTooLarge'}
+        '415': {$ref: '#/components/responses/ServiceUnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+    get:
+      operationId: getDatasetSourceLoadStatus
+      summary: Read a durable source-load plan and completed file receipts.
+      responses:
+        '200':
+          description: The durable source-load plan and completed file receipts.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourceLoadStatus'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '409': {$ref: '#/components/responses/ServiceConflict'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/datasets/{project}/source-loads/{operation}/files/{resourceType}:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - name: operation
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 200}
+      - name: resourceType
+        in: path
+        required: true
+        schema: {type: string, minLength: 1}
+    put:
+      operationId: uploadDatasetSourceLoadFile
+      summary: Upload exactly one canonical META NDJSON file into the inactive source generation.
+      requestBody:
+        required: true
+        description: One streamed file is uploaded per request. The configurable byte limit applies to this file; other selected resource files use separate requests.
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary, description: "Exactly one file named META/{resourceType}.ndjson."}
+      responses:
+        '200':
+          description: The file was fully validated and durably accepted.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourceFileReceipt'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '409': {$ref: '#/components/responses/ServiceConflict'}
+        '413': {$ref: '#/components/responses/ServicePayloadTooLarge'}
+        '415': {$ref: '#/components/responses/ServiceUnsupportedMediaType'}
+        '422':
+          description: The entire file was rejected before a READY receipt was recorded. Details contain at most 100 safe row issues, totalErrors, and truncated.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourceLoadValidationErrorResponse'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/datasets/{project}/source-loads/{operation}/publish:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - name: operation
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 200}
+    post:
+      operationId: publishDatasetSourceLoad
+      summary: Materialize the completed candidate and select its published release.
+      responses:
+        '200':
+          description: The source-load publication completed or was safely replayed.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourcePublishReceipt'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '409': {$ref: '#/components/responses/ServiceConflict'}
+        '413': {$ref: '#/components/responses/ServicePayloadTooLarge'}
+        '415': {$ref: '#/components/responses/ServiceUnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
   /api/v1/dataframe/recipe-executions/{id}:
     parameters:
       - name: id
@@ -1253,163 +1464,6 @@ paths:
         '403': {$ref: '#/components/responses/LegacyForbidden'}
         '404': {$ref: '#/components/responses/LegacyNotFound'}
         '503': {$ref: '#/components/responses/ServiceUnavailable'}
-  /graphql/graph:
-    get:
-      operationId: getGraphQLPlayground
-      summary: Render the GraphQL playground.
-      responses:
-        '200': {$ref: '#/components/responses/HTML'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '404': {$ref: '#/components/responses/ServiceNotFound'}
-    post:
-      operationId: executeGraphQL
-      summary: Execute a graph or FHIR GraphQL operation.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/RawJSON'}
-      responses:
-        '200':
-          description: Successful response.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '400':
-          description: The GraphQL HTTP request envelope or transport parameters are malformed.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '409':
-          description: The GraphQL operation used stale cursor, revision, or publication identity.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '422':
-          description: The GraphQL document could not be parsed or validated for execution.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '403':
-          description: The operation resolved to a typed authorization denial (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '404':
-          description: The operation resolved to a typed not-found class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '413':
-          description: The operation resolved to a typed size-limit class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '429':
-          description: The operation resolved to a typed plan-cost limit class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '499':
-          description: The operation resolved to a typed client-cancellation class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '504':
-          description: The operation resolved to a typed preview/execution timeout class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '500':
-          description: GraphQL execution failed before a normal GraphQL response could be produced.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '503':
-          description: The GraphQL backend or authorization service is unavailable.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-  /graphql/dataframe:
-    post:
-      operationId: executeDataframeGraphQL
-      summary: Execute a dataframe GraphQL operation.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/RawJSON'}
-      responses:
-        '200':
-          description: Successful response.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '400':
-          description: The GraphQL HTTP request envelope or transport parameters are malformed.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '409':
-          description: The GraphQL operation used stale cursor, revision, or publication identity.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '422':
-          description: The GraphQL document could not be parsed or validated for execution.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '403':
-          description: The operation resolved to a typed authorization denial (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '404':
-          description: The operation resolved to a typed not-found class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '413':
-          description: The operation resolved to a typed size-limit class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '429':
-          description: The operation resolved to a typed plan-cost limit class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '499':
-          description: The operation resolved to a typed client-cancellation class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '504':
-          description: The operation resolved to a typed preview/execution timeout class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '500':
-          description: GraphQL execution failed before a normal GraphQL response could be produced.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '503':
-          description: The GraphQL backend or authorization service is unavailable.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-  /apollo:
-    get:
-      operationId: getApolloSandbox
-      summary: Render the Apollo GraphQL sandbox.
-      responses:
-        '200': {$ref: '#/components/responses/HTML'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '404': {$ref: '#/components/responses/ServiceNotFound'}
   /api/v1/projects/{project}/explorers:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -1426,9 +1480,10 @@ paths:
                 items:
                   type: object
                   additionalProperties: true
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/LegacyForbidden'}
-        '500': {$ref: '#/components/responses/LegacyInternalError'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
     post:
       operationId: createExplorer
       summary: Create an interactive Explorer.
@@ -1445,12 +1500,13 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/LegacyBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/LegacyForbidden'}
-        '409': {$ref: '#/components/responses/LegacyConflict'}
-        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
-        '500': {$ref: '#/components/responses/LegacyInternalError'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -1464,10 +1520,11 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/LegacyForbidden'}
-        '404': {$ref: '#/components/responses/LegacyNotFound'}
-        '500': {$ref: '#/components/responses/LegacyInternalError'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/generations/{generation}/explorer-config:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -1494,13 +1551,135 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/LegacyBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/LegacyForbidden'}
-        '409': {$ref: '#/components/responses/LegacyConflict'}
-        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
-        '500': {$ref: '#/components/responses/LegacyInternalError'}
-        '503': {$ref: '#/components/responses/LegacyUnavailable'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/view-builder:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+    get:
+      operationId: getProjectViewBuilder
+      summary: Read project views and exact published dataframe metadata.
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
+      responses:
+        '200':
+          description: Project-owned view state and published dataframe catalog.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/view-builder/adopt:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+    post:
+      operationId: adoptProjectViewBuilder
+      summary: Attach existing publication metadata without reloading data.
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
+      responses:
+        '200':
+          description: Project-owned view state and published dataframe catalog.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/view-builder/defaults:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+    put:
+      operationId: saveProjectViewDefaults
+      summary: Choose the default saved view and dataframe.
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RawJSON'}
+      responses:
+        '200':
+          description: Project-owned view state and published dataframe catalog.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/view-builder/configs/{explorerId}:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    put:
+      operationId: saveProjectViewConfig
+      summary: Save presentation against an existing published dataframe.
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RawJSON'}
+      responses:
+        '200':
+          description: Project-owned view state and published dataframe catalog.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+    delete:
+      operationId: deleteProjectViewConfig
+      summary: Delete a non-default saved view while retaining publication history.
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
+        - name: expectedRevisionId
+          in: query
+          required: true
+          schema: {type: string, minLength: 1}
+      responses:
+        '200':
+          description: Project-owned view state and published dataframe catalog.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
 components:
   parameters:
     Project:
@@ -1581,6 +1760,26 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+    ExplorerUnauthorized:
+      description: Authentication credentials are absent or invalid for an Explorer operation.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    ServiceTooManyRequests:
+      description: The query plan exceeds the request cost limits.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ServiceErrorResponse'}
+    ServiceClientClosedRequest:
+      description: The client canceled the query.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ServiceErrorResponse'}
+    ServiceGatewayTimeout:
+      description: The query exceeded its server-side deadline.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ServiceErrorResponse'}
     ServiceBadRequest:
       description: A required path, query, multipart, JSON, or NDJSON value is missing or invalid.
       content:
@@ -1631,11 +1830,6 @@ components:
       content:
         application/json:
           schema: {$ref: '#/components/schemas/ServiceErrorResponse'}
-    LegacyBadRequest:
-      description: The legacy Explorer request is malformed or missing required input.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/LegacyErrorResponse'}
     LegacyUnauthorized:
       description: Authentication credentials are absent or invalid.
       content:
@@ -1651,32 +1845,573 @@ components:
       content:
         application/json:
           schema: {$ref: '#/components/schemas/LegacyErrorResponse'}
-    LegacyConflict:
-      description: The Explorer already exists or repository deployment state changed or is inconsistent.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/LegacyErrorResponse'}
-    LegacyUnprocessable:
-      description: The Explorer workspace or deployment is syntactically valid but cannot be compiled, materialized, or published.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/LegacyErrorResponse'}
-    LegacyInternalError:
-      description: Reading or persisting the Explorer failed unexpectedly.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/LegacyErrorResponse'}
-    LegacyUnavailable:
-      description: Repository compilation, materialization, or release activation is not configured or unavailable.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/LegacyErrorResponse'}
     HTML:
       description: Existing browser UI document.
       content:
         text/html:
           schema: {type: string}
   schemas:
+    DataframeMaterializationState:
+      type: string
+      enum: [PENDING, LOADING, READY, FAILED]
+      x-go-type: dataframe.DataframeMaterializationState
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeColumn:
+      type: object
+      required: [semanticPath, name, clickhouseType, logicalType, nullable, repeated, filterable, sortable, aggregatable]
+      properties:
+        semanticPath: {type: string}
+        name: {type: string}
+        clickhouseType: {type: string}
+        logicalType: {type: string}
+        nullable: {type: boolean}
+        repeated: {type: boolean}
+        filterable: {type: boolean}
+        sortable: {type: boolean}
+        aggregatable: {type: boolean}
+      x-go-type: dataframe.DataframeColumn
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeSelector:
+      type: object
+      required: [recipe, translationVersion, output]
+      properties:
+        recipe: {type: string}
+        translationVersion: {type: string}
+        output: {type: string}
+      x-go-type: dataframe.DataframeSelector
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeMaterialization:
+      type: object
+      required: [id, name, revision, projectId, datasetGeneration, state, columns, rowCount, createdAt, readyAt, error, errorCode, errorRetryable, selector]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        revision: {type: string}
+        projectId: {type: string}
+        datasetGeneration: {type: string}
+        state: {$ref: '#/components/schemas/DataframeMaterializationState'}
+        columns: {type: array, items: {$ref: '#/components/schemas/DataframeColumn'}}
+        rowCount: {type: integer, nullable: true}
+        createdAt: {type: string}
+        readyAt: {type: string, nullable: true}
+        error: {type: string, nullable: true}
+        errorCode: {type: string, nullable: true}
+        errorRetryable: {type: boolean, nullable: true}
+        selector: {$ref: '#/components/schemas/DataframeSelector', nullable: true}
+      x-go-type: dataframe.DataframeMaterialization
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframePageInfo:
+      type: object
+      required: [hasNextPage, endCursor]
+      properties:
+        hasNextPage: {type: boolean}
+        endCursor: {type: string, nullable: true}
+      x-go-type: dataframe.DataframePageInfo
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeRowConnection:
+      type: object
+      required: [materialization, columns, rows, rowIds, totalCount, pageInfo]
+      properties:
+        materialization: {$ref: '#/components/schemas/DataframeMaterialization'}
+        columns: {type: array, items: {type: string}}
+        rows: {type: array, items: {type: object, additionalProperties: true}, x-go-type: json.RawMessage}
+        rowIds: {type: array, items: {type: string}}
+        totalCount: {type: integer, nullable: true}
+        pageInfo: {$ref: '#/components/schemas/DataframePageInfo'}
+      x-go-type: dataframe.DataframeRowConnection
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeSelectorInput:
+      type: object
+      required: [recipe, translationVersion, output]
+      properties:
+        recipe: {type: string}
+        translationVersion: {type: string}
+        output: {type: string}
+      x-go-type: dataframe.DataframeSelectorInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeFilterInput:
+      type: object
+      required: [column, op, value]
+      properties:
+        column: {type: string}
+        op: {type: string}
+        value: {x-go-type: json.RawMessage}
+      x-go-type: dataframe.DataframeFilterInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeSortInput:
+      type: object
+      required: [column]
+      properties:
+        column: {type: string}
+        desc: {type: boolean, default: false}
+      x-go-type: dataframe.DataframeSortInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeRowsInput:
+      type: object
+      required: [selector]
+      properties:
+        projectId: {type: string}
+        selector: {$ref: '#/components/schemas/DataframeSelectorInput'}
+        columns: {type: array, items: {type: string}}
+        filters: {type: array, items: {$ref: '#/components/schemas/DataframeFilterInput'}}
+        sort: {$ref: '#/components/schemas/DataframeSortInput'}
+        first: {type: integer, default: 100}
+        after: {type: string}
+      x-go-type: dataframe.DataframeRowsInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeAggregationsResult:
+      type: object
+      required: [materialization, aggregations]
+      properties:
+        materialization: {$ref: '#/components/schemas/DataframeMaterialization'}
+        aggregations:
+          type: array
+          items:
+            type: object
+            required: [name, kind, columns, rows]
+            properties:
+              name: {type: string}
+              kind: {type: string}
+              columns: {type: array, items: {type: string}}
+              rows: {type: array, items: {type: object, additionalProperties: true}}
+              missingCount: {type: integer, nullable: true}
+              truncated: {type: boolean}
+          x-go-type: json.RawMessage
+      x-go-type: dataframe.DataframeAggregationsResult
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeAggregationSpecInput:
+      type: object
+      required: [name, kind, column]
+      properties:
+        name: {type: string}
+        kind: {type: string}
+        column: {type: string}
+        size: {type: integer}
+        interval: {type: number, format: double}
+        dateInterval: {type: integer}
+        excludeSelfFilter: {type: boolean, default: false}
+      x-go-type: dataframe.DataframeAggregationSpecInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeAggregationsInput:
+      type: object
+      required: [selector, specs]
+      properties:
+        projectId: {type: string}
+        selector: {$ref: '#/components/schemas/DataframeSelectorInput'}
+        filters: {type: array, items: {$ref: '#/components/schemas/DataframeFilterInput'}}
+        specs: {type: array, items: {$ref: '#/components/schemas/DataframeAggregationSpecInput'}}
+      x-go-type: dataframe.DataframeAggregationsInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeOptimizationDecision:
+      type: object
+      required: [rule, enabled, candidateSets, estimatedBaselineWork, estimatedOptimizedWork, estimatedSavings, reason]
+      properties:
+        rule: {type: string}
+        enabled: {type: boolean}
+        candidateSets: {type: integer}
+        estimatedBaselineWork: {type: integer}
+        estimatedOptimizedWork: {type: integer}
+        estimatedSavings: {type: integer}
+        reason: {type: string}
+      x-go-type: dataframe.DataframeOptimizationDecision
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeOptimizationPolicy:
+      type: object
+      required: [name, enabled, minimumSavings, decisions]
+      properties:
+        name: {type: string}
+        enabled: {type: boolean}
+        minimumSavings: {type: integer}
+        decisions: {type: array, items: {$ref: '#/components/schemas/DataframeOptimizationDecision'}}
+      x-go-type: dataframe.DataframeOptimizationPolicy
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeRichSourceReuse:
+      type: object
+      required: [sourceSet, aggregateConsumers, pivotConsumers, sliceConsumers, totalConsumers]
+      properties:
+        sourceSet: {type: string}
+        aggregateConsumers: {type: integer}
+        pivotConsumers: {type: integer}
+        sliceConsumers: {type: integer}
+        totalConsumers: {type: integer}
+      x-go-type: dataframe.DataframeRichSourceReuse
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeCompilerPlanDiagnostics:
+      type: object
+      required: [traversalSets, sharedTraversalCount, requiredMatchReuseCount, scopedSharingCandidateGroups, scopedSharingCandidateSets, potentialSharingOpportunityGroups, potentialSharingOpportunitySets, optimizationPolicy, richSourceReuse]
+      properties:
+        traversalSets: {type: integer}
+        sharedTraversalCount: {type: integer}
+        requiredMatchReuseCount: {type: integer}
+        scopedSharingCandidateGroups: {type: integer}
+        scopedSharingCandidateSets: {type: integer}
+        potentialSharingOpportunityGroups: {type: integer}
+        potentialSharingOpportunitySets: {type: integer}
+        optimizationPolicy: {$ref: '#/components/schemas/DataframeOptimizationPolicy'}
+        richSourceReuse: {type: array, items: {$ref: '#/components/schemas/DataframeRichSourceReuse'}}
+      x-go-type: dataframe.DataframeCompilerPlanDiagnostics
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeQueryDiagnostics:
+      type: object
+      required: [inputResolutionMs, requestPreparationMs, compilationMs, arangoQueryMs, rowMaterializationMs, resultAssemblyMs, totalMs, plan]
+      properties:
+        inputResolutionMs: {type: number, format: double}
+        requestPreparationMs: {type: number, format: double}
+        compilationMs: {type: number, format: double}
+        arangoQueryMs: {type: number, format: double}
+        rowMaterializationMs: {type: number, format: double}
+        resultAssemblyMs: {type: number, format: double}
+        totalMs: {type: number, format: double}
+        plan: {$ref: '#/components/schemas/DataframeCompilerPlanDiagnostics'}
+      x-go-type: dataframe.DataframeQueryDiagnostics
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirDataframeResult:
+      type: object
+      required: [columns, rows, rowCount, diagnostics]
+      properties:
+        columns: {type: array, items: {type: string}}
+        rows: {type: array, items: {type: object, additionalProperties: true}, x-go-type: json.RawMessage}
+        rowCount: {type: integer}
+        diagnostics: {$ref: '#/components/schemas/DataframeQueryDiagnostics'}
+      x-go-type: dataframe.FhirDataframeResult
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirFieldPredicateOperation:
+      type: string
+      enum: [CONTAINS]
+      x-go-type: dataframe.FhirFieldPredicateOperation
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirFieldPredicateInput:
+      type: object
+      required: [path, value]
+      properties:
+        path: {type: string}
+        op: {$ref: '#/components/schemas/FhirFieldPredicateOperation'}
+        value: {type: string}
+      x-go-type: dataframe.FhirFieldPredicateInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirFieldSelectorInput:
+      type: object
+      required: [valuePath]
+      properties:
+        sourcePath: {type: string}
+        where: {$ref: '#/components/schemas/FhirFieldPredicateInput'}
+        valuePath: {type: string}
+      x-go-type: dataframe.FhirFieldSelectorInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirValueMode:
+      type: string
+      enum: [AUTO, FIRST, ALL, DISTINCT]
+      x-go-type: dataframe.FhirValueMode
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirFieldSelectInput:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+        fieldRef: {type: string}
+        selector: {$ref: '#/components/schemas/FhirFieldSelectorInput'}
+        selectionHint: {type: string}
+        fallbackFieldRefs: {type: array, items: {type: string}, default: []}
+        fallbackSelectors: {type: array, items: {$ref: '#/components/schemas/FhirFieldSelectorInput'}, default: []}
+        valueMode: {$ref: '#/components/schemas/FhirValueMode'}
+      x-go-type: dataframe.FhirFieldSelectInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirFilterOperator:
+      type: string
+      enum: [EQUALS, NOT_EQUALS, IN, EXISTS, MISSING, CONTAINS_TEXT, GT, GTE, LT, LTE]
+      x-go-type: dataframe.FhirFilterOperator
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirFilterQuantifier:
+      type: string
+      enum: [ANY, ALL, NONE]
+      x-go-type: dataframe.FhirFilterQuantifier
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirFilterValueKind:
+      type: string
+      enum: [STRING, CODE, BOOLEAN, INTEGER, DECIMAL, DATE, DATE_TIME]
+      x-go-type: dataframe.FhirFilterValueKind
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirCodeValueInput:
+      type: object
+      required: [code]
+      properties:
+        system: {type: string}
+        code: {type: string}
+        display: {type: string}
+      x-go-type: dataframe.FhirCodeValueInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirFilterValueInput:
+      type: object
+      required: [kind]
+      properties:
+        kind: {$ref: '#/components/schemas/FhirFilterValueKind'}
+        string: {type: string}
+        code: {$ref: '#/components/schemas/FhirCodeValueInput'}
+        boolean: {type: boolean}
+        integer: {type: integer}
+        decimal: {type: number, format: double}
+        date: {type: string}
+        dateTime: {type: string}
+      x-go-type: dataframe.FhirFilterValueInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirFilterInput:
+      type: object
+      required: [select, operator]
+      properties:
+        select: {type: string}
+        fieldRef: {type: string}
+        operator: {$ref: '#/components/schemas/FhirFilterOperator'}
+        quantifier: {$ref: '#/components/schemas/FhirFilterQuantifier'}
+        values: {type: array, items: {$ref: '#/components/schemas/FhirFilterValueInput'}, default: []}
+      x-go-type: dataframe.FhirFilterInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirPivotDiscoveryInput:
+      type: object
+      required: [maxColumns]
+      properties:
+        family: {type: string}
+        path: {type: string}
+        maxColumns: {type: integer}
+      x-go-type: dataframe.FhirPivotDiscoveryInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirPivotInput:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+        fieldRef: {type: string}
+        columnSelector: {$ref: '#/components/schemas/FhirFieldSelectorInput'}
+        valueSelector: {$ref: '#/components/schemas/FhirFieldSelectorInput'}
+        columns: {type: array, items: {type: string}, default: []}
+        discovery: {$ref: '#/components/schemas/FhirPivotDiscoveryInput'}
+      x-go-type: dataframe.FhirPivotInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirAggregateOperation:
+      type: string
+      enum: [COUNT, COUNT_DISTINCT, EXISTS, DISTINCT_VALUES]
+      x-go-type: dataframe.FhirAggregateOperation
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirAggregateInput:
+      type: object
+      required: [name, operation]
+      properties:
+        name: {type: string}
+        operation: {$ref: '#/components/schemas/FhirAggregateOperation'}
+        fieldRef: {type: string}
+        fhirPath: {type: string}
+        predicateFieldRef: {type: string}
+        predicatePath: {type: string}
+        predicateEquals: {type: string}
+        valueMode: {$ref: '#/components/schemas/FhirValueMode'}
+      x-go-type: dataframe.FhirAggregateInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirRepresentativeSliceInput:
+      type: object
+      required: [name, limit]
+      properties:
+        name: {type: string}
+        limit: {type: integer}
+        whereFieldRef: {type: string}
+        wherePath: {type: string}
+        whereEquals: {type: string}
+        fields: {type: array, items: {$ref: '#/components/schemas/FhirFieldSelectInput'}, default: []}
+      x-go-type: dataframe.FhirRepresentativeSliceInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirColumnNaming:
+      type: string
+      enum: [PATH, PATH_SUFFIX]
+      x-go-type: dataframe.FhirColumnNaming
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirCatalogProjectionInput:
+      type: object
+      required: [name, maxColumns]
+      properties:
+        name: {type: string}
+        includePaths: {type: array, items: {type: string}, default: []}
+        excludePaths: {type: array, items: {type: string}, default: []}
+        kinds: {type: array, items: {type: string}, default: []}
+        naming: {$ref: '#/components/schemas/FhirColumnNaming'}
+        valueMode: {$ref: '#/components/schemas/FhirValueMode'}
+        maxColumns: {type: integer}
+      x-go-type: dataframe.FhirCatalogProjectionInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirTraversalMatchMode:
+      type: string
+      enum: [OPTIONAL, REQUIRED]
+      x-go-type: dataframe.FhirTraversalMatchMode
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirTraversalStepInput:
+      type: object
+      required: [edgeLabel, toResourceType, alias]
+      properties:
+        edgeLabel: {type: string}
+        toResourceType: {type: string}
+        alias: {type: string}
+        matchMode: {$ref: '#/components/schemas/FhirTraversalMatchMode'}
+        fields: {type: array, items: {$ref: '#/components/schemas/FhirFieldSelectInput'}, default: []}
+        filters: {type: array, items: {$ref: '#/components/schemas/FhirFilterInput'}, default: []}
+        pivots: {type: array, items: {$ref: '#/components/schemas/FhirPivotInput'}, default: []}
+        aggregates: {type: array, items: {$ref: '#/components/schemas/FhirAggregateInput'}, default: []}
+        slices: {type: array, items: {$ref: '#/components/schemas/FhirRepresentativeSliceInput'}, default: []}
+        catalogProjections: {type: array, items: {$ref: '#/components/schemas/FhirCatalogProjectionInput'}, default: []}
+        traverse: {type: array, items: {$ref: '#/components/schemas/FhirTraversalStepInput'}, default: []}
+      x-go-type: dataframe.FhirTraversalStepInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirDataframeInput:
+      type: object
+      required: [rootResourceType]
+      properties:
+        project: {type: string}
+        authResourcePath: {type: string}
+        authResourcePaths: {type: array, items: {type: string}}
+        rootResourceType: {type: string}
+        rowGrain: {type: string}
+        rootFields: {type: array, items: {$ref: '#/components/schemas/FhirFieldSelectInput'}}
+        rootFilters: {type: array, items: {$ref: '#/components/schemas/FhirFilterInput'}}
+        rootPivots: {type: array, items: {$ref: '#/components/schemas/FhirPivotInput'}}
+        rootAggregates: {type: array, items: {$ref: '#/components/schemas/FhirAggregateInput'}}
+        rootSlices: {type: array, items: {$ref: '#/components/schemas/FhirRepresentativeSliceInput'}}
+        rootCatalogProjections: {type: array, items: {$ref: '#/components/schemas/FhirCatalogProjectionInput'}}
+        traverse: {type: array, items: {$ref: '#/components/schemas/FhirTraversalStepInput'}}
+        limit: {type: integer}
+        cursor: {type: string}
+      x-go-type: dataframe.FhirDataframeInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirDataframeRequest:
+      type: object
+      required: [input]
+      properties:
+        input: {$ref: '#/components/schemas/FhirDataframeInput'}
+        limit: {type: integer, default: 25}
+    SourceManifestFile:
+      type: object
+      additionalProperties: false
+      required: [path]
+      properties:
+        path: {type: string, minLength: 1, description: Canonical META/<ResourceType>.ndjson path.}
+        sha256: {type: string, pattern: '^[0-9a-fA-F]{64}$', description: Optional expected file digest.}
+    SourceLoadPlan:
+      type: object
+      additionalProperties: false
+      required: [repository, commit, files]
+      properties:
+        repository: {type: string, minLength: 1}
+        commit: {type: string, minLength: 40, maxLength: 64}
+        files:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/SourceManifestFile'}
+        auth_resource_path: {type: string}
+        expected_revision: {type: integer, format: int64, minimum: 0}
+    SourceFileReceipt:
+      type: object
+      additionalProperties: false
+      required: [path, resource_type, sha256, rows, state]
+      properties:
+        path: {type: string}
+        resource_type: {type: string}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+        rows: {type: integer, format: int64, minimum: 0}
+        state: {type: string, enum: [READY]}
+    SourceLoadStatus:
+      type: object
+      additionalProperties: false
+      required: [operation_id, generation, state, base_revision, files]
+      properties:
+        operation_id: {type: string}
+        generation: {type: string}
+        state: {type: string, enum: [UPLOADING, READY, PUBLISH_PENDING, PUBLISHED, SUPERSEDED]}
+        base_revision: {type: integer, format: int64, minimum: 0}
+        files:
+          type: array
+          items: {$ref: '#/components/schemas/SourceFileReceipt'}
+    SourcePublishReceipt:
+      type: object
+      additionalProperties: false
+      required: [operation_id, source_revision, manifest_hash, execution_id, state, reused]
+      properties:
+        operation_id: {type: string}
+        source_revision: {type: integer, format: int64, minimum: 0}
+        manifest_hash: {type: string}
+        execution_id: {type: string}
+        state: {type: string, enum: [PUBLISHED]}
+        reused: {type: boolean}
+    SourceLoadValidationIssue:
+      type: object
+      additionalProperties: false
+      required: [filename, row, resourceType, category, message]
+      properties:
+        filename: {type: string}
+        row: {type: integer, format: int64, minimum: 1}
+        resourceType: {type: string}
+        category: {type: string}
+        message: {type: string, description: Safe summary without resource payloads or credentials.}
+    SourceLoadValidationDetails:
+      type: object
+      additionalProperties: false
+      required: [issues, totalErrors, truncated]
+      properties:
+        issues:
+          type: array
+          maxItems: 100
+          items: {$ref: '#/components/schemas/SourceLoadValidationIssue'}
+        totalErrors: {type: integer, format: int64, minimum: 0}
+        truncated: {type: boolean}
+    SourceLoadValidationErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, details]
+          properties:
+            code: {type: string, enum: [INVALID_DATA]}
+            message: {type: string}
+            details: {$ref: '#/components/schemas/SourceLoadValidationDetails'}
+            requestId: {type: string}
+            retryable: {type: boolean}
     SelectionResourceRef:
       type: object
       additionalProperties: false
@@ -2303,6 +3038,8 @@ components:
       required: [kind, output, rootResourceType, route, rows, columns]
       properties:
         kind: {type: string, enum: [ExplorerBuilderDocument]}
+        importedRecipe: {$ref: '#/components/schemas/ImportedRecipeRef'}
+        importedSource: {$ref: '#/components/schemas/ImportedSourcePlan'}
         output: {$ref: '#/components/schemas/Output'}
         rootResourceType: {type: string, minLength: 1}
         route: {$ref: '#/components/schemas/RouteNode'}
@@ -2436,6 +3173,265 @@ components:
         children:
           type: array
           items: {$ref: '#/components/schemas/RouteNode'}
+    ImportedRecipeRef:
+      type: object
+      additionalProperties: false
+      required: [name, translationVersion, digest, output]
+      properties:
+        name: {type: string, minLength: 1}
+        translationVersion: {type: string, minLength: 1}
+        digest: {type: string, pattern: '^[0-9a-f]{64}$'}
+        output: {type: string, minLength: 1}
+    ImportedSourcePlan:
+      type: object
+      additionalProperties: false
+      required: [steps]
+      properties:
+        ruleAdditions:
+          type: array
+          readOnly: true
+          items: {$ref: '#/components/schemas/ImportedSourceRuleAddition'}
+        fieldBindings:
+          type: array
+          readOnly: true
+          items:
+            type: object
+            additionalProperties: false
+            required: [fieldId, columnId]
+            properties:
+              fieldId: {type: string, minLength: 1}
+              columnId: {type: string, minLength: 1}
+        relationships: {$ref: '#/components/schemas/ImportedRelationshipOverlay'}
+        steps:
+          type: array
+          items: {$ref: '#/components/schemas/ImportedSourceStep'}
+    ImportedSourceRuleAddition:
+      type: object
+      additionalProperties: false
+      required: [stepId, kind, enabled, parameters]
+      properties:
+        kind: {type: string, enum: [DYNAMIC_COLUMN, EXTENSION_COLUMN, CATALOG_PROJECTION]}
+        occurrenceId: {type: string, minLength: 1}
+        maxColumns: {type: integer, minimum: 1, maximum: 128}
+        stepId: {type: string, minLength: 1}
+        enabled: {type: boolean}
+        parameters: {$ref: '#/components/schemas/ImportedSourceParameters'}
+    NetworkOccurrence:
+      type: object
+      additionalProperties: false
+      required: [occurrenceId, resourceType, labelMissing, enabled, preservesRowIdentity, canExcludeRows]
+      properties:
+        occurrenceId: {type: string, minLength: 1}
+        parentOccurrenceId: {type: string, minLength: 1}
+        sourceStepId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+        catalogEdgeId: {type: string, minLength: 1}
+        relationship: {type: string, minLength: 1}
+        storageDirection: {type: string, minLength: 1}
+        matchMode: {type: string, minLength: 1}
+        labelMissing: {type: boolean}
+        enabled: {type: boolean}
+        preservesRowIdentity: {type: boolean}
+        canExcludeRows: {type: boolean}
+    NetworkColumnBinding:
+      type: object
+      additionalProperties: false
+      required: [columnId, status]
+      properties:
+        columnId: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1}
+        sourceStepId: {type: string, minLength: 1}
+        outputKey: {type: string, minLength: 1}
+        valueMode: {type: string, minLength: 1}
+        status: {type: string, minLength: 1}
+    ProjectedField:
+      type: object
+      additionalProperties: false
+      required: [column, label, owner, removal, status]
+      properties:
+        columnId: {type: string, minLength: 1}
+        column: {type: string, minLength: 1}
+        label: {type: string}
+        occurrenceId: {type: string, minLength: 1}
+        owner:
+          type: string
+          enum: [PINNED_SOURCE, AUTHORED, UNKNOWN]
+          x-enum-varnames: [PROJECTED_FIELD_PINNED_SOURCE, PROJECTED_FIELD_AUTHORED, PROJECTED_FIELD_UNKNOWN_OWNER]
+        removal:
+          type: string
+          enum: [DISABLE_PINNED_FIELD, DISABLE_PINNED_OUTPUT, REMOVE_COLUMN, UNAVAILABLE]
+          x-enum-varnames: [PROJECTED_FIELD_DISABLE_PINNED, PROJECTED_FIELD_DISABLE_PINNED_OUTPUT, PROJECTED_FIELD_REMOVE_COLUMN, PROJECTED_FIELD_UNAVAILABLE]
+        status:
+          type: string
+          enum: [EXACT, UNKNOWN]
+          x-enum-varnames: [PROJECTED_FIELD_EXACT, PROJECTED_FIELD_UNKNOWN_STATUS]
+        sourceStepId: {type: string, minLength: 1}
+        sourceFieldId: {type: string, minLength: 1}
+        sourceOutputKey: {type: string, minLength: 1}
+    NetworkOperation:
+      type: object
+      additionalProperties: false
+      required: [operationId, kind, inputStepIds]
+      properties:
+        operationId: {type: string, minLength: 1}
+        kind: {type: string, minLength: 1}
+        inputStepIds: {type: array, items: {type: string, minLength: 1}}
+        anchorColumnId: {type: string, minLength: 1}
+    AuthoringNetwork:
+      type: object
+      additionalProperties: false
+      required: [owner, outputId, sourceRows, occurrences, bindings, operations]
+      properties:
+        owner: {type: string, enum: [DOCUMENT, IMPORTED_SOURCE]}
+        outputId: {type: string, minLength: 1}
+        sourceRows: {$ref: '#/components/schemas/RowDefinition'}
+        occurrences: {type: array, items: {$ref: '#/components/schemas/NetworkOccurrence'}}
+        bindings: {type: array, items: {$ref: '#/components/schemas/NetworkColumnBinding'}}
+        projectedFields: {type: array, items: {$ref: '#/components/schemas/ProjectedField'}}
+        operations: {type: array, items: {$ref: '#/components/schemas/NetworkOperation'}}
+    RowIdentity:
+      type: object
+      additionalProperties: false
+      required: [kind, scope]
+      properties:
+        kind: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        inputStageId: {type: string, minLength: 1}
+        anchorColumnId: {type: string, minLength: 1}
+        relatedRecordColumnId: {type: string, minLength: 1}
+        scopePath: {type: string, minLength: 1}
+        groupRevisionId: {type: string, minLength: 1}
+        missingPolicy: {type: string, minLength: 1}
+        scope: {type: string, minLength: 1}
+        keyColumnIds: {type: array, items: {type: string, minLength: 1}}
+    RowCountEvidence:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [UNKNOWN]}
+        value: {type: integer, format: int64, minimum: 0}
+    RowIdentityStage:
+      type: object
+      additionalProperties: false
+      required: [stageId, identity, meaning, effect, mayExcludeRows, multiplicity, count]
+      properties:
+        stageId: {type: string, minLength: 1}
+        operationId: {type: string, minLength: 1}
+        identity: {$ref: '#/components/schemas/RowIdentity'}
+        meaning: {type: string}
+        effect: {type: string, minLength: 1}
+        mayExcludeRows: {type: boolean}
+        multiplicity: {type: string, enum: [UNKNOWN]}
+        count: {$ref: '#/components/schemas/RowCountEvidence'}
+        unsupportedReason: {type: string, minLength: 1}
+    RelationshipRowEffect:
+      type: object
+      additionalProperties: false
+      required: [occurrenceId, matchMode, preservesIdentity, mayExcludeRows, multiplicity]
+      properties:
+        occurrenceId: {type: string, minLength: 1}
+        catalogEdgeId: {type: string, minLength: 1}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
+        preservesIdentity: {type: boolean}
+        mayExcludeRows: {type: boolean}
+        multiplicity: {type: string, enum: [UNKNOWN]}
+    RowIdentityPlan:
+      type: object
+      additionalProperties: false
+      required: [outputId, sourceDefinition, stages, relationships]
+      properties:
+        outputId: {type: string, minLength: 1}
+        sourceDefinition: {$ref: '#/components/schemas/RowDefinition'}
+        stages: {type: array, items: {$ref: '#/components/schemas/RowIdentityStage'}}
+        relationships: {type: array, items: {$ref: '#/components/schemas/RelationshipRowEffect'}}
+    AuthoringNetworkRequest:
+      type: object
+      x-go-type: lifecycle.AuthoringNetworkRequest
+      x-go-type-import:
+        name: lifecycle
+        path: github.com/calypr/loom/internal/explorer/lifecycle
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, format: int64, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+    AuthoringNetworkResponse:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, draftVersion, draftDigest, network, rowIdentity]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, format: int64, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        network: {$ref: '#/components/schemas/AuthoringNetwork'}
+        rowIdentity: {$ref: '#/components/schemas/RowIdentityPlan'}
+    ImportedRelationshipField:
+      type: object
+      additionalProperties: false
+      required: [candidateId, columnId, column, fieldPath, label, valueMode]
+      properties:
+        candidateId: {type: string, minLength: 1}
+        columnId: {type: string, minLength: 1}
+        column: {type: string, minLength: 1}
+        fieldPath: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+        valueMode: {type: string, enum: [ALL, FIRST, DISTINCT]}
+    ImportedRelationship:
+      type: object
+      additionalProperties: false
+      required: [occurrenceId, parentOccurrenceId, catalogEdgeId, relationship, resourceType, matchMode]
+      properties:
+        occurrenceId: {type: string, pattern: '^project_[A-Za-z0-9_]+$'}
+        parentOccurrenceId: {type: string, minLength: 1}
+        catalogEdgeId: {type: string, minLength: 1}
+        relationship: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        storageDirection: {type: string, enum: [INBOUND, OUTBOUND]}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
+        fields: {type: array, items: {$ref: '#/components/schemas/ImportedRelationshipField'}}
+    ImportedRelationshipMatch:
+      type: object
+      additionalProperties: false
+      required: [occurrenceId, matchMode]
+      properties:
+        occurrenceId: {type: string, minLength: 1}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
+    ImportedRelationshipOverlay:
+      type: object
+      additionalProperties: false
+      properties:
+        additions: {type: array, items: {$ref: '#/components/schemas/ImportedRelationship'}}
+        removals: {type: array, items: {type: string, minLength: 1}}
+        matchOverrides: {type: array, items: {$ref: '#/components/schemas/ImportedRelationshipMatch'}}
+    ImportedSourceStep:
+      type: object
+      additionalProperties: false
+      required: [id, kind, title, summary, enabled, editable]
+      properties:
+        id: {type: string, minLength: 1}
+        parentId: {type: string, minLength: 1}
+        sourceKey: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
+        kind: {type: string, minLength: 1}
+        title: {type: string, minLength: 1}
+        summary: {type: string, minLength: 1}
+        enabled: {type: boolean}
+        editable: {type: boolean}
+        maxColumns: {type: integer, minimum: 1}
+        valueMode: {type: string, minLength: 1}
+        parameters: {$ref: '#/components/schemas/ImportedSourceParameters'}
+    ImportedSource:
+      type: object
+      additionalProperties: false
+      required: [outputColumn]
+      properties:
+        outputColumn: {type: string, minLength: 1}
     ColumnSource:
       type: object
       additionalProperties: false
@@ -2443,7 +3439,8 @@ components:
       properties:
         kind:
           type: string
-          enum: [field, aggregate, identifierBySystem, extensionByUrl, codedValue, ownerRecords, projectId]
+          enum: [field, aggregate, identifierBySystem, extensionByUrl, codedValue, ownerRecords, projectId, imported]
+        imported: {$ref: '#/components/schemas/ImportedSource'}
         field: {$ref: '#/components/schemas/FieldSource'}
         aggregate: {$ref: '#/components/schemas/AggregateSource'}
         lookup: {$ref: '#/components/schemas/LookupSource'}
@@ -2824,7 +3821,7 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_CONSTRUCTION_OUTPUT, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, UPDATE_COLUMN_ROW_VALUE_POLICY, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, SET_FRAME_SOURCE, REPLACE_FRAME_SOURCE, REMOVE_FRAME_SOURCE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL, APPLY_POPULATION_MEMBER_PROPOSAL, RESTORE_DRAFT_REVISION]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_CONSTRUCTION_OUTPUT, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, UPDATE_COLUMN_ROW_VALUE_POLICY, REMOVE_COLUMN, REMOVE_PROJECTED_FIELD, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, SET_FRAME_SOURCE, REPLACE_FRAME_SOURCE, REMOVE_FRAME_SOURCE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL, APPLY_POPULATION_MEMBER_PROPOSAL, UPDATE_IMPORTED_SOURCE_STEP, REFRESH_IMPORTED_SOURCE, APPLY_IMPORTED_RELATIONSHIP_PROPOSAL, APPLY_COLUMN_POLICY_PROPOSAL, RESTORE_DRAFT_REVISION]
         outputId: {type: string, minLength: 1}
         proposalId: {type: string, minLength: 1}
         draftRevisionId: {type: string, minLength: 1}
@@ -2841,6 +3838,7 @@ components:
         projectionMode: {$ref: '#/components/schemas/ProjectionMode'}
         initialPresentation: {type: string, enum: [TABLE, FILTER, CHART]}
         column: {type: string, minLength: 1}
+        columnId: {type: string, minLength: 1}
         rowValuePolicy: {type: string, enum: [ALL, ONE]}
         columnValue: {$ref: '#/components/schemas/Column'}
         constructionOutput: {$ref: '#/components/schemas/ConstructionOutputPresentation'}
@@ -2856,12 +3854,528 @@ components:
           maxItems: 100
           items: {$ref: '#/components/schemas/SemanticSelectionIntent'}
         constructionChoice: {$ref: '#/components/schemas/ConstructionChoiceSelection'}
+        sourceStep: {$ref: '#/components/schemas/ImportedSourceStepChange'}
         frameChoiceId: {type: string, minLength: 1, maxLength: 16384}
         frameId: {type: string, minLength: 1}
         form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT]}
         outputIds:
           type: array
           items: {type: string, minLength: 1}
+    SourceRelationshipChange:
+      type: object
+      x-go-type: authoringv2.ImportedRelationshipChange
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+      additionalProperties: false
+      required: [action]
+      properties:
+        action: {type: string, enum: [ADD, MATCH, REMOVE]}
+        parentOccurrenceId: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1}
+        edgeId: {type: string, minLength: 1}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
+    SourceRuleCreate:
+      type: object
+      additionalProperties: false
+      required: [kind, parameters]
+      x-go-type: authoringv2.SourceRuleCreate
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+      oneOf:
+        - properties:
+            kind: {enum: [DYNAMIC_COLUMN]}
+            parameters: {required: [dynamic]}
+        - properties:
+            kind: {enum: [EXTENSION_COLUMN]}
+            parameters: {required: [extension]}
+        - properties:
+            kind: {enum: [CATALOG_PROJECTION]}
+            parameters: {required: [catalog]}
+      properties:
+        kind: {type: string, enum: [DYNAMIC_COLUMN, EXTENSION_COLUMN, CATALOG_PROJECTION]}
+        occurrenceId: {type: string, minLength: 1}
+        maxColumns: {type: integer, minimum: 1, maximum: 128}
+        parameters: {$ref: '#/components/schemas/ImportedSourceParameters'}
+    SourceRelationshipProposalRequest:
+      type: object
+      x-go-type: lifecycle.SourceRelationshipProposalRequest
+      x-go-type-import:
+        name: lifecycle
+        path: github.com/calypr/loom/internal/explorer/lifecycle
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId]
+      oneOf:
+        - required: [change]
+        - required: [sourceStep]
+        - required: [sourceSteps]
+        - required: [sourceRule]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, format: int64, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        change: {$ref: '#/components/schemas/SourceRelationshipChange'}
+        sourceRule: {$ref: '#/components/schemas/SourceRuleCreate'}
+        sourceStep: {$ref: '#/components/schemas/ImportedSourceStepChange'}
+        sourceSteps:
+          type: array
+          minItems: 1
+          maxItems: 128
+          items: {$ref: '#/components/schemas/ImportedSourceStepChange'}
+        limit: {type: integer, minimum: 1, maximum: 1000}
+        includePreview: {type: boolean, default: false}
+    SourceRelationshipProposal:
+      type: object
+      additionalProperties: false
+      required: [proposalId, candidateReceiptId, outputId, snapshotToken, draftVersion, draftDigest, baseDocumentDigest, candidateWorkspaceDigest, previewStatus, sampledRows, sampled, affectedColumns, notices, candidateDocument, candidateNetwork, candidateRowIdentity]
+      properties:
+        preview: {$ref: '#/components/schemas/PreviewResponse'}
+        candidateDocument: {$ref: '#/components/schemas/Document'}
+        candidateNetwork: {$ref: '#/components/schemas/AuthoringNetwork'}
+        candidateRowIdentity: {$ref: '#/components/schemas/RowIdentityPlan'}
+        proposalId: {type: string, minLength: 1}
+        candidateReceiptId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, format: int64, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        baseDocumentDigest: {type: string, minLength: 1}
+        candidateWorkspaceDigest: {type: string, minLength: 1}
+        previewStatus: {type: string, enum: [READY]}
+        sampledRows: {type: integer, minimum: 0}
+        sampled: {type: boolean}
+        affectedColumns: {type: array, items: {type: string}}
+        notices: {type: array, items: {type: string}}
+    ColumnPolicyProposalRequest:
+      type: object
+      x-go-type: lifecycle.ColumnPolicyProposalRequest
+      x-go-type-import:
+        name: lifecycle
+        path: github.com/calypr/loom/internal/explorer/lifecycle
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, columnId, projectionMode]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, format: int64, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        columnId: {type: string, minLength: 1}
+        projectionMode: {type: string, enum: [VALUE, INDEXED, FIRST, ALL, DISTINCT]}
+        limit: {type: integer, minimum: 1, maximum: 1000}
+    ColumnPolicyProposal:
+      $ref: '#/components/schemas/SourceRelationshipProposal'
+    SourceRecipeExpression:
+      type: object
+      additionalProperties: false
+      properties:
+        select:
+          type: string
+          maxLength: 2048
+          minLength: 1
+        literal: {}
+        call:
+          type: string
+          maxLength: 2048
+          minLength: 1
+        args:
+          type: array
+          maxItems: 4096
+          items:
+            $ref: '#/components/schemas/SourceRecipeExpression'
+        document:
+          type: object
+          additionalProperties: false
+          properties:
+            context:
+              type: string
+              maxLength: 2048
+      oneOf:
+      - required:
+        - select
+      - required:
+        - literal
+      - required:
+        - call
+      - required:
+        - document
+      x-go-type: recipe.Expression
+      x-go-type-import:
+        name: recipe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+      description: Existing recipe expression wire format. Read descriptors preserve pinned functions. Source edits admit
+        only select, primitive literal, and first/all/reference_id/last_segment/coalesce/coalesce_string/join/concat/uuid5;
+        document references are not editable.
+    ImportedSourceFieldParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - fieldId
+      - enabled
+      - name
+      - expr
+      properties:
+        fieldId:
+          type: string
+          maxLength: 2048
+          minLength: 1
+        enabled:
+          type: boolean
+        name:
+          type: string
+          maxLength: 2048
+          minLength: 1
+        label:
+          type: string
+          maxLength: 2048
+        expr:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        fallbacks:
+          type: array
+          maxItems: 4096
+          items:
+            $ref: '#/components/schemas/SourceRecipeExpression'
+        valueMode:
+          type: string
+          enum:
+          - ''
+          - AUTO
+          - FIRST
+          - ALL
+          - DISTINCT
+      x-go-type: authoringv2.ImportedFieldParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedOutputParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - rowGrain
+      properties:
+        rowGrain:
+          type: string
+          maxLength: 2048
+          minLength: 1
+        collisionPolicy:
+          type: string
+          enum:
+          - ''
+          - error
+          - overwrite
+          - coalesce
+      x-go-type: authoringv2.ImportedOutputParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedFieldGroupParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - fields
+      properties:
+        fields:
+          type: array
+          maxItems: 4096
+          items:
+            $ref: '#/components/schemas/ImportedSourceFieldParameters'
+      x-go-type: authoringv2.ImportedFieldGroupParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedCatalogParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          maxLength: 2048
+        includePaths:
+          type: array
+          maxItems: 4096
+          items:
+            type: string
+            maxLength: 2048
+        excludePaths:
+          type: array
+          maxItems: 4096
+          items:
+            type: string
+            maxLength: 2048
+        outputs:
+          type: array
+          maxItems: 512
+          items:
+            type: object
+            additionalProperties: false
+            required: [fieldPath, enabled]
+            properties:
+              fieldPath: {type: string, minLength: 1, maxLength: 512}
+              enabled: {type: boolean}
+              name: {type: string, minLength: 1, maxLength: 128}
+        kinds:
+          type: array
+          maxItems: 4096
+          items:
+            type: string
+            maxLength: 2048
+        naming:
+          type: string
+          enum:
+          - ''
+          - PATH
+          - PATH_SUFFIX
+      x-go-type: authoringv2.ImportedCatalogParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedDynamicParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - source
+      properties:
+        name:
+          type: string
+          maxLength: 2048
+        columnPrefix:
+          type: string
+          maxLength: 2048
+        source:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        key:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        value:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        outputs:
+          type: array
+          maxItems: 4096
+          items:
+            type: object
+            additionalProperties: false
+            required: [key, enabled]
+            properties:
+              key: {type: string, minLength: 1, maxLength: 2048}
+              enabled: {type: boolean}
+      x-go-type: authoringv2.ImportedDynamicParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedExtensionParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - source
+      properties:
+        name:
+          type: string
+          maxLength: 2048
+        columnPrefix:
+          type: string
+          maxLength: 2048
+        source:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        outputs:
+          type: array
+          maxItems: 256
+          items:
+            type: object
+            additionalProperties: false
+            required: [key, enabled]
+            properties:
+              key: {type: string, pattern: '^ext-v1:[0-9a-f]{64}$'}
+              enabled: {type: boolean}
+      x-go-type: authoringv2.ImportedExtensionParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedPivotParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          maxLength: 2048
+        discovery:
+          type: object
+          additionalProperties: false
+          properties:
+            family:
+              type: string
+              maxLength: 2048
+            path:
+              type: string
+              maxLength: 2048
+        columnExpr:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        valueExpr:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        valueFallbacks:
+          type: array
+          maxItems: 4096
+          items:
+            $ref: '#/components/schemas/SourceRecipeExpression'
+        itemSource:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        itemResourceType:
+          type: string
+          maxLength: 2048
+        columns:
+          type: array
+          maxItems: 4096
+          items:
+            type: string
+            maxLength: 2048
+        columnAliases:
+          type: object
+          additionalProperties:
+            type: string
+            maxLength: 2048
+        outputs:
+          type: array
+          maxItems: 256
+          items:
+            type: object
+            additionalProperties: false
+            required: [key, enabled]
+            properties:
+              key: {type: string, minLength: 1, maxLength: 2048}
+              enabled: {type: boolean}
+              name: {type: string, maxLength: 128}
+      x-go-type: authoringv2.ImportedPivotParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedExpansionParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - from
+      - as
+      properties:
+        from:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        as:
+          type: string
+          maxLength: 2048
+        ordinality:
+          type: string
+          maxLength: 2048
+        emptyPolicy:
+          type: string
+          enum:
+          - ''
+          - ERROR
+          - EXCLUDE
+          - PRESERVE_PARENT
+      x-go-type: authoringv2.ImportedExpansionParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedIdentityParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - expr
+      properties:
+        name:
+          type: string
+          maxLength: 2048
+        expr:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+      x-go-type: authoringv2.ImportedIdentityParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedTraversalParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - toResourceType
+      properties:
+        name:
+          type: string
+          maxLength: 2048
+        toResourceType:
+          type: string
+          maxLength: 2048
+        alias:
+          type: string
+          maxLength: 2048
+        from:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+      x-go-type: authoringv2.ImportedTraversalParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedSourceParameters:
+      type: object
+      additionalProperties: false
+      properties:
+        output:
+          $ref: '#/components/schemas/ImportedOutputParameters'
+        fieldGroup:
+          $ref: '#/components/schemas/ImportedFieldGroupParameters'
+        catalog:
+          $ref: '#/components/schemas/ImportedCatalogParameters'
+        dynamic:
+          $ref: '#/components/schemas/ImportedDynamicParameters'
+        extension:
+          $ref: '#/components/schemas/ImportedExtensionParameters'
+        pivot:
+          $ref: '#/components/schemas/ImportedPivotParameters'
+        expansion:
+          $ref: '#/components/schemas/ImportedExpansionParameters'
+        identity:
+          $ref: '#/components/schemas/ImportedIdentityParameters'
+        traversal:
+          $ref: '#/components/schemas/ImportedTraversalParameters'
+      oneOf:
+      - required:
+        - output
+      - required:
+        - fieldGroup
+      - required:
+        - catalog
+      - required:
+        - dynamic
+      - required:
+        - extension
+      - required:
+        - pivot
+      - required:
+        - expansion
+      - required:
+        - identity
+      - required:
+        - traversal
+      x-go-type: authoringv2.ImportedSourceParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedSourceStepChange:
+      type: object
+      x-go-type: authoringv2.ImportedSourceStepChange
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+      additionalProperties: false
+      required: [stepId, enabled]
+      properties:
+        stepId: {type: string, minLength: 1}
+        enabled: {type: boolean}
+        maxColumns: {type: integer, minimum: 1}
+        valueMode: {type: string, minLength: 1}
+        parameters: {$ref: '#/components/schemas/ImportedSourceParameters'}
     ConstructionChoiceSelection:
       type: object
       additionalProperties: false
@@ -2977,6 +4491,9 @@ components:
         currentRootResourceType: {type: string, minLength: 1}
         candidateRootResourceType: {type: string, minLength: 1}
         proposal: {$ref: '#/components/schemas/RowChangeProposal'}
+        candidateDocument: {$ref: '#/components/schemas/Document', description: Exact verified target document; present only for READY. The preview receipt may scope out downstream consumers.}
+        candidateNetwork: {$ref: '#/components/schemas/AuthoringNetwork', description: Present only for READY.}
+        candidateRowIdentity: {$ref: '#/components/schemas/RowIdentityPlan', description: Present only for READY.}
         candidateReceiptId:
           type: string
           minLength: 1
@@ -3613,8 +5130,11 @@ components:
     RowDefinitionProposal:
       type: object
       additionalProperties: false
-      required: [baseReceiptId, outputId, snapshotToken, draftVersion, draftDigest, baseDocumentDigest, candidateWorkspaceDigest, mode, comparison]
+      required: [baseReceiptId, outputId, snapshotToken, draftVersion, draftDigest, baseDocumentDigest, candidateWorkspaceDigest, mode, comparison, candidateDocument, candidateNetwork, candidateRowIdentity]
       properties:
+        candidateDocument: {$ref: '#/components/schemas/Document'}
+        candidateNetwork: {$ref: '#/components/schemas/AuthoringNetwork'}
+        candidateRowIdentity: {$ref: '#/components/schemas/RowIdentityPlan'}
         proposalId: {type: string, minLength: 1, description: Present only when a candidate receipt can be applied through the existing proposal command.}
         baseReceiptId: {type: string, minLength: 1}
         outputId: {type: string, minLength: 1}
@@ -3687,7 +5207,7 @@ components:
       additionalProperties: false
       required: [kind]
       properties:
-        kind: {type: string, enum: [SOURCE_PROJECTION, STEP_OUTPUT, TABLE_REVISION]}
+        kind: {type: string, enum: [SOURCE_PROJECTION, STEP_OUTPUT, TABLE_REVISION, WORKSPACE_OUTPUT]}
         stepId: {type: string, minLength: 1}
         tableId: {type: string, minLength: 1}
         revisionId: {type: string, minLength: 1}
@@ -3861,9 +5381,16 @@ components:
         categories:
           type: array
           items: {$ref: '#/components/schemas/ConstructionPivotCategory'}
+        discovery: {$ref: '#/components/schemas/ConstructionPivotDiscovery'}
         duplicatePolicy: {type: string, enum: [ERROR, SUM, MIN, MAX]}
-        missingCellPolicy: {type: string, enum: [NULL, ERROR]}
+        missingCellPolicy: {type: string, enum: ["NULL", ERROR]}
         unlistedCategoryPolicy: {type: string, enum: [ERROR, EXCLUDE_WITH_EVIDENCE]}
+    ConstructionPivotDiscovery:
+      type: object
+      additionalProperties: false
+      required: [maxCategories]
+      properties:
+        maxCategories: {type: integer, minimum: 1, maximum: 256}
     ConstructionPivotCategory:
       type: object
       additionalProperties: false
@@ -3885,7 +5412,7 @@ components:
           maxItems: 50
           items: {$ref: '#/components/schemas/ConstructionCodedPivotCategory'}
         duplicatePolicy: {type: string, enum: [ERROR, SUM, MIN, MAX]}
-        missingCellPolicy: {type: string, enum: [NULL, ERROR]}
+        missingCellPolicy: {type: string, enum: ["NULL", ERROR]}
     ConstructionCodedPivotSource:
       type: object
       additionalProperties: false
@@ -3912,7 +5439,7 @@ components:
       additionalProperties: false
       required: [kind]
       properties:
-        kind: {type: string, enum: [STRING, INTEGER, DECIMAL, BOOLEAN, NULL, MISSING]}
+        kind: {type: string, enum: [STRING, INTEGER, DECIMAL, BOOLEAN, "NULL", MISSING]}
         string: {type: string}
         integer: {type: integer, format: int64}
         decimal: {type: number}
@@ -3928,7 +5455,7 @@ components:
         left: {$ref: '#/components/schemas/ConstructionOperand'}
         right: {$ref: '#/components/schemas/ConstructionOperand'}
         missingInputPolicy: {type: string, enum: [PROPAGATE_NULL, ERROR]}
-        divisionByZeroPolicy: {type: string, enum: [NULL, ERROR]}
+        divisionByZeroPolicy: {type: string, enum: ["NULL", ERROR]}
     ConstructionOperand:
       type: object
       additionalProperties: false
@@ -4304,6 +5831,48 @@ components:
         outputId: {type: string, minLength: 1}
         stageId: {type: string, minLength: 1}
         groupStepId: {type: string, minLength: 1}
+        includeGroupChoices: {type: boolean}
+    ConstructionColumnPopulationRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, stageId, columnIds]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        stageId: {type: string, minLength: 1}
+        columnIds:
+          type: array
+          minItems: 1
+          maxItems: 16
+          uniqueItems: true
+          items: {type: string, minLength: 1}
+    ColumnPopulationSummary:
+      type: object
+      additionalProperties: false
+      required: [columnId, status]
+      properties:
+        columnId: {type: string, minLength: 1}
+        status:
+          type: string
+          enum: [POPULATED, EMPTY, UNKNOWN]
+          x-enum-varnames: [COLUMN_POPULATION_POPULATED, COLUMN_POPULATION_EMPTY, COLUMN_POPULATION_UNKNOWN]
+    ConstructionColumnPopulationResponse:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, draftVersion, draftDigest, outputId, stageId, columns]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        stageId: {type: string, minLength: 1}
+        columns:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items: {$ref: '#/components/schemas/ColumnPopulationSummary'}
     ConstructionCategoryDiscoveryRequest:
       type: object
       additionalProperties: false
@@ -4343,15 +5912,15 @@ components:
         stageId: {type: string, minLength: 1}
         categoryColumnId: {type: string, minLength: 1}
         valueColumnId: {type: string, minLength: 1}
-        outcome: {type: string, enum: [COMPLETE, LIMIT_EXCEEDED, MISSING_UNSUPPORTED], description: COMPLETE includes a complete compiler proof; LIMIT_EXCEEDED is a compiler-proven overflow and carries no partial category set; MISSING_UNSUPPORTED means the selected stage contains MISSING values that a construction Pivot cannot preserve separately from NULL.}
+        outcome: {type: string, enum: [COMPLETE, LIMIT_EXCEEDED, MISSING_UNSUPPORTED, NO_VALUES], description: COMPLETE includes a complete compiler proof; LIMIT_EXCEEDED is a compiler-proven overflow and carries no partial category set; MISSING_UNSUPPORTED means the selected stage contains MISSING values that a construction Pivot cannot preserve separately from NULL; NO_VALUES means no category has a non-null value for the selected value column.}
         complete: {type: boolean, description: True only when the full category set was returned.}
         proofFingerprint: {type: string, minLength: 1, description: Present only for COMPLETE.}
         categories:
           type: array
           items: {$ref: '#/components/schemas/ConstructionDiscoveredCategory'}
-          description: Empty for LIMIT_EXCEEDED and MISSING_UNSUPPORTED; partial or unsupported category values are never returned.
+          description: "Empty for LIMIT_EXCEEDED, MISSING_UNSUPPORTED, and NO_VALUES; partial or unsupported category values are never returned."
         limit: {type: integer, minimum: 1, description: Present only for LIMIT_EXCEEDED; maximum supported number of categories.}
-        message: {type: string, minLength: 1, description: Present for LIMIT_EXCEEDED or MISSING_UNSUPPORTED; user-facing recovery guidance.}
+        message: {type: string, minLength: 1, description: "Present for LIMIT_EXCEEDED, MISSING_UNSUPPORTED, or NO_VALUES; user-facing recovery guidance."}
     ConstructionOperationCapability:
       type: object
       additionalProperties: false
@@ -4523,6 +6092,10 @@ components:
         draftDigest: {type: string, minLength: 1}
         outputId: {type: string, minLength: 1}
         stageId: {type: string, minLength: 1}
+        nodeOccurrences:
+          type: object
+          description: Maps catalog node IDs to their authored route occurrence IDs.
+          additionalProperties: {type: string}
         baseConstruction: {$ref: '#/components/schemas/Construction'}
         stages:
           type: array
@@ -4897,6 +6470,15 @@ components:
       properties:
         rowChoiceId: {type: string, minLength: 1}
         columnId: {type: string, minLength: 1}
+    ConstructionProposalDiagnostic:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code: {type: string, minLength: 1}
+        message: {type: string, minLength: 1}
+        stepId: {type: string, minLength: 1}
+        outcome: {type: string, minLength: 1}
     ConstructionProposalResponse:
       type: object
       additionalProperties: false
@@ -4919,6 +6501,9 @@ components:
         previewStatus: {type: string, enum: [READY, NEEDS_REPAIR]}
         previewDurationMs: {type: integer, format: int64, minimum: 0}
         preview: {$ref: '#/components/schemas/PreviewResponse'}
+        diagnostics:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionProposalDiagnostic'}
     ConstructionChoiceProposalRequest:
       type: object
       additionalProperties: false
@@ -4941,7 +6526,7 @@ components:
       required: [choiceId, form]
       properties:
         choiceId: {type: string, minLength: 1, maxLength: 16384}
-        form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT, OWNER_RECORDS]}
+        form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT, OWNER_RECORDS, COUNT, PRESENCE]}
         frameId: {type: string, minLength: 1}
         rowValuePolicy: {type: string, enum: [ALL, ONE]}
         title: {type: string}
@@ -4969,902 +6554,6 @@ components:
         previewStatus: {type: string, enum: [READY]}
         previewDurationMs: {type: integer, format: int64, minimum: 0}
         preview: {$ref: '#/components/schemas/PreviewResponse'}
-    TableShapeCapabilitiesRequest:
-      type: object
-      additionalProperties: false
-      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId]
-      properties:
-        snapshotToken: {type: string, minLength: 1}
-        expectedDraftVersion: {type: integer, minimum: 1}
-        expectedDraftDigest: {type: string, minLength: 1}
-        outputId: {type: string, minLength: 1}
-    TableShapeCapabilitiesResponse:
-      type: object
-      additionalProperties: false
-      required: [catalogId, outputId, reshapeModes, groupColumns, categoryColumns, valueColumns, pivotCategoryDiscovery, duplicatePolicies, missingCellPolicies, unlistedCategoryPolicies, unpivotColumns, unpivotKeyOutput, unpivotValueOutput, unpivotNullRowPolicies, derivedAvailability, unpivotWithDerivedAvailability, derivedOutputSuggestions, binaryOperators, operands, missingInputPolicies, divisionByZeroPolicies, savedProposalIntent, savedProposalAvailability]
-      properties:
-        catalogId: {type: string, minLength: 1}
-        outputId: {type: string, minLength: 1}
-        reshapeModes:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeReshapeModeChoice'}
-        groupColumns:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
-        categoryColumns:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
-        valueColumns:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
-        pivotCategoryDiscovery: {$ref: '#/components/schemas/TableShapePivotCategoryDiscovery'}
-        duplicatePolicies:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
-        missingCellPolicies:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
-        unlistedCategoryPolicies:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
-        unpivotColumns:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
-        unpivotKeyOutput: {$ref: '#/components/schemas/TableShapeOutputDescriptorSupport'}
-        unpivotValueOutput: {$ref: '#/components/schemas/TableShapeOutputDescriptorSupport'}
-        unpivotNullRowPolicies:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
-        derivedAvailability: {$ref: '#/components/schemas/TableShapeChoiceAvailability'}
-        unpivotWithDerivedAvailability: {$ref: '#/components/schemas/TableShapeChoiceAvailability'}
-        derivedOutputSuggestions:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeOutputSuggestion'}
-        binaryOperators:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeBinaryOperatorChoice'}
-        operands:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
-        missingInputPolicies:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
-        divisionByZeroPolicies:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
-        savedProposalIntent: {$ref: '#/components/schemas/TableShapeProposalIntent'}
-        savedProposalAvailability: {$ref: '#/components/schemas/TableShapeChoiceAvailability'}
-    TableShapeChoiceAvailability:
-      type: object
-      additionalProperties: false
-      required: [kind]
-      properties:
-        kind: {type: string, enum: [supported, unsupported]}
-        reason: {type: string}
-    TableShapeEditorChoice:
-      type: object
-      additionalProperties: false
-      required: [choiceId, choiceKind, label, availability]
-      properties:
-        choiceId: {type: string, minLength: 1}
-        choiceKind: {type: string, enum: [column, duplicatePolicy, missingCellPolicy, unlistedCategoryPolicy, unpivotNullRowPolicy, binaryOperator, operand, missingInputPolicy, divisionByZeroPolicy]}
-        label: {type: string}
-        availability: {$ref: '#/components/schemas/TableShapeChoiceAvailability'}
-    TableShapeReshapeModeChoice:
-      type: object
-      additionalProperties: false
-      required: [choiceId, choiceKind, label, availability, mode]
-      properties:
-        choiceId: {type: string, minLength: 1}
-        choiceKind: {type: string, enum: [reshapeMode]}
-        label: {type: string}
-        availability: {$ref: '#/components/schemas/TableShapeChoiceAvailability'}
-        mode: {type: string, enum: [NONE, GROUPED_PIVOT, UNPIVOT]}
-    TableShapeBinaryOperatorChoice:
-      type: object
-      additionalProperties: false
-      required: [choiceId, choiceKind, label, availability, requiresDivisionByZeroPolicy]
-      properties:
-        choiceId: {type: string, minLength: 1}
-        choiceKind: {type: string, enum: [binaryOperator]}
-        label: {type: string}
-        availability: {$ref: '#/components/schemas/TableShapeChoiceAvailability'}
-        requiresDivisionByZeroPolicy: {type: boolean}
-    TableShapeOutputName:
-      type: object
-      additionalProperties: false
-      required: [column, label]
-      properties:
-        column: {type: string, minLength: 1}
-        label: {type: string, minLength: 1}
-    TableShapeOutputSuggestion:
-      type: object
-      additionalProperties: false
-      required: [choiceId, choiceKind, label, availability, suggestedOutput, resultTypeLabel]
-      properties:
-        choiceId: {type: string, minLength: 1}
-        choiceKind: {type: string, enum: [unpivotKeyOutput, unpivotValueOutput, derivedOutput]}
-        label: {type: string}
-        availability: {$ref: '#/components/schemas/TableShapeChoiceAvailability'}
-        suggestedOutput: {$ref: '#/components/schemas/TableShapeOutputName'}
-        resultTypeLabel: {type: string}
-    TableShapeOutputDescriptorSupport:
-      type: object
-      additionalProperties: false
-      required: [kind]
-      properties:
-        kind: {type: string, enum: [supported, unsupported]}
-        reason: {type: string}
-        resultTypeLabel: {type: string}
-        suggestions:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeOutputSuggestion'}
-    TableShapePivotCategoryReference:
-      type: object
-      additionalProperties: false
-      required: [kind, choiceId]
-      properties:
-        kind: {type: string, enum: [pivotCategory]}
-        choiceId: {type: string, minLength: 1}
-    TableShapePivotCategoryChoice:
-      type: object
-      additionalProperties: false
-      required: [choiceId, choiceKind, label, availability, suggestedOutput, value]
-      properties:
-        choiceId: {type: string, minLength: 1}
-        choiceKind: {type: string, enum: [pivotCategory]}
-        label: {type: string}
-        availability: {$ref: '#/components/schemas/TableShapeChoiceAvailability'}
-        suggestedOutput: {$ref: '#/components/schemas/TableShapeOutputName'}
-        value: {$ref: '#/components/schemas/TableShapeScalar'}
-    TableShapeChoiceReference:
-      type: object
-      additionalProperties: false
-      required: [kind, choiceId]
-      properties:
-        kind: {type: string, enum: [reshapeMode, column, pivotCategory, duplicatePolicy, missingCellPolicy, unlistedCategoryPolicy, unpivotNullRowPolicy, binaryOperator, operand, missingInputPolicy, divisionByZeroPolicy]}
-        choiceId: {type: string, minLength: 1}
-    TableShapePivotCategoryPair:
-      type: object
-      additionalProperties: false
-      required: [categoryColumn, valueColumn]
-      properties:
-        categoryColumn: {$ref: '#/components/schemas/TableShapeColumnReference'}
-        valueColumn: {$ref: '#/components/schemas/TableShapeColumnReference'}
-    TableShapePivotCategoryDiscovery:
-      type: object
-      additionalProperties: false
-      required: [kind]
-      properties:
-        kind: {type: string, enum: [not-requested, complete]}
-        discoveryIdentity: {type: string}
-        pair: {$ref: '#/components/schemas/TableShapePivotCategoryPair'}
-        categories:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapePivotCategoryChoice'}
-    TableShapeColumnReference:
-      type: object
-      additionalProperties: false
-      required: [kind, choiceId]
-      properties:
-        kind: {type: string, enum: [column]}
-        choiceId: {type: string, minLength: 1}
-    TableShapePivotOutputReference:
-      type: object
-      additionalProperties: false
-      required: [kind]
-      properties:
-        kind: {type: string, enum: [group, category]}
-        column: {$ref: '#/components/schemas/TableShapeColumnReference'}
-        category: {$ref: '#/components/schemas/TableShapePivotCategoryReference'}
-    TableShapePivotProposal:
-      type: object
-      additionalProperties: false
-      required: [groupColumns, categoryColumn, valueColumn, categoryDiscoveryIdentity, includedCategories, duplicatePolicy, missingCellPolicy, unlistedCategoryPolicy]
-      properties:
-        groupColumns:
-          type: array
-          minItems: 1
-          items: {$ref: '#/components/schemas/TableShapeColumnReference'}
-        categoryColumn: {$ref: '#/components/schemas/TableShapeColumnReference'}
-        valueColumn: {$ref: '#/components/schemas/TableShapeColumnReference'}
-        categoryDiscoveryIdentity: {type: string, minLength: 1}
-        includedCategories:
-          type: array
-          minItems: 1
-          items: {$ref: '#/components/schemas/TableShapeSavedPivotCategorySelection'}
-        duplicatePolicy: {$ref: '#/components/schemas/TableShapeDuplicatePolicyReference'}
-        missingCellPolicy: {$ref: '#/components/schemas/TableShapeMissingCellPolicyReference'}
-        unlistedCategoryPolicy: {$ref: '#/components/schemas/TableShapeUnlistedCategoryPolicyReference'}
-    TableShapeSavedPivotCategorySelection:
-      type: object
-      additionalProperties: false
-      required: [category, output]
-      properties:
-        category: {$ref: '#/components/schemas/TableShapePivotCategoryReference'}
-        output: {$ref: '#/components/schemas/TableShapeOutputName'}
-    TableShapeUnpivotProposal:
-      type: object
-      additionalProperties: false
-      required: [inputColumns, keyOutput, valueOutput, nullRowPolicy]
-      properties:
-        inputColumns:
-          type: array
-          minItems: 2
-          items: {$ref: '#/components/schemas/TableShapeColumnReference'}
-        keyOutput: {$ref: '#/components/schemas/TableShapeOutputName'}
-        valueOutput: {$ref: '#/components/schemas/TableShapeOutputName'}
-        nullRowPolicy: {$ref: '#/components/schemas/TableShapeUnpivotNullRowPolicyReference'}
-    TableShapeDerivedColumnProposal:
-      type: object
-      additionalProperties: false
-      required: [localId, output, operator, leftOperand, rightOperand, missingInputPolicy]
-      properties:
-        localId: {type: string, minLength: 1}
-        output: {$ref: '#/components/schemas/TableShapeOutputName'}
-        operator: {$ref: '#/components/schemas/TableShapeBinaryOperatorReference'}
-        leftOperand: {$ref: '#/components/schemas/TableShapeDerivedOperandIntent'}
-        rightOperand: {$ref: '#/components/schemas/TableShapeDerivedOperandIntent'}
-        missingInputPolicy: {$ref: '#/components/schemas/TableShapeMissingInputPolicyReference'}
-        divisionByZeroPolicy: {$ref: '#/components/schemas/TableShapeDivisionByZeroPolicyReference'}
-    TableShapeDerivedOperandIntent:
-      type: object
-      additionalProperties: false
-      required: [kind]
-      properties:
-        kind: {type: string, enum: [base, derived, pivotOutput, literal]}
-        reference: {$ref: '#/components/schemas/TableShapeDerivedOperandReference'}
-        localId: {type: string}
-        representation: {type: string, enum: [integer, decimal]}
-        text: {type: string}
-    TableShapeDerivedOperandReference:
-      type: object
-      additionalProperties: false
-      required: [kind]
-      properties:
-        kind: {type: string, enum: [operand, group, category]}
-        choiceId: {type: string}
-        column: {$ref: '#/components/schemas/TableShapeColumnReference'}
-        category: {$ref: '#/components/schemas/TableShapePivotCategoryReference'}
-    TableShapeProposalIntent:
-      type: object
-      additionalProperties: false
-      required: [kind, reshapeMode, derivedColumns]
-      properties:
-        kind: {type: string, enum: [NONE, GROUPED_PIVOT, UNPIVOT]}
-        reshapeMode: {$ref: '#/components/schemas/TableShapeReshapeModeReference'}
-        pivot: {$ref: '#/components/schemas/TableShapePivotProposal'}
-        unpivot: {$ref: '#/components/schemas/TableShapeUnpivotProposal'}
-        derivedColumns:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeDerivedColumnProposal'}
-    TableShapeReshapeModeReference:
-      type: object
-      additionalProperties: false
-      required: [kind, choiceId]
-      properties:
-        kind: {type: string, enum: [reshapeMode]}
-        choiceId: {type: string, minLength: 1}
-    TableShapeDuplicatePolicyReference:
-      type: object
-      additionalProperties: false
-      required: [kind, choiceId]
-      properties:
-        kind: {type: string, enum: [duplicatePolicy]}
-        choiceId: {type: string, minLength: 1}
-    TableShapeMissingCellPolicyReference:
-      type: object
-      additionalProperties: false
-      required: [kind, choiceId]
-      properties:
-        kind: {type: string, enum: [missingCellPolicy]}
-        choiceId: {type: string, minLength: 1}
-    TableShapeUnlistedCategoryPolicyReference:
-      type: object
-      additionalProperties: false
-      required: [kind, choiceId]
-      properties:
-        kind: {type: string, enum: [unlistedCategoryPolicy]}
-        choiceId: {type: string, minLength: 1}
-    TableShapeUnpivotNullRowPolicyReference:
-      type: object
-      additionalProperties: false
-      required: [kind, choiceId]
-      properties:
-        kind: {type: string, enum: [unpivotNullRowPolicy]}
-        choiceId: {type: string, minLength: 1}
-    TableShapeBinaryOperatorReference:
-      type: object
-      additionalProperties: false
-      required: [kind, choiceId]
-      properties:
-        kind: {type: string, enum: [binaryOperator]}
-        choiceId: {type: string, minLength: 1}
-    TableShapeMissingInputPolicyReference:
-      type: object
-      additionalProperties: false
-      required: [kind, choiceId]
-      properties:
-        kind: {type: string, enum: [missingInputPolicy]}
-        choiceId: {type: string, minLength: 1}
-    TableShapeDivisionByZeroPolicyReference:
-      type: object
-      additionalProperties: false
-      required: [kind, choiceId]
-      properties:
-        kind: {type: string, enum: [divisionByZeroPolicy]}
-        choiceId: {type: string, minLength: 1}
-    TableShapeCatalogColumn:
-      type: object
-      additionalProperties: false
-      required: [label, logicalType, nullable]
-      properties:
-        label: {type: string}
-        logicalType: {$ref: '#/components/schemas/TableShapeLogicalType'}
-        nullable: {type: boolean}
-        unitIdentity: {type: string}
-        choices:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeColumnChoice'}
-    TableShapeColumnChoice:
-      type: object
-      additionalProperties: false
-      required: [role, id]
-      properties:
-        role: {$ref: '#/components/schemas/TableShapeChoiceRole'}
-        id: {type: string, minLength: 1}
-    TableShapeCatalogChoice:
-      type: object
-      additionalProperties: false
-      required: [role, id, label]
-      properties:
-        role: {$ref: '#/components/schemas/TableShapeChoiceRole'}
-        id: {type: string, minLength: 1}
-        label: {type: string}
-        type: {$ref: '#/components/schemas/TableShapeTypeFact'}
-    TableShapeChoiceRole:
-      type: string
-      enum: [PIVOT_GROUP, PIVOT_CATEGORY, PIVOT_CATEGORY_VALUE, PIVOT_VALUE, UNPIVOT_INPUT, DERIVED_OPERAND, DERIVED_OPERATOR, POLICY_DUPLICATE, POLICY_MISSING, POLICY_UNLISTED, POLICY_UNPIVOT_NULL, POLICY_DERIVED_MISSING, POLICY_DIVISION_BY_ZERO]
-    TableShapeLogicalType:
-      type: string
-      enum: [STRING, INTEGER, DECIMAL, BOOLEAN, DATE, DATETIME, OBJECT]
-    TableShapeTypeFact:
-      type: object
-      additionalProperties: false
-      required: [logicalType, nullable]
-      properties:
-        logicalType: {$ref: '#/components/schemas/TableShapeLogicalType'}
-        nullable: {type: boolean}
-        unitIdentity: {type: string}
-    TableShapeRoleAvailability:
-      type: object
-      additionalProperties: false
-      required: [role, state]
-      properties:
-        role: {$ref: '#/components/schemas/TableShapeChoiceRole'}
-        state: {type: string, enum: [SUPPORTED, REFUSED]}
-        reasonCode: {type: string}
-        message: {type: string}
-    TableShapeReshapeMode:
-      type: object
-      additionalProperties: false
-      required: [id, mode, label, state]
-      properties:
-        id: {type: string, minLength: 1}
-        mode: {type: string, enum: [NONE, GROUPED_PIVOT, UNPIVOT]}
-        label: {type: string}
-        state: {type: string, enum: [SUPPORTED, REFUSED]}
-        reasonCode: {type: string}
-        reason: {type: string}
-    TableShapeSavedSummary:
-      type: object
-      additionalProperties: false
-      required: [derivedColumns]
-      properties:
-        reshapeKind: {type: string}
-        derivedColumns: {type: integer, minimum: 0}
-        shapeDigest: {type: string}
-    TableShapeScalar:
-      type: object
-      additionalProperties: false
-      required: [kind]
-      properties:
-        kind: {type: string, enum: [STRING, INTEGER, DECIMAL, BOOLEAN, NULL, MISSING]}
-        string: {type: string}
-        integer: {type: integer, format: int64}
-        decimal: {type: number, format: double}
-        boolean: {type: boolean}
-    TableShapeSavedSupport:
-      type: object
-      additionalProperties: false
-      required: [state]
-      properties:
-        state: {type: string, enum: [SUPPORTED, REFUSED]}
-        reasonCode: {type: string}
-        message: {type: string}
-    TableShapeSavedProposalIntent:
-      type: object
-      additionalProperties: false
-      required: [kind, reshapeModeChoiceId, support, derivedColumns]
-      properties:
-        kind: {type: string, enum: [NONE, GROUPED_PIVOT, UNPIVOT]}
-        reshapeModeChoiceId: {type: string, minLength: 1}
-        support: {$ref: '#/components/schemas/TableShapeSavedSupport'}
-        pivot: {$ref: '#/components/schemas/TableShapeSavedPivot'}
-        unpivot: {$ref: '#/components/schemas/TableShapeSavedUnpivot'}
-        derivedColumns:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeSavedDerived'}
-    TableShapeSavedPivot:
-      type: object
-      additionalProperties: false
-      required: [pivotResolutionId, groupColumnChoiceIds, categoryColumnChoiceId, valueColumnChoiceId, categoryDiscoveryId, includedCategories, derivedOperands, duplicatePolicyChoiceId, missingCellPolicyChoiceId, unlistedCategoryPolicyChoiceId]
-      properties:
-        pivotResolutionId: {type: string, minLength: 1}
-        groupColumnChoiceIds:
-          type: array
-          items: {type: string, minLength: 1}
-        categoryColumnChoiceId: {type: string, minLength: 1}
-        valueColumnChoiceId: {type: string, minLength: 1}
-        categoryDiscoveryId: {type: string, minLength: 1}
-        includedCategories:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeSavedPivotCategory'}
-        derivedOperands:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeCatalogChoice'}
-        duplicatePolicyChoiceId: {type: string, minLength: 1}
-        missingCellPolicyChoiceId: {type: string, minLength: 1}
-        unlistedCategoryPolicyChoiceId: {type: string, minLength: 1}
-    TableShapeSavedPivotCategory:
-      type: object
-      additionalProperties: false
-      required: [value, outputColumn, outputLabel, support]
-      properties:
-        choiceId: {type: string}
-        value: {$ref: '#/components/schemas/TableShapeScalar'}
-        outputColumn: {type: string, minLength: 1}
-        outputLabel: {type: string, minLength: 1}
-        support: {$ref: '#/components/schemas/TableShapeSavedSupport'}
-    TableShapeSavedUnpivot:
-      type: object
-      additionalProperties: false
-      required: [inputColumnChoiceIds, inputs, keyOutputColumn, keyOutputLabel, valueOutputColumn, valueOutputLabel, nullPolicyChoiceId]
-      properties:
-        inputColumnChoiceIds:
-          type: array
-          items: {type: string, minLength: 1}
-        inputs:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeSavedUnpivotInput'}
-        keyOutputColumn: {type: string, minLength: 1}
-        keyOutputLabel: {type: string, minLength: 1}
-        valueOutputColumn: {type: string, minLength: 1}
-        valueOutputLabel: {type: string, minLength: 1}
-        nullPolicyChoiceId: {type: string, minLength: 1}
-    TableShapeSavedUnpivotInput:
-      type: object
-      additionalProperties: false
-      required: [columnChoiceId, key]
-      properties:
-        columnChoiceId: {type: string, minLength: 1}
-        key: {$ref: '#/components/schemas/TableShapeScalar'}
-    TableShapeSavedOperand:
-      type: object
-      additionalProperties: false
-      required: [kind]
-      properties:
-        kind: {type: string, enum: [CATALOG_CHOICE, RESOLUTION_OUTPUT, LITERAL]}
-        choiceId: {type: string}
-        resolutionId: {type: string}
-        literal: {$ref: '#/components/schemas/TableShapeScalar'}
-    TableShapeSavedDerived:
-      type: object
-      additionalProperties: false
-      required: [localId, resolutionId, outputColumn, outputLabel, operatorChoiceId, left, right, result, missingInputPolicyChoiceId]
-      properties:
-        localId: {type: string, minLength: 1}
-        resolutionId: {type: string, minLength: 1}
-        outputColumn: {type: string, minLength: 1}
-        outputLabel: {type: string, minLength: 1}
-        operatorChoiceId: {type: string, minLength: 1}
-        left: {$ref: '#/components/schemas/TableShapeSavedOperand'}
-        right: {$ref: '#/components/schemas/TableShapeSavedOperand'}
-        result: {$ref: '#/components/schemas/TableShapeTypeFact'}
-        missingInputPolicyChoiceId: {type: string, minLength: 1}
-        divisionByZeroPolicyChoiceId: {type: string}
-    TableShapeDerivedReference:
-      type: object
-      additionalProperties: false
-      required: [resolutionId, label, type]
-      properties:
-        resolutionId: {type: string, minLength: 1}
-        label: {type: string}
-        type: {$ref: '#/components/schemas/TableShapeTypeFact'}
-    TableShapeCategoryDiscoveryRequest:
-      type: object
-      additionalProperties: false
-      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, catalogId, categoryColumnChoiceId, valueColumnChoiceId]
-      properties:
-        snapshotToken: {type: string, minLength: 1}
-        expectedDraftVersion: {type: integer, minimum: 1}
-        expectedDraftDigest: {type: string, minLength: 1}
-        outputId: {type: string, minLength: 1}
-        catalogId: {type: string, minLength: 1}
-        categoryColumnChoiceId: {type: string, minLength: 1}
-        valueColumnChoiceId: {type: string, minLength: 1}
-    TableShapeCategoryDiscoveryResponse:
-      type: object
-      additionalProperties: false
-      required: [catalogId, kind, discoveryIdentity, pair, categories]
-      properties:
-        catalogId: {type: string, minLength: 1}
-        kind: {type: string, enum: [complete]}
-        discoveryIdentity: {type: string, minLength: 1}
-        pair: {$ref: '#/components/schemas/TableShapePivotCategoryPair'}
-        categories:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapePivotCategoryChoice'}
-    TableShapeDiscoveredCategory:
-      type: object
-      additionalProperties: false
-      required: [id, value, label, suggestedOutputColumn, suggestedOutputLabel]
-      properties:
-        id: {type: string, minLength: 1}
-        value: {$ref: '#/components/schemas/TableShapeScalar'}
-        label: {type: string}
-        suggestedOutputColumn: {type: string, minLength: 1}
-        suggestedOutputLabel: {type: string, minLength: 1}
-    TableShapeResolutionRequest:
-      type: object
-      additionalProperties: false
-      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, catalogId, kind]
-      properties:
-        snapshotToken: {type: string, minLength: 1}
-        expectedDraftVersion: {type: integer, minimum: 1}
-        expectedDraftDigest: {type: string, minLength: 1}
-        outputId: {type: string, minLength: 1}
-        catalogId: {type: string, minLength: 1}
-        kind: {type: string, enum: [PIVOT, UNPIVOT, DERIVED]}
-        pivot: {$ref: '#/components/schemas/TableShapePivotSelection'}
-        unpivot: {$ref: '#/components/schemas/TableShapeUnpivotSelection'}
-        derived: {$ref: '#/components/schemas/TableShapeDerivedSelection'}
-    TableShapeProposalRequest:
-      type: object
-      additionalProperties: false
-      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, mode, catalogId]
-      properties:
-        snapshotToken: {type: string, minLength: 1}
-        expectedDraftVersion: {type: integer, minimum: 1}
-        expectedDraftDigest: {type: string, minLength: 1}
-        outputId: {type: string, minLength: 1}
-        mode: {type: string, enum: [ADD, REPLACE, REMOVE]}
-        catalogId: {type: string, minLength: 1}
-        reshapeResolutionId: {type: string, minLength: 1}
-        derivedResolutionIds:
-          type: array
-          maxItems: 64
-          items: {type: string, minLength: 1}
-        limit: {type: integer, minimum: 0, maximum: 1000}
-    TableShapeProposal:
-      type: object
-      additionalProperties: false
-      required: [proposalId, baseReceiptId, outputId, snapshotToken, draftVersion, draftDigest, baseDocumentDigest, candidateWorkspaceDigest, mode, comparison]
-      properties:
-        proposalId: {type: string, minLength: 1}
-        baseReceiptId: {type: string, minLength: 1}
-        outputId: {type: string, minLength: 1}
-        snapshotToken: {type: string, minLength: 1}
-        draftVersion: {type: integer, minimum: 1}
-        draftDigest: {type: string, minLength: 1}
-        baseDocumentDigest: {type: string, minLength: 1}
-        candidateWorkspaceDigest: {type: string, minLength: 1}
-        mode: {type: string, enum: [ADD, REPLACE, REMOVE]}
-        comparison: {$ref: '#/components/schemas/TableShapeComparison'}
-    TableShapeComparison:
-      oneOf:
-        - {$ref: '#/components/schemas/TableShapeComparisonAvailable'}
-        - {$ref: '#/components/schemas/TableShapeComparisonUnavailable'}
-      discriminator:
-        propertyName: status
-        mapping:
-          AVAILABLE: '#/components/schemas/TableShapeComparisonAvailable'
-          UNAVAILABLE: '#/components/schemas/TableShapeComparisonUnavailable'
-    TableShapeComparisonAvailable:
-      type: object
-      additionalProperties: false
-      required: [status, base, candidate, changedColumns, changedRowCount, changedRowsSampled, changedRows, contributors, contributorsSampled, exclusions, declaredInformationLoss, evidenceLimitations, notices]
-      properties:
-        status: {type: string, enum: [AVAILABLE]}
-        base: {$ref: '#/components/schemas/TableShapePreviewSummary'}
-        candidate: {$ref: '#/components/schemas/TableShapePreviewSummary'}
-        changedColumns:
-          type: array
-          items: {type: string}
-        changedRowCount: {type: integer, minimum: 0}
-        changedRowsSampled: {type: boolean}
-        changedRows:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeChangedRow'}
-        contributors:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeContributor'}
-        contributorsSampled: {type: boolean}
-        exclusions: {$ref: '#/components/schemas/TableShapeExclusionEvidence'}
-        declaredInformationLoss: {$ref: '#/components/schemas/TableShapeDeclaredInformationLoss'}
-        evidenceLimitations:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeEvidenceLimitation'}
-        notices:
-          type: array
-          items: {type: string}
-    TableShapeComparisonUnavailable:
-      type: object
-      additionalProperties: false
-      required: [status, reasonCode, reason, changedColumns, changedRowCount, changedRowsSampled, changedRows, contributors, contributorsSampled, exclusions, declaredInformationLoss, evidenceLimitations, notices]
-      properties:
-        status: {type: string, enum: [UNAVAILABLE]}
-        reasonCode: {type: string}
-        reason: {type: string}
-        base: {$ref: '#/components/schemas/TableShapePreviewSummary'}
-        candidate: {$ref: '#/components/schemas/TableShapePreviewSummary'}
-        changedColumns:
-          type: array
-          items: {type: string}
-        changedRowCount: {type: integer, minimum: 0}
-        changedRowsSampled: {type: boolean}
-        changedRows:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeChangedRow'}
-        contributors:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeContributor'}
-        contributorsSampled: {type: boolean}
-        exclusions: {$ref: '#/components/schemas/TableShapeExclusionEvidence'}
-        declaredInformationLoss: {$ref: '#/components/schemas/TableShapeDeclaredInformationLoss'}
-        evidenceLimitations:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeEvidenceLimitation'}
-        notices:
-          type: array
-          items: {type: string}
-    TableShapeExclusionEvidence:
-      type: object
-      additionalProperties: false
-      required: [status, records, complete, sampled]
-      properties:
-        status: {type: string, enum: [COMPLETE, INCOMPLETE, UNAVAILABLE]}
-        records:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeExcludedRecord'}
-        complete: {type: boolean}
-        sampled: {type: boolean}
-        failureCode: {type: string}
-    TableShapeExcludedRecord:
-      type: object
-      additionalProperties: false
-      required: [category, categoryType, outputRowId, reason]
-      properties:
-        sourceIdentity: {$ref: '#/components/schemas/TableShapeSourceIdentity'}
-        category: {$ref: '#/components/schemas/TableShapeCategoryValue'}
-        categoryType: {type: string, minLength: 1}
-        outputRowId: {type: string, minLength: 1}
-        reason: {type: string, minLength: 1}
-        omissionCode: {type: string}
-    TableShapeSourceIdentity:
-      type: object
-      additionalProperties: false
-      required: [resourceType, resourceId]
-      properties:
-        resourceType: {type: string, minLength: 1}
-        resourceId: {type: string, minLength: 1}
-    TableShapeCategoryValue:
-      type: object
-      additionalProperties: false
-      required: [present, value]
-      properties:
-        present: {type: boolean}
-        value: {}
-    TableShapeDeclaredInformationLoss:
-      type: object
-      additionalProperties: false
-      required: [status, items]
-      properties:
-        status: {type: string, enum: [COMPLETE, UNAVAILABLE]}
-        items:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeInformationLoss'}
-        failureCode: {type: string}
-    TableShapeInformationLoss:
-      type: object
-      additionalProperties: false
-      required: [code, label, detail, affectedColumns]
-      properties:
-        code: {type: string, minLength: 1}
-        label: {type: string, minLength: 1}
-        detail: {type: string, minLength: 1}
-        affectedColumns:
-          type: array
-          items: {type: string}
-    TableShapeEvidenceLimitation:
-      type: object
-      additionalProperties: false
-      required: [code, message]
-      properties:
-        code: {type: string, minLength: 1}
-        message: {type: string, minLength: 1}
-    TableShapePreviewSummary:
-      type: object
-      additionalProperties: false
-      required: [rowCount, sampled]
-      properties:
-        rowCount: {type: integer, minimum: 0}
-        sampled: {type: boolean}
-    TableShapeChangedRow:
-      type: object
-      additionalProperties: false
-      required: [rowIdentity, basePresent, candidatePresent, changedColumns, changedCells]
-      properties:
-        rowIdentity: {type: string, minLength: 1}
-        basePresent: {type: boolean}
-        candidatePresent: {type: boolean}
-        changedColumns:
-          type: array
-          items: {type: string}
-        changedCells:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeChangedCell'}
-    TableShapeChangedCell:
-      type: object
-      additionalProperties: false
-      required: [column, before, after, trace]
-      properties:
-        column: {type: string, minLength: 1}
-        before: {$ref: '#/components/schemas/TableShapeCellValue'}
-        after: {$ref: '#/components/schemas/TableShapeCellValue'}
-        trace: {$ref: '#/components/schemas/TableShapeCellTrace'}
-    TableShapeCellValue:
-      type: object
-      additionalProperties: false
-      required: [present, value]
-      properties:
-        present: {type: boolean}
-        value: {}
-    TableShapeCellTrace:
-      type: object
-      additionalProperties: false
-      required: [state, contributors, complete, sampled]
-      properties:
-        state: {type: string, enum: [NOT_APPLICABLE, NOT_REQUESTED, UNAVAILABLE, FAILED, AVAILABLE]}
-        cellStatus: {type: string}
-        contributors:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeCellContributor'}
-        complete: {type: boolean}
-        sampled: {type: boolean}
-        omissionCode: {type: string}
-        failureCode: {type: string}
-    TableShapeCellContributor:
-      type: object
-      additionalProperties: false
-      required: [resourceType, resourceId, value]
-      properties:
-        resourceType: {type: string}
-        resourceId: {type: string}
-        value: {}
-    TableShapeContributor:
-      type: object
-      additionalProperties: false
-      required: [resourceType, resourceId]
-      properties:
-        resourceType: {type: string}
-        resourceId: {type: string}
-    TableShapePivotSelection:
-      type: object
-      additionalProperties: false
-      required: [categoryDiscoveryId, groupColumnChoiceIds, categoryColumnChoiceId, valueColumnChoiceId, categories, duplicatePolicyChoiceId, missingPolicyChoiceId, unlistedPolicyChoiceId]
-      properties:
-        categoryDiscoveryId: {type: string, minLength: 1}
-        groupColumnChoiceIds:
-          type: array
-          minItems: 1
-          items: {type: string, minLength: 1}
-        categoryColumnChoiceId: {type: string, minLength: 1}
-        valueColumnChoiceId: {type: string, minLength: 1}
-        categories:
-          type: array
-          minItems: 1
-          items: {$ref: '#/components/schemas/TableShapePivotCategorySelection'}
-        duplicatePolicyChoiceId: {type: string, minLength: 1}
-        missingPolicyChoiceId: {type: string, minLength: 1}
-        unlistedPolicyChoiceId: {type: string, minLength: 1}
-    TableShapePivotCategorySelection:
-      type: object
-      additionalProperties: false
-      required: [choiceId, outputColumn, outputLabel]
-      properties:
-        choiceId: {type: string, minLength: 1}
-        outputColumn: {type: string, minLength: 1}
-        outputLabel: {type: string, minLength: 1}
-    TableShapeUnpivotSelection:
-      type: object
-      additionalProperties: false
-      required: [inputColumnChoiceIds, nullPolicyChoiceId, keyOutputColumn, keyOutputLabel, valueOutputColumn, valueOutputLabel]
-      properties:
-        inputColumnChoiceIds:
-          type: array
-          minItems: 2
-          items: {type: string, minLength: 1}
-        nullPolicyChoiceId: {type: string, minLength: 1}
-        keyOutputColumn: {type: string, minLength: 1}
-        keyOutputLabel: {type: string, minLength: 1}
-        valueOutputColumn: {type: string, minLength: 1}
-        valueOutputLabel: {type: string, minLength: 1}
-    TableShapeDerivedSelection:
-      type: object
-      additionalProperties: false
-      required: [outputColumn, outputLabel, operatorChoiceId, left, right, missingPolicyChoiceId]
-      properties:
-        outputColumn: {type: string, minLength: 1}
-        outputLabel: {type: string, minLength: 1}
-        pivotResolutionId: {type: string}
-        operatorChoiceId: {type: string, minLength: 1}
-        left: {$ref: '#/components/schemas/TableShapeOperandSelection'}
-        right: {$ref: '#/components/schemas/TableShapeOperandSelection'}
-        missingPolicyChoiceId: {type: string, minLength: 1}
-        divisionByZeroPolicyChoiceId: {type: string}
-    TableShapeOperandSelection:
-      type: object
-      additionalProperties: false
-      required: [kind]
-      properties:
-        kind: {type: string, enum: [CATALOG_CHOICE, RESOLUTION_OUTPUT, LITERAL]}
-        choiceId: {type: string}
-        resolutionId: {type: string}
-        literal: {$ref: '#/components/schemas/TableShapeScalar'}
-    TableShapeResolutionResponse:
-      type: object
-      additionalProperties: false
-      required: [catalogId, resolutionId, kind, outputDescriptors, postPivotOperands]
-      properties:
-        catalogId: {type: string, minLength: 1}
-        resolutionId: {type: string, minLength: 1}
-        kind: {type: string, enum: [PIVOT, UNPIVOT, DERIVED]}
-        categoryDiscoveryId: {type: string}
-        categories:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeResolvedCategory'}
-        result: {$ref: '#/components/schemas/TableShapeTypeFact'}
-        keyResult: {$ref: '#/components/schemas/TableShapeTypeFact'}
-        valueResult: {$ref: '#/components/schemas/TableShapeTypeFact'}
-        outputDescriptors:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeResolvedOutputDescriptor'}
-        postPivotOperands:
-          type: array
-          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
-    TableShapeResolvedCategory:
-      type: object
-      additionalProperties: false
-      required: [id, value, outputColumn, outputLabel, type]
-      properties:
-        id: {type: string, minLength: 1}
-        value: {$ref: '#/components/schemas/TableShapeScalar'}
-        outputColumn: {type: string, minLength: 1}
-        outputLabel: {type: string, minLength: 1}
-        type: {$ref: '#/components/schemas/TableShapeTypeFact'}
-    TableShapeResolvedOutputDescriptor:
-      type: object
-      additionalProperties: false
-      required: [kind, outputColumn, outputLabel, type]
-      properties:
-        kind: {type: string, enum: [group, category, unpivotKey, unpivotValue, derived]}
-        groupColumn: {$ref: '#/components/schemas/TableShapeColumnReference'}
-        category: {$ref: '#/components/schemas/TableShapePivotCategoryReference'}
-        operandChoiceId: {type: string, minLength: 1}
-        outputColumn: {type: string, minLength: 1}
-        outputLabel: {type: string, minLength: 1}
-        type: {$ref: '#/components/schemas/TableShapeTypeFact'}
     RoutePolicy:
       type: object
       additionalProperties: false
@@ -5971,7 +6660,7 @@ components:
           type: array
           items: {$ref: '#/components/schemas/ConstructionRouteStep'}
         form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT]}
-        zeroPolicy: {type: string, enum: [NULL, EMPTY_LIST]}
+        zeroPolicy: {type: string, enum: ["NULL", EMPTY_LIST]}
         manyPolicy: {type: string, enum: [INVALID_MULTIPLE_VALUES, FIRST, ALL, DISTINCT]}
     SemanticFrameFamily:
       type: object
@@ -6053,7 +6742,7 @@ components:
       required: [form, zeroPolicy, manyPolicy, decision]
       properties:
         form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT]}
-        zeroPolicy: {type: string, enum: [NULL, EMPTY_LIST]}
+        zeroPolicy: {type: string, enum: ["NULL", EMPTY_LIST]}
         manyPolicy: {type: string, enum: [INVALID_MULTIPLE_VALUES, FIRST, ALL, DISTINCT]}
         decision: {type: string, enum: [DEFAULT, REQUIRES_DECISION]}
     ConstructionChoicePresentation:
@@ -6100,6 +6789,9 @@ components:
         targetResourceType: {type: string, minLength: 1}
         limit: {type: integer, minimum: 1, maximum: 50}
         cursor: {type: string, maxLength: 4096}
+        savedGraphOnly:
+          type: boolean
+          description: Resolve paths already connected to the table starting records without searching the catalog.
     RelatedExpandRouteChoice:
       type: object
       additionalProperties: false
@@ -6989,4 +7681,7 @@ components:
         code: {type: string, minLength: 1}
         message: {type: string, minLength: 1}
         requestId: {type: string}
+        details:
+          type: object
+          additionalProperties: true
         diagnostic: {$ref: '#/components/schemas/Diagnostic'}

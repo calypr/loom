@@ -5,13 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
 
-// PopulationMappingCursor is the complete, non-sensitive binding carried by
-// a population report page cursor. It is signed as one payload so callers
-// cannot move a cursor between reports or change the member position.
+var ErrPopulationMappingCursorUnavailable = errors.New("population mapping cursor codec is not configured")
+
 type PopulationMappingCursor struct {
 	Version             int    `json:"version"`
 	ReceiptID           string `json:"receiptId"`
@@ -26,16 +26,11 @@ type PopulationMappingCursor struct {
 	MemberKey           string `json:"memberKey"`
 }
 
-// PopulationMappingCursorCodec is injected by the deployment boundary. A
-// stable configured key, rather than process state, keeps cursors valid across
-// replicas and restarts.
 type PopulationMappingCursorCodec interface {
 	Encode(PopulationMappingCursor) (string, error)
 	Decode(string) (PopulationMappingCursor, error)
 }
 
-// HMACPopulationMappingCursorCodec signs cursors with a server-configured
-// secret. The wire format is base64url(payload).base64url(signature).
 type HMACPopulationMappingCursorCodec struct {
 	key []byte
 }
@@ -50,7 +45,7 @@ func NewHMACPopulationMappingCursorCodec(secret string) (*HMACPopulationMappingC
 
 func (c *HMACPopulationMappingCursorCodec) Encode(cursor PopulationMappingCursor) (string, error) {
 	if c == nil || len(c.key) == 0 {
-		return "", fmt.Errorf("population mapping cursor codec is not configured")
+		return "", ErrPopulationMappingCursorUnavailable
 	}
 	if err := validatePopulationMappingCursor(cursor); err != nil {
 		return "", err
@@ -65,7 +60,7 @@ func (c *HMACPopulationMappingCursorCodec) Encode(cursor PopulationMappingCursor
 
 func (c *HMACPopulationMappingCursorCodec) Decode(value string) (PopulationMappingCursor, error) {
 	if c == nil || len(c.key) == 0 {
-		return PopulationMappingCursor{}, fmt.Errorf("population mapping cursor codec is not configured")
+		return PopulationMappingCursor{}, ErrPopulationMappingCursorUnavailable
 	}
 	parts := strings.Split(value, ".")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {

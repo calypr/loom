@@ -169,7 +169,7 @@ func traceGroupMeanWorkspace(t *testing.T, store *fakeStore) (authoringv2.Worksp
 	workspace := lifecycleCandidatePreviewWorkspace()
 	workspace.SemanticsVersion = authoringv2.CurrentSemanticsVersion
 	workspace.Documents[0].Rows = authoringv2.RecordsRowDefinition()
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,6 @@ func compileTraceReceipt(ctx context.Context, request CompileReceiptRequest, sna
 		return nil, err
 	}
 	receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
-	receipt.TableShapeProposal = cloneTableShapeProposalBinding(request.TableShapeProposal)
 	receipt.ConstructionStages = traceReceiptStages(lowered)
 	receipt.CompiledOutputSchemas = traceReceiptOutputSchemas(lowered)
 	receipt.OutputColumnProvenance = traceOutputProvenance(translated.EmittedColumns)
@@ -315,9 +314,7 @@ func compileTraceReceipt(ctx context.Context, request CompileReceiptRequest, sna
 }
 
 func traceReceiptStages(compiled lower.CompiledRecipe) map[string][]explorer.ReceiptConstructionStage {
-	// Mirrors production receiptConstructionStages (explorer_receipt_contract.go:605): outputs
-	// with no compiled stages are absent, and an all-stage-less compilation returns nil, not an
-	// empty map (nil-vs-non-nil diverges under reflect.DeepEqual against harness-built receipts).
+
 	var stages map[string][]explorer.ReceiptConstructionStage
 	for _, output := range compiled.Outputs {
 		if len(output.Stages) == 0 {

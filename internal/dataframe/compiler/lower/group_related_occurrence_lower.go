@@ -442,10 +442,6 @@ func ensureGroupRelatedOccurrenceAdapter(
 	return adapter, nil
 }
 
-// ensureGroupRelatedRootKeyInput carries the proven source root key through
-// the typed Group input row. A streamed source Group otherwise prunes an
-// unused source RETURN to {}, leaving the Group-owned route adapter without
-// the anchor it needs to re-run the selected route.
 func ensureGroupRelatedRootKeyInput(
 	plan *ir.PhysicalPlan,
 	stage *ir.PhysicalConstructionStage,
@@ -559,18 +555,4 @@ func physicalGroupRelatedPhysicalRoute(route []recipe.ConstructionGroupRelatedRo
 		})
 	}
 	return result
-}
-
-func canonicalGroupRelatedPath(selector spec.Selector) string {
-	parts := make([]string, 0, len(selector.Steps))
-	for _, step := range selector.Steps {
-		part := step.Field
-		if step.Iterate {
-			part += "[]"
-		} else if step.Index != nil {
-			part += fmt.Sprintf("[%d]", *step.Index)
-		}
-		parts = append(parts, part)
-	}
-	return strings.Join(parts, ".")
 }

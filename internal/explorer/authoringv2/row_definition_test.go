@@ -226,7 +226,7 @@ func TestDecodeWorkspaceRejectsPoliciesOnTheWrongGroupSourceArm(t *testing.T) {
 }
 
 func TestDecodeWorkspaceDefaultsMissingRowsBeforeValidatingPreV8PersistedDocument(t *testing.T) {
-	workspace, err := DecodeWorkspace(persistedWorkspaceWithoutRows(6))
+	workspace, err := DecodeStoredWorkspaceForMigration(persistedWorkspaceWithoutRows(6))
 	if err != nil {
 		t.Fatalf("pre-v8 workspace did not migrate before validation: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestMigrateLosslessDefaultsInstallsRowsIdempotentlyWithoutMutatingInput(t *
 
 func TestLegacySourceWireMigrationPreservesRows(t *testing.T) {
 	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":` + strconv.Itoa(CurrentSemanticsVersion) + `,"explorer":{"title":"Persisted"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"rows":{"kind":"EXPANDED","expanded":{"occurrenceId":"base","scopePath":"name[]","emptyCollectionPolicy":"PRESERVE_PARENT"}},"columns":[{"column":"names","label":"Names","occurrenceId":"base","source":{"kind":"field","fieldPath":"name[].family","projectionMode":"FIRST"}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
-	workspace, err := DecodeWorkspace([]byte(raw))
+	workspace, err := DecodeStoredWorkspaceForMigration([]byte(raw))
 	if err != nil {
 		t.Fatal(err)
 	}

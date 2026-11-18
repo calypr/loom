@@ -1,5 +1,3 @@
-// Package arango provides the durable exec.Store adapter used by Loom
-// deployments that already persist dataset metadata in ArangoDB.
 package arango
 
 import (
@@ -97,26 +95,14 @@ func (r *Registry) LoadRecipeVersion(ctx context.Context, name, translationVersi
 }
 
 func (r *Registry) loadRecipe(ctx context.Context, query string, vars map[string]interface{}) (exec.Entry, error) {
-	var found *exec.Entry
-	err := r.client.QueryRows(ctx, query, r.batchSize, vars, func(row map[string]any) error {
-		data, err := json.Marshal(row)
-		if err != nil {
-			return err
-		}
-		var entry exec.Entry
-		if err := json.Unmarshal(data, &entry); err != nil {
-			return err
-		}
-		found = &entry
-		return nil
-	})
+	entry, found, err := arangostore.QueryLast[exec.Entry](ctx, r.client, query, r.batchSize, vars)
 	if err != nil {
 		return exec.Entry{}, err
 	}
-	if found == nil {
+	if !found {
 		return exec.Entry{}, fmt.Errorf("%w", exec.ErrRecipeNotFound)
 	}
-	return *found, nil
+	return entry, nil
 }
 
 func (r *Registry) RecipeVersionUsed(ctx context.Context, name, translationVersion string) (bool, error) {

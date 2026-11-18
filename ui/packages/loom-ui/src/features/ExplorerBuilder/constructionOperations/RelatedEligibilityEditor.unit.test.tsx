@@ -6,9 +6,14 @@ import type { ConstructionCapabilitiesResponse, ExplorerBuilderCatalog } from '.
 import { RelatedEligibilityEditor } from './RelatedEligibilityEditor';
 
 const searchRelatedExpandChoices = vi.fn();
-vi.mock('../../../react', () => ({
-  useLoomClient: () => ({ searchRelatedExpandChoices }),
-}));
+const loomClient = { searchRelatedExpandChoices };
+vi.mock('../../../react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../react')>();
+  return {
+    ...actual,
+    useLoomClient: () => loomClient,
+  };
+});
 
 const route = [{
   edgeId: 'patient-observation', fromNodeId: 'patient-node', toNodeId: 'observation-node',
@@ -26,6 +31,7 @@ const catalog: ExplorerBuilderCatalog = {
 const capabilities: ConstructionCapabilitiesResponse = {
   snapshotToken: 'snapshot-1', draftVersion: 3, draftDigest: 'draft-3', outputId: 'patients',
   stageId: 'source_projection', baseConstruction: { version: 1, steps: [] }, stages: [],
+  sourceInput: { supported: false, stageId: 'source_projection', reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
   groupFieldChoices: [],
   groupRowValueChoices: [],
   workspaceInputs: [],

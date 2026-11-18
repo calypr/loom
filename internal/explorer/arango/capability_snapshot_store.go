@@ -10,14 +10,8 @@ import (
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
-// CapabilitySnapshotCollection is intentionally separate from the legacy
-// Explorer collections. Registration in the server bootstrap should include
-// this persistent, non-truncating collection.
 const CapabilitySnapshotCollection = "loom_explorer_capability_snapshots"
 
-// CapabilitySnapshotCollectionSpec is exported so the server's shared
-// bootstrap registry can append it without coupling this adapter to the
-// legacy collection list.
 func CapabilitySnapshotCollectionSpec() store.CollectionSpec {
 	return store.CollectionSpec{
 		Name: CapabilitySnapshotCollection,
@@ -28,16 +22,16 @@ func CapabilitySnapshotCollectionSpec() store.CollectionSpec {
 	}
 }
 
-// CapabilitySnapshotStore persists the complete canonical snapshot under its
-// content address. Insert-ignore is deliberate: retries never execute an
-// UPDATE, so an immutable document's payload and revision remain untouched.
-type CapabilitySnapshotStore struct{ client client }
+type CapabilitySnapshotStore struct {
+	client    client
+	snapshots *snapshotRevisionCache
+}
 
 func NewCapabilitySnapshotStore(c client) (*CapabilitySnapshotStore, error) {
 	if c == nil {
 		return nil, fmt.Errorf("Explorer capability snapshot Arango client is required")
 	}
-	return &CapabilitySnapshotStore{client: c}, nil
+	return &CapabilitySnapshotStore{client: c, snapshots: newSnapshotRevisionCache(capabilitySnapshotCacheMaxEntries, capabilitySnapshotCacheMaxBytes)}, nil
 }
 
 func (s *CapabilitySnapshotStore) Put(ctx context.Context, snapshot capability.Snapshot) (*capability.Snapshot, error) {
@@ -84,29 +78,67 @@ func (s *CapabilitySnapshotStore) Put(ctx context.Context, snapshot capability.S
 }
 
 func (s *CapabilitySnapshotStore) GetByToken(ctx context.Context, token string) (*capability.Snapshot, error) {
-	var out *capability.Snapshot
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	key := capabilitySnapshotKey(token)
+	cached := s.snapshots.get(token)
+	revision := ""
+	if cached != nil {
+		revision = cached.revision
+	}
+	var resolved *snapshotRevisionEntry
 	err := s.client.QueryRows(ctx, capabilitySnapshotGetByTokenAQL, 1, map[string]any{
-		"@c":    CapabilitySnapshotCollection,
-		"key":   capabilitySnapshotKey(token),
-		"token": token,
+		"@c": CapabilitySnapshotCollection, "key": key, "token": token, "revision": revision,
 	}, func(row map[string]any) error {
-		value, err := decode[capability.Snapshot](row)
-		if err == nil {
-			err = capability.ValidateSnapshot(value)
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		if err == nil {
-			value = value.Clone()
-			out = &value
+		if resolved != nil {
+			return fmt.Errorf("%w: multiple snapshot rows", capability.ErrInvalidSnapshot)
 		}
-		return err
+		if row["_key"] != key || row["token"] != token {
+			return fmt.Errorf("%w: snapshot identity mismatch", capability.ErrInvalidSnapshot)
+		}
+		if marker, exists := row["_loomCapabilityUnchanged"]; exists {
+			if marker != true || len(row) != 4 || cached == nil || revision == "" || row["_rev"] != revision {
+				return fmt.Errorf("%w: invalid unchanged snapshot marker", capability.ErrInvalidSnapshot)
+			}
+			resolved = cached
+			return nil
+		}
+		raw, err := json.Marshal(row)
+		if err != nil {
+			return err
+		}
+		var value capability.Snapshot
+		if err = json.Unmarshal(raw, &value); err != nil {
+			return err
+		}
+		if err = capability.ValidateSnapshot(value); err != nil {
+			return err
+		}
+		storedRevision, _ := row["_rev"].(string)
+		resolved = &snapshotRevisionEntry{token: token, revision: storedRevision, snapshot: value, bytes: len(raw)}
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	if out == nil {
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+	if resolved == nil {
 		return nil, capability.ErrNotFound
 	}
-	return out, nil
+	if resolved != cached {
+		s.snapshots.put(resolved)
+	}
+	out := resolved.snapshot.Clone()
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (s *CapabilitySnapshotStore) GetByIdentity(ctx context.Context, identity capability.SnapshotIdentity) (*capability.Snapshot, error) {
@@ -151,8 +183,7 @@ func capabilitySnapshotKey(token string) string {
 }
 
 func canonicalSnapshotDocument(snapshot capability.Snapshot, key string) (map[string]any, error) {
-	// CanonicalPayload is the exact payload covered by Token. Add Token back to
-	// that normalized object so Arango stores a canonical *full* snapshot.
+
 	var doc map[string]any
 	if err := json.Unmarshal(snapshot.CanonicalPayload(), &doc); err != nil {
 		return nil, err
@@ -171,7 +202,9 @@ INSERT @doc INTO @@c
 const capabilitySnapshotGetByTokenAQL = `
 FOR d IN @@c
   FILTER d._key == @key AND d.token == @token
-  RETURN d
+  RETURN @revision != "" AND d._rev == @revision
+    ? { _key: d._key, token: d.token, _rev: d._rev, _loomCapabilityUnchanged: true }
+    : d
 `
 
 const capabilitySnapshotGetByIdentityAQL = `

@@ -7,8 +7,6 @@ import (
 	"strings"
 )
 
-// ErrorCode is the stable, transport-neutral identifier for a dataframe
-// request failure. Clients should branch on this value, not on Error().
 type ErrorCode string
 
 const (
@@ -81,8 +79,6 @@ const (
 
 const CodeConstructionRowValueMultipleValues ErrorCode = "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES"
 
-// IsFeatureResolutionCode identifies data-dependent feature policies that a
-// Builder user can resolve without an operator or a retry.
 func IsFeatureResolutionCode(code string) bool {
 	switch ErrorCode(code) {
 	case CodeRelationshipCardinalityViolation, CodeTemporalAnchorInvalid, CodeTemporalPrecisionUnsupported, CodeTemporalTieAmbiguous, CodeUnitIdentityUnknown, CodeUnitDimensionIncompatible, CodeConstructionExpansionEmpty, CodeExplicitGroupUnassignedMember, CodeConstructionRowValueMultipleValues, CodeTablePivotCellCardinality, CodeTablePivotUnlistedCategory:
@@ -92,8 +88,6 @@ func IsFeatureResolutionCode(code string) bool {
 	}
 }
 
-// UserError is the semantic error contract shared by GraphQL, preview, and
-// export adapters. Details are intentionally a safe, copied view.
 type UserError interface {
 	error
 	Code() string
@@ -102,27 +96,29 @@ type UserError interface {
 	Retryable() bool
 }
 
-// Error is Loom's typed semantic error. The cause remains available to
-// server-side logs and errors.Is/errors.As callers, but is never exposed by
-// the transport mappers unless it is itself a safe UserError.
 type Error struct {
-	code      ErrorCode
-	message   string
-	fieldPath []string
-	details   map[string]any
-	retryable bool
-	cause     error
+	code          ErrorCode
+	message       string
+	fieldPath     []string
+	details       map[string]any
+	retryable     bool
+	cause         error
+	publicMessage string
 }
 
 type errorOptions struct {
-	fieldPath []string
-	details   map[string]any
-	retryable bool
-	cause     error
+	fieldPath     []string
+	details       map[string]any
+	retryable     bool
+	cause         error
+	publicMessage string
 }
 
-// ErrorOption configures a typed dataframe Error.
 type ErrorOption func(*errorOptions)
+
+func WithPublicMessage(message string) ErrorOption {
+	return func(opts *errorOptions) { opts.publicMessage = message }
+}
 
 func WithFieldPath(path ...string) ErrorOption {
 	return func(opts *errorOptions) { opts.fieldPath = append([]string(nil), path...) }
@@ -151,12 +147,13 @@ func NewError(code ErrorCode, message string, options ...ErrorOption) *Error {
 		message = defaultMessage(code)
 	}
 	return &Error{
-		code:      code,
-		message:   message,
-		fieldPath: append([]string(nil), opts.fieldPath...),
-		details:   cloneSafeDetails(opts.details),
-		retryable: opts.retryable,
-		cause:     opts.cause,
+		code:          code,
+		message:       message,
+		fieldPath:     append([]string(nil), opts.fieldPath...),
+		details:       cloneSafeDetails(opts.details),
+		retryable:     opts.retryable,
+		cause:         opts.cause,
+		publicMessage: opts.publicMessage,
 	}
 }
 
@@ -204,14 +201,11 @@ func (e *Error) Retryable() bool {
 	return e != nil && e.retryable
 }
 
-// These sentinels let semantic owners wrap backend failures without making
-// the GraphQL or HTTP layer inspect driver-specific errors.
 var (
 	ErrBackendUnavailable = errors.New("dataframe backend unavailable")
 	ErrClientCanceled     = errors.New("dataframe client canceled")
 )
 
-// AsUserError extracts a typed semantic error through arbitrary wrapping.
 func AsUserError(err error) (UserError, bool) {
 	if err == nil {
 		return nil, false
@@ -223,16 +217,12 @@ func AsUserError(err error) (UserError, bool) {
 	return nil, false
 }
 
-// Normalize converts only well-defined transport-neutral conditions. Unknown
-// errors intentionally become INTERNAL_ERROR; no English error text is parsed.
 func Normalize(err error) UserError {
 	if err == nil {
 		return nil
 	}
 	if userErr, ok := AsUserError(err); ok {
-		// Preserve our concrete type without adding an unnecessary wrapper. An
-		// adapter-owned implementation is copied through Error so its details
-		// receive the same redaction and defensive-copy rules.
+
 		if typed, ok := userErr.(*Error); ok {
 			return typed
 		}
@@ -259,16 +249,15 @@ func PublicMessage(err error) string {
 	if userErr == nil {
 		return defaultMessage(CodeInternalError)
 	}
+	if typed, ok := userErr.(*Error); ok && strings.TrimSpace(typed.publicMessage) != "" {
+		return typed.publicMessage
+	}
 	if userErr.Code() == string(CodeRecipeResolutionFailed) {
 		return userErr.Error()
 	}
 	return defaultMessage(ErrorCode(userErr.Code()))
 }
 
-// SanitizePersistedFailure converts an opaque durable failure string into the
-// stable public contract. Durable records intentionally retain only a legacy
-// text field, so unknown text is always treated as an internal failure and is
-// never returned to clients.
 func SanitizePersistedFailure(raw string) (message, code string, retryable bool) {
 	if strings.TrimSpace(raw) == "" {
 		return "", "", false
@@ -474,8 +463,7 @@ func cloneSafeValue(value any) (any, bool) {
 	case map[string]any:
 		return cloneSafeDetails(typed), true
 	default:
-		// Accept only primitive aliases, not arbitrary structs such as Arango
-		// driver errors or query objects.
+
 		rv := reflect.ValueOf(value)
 		if rv.IsValid() && rv.Kind() == reflect.String {
 			return rv.String(), true
@@ -484,5 +472,4 @@ func cloneSafeValue(value any) (any, bool) {
 	}
 }
 
-// Ensure the concrete type continues to satisfy the public contract.
 var _ UserError = (*Error)(nil)

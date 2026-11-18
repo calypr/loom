@@ -10,23 +10,19 @@ import (
 	materializationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
-// explorerReceiptMaterializer keeps publication bound to the immutable
-// compilation receipt. The receipt is the only artifact crossing the HTTP to
-// execution boundary; its resolved recipe is lowered in memory by the execution package.
 func explorerReceiptMaterializer(recipeEngine *dataframeexecution.Engine, target publication.Target, registry *materializationarango.Registry, degradation error, logger *slog.Logger, batchRows, batchBytes int, qualityMaxRows, qualityMaxDistinctKeys int64) lifecycle.ReceiptMaterializer {
 	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (lifecycle.Execution, error) {
 		if receipt == nil {
 			return lifecycle.Execution{}, fmt.Errorf("compilation receipt is required")
 		}
 		if target == nil {
-			return lifecycle.Execution{}, fmt.Errorf("Explorer publication is unavailable: %w", degradation)
+			return lifecycle.Execution{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "materialize", Code: "MATERIALIZATION_UNAVAILABLE", Message: "Explorer publication is not configured", Cause: degradation}
 		}
-		workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+		workspace, err := receipt.CurrentWorkspace()
 		if err != nil {
 			return lifecycle.Execution{}, fmt.Errorf("publication workspace: %w", err)
 		}

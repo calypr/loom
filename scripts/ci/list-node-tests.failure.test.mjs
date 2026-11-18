@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { NodeTestInventoryError, nodeTestInventory } from './list-node-tests.mjs';
-import { verificationInventory } from '../lib/verification-inventory.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const selector = path.join(repositoryRoot, 'scripts/ci/list-node-tests.mjs');
@@ -18,10 +17,6 @@ function project(files) {
     mkdirSync(path.dirname(output), { recursive: true });
     writeFileSync(output, source);
   }
-  mkdirSync(path.join(root, '.github/workflows'), { recursive: true });
-  for (const file of ['tests.yaml', 'builder-formal.yml'])
-    copyFileSync(path.join(repositoryRoot, '.github/workflows', file), path.join(root, '.github/workflows', file));
-  copyFileSync(path.join(repositoryRoot, 'Makefile'), path.join(root, 'Makefile'));
   return root;
 }
 
@@ -132,7 +127,7 @@ test('a missing dependency in a shared helper fails every root and one healthy t
     assertBroken(runSelector(root, []), 'alpha.test.mjs', 'missing.mjs');
     const run = runSelector(root, ['--explain']);
     assert.match(run.stderr, /beta\.test\.mjs/);
-    await assert.rejects(() => verificationInventory(root), error => {
+    await assert.rejects(() => nodeTestInventory(root), error => {
       assert.ok(error instanceof NodeTestInventoryError);
       assert.deepEqual(error.problems.map(problem => problem.file), ['scripts/alpha.test.mjs', 'scripts/beta.test.mjs']);
       return true;
@@ -140,26 +135,11 @@ test('a missing dependency in a shared helper fails every root and one healthy t
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('verification inventory fails nonzero for a broken closure and emits nothing for --out', () => {
-  const root = project({ 'scripts/root.test.mjs': "import './missing.mjs';", ...HEALTHY });
-  const out = path.join(root, 'inventory-out');
-  try {
-    const run = spawnSync(process.execPath, [path.join(repositoryRoot, 'scripts/verify-builder-formal-core.mjs'), '--phase', 'inventory', '--out', out, '--project-root', root],
-      { encoding: 'utf8', timeout: 30000 });
-    assert.equal(run.error, undefined, String(run.error));
-    assert.notEqual(run.status, 0, `inventory phase must fail, stdout: ${run.stdout}`);
-    assert.match(run.stderr, /root\.test\.mjs/);
-    assert.match(run.stderr, /missing/);
-    assert.equal(run.stdout, '', 'a broken closure must not emit an inventory document');
-    assert.equal(run.status, 1, 'a broken closure must fail with status 1');
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
 test('intentional exclusions and incidental browser words remain ordinary nonfatal results', async () => {
   const root = project({
     'scripts/browser.test.mjs': "const { chromium } = require('playwright');",
     'scripts/core.test.mjs': "await import('playwright-core');",
-    'scripts/maintenance/playwright/retired.test.mjs': "import 'playwright';",
+    'scripts/nested/browser.test.mjs': "import 'playwright';",
     'scripts/incidental.test.mjs': "const note = 'playwright-request-1'; const missing = 'no such file';",
     ...HEALTHY,
   });
@@ -174,8 +154,7 @@ test('intentional exclusions and incidental browser words remain ordinary nonfat
     assert.deepEqual(result.excluded.map(row => [row.file, row.reason]).sort(), [
       ['scripts/browser.test.mjs', 'browser-package-import'],
       ['scripts/core.test.mjs', 'browser-package-import'],
-      ['scripts/maintenance/playwright/retired.test.mjs', 'retired-browser-directory'],
+      ['scripts/nested/browser.test.mjs', 'browser-package-import'],
     ].sort((a, b) => a[0].localeCompare(b[0])));
-    await verificationInventory(root);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

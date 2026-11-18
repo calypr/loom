@@ -48,6 +48,7 @@ const capabilities: ConstructionCapabilitiesResponse = {
   draftDigest: capabilitiesRequest.expectedDraftDigest,
   outputId: capabilitiesRequest.outputId,
   stageId: capabilitiesRequest.stageId,
+  sourceInput: { supported: false, stageId: capabilitiesRequest.stageId, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
   baseConstruction: { version: 1, steps: [] },
   stages: [sourceStage],
   selectedStage: sourceStage,
@@ -106,6 +107,7 @@ describe('construction filter proposal wiring', () => {
       status: 'error', message: 'The policy has no matches.', retryable: false,
     }} canApply={false} onApply={() => undefined} onCancel={() => undefined} onRetry={onRetry} />);
     expect(screen.queryByRole('button', { name: 'Retry preview' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
 
     rerender(<ConstructionProposalPanel state={{
       status: 'error', message: 'The database is temporarily unavailable.', retryable: true,
@@ -113,6 +115,52 @@ describe('construction filter proposal wiring', () => {
     expect(screen.getByRole('button', { name: 'Retry preview' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Retry preview' }));
     expect(onRetry).toHaveBeenCalledOnce();
+  });
+
+  it('surfaces non-fatal Pivot proof gaps without blocking Apply', () => {
+    const response: ConstructionProposalResponse = {
+      proposalId: preview.receiptId, outputId: preview.outputId,
+      snapshotToken: 'snapshot-1', draftVersion: 4, draftDigest: 'draft-4',
+      baseDocumentDigest: 'document-4', candidateWorkspaceDigest: 'candidate-workspace', changedStepId: 'filter-1',
+      candidateConstruction: { version: 1, steps: [] },
+      dependencyImpact: { removedStepIds: [], affectedStepIds: [] },
+      stages: [], previewStatus: 'READY', previewDurationMs: 8,
+      diagnostics: [{
+        code: 'PIVOT_CATEGORIES_UNVERIFIABLE',
+        message: 'Pivot pivot-status categories were not verified because this category field has more than 256 values in the current rows.',
+        stepId: 'pivot-status',
+        outcome: 'LIMIT_EXCEEDED',
+      }],
+    };
+    render(<ConstructionProposalPanel state={{ status: 'ready', response, preview }}
+      canApply onApply={() => undefined} onCancel={() => undefined} onRetry={() => undefined} />);
+    const panel = screen.getByTestId('construction-proposal-diagnostics');
+    expect(panel.textContent).toContain('Some saved Pivot categories could not be verified.');
+    expect(panel.textContent).toContain('Pivot pivot-status categories were not verified');
+    expect(panel.textContent).toContain('The rest of this change can still be applied.');
+    expect(screen.getByRole('button', { name: 'Apply change' })).toBeEnabled();
+  });
+
+  it('does not claim a needs-repair proposal can be applied', () => {
+    const response: ConstructionProposalResponse = {
+      proposalId: '', outputId: preview.outputId,
+      snapshotToken: 'snapshot-1', draftVersion: 4, draftDigest: 'draft-4',
+      baseDocumentDigest: 'document-4', candidateWorkspaceDigest: 'candidate-workspace', changedStepId: 'filter-1',
+      candidateConstruction: { version: 1, steps: [] },
+      dependencyImpact: { removedStepIds: [], affectedStepIds: [], missingInputs: [] },
+      stages: [], previewStatus: 'NEEDS_REPAIR', previewDurationMs: 0,
+      diagnostics: [{
+        code: 'PIVOT_CATEGORIES_UNVERIFIABLE',
+        message: 'Pivot pivot-status categories were not verified because this category field has more than 256 values in the current rows.',
+        stepId: 'pivot-status',
+        outcome: 'LIMIT_EXCEEDED',
+      }],
+    };
+    render(<ConstructionProposalPanel state={{ status: 'needs-repair', response }}
+      canApply={false} onApply={() => undefined} onCancel={() => undefined} onRetry={() => undefined} />);
+    expect(screen.getByTestId('construction-proposal-diagnostics').textContent)
+      .toContain('Repair the rest of this proposal before applying it.');
+    expect(screen.queryByRole('button', { name: 'Apply change' })).not.toBeInTheDocument();
   });
 
   it('names every dependent removal before Apply and lets Cancel leave the proposal', () => {
@@ -144,9 +192,7 @@ describe('construction filter proposal wiring', () => {
       .toContain('Remove Patient expansion and its dependent Observation and Medication expansions.');
     for (const step of construction.steps) expect(screen.getByTestId(`construction-removal-step-${step.id}`)).toBeInTheDocument();
     expect(onApply).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(onCancel).toHaveBeenCalledOnce();
-    expect(onApply).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Apply removal' }));
     expect(onApply).toHaveBeenCalledOnce();
     const editedResponse: ConstructionProposalResponse = {
@@ -160,6 +206,32 @@ describe('construction filter proposal wiring', () => {
       .toContain('This edit also removes the dependent Observation and Medication expansions.');
     expect(screen.queryByTestId('construction-removal-step-expand-Patient')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Apply change' })).toBeInTheDocument();
+  });
+
+  it('counts matching related records in displayed output without treating the sample as a total', () => {
+    const relatedPreview: ExplorerBuilderPreviewResult = {
+      ...preview, rowCount: 100, sampled: true,
+      columns: [{ column: 'observation_id', label: 'Observation ID', logicalType: 'string', filterable: false, chartable: false }],
+      rows: [{ observation_id: 'one' }, { observation_id: 'two' }, { observation_id: null }],
+    };
+    const step: Construction['steps'][number] = {
+      id: 'expand-observations', inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: { kind: 'RELATED_EXPAND', relatedExpand: {
+        anchorColumnId: '_key', choiceId: 'observation-path', targetNodeId: 'observation', targetResourceType: 'Observation',
+        route: [], contributorRule: { policy: 'ALL_MATCHES' }, emptyPolicy: 'PRESERVE_PARENT', relatedRecordColumnId: 'related-id',
+      } },
+      outputs: [{ id: 'related-id', name: 'observation_id', label: 'Observation ID', type: 'string' }],
+    };
+    const response: ConstructionProposalResponse = {
+      proposalId: preview.receiptId, outputId: preview.outputId, snapshotToken: 'snapshot-1',
+      draftVersion: 4, draftDigest: 'draft-4', baseDocumentDigest: 'document-4', candidateWorkspaceDigest: 'expanded-workspace', changedStepId: step.id,
+      candidateConstruction: { version: 1, steps: [step] }, dependencyImpact: { affectedStepIds: [] },
+      stages: [], previewStatus: 'READY', previewDurationMs: 8,
+    };
+    render(<ConstructionProposalPanel state={{ status: 'ready', response, preview: relatedPreview }}
+      baseConstruction={{ version: 1, steps: [] }} canApply onApply={vi.fn()} onCancel={vi.fn()} onRetry={vi.fn()} />);
+    expect(screen.getByTestId('construction-expand-outcome').textContent)
+      .toContain('Displayed output rows: 2 with a matching Observation record, 1 kept without one.');
   });
 
   it('explains the configured Expand effect and samples only a fresh matching append-stage input preview', () => {
@@ -422,7 +494,7 @@ describe('construction filter proposal wiring', () => {
     await waitFor(() => expect(proposeConstruction).toHaveBeenCalledOnce());
     expect(await screen.findByTestId('construction-proposal-error')).toHaveTextContent('no matching related records');
     expect(screen.queryByRole('button', { name: 'Retry preview' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
     expect(valueInput).toBeEnabled();
 
     fireEvent.change(valueInput, { target: { value: 'male' } });

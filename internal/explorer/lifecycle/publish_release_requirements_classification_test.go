@@ -13,12 +13,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-// F-B14 durable control. A deterministic release-requirements miss (permanent
-// until data/config changes) must be classified separately from a genuine
-// transient preparation failure, with explicit non-retryability, per
-// docs/loom-reliability-contract.md: clients do not infer retryability from
-// an HTTP status.
-
 func publishIntoReleasePreparation(t *testing.T, prepareErr error) (*Error, *fakeStore, error) {
 	t.Helper()
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
@@ -83,19 +77,14 @@ func TestPublishGenuinePreparationFailureRemainsUnavailable(t *testing.T) {
 	}
 }
 
-// RepositoryPublish sibling (F-B14b): the same activation error must be split
-// the same way — typed contract miss keeps the 409 with an explicit
-// non-retryable diagnostic, while a store fault stays retryable and becomes
-// unavailable instead of a misleading conflict.
-
 func repositoryPublishIntoActivation(t *testing.T, activateErr error) (*Error, *fakeStore, error) {
 	t.Helper()
 	visible := true
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	workspace := authoringv2.Workspace{
 		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Default"},
-		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible}}}}},
-		Tabs:      []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
+		Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible}}}, Rows: authoringv2.RecordsRowDefinition()}},
+		Tabs:      []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 	base := nativeReceipt(snapshot)
 	base.ExplorerID = "default"

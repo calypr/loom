@@ -10,10 +10,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// validateInterpretationCandidateCommands is the proof boundary for the one
-// receipt-backed mutation. The reducer has already produced the proposed
-// workspace, so a successful return means SaveDraft is the only remaining
-// state change in ApplyWorkspaceCommandsChecked.
 func (s *Service) validateInterpretationCandidateCommands(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, proposed authoringv2.Workspace, snapshot capability.Snapshot) error {
 	candidateCount := 0
 	for _, command := range request.Commands {
@@ -34,7 +30,7 @@ func (s *Service) validateInterpretationCandidateCommands(ctx context.Context, p
 		if receipt == nil || receipt.ID != command.InterpretationCandidate.CandidateReceiptID {
 			return conflict("commands", "INVALID_INTERPRETATION_CANDIDATE_RECEIPT", "the candidate receipt ID does not match the command", nil, nil)
 		}
-		if err := s.validateReceiptRoute(receipt, project, explorerID); err != nil {
+		if err := s.validateExecutableReceiptRoute(receipt, project, explorerID); err != nil {
 			return conflict("commands", "INVALID_INTERPRETATION_CANDIDATE_RECEIPT", "the candidate receipt is not usable for this Explorer", nil, err)
 		}
 		if err := validateCandidateReceiptIdentity(receipt, project, explorerID, request.SnapshotToken, snapshot); err != nil {

@@ -1,12 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createLoomClient, LoomRequestError } from './api';
 
-// Exercises the requestError boundary in api.ts: retryability must come from an
-// explicit server detail (details.retryable) when present, and only fall back to
-// the HTTP-status heuristic (408 | 429 | >=500) when the server is silent about it.
-// listExplorers() is the thinnest public method that reaches request() and rejects
-// with a LoomRequestError on a non-ok response before any response-shape parsing.
-
 const projectArgs = { project: 'project-a' } as const;
 
 const rejectAsRequestError = async (
@@ -201,5 +195,15 @@ describe('Loom requestError retryability', () => {
     expect(numericError.info.details).toEqual({ retryable: 1 });
     expect(numericError.info.retryable).toBe(false);
     expect(numericError.retryable).toBe(false);
+  });
+
+  it('explains a body-less 504 instead of reporting only the status', async () => {
+    const client = createLoomClient({
+      fetch: vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response('', { status: 504 })),
+    });
+    const error = await rejectAsRequestError(client.listExplorers(projectArgs));
+    expect(error.info.status).toBe(504);
+    expect(error.info.message).toBe('Loom timed out before returning a result. Retry, or narrow the preview.');
+    expect(error.info.retryable).toBe(true);
   });
 });

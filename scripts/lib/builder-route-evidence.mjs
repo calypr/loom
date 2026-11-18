@@ -57,9 +57,6 @@ const READ_LIKE_POSTS = [
   /\/row-lineage$/,
   /\/semantic-inventory$/,
   /\/suggestions$/,
-  /\/table-shape-capabilities$/,
-  /\/table-shape-proposals$/,
-  /\/table-shape-category-discoveries$/,
 ];
 
 let operationCache = null;

@@ -1,6 +1,5 @@
 package main
 
-// Schema is the JSON input contract consumed by all generators.
 type Schema struct {
 	ID   string                 `json:"$id"`
 	Defs map[string]*Definition `json:"$defs"`

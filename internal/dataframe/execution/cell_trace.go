@@ -17,9 +17,6 @@ import (
 
 const defaultCellTraceWitnessRows int64 = 1_000_000
 
-// CellTraceStatus describes what the canonical output plan established for
-// one published cell. Incomplete is reserved for a bounded trace that could
-// not reach the requested row; it must never be presented as absence.
 type CellTraceStatus string
 
 const (
@@ -71,15 +68,8 @@ type CellTraceResult struct {
 var errCellTraceFound = errors.New("cell trace row found")
 var errCellTraceWitnessLimit = errors.New("cell trace witness limit exceeded")
 
-// ErrCellTraceRowNotFound marks a client-supplied row ID that matched no
-// published row in an existing output; the authoring transport presents it as
-// a typed not-found, and only drift between bundle and compiled outputs can
-// keep it from being resolved upstream.
 var ErrCellTraceRowNotFound = errors.New("published cell trace row was not found")
 
-// CellTrace executes a diagnostic terminal compiled from the same resolved
-// output as publication. It locates a published row by its stable opaque ID;
-// callers never submit FHIR paths or expressions for interpretation here.
 func (e *Engine) CellTrace(ctx context.Context, resolved Resolved, request CellTraceRequest) (CellTraceResult, error) {
 	if strings.TrimSpace(request.Output) == "" {
 		return CellTraceResult{}, fmt.Errorf("cell trace output is required")
@@ -91,8 +81,6 @@ func (e *Engine) CellTrace(ctx context.Context, resolved Resolved, request CellT
 	return e.cellTraceCompiled(ctx, compiled, request)
 }
 
-// CellTraceCompiled is the narrow execution seam used by focused tests and
-// specialized adapters that already hold the compiler result.
 func (e *Engine) CellTraceCompiled(ctx context.Context, compiled compiler.CompiledCellTraceQuery, request CellTraceRequest) (CellTraceResult, error) {
 	return e.cellTraceCompiled(ctx, compiled, request)
 }
@@ -201,9 +189,6 @@ func cellTraceRowIdentity(query compiler.CompiledCellTraceQuery, row map[string]
 	return hex.EncodeToString(digest[:]), nil
 }
 
-// The compiler publishes a singleton __loom_row_id for composed cohort
-// outputs; its cohort stage defines that identity as a required object. Other
-// construction identities retain their scalar or identity-parts metadata.
 func canonicalCellTraceObjectValue(value any) (string, error) {
 	encoded, err := json.Marshal(value)
 	if err != nil {

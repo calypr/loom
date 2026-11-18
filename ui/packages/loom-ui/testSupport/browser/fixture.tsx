@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { MantineProvider } from '@mantine/core';
 import '@mantine/core/styles.css';
 import '../../src/styles.css';
-import { PreviewTable, type PreviewTablePresentationChange } from '../../src/features/ExplorerBuilder/components/PreviewTable';
+import { PreviewTable } from '../../src/features/ExplorerBuilder/components/PreviewTable';
 import { OutputTable } from '../../src/features/ExplorerViewer/components';
 import { createViewerReducerState } from '../../src/features/ExplorerViewer/reducer';
 import type { DraftTable } from '../../src/features/ExplorerBuilder/authoring/model';
@@ -36,30 +36,19 @@ const runtime: ExplorerRuntimeV1 = {
   fileActions: { extensions: { txt: ['file_download'] }, actions: { file_download: new URLSearchParams(location.search).get('downloadBase') === 'query' ? '/download?source=viewer&redirect=false#details' : '/download' } },
 };
 function App() {
-  // This is a test-owned caller for production components, not BuilderWorkspace
-  // or a claim about the real command/store path.
-  const [authored, setAuthored] = useState<ExplorerBuilderColumn[]>(() => {
-    const saved = sessionStorage.getItem('browser-fixture-columns');
-    return saved ? JSON.parse(saved) : columns;
-  });
+  const [limit, setLimit] = useState<25 | 50 | 100 | 500 | 1000>(25);
+  const [limitChanges, setLimitChanges] = useState<number[]>([]);
   const table: DraftTable = { outputId: 'rows', tabId: 'rows', title: 'Rows', document: {
     kind: 'ExplorerBuilderDocument', output: { id: 'rows', title: 'Rows' }, rootResourceType: 'Patient',
-    route: { occurrenceId: 'base', resourceType: 'Patient' }, rows: { kind: 'RECORDS', records: {} }, columns: authored,
+    route: { occurrenceId: 'base', resourceType: 'Patient' }, rows: { kind: 'RECORDS', records: {} }, columns,
   } };
-  const change = (changes: readonly PreviewTablePresentationChange[]) => setAuthored(current => {
-    const next = current.map(column => changes.find(change => change.kind === 'AUTHORED_COLUMN' && change.column.column === column.column))
-      .map((change, index) => change?.kind === 'AUTHORED_COLUMN' ? change.column : current[index]);
-    sessionStorage.setItem('browser-fixture-columns', JSON.stringify(next));
-    return next;
-  });
   return <MantineProvider><main className="loom-ui-root" style={{ width: 1100, margin: 24 }}>
     <h1>Production component browser fixture</h1>
     {new URLSearchParams(location.search).get('feature') === 'route' ? <RouteFixture /> : new URLSearchParams(location.search).get('feature') === 'download'
       ? <OutputTable runtime={runtime} output={runtime.outputs[0]}
           result={{ columns: ['file'], rows: [{ file: fileId, file_name: 'fixture.txt' }], rowIds: ['file-row-A'], totalCount: 1, pageInfo: { hasNextPage: false }, facets: [] }}
           state={createViewerReducerState(runtime)} dispatch={() => undefined} />
-      : <PreviewTable preview={preview} table={table} limit={25} onLimitChange={() => undefined}
-          onColumnChange={column => change([column])} onColumnsChange={change} />}
+      : <><output data-testid="preview-limit-state">{JSON.stringify({ limit, changes: limitChanges })}</output><PreviewTable preview={preview} table={table} limit={limit} onLimitChange={(next) => { setLimit(next); setLimitChanges((previous) => [...previous, next]); }} /></>}
   </main></MantineProvider>;
 }
 createRoot(document.getElementById('root')!).render(<App />);

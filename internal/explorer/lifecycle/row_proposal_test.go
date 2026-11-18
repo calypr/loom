@@ -675,7 +675,7 @@ func TestProposeExplicitGroupUnassignedErrorReturnsValidationError(t *testing.T)
 	}
 }
 
-func TestProposeRowDefinitionAllowsMetadataNormalization(t *testing.T) {
+func TestProposeRowDefinitionAfterStoredMetadataMigration(t *testing.T) {
 	service, store, snapshot, workspace := rowProposalService(t)
 	enableRowDefinitionPreview(service)
 	workspace.SemanticsVersion = authoringv2.CurrentSemanticsVersion - 2
@@ -683,6 +683,8 @@ func TestProposeRowDefinitionAllowsMetadataNormalization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	migration := migrateStoredWorkspaceFixture(t, draft, service.catalog(snapshot, store.created.ExplorerID))
+	draft = migration.CanonicalJSON
 	decoded, err := authoringv2.DecodeWorkspace(draft)
 	if err != nil {
 		t.Fatal(err)

@@ -7,6 +7,13 @@ import (
 	"unicode/utf8"
 )
 
+// MissingRequiredFieldError identifies a missing schema-owned field.
+type MissingRequiredFieldError struct{ Field string }
+
+func (e *MissingRequiredFieldError) Error() string {
+	return fmt.Sprintf("required field '%s' is missing", e.Field)
+}
+
 // Pre-compiled regular expressions for pattern validation
 var (
 	rx_Address_Type                                    = regexp.MustCompile("^[^\\s]+(\\s[^\\s]+)*$")
@@ -844,7 +851,7 @@ func (x *BodyStructure) Validate() error {
 	if x.ImplicitRules != nil {
 	}
 	if x.IncludedStructure == nil {
-		return fmt.Errorf("required field 'includedStructure' is missing")
+		return &MissingRequiredFieldError{Field: "includedStructure"}
 	}
 	if x.IncludedStructure != nil {
 		for i, item := range x.IncludedStructure {
@@ -882,7 +889,7 @@ func (x *BodyStructure) Validate() error {
 		}
 	}
 	if x.Patient == nil {
-		return fmt.Errorf("required field 'patient' is missing")
+		return &MissingRequiredFieldError{Field: "patient"}
 	}
 	if x.Patient != nil {
 		if err := x.Patient.Validate(); err != nil {
@@ -970,7 +977,7 @@ func (x *BodyStructureIncludedStructure) Validate() error {
 		}
 	}
 	if x.Structure == nil {
-		return fmt.Errorf("required field 'structure' is missing")
+		return &MissingRequiredFieldError{Field: "structure"}
 	}
 	if x.Structure != nil {
 		if err := x.Structure.Validate(); err != nil {
@@ -1354,7 +1361,7 @@ func (x *Condition) Validate() error {
 		}
 	}
 	if x.ClinicalStatus == nil {
-		return fmt.Errorf("required field 'clinicalStatus' is missing")
+		return &MissingRequiredFieldError{Field: "clinicalStatus"}
 	}
 	if x.ClinicalStatus != nil {
 		if err := x.ClinicalStatus.Validate(); err != nil {
@@ -1509,7 +1516,7 @@ func (x *Condition) Validate() error {
 		}
 	}
 	if x.Subject == nil {
-		return fmt.Errorf("required field 'subject' is missing")
+		return &MissingRequiredFieldError{Field: "subject"}
 	}
 	if x.Subject != nil {
 		if err := x.Subject.Validate(); err != nil {
@@ -1535,7 +1542,7 @@ func (x *ConditionParticipant) Validate() error {
 		return nil
 	}
 	if x.Actor == nil {
-		return fmt.Errorf("required field 'actor' is missing")
+		return &MissingRequiredFieldError{Field: "actor"}
 	}
 	if x.Actor != nil {
 		if err := x.Actor.Validate(); err != nil {
@@ -2270,7 +2277,7 @@ func (x *DiagnosticReport) Validate() error {
 		}
 	}
 	if x.Code == nil {
-		return fmt.Errorf("required field 'code' is missing")
+		return &MissingRequiredFieldError{Field: "code"}
 	}
 	if x.Code != nil {
 		if err := x.Code.Validate(); err != nil {
@@ -2511,7 +2518,7 @@ func (x *DiagnosticReportMedia) Validate() error {
 		}
 	}
 	if x.Link == nil {
-		return fmt.Errorf("required field 'link' is missing")
+		return &MissingRequiredFieldError{Field: "link"}
 	}
 	if x.Link != nil {
 		if err := x.Link.Validate(); err != nil {
@@ -2568,7 +2575,7 @@ func (x *DiagnosticReportSupportingInfo) Validate() error {
 		}
 	}
 	if x.Reference == nil {
-		return fmt.Errorf("required field 'reference' is missing")
+		return &MissingRequiredFieldError{Field: "reference"}
 	}
 	if x.Reference != nil {
 		if err := x.Reference.Validate(); err != nil {
@@ -2581,7 +2588,7 @@ func (x *DiagnosticReportSupportingInfo) Validate() error {
 		}
 	}
 	if x.Type == nil {
-		return fmt.Errorf("required field 'type' is missing")
+		return &MissingRequiredFieldError{Field: "type"}
 	}
 	if x.Type != nil {
 		if err := x.Type.Validate(); err != nil {
@@ -2597,7 +2604,7 @@ func (x *Directory) Validate() error {
 		return nil
 	}
 	if x.Child == nil {
-		return fmt.Errorf("required field 'child' is missing")
+		return &MissingRequiredFieldError{Field: "child"}
 	}
 	if x.Child != nil {
 		for i, item := range x.Child {
@@ -2622,7 +2629,7 @@ func (x *Directory) Validate() error {
 	if x.Links != nil {
 	}
 	if x.Name == nil {
-		return fmt.Errorf("required field 'name' is missing")
+		return &MissingRequiredFieldError{Field: "name"}
 	}
 	if x.Name != nil {
 	}
@@ -2804,7 +2811,7 @@ func (x *DocumentReference) Validate() error {
 		}
 	}
 	if x.Content == nil {
-		return fmt.Errorf("required field 'content' is missing")
+		return &MissingRequiredFieldError{Field: "content"}
 	}
 	if x.Content != nil {
 		for i, item := range x.Content {
@@ -3007,7 +3014,7 @@ func (x *DocumentReferenceAttester) Validate() error {
 	if x.Links != nil {
 	}
 	if x.Mode == nil {
-		return fmt.Errorf("required field 'mode' is missing")
+		return &MissingRequiredFieldError{Field: "mode"}
 	}
 	if x.Mode != nil {
 		if err := x.Mode.Validate(); err != nil {
@@ -3047,7 +3054,7 @@ func (x *DocumentReferenceContent) Validate() error {
 		return nil
 	}
 	if x.Attachment == nil {
-		return fmt.Errorf("required field 'attachment' is missing")
+		return &MissingRequiredFieldError{Field: "attachment"}
 	}
 	if x.Attachment != nil {
 		if err := x.Attachment.Validate(); err != nil {
@@ -3159,7 +3166,7 @@ func (x *DocumentReferenceRelatesTo) Validate() error {
 		return nil
 	}
 	if x.Code == nil {
-		return fmt.Errorf("required field 'code' is missing")
+		return &MissingRequiredFieldError{Field: "code"}
 	}
 	if x.Code != nil {
 		if err := x.Code.Validate(); err != nil {
@@ -3197,7 +3204,7 @@ func (x *DocumentReferenceRelatesTo) Validate() error {
 		}
 	}
 	if x.Target == nil {
-		return fmt.Errorf("required field 'target' is missing")
+		return &MissingRequiredFieldError{Field: "target"}
 	}
 	if x.Target != nil {
 		if err := x.Target.Validate(); err != nil {
@@ -4189,7 +4196,7 @@ func (x *FamilyMemberHistory) Validate() error {
 		}
 	}
 	if x.Patient == nil {
-		return fmt.Errorf("required field 'patient' is missing")
+		return &MissingRequiredFieldError{Field: "patient"}
 	}
 	if x.Patient != nil {
 		if err := x.Patient.Validate(); err != nil {
@@ -4215,7 +4222,7 @@ func (x *FamilyMemberHistory) Validate() error {
 		}
 	}
 	if x.Relationship == nil {
-		return fmt.Errorf("required field 'relationship' is missing")
+		return &MissingRequiredFieldError{Field: "relationship"}
 	}
 	if x.Relationship != nil {
 		if err := x.Relationship.Validate(); err != nil {
@@ -4261,7 +4268,7 @@ func (x *FamilyMemberHistoryCondition) Validate() error {
 		}
 	}
 	if x.Code == nil {
-		return fmt.Errorf("required field 'code' is missing")
+		return &MissingRequiredFieldError{Field: "code"}
 	}
 	if x.Code != nil {
 		if err := x.Code.Validate(); err != nil {
@@ -4343,7 +4350,7 @@ func (x *FamilyMemberHistoryParticipant) Validate() error {
 		return nil
 	}
 	if x.Actor == nil {
-		return fmt.Errorf("required field 'actor' is missing")
+		return &MissingRequiredFieldError{Field: "actor"}
 	}
 	if x.Actor != nil {
 		if err := x.Actor.Validate(); err != nil {
@@ -4409,7 +4416,7 @@ func (x *FamilyMemberHistoryProcedure) Validate() error {
 		}
 	}
 	if x.Code == nil {
-		return fmt.Errorf("required field 'code' is missing")
+		return &MissingRequiredFieldError{Field: "code"}
 	}
 	if x.Code != nil {
 		if err := x.Code.Validate(); err != nil {
@@ -4680,7 +4687,7 @@ func (x *GroupCharacteristic) Validate() error {
 		}
 	}
 	if x.Code == nil {
-		return fmt.Errorf("required field 'code' is missing")
+		return &MissingRequiredFieldError{Field: "code"}
 	}
 	if x.Code != nil {
 		if err := x.Code.Validate(); err != nil {
@@ -4760,7 +4767,7 @@ func (x *GroupMember) Validate() error {
 		}
 	}
 	if x.Entity == nil {
-		return fmt.Errorf("required field 'entity' is missing")
+		return &MissingRequiredFieldError{Field: "entity"}
 	}
 	if x.Entity != nil {
 		if err := x.Entity.Validate(); err != nil {
@@ -5209,7 +5216,7 @@ func (x *ImagingStudy) Validate() error {
 		}
 	}
 	if x.Subject == nil {
-		return fmt.Errorf("required field 'subject' is missing")
+		return &MissingRequiredFieldError{Field: "subject"}
 	}
 	if x.Subject != nil {
 		if err := x.Subject.Validate(); err != nil {
@@ -5304,7 +5311,7 @@ func (x *ImagingStudySeries) Validate() error {
 	if x.Links != nil {
 	}
 	if x.Modality == nil {
-		return fmt.Errorf("required field 'modality' is missing")
+		return &MissingRequiredFieldError{Field: "modality"}
 	}
 	if x.Modality != nil {
 		if err := x.Modality.Validate(); err != nil {
@@ -5428,7 +5435,7 @@ func (x *ImagingStudySeriesInstance) Validate() error {
 		}
 	}
 	if x.SopClass == nil {
-		return fmt.Errorf("required field 'sopClass' is missing")
+		return &MissingRequiredFieldError{Field: "sopClass"}
 	}
 	if x.SopClass != nil {
 		if err := x.SopClass.Validate(); err != nil {
@@ -5460,7 +5467,7 @@ func (x *ImagingStudySeriesPerformer) Validate() error {
 		return nil
 	}
 	if x.Actor == nil {
-		return fmt.Errorf("required field 'actor' is missing")
+		return &MissingRequiredFieldError{Field: "actor"}
 	}
 	if x.Actor != nil {
 		if err := x.Actor.Validate(); err != nil {
@@ -5774,7 +5781,7 @@ func (x *MedicationAdministration) Validate() error {
 	if x.Links != nil {
 	}
 	if x.Medication == nil {
-		return fmt.Errorf("required field 'medication' is missing")
+		return &MissingRequiredFieldError{Field: "medication"}
 	}
 	if x.Medication != nil {
 		if err := x.Medication.Validate(); err != nil {
@@ -5885,7 +5892,7 @@ func (x *MedicationAdministration) Validate() error {
 		}
 	}
 	if x.Subject == nil {
-		return fmt.Errorf("required field 'subject' is missing")
+		return &MissingRequiredFieldError{Field: "subject"}
 	}
 	if x.Subject != nil {
 		if err := x.Subject.Validate(); err != nil {
@@ -5993,7 +6000,7 @@ func (x *MedicationAdministrationPerformer) Validate() error {
 		return nil
 	}
 	if x.Actor == nil {
-		return fmt.Errorf("required field 'actor' is missing")
+		return &MissingRequiredFieldError{Field: "actor"}
 	}
 	if x.Actor != nil {
 		if err := x.Actor.Validate(); err != nil {
@@ -6123,7 +6130,7 @@ func (x *MedicationIngredient) Validate() error {
 	if x.IsActive != nil {
 	}
 	if x.Item == nil {
-		return fmt.Errorf("required field 'item' is missing")
+		return &MissingRequiredFieldError{Field: "item"}
 	}
 	if x.Item != nil {
 		if err := x.Item.Validate(); err != nil {
@@ -6367,7 +6374,7 @@ func (x *MedicationRequest) Validate() error {
 	if x.Links != nil {
 	}
 	if x.Medication == nil {
-		return fmt.Errorf("required field 'medication' is missing")
+		return &MissingRequiredFieldError{Field: "medication"}
 	}
 	if x.Medication != nil {
 		if err := x.Medication.Validate(); err != nil {
@@ -6468,7 +6475,7 @@ func (x *MedicationRequest) Validate() error {
 		}
 	}
 	if x.Subject == nil {
-		return fmt.Errorf("required field 'subject' is missing")
+		return &MissingRequiredFieldError{Field: "subject"}
 	}
 	if x.Subject != nil {
 		if err := x.Subject.Validate(); err != nil {
@@ -6841,7 +6848,7 @@ func (x *MedicationStatement) Validate() error {
 	if x.Links != nil {
 	}
 	if x.Medication == nil {
-		return fmt.Errorf("required field 'medication' is missing")
+		return &MissingRequiredFieldError{Field: "medication"}
 	}
 	if x.Medication != nil {
 		if err := x.Medication.Validate(); err != nil {
@@ -6914,7 +6921,7 @@ func (x *MedicationStatement) Validate() error {
 		}
 	}
 	if x.Subject == nil {
-		return fmt.Errorf("required field 'subject' is missing")
+		return &MissingRequiredFieldError{Field: "subject"}
 	}
 	if x.Subject != nil {
 		if err := x.Subject.Validate(); err != nil {
@@ -6935,7 +6942,7 @@ func (x *MedicationStatementAdherence) Validate() error {
 		return nil
 	}
 	if x.Code == nil {
-		return fmt.Errorf("required field 'code' is missing")
+		return &MissingRequiredFieldError{Field: "code"}
 	}
 	if x.Code != nil {
 		if err := x.Code.Validate(); err != nil {
@@ -7257,7 +7264,7 @@ func (x *Observation) Validate() error {
 		}
 	}
 	if x.Code == nil {
-		return fmt.Errorf("required field 'code' is missing")
+		return &MissingRequiredFieldError{Field: "code"}
 	}
 	if x.Code != nil {
 		if err := x.Code.Validate(); err != nil {
@@ -7585,7 +7592,7 @@ func (x *ObservationComponent) Validate() error {
 		}
 	}
 	if x.Code == nil {
-		return fmt.Errorf("required field 'code' is missing")
+		return &MissingRequiredFieldError{Field: "code"}
 	}
 	if x.Code != nil {
 		if err := x.Code.Validate(); err != nil {
@@ -7830,7 +7837,7 @@ func (x *ObservationTriggeredBy) Validate() error {
 		}
 	}
 	if x.Observation == nil {
-		return fmt.Errorf("required field 'observation' is missing")
+		return &MissingRequiredFieldError{Field: "observation"}
 	}
 	if x.Observation != nil {
 		if err := x.Observation.Validate(); err != nil {
@@ -8034,7 +8041,7 @@ func (x *OrganizationQualification) Validate() error {
 		return nil
 	}
 	if x.Code == nil {
-		return fmt.Errorf("required field 'code' is missing")
+		return &MissingRequiredFieldError{Field: "code"}
 	}
 	if x.Code != nil {
 		if err := x.Code.Validate(); err != nil {
@@ -8440,7 +8447,7 @@ func (x *PatientCommunication) Validate() error {
 		}
 	}
 	if x.Language == nil {
-		return fmt.Errorf("required field 'language' is missing")
+		return &MissingRequiredFieldError{Field: "language"}
 	}
 	if x.Language != nil {
 		if err := x.Language.Validate(); err != nil {
@@ -8590,7 +8597,7 @@ func (x *PatientLink) Validate() error {
 		}
 	}
 	if x.Other == nil {
-		return fmt.Errorf("required field 'other' is missing")
+		return &MissingRequiredFieldError{Field: "other"}
 	}
 	if x.Other != nil {
 		if err := x.Other.Validate(); err != nil {
@@ -8871,7 +8878,7 @@ func (x *PractitionerCommunication) Validate() error {
 		}
 	}
 	if x.Language == nil {
-		return fmt.Errorf("required field 'language' is missing")
+		return &MissingRequiredFieldError{Field: "language"}
 	}
 	if x.Language != nil {
 		if err := x.Language.Validate(); err != nil {
@@ -8905,7 +8912,7 @@ func (x *PractitionerQualification) Validate() error {
 		return nil
 	}
 	if x.Code == nil {
-		return fmt.Errorf("required field 'code' is missing")
+		return &MissingRequiredFieldError{Field: "code"}
 	}
 	if x.Code != nil {
 		if err := x.Code.Validate(); err != nil {
@@ -9466,7 +9473,7 @@ func (x *Procedure) Validate() error {
 		}
 	}
 	if x.Subject == nil {
-		return fmt.Errorf("required field 'subject' is missing")
+		return &MissingRequiredFieldError{Field: "subject"}
 	}
 	if x.Subject != nil {
 		if err := x.Subject.Validate(); err != nil {
@@ -9526,7 +9533,7 @@ func (x *ProcedureFocalDevice) Validate() error {
 	if x.Links != nil {
 	}
 	if x.Manipulated == nil {
-		return fmt.Errorf("required field 'manipulated' is missing")
+		return &MissingRequiredFieldError{Field: "manipulated"}
 	}
 	if x.Manipulated != nil {
 		if err := x.Manipulated.Validate(); err != nil {
@@ -9556,7 +9563,7 @@ func (x *ProcedurePerformer) Validate() error {
 		return nil
 	}
 	if x.Actor == nil {
-		return fmt.Errorf("required field 'actor' is missing")
+		return &MissingRequiredFieldError{Field: "actor"}
 	}
 	if x.Actor != nil {
 		if err := x.Actor.Validate(); err != nil {
@@ -10409,7 +10416,7 @@ func (x *ResearchStudyAssociatedParty) Validate() error {
 		}
 	}
 	if x.Role == nil {
-		return fmt.Errorf("required field 'role' is missing")
+		return &MissingRequiredFieldError{Field: "role"}
 	}
 	if x.Role != nil {
 		if err := x.Role.Validate(); err != nil {
@@ -10748,7 +10755,7 @@ func (x *ResearchStudyProgressStatus) Validate() error {
 		}
 	}
 	if x.State == nil {
-		return fmt.Errorf("required field 'state' is missing")
+		return &MissingRequiredFieldError{Field: "state"}
 	}
 	if x.State != nil {
 		if err := x.State.Validate(); err != nil {
@@ -10973,7 +10980,7 @@ func (x *ResearchSubject) Validate() error {
 		}
 	}
 	if x.Study == nil {
-		return fmt.Errorf("required field 'study' is missing")
+		return &MissingRequiredFieldError{Field: "study"}
 	}
 	if x.Study != nil {
 		if err := x.Study.Validate(); err != nil {
@@ -10981,7 +10988,7 @@ func (x *ResearchSubject) Validate() error {
 		}
 	}
 	if x.Subject == nil {
-		return fmt.Errorf("required field 'subject' is missing")
+		return &MissingRequiredFieldError{Field: "subject"}
 	}
 	if x.Subject != nil {
 		if err := x.Subject.Validate(); err != nil {
@@ -11217,7 +11224,7 @@ func (x *SampledData) Validate() error {
 		}
 	}
 	if x.Origin == nil {
-		return fmt.Errorf("required field 'origin' is missing")
+		return &MissingRequiredFieldError{Field: "origin"}
 	}
 	if x.Origin != nil {
 		if err := x.Origin.Validate(); err != nil {
@@ -11637,7 +11644,7 @@ func (x *SpecimenContainer) Validate() error {
 		return nil
 	}
 	if x.Device == nil {
-		return fmt.Errorf("required field 'device' is missing")
+		return &MissingRequiredFieldError{Field: "device"}
 	}
 	if x.Device != nil {
 		if err := x.Device.Validate(); err != nil {
@@ -11733,7 +11740,7 @@ func (x *SpecimenFeature) Validate() error {
 		}
 	}
 	if x.Type == nil {
-		return fmt.Errorf("required field 'type' is missing")
+		return &MissingRequiredFieldError{Field: "type"}
 	}
 	if x.Type != nil {
 		if err := x.Type.Validate(); err != nil {
@@ -11865,7 +11872,7 @@ func (x *Substance) Validate() error {
 		}
 	}
 	if x.Code == nil {
-		return fmt.Errorf("required field 'code' is missing")
+		return &MissingRequiredFieldError{Field: "code"}
 	}
 	if x.Code != nil {
 		if err := x.Code.Validate(); err != nil {
@@ -12490,7 +12497,7 @@ func (x *SubstanceDefinitionMolecularWeight) Validate() error {
 		return nil
 	}
 	if x.Amount == nil {
-		return fmt.Errorf("required field 'amount' is missing")
+		return &MissingRequiredFieldError{Field: "amount"}
 	}
 	if x.Amount != nil {
 		if err := x.Amount.Validate(); err != nil {
@@ -12772,7 +12779,7 @@ func (x *SubstanceDefinitionProperty) Validate() error {
 		}
 	}
 	if x.Type == nil {
-		return fmt.Errorf("required field 'type' is missing")
+		return &MissingRequiredFieldError{Field: "type"}
 	}
 	if x.Type != nil {
 		if err := x.Type.Validate(); err != nil {
@@ -12896,7 +12903,7 @@ func (x *SubstanceDefinitionRelationship) Validate() error {
 		}
 	}
 	if x.Type == nil {
-		return fmt.Errorf("required field 'type' is missing")
+		return &MissingRequiredFieldError{Field: "type"}
 	}
 	if x.Type != nil {
 		if err := x.Type.Validate(); err != nil {
@@ -13650,7 +13657,7 @@ func (x *TaskInput) Validate() error {
 		}
 	}
 	if x.Type == nil {
-		return fmt.Errorf("required field 'type' is missing")
+		return &MissingRequiredFieldError{Field: "type"}
 	}
 	if x.Type != nil {
 		if err := x.Type.Validate(); err != nil {
@@ -14060,7 +14067,7 @@ func (x *TaskOutput) Validate() error {
 		}
 	}
 	if x.Type == nil {
-		return fmt.Errorf("required field 'type' is missing")
+		return &MissingRequiredFieldError{Field: "type"}
 	}
 	if x.Type != nil {
 		if err := x.Type.Validate(); err != nil {
@@ -14340,7 +14347,7 @@ func (x *TaskPerformer) Validate() error {
 		return nil
 	}
 	if x.Actor == nil {
-		return fmt.Errorf("required field 'actor' is missing")
+		return &MissingRequiredFieldError{Field: "actor"}
 	}
 	if x.Actor != nil {
 		if err := x.Actor.Validate(); err != nil {
@@ -14812,7 +14819,7 @@ func (x *UsageContext) Validate() error {
 		return nil
 	}
 	if x.Code == nil {
-		return fmt.Errorf("required field 'code' is missing")
+		return &MissingRequiredFieldError{Field: "code"}
 	}
 	if x.Code != nil {
 		if err := x.Code.Validate(); err != nil {

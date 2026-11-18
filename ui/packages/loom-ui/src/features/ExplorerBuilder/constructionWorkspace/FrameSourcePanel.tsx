@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { useLoomClient, useQuery } from '../../../react';
 import type { FrameDefinition, FrameSourceOption, SemanticInventoryItem } from '../../../types';
 import { catalogChoiceIntent, catalogItemAvailability, type CatalogChoiceIntent, type CatalogItem } from '../catalogItems';
@@ -216,7 +217,7 @@ const CategoryPicker = ({
 };
 
 export const FrameSourcePanel = ({
-  project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot, frames, columns, disabled, allowNewSource = true,
+  project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot, frames, columns, disabled, allowNewSource = true, addSourceRoute,
   onSet, onReplace, onRemove, onAddSelected, onRemoveColumn,
 }: {
   readonly project: string;
@@ -229,6 +230,7 @@ export const FrameSourcePanel = ({
   readonly columns: ReadonlyArray<{ readonly column: string; readonly label: string; readonly frameId?: string }>;
   readonly disabled: boolean;
   readonly allowNewSource?: boolean;
+  readonly addSourceRoute?: { readonly resourceType: string; readonly edgeIds: readonly string[] };
   readonly onSet: (choice: FrameSourceOption, form: FrameDefinition['form']) => Promise<boolean>;
   readonly onReplace: (frameId: string, choice: FrameSourceOption, form: FrameDefinition['form']) => Promise<boolean>;
   readonly onRemove: (frameId: string) => Promise<boolean>;
@@ -241,7 +243,7 @@ export const FrameSourcePanel = ({
   const [cursorState, setCursorState] = useState<{ readonly searchKey: string; readonly cursor: string }>();
   const [editingFrame, setEditingFrame] = useState<string>();
   const [openFrame, setOpenFrame] = useState<string>();
-  const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
+  const [sourcePickerOpen, setSourcePickerOpen] = useState(Boolean(addSourceRoute));
   const [pendingNewFrame, setPendingNewFrame] = useState<{
     readonly scopeKey: string;
     readonly sourceIdentity: string;
@@ -261,21 +263,30 @@ export const FrameSourcePanel = ({
     | { readonly kind: 'replace'; readonly frameId: string; readonly source: FrameSourceOption; readonly form: FrameDefinition['form'] }
   >();
 
-  const sourceSearchKey = JSON.stringify([
-    project, explorerId, authResourcePath ?? '', snapshotToken, outputId, rowRoot, query,
+  useEscapeToClose(Boolean(editingFrame || sourcePickerOpen || pendingNewFrame || (addSourceRoute && openFrame)), () => {
+    if (addSourceRoute) setOpenFrame(undefined);
+    setEditingFrame(undefined);
+    setSourcePickerOpen(false);
+    setPendingNewFrame(undefined);
+    setPendingImpact(undefined);
+  });
+  const sourceResourceType = addSourceRoute?.resourceType;
+  const sourceSearchKeyFor = (search: string) => JSON.stringify([
+    project, explorerId, authResourcePath ?? '', snapshotToken, outputId, rowRoot, sourceResourceType ?? '', search,
   ]);
+  const sourceSearchKey = sourceSearchKeyFor(query);
   const cursor = cursorState?.searchKey === sourceSearchKey ? cursorState.cursor : undefined;
   const sourcePickerEnabled = sourcePickerOpen && Boolean(snapshotToken && outputId && rowRoot);
   const sourceQuery = useQuery(async (signal) => {
     const response = await client.browseFrameSourceOptions({
-      project, explorerId, authResourcePath, snapshotToken, outputId, query, cursor, limit: 20,
+      project, explorerId, authResourcePath, snapshotToken, outputId, resourceType: sourceResourceType, query, cursor, limit: 20,
       requestId: `frame-source-options-${window.crypto.randomUUID()}`,
     }, signal);
     if (response.outputId !== outputId || response.snapshotToken !== snapshotToken) {
       throw new Error('Loom returned framing choices for another table or dataset.');
     }
     return { sources: response.sources, nextCursor: response.nextCursor };
-  }, [authResourcePath, client, cursor, explorerId, outputId, project, query, rowRoot, snapshotToken], sourcePickerEnabled);
+  }, [authResourcePath, client, cursor, explorerId, outputId, project, query, rowRoot, snapshotToken, sourceResourceType], sourcePickerEnabled);
   const priorSourcePage = loadedSourcePages?.searchKey === sourceSearchKey ? loadedSourcePages.value : undefined;
   const state: LoadState<{ sources: ReadonlyArray<FrameSourceOption>; nextCursor?: string }> = !sourcePickerEnabled
     ? { kind: 'loading' }
@@ -364,10 +375,16 @@ export const FrameSourcePanel = ({
   };
 
   const usedSources = new Set(frames.filter((frame) => frame.id !== editingFrame).map(frameIdentity));
+  const matchesGraphSource = (resourceType: string, route: FrameSourceOption['route']) =>
+    !addSourceRoute || (resourceType === addSourceRoute.resourceType &&
+      route.length === addSourceRoute.edgeIds.length &&
+      route.every((step, depth) => step.edgeId === addSourceRoute.edgeIds[depth]));
   const visibleSources = state.kind === 'ready'
     ? state.value.sources.filter((source, index, all) =>
+      matchesGraphSource(source.resourceType, source.route) &&
       !usedSources.has(sourceIdentity(source)) && all.findIndex((candidate) => candidate.choiceId === source.choiceId) === index)
     : [];
+  const visibleFrames = frames.filter((frame) => matchesGraphSource(frame.source.resourceType, frame.route));
   const sourceGroups = [...visibleSources.reduce((groups, source) => {
     const key = familyIdentity(source);
     groups.set(key, [...(groups.get(key) ?? []), source]);
@@ -378,8 +395,8 @@ export const FrameSourcePanel = ({
     <section aria-label="Frame coded values into columns" data-testid="frame-source-panel" className="min-w-0">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-slate-900">Coded sources</h2>
-          <p className="text-xs text-slate-600">{frames.length === 0
+          <h2 className="text-sm font-semibold text-slate-900">{addSourceRoute ? 'Columns from code values' : 'Coded sources'}</h2>
+          <p className="text-xs text-slate-600">{addSourceRoute ? 'Choose a source, then select the codes to turn into columns.' : frames.length === 0
             ? 'Browse coded-value sources Loom can add to this table.'
             : 'Each code names a column; its paired value fills the cells.'}</p>
         </div>
@@ -391,7 +408,7 @@ export const FrameSourcePanel = ({
           </button>
         ) : null}
       </div>
-      {frames.map((frame) => (
+      {visibleFrames.map((frame) => (
         <div key={frame.id} className="mt-2 rounded-md border border-emerald-200 bg-emerald-50/40 p-2" data-testid={`saved-frame-${frame.id}`}>
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
@@ -404,14 +421,16 @@ export const FrameSourcePanel = ({
                 setOpenFrame(activeOpenFrame === frame.id ? undefined : frame.id);
                 setEditingFrame(undefined);
               }}
-                className="font-semibold text-blue-800">{activeOpenFrame === frame.id ? 'Close values' : 'Choose values'}</button>
-              <button type="button" disabled={disabled || busy} onClick={() => { setPendingNewFrame(undefined); setEditingFrame(frame.id); setOpenFrame(undefined); setSourcePickerOpen(true); }}
-                className="font-semibold text-blue-800">Change source</button>
-              <button type="button" disabled={disabled || busy} onClick={() => {
-                if (columns.some((column) => column.frameId === frame.id)) setPendingImpact({ kind: 'remove', frameId: frame.id });
-                else void remove(frame.id);
-              }}
-                className="font-semibold text-red-800">Remove</button>
+                className="font-semibold text-blue-800">{activeOpenFrame === frame.id ? 'Close values' : addSourceRoute ? 'Browse addable values' : 'Choose values'}</button>
+              {!addSourceRoute ? <>
+                <button type="button" disabled={disabled || busy} onClick={() => { setPendingNewFrame(undefined); setEditingFrame(frame.id); setOpenFrame(undefined); setSourcePickerOpen(true); }}
+                  className="font-semibold text-blue-800">Change source</button>
+                <button type="button" disabled={disabled || busy} onClick={() => {
+                  if (columns.some((column) => column.frameId === frame.id)) setPendingImpact({ kind: 'remove', frameId: frame.id });
+                  else void remove(frame.id);
+                }}
+                  className="font-semibold text-red-800">Remove</button>
+              </> : null}
             </div>
           </div>
           {pendingImpact?.frameId === frame.id ? (
@@ -426,13 +445,13 @@ export const FrameSourcePanel = ({
               </div>
             </div>
           ) : null}
-          {columns.filter((column) => column.frameId === frame.id).map((column) => (
+          {!addSourceRoute ? columns.filter((column) => column.frameId === frame.id).map((column) => (
             <div key={column.column} className="mt-2 flex items-center justify-between gap-2 rounded bg-white px-2 py-1.5 text-xs">
               <span className="min-w-0 truncate text-slate-800">{column.label}</span>
               <button type="button" disabled={disabled || busy} onClick={() => void removeColumn(column.column)}
                 aria-label={`Remove ${column.label} column`} className="shrink-0 font-semibold text-red-800 disabled:opacity-40">Remove column</button>
             </div>
-          ))}
+          )) : null}
           {activeOpenFrame === frame.id ? <CategoryPicker frame={frame} project={project} explorerId={explorerId}
             authResourcePath={authResourcePath} snapshotToken={snapshotToken} outputId={outputId} rowRoot={rowRoot}
             disabled={disabled || busy} onAddSelected={onAddSelected} /> : null}
@@ -443,7 +462,7 @@ export const FrameSourcePanel = ({
         <form className="mt-3 flex gap-2" onSubmit={(event) => {
           event.preventDefault();
           const nextQuery = queryInput.trim();
-          const nextKey = JSON.stringify([project, explorerId, authResourcePath ?? '', snapshotToken, outputId, rowRoot, nextQuery]);
+          const nextKey = sourceSearchKeyFor(nextQuery);
           setLoadedSourcePages({ searchKey: nextKey, value: { sources: [] } });
           setCursorState(undefined);
           setQuery(nextQuery);
@@ -456,7 +475,7 @@ export const FrameSourcePanel = ({
         {state.kind === 'error' ? <p className="mt-3 text-sm text-red-800" role="alert">{state.message}</p> : null}
         {state.kind === 'ready' ? (
           <>
-            {sourceGroups.length === 0 ? <p className="mt-3 text-sm text-slate-600">No other executable coded sources match this search.</p> : null}
+            {sourceGroups.length === 0 ? <p className="mt-3 text-sm text-slate-600">{state.value.nextCursor ? 'No sources for this graph path on this page. More results are available.' : 'No available coded sources match this search.'}</p> : null}
             <div className="mt-2 max-h-80 divide-y divide-slate-100 overflow-y-auto rounded-md border border-slate-200">
               {(showAllSources ? sourceGroups : sourceGroups.slice(0, 4)).map(([key, routes]) => {
                 const source = routes.find((route) => route.choiceId === selectedRoutes.get(key)) ?? preferredRoute(routes, rowRoot);

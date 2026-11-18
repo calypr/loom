@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/projectid"
@@ -31,12 +32,15 @@ func (s *Service) RowLineage(ctx context.Context, request RowLineageRequest) (Ro
 	if err != nil {
 		return RowLineageResult{}, err
 	}
-	if err := s.validateReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
+	if err := s.validateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
 		return RowLineageResult{}, err
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, receipt.Project, receipt.SnapshotToken)
-	if err != nil || authorized.Snapshot.ValidateToken(receipt.SnapshotToken) != nil || strings.TrimSpace(authorized.Snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {
-		return RowLineageResult{}, conflict("rowLineage", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, err)
+	if err != nil {
+		return RowLineageResult{}, receiptCapabilityFailure("rowLineage", "the receipt's capability snapshot is no longer authorized or retained", err)
+	}
+	if authorized.Snapshot.ValidateToken(receipt.SnapshotToken) != nil || strings.TrimSpace(authorized.Snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {
+		return RowLineageResult{}, conflict("rowLineage", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, nil)
 	}
 	if err := validateAuthorizedReceiptExecution(receipt, authorized); err != nil {
 		return RowLineageResult{}, conflict("rowLineage", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, err)
@@ -61,6 +65,13 @@ func (s *Service) RowLineage(ctx context.Context, request RowLineageRequest) (Ro
 		if errors.As(err, &unsupported) {
 			return RowLineageResult{}, unprocessable("rowLineage", unsupported.Capability.ReasonCode,
 				"row lineage is unavailable for this construction operation", err)
+		}
+		var typed *Error
+		if errors.As(err, &typed) {
+			return RowLineageResult{}, typed
+		}
+		if userErr, ok := dataframeerrors.AsUserError(err); ok {
+			return RowLineageResult{}, failureDetails(ClassUnprocessable, "rowLineage", userErr.Code(), dataframeerrors.PublicMessage(err), userErr.Details(), err)
 		}
 		return RowLineageResult{}, err
 	}

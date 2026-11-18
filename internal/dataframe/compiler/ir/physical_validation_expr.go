@@ -261,9 +261,6 @@ func validatePhysicalKeySet(keySet PhysicalKeySet, defined map[string]bool, bind
 	return nil
 }
 
-// validatePhysicalCall checks the small, backend-neutral operator vocabulary
-// accepted by the AQL renderer. Keeping this list here prevents a recipe from
-// smuggling arbitrary function or query text through the physical plan.
 func validatePhysicalCall(call PhysicalCall, defined map[string]bool, bindVars map[string]any) error {
 	name := strings.ToLower(strings.TrimSpace(call.Name))
 	if name == "" {
@@ -312,11 +309,6 @@ func validatePhysicalCall(call PhysicalCall, defined map[string]bool, bindVars m
 	return nil
 }
 
-// validatePhysicalExpressionObjectCycles protects recursive expression and
-// subplan validation from malformed in-memory plans containing pointer cycles.
-// JSON decoding cannot produce such cycles, but compiler stages and tests can
-// wire pointers directly. The active/visited split permits shared DAG nodes
-// while rejecting only true recursion.
 func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error {
 	active := map[*PhysicalObject]bool{}
 	visited := map[*PhysicalObject]bool{}

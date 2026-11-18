@@ -43,9 +43,6 @@ type selectionCreateRequest struct {
 	BaseSelectionID string
 }
 
-// SelectionSourceIntent is the closed authoring input. It contains no
-// execution, receipt, schema, or addressability metadata; lifecycle resolves
-// those identities from the authorized snapshot and exact publication source.
 type SelectionSourceIntent struct {
 	Kind                string
 	Resources           []explorer.ResourceRef
@@ -126,8 +123,6 @@ type SelectionReadResult struct {
 	NextCursor string
 }
 
-// SelectionPublishedReader is the exact-output adapter required for
-// all-matching selections. *published.Reader satisfies this interface.
 type SelectionPublishedReader interface {
 	ExactExecutionMaterialization(context.Context, string, string) (published.Materialization, error)
 	StreamExactExecution(context.Context, string, string, published.StreamRequest, func(map[string]any) error) error
@@ -152,8 +147,6 @@ func (s *Service) createSelectionResolved(ctx context.Context, req selectionCrea
 	return s.createSelection(ctx, req, nil)
 }
 
-// CreateSelection authenticates and resolves the closed source intent before
-// any header or membership count can be disclosed.
 func (s *Service) CreateSelection(ctx context.Context, req SelectionIntentCreateRequest) (result SelectionCreateResult, err error) {
 	result, err = s.createSelectionIntent(ctx, req)
 	if err != nil {
@@ -168,12 +161,10 @@ func (s *Service) createSelectionIntent(ctx context.Context, req SelectionIntent
 	}
 	resolver := s.config.SelectionSourceResolver
 	snapshotToken := strings.TrimSpace(req.SnapshotToken)
-	// Creation is bound to the active immutable dataset generation. Execution
-	// authorization intentionally supports retained generations, so using it
-	// here would allow a stale snapshot to create a new selection.
+
 	authorized, err := s.config.Capability.ForCompilation(ctx, req.Project, snapshotToken)
 	if err != nil {
-		return SelectionCreateResult{}, err
+		return SelectionCreateResult{}, capabilityResolutionFailure("selection", "the selection capability snapshot is unavailable", err)
 	}
 	if snapshotToken == "" || authorized.Snapshot.Token != snapshotToken {
 		return SelectionCreateResult{}, selectionStale(fmt.Errorf("selection snapshot is stale"))
@@ -213,8 +204,11 @@ func (s *Service) createSelectionIntent(ctx context.Context, req SelectionIntent
 		if req.Source.Resources != nil {
 			return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("published output source cannot include resource refs"))
 		}
-		if resolver == nil || req.Source.PublishedOutput == nil {
-			return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("published selection resolver is required"))
+		if req.Source.PublishedOutput == nil {
+			return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("published selection source is required"))
+		}
+		if resolver == nil {
+			return SelectionCreateResult{}, unavailable("selection", "PUBLISHED_SELECTION_UNAVAILABLE", "published selection sources are not configured", nil)
 		}
 		intent := req.Source.PublishedOutput
 		revision, err := s.store.GetRevision(ctx, intent.RevisionID)
@@ -523,8 +517,7 @@ func (s *Service) appendPublished(ctx context.Context, header explorer.Selection
 	}); err != nil {
 		return err
 	}
-	// The reader callback runs synchronously, so flush a final bounded batch
-	// after the stream completes.
+
 	return appendBatch()
 }
 
@@ -584,8 +577,6 @@ func (s *Service) readSelectionResolved(ctx context.Context, req selectionReadRe
 	return SelectionReadResult{Header: header, Members: members, NextCursor: nextCursor}, nil
 }
 
-// ReadSelection derives the effective current scope before loading the
-// immutable header, so a stale or narrowed scope cannot disclose counts.
 func (s *Service) ReadSelection(ctx context.Context, req SelectionReadIntentRequest) (result SelectionReadResult, err error) {
 	result, err = s.readSelectionIntent(ctx, req)
 	if err != nil {
@@ -601,7 +592,7 @@ func (s *Service) readSelectionIntent(ctx context.Context, req SelectionReadInte
 	project := projectid.Canonical(req.Project)
 	current, err := s.config.Capability.Current(ctx, project, req.ExplorerID, "")
 	if err != nil {
-		return SelectionReadResult{}, err
+		return SelectionReadResult{}, capabilityResolutionFailure("selection", "the current capability snapshot is unavailable", err)
 	}
 	currentToken := strings.TrimSpace(current.Token)
 	if currentToken == "" {
@@ -609,7 +600,7 @@ func (s *Service) readSelectionIntent(ctx context.Context, req SelectionReadInte
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, project, currentToken)
 	if err != nil {
-		return SelectionReadResult{}, err
+		return SelectionReadResult{}, capabilityResolutionFailure("selection", "the selection capability snapshot is unavailable", err)
 	}
 	return s.readSelectionResolved(ctx, selectionReadRequest{Project: project, ExplorerID: req.ExplorerID, RevisionID: req.RevisionID, Generation: authorized.Snapshot.Identity.Generation, Cursor: req.Cursor, Limit: req.Limit, Scope: authorized.Scope, ScopeDigest: authorized.Snapshot.Identity.AuthorizationScopeDigest})
 }
@@ -642,7 +633,7 @@ func normalizeSelectionError(err error) error {
 	case errors.Is(err, explorer.ErrNotFound), errors.Is(err, explorer.ErrSelectionNotFound), errors.Is(err, bundlepublication.ErrBundleNotFound):
 		return notFound("selection", "SELECTION_NOT_FOUND", "selection source or revision was not found", err)
 	default:
-		return err
+		return persistenceFailure("selection", "the selection operation could not be completed", err)
 	}
 }
 
@@ -707,9 +698,7 @@ func refKey(ref explorer.ResourceRef) string {
 }
 
 func selectionID(project, generation, idempotency string) string {
-	// The idempotency key owns the durable selection identity. A retry with the
-	// same key must collide with the same header even if a caller changes its
-	// rule; BeginSelection then rejects that changed immutable intent.
+
 	sum := sha256.Sum256([]byte(strings.TrimSpace(project) + "\x00" + strings.TrimSpace(generation) + "\x00" + strings.TrimSpace(idempotency)))
 	return "selection_" + hex.EncodeToString(sum[:])
 }

@@ -2,6 +2,7 @@ package compilation
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/calypr/loom/internal/explorer"
@@ -19,16 +20,11 @@ const (
 	InterpretationCandidateUnsupported InterpretationCandidateResolutionState = "UNSUPPORTED"
 )
 
-// InterpretationCandidateMatch is the semantic payload available only from
-// a READY resolution. Candidate IDs are copied out of the exact snapshot.
 type InterpretationCandidateMatch struct {
 	CapabilityCandidateIDs []string
 	StructuralCandidate    explorer.InterpretationStructuralCandidate
 }
 
-// InterpretationCandidateResolution is a closed result. Implementations are
-// private so callers can inspect a READY match or an unavailable reason, but
-// cannot construct a state with the wrong payload.
 type InterpretationCandidateResolution interface {
 	State() InterpretationCandidateResolutionState
 	Reason() string
@@ -83,9 +79,6 @@ func (unsupportedInterpretationCandidate) Match() (InterpretationCandidateMatch,
 }
 func (unsupportedInterpretationCandidate) interpretationCandidateResolution() {}
 
-// ResolveWorkspaceInterpretations is the pure B06 resolver. The caller owns
-// loading exact revisions; this function only interprets the retained
-// capability snapshot and revision map, so it has no moving-head lookup.
 func ResolveWorkspaceInterpretations(project string, workspace authoringv2.Workspace, snapshot capability.Snapshot, revisions map[explorer.InterpretationRevisionID]explorer.InterpretationRevision) (ResolvedInputs, error) {
 	project = projectid.Canonical(project)
 	inputs := ResolvedInputs{}
@@ -140,9 +133,6 @@ func ResolveWorkspaceInterpretations(project string, workspace authoringv2.Works
 	return inputs.Canonical(), nil
 }
 
-// ResolveInterpretationCandidate matches one configured source against an
-// exact capability snapshot. Invalid routes are request-level errors; valid
-// routes with unresolved sources return a closed per-column state.
 func ResolveInterpretationCandidate(document authoringv2.Document, column authoringv2.Column, snapshot capability.Snapshot) (InterpretationCandidateResolution, error) {
 	occurrences, _, err := resolveSemanticRoute(document, snapshot)
 	if err != nil {
@@ -159,7 +149,7 @@ func ResolveInterpretationCandidate(document authoringv2.Document, column author
 	}
 	capabilities := make([]capability.Candidate, 0, 1)
 	for _, candidate := range snapshot.Candidates {
-		if candidate.NodeID != occurrence.graph.ID || candidate.ResourceType != resourceType || !containsString(paths, normalizeFieldPath(candidate.FieldPath)) {
+		if candidate.NodeID != occurrence.graph.ID || candidate.ResourceType != resourceType || !slices.Contains(paths, normalizeFieldPath(candidate.FieldPath)) {
 			continue
 		}
 		capabilities = append(capabilities, candidate)
@@ -197,8 +187,6 @@ func ResolveInterpretationCandidate(document authoringv2.Document, column author
 	}}, nil
 }
 
-// structuralCandidate adapts the closed resolution for compiler validation.
-// All source and concept matching remains in ResolveInterpretationCandidate.
 func structuralCandidate(document authoringv2.Document, column authoringv2.Column, snapshot capability.Snapshot) (explorer.InterpretationStructuralCandidate, error) {
 	resolution, err := ResolveInterpretationCandidate(document, column, snapshot)
 	if err != nil {
@@ -231,7 +219,7 @@ func matchingConceptCandidates(values []capability.ConceptCandidate, source auth
 	extensionPath := sourceExtensionPath(source)
 	matched := make([]capability.ConceptCandidate, 0, len(values))
 	for _, value := range values {
-		if len(paths) > 0 && !containsString(paths, normalizeFieldPath(value.SourcePath)) {
+		if len(paths) > 0 && !slices.Contains(paths, normalizeFieldPath(value.SourcePath)) {
 			continue
 		}
 		if system != "" && value.System != system {
@@ -280,15 +268,6 @@ func sourceExtensionPath(source authoringv2.ColumnSource) []string {
 
 func normalizeFieldPath(value string) string {
 	return strings.TrimPrefix(strings.TrimSpace(value), "root.")
-}
-
-func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 func uniqueStrings(values []string) []string {

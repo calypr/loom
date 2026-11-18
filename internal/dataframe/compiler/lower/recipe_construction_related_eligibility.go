@@ -11,8 +11,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// RelatedEligibilityAnchorError identifies a saved step whose row anchor no
-// longer resolves after an earlier row-shape change.
 type RelatedEligibilityAnchorError struct{ StepID string }
 
 func (e *RelatedEligibilityAnchorError) Error() string {

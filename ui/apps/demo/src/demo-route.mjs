@@ -14,8 +14,7 @@ export function initialDemoRoute({ searchParams, configuredProject, configuredEx
   const project = projectOverride ?? configuredProject;
   const requestedExplorer = searchParams.get('explorer');
   const projectChanged = projectOverride !== null && projectOverride !== configuredProject;
-  // `default` is the Builder's existing policy: use a real default Explorer
-  // when present, otherwise select the first Explorer in the new project's list.
+
   const explorerId = requestedExplorer ?? (projectChanged
     ? 'default'
     : configuredExplorer ?? 'default');

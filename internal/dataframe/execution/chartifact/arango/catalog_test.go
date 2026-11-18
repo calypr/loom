@@ -313,3 +313,12 @@ func sampleManifest() chartifact.Manifest {
 		UpdatedAt:     now,
 	}
 }
+
+func TestDecodeManifestPreservesEncodeAndDecodeErrorLabels(t *testing.T) {
+	if _, err := decodeManifest(map[string]any{"unsupported": make(chan int)}); err == nil || !strings.Contains(err.Error(), "encode stored private artifact manifest") {
+		t.Fatalf("encode error = %v, want encode label", err)
+	}
+	if _, err := decodeManifest(map[string]any{"artifactId": 42}); err == nil || !strings.Contains(err.Error(), "decode stored private artifact manifest") {
+		t.Fatalf("decode error = %v, want decode label", err)
+	}
+}

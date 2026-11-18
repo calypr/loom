@@ -7,20 +7,16 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// ResolvedColumn is a discovered output column whose name and logical value
-// type have been frozen before execution. It is intentionally independent of
-// ClickHouse or any other storage type.
 type ResolvedColumn struct {
 	Output      string
 	DynamicName string
 	Column      Column
 }
 
-// ResolvedRecipePlan is the only recipe representation accepted by a
-// production execution/materialization adapter. Stored recipe data and
-// request-scoped discovery are never mutated in place.
 type ResolvedRecipePlan struct {
 	SemanticPlan         RecipePlan
 	ResolvedColumns      map[string][]ResolvedColumn
@@ -29,17 +25,11 @@ type ResolvedRecipePlan struct {
 	SourceGeneration     string
 }
 
-// ResolveRecipePlan freezes all dynamic schemas and records the scope and
-// source generation used to obtain them. A plan with no dynamic maps still
-// receives a deterministic schema digest. Dynamic schemas must already have
-// been resolved by the catalog-backed recipe resolver before this boundary.
 func ResolveRecipePlan(plan RecipePlan, scopeDigest, sourceGeneration string) (ResolvedRecipePlan, error) {
 	if strings.TrimSpace(sourceGeneration) == "" {
 		sourceGeneration = plan.Bindings.DatasetGeneration
 	}
-	// An empty generation is the intentional legacy-null dataset namespace. It
-	// remains a precise scope when the catalog resolver used the same empty
-	// generation during discovery; physical lowering renders the nil bind.
+
 	if strings.TrimSpace(scopeDigest) == "" {
 		for _, output := range plan.Outputs {
 			if outputHasDynamicMaps(output.Root) || len(output.DynamicMaps) > 0 {
@@ -58,30 +48,39 @@ func ResolveRecipePlan(plan RecipePlan, scopeDigest, sourceGeneration string) (R
 		var walk func(SemanticNode) error
 		walk = func(node SemanticNode) error {
 			for _, dynamic := range node.DynamicMaps {
+				if len(dynamic.ColumnSourceKeys) > 0 && len(dynamic.OutputOverrides) > 0 && dynamic.OutputKey == "" {
+					return fmt.Errorf("output %q dynamic map %q cannot apply output overrides to mapped source keys", output.Name, dynamic.Name)
+				}
 				if dynamic.Columns == nil {
 					return fmt.Errorf("output %q dynamic map %q is unresolved; resolve it through the catalog-backed recipe resolver first", output.Name, dynamic.Name)
 				}
 				if len(dynamic.Columns) == 0 {
-					// An empty catalog result is a valid optional family. The
-					// resolver has already frozen it to zero columns, so there is
-					// no schema or physical lookup to attach to this node.
+
+					if len(dynamic.OutputOverrides) > 0 {
+						resolved.ResolvedColumns[dynamicMapKey(output.Name, dynamic)] = []ResolvedColumn{}
+					}
 					continue
 				}
-				candidates := make([]Candidate, 0, len(dynamic.Columns))
-				for _, column := range dynamic.Columns {
+				enabledKeys, _ := dynamicOutputSelection(dynamic.Columns, dynamic.OutputOverrides)
+				candidates := make([]Candidate, 0, len(enabledKeys))
+				for _, column := range enabledKeys {
 					valueType := dynamic.ColumnTypes[column]
 					if valueType == "" {
 						valueType = "unknown"
 					}
 					candidates = append(candidates, Candidate{Key: column, ValueType: valueType})
 				}
+				key := dynamicMapKey(output.Name, dynamic)
+				if len(enabledKeys) == 0 {
+					resolved.ResolvedColumns[key] = []ResolvedColumn{}
+					continue
+				}
 				schema, err := Freeze(DynamicSpec{
-					Name: dynamic.Name, ColumnPrefix: dynamic.ColumnPrefix, AllowedKeys: dynamic.Columns, MaxColumns: dynamic.MaxColumns, Collision: output.Collision,
+					Name: dynamic.Name, ColumnPrefix: dynamic.ColumnPrefix, AllowedKeys: enabledKeys, MaxColumns: dynamic.MaxColumns, Collision: output.Collision,
 				}, candidates)
 				if err != nil {
 					return fmt.Errorf("output %q dynamic map %q: %w", output.Name, dynamic.Name, err)
 				}
-				key := dynamicMapKey(output.Name, dynamic)
 				columns := make([]ResolvedColumn, 0, len(schema.Columns))
 				for _, column := range schema.Columns {
 					if sourceKey := dynamic.ColumnSourceKeys[column.SourceKey]; sourceKey != "" {
@@ -102,7 +101,7 @@ func ResolveRecipePlan(plan RecipePlan, scopeDigest, sourceGeneration string) (R
 			return ResolvedRecipePlan{}, err
 		}
 	}
-	// Marshal map keys deterministically by normalizing through sorted keys.
+
 	keys := make([]string, 0, len(resolved.ResolvedColumns))
 	for key := range resolved.ResolvedColumns {
 		keys = append(keys, key)
@@ -128,6 +127,21 @@ func ResolveRecipePlan(plan RecipePlan, scopeDigest, sourceGeneration string) (R
 	sum := sha256.Sum256(canonical)
 	resolved.ResolvedSchemaDigest = hex.EncodeToString(sum[:])
 	return resolved, nil
+}
+
+func dynamicOutputSelection(columns []string, overrides []recipe.DynamicColumnOutputOverride) (enabled, excluded []string) {
+	byKey := make(map[string]bool, len(overrides))
+	for _, override := range overrides {
+		byKey[override.Key] = override.Enabled
+	}
+	for _, key := range columns {
+		if isEnabled, exists := byKey[key]; exists && !isEnabled {
+			excluded = append(excluded, key)
+			continue
+		}
+		enabled = append(enabled, key)
+	}
+	return enabled, excluded
 }
 
 func dynamicMapKey(output string, dynamic SemanticDynamicMap) string {

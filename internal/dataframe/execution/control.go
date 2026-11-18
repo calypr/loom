@@ -13,10 +13,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
-// Control adapts the production recipe engine to the backend-neutral
-// recipe control contract consumed by GraphQL and other transport adapters.
-// It resolves a recipe exactly once per operation and exposes only sanitized
-// physical diagnostics through ExplainPhysical; raw IR and AQL stay private.
 type Control struct {
 	Engine            *Engine
 	ExplainConnection func(context.Context, CompiledQuery) (ExplainAssessment, error)
@@ -55,10 +51,6 @@ func (c Control) Explain(ctx context.Context, name string, bindings recipe.Runti
 	return validated.Plan.Explain(), nil
 }
 
-// ExplainPhysical compiles the same resolved canonical outputs consumed by
-// Preview and Materialize. The compiler-only path is always available; live
-// Arango assessment is opt-in and requires ExplainConnection. No AQL or bind
-// values cross the recipe control boundary.
 func (c Control) ExplainPhysical(ctx context.Context, name string, bindings recipe.RuntimeBindings, live bool) (PhysicalExplanation, error) {
 	if c.Engine == nil {
 		return PhysicalExplanation{}, fmt.Errorf("recipe engine is required")
@@ -123,9 +115,6 @@ func (c Control) Preview(ctx context.Context, name string, bindings recipe.Runti
 	return Preview{Plan: resolved, Outputs: outputRows(full, rows)}, nil
 }
 
-// Run executes the complete resolved recipe without a preview limit. It is an
-// explicit, bounded-by-the-caller's-memory transport operation; production
-// bulk workflows should use Materialize instead.
 func (c Control) Run(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Preview, error) {
 	if c.Engine == nil {
 		return Preview{}, fmt.Errorf("recipe engine is required")

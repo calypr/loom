@@ -8,7 +8,12 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-func (d Document) Validate() error {
+func (d Document) Validate() error { return d.validate(false) }
+
+func (d Document) validate(allowArchive bool) error {
+	if d.ArchiveRetiredShape != nil && !allowArchive {
+		return fmt.Errorf("tableShape requires explicit stored-data migration")
+	}
 	if d.Kind != Kind {
 		return fmt.Errorf("unsupported V2 document protocol or kind")
 	}
@@ -28,7 +33,7 @@ func (d Document) Validate() error {
 		return fmt.Errorf("framing: %w", err)
 	}
 	if d.Construction != nil {
-		if d.TableShape != nil {
+		if d.ArchiveRetiredShape != nil {
 			return fmt.Errorf("construction and tableShape cannot both define post-source operations")
 		}
 		var constructionErr error
@@ -42,21 +47,22 @@ func (d Document) Validate() error {
 		}
 	} else if d.Rows.Kind == RowDefinitionGroups && d.Rows.Groups != nil && d.Rows.Groups.Source.Kind == GroupSourceExplicit && d.Rows.Groups.AfterStepID != "" {
 		return fmt.Errorf("rows.groups.afterStepId requires an authored construction step")
-	} else if err := d.TableShape.Validate(d.Columns); err != nil {
+	} else if err := d.ArchiveRetiredShape.Validate(d.Columns); err != nil {
 		return fmt.Errorf("tableShape: %w", err)
 	}
 	return nil
 }
 
-func (w Workspace) Validate() error {
-	w = migrateMissingRowsBeforeCurrent(w)
+func (w Workspace) Validate() error { return w.validate(false) }
+
+func (w Workspace) validate(allowArchive bool) error {
 	if w.APIVersion != APIVersion || w.Kind != WorkspaceKind {
 		return fmt.Errorf("unsupported V2 workspace protocol or kind")
 	}
 	if w.SemanticsVersion > CurrentSemanticsVersion {
 		return fmt.Errorf("UNSUPPORTED_SEMANTICS_VERSION: semanticsVersion %d is unsupported", w.SemanticsVersion)
 	}
-	if w.SemanticsVersion < tableShapeSemanticsVersion && workspaceHasTableShape(w) {
+	if w.SemanticsVersion < tableShapeSemanticsVersion && workspaceHasArchivedShape(w) {
 		return fmt.Errorf("tableShape requires semanticsVersion %d", tableShapeSemanticsVersion)
 	}
 	if w.SemanticsVersion >= CurrentSemanticsVersion && workspaceHasLegacyContributors(w) {
@@ -67,7 +73,7 @@ func (w Workspace) Validate() error {
 	}
 	outputs, tabs, tabOutputs, orders := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[int]bool{}
 	for i, d := range w.Documents {
-		if err := d.Validate(); err != nil {
+		if err := d.validate(allowArchive); err != nil {
 			return fmt.Errorf("documents[%d]: %w", i, err)
 		}
 		if outputs[d.Output.ID] {
@@ -112,10 +118,6 @@ func (w Workspace) Validate() error {
 	return nil
 }
 
-// ValidateForPublication applies constraints that are intentionally too strict
-// for mutable Builder state. Changing a table root or route temporarily clears
-// its selections; that intermediate workspace remains compilable, but a visible
-// table must have a visible source column or final construction output to publish.
 func (w Workspace) ValidateForPublication() error {
 	visibleOutputs := make(map[string]bool, len(w.Tabs))
 	for _, tab := range w.Tabs {
@@ -356,7 +358,3 @@ func (s BuilderState) Validate() error {
 func emptyID(value string) bool {
 	return strings.TrimSpace(value) == "" || value != strings.TrimSpace(value)
 }
-
-// CanonicalJSON and Digest provide content-addressed, deterministic wire
-// representations. Catalog collections and unordered selections are sorted;
-// routeSteps retain their authored path order.

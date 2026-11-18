@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -121,6 +122,28 @@ func TestConstructionSemanticGroupChoicesMarksBoundedInventoryIncomplete(t *test
 	}
 }
 
+func TestConstructionSemanticGroupChoicesClassifiesInventoryReadFailure(t *testing.T) {
+	snapshot, base, stage, _ := semanticGroupChoicesTestSetup(t)
+	base.snapshot = snapshot
+	readErr := errors.New("semantic inventory backend offline")
+	service := &Service{config: Config{
+		SemanticInventory: func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
+			return catalog.SemanticInventoryPage{}, readErr
+		},
+	}}
+	choices, incomplete, err := service.constructionSemanticGroupChoices(context.Background(), base, "patients", stage)
+	if len(choices) != 0 || incomplete {
+		t.Fatalf("choices=%#v incomplete=%t, want no choices from a failed inventory read", choices, incomplete)
+	}
+	var lifecycleErr *Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "CATALOG_UNAVAILABLE" {
+		t.Fatalf("inventory read error = %#v, want unavailable CATALOG_UNAVAILABLE", err)
+	}
+	if !errors.Is(err, readErr) {
+		t.Fatalf("inventory read error cause = %v, want original backend error preserved", err)
+	}
+}
+
 func semanticGroupChoicesTestSetup(t *testing.T) (capability.Snapshot, constructionBase, explorer.ReceiptConstructionStage, catalog.SemanticInventoryFamily) {
 	t.Helper()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
@@ -153,7 +176,7 @@ func semanticGroupChoicesTestSetup(t *testing.T) (capability.Snapshot, construct
 		authorized: AuthorizedCapability{Snapshot: snapshot, Scope: scope},
 		document: authoringv2.Document{
 			RootResourceType: "Observation",
-			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
+			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"}, Rows: authoringv2.RecordsRowDefinition(),
 		},
 	}
 	stage := explorer.ReceiptConstructionStage{

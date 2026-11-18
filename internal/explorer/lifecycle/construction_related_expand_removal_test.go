@@ -49,7 +49,7 @@ func TestProposeConstructionCascadesRemovedRelatedExpandDependencies(t *testing.
 					candidateCompileCalls++
 					candidateBinding = cloneConstructionProposalBinding(request.ConstructionProposal)
 				}
-				receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+				receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 				receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
 				receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{
 					"patients": relatedExpandRemovalTestStages(t, request.Workspace, "patients"),
@@ -284,7 +284,7 @@ func TestProposeConstructionGroupEditCascadesMissingKeyFilterAndApplyBindsRemova
 			candidateCompileCalls++
 			candidateBinding = cloneConstructionProposalBinding(request.ConstructionProposal)
 		}
-		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
 		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{
 			"patients": testConstructionStageDescriptors(request.Workspace, "patients"),
@@ -364,7 +364,7 @@ func seedGroupKeyEditConstruction(t *testing.T, store *fakeStore) (authoringv2.W
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,7 +456,7 @@ func seedRelatedExpandRemovalConstruction(t *testing.T, store *fakeStore) (autho
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,15 +8,11 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// Reader is the exact recipe lookup contract used by execution. Name-only
-// lookup intentionally means "current", while exact version lookup is always
-// available without a runtime capability assertion.
 type Reader interface {
 	LoadRecipe(context.Context, string) (Entry, error)
 	LoadRecipeVersion(context.Context, string, string) (Entry, error)
 }
 
-// Store is the persistence boundary for immutable versioned registration.
 type Store interface {
 	Reader
 	SaveRecipe(context.Context, Entry) error
@@ -32,14 +28,10 @@ type Entry struct {
 	Digest string
 }
 
-// PersistentRegistry owns immutable/idempotent recipe registration. It never
-// evaluates recipe data.
 type PersistentRegistry struct {
 	Store Store
 }
 
-// RegisterVersion retains recipe history by (name, translationVersion). An
-// exact version is replaceable only until its first durable execution exists.
 func (r PersistentRegistry) RegisterVersion(ctx context.Context, bundle recipe.Bundle) (Entry, error) {
 	entry, err := canonicalEntry(bundle)
 	if err != nil {

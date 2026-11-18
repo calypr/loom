@@ -1,10 +1,5 @@
 package semantic
 
-// This file is the single semantic boundary for persisted recipes and the
-// existing GraphQL dataframe request. It deliberately stops before physical
-// lowering: no collection, AQL, SQL, or backend implementation detail belongs
-// in these types.
-
 import (
 	"fmt"
 	"regexp"
@@ -17,9 +12,6 @@ import (
 
 var semanticBindingNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// RecipePlan is an immutable, checked semantic representation of a recipe
-// bundle. Runtime bindings are request-scoped and are intentionally excluded
-// from the persisted recipe digest.
 type RecipePlan struct {
 	Version            int
 	RecipeDigest       string
@@ -36,10 +28,9 @@ type OutputPlan struct {
 	RootColumnNaming      recipe.RootColumnNaming
 	TraversalColumnNaming recipe.TraversalColumnNaming
 	Identity              *SemanticExpression
-	// RowExpansion is the sole semantic row-producing operation for an output.
+
 	RowExpansion          *SemanticRowExpansion
 	GroupRows             *SemanticGroupRows
-	TableReshape          *SemanticTableReshape
 	ExpansionIdentity     bool
 	DynamicMaps           []SemanticDynamicMap
 	CatalogProjections    []string
@@ -50,22 +41,7 @@ type OutputPlan struct {
 	Population            *SemanticPopulation
 }
 
-// SemanticGroupRows pins the output row set to one immutable explicit-group revision.
-type SemanticGroupRows struct {
-	RevisionID             string
-	UnassignedMemberPolicy string
-	AfterStepID            string
-	RowValues              []recipe.GroupRowValuePolicy
-}
-
-// SemanticTableReshape is the document-level row operation over finalized
-// output columns. GroupedPivot is deliberately separate from SemanticPivot,
-// which remains a correlated FHIR-column projection.
-type SemanticTableReshape struct {
-	Kind         recipe.TableReshapeKind
-	GroupedPivot *SemanticGroupedPivot
-	Unpivot      *SemanticUnpivot
-}
+type SemanticGroupRows = recipe.GroupRows
 
 type SemanticGroupedPivot struct {
 	ConstructionID         string
@@ -113,9 +89,6 @@ type SemanticPopulationRouteStep struct {
 	StorageDirection string
 }
 
-// SemanticExpression keeps the checked typed AST together with the logical
-// source location and lexical context that produced it. SourcePath is a
-// recipe JSON path for diagnostics, not a physical query fragment.
 type SemanticExpression struct {
 	Expression expression.Expression
 	Type       expression.Type
@@ -123,8 +96,6 @@ type SemanticExpression struct {
 	Context    string
 }
 
-// ExpansionEmptyPolicy defines what an existing owner contributes when its
-// selected collection is null or empty.
 type ExpansionEmptyPolicy string
 
 const (
@@ -139,9 +110,6 @@ type SemanticOccurrence struct {
 	ResourceType string
 }
 
-// SemanticRowExpansion is the single checked cardinality boundary for an
-// output. Its owner is an exact authored route occurrence, not merely a
-// resource type or selector prefix.
 type SemanticRowExpansion struct {
 	Owner       SemanticOccurrence
 	Source      SemanticExpression
@@ -182,6 +150,8 @@ func (u SemanticRowExpansion) Validate() error {
 }
 
 type SemanticDynamicMap struct {
+	SourceFamilyKey  string
+	OutputKey        string
 	ValueMode        recipe.ValueMode
 	Name             string
 	ColumnPrefix     *string
@@ -191,18 +161,15 @@ type SemanticDynamicMap struct {
 	Key              *SemanticExpression
 	Value            *SemanticExpression
 	Columns          []string
+	OutputOverrides  []recipe.DynamicColumnOutputOverride
 	ColumnTypes      map[string]string
 	ColumnSourceKeys map[string]string
-	// AllowUnknownKeys is used by schema-aware projections that intentionally
-	// select one key from a shared runtime map. Other keys in that map are
-	// siblings, not schema drift; frozen matching keys still receive type checks.
+
 	AllowUnknownKeys bool
 	MaxColumns       int
 	Discovered       bool
 }
 
-// RecipePlanExplanation is stable diagnostic output and contains only logical
-// types and source paths. It never exposes a backend query or storage name.
 type RecipePlanExplanation struct {
 	Version            int
 	RecipeDigest       string
@@ -236,7 +203,6 @@ type ExpansionExplanation struct {
 	EmptyPolicy       ExpansionEmptyPolicy
 }
 
-// Explain returns a backend-neutral summary suitable for API diagnostics.
 func (p RecipePlan) Explain() RecipePlanExplanation {
 	out := RecipePlanExplanation{Version: p.Version, RecipeDigest: p.RecipeDigest, TranslationVersion: p.TranslationVersion, Outputs: make([]OutputPlanExplanation, 0, len(p.Outputs))}
 	for _, output := range p.Outputs {
@@ -262,7 +228,3 @@ func (p RecipePlan) Explain() RecipePlanExplanation {
 func explainExpression(e SemanticExpression) ExpressionExplanation {
 	return ExpressionExplanation{SourcePath: e.SourcePath, Context: e.Context, Type: e.Type, Kind: e.Expression.Kind}
 }
-
-// BuildRecipePlan lowers and type-checks every expression in a stored bundle.
-// The recipe remains data; no output name or resource-specific branch is used
-// here. Type resolution is lexical and schema-backed.

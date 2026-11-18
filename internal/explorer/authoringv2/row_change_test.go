@@ -14,9 +14,10 @@ func rowChangeWorkspace() Workspace {
 	visible := true
 	order := 0
 	return Workspace{
-		APIVersion: APIVersion,
-		Kind:       WorkspaceKind,
-		Explorer:   ExplorerMetadata{Title: "Patients"},
+		APIVersion:       APIVersion,
+		Kind:             WorkspaceKind,
+		SemanticsVersion: CurrentSemanticsVersion,
+		Explorer:         ExplorerMetadata{Title: "Patients"},
 		Documents: []Document{{
 			Kind:             Kind,
 			Output:           Output{ID: "patients", Title: "Patients"},
@@ -638,7 +639,6 @@ func TestAssessRowChangePrefersTheAuthoredInverseAmongDifferentRelationships(t *
 		t.Fatalf("rebased route=%#v err=%v, want Observation → Patient on the authored subject relationship", rebased.Route, err)
 	}
 
-	// An explicit user choice still takes priority over the inferred inverse.
 	assessment, err = AssessRowChange(workspace, catalog, RowChangeRequest{
 		OutputID: "patients", RootNodeID: "observation", RootOccurrenceID: "observation",
 		RouteRebase: []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: "observation-patient-focus"}},
@@ -795,7 +795,7 @@ func TestAssessAndApplyRowReplacementForDisconnectedRoot(t *testing.T) {
 	if got.Output.ID != "patients" || got.Output.Title != "Patients" || got.RootResourceType != "DiagnosticReport" || got.Route.OccurrenceID != RootOccurrenceID || got.Route.ResourceType != "DiagnosticReport" || len(got.Route.Children) != 0 {
 		t.Fatalf("replacement identity/root = output %#v route %#v", got.Output, got.Route)
 	}
-	if got.Rows.Kind != RowDefinitionRecords || got.Population != nil || got.Construction != nil || got.TableShape != nil || len(got.Frames) != 0 || len(got.FixedFilters) != 0 || len(got.Actions) != 0 || len(got.Columns) != 1 {
+	if got.Rows.Kind != RowDefinitionRecords || got.Population != nil || got.Construction != nil || got.ArchiveRetiredShape != nil || len(got.Frames) != 0 || len(got.FixedFilters) != 0 || len(got.Actions) != 0 || len(got.Columns) != 1 {
 		t.Fatalf("replacement retained old intent: %#v", got)
 	}
 	column := got.Columns[0]
@@ -816,19 +816,23 @@ func TestAssessAndApplyRowReplacementForDisconnectedRoot(t *testing.T) {
 
 	shapeWorkspace := rowChangeWorkspace()
 	integer := int64(2)
-	shapeWorkspace.Documents[0].TableShape = &TableShape{Derived: []DerivedConstruction{{
+	shapeWorkspace.Documents[0].ArchiveRetiredShape = &storedTableShape{Derived: []storedDerivedConstruction{{
 		ConstructionID: "double_id", Output: ColumnOutput{Column: "double_id", Label: "Double ID"}, Operation: "ADD",
-		Left:               ArithmeticOperand{Kind: "COLUMN", Column: "patient_id"},
-		Right:              ArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarInteger, Integer: &integer}},
+		Left:               storedArithmeticOperand{Kind: "COLUMN", Column: "patient_id"},
+		Right:              storedArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarInteger, Integer: &integer}},
 		MissingInputPolicy: "PROPAGATE_NULL",
 	}}}
+	shapeWorkspace.Documents[0], err = migrateStoredDocumentFixture(shapeWorkspace.Documents[0])
+	if err != nil {
+		t.Fatal(err)
+	}
 	shapeAssessment, err := AssessRowReplacement(shapeWorkspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "report"})
 	if err != nil || shapeAssessment.Proposal == nil {
 		t.Fatalf("table-shape replacement assessment=%#v err=%v", shapeAssessment, err)
 	}
 	shapeCandidate, err := ApplyRowReplacement(shapeWorkspace, catalog, *shapeAssessment.Proposal)
-	if err != nil || shapeCandidate.Documents[0].TableShape != nil {
-		t.Fatalf("table shape survived replacement: candidate=%#v err=%v", shapeCandidate.Documents[0].TableShape, err)
+	if err != nil || shapeCandidate.Documents[0].Construction != nil {
+		t.Fatalf("table shape survived replacement: candidate=%#v err=%v", shapeCandidate.Documents[0].ArchiveRetiredShape, err)
 	}
 }
 

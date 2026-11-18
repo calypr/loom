@@ -24,7 +24,7 @@ func TestProposeConstructionChoiceCompilesExactBatchWithoutSavingDraft(t *testin
 	}
 	choiceID := "command-choice-proposal"
 	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
 		if err != nil {
 			return nil, err
@@ -108,7 +108,7 @@ func TestProposeConstructionChoiceRejectsStaleDraftAndSnapshotChoice(t *testing.
 		t.Fatal(err)
 	}
 	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		store.receipt = receipt
 		return receipt, nil
 	}
@@ -138,7 +138,7 @@ func TestProposeConstructionChoiceRejectsStaleDraftAndSnapshotChoice(t *testing.
 func TestProposeSemanticConstructionChoiceUsesAuthorizedInventoryWithoutSavingDraft(t *testing.T) {
 	store, service, snapshot, _, choice := constructionSemanticChoiceFixture(t, nil, nil, "Observation")
 	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		var compileErr error
 		receipt.CompilationKey, compileErr = explorer.CompilationKey(*receipt)
 		if compileErr != nil {

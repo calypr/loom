@@ -1,6 +1,7 @@
 package authoringv2
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -53,6 +54,37 @@ func TestPopulateGroupedRowsPreservesIdentityReloadAndRemoval(t *testing.T) {
 	remaining := removed.Documents[0].Construction.Steps[0]
 	if len(remaining.RowValues) != 0 || len(remaining.Outputs) != 2 || !reflect.DeepEqual(remaining.Operation.Group.Keys, keys) {
 		t.Fatal("removing a column changed row grouping")
+	}
+}
+
+func TestRemoveProjectedFieldUsesStableIDAndExistingDownstreamCleanup(t *testing.T) {
+	document := rowValueGroupedDocument()
+	column := constructionSourceColumn("gender_source", "gender", "Gender", "string")
+	document.Columns = append(document.Columns, column)
+	if err := populateConstructionColumn(&document, column, ConstructionRowValueAll); err != nil {
+		t.Fatal(err)
+	}
+	workspace := constructionWorkspace(document)
+	removed, _, err := ApplyCommands(workspace, commandCatalog(), "remove-projected-gender", []Command{{Type: CommandRemoveProjectedField, OutputID: "patients", ColumnID: "gender_source"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := removed.Documents[0]
+	if len(result.Columns) != 1 || result.Columns[0].ColumnID != "status" {
+		t.Fatalf("stable-ID removal left the wrong source columns: %#v", result.Columns)
+	}
+	if len(result.Construction.Steps[0].RowValues) != 0 || len(result.Construction.Steps[0].Outputs) != 2 {
+		t.Fatalf("removal did not clean dependent row-value outputs: %#v", result.Construction.Steps[0])
+	}
+	if result.Construction.Steps[0].Operation.Group.Keys[0].InputColumnID != "status" {
+		t.Fatal("removing a projected field changed the unrelated grouping key")
+	}
+}
+
+func TestRemoveProjectedFieldRejectsClientOwnershipClaims(t *testing.T) {
+	var command Command
+	if err := json.Unmarshal([]byte(`{"type":"REMOVE_PROJECTED_FIELD","outputId":"patients","columnId":"column-a","owner":"PINNED_SOURCE"}`), &command); err == nil {
+		t.Fatal("accepted client-supplied projected field ownership")
 	}
 }
 
@@ -158,7 +190,7 @@ func TestNormalizeConstructionOutputsUsesAnchoredCohortSchema(t *testing.T) {
 		{
 			ID: "filter_cohorts", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "group_rows"}},
 			Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{ColumnID: "group_label", Operator: ConstructionFilterExists}},
-			// This is the UI's visible cohort schema: group_id is an internal identity.
+
 			Outputs: []StageColumn{
 				{ID: "group_label", Name: "group_label", Label: "Group label", Type: "string"},
 				{ID: "group_ordinal", Name: "group_ordinal", Label: "Group ordinal", Type: "integer"},

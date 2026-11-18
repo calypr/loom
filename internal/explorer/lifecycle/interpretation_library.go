@@ -17,9 +17,6 @@ func (s *Service) interpretationRepository() (explorer.InterpretationRepository,
 	return s.config.InterpretationRepository, nil
 }
 
-// ListInterpretationLibraries returns project-scoped libraries with their exact
-// current head revision expanded. The head is a browsing affordance only; no
-// compiler or workspace resolver consumes it as a mutable reference.
 func (s *Service) ListInterpretationLibraries(ctx context.Context, rawProject string) (ListInterpretationLibrariesResult, error) {
 	repository, err := s.interpretationRepository()
 	if err != nil {
@@ -31,7 +28,7 @@ func (s *Service) ListInterpretationLibraries(ctx context.Context, rawProject st
 	}
 	libraries, err := repository.ListInterpretationLibraries(ctx, project)
 	if err != nil {
-		return ListInterpretationLibrariesResult{}, internal("interpretations", "INTERPRETATION_LIBRARY_READ_FAILED", err.Error(), err)
+		return ListInterpretationLibrariesResult{}, persistenceFailure("interpretations", "interpretation libraries could not be loaded", err)
 	}
 	result := ListInterpretationLibrariesResult{Project: project, Libraries: make([]InterpretationLibraryView, 0, len(libraries))}
 	for _, library := range libraries {
@@ -42,7 +39,7 @@ func (s *Service) ListInterpretationLibraries(ctx context.Context, rawProject st
 		if library.HeadRevisionID != "" {
 			head, getErr := repository.GetInterpretationRevision(ctx, project, library.HeadRevisionID)
 			if getErr != nil {
-				return ListInterpretationLibrariesResult{}, internal("interpretations", "INTERPRETATION_HEAD_READ_FAILED", getErr.Error(), getErr)
+				return ListInterpretationLibrariesResult{}, persistenceFailure("interpretations", "an interpretation library head could not be loaded", getErr)
 			}
 			if head == nil || head.Project != project || head.LibraryID != library.ID || head.ID != library.HeadRevisionID || head.ContentDigest != library.HeadDigest {
 				return ListInterpretationLibrariesResult{}, internal("interpretations", "INTERPRETATION_HEAD_INTEGRITY", "interpretation library head does not match its immutable revision", nil)
@@ -72,7 +69,7 @@ func (s *Service) GetInterpretationRevision(ctx context.Context, request GetInte
 		return explorer.InterpretationRevision{}, notFound("interpretations", "INTERPRETATION_REVISION_NOT_FOUND", "interpretation revision was not found", err)
 	}
 	if err != nil {
-		return explorer.InterpretationRevision{}, internal("interpretations", "INTERPRETATION_REVISION_READ_FAILED", err.Error(), err)
+		return explorer.InterpretationRevision{}, persistenceFailure("interpretations", "interpretation revision could not be loaded", err)
 	}
 	if revision == nil || revision.Project != project || revision.ID != revisionID {
 		return explorer.InterpretationRevision{}, internal("interpretations", "INTERPRETATION_REVISION_INTEGRITY", "interpretation revision crossed project scope", nil)
@@ -80,10 +77,6 @@ func (s *Service) GetInterpretationRevision(ctx context.Context, request GetInte
 	return *revision, nil
 }
 
-// CreateInterpretationRevision prepares closed typed content and advances the
-// repository head only if its expected parent still matches. A missing parent
-// request explicitly means a root revision; callers revising an existing
-// library must send its exact current head as the parent.
 func (s *Service) CreateInterpretationRevision(ctx context.Context, request CreateInterpretationRevisionRequest) (explorer.InterpretationRevision, error) {
 	repository, err := s.interpretationRepository()
 	if err != nil {
@@ -117,7 +110,7 @@ func (s *Service) CreateInterpretationRevision(ctx context.Context, request Crea
 			return explorer.InterpretationRevision{}, conflict("interpretations", "INTERPRETATION_PARENT_CONFLICT", "the requested parent revision is not available", nil, getErr)
 		}
 		if getErr != nil {
-			return explorer.InterpretationRevision{}, internal("interpretations", "INTERPRETATION_PARENT_READ_FAILED", getErr.Error(), getErr)
+			return explorer.InterpretationRevision{}, persistenceFailure("interpretations", "an interpretation revision parent could not be loaded", getErr)
 		}
 		if parent == nil || parent.Project != project || parent.LibraryID != libraryID {
 			return explorer.InterpretationRevision{}, conflict("interpretations", "INTERPRETATION_PARENT_CONFLICT", "the requested parent revision does not belong to this library", nil, nil)
@@ -139,7 +132,7 @@ func (s *Service) CreateInterpretationRevision(ctx context.Context, request Crea
 		return explorer.InterpretationRevision{}, conflict("interpretations", "INTERPRETATION_PARENT_CONFLICT", "the interpretation library changed; reload before creating a revision", nil, err)
 	}
 	if err != nil {
-		return explorer.InterpretationRevision{}, internal("interpretations", "INTERPRETATION_REVISION_CREATE_FAILED", "the interpretation revision could not be saved", err)
+		return explorer.InterpretationRevision{}, persistenceFailure("interpretations", "the interpretation revision could not be saved", err)
 	}
 	preparedForCompare := prepared
 	createdForCompare := explorer.InterpretationRevision{}

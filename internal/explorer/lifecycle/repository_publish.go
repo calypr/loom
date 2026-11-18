@@ -8,6 +8,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/capability"
+	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -20,19 +22,22 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 		return RepositoryPublishResult{}, unavailable("repository_publish", "PUBLICATION_UNAVAILABLE", "repository V2 compilation is not configured", nil)
 	}
 	snapshot, err := s.config.Capability.Current(ctx, request.Project, "default", request.Generation)
-	if err != nil || !snapshot.Usable() || snapshot.Identity.Generation != request.Generation {
-		return RepositoryPublishResult{}, conflict("repository_publish", "RECEIPT_STALE", fmt.Sprintf("resolve repository V2 capability: %v", err), nil, err)
+	if err != nil {
+		return RepositoryPublishResult{}, capabilityResolutionFailure("repository_publish", "repository V2 capability could not be resolved", err)
+	}
+	if !snapshot.Usable() || snapshot.Identity.Generation != request.Generation {
+		return RepositoryPublishResult{}, conflict("repository_publish", "RECEIPT_STALE", "repository V2 capability is stale or unusable", nil, nil)
 	}
 	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, snapshot.Token)
 	if err != nil {
-		return RepositoryPublishResult{}, forbidden("repository_publish", fmt.Sprintf("authorize repository V2 compilation: %v", err), err)
+		return RepositoryPublishResult{}, capabilityResolutionFailure("repository_publish", "repository V2 compilation could not be authorized", err)
 	}
 	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: "default", Workspace: request.Workspace, SnapshotToken: snapshot.Token, Authorized: authorized})
 	if err != nil || receipt == nil {
 		if err == nil {
-			err = errors.New("compiler returned no receipt")
+			return RepositoryPublishResult{}, unavailable("repository_publish", "COMPILATION_FAILED", "the compiler returned no receipt", nil)
 		}
-		return RepositoryPublishResult{}, unprocessable("repository_publish", "COMPILATION_FAILED", fmt.Sprintf("compile repository V2 workspace: %v", err), err)
+		return RepositoryPublishResult{}, classifyRepositoryCompilationError(err)
 	}
 	if receipt.SourceGeneration != request.Generation {
 		return RepositoryPublishResult{}, conflict("repository_publish", "RECEIPT_STALE", "compiled receipt generation does not match deployment generation", nil, nil)
@@ -40,22 +45,24 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 	if s.config.Capability.ForExecution != nil {
 		authorized, err = s.config.Capability.ForExecution(ctx, request.Project, receipt.SnapshotToken)
 		if err != nil {
-			return RepositoryPublishResult{}, forbidden("repository_publish", fmt.Sprintf("authorize repository V2 materialization: %v", err), err)
+			return RepositoryPublishResult{}, capabilityResolutionFailure("repository_publish", "repository V2 materialization could not be authorized", err)
 		}
 	}
 	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), SelectionProject: projectid.Canonical(request.Project), DatasetGeneration: request.Generation, SelectionMembersCollection: s.config.SelectionMembersCollection}
 	applyAuthorizedScope(&bindings, authorized, true)
-	var execution Execution
 	if s.config.MaterializeReceipt == nil {
-		err = errors.New("repository V2 materialization is not configured")
-	} else {
-		execution, err = s.config.MaterializeReceipt(ctx, receipt, bindings)
+		return RepositoryPublishResult{}, unavailable("repository_publish", "MATERIALIZATION_UNAVAILABLE", "repository V2 materialization is not configured", nil)
 	}
+	execution, err := s.config.MaterializeReceipt(ctx, receipt, bindings)
 	if err != nil {
+		var typed *Error
+		if errors.As(err, &typed) {
+			return RepositoryPublishResult{}, typed
+		}
 		if classifiedErr := classifyMaterializationError("repository_publish", err); classifiedErr != nil {
 			return RepositoryPublishResult{}, classifiedErr
 		}
-		return RepositoryPublishResult{}, unprocessable("repository_publish", "MATERIALIZATION_FAILED", fmt.Sprintf("materialize repository V2 workspace: %v", err), err)
+		return RepositoryPublishResult{}, unavailable("repository_publish", "MATERIALIZATION_FAILED", "repository V2 materialization is unavailable", err)
 	}
 	if err := verifyQueryableOutputs(receipt.Bundle, execution); err != nil {
 		return RepositoryPublishResult{}, unprocessable("repository_publish", "MATERIALIZATION_FAILED", err.Error(), err)
@@ -68,7 +75,7 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 	publication := explorer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: request.Generation, ExecutionID: execution.ID, UpdatedAt: s.now()}
 	owner, revision, err := s.store.UpsertRepositoryV2(ctx, *receipt, request.Commit, request.Actor, materialized, datasetMetadata, execution.QualityReports, publication)
 	if err != nil {
-		return RepositoryPublishResult{}, internal("repository_publish", "PERSISTENCE_FAILED", fmt.Sprintf("persist Explorer lifecycle V2: %v", err), err)
+		return RepositoryPublishResult{}, unavailable("repository_publish", "PERSISTENCE_UNAVAILABLE", "the published repository revision could not be saved", err)
 	}
 	if owner.ManagementMode != explorer.ManagementRepository {
 		return RepositoryPublishResult{}, conflict("repository_publish", "INVALID_MANAGEMENT_MODE", "default Explorer has invalid management mode", nil, nil)
@@ -78,31 +85,21 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 	}
 	if err := s.config.ActivateRelease(ctx, projectid.Legacy(request.Project), request.Generation, selectorsForBundle(receipt.Bundle)); err != nil {
 		if errors.Is(err, dataset.ErrReleaseActivationConflict) {
-			// Deterministic lost compare-and-swap race, the same contract the
-			// authoring publish path types as PUBLICATION_ACTIVATION_CONFLICT:
-			// fixed conflict text, never the wrapped transport text, and no
-			// retry hint for a race the client cannot win by hammering.
+
 			_, _ = s.store.FailRevision(ctx, revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "PUBLICATION_ACTIVATION_CONFLICT", Message: err.Error(), Retryable: false}})
 			return RepositoryPublishResult{}, conflict("repository_publish", "PUBLICATION_ACTIVATION_CONFLICT", "another publication won activation; the prior Explorer revision was retained", nil, err)
 		}
 		var requirementsErr *dataset.ReleaseRequirementsError
 		if errors.As(err, &requirementsErr) {
-			// Deterministic release-contract miss: a 409 with an explicit
-			// non-retryable diagnostic, not a fault the client should retry.
+
 			_, _ = s.store.FailRevision(ctx, revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "RELEASE_ACTIVATION_FAILED", Message: err.Error(), Retryable: false}})
 			return RepositoryPublishResult{}, conflict("repository_publish", "RELEASE_ACTIVATION_FAILED", fmt.Sprintf("activate published ExplorerConfigV2: %v", err), map[string]any{"retryable": false}, err)
 		}
 		_, _ = s.store.FailRevision(ctx, revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "RELEASE_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
-		return RepositoryPublishResult{}, unavailable("repository_publish", "RELEASE_ACTIVATION_FAILED", fmt.Sprintf("activate published ExplorerConfigV2: %v", err), err)
+		return RepositoryPublishResult{}, unavailable("repository_publish", "RELEASE_ACTIVATION_FAILED", "activate published ExplorerConfigV2 failed; the prior Explorer revision was retained", err)
 	}
 	if err := s.store.ActivateRepositoryGeneration(ctx, request.Project, request.Generation, revision.ID); err != nil {
-		// The visibility switch follows the sibling CAS contract above: the
-		// typed lost-race sentinel keeps a deterministic fixed-text conflict
-		// with no retry bait, and any other failure is a transport fault that
-		// must never surface as a conflict or echo wrapped store text. The
-		// sentinel marks losing the composite activation guard (read miss at
-		// activation.go, and its zero-replaced/zero-updated guards, all of
-		// which mean a concurrent Explorer update won the switch).
+
 		if errors.Is(err, explorer.ErrDraftConflict) {
 			_, _ = s.store.FailRevision(ctx, revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED", Message: err.Error(), Retryable: false}})
 			return RepositoryPublishResult{}, conflict("repository_publish", "GENERATION_ACTIVATION_FAILED", "generation activation lost a concurrent Explorer update; the prior Explorer revision was retained", nil, err)
@@ -112,4 +109,52 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 	}
 	publication.State, publication.RevisionID, publication.UpdatedAt = string(explorer.RevisionActive), revision.ID, s.now()
 	return RepositoryPublishResult{Receipt: receipt, Owner: owner, Revision: revision, Execution: execution, Materializations: materialized, Dataset: datasetMetadata, Publication: publication}, nil
+}
+
+func classifyRepositoryCompilationError(err error) error {
+	var typed *Error
+	if errors.As(err, &typed) {
+		return typed
+	}
+	var compileErr *explorercompilation.Error
+	if errors.As(err, &compileErr) {
+		message := compileErr.Message
+		if message == "" {
+			message = "the repository V2 workspace is invalid"
+		}
+		return failureDetails(ClassUnprocessable, "repository_publish", compilationErrorCode(compileErr.Code), message, compileErr.Details, err)
+	}
+	var authoringErr *explorer.AuthoringError
+	if errors.As(err, &authoringErr) {
+		class := ClassUnprocessable
+		switch authoringErr.Status {
+		case 401, 403:
+			class = ClassForbidden
+		case 404:
+			class = ClassNotFound
+		case 409:
+			class = ClassConflict
+		case 429:
+			class = ClassUnavailable
+		default:
+			if authoringErr.Status >= 500 {
+				class = ClassUnavailable
+			}
+		}
+		code := authoringErr.Diagnostic.Code
+		if code == "" {
+			code = "COMPILATION_FAILED"
+		}
+		return failureDetails(class, "repository_publish", code, authoringErr.Diagnostic.Message, authoringErr.Diagnostic.Details, err)
+	}
+	if errors.Is(err, capability.ErrStaleSnapshot) {
+		return conflict("repository_publish", "STALE_CATALOG_SNAPSHOT", "repository V2 compilation used a stale capability snapshot", nil, err)
+	}
+	if errors.Is(err, capability.ErrSnapshotUnavailable) {
+		return unavailable("repository_publish", "CAPABILITY_UNAVAILABLE", "repository V2 compilation capability is unavailable", err)
+	}
+	if classified := classifyMaterializationError("repository_publish", err); classified != nil {
+		return classified
+	}
+	return unavailable("repository_publish", "COMPILATION_UNAVAILABLE", "the repository V2 workspace could not be compiled", err)
 }

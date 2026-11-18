@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
@@ -22,8 +23,6 @@ const (
 	constructionSemanticGroupChoicePageLimit = 5
 )
 
-// ConstructionSemanticGroupChoice is an ephemeral, exact family choice for
-// the selected Group stage. The durable operation stores a resolved binding.
 type ConstructionSemanticGroupChoice struct {
 	ChoiceID     string `json:"choiceId"`
 	BindingID    string `json:"bindingId"`
@@ -41,6 +40,9 @@ func (s *Service) constructionSemanticGroupChoices(
 	stage explorer.ReceiptConstructionStage,
 ) ([]ConstructionSemanticGroupChoice, bool, error) {
 	choices := []ConstructionSemanticGroupChoice{}
+	if importedSourceRootChoiceInventoryMissing(base) {
+		return choices, false, nil
+	}
 	if stage.ID != recipe.ConstructionSourceProjectionID || stage.RowIdentityColumn != "_key" || !constructionStageSupportsCodedPivot(stage) ||
 		!constructionStageSupportsGroup(stage) || base.document.Route.OccurrenceID != authoringv2.RootOccurrenceID ||
 		s.config.SemanticInventory == nil {
@@ -61,7 +63,7 @@ func (s *Service) constructionSemanticGroupChoices(
 		pageOptions.Cursor = cursor
 		page, err := s.config.SemanticInventory(ctx, pageOptions)
 		if err != nil {
-			return nil, false, fmt.Errorf("read exact semantic grouping families: %w", err)
+			return nil, false, unavailable("construction-proposal", "CATALOG_UNAVAILABLE", "semantic inventory could not be read for semantic Group choices", err)
 		}
 		if page.State != catalog.SemanticInventoryComplete || page.Build.State != catalog.SemanticInventoryComplete || page.Build.BuildID != expectedBuildID {
 			return []ConstructionSemanticGroupChoice{}, false, nil
@@ -69,7 +71,7 @@ func (s *Service) constructionSemanticGroupChoices(
 		if contextToken == "" {
 			contextToken, err = semanticInventoryContextToken(base.snapshot, base.explorerID, base.document.RootResourceType, page.Build.BuildID)
 			if err != nil {
-				return nil, false, err
+				return nil, false, internal("construction-proposal", "SEMANTIC_CONTEXT_FAILED", "the semantic inventory context token could not be built", err)
 			}
 		}
 		for _, family := range page.Families {
@@ -161,27 +163,40 @@ func semanticGroupFamilyReady(family catalog.SemanticInventoryFamily) bool {
 	return plan.Readiness.Addable() && plan.Source != nil && plan.Source.Lookup != nil && plan.Source.Lookup.Binding != nil && plan.Source.Lookup.Key != nil
 }
 
+var semanticGroupCodingPathSets sync.Map
+
 func constructionSemanticGroupCodingPath(rootResourceType string, family catalog.SemanticInventoryFamily) (string, bool) {
 	if family.ResourceType != rootResourceType || family.Source.Type != rootResourceType || family.Source.Path == "" {
 		return "", false
 	}
 	path := strings.TrimPrefix(family.Source.Path, rootResourceType+".")
-	index, err := fhirschema.GeneratedIndex()
+	pathSet, err := constructionSemanticGroupCodingPathSet(rootResourceType)
 	if err != nil {
 		return "", false
+	}
+	return path, pathSet[path]
+}
+
+func constructionSemanticGroupCodingPathSet(rootResourceType string) (map[string]bool, error) {
+	if cached, ok := semanticGroupCodingPathSets.Load(rootResourceType); ok {
+		return cached.(map[string]bool), nil
+	}
+	index, err := fhirschema.GeneratedIndex()
+	if err != nil {
+		return nil, err
 	}
 	paths, err := index.RepeatedCodingPaths(fhirschema.DefinitionName(rootResourceType))
 	if err != nil {
-		return "", false
+		return nil, err
 	}
-	for _, candidate := range paths {
-		if candidate == path {
-			facts, resolveErr := index.ResolveRowPath(fhirschema.DefinitionName(rootResourceType), path)
-			return path, resolveErr == nil && facts.CanonicalPath == path && facts.FHIRType == "Coding" &&
-				facts.Cardinality == fhirschema.RowCardinalityMany && facts.Shape == fhirschema.RowPathArray && !facts.Reference
-		}
+	pathSet := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		facts, resolveErr := index.ResolveRowPath(fhirschema.DefinitionName(rootResourceType), path)
+		pathSet[path] = resolveErr == nil && facts.CanonicalPath == path && facts.FHIRType == "Coding" &&
+			facts.Cardinality == fhirschema.RowCardinalityMany && facts.Shape == fhirschema.RowPathArray && !facts.Reference
 	}
-	return "", false
+	actual, _ := semanticGroupCodingPathSets.LoadOrStore(rootResourceType, pathSet)
+	return actual.(map[string]bool), nil
 }
 
 func (s *Service) resolveConstructionGroupSemanticCategories(
@@ -280,8 +295,11 @@ func (s *Service) resolveConstructionSemanticGroupChoice(
 	}
 	buildID := catalog.SemanticInventoryBuildID(projectid.Legacy(base.snapshot.Identity.Project), base.snapshot.Identity.Generation)
 	contextToken, err := semanticInventoryContextToken(base.snapshot, base.explorerID, base.document.RootResourceType, buildID)
-	if err != nil || identity.SemanticContextToken != contextToken || identity.BuildID != buildID {
-		return authoringv2.ConstructionGroupSemanticCategory{}, conflict("construction-proposal", "STALE_SEMANTIC_CONTEXT", "reload semantic Group choices for the current inventory", nil, err)
+	if err != nil {
+		return authoringv2.ConstructionGroupSemanticCategory{}, internal("construction-proposal", "SEMANTIC_CONTEXT_FAILED", "the semantic inventory context token could not be built", err)
+	}
+	if identity.SemanticContextToken != contextToken || identity.BuildID != buildID {
+		return authoringv2.ConstructionGroupSemanticCategory{}, conflict("construction-proposal", "STALE_SEMANTIC_CONTEXT", "reload semantic Group choices for the current inventory", nil, nil)
 	}
 	entry := semanticInventoryEntryForFamily(family)
 	expected, err := semanticCategoryConstructionChoiceForRoute(base.snapshot, contextToken, buildID, nil, family, candidate)

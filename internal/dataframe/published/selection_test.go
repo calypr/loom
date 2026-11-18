@@ -61,3 +61,7 @@ func TestSelectionSourceAdapterAcceptsOnlyEquivalentProjectIdentity(t *testing.T
 }
 
 func timePtr(value time.Time) *time.Time { return &value }
+
+func (c selectionCatalog) FindExecutionBySelector(_ context.Context, project, generation string, selector publication.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
+	return findTestExecutionBySelector(c.execution, project, generation, selector)
+}

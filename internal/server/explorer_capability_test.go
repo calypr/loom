@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -27,6 +28,31 @@ type staticCapabilityEvidence struct {
 	inventory     catalog.ResourceInventoryResult
 	relationships catalog.RelationshipObservationResult
 	fields        catalog.FieldEnrichmentResult
+}
+
+func TestAuthoringV2CatalogMatchesCompilerCatalog(t *testing.T) {
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: "scope", SchemaDigest: "schema"},
+		capability.Policy{}, capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true}}, nil,
+		[]capability.Candidate{{
+			ID: "c_patient_birth_date", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "birthDate", Label: "Birth date", LogicalType: "date", Cardinality: "optional_one",
+			ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar},
+			SupportedOperations: []capability.Operation{capability.OperationFilter, capability.OperationChart},
+		}}, nil,
+	)
+	want := authoringV2Catalog(snapshot, "default")
+	got := authoringv2.CatalogFromCapability(snapshot, "default")
+	digest, err := want.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if digest != "sha256:175bc5aa3881633ccb5e1830d64524827c3d24e1f2c14ac08cb10270cc42ac5d" {
+		t.Fatalf("server catalog digest changed: %s", digest)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("compiler catalog differs from server catalog:\ncompiler: %#v\nserver:   %#v", got, want)
+	}
 }
 
 func (s staticCapabilityEvidence) DiscoverResourceInventory(context.Context, catalog.ResourceInventoryOptions) (catalog.ResourceInventoryResult, error) {
@@ -588,8 +614,7 @@ func TestExplorerCapabilityResolverRejectsChangedScopeAndPreservesRestrictedEmpt
 	if authorized.Scope.Mode != emptyScope.Mode {
 		t.Fatalf("restricted-empty mode = %q, want %q", authorized.Scope.Mode, emptyScope.Mode)
 	}
-	// The returned scope is a defensive copy, not the resolver's retained
-	// authorization result.
+
 	authorized.Scope.AuthResourcePaths = append(authorized.Scope.AuthResourcePaths, "mutated")
 	again, err := scopedResolver.ResolveForExecution(ctx, "project-a", empty.Token)
 	if err != nil || len(again.Scope.AuthResourcePaths) != 0 || again.Scope.Unrestricted() {
@@ -740,9 +765,7 @@ func TestExplorerCapabilityCacheSeparatesFieldCoverageReadiness(t *testing.T) {
 	if len(known.Edges) == 0 || !sameCapabilityEntityIDs(known, legacy) {
 		t.Fatalf("availability readiness changed compiler graph sizes: known=%#v legacy=%#v", known, legacy)
 	}
-	// Before availability metadata was added, the entity ID seed used the
-	// semantic evidence identity: no cache version and a digest of field values
-	// alone. Rebuild that exact identity to catch stable-but-incompatible IDs.
+
 	preAvailabilityIdentity := known.Identity
 	preAvailabilityIdentity.CacheVersion = ""
 	preAvailabilityIdentity.FieldDigest, err = catalog.FieldEnrichmentDigest(fields)

@@ -8,9 +8,6 @@ import (
 	"strings"
 )
 
-// detectDuplicateKeys walks the JSON token stream before typed decoding. The
-// standard library's struct decoder accepts duplicate object keys, which
-// would make recipe digests dependent on decoder behavior.
 func detectDuplicateKeys(data []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()

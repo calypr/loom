@@ -7,18 +7,12 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// WorkspaceArtifact is one exact compiler-resolved same-bundle output capture.
-// ExpectedIdentity is derived from the source OutputStream and compiler schema,
-// not from manifest values supplied by the caller.
 type WorkspaceArtifact struct {
 	OutputID         string
 	ExpectedIdentity ir.ClickHouseArtifactIdentity
 	Artifact         ir.ResolvedClickHousePrivateArtifact
 }
 
-// RenderWorkspaceClickHouseCombine resolves a terminal workspace Combine in
-// authored input order. Private captures are keyed by stable output ID;
-// published tables are supplied only for the exact published refs in plan.
 func RenderWorkspaceClickHouseCombine(
 	plan ir.PhysicalClickHouseCombine,
 	workspace []WorkspaceArtifact,
@@ -149,8 +143,7 @@ func validateWorkspaceResolvedInputs(plan ir.PhysicalClickHouseCombine, inputs [
 		}
 		scopeMode := input.ScopeMode
 		if scopeMode == "" && ref.WorkspaceOutputID == "" {
-			// Older pinned TABLE_REVISION records predate explicit artifact
-			// scope modes and always retained row-level authorization paths.
+
 			scopeMode = ir.ClickHouseArtifactScopeRows
 		}
 		switch scopeMode {
@@ -209,119 +202,18 @@ func containsWholeScope(inputs []ir.ResolvedClickHouseTable) bool {
 	return false
 }
 
-func workspaceInputScopePredicate(input ir.ResolvedClickHouseTable, alias string) ([]string, []any) {
-	if input.ScopeMode == ir.ClickHouseArtifactScopeWhole {
-		return nil, nil
-	}
-	return inputScopePredicate(input, alias)
+func workspaceScopeStrategy(inputs []ir.ResolvedClickHouseTable) scopeStrategy {
+	return scopeStrategy{sealsWholeScope: containsWholeScope(inputs)}
 }
 
 func renderWorkspaceKeyJoin(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable) (string, []any) {
-	if !containsWholeScope(inputs) {
-		return renderKeyJoin(plan, inputs)
-	}
-	left, right := inputs[0], inputs[1]
-	leftAlias, rightAlias := "__loom_left", "__loom_right"
-	selects := []string{keyJoinIdentity(leftAlias, rightAlias, plan.JoinType)}
-	for _, projection := range plan.Projections {
-		alias := leftAlias
-		if projection.InputIndex == 1 {
-			alias = rightAlias
-		}
-		column := resolvedColumnByID(inputs[projection.InputIndex], projection.InputColumnID)
-		selects = append(selects, fmt.Sprintf("%s.`%s` AS `%s`", alias, column.Name, outputColumn(plan, projection.OutputColumnID).Name))
-	}
-	selects = append(selects, "CAST(NULL, 'Nullable(String)') AS `auth_resource_path`")
-	joinType := "INNER"
-	if plan.JoinType == "LEFT" {
-		joinType = "LEFT"
-	}
-	conditions := make([]string, 0, len(plan.Keys)+1)
-	for _, key := range plan.Keys {
-		leftColumn := resolvedColumnByID(left, key.LeftColumnID)
-		rightColumn := resolvedColumnByID(right, key.RightColumnID)
-		conditions = append(conditions, fmt.Sprintf("%s.`%s` = %s.`%s`", leftAlias, leftColumn.Name, rightAlias, rightColumn.Name))
-	}
-	if rightWhere, _ := workspaceInputScopePredicate(right, rightAlias); len(rightWhere) > 0 {
-		conditions = append(conditions, rightWhere...)
-	}
-	query := "SELECT " + strings.Join(selects, ", ") + " FROM " + quoteIdentifier(left.PhysicalTable) + " AS " + leftAlias + " ALL " + joinType + " JOIN " + quoteIdentifier(right.PhysicalTable) + " AS " + rightAlias + " ON " + strings.Join(conditions, " AND ")
-	where, leftArgs := workspaceInputScopePredicate(left, leftAlias)
-	if len(where) > 0 {
-		query += " WHERE " + strings.Join(where, " AND ")
-	}
-	_, rightArgs := workspaceInputScopePredicate(right, rightAlias)
-	args := append([]any(nil), rightArgs...)
-	args = append(args, leftArgs...)
-	query += " ORDER BY `__loom_row_id` ASC SETTINGS join_use_nulls = 1"
-	return query, args
+	return renderKeyJoin(plan, inputs, workspaceScopeStrategy(inputs))
 }
 
 func renderWorkspaceAppend(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable) (string, []any) {
-	if !containsWholeScope(inputs) {
-		return renderAppend(plan, inputs)
-	}
-	queries := make([]string, 0, len(inputs))
-	var args []any
-	for inputIndex, input := range inputs {
-		alias := fmt.Sprintf("__loom_input_%d", inputIndex)
-		selects := []string{appendIdentity(alias, inputIndex)}
-		for _, output := range plan.Outputs {
-			projection := projectionFor(plan, inputIndex, output.ID)
-			if projection.InputColumnID == "" {
-				selects = append(selects, fmt.Sprintf("CAST(NULL, '%s') AS `%s`", output.ClickHouseType, output.Name))
-				continue
-			}
-			column := resolvedColumnByID(input, projection.InputColumnID)
-			selects = append(selects, fmt.Sprintf("%s.`%s` AS `%s`", alias, column.Name, output.Name))
-		}
-		selects = append(selects, "CAST(NULL, 'Nullable(String)') AS `auth_resource_path`")
-		query := "SELECT " + strings.Join(selects, ", ") + " FROM " + quoteIdentifier(input.PhysicalTable) + " AS " + alias
-		if where, scopeArgs := workspaceInputScopePredicate(input, alias); len(where) != 0 {
-			query += " WHERE " + strings.Join(where, " AND ")
-			args = append(args, scopeArgs...)
-		}
-		queries = append(queries, query)
-	}
-	return strings.Join(queries, " UNION ALL ") + " ORDER BY `__loom_row_id` ASC", args
+	return renderAppend(plan, inputs, workspaceScopeStrategy(inputs))
 }
 
 func renderWorkspaceMembership(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable) (string, []any) {
-	if !containsWholeScope(inputs) {
-		return renderMembership(plan, inputs)
-	}
-	left, right := inputs[0], inputs[1]
-	leftAlias, rightAlias, rightSourceAlias := "__loom_left", "__loom_members", "__loom_member_source"
-	selects := []string{leftAlias + ".`__loom_row_id` AS `__loom_row_id`"}
-	for _, output := range plan.Outputs {
-		projection := projectionFor(plan, 0, output.ID)
-		column := resolvedColumnByID(left, projection.InputColumnID)
-		selects = append(selects, fmt.Sprintf("%s.`%s` AS `%s`", leftAlias, column.Name, output.Name))
-	}
-	selects = append(selects, "CAST(NULL, 'Nullable(String)') AS `auth_resource_path`")
-	rightKeys := make([]string, 0, len(plan.Keys)+1)
-	conditions := make([]string, 0, len(plan.Keys))
-	for index, key := range plan.Keys {
-		leftColumn := resolvedColumnByID(left, key.LeftColumnID)
-		rightColumn := resolvedColumnByID(right, key.RightColumnID)
-		rightKeys = append(rightKeys, fmt.Sprintf("%s.`%s` AS `__loom_key_%d`", rightSourceAlias, rightColumn.Name, index))
-		conditions = append(conditions, fmt.Sprintf("%s.`%s` = %s.`__loom_key_%d`", leftAlias, leftColumn.Name, rightAlias, index))
-	}
-	rightKeys = append(rightKeys, "1 AS `__loom_match`")
-	mode := "IS NOT NULL"
-	if plan.MembershipMode == "EXCLUDE" {
-		mode = "IS NULL"
-	}
-	rightQuery := "SELECT DISTINCT " + strings.Join(rightKeys, ", ") + " FROM " + quoteIdentifier(right.PhysicalTable) + " AS " + rightSourceAlias
-	rightWhere, args := workspaceInputScopePredicate(right, rightSourceAlias)
-	if len(rightWhere) > 0 {
-		rightQuery += " WHERE " + strings.Join(rightWhere, " AND ")
-	}
-	query := "SELECT " + strings.Join(selects, ", ") + " FROM " + quoteIdentifier(left.PhysicalTable) + " AS " + leftAlias + " LEFT ANY JOIN (" + rightQuery + ") AS " + rightAlias + " ON " + strings.Join(conditions, " AND ")
-	leftWhere, leftArgs := workspaceInputScopePredicate(left, leftAlias)
-	where := append(leftWhere, rightAlias+".`__loom_match` "+mode)
-	query += " WHERE " + strings.Join(where, " AND ")
-	args = append(args, leftArgs...)
-	query += " ORDER BY `__loom_row_id` ASC SETTINGS join_use_nulls = 1"
-	return query, args
+	return renderMembership(plan, inputs, workspaceScopeStrategy(inputs))
 }

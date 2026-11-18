@@ -3,7 +3,6 @@ package lifecycle
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -23,9 +22,9 @@ func (s *Service) prepareDraftRevisionRestore(
 		return nil, malformed("commands", "RESTORE_DRAFT_REVISION must be the only command", nil)
 	}
 	command := &commands[0]
-	owner, err := s.store.Get(ctx, project, explorerID)
+	owner, err := s.getOwner(ctx, project, explorerID)
 	if err != nil {
-		return nil, conflict("commands", "STALE_DRAFT_REVISION", "the Explorer draft changed; reload before restoring", nil, err)
+		return nil, persistenceFailure("commands", "the Explorer draft could not be loaded before restoring", err)
 	}
 	if owner == nil || owner.DraftVersion != request.ExpectedDraftVersion || owner.DraftDigest != request.ExpectedDraftDigest {
 		return nil, conflict("commands", "DRAFT_CONFLICT", "the Explorer draft changed; reload before restoring", nil, explorer.ErrDraftConflict)
@@ -38,7 +37,7 @@ func (s *Service) prepareDraftRevisionRestore(
 		return nil, conflict("commands", "STALE_DRAFT_REVISION", "the requested draft revision is unavailable", nil, err)
 	}
 	if err != nil {
-		return nil, internal("commands", "DRAFT_REVISION_READ_FAILED", fmt.Sprintf("read prior draft revision: %v", err), err)
+		return nil, persistenceFailure("commands", "the prior draft revision could not be read", err)
 	}
 	if revision == nil || revision.ID != command.DraftRevisionID || projectid.Canonical(revision.Project) != projectid.Canonical(project) ||
 		revision.ExplorerID != explorerID || revision.DraftVersion != owner.DraftVersion-1 {
@@ -56,37 +55,31 @@ func (s *Service) prepareDraftRevisionRestore(
 			revision.AuthorizationScopeDigest != currentSource.AuthorizationScopeDigest {
 			return nil, conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the prior draft was created from another authorized source context", nil, nil)
 		}
-		restored, err = authoringv2.DecodeWorkspace(revision.DraftConfig)
+		var expectedDigest string
+		restored, expectedDigest, err = s.store.DraftRevisionWorkspace(ctx, *revision)
 		if err != nil {
 			return nil, conflict("commands", "DRAFT_REVISION_INVALID", "the prior draft revision is invalid", nil, err)
 		}
 		digest, digestErr := restored.Digest()
-		if digestErr != nil || revision.DraftDigest == "" || digest != revision.DraftDigest {
+		if digestErr != nil || revision.DraftDigest == "" || digest != expectedDigest {
 			return nil, conflict("commands", "DRAFT_REVISION_INVALID", "the prior draft revision failed its digest check", nil, digestErr)
 		}
 	} else {
-		// A first draft mutation can snapshot an empty draft config. Restore the
-		// effective prior workspace from the still-active immutable revision.
+
 		if owner.ActiveRevisionID != "" {
 			active, activeErr := s.store.ActiveRevision(ctx, project, explorerID)
 			if activeErr != nil {
-				return nil, conflict("commands", "DRAFT_REVISION_INVALID", "the prior workspace cannot be loaded", nil, activeErr)
+				return nil, persistenceFailure("commands", "the prior workspace could not be loaded", activeErr)
 			}
 			if active.SourceGeneration != currentSource.SourceGeneration {
 				return nil, conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the active source generation changed since the prior workspace", nil, nil)
 			}
-			restored, err = authoringv2.DecodeWorkspace(active.AuthoringBundle)
+			restored, err = s.store.RevisionWorkspace(ctx, *active)
 			if err != nil {
 				return nil, conflict("commands", "DRAFT_REVISION_INVALID", "the prior workspace is invalid", nil, err)
 			}
 		} else {
-			restored = authoringv2.Workspace{
-				APIVersion: authoringv2.APIVersion,
-				Kind:       authoringv2.WorkspaceKind,
-				Explorer:   authoringv2.ExplorerMetadata{Title: revision.Title},
-				Documents:  []authoringv2.Document{},
-				Tabs:       []authoringv2.Tab{},
-			}
+			restored = authoringv2.NewWorkspace(revision.Title)
 		}
 	}
 	if err := command.ResolveDraftRevision(restored); err != nil {

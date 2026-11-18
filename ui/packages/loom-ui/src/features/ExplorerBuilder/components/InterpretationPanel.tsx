@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type { PreviewInterpretationCandidateArgs } from '../../../api';
 import { useLoomClient } from '../../../react';
 import type {
@@ -19,7 +20,7 @@ export type InterpretationContextState =
 type ReviewState =
   | { readonly status: 'idle' }
   | { readonly status: 'loading' }
-  | { readonly status: 'ready'; readonly result: InterpretationPreviewResponse; readonly revision: InterpretationRevisionSummary }
+  | { readonly status: 'ready'; readonly identity: string; readonly result: InterpretationPreviewResponse; readonly revision: InterpretationRevisionSummary }
   | { readonly status: 'error'; readonly message: string };
 
 const errorMessage = (error: unknown): string => {
@@ -109,16 +110,15 @@ export const InterpretationPanel = ({
     ? context?.pinnedRevisions.find((revision) => revision.id === column.interpretation?.pinned?.revisionId)
     : undefined;
   const interpretationReady = contextState.status === 'ready' && resolution?.state === 'READY';
+  const selectedLibrary = applicableLibraries.find((item) => item.id === selectedLibraryId)
+    ?? applicableLibraries[0];
+  const effectiveSelectedLibraryId = selectedLibrary?.id ?? '';
+  const reviewIdentity = [column.column, expectedDraftDigest, expectedDraftVersion, outputId, snapshotToken].join('\u0000');
+  const activeReview: ReviewState = review.status === 'ready' && review.identity !== reviewIdentity
+    ? { status: 'idle' }
+    : review;
 
-  useEffect(() => {
-    if (applicableLibraries.some((item) => item.id === selectedLibraryId)) return;
-    setSelectedLibraryId(applicableLibraries[0]?.id ?? '');
-  }, [applicableLibraries, selectedLibraryId]);
-
-  useEffect(() => {
-    setReview((current) => current.status === 'ready' ? { status: 'idle' } : current);
-  }, [column.column, expectedDraftDigest, expectedDraftVersion, outputId, snapshotToken]);
-
+  useEscapeToClose(activeReview.status === 'ready', () => setReview({ status: 'idle' }));
   const reviewRevision = async (revision: InterpretationRevisionSummary) => {
     if (disabled || !interpretationReady) return;
     setReview({ status: 'loading' });
@@ -136,15 +136,15 @@ export const InterpretationPanel = ({
         limit: 100,
       };
       const result = await loomClient.previewInterpretationCandidate(args);
-      setReview({ status: 'ready', result, revision });
+      setReview({ status: 'ready', identity: reviewIdentity, result, revision });
     } catch (error) {
       setReview({ status: 'error', message: errorMessage(error) });
     }
   };
 
   const createRevision = async () => {
-    if (!interpretationReady || disabled || (createMode === 'new' && !libraryName.trim()) || (createMode === 'revise' && !selectedLibraryId) || !explanation.trim()) return;
-    const selected = applicableLibraries.find((item) => item.id === selectedLibraryId);
+    if (!interpretationReady || disabled || (createMode === 'new' && !libraryName.trim()) || (createMode === 'revise' && !effectiveSelectedLibraryId) || !explanation.trim()) return;
+    const selected = applicableLibraries.find((item) => item.id === effectiveSelectedLibraryId);
     const targetLibraryId = createMode === 'revise' ? selected?.id : libraryName.trim();
     if (!targetLibraryId || (createMode === 'revise' && !selected)) return;
     setCreating(true);
@@ -175,14 +175,14 @@ export const InterpretationPanel = ({
   };
 
   const applyReview = async () => {
-    if (review.status !== 'ready' || disabled) return;
+    if (activeReview.status !== 'ready' || disabled) return;
     const applied = await onApply({
       type: 'APPLY_INTERPRETATION_CANDIDATE',
       outputId,
       column: column.column,
       interpretationCandidate: {
-        candidateReceiptId: review.result.candidateReceiptId,
-        revisionId: review.result.revisionId,
+        candidateReceiptId: activeReview.result.candidateReceiptId,
+        revisionId: activeReview.result.revisionId,
       },
     });
     if (applied) {
@@ -239,24 +239,24 @@ export const InterpretationPanel = ({
           {column.interpretation?.pinned ? <p className="mt-1 text-amber-800">This feature is already pinned. Choose an inline feature to create a mapping from a saved column.</p> : null}
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             <label className="grid gap-1 text-slate-600">Revision mode<select className="rounded border border-slate-300 px-2 py-1 text-slate-800" value={createMode} onChange={(event) => setCreateMode(event.currentTarget.value === 'revise' ? 'revise' : 'new')} disabled={disabled || creating || !interpretationReady || Boolean(column.interpretation?.pinned)}><option value="new">New library</option><option value="revise">Revise applicable head</option></select></label>
-            {createMode === 'new' ? <label className="grid gap-1 text-slate-600">Library name<input className="rounded border border-slate-300 px-2 py-1 text-slate-800" value={libraryName} onChange={(event) => setLibraryName(event.currentTarget.value)} placeholder="vitals" disabled={disabled || creating || !interpretationReady || Boolean(column.interpretation?.pinned)} /></label> : <label className="grid gap-1 text-slate-600">Library head<select className="rounded border border-slate-300 px-2 py-1 text-slate-800" value={selectedLibraryId} onChange={(event) => setSelectedLibraryId(event.currentTarget.value)} disabled={disabled || creating || !interpretationReady || Boolean(column.interpretation?.pinned)}><option value="">Select a mapping</option>{applicableLibraries.map((item) => <option key={item.id} value={item.id}>{item.id}</option>)}</select></label>}
+            {createMode === 'new' ? <label className="grid gap-1 text-slate-600">Library name<input className="rounded border border-slate-300 px-2 py-1 text-slate-800" value={libraryName} onChange={(event) => setLibraryName(event.currentTarget.value)} placeholder="vitals" disabled={disabled || creating || !interpretationReady || Boolean(column.interpretation?.pinned)} /></label> : <label className="grid gap-1 text-slate-600">Library head<select className="rounded border border-slate-300 px-2 py-1 text-slate-800" value={effectiveSelectedLibraryId} onChange={(event) => setSelectedLibraryId(event.currentTarget.value)} disabled={disabled || creating || !interpretationReady || Boolean(column.interpretation?.pinned)}><option value="">Select a mapping</option>{applicableLibraries.map((item) => <option key={item.id} value={item.id}>{item.id}</option>)}</select></label>}
           </div>
           <label className="mt-2 grid gap-1 text-slate-600">Explanation<textarea className="rounded border border-slate-300 px-2 py-1 text-slate-800" rows={2} value={explanation} onChange={(event) => setExplanation(event.currentTarget.value)} placeholder="What this feature means" disabled={disabled || creating || !interpretationReady || Boolean(column.interpretation?.pinned)} /></label>
-          <button type="button" className="mt-2 rounded border border-indigo-300 bg-white px-2 py-1 font-medium text-indigo-800 hover:bg-indigo-50 disabled:opacity-50" disabled={disabled || creating || !interpretationReady || Boolean(column.interpretation?.pinned) || (createMode === 'new' ? !libraryName.trim() : !selectedLibraryId) || !explanation.trim()} onClick={() => void createRevision()}>{creating ? 'Saving…' : 'Save reusable mapping'}</button>
+          <button type="button" className="mt-2 rounded border border-indigo-300 bg-white px-2 py-1 font-medium text-indigo-800 hover:bg-indigo-50 disabled:opacity-50" disabled={disabled || creating || !interpretationReady || Boolean(column.interpretation?.pinned) || (createMode === 'new' ? !libraryName.trim() : !effectiveSelectedLibraryId) || !explanation.trim()} onClick={() => void createRevision()}>{creating ? 'Saving…' : 'Save reusable mapping'}</button>
           {createMessage ? <p className="mt-1 text-slate-600">{createMessage}</p> : null}
         </div>
       </details>
-      {review.status === 'loading' ? <p className="mt-2 text-indigo-800">Reviewing affected rows…</p> : null}
-      {review.status === 'error' ? <p className="mt-2 text-red-700">{review.message}</p> : null}
-      {review.status === 'ready' ? (
+      {activeReview.status === 'loading' ? <p className="mt-2 text-indigo-800">Reviewing affected rows…</p> : null}
+      {activeReview.status === 'error' ? <p className="mt-2 text-red-700">{activeReview.message}</p> : null}
+      {activeReview.status === 'ready' ? (
         <div className="mt-2 rounded border border-indigo-200 bg-white p-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="font-medium text-slate-800">Review: Current → With this mapping</div>
             <div className="flex gap-1"><button type="button" className="rounded border border-slate-300 px-2 py-1 text-slate-700" onClick={() => setReview({ status: 'idle' })}>Cancel</button><button type="button" className="rounded bg-indigo-700 px-2 py-1 font-medium text-white disabled:opacity-50" disabled={disabled} onClick={() => void applyReview()}>Apply</button></div>
           </div>
-          <p className="mt-1 text-slate-600">{review.result.completeness === 'INCOMPLETE' ? 'Sample only: the bounded review did not exhaust the output.' : 'The full output was exhausted for this review.'}</p>
-          <p className="mt-1 text-slate-600">Compared {review.result.counts.compared} · Changed {review.result.counts.changed} · Resolved {review.result.counts.resolved} · Unresolved {review.result.counts.unresolved}</p>
-          <div className="mt-2 overflow-x-auto"><table className="min-w-full text-left text-[11px]"><thead><tr className="border-b border-slate-200"><th className="px-1 py-1">Row</th><th className="px-1 py-1">Current</th><th className="px-1 py-1">With this mapping</th><th className="px-1 py-1">State</th></tr></thead><tbody>{review.result.samples.map((sample) => <tr key={sample.rowId} className="border-b border-slate-100"><td className="px-1 py-1 font-mono">{sample.rowId}</td><td className="px-1 py-1">{sampleValues(sample.before)}</td><td className="px-1 py-1">{sampleValues(sample.after)}</td><td className="px-1 py-1">{sample.state}</td></tr>)}</tbody></table></div>
+          <p className="mt-1 text-slate-600">{activeReview.result.completeness === 'INCOMPLETE' ? 'Sample only: the bounded review did not exhaust the output.' : 'The full output was exhausted for this review.'}</p>
+          <p className="mt-1 text-slate-600">Compared {activeReview.result.counts.compared} · Changed {activeReview.result.counts.changed} · Resolved {activeReview.result.counts.resolved} · Unresolved {activeReview.result.counts.unresolved}</p>
+          <div className="mt-2 overflow-x-auto"><table className="min-w-full text-left text-[11px]"><thead><tr className="border-b border-slate-200"><th className="px-1 py-1">Row</th><th className="px-1 py-1">Current</th><th className="px-1 py-1">With this mapping</th><th className="px-1 py-1">State</th></tr></thead><tbody>{activeReview.result.samples.map((sample) => <tr key={sample.rowId} className="border-b border-slate-100"><td className="px-1 py-1 font-mono">{sample.rowId}</td><td className="px-1 py-1">{sampleValues(sample.before)}</td><td className="px-1 py-1">{sampleValues(sample.after)}</td><td className="px-1 py-1">{sample.state}</td></tr>)}</tbody></table></div>
         </div>
       ) : null}
     </div>

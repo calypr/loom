@@ -1,3 +1,10 @@
+import { viewBuilderStateSchema, type ProjectViewBuilderState, type SaveProjectViewConfigRequest, type SaveProjectViewDefaultsRequest } from './projectViewBuilder';
+
+export interface ProjectViewBuilderArgs { readonly project: string; readonly authResourcePath?: string }
+export interface SaveProjectViewConfigArgs extends ProjectViewBuilderArgs { readonly configId: string; readonly request: SaveProjectViewConfigRequest }
+export interface DeleteProjectViewConfigArgs extends ProjectViewBuilderArgs { readonly configId: string; readonly expectedRevisionId: string }
+export interface SaveProjectViewDefaultsArgs extends ProjectViewBuilderArgs { readonly request: SaveProjectViewDefaultsRequest }
+
 import {
   EXPLORER_AUTHORING_SEMANTICS_VERSION,
   SEMANTIC_FIELD_PRESENTATION_REVISION,
@@ -7,6 +14,7 @@ import {
   assertExplorerBuilderState,
   assertExplorerStateV1,
   explorerAuthoringCapabilitiesSchema,
+  explorerErrorResponseSchema,
   explorerBuilderCommandsResultSchema,
   explorerBuilderSuggestionsResultSchema,
   explorerBuilderSchemaFieldsResultSchema,
@@ -20,8 +28,19 @@ import {
   constructionInputsResponseSchema,
   constructionCapabilitiesRequestSchema,
   constructionCapabilitiesResponseSchema,
+  constructionColumnPopulationRequestSchema,
+  constructionColumnPopulationResponseSchema,
   constructionCategoryDiscoveryRequestSchema,
   constructionCategoryDiscoveryResponseSchema,
+  authoringNetworkRequestSchema,
+  authoringNetworkResponseSchema,
+  type AuthoringNetworkRequest,
+  type AuthoringNetworkResponse,
+  columnPolicyProposalRequestSchema, columnPolicyProposalSchema, type ColumnPolicyProposalRequest, type ColumnPolicyProposal,
+  sourceRelationshipProposalRequestSchema,
+  type SourceRelationshipProposalRequest,
+  sourceRelationshipProposalWithPreviewSchema,
+  type SourceRelationshipProposalWithPreview,
   constructionProposalRequestSchema,
   constructionProposalResponseSchema,
   constructionChoiceProposalRequestSchema,
@@ -29,14 +48,7 @@ import {
   populationRoutesResponseSchema,
   rowDefinitionChoicesResponseSchema,
   rowDefinitionProposalSchema,
-  tableShapeCapabilitiesSchema,
   fieldPresentationSchema,
-  tableShapeCategoryDiscoveryRequestSchema,
-  tableShapeCategoryDiscoverySchema,
-  tableShapeProposalRequestSchema,
-  tableShapeProposalSchema,
-  tableShapeResolutionRequestSchema,
-  tableShapeResolutionSchema,
   explicitGroupCreateRequestSchema,
   explicitGroupRevisionSummarySchema,
   explorerBuilderPreviewResultSchema,
@@ -60,6 +72,7 @@ import {
   type RelatedFieldChoiceSearchResponse,
   type ConstructionInputsResponse,
   type ConstructionCapabilitiesResponse,
+  type ConstructionColumnPopulationResponse,
   type ConstructionCategoryDiscoveryResponse,
   type ConstructionProposalRequest,
   type ConstructionProposalResponse,
@@ -69,12 +82,6 @@ import {
   type RowDefinitionChoicesResponse,
   type RowDefinitionProposal,
   type RowDefinitionSelection,
-  type TableShapeCapabilities,
-  type TableShapeCategoryDiscovery,
-  type TableShapeProposal,
-  type TableShapeProposalRequest,
-  type TableShapeResolution,
-  type TableShapeResolutionRequest,
   type ExplicitGroupCreateRequest,
   type ExplicitGroupRevisionSummary,
   type ExplorerRuntimeV1,
@@ -106,7 +113,6 @@ import {
   type InterpretationRevision,
 } from './interpretation';
 import { z } from 'zod';
-import { dataframeOutputQuery } from './dataframeOutputQuery.mjs';
 import { cellTraceResponseSchema, type CellTraceResponse } from './cellTrace';
 import {
   selectionPageSchema,
@@ -372,6 +378,7 @@ export interface SearchRelatedExpandChoicesArgs extends ExplorerAuthoringStateAr
   readonly targetResourceType: string;
   readonly limit?: number;
   readonly cursor?: string;
+  readonly savedGraphOnly?: boolean;
   readonly requestId?: string;
 }
 
@@ -424,28 +431,6 @@ export interface ProposeRowDefinitionArgs extends ExplorerAuthoringStateArgs {
   readonly requestId?: string;
 }
 
-export interface TableShapeAuthoringStateArgs extends ExplorerAuthoringStateArgs {
-  readonly snapshotToken: string;
-  readonly expectedDraftVersion: number;
-  readonly expectedDraftDigest: string;
-  readonly outputId: string;
-  readonly requestId?: string;
-}
-
-export interface GetTableShapeCapabilitiesArgs extends TableShapeAuthoringStateArgs {}
-
-export interface DiscoverTableShapeCategoriesArgs extends TableShapeAuthoringStateArgs {
-  readonly catalogId: string;
-  readonly categoryColumnChoiceId: string;
-  readonly valueColumnChoiceId: string;
-}
-
-export type ResolveTableShapeArgs = ExplorerAuthoringStateArgs &
-  TableShapeResolutionRequest & { readonly requestId?: string };
-
-export type ProposeTableShapeArgs = ExplorerAuthoringStateArgs &
-  TableShapeProposalRequest & { readonly requestId?: string };
-
 export type ConstructionAuthoringStateArgs = ExplorerAuthoringStateArgs & {
   readonly snapshotToken: string;
   readonly expectedDraftVersion: number;
@@ -457,6 +442,12 @@ export type ConstructionAuthoringStateArgs = ExplorerAuthoringStateArgs & {
 export interface GetConstructionCapabilitiesArgs extends ConstructionAuthoringStateArgs {
   readonly stageId: string;
   readonly groupStepId?: string;
+  readonly includeGroupChoices?: boolean;
+}
+
+export interface GetConstructionColumnPopulationArgs extends ConstructionAuthoringStateArgs {
+  readonly stageId: string;
+  readonly columnIds: string[];
 }
 
 export interface DiscoverConstructionCategoriesArgs extends ConstructionAuthoringStateArgs {
@@ -478,6 +469,12 @@ export interface GetConstructionInputsArgs extends ExplorerAuthoringStateArgs {
   readonly limit?: number;
   readonly requestId?: string;
 }
+
+export type DescribeAuthoringNetworkArgs = ExplorerAuthoringStateArgs & AuthoringNetworkRequest;
+
+export type ProposeColumnPolicyArgs = ExplorerAuthoringStateArgs & ColumnPolicyProposalRequest & { readonly requestId?: string };
+
+export type ProposeSourceRelationshipArgs = ExplorerAuthoringStateArgs & SourceRelationshipProposalRequest & { readonly requestId?: string };
 
 export type ProposeConstructionArgs = ExplorerAuthoringStateArgs &
   ConstructionProposalRequest & { readonly requestId?: string };
@@ -555,9 +552,9 @@ export const populationMemberRemovalProposalResponseSchema = z.object({
 export type PopulationMemberRemovalProposalResponse = z.infer<typeof populationMemberRemovalProposalResponseSchema>;
 
 export interface LoomClientOptions {
-  /** URL prefix for the Loom service. `/` is the standalone no-auth default. */
+
   readonly baseUrl?: string;
-  /** Inject Calypr's authenticated fetch implementation when embedded. */
+
   readonly fetch?: typeof globalThis.fetch;
   readonly headers?: HeadersInit;
   readonly credentials?: RequestCredentials;
@@ -588,13 +585,7 @@ export type LoomOutputFilterOperator =
 export interface LoomOutputFilter {
   readonly column: string;
   readonly op: LoomOutputFilterOperator;
-  /**
-   * The reader ignores this value for `IS_NULL`, but the transports disagree
-   * about it: the `dataframeRows` GraphQL input declares `value: JSON!` and so
-   * rejects a null, while `ValidateTypedFilters` on the selection path rejects
-   * `IS_NULL` carrying any value at all. See the missingness contract in
-   * `features/ExplorerViewer/serialization.ts` for the encoding the Viewer uses.
-   */
+
   readonly value: unknown;
 }
 
@@ -666,6 +657,11 @@ export interface LoomClient {
     args: ExplorerAuthoringStateArgs,
     options?: { readonly signal?: AbortSignal; readonly reload?: boolean },
   ) => Promise<ExplorerBuilderState>;
+  readonly getProjectViewBuilder: (args: ProjectViewBuilderArgs, options?: { readonly signal?: AbortSignal; readonly reload?: boolean }) => Promise<ProjectViewBuilderState>;
+  readonly saveProjectViewConfig: (args: SaveProjectViewConfigArgs, signal?: AbortSignal) => Promise<ProjectViewBuilderState>;
+  readonly deleteProjectViewConfig: (args: DeleteProjectViewConfigArgs, signal?: AbortSignal) => Promise<ProjectViewBuilderState>;
+  readonly saveProjectViewDefaults: (args: SaveProjectViewDefaultsArgs, signal?: AbortSignal) => Promise<ProjectViewBuilderState>;
+  readonly adoptProjectViewBuilderCatalogs: (args: ProjectViewBuilderArgs, signal?: AbortSignal) => Promise<ProjectViewBuilderState>;
   readonly getCapability: (
     args: ExplorerAuthoringStateArgs,
     signal?: AbortSignal,
@@ -734,26 +730,14 @@ export interface LoomClient {
     args: ProposeRowDefinitionArgs,
     signal?: AbortSignal,
   ) => Promise<RowDefinitionProposal>;
-  readonly getTableShapeCapabilities: (
-    args: GetTableShapeCapabilitiesArgs,
-    signal?: AbortSignal,
-  ) => Promise<TableShapeCapabilities>;
-  readonly discoverTableShapeCategories: (
-    args: DiscoverTableShapeCategoriesArgs,
-    signal?: AbortSignal,
-  ) => Promise<TableShapeCategoryDiscovery>;
-  readonly resolveTableShape: (
-    args: ResolveTableShapeArgs,
-    signal?: AbortSignal,
-  ) => Promise<TableShapeResolution>;
-  readonly proposeTableShape: (
-    args: ProposeTableShapeArgs,
-    signal?: AbortSignal,
-  ) => Promise<TableShapeProposal>;
   readonly getConstructionCapabilities: (
     args: GetConstructionCapabilitiesArgs,
     signal?: AbortSignal,
   ) => Promise<ConstructionCapabilitiesResponse>;
+  readonly getConstructionColumnPopulation: (
+    args: GetConstructionColumnPopulationArgs,
+    signal?: AbortSignal,
+  ) => Promise<ConstructionColumnPopulationResponse>;
   readonly discoverConstructionCategories: (
     args: DiscoverConstructionCategoriesArgs,
     signal?: AbortSignal,
@@ -762,6 +746,9 @@ export interface LoomClient {
     args: GetConstructionInputsArgs,
     signal?: AbortSignal,
   ) => Promise<ConstructionInputsResponse>;
+  readonly describeAuthoringNetwork: (args: DescribeAuthoringNetworkArgs, signal?: AbortSignal) => Promise<AuthoringNetworkResponse>;
+  readonly proposeColumnPolicy: (args: ProposeColumnPolicyArgs, signal?: AbortSignal) => Promise<ColumnPolicyProposal>;
+  readonly proposeSourceRelationship: (args: ProposeSourceRelationshipArgs, signal?: AbortSignal) => Promise<SourceRelationshipProposalWithPreview>;
   readonly proposeConstruction: (
     args: ProposeConstructionArgs,
     signal?: AbortSignal,
@@ -790,7 +777,7 @@ export interface LoomClient {
     args: PrepareArtifactArgs,
     signal?: AbortSignal,
   ) => Promise<Artifact>;
-  /** Native-download URL for a completed artifact. */
+
   readonly artifactDownloadURL: (args: DownloadArtifactArgs) => string;
   readonly listInterpretationLibraries: (
     args: ExplorerAuthoringProjectArgs,
@@ -828,11 +815,6 @@ export interface LoomClient {
     args: DeleteExplorerArgs,
     signal?: AbortSignal,
   ) => Promise<null>;
-  readonly fetchGraphQL: (
-    query: string,
-    variables?: Readonly<Record<string, unknown>>,
-    signal?: AbortSignal,
-  ) => Promise<unknown>;
   readonly rows: (
     selector: ExplorerRuntimeV1['outputs'][number]['selector'],
     columns: ReadonlyArray<string>,
@@ -873,8 +855,21 @@ export const canonicalProject = (project: string): string => {
   return value;
 };
 
-const encodedProject = (project: string): string =>
+export const encodeLoomProjectPath = (project: string): string =>
   encodeURIComponent(encodeURIComponent(canonicalProject(project)));
+const encodedProject = encodeLoomProjectPath;
+export const projectViewBuilderPath = (project: string, authResourcePath?: string): string => {
+  const value = authResourcePath?.trim();
+  const query = value ? `?${new URLSearchParams({ auth_resource_path: value }).toString()}` : '';
+  return `/api/v1/projects/${encodedProject(project)}/view-builder${query}`;
+};
+export const getProjectViewBuilderState = async (get: (path: string) => Promise<unknown>, project: string, authResourcePath?: string): Promise<ProjectViewBuilderState> => {
+  const response = await get(projectViewBuilderPath(project, authResourcePath));
+  const payload = typeof response === 'object' && response !== null && 'data' in response
+    ? response.data
+    : response;
+  return viewBuilderStateSchema.parse(payload);
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -901,7 +896,11 @@ const diagnosticsFrom = (value: unknown): ReadonlyArray<ExplorerAuthoringDiagnos
       code: item.code,
       message: item.message,
       ...(typeof item.stage === 'string' ? { stage: item.stage } : {}),
-      ...(typeof item.path === 'string' || item.path === null ? { path: item.path } : {}),
+      ...(typeof item.path === 'string' || item.path === null
+        ? { path: item.path }
+        : typeof item.jsonPath === 'string' || item.jsonPath === null
+          ? { path: item.jsonPath }
+          : {}),
       ...(typeof item.fieldPath === 'string' || item.fieldPath === null ? { fieldPath: item.fieldPath } : {}),
       ...(typeof item.requestId === 'string' ? { requestId: item.requestId } : {}),
     }];
@@ -913,11 +912,18 @@ const requestError = async (
 ): Promise<ExplorerAuthoringApiError> => {
   const payload = await parseJSON(response);
   const record = isRecord(payload) ? payload : {};
-  const nested = isRecord(record.error) ? record.error : record;
+  const parsedEnvelope = explorerErrorResponseSchema.safeParse(payload);
+  const nested: Record<string, unknown> = parsedEnvelope.success
+    ? parsedEnvelope.data.error
+    : isRecord(record.error) ? record.error : record;
   const code = typeof nested.code === 'string' ? nested.code : undefined;
   const message = typeof nested.message === 'string'
     ? nested.message
-    : `Loom request failed (${response.status}).`;
+    : response.status === 504
+      ? 'Loom timed out before returning a result. Retry, or narrow the preview.'
+      : response.status >= 500
+        ? `Loom could not complete this request (HTTP ${response.status}). Retry and include the request ID if it continues.`
+        : `Loom request failed (${response.status}).`;
   const responseRequestId = response.headers.get('x-request-id') ?? response.headers.get('request-id');
   const payloadRequestId = typeof nested.requestId === 'string'
     ? nested.requestId
@@ -928,7 +934,9 @@ const requestError = async (
     status: response.status,
     code,
     message,
-    diagnostics: diagnosticsFrom(nested.diagnostics),
+    diagnostics: diagnosticsFrom(parsedEnvelope.success
+      ? parsedEnvelope.data.diagnostics ?? parsedEnvelope.data.error.diagnostics ?? (parsedEnvelope.data.error.diagnostic ? [parsedEnvelope.data.error.diagnostic] : undefined)
+      : record.diagnostics ?? nested.diagnostics),
     requestId: responseRequestId?.trim() || payloadRequestId?.trim() || callerRequestId,
     details,
     retryable: explicitRetryable ?? (response.status === 408 || response.status === 429 || response.status >= 500),
@@ -956,21 +964,21 @@ export class LoomRequestError extends Error implements ExplorerAuthoringApiError
   }
 }
 
-const graphQLRowSchema = z.union([
+const dataframeRowSchema = z.union([
   z.array(z.unknown()),
   z.record(z.string(), z.unknown()),
 ]);
-type GraphQLRow = z.infer<typeof graphQLRowSchema>;
-const graphQLFacetSchema = z.object({
+type DataframeRow = z.infer<typeof dataframeRowSchema>;
+const dataframeFacetSchema = z.object({
   name: z.string(),
   kind: z.string(),
   columns: z.array(z.string()),
-  rows: z.array(graphQLRowSchema),
+  rows: z.array(dataframeRowSchema),
   missingCount: z.number().finite().nullable().optional(),
   truncated: z.boolean().optional(),
 }).passthrough();
-type GraphQLFacet = z.infer<typeof graphQLFacetSchema>;
-const graphQLMaterializationSchema = z.object({
+type DataframeFacet = z.infer<typeof dataframeFacetSchema>;
+const dataframeMaterializationSchema = z.object({
   id: z.string().optional(),
   name: z.string().optional(),
   revision: z.string().optional(),
@@ -984,10 +992,10 @@ const graphQLMaterializationSchema = z.object({
     output: z.string(),
   }).strict().nullable().optional(),
 }).passthrough();
-const graphQLConnectionSchema = z.object({
-  materialization: graphQLMaterializationSchema.optional(),
+const dataframeConnectionSchema = z.object({
+  materialization: dataframeMaterializationSchema.optional(),
   columns: z.array(z.string()),
-  rows: z.array(graphQLRowSchema),
+  rows: z.array(dataframeRowSchema),
   rowIds: z.array(z.string()).optional().transform((value) => value ?? []),
   totalCount: z.number().int().nonnegative().nullable(),
   pageInfo: z.object({
@@ -995,12 +1003,12 @@ const graphQLConnectionSchema = z.object({
     endCursor: z.string().nullable().optional(),
   }).strict(),
 }).passthrough();
-const graphQLOutputDataSchema = z.object({
-  dataframeRows: graphQLConnectionSchema,
-  dataframeAggregations: z.object({ aggregations: z.array(graphQLFacetSchema) }).passthrough().optional(),
+const dataframeAggregationsSchema = z.object({
+  materialization: dataframeMaterializationSchema,
+  aggregations: z.array(dataframeFacetSchema),
 }).passthrough();
 
-const shapeRows = (rows: ReadonlyArray<GraphQLRow>, columns: ReadonlyArray<string>): Array<Record<string, unknown>> => {
+const shapeRows = (rows: ReadonlyArray<DataframeRow>, columns: ReadonlyArray<string>): Array<Record<string, unknown>> => {
   return rows.map((row) => {
     const source = Array.isArray(row)
       ? Object.fromEntries(columns.map((column, index) => [column, row[index]]))
@@ -1032,7 +1040,7 @@ const shapeRows = (rows: ReadonlyArray<GraphQLRow>, columns: ReadonlyArray<strin
 const numberOrNull = (value: unknown): number | null =>
   typeof value === 'number' && Number.isFinite(value) ? value : null;
 
-const normalizedFacet = (value: GraphQLFacet): LoomFacetResult => {
+const normalizedFacet = (value: DataframeFacet): LoomFacetResult => {
   const columns = value.columns;
   const rows = shapeRows(value.rows, columns);
   const missingCount = numberOrNull(value.missingCount);
@@ -1044,33 +1052,6 @@ const normalizedFacet = (value: GraphQLFacet): LoomFacetResult => {
     ...(missingCount === null ? {} : { missingCount }),
     ...(typeof value.truncated === 'boolean' ? { truncated: value.truncated } : {}),
   };
-};
-
-const outputQuery = (request: LoomOutputRequest): {
-  readonly query: string;
-  readonly variables: Readonly<Record<string, unknown>>;
-} => {
-  const hasFacets = (request.facets?.length ?? 0) > 0;
-  const input: Record<string, unknown> = {
-    projectId: canonicalProject(request.project),
-    selector: request.selector,
-    ...(request.columns && request.columns.length > 0 ? { columns: [...request.columns] } : {}),
-    ...(request.filters && request.filters.length > 0 ? { filters: request.filters.map((filter) => ({ column: filter.column, op: filter.op, value: filter.value })) } : {}),
-    ...(request.sort ? { sort: { column: request.sort.column, desc: request.sort.desc ?? false } } : {}),
-    ...(request.first === undefined ? {} : { first: request.first }),
-    ...(request.after ? { after: request.after } : {}),
-  };
-  const query = dataframeOutputQuery('LoomOutput', hasFacets);
-  const variables: Record<string, unknown> = { input };
-  if (hasFacets) {
-    variables.facetInput = {
-      projectId: canonicalProject(request.project),
-      selector: request.selector,
-      ...(request.filters && request.filters.length > 0 ? { filters: request.filters.map((filter) => ({ column: filter.column, op: filter.op, value: filter.value })) } : {}),
-      specs: [...(request.facets ?? [])],
-    };
-  }
-  return { query, variables };
 };
 
 const materializationIdentity = (
@@ -1389,6 +1370,33 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     `${authoringPath(args, suffix)}${authResourcePathQuery(args.authResourcePath)}`;
   const durableProjectPath = (args: ExplorerAuthoringProjectArgs): string =>
     `${projectPath(args)}${authResourcePathQuery(args.authResourcePath)}`;
+  const viewBuilderPath = (args: ProjectViewBuilderArgs): string =>
+    projectViewBuilderPath(args.project, args.authResourcePath);
+  const parseProjectViewBuilder = (value: unknown): ProjectViewBuilderState => {
+    try { return viewBuilderStateSchema.parse(value); }
+    catch { throw new LoomRequestError({ status: 502, code: 'INVALID_VIEW_BUILDER_STATE', message: 'Loom returned invalid saved view settings.', retryable: false }); }
+  };
+  const viewBuilderCacheKey = (args: ProjectViewBuilderArgs): string => `view-builder:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}`;
+  const updatedProjectViewBuilder = (args: ProjectViewBuilderArgs, value: unknown): ProjectViewBuilderState => {
+    const state = parseProjectViewBuilder(value);
+    evictCached(viewBuilderCacheKey(args));
+    return state;
+  };
+  const getProjectViewBuilder = (args: ProjectViewBuilderArgs, queryOptions: { readonly signal?: AbortSignal; readonly reload?: boolean } = {}) =>
+    getCached(viewBuilderCacheKey(args),
+      (signal) => request(viewBuilderPath(args), { signal }), parseProjectViewBuilder, queryOptions.signal, queryOptions.reload);
+  const saveProjectViewConfig = async (args: SaveProjectViewConfigArgs, signal?: AbortSignal) =>
+    updatedProjectViewBuilder(args, await request(`${projectViewBuilderPath(args.project)}/configs/${encodeURIComponent(args.configId)}${authResourcePathQuery(args.authResourcePath)}`, { method: 'PUT', body: JSON.stringify(args.request), signal }));
+  const deleteProjectViewConfig = async (args: DeleteProjectViewConfigArgs, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ expectedRevisionId: args.expectedRevisionId });
+    const auth = args.authResourcePath?.trim();
+    const path = `${projectViewBuilderPath(args.project)}/configs/${encodeURIComponent(args.configId)}?${query.toString()}${auth ? `&${new URLSearchParams({ auth_resource_path: auth }).toString()}` : ''}`;
+    return updatedProjectViewBuilder(args, await request(path, { method: 'DELETE', signal }));
+  };
+  const saveProjectViewDefaults = async (args: SaveProjectViewDefaultsArgs, signal?: AbortSignal) =>
+    updatedProjectViewBuilder(args, await request(`${projectViewBuilderPath(args.project)}/defaults${authResourcePathQuery(args.authResourcePath)}`, { method: 'PUT', body: JSON.stringify(args.request), signal }));
+  const adoptProjectViewBuilderCatalogs = async (args: ProjectViewBuilderArgs, signal?: AbortSignal) =>
+    updatedProjectViewBuilder(args, await request(`${projectViewBuilderPath(args.project)}/adopt${authResourcePathQuery(args.authResourcePath)}`, { method: 'POST', signal }));
   const withJson = (body: unknown, signal?: AbortSignal, requestId?: string): RequestInit => ({
     method: 'POST',
     body: JSON.stringify(body),
@@ -1580,6 +1588,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       anchorColumnId: args.anchorColumnId,
       targetResourceType: args.targetResourceType,
       ...(args.limit === undefined ? {} : { limit: args.limit }),
+      ...(args.savedGraphOnly ? { savedGraphOnly: true } : {}),
       ...(args.cursor ? { cursor: args.cursor } : {}),
     }, signal, args.requestId)).then((value) => relatedExpandChoiceSearchResponseSchema.parse(value));
   const searchRelatedFieldChoices = (args: SearchRelatedFieldChoicesArgs, signal?: AbortSignal) =>
@@ -1627,37 +1636,6 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       selection: args.selection,
       ...(args.limit === undefined ? {} : { limit: args.limit }),
     }, signal, args.requestId)).then((value) => rowDefinitionProposalSchema.parse(value));
-  const getTableShapeCapabilities = (args: GetTableShapeCapabilitiesArgs, signal?: AbortSignal) =>
-    request(durableAuthoringPath(args, '/table-shape-capabilities'), withJson({
-      snapshotToken: args.snapshotToken,
-      expectedDraftVersion: args.expectedDraftVersion,
-      expectedDraftDigest: args.expectedDraftDigest,
-      outputId: args.outputId,
-    }, signal, args.requestId)).then((value) => tableShapeCapabilitiesSchema.parse(value));
-  const discoverTableShapeCategories = (args: DiscoverTableShapeCategoriesArgs, signal?: AbortSignal) =>
-    request(durableAuthoringPath(args, '/table-shape-category-discoveries'), withJson(
-      tableShapeCategoryDiscoveryRequestSchema.parse({
-        catalogId: args.catalogId,
-        categoryColumnChoiceId: args.categoryColumnChoiceId,
-        expectedDraftDigest: args.expectedDraftDigest,
-        expectedDraftVersion: args.expectedDraftVersion,
-        outputId: args.outputId,
-        snapshotToken: args.snapshotToken,
-        valueColumnChoiceId: args.valueColumnChoiceId,
-      }), signal, args.requestId,
-    )).then((value) => tableShapeCategoryDiscoverySchema.parse(value));
-  const resolveTableShape = (args: ResolveTableShapeArgs, signal?: AbortSignal) => {
-    const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, requestId, ...body } = args;
-    return request(durableAuthoringPath(args, '/table-shape-resolutions'), withJson(
-      tableShapeResolutionRequestSchema.parse(body), signal, requestId,
-    )).then((value) => tableShapeResolutionSchema.parse(value));
-  };
-  const proposeTableShape = (args: ProposeTableShapeArgs, signal?: AbortSignal) => {
-    const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, requestId, ...body } = args;
-    return request(durableAuthoringPath(args, '/table-shape-proposals'), withJson(
-      tableShapeProposalRequestSchema.parse(body), signal, requestId,
-    )).then((value) => tableShapeProposalSchema.parse(value));
-  };
   const getConstructionCapabilities = (args: GetConstructionCapabilitiesArgs, signal?: AbortSignal) =>
     request(durableAuthoringPath(args, '/construction-capabilities'), withJson(
       constructionCapabilitiesRequestSchema.parse({
@@ -1667,8 +1645,21 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
         snapshotToken: args.snapshotToken,
         stageId: args.stageId,
         ...(args.groupStepId ? { groupStepId: args.groupStepId } : {}),
+        ...(args.includeGroupChoices ? { includeGroupChoices: true } : {}),
       }), signal, args.requestId ?? `construction-capabilities-${globalThis.crypto.randomUUID()}`,
     )).then((value) => constructionCapabilitiesResponseSchema.parse(value));
+  const getConstructionColumnPopulation = (args: GetConstructionColumnPopulationArgs, signal?: AbortSignal) => {
+    const body = constructionColumnPopulationRequestSchema.parse({
+      snapshotToken: args.snapshotToken,
+      expectedDraftVersion: args.expectedDraftVersion,
+      expectedDraftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      stageId: args.stageId,
+      columnIds: args.columnIds,
+    });
+    return request(durableAuthoringPath(args, '/construction-column-population'), withJson(body, signal, args.requestId))
+      .then((value) => constructionColumnPopulationResponseSchema.parse(value));
+  };
   const discoverConstructionCategories = (args: DiscoverConstructionCategoriesArgs, signal?: AbortSignal) =>
     request(durableAuthoringPath(args, '/construction-category-discoveries'), withJson(
       constructionCategoryDiscoveryRequestSchema.parse({
@@ -1690,6 +1681,24 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     return request(durableAuthoringPath(args, '/construction-inputs'), withJson(
       constructionInputsRequestSchema.parse(body), signal, args.requestId,
     )).then((value) => constructionInputsResponseSchema.parse(value));
+  };
+  const describeAuthoringNetwork = (args: DescribeAuthoringNetworkArgs, signal?: AbortSignal) => {
+    const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, ...body } = args;
+    return request(durableAuthoringPath(args, '/authoring-network'), withJson(
+      authoringNetworkRequestSchema.parse(body), signal,
+    )).then((value) => authoringNetworkResponseSchema.parse(value));
+  };
+  const proposeColumnPolicy = (args: ProposeColumnPolicyArgs, signal?: AbortSignal) => {
+    const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, requestId, ...body } = args;
+    return request(durableAuthoringPath(args, '/column-policy-proposals'), withJson(
+      columnPolicyProposalRequestSchema.parse(body), signal, requestId,
+    )).then((value) => columnPolicyProposalSchema.parse(value));
+  };
+  const proposeSourceRelationship = (args: ProposeSourceRelationshipArgs, signal?: AbortSignal) => {
+    const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, requestId, ...body } = args;
+    return request(durableAuthoringPath(args, '/source-relationship-proposals'), withJson(
+      sourceRelationshipProposalRequestSchema.parse({ ...body, includePreview: true }), signal, requestId,
+    )).then((value) => sourceRelationshipProposalWithPreviewSchema.parse(value));
   };
   const proposeConstruction = (args: ProposeConstructionArgs, signal?: AbortSignal) => {
     const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, requestId, ...body } = args;
@@ -1861,35 +1870,42 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     evictCached(`builder:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}:${args.explorerId}`);
     return null;
   };
-  const fetchGraphQL = async (query: string, variables?: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<unknown> => {
-    const payload = await request('/graphql/graph', { method: 'POST', signal, body: JSON.stringify({ query, variables }) });
-    if (!isRecord(payload)) throw new LoomRequestError({ status: 502, code: 'INVALID_GRAPHQL_RESPONSE', message: 'Loom returned an invalid GraphQL response.', retryable: false });
-    if (Array.isArray(payload.errors) && payload.errors.length > 0) {
-      const firstError = isRecord(payload.errors[0]) ? payload.errors[0] : {};
-      const message = typeof firstError.message === 'string' ? firstError.message : 'Loom GraphQL request failed.';
-      const extensions = isRecord(firstError.extensions) ? firstError.extensions : {};
-      const code = typeof extensions.code === 'string' ? extensions.code : 'GRAPHQL_ERROR';
-      throw new LoomRequestError({
-        status: code === 'STALE_CURSOR' ? 409 : 'CUSTOM_ERROR',
-        code,
-        message,
-        retryable: extensions.retryable === true,
-        details: extensions,
-      });
-    }
-    return payload.data;
-  };
   const queryOutput = async (outputRequest: LoomOutputRequest, signal?: AbortSignal): Promise<LoomOutputResult> => {
-    const prepared = outputQuery(outputRequest);
-    const data = await fetchGraphQL(prepared.query, prepared.variables, signal);
-    const parsed = graphQLOutputDataSchema.safeParse(data);
-    if (!parsed.success || (prepared.variables.facetInput !== undefined && !parsed.data?.dataframeAggregations)) {
+    const path = `/api/v1/projects/${encodedProject(outputRequest.project)}/dataframes`;
+    const { selector, columns: requestedColumns, filters, sort, first, after, facets: requestedFacets } = outputRequest;
+    const selection = {
+      selector,
+      ...(filters?.length ? { filters: filters.map(({ column, op, value }) => ({ column, op, value })) } : {}),
+    };
+    const [rowsResponse, facetResponse] = await Promise.all([
+      request(`${path}/rows`, withJson({
+        ...selection,
+        ...(requestedColumns?.length ? { columns: requestedColumns } : {}),
+        ...(sort ? { sort: { column: sort.column, desc: sort.desc ?? false } } : {}),
+        ...(first === undefined ? {} : { first }),
+        ...(after ? { after } : {}),
+      }, signal)),
+      requestedFacets?.length
+        ? request(`${path}/aggregations`, withJson({ ...selection, specs: requestedFacets }, signal)).then(
+            (value) => dataframeAggregationsSchema.safeParse(value),
+          )
+        : undefined,
+    ]);
+    const rows = dataframeConnectionSchema.safeParse(rowsResponse);
+    if (!rows.success || (facetResponse && !facetResponse.success)) {
       throw new LoomRequestError({ status: 502, code: 'INVALID_OUTPUT_RESPONSE', message: 'Loom returned an invalid output response.', retryable: false });
     }
-    const connection = parsed.data.dataframeRows;
+    const connection = rows.data;
+    const aggregationResult = facetResponse?.data;
+    if (aggregationResult) {
+      const rowIdentity = connection.materialization && materializationIdentity(connection.materialization);
+      if (!rowIdentity || rowIdentity !== materializationIdentity(aggregationResult.materialization)) {
+        throw new LoomRequestError({ status: 409, code: 'STALE_CURSOR', message: 'The published dataframe changed while its facets were loading.', retryable: false });
+      }
+    }
     const columns = connection.columns;
     const pageInfo = connection.pageInfo;
-    const facets = parsed.data.dataframeAggregations?.aggregations.map(normalizedFacet) ?? [];
+    const facets = aggregationResult?.aggregations.map(normalizedFacet) ?? [];
     const materialization = connection.materialization;
     const endCursor = pageInfo.endCursor ?? undefined;
     return {
@@ -1954,6 +1970,11 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     proposePopulationMemberRemoval,
     createExplicitGroupRevision,
     getBuilder,
+    getProjectViewBuilder,
+    saveProjectViewConfig,
+    deleteProjectViewConfig,
+    saveProjectViewDefaults,
+    adoptProjectViewBuilderCatalogs,
     getCapability,
     getExplorer,
     applyCommands,
@@ -1971,13 +1992,13 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     searchPopulationRoutes,
     listRowDefinitionChoices,
     proposeRowDefinition,
-    getTableShapeCapabilities,
-    discoverTableShapeCategories,
-    resolveTableShape,
-    proposeTableShape,
     getConstructionCapabilities,
+    getConstructionColumnPopulation,
     discoverConstructionCategories,
     getConstructionInputs,
+    describeAuthoringNetwork,
+    proposeColumnPolicy,
+    proposeSourceRelationship,
     proposeConstruction,
     proposeConstructionChoices,
     preview,
@@ -1995,7 +2016,6 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     publish,
     createExplorer,
     deleteExplorer,
-    fetchGraphQL,
     rows,
     queryOutput,
     exportOutput,

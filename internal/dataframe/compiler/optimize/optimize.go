@@ -9,13 +9,6 @@ import (
 
 const OptimizerRuleTraversalSharing = "share_identical_traversals"
 
-// OptimizePhysicalPlan applies semantics-preserving physical rewrites using
-// the conservative structural cost policy. An unshared plan is always
-// available as the correctness oracle, and the local policy switch can be used
-// to compare the two physical shapes without changing request semantics.
-// OptimizePhysicalPlanWithPolicy is the explicit form used by tests and
-// benchmarking tools. The policy decides only whether an optional rewrite is
-// enabled; it never relaxes physical-plan validation.
 func OptimizePhysicalPlanWithPolicy(plan ir.PhysicalPlan, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
 	if err := plan.Validate(); err != nil {
 		return ir.PhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
@@ -30,8 +23,7 @@ func OptimizePhysicalPlanWithPolicy(plan ir.PhysicalPlan, policy ir.PhysicalOpti
 		}
 		decomposition, err := ir.DecomposePhysicalTraversalPrefixAt(out, *op.Set, i)
 		if err != nil {
-			// Ineligibility is an expected optimizer outcome. The original plan
-			// remains the execution oracle.
+
 			continue
 		}
 		decompositions[i] = decomposition
@@ -51,7 +43,7 @@ func OptimizePhysicalPlanWithPolicy(plan ir.PhysicalPlan, policy ir.PhysicalOpti
 			Rule:          OptimizerRuleTraversalSharing,
 			CandidateSets: len(indices),
 		}
-		// Sharing is useful only when it removes target-type-specific traversals.
+
 		types := map[string]bool{}
 		for _, index := range indices {
 			t := decompositions[index].Subset.TargetTypeBindKey
@@ -124,9 +116,7 @@ func (route storageRoute) endpointLookupFields() (string, string, []string, bool
 
 func sharePhysicalSetGroup(plan *ir.PhysicalPlan, indices []int, types map[string]bool, decompositions map[int]ir.PhysicalTraversalPrefixDecomposition, policy ir.PhysicalOptimizationPolicy) error {
 	first := indices[0]
-	// The broad set changes its target bind from one type to a type list. Deep
-	// clone before that change: its first consumer must retain the original
-	// single target-type bind for the typed subset.
+
 	originalOperation := ir.ClonePhysicalOperation(plan.Operations[first])
 	original := *originalOperation.Set
 	t := *original.Subplan.Operations[0].Traversal
@@ -146,7 +136,7 @@ func sharePhysicalSetGroup(plan *ir.PhysicalPlan, indices []int, types map[strin
 	for typ := range types {
 		targetTypes = append(targetTypes, typ)
 	}
-	// Deterministic order is part of plan stability.
+
 	for i := 0; i < len(targetTypes); i++ {
 		for j := i + 1; j < len(targetTypes); j++ {
 			if targetTypes[j] < targetTypes[i] {
@@ -169,33 +159,20 @@ func sharePhysicalSetGroup(plan *ir.PhysicalPlan, indices []int, types map[strin
 		return fmt.Errorf("missing traversal prefix decomposition for set %d", first)
 	}
 	base.Subplan.Operations = ir.ClonePhysicalOperations(decomposition.PrefixOperations)
-	// Prefix decomposition preserves the original consumer's scalar type
-	// binding. Restore the broadened discriminator after cloning it so the
-	// shared traversal can collect every candidate type in this group.
+
 	base.Subplan.Operations[0].Traversal = &t
 	base.Variable = baseName
 	base.SourceSetVariable, base.ItemVariable = "", ""
-	// The broad source must remain a full node because sibling consumers may
-	// require different compact fields. Each typed subset retains its own
-	// proven output contract below; unioning those contracts into the broad
-	// traversal would make sharing resource/cardinality dependent.
+
 	base.Output = nil
-	// Prepared values belong to typed consumer sets. The broad shared neighbor
-	// set must contain raw nodes only; consumers prepare their own projections
-	// after resource-type filtering.
+
 	base.Prepared = nil
-	// Traversal-time selector projections are also consumer-specific. Keeping
-	// the first sibling's projection on the broad heterogeneous set evaluates
-	// selectors against the wrong resource payload and leaves typed subsets
-	// with empty values.
+
 	base.Projection = nil
-	// The heterogeneous shared neighbor set has no consumer-specific selector
-	// slots, so it must not retain a reduction belonging to the original typed
-	// set.
+
 	base.Reduction = nil
 	base.Subplan.Return = ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: t.TargetVariable}}
-	// Rebuild operation stream, inserting the broad traversal immediately before
-	// the first consumer and replacing each consumer with a typed subset.
+
 	indexSet := map[int]bool{}
 	for _, i := range indices {
 		indexSet[i] = true
@@ -226,9 +203,7 @@ func sharePhysicalSetGroup(plan *ir.PhysicalPlan, indices []int, types map[strin
 		set.SourceSetVariable, set.ItemVariable, set.Subplan = baseName, item, sub
 		set.Unique, set.SortByKey = true, true
 		if set.Prepared != nil {
-			// The typed consumer now reads the shared subset rather than the
-			// original traversal set. Rebind the prepared projection's source
-			// to the consumer set so rendering defines it in the same scope.
+
 			prepared := *set.Prepared
 			prepared.SourceSetVariable = set.Variable
 			set.Prepared = &prepared
@@ -260,176 +235,134 @@ func appendUniqueRule(rules []string, rule string) []string {
 	}
 	return append(rules, rule)
 }
-func rewritePhysicalValue(v ir.PhysicalValue, fromTarget, toTarget, fromEdge, toEdge string) ir.PhysicalValue {
-	if v.Variable == fromTarget {
-		v.Variable = toTarget
-	}
-	if v.Variable == fromEdge {
-		v.Variable = toEdge
-	}
-	return v
-}
 func rewritePhysicalOperationVariables(op ir.PhysicalOperation, fromTarget, toTarget, fromEdge, toEdge string) ir.PhysicalOperation {
-	if op.Traversal != nil {
-		t := *op.Traversal
-		if t.SourceVariable == fromTarget {
-			t.SourceVariable = toTarget
-		}
-		if t.SourceVariable == fromEdge {
-			t.SourceVariable = toEdge
-		}
-		if t.TargetVariable == fromTarget {
-			t.TargetVariable = toTarget
-		}
-		if t.TargetVariable == fromEdge {
-			t.TargetVariable = toEdge
-		}
-		if t.EdgeVariable == fromTarget {
-			t.EdgeVariable = toTarget
-		}
-		if t.EdgeVariable == fromEdge {
-			t.EdgeVariable = toEdge
-		}
-		op.Traversal = &t
-	}
-	if op.Filter != nil {
-		f := *op.Filter
-		f.Predicate.Left = rewritePhysicalValue(f.Predicate.Left, fromTarget, toTarget, fromEdge, toEdge)
-		if f.Predicate.LeftExpression != nil {
-			e := rewritePhysicalExpressionVariables(*f.Predicate.LeftExpression, fromTarget, toTarget, fromEdge, toEdge)
-			f.Predicate.LeftExpression = &e
-		}
-		if f.Predicate.Right != nil {
-			v := rewritePhysicalValue(*f.Predicate.Right, fromTarget, toTarget, fromEdge, toEdge)
-			f.Predicate.Right = &v
-		}
-		if f.Expression != nil {
-			expression := rewritePhysicalPredicateExpressionVariables(*f.Expression, fromTarget, toTarget, fromEdge, toEdge)
-			f.Expression = &expression
-		}
-		op.Filter = &f
-	}
-	if op.DerivedLet != nil {
-		d := *op.DerivedLet
-		for i := range d.Inputs {
-			d.Inputs[i] = rewritePhysicalValue(d.Inputs[i], fromTarget, toTarget, fromEdge, toEdge)
-		}
-		op.DerivedLet = &d
-	}
-	if op.Unnest != nil {
-		u := *op.Unnest
-		rewriteVariable := func(variable *string) {
-			if *variable == fromTarget {
-				*variable = toTarget
-			} else if *variable == fromEdge {
-				*variable = toEdge
-			}
-		}
-		rewriteVariable(&u.Owner.RootVariable)
-		rewriteVariable(&u.Owner.OwnerVariable)
-		for routeIndex := range u.Owner.Route {
-			traversal := &u.Owner.Route[routeIndex].Traversal
-			rewriteVariable(&traversal.SourceVariable)
-			rewriteVariable(&traversal.TargetVariable)
-			rewriteVariable(&traversal.EdgeVariable)
-			for scopeIndex := range u.Owner.Route[routeIndex].Scope {
-				u.Owner.Route[routeIndex].Scope[scopeIndex] = rewritePhysicalOperationVariables(u.Owner.Route[routeIndex].Scope[scopeIndex], fromTarget, toTarget, fromEdge, toEdge)
-			}
-		}
-		u.Expression = rewritePhysicalExpressionVariables(u.Expression, fromTarget, toTarget, fromEdge, toEdge)
-		op.Unnest = &u
-	}
+	op = ir.ClonePhysicalOperation(op)
+	rewritePhysicalNodeVariables(&op, fromTarget, toTarget, fromEdge, toEdge)
 	return op
 }
 
-func rewritePhysicalExpressionVariables(expression ir.PhysicalExpression, fromTarget, toTarget, fromEdge, toEdge string) ir.PhysicalExpression {
-	if expression.Value != nil {
-		v := rewritePhysicalValue(*expression.Value, fromTarget, toTarget, fromEdge, toEdge)
-		expression.Value = &v
-	}
-	if expression.Extract != nil {
-		e := *expression.Extract
-		e.Source = rewritePhysicalValue(e.Source, fromTarget, toTarget, fromEdge, toEdge)
-		expression.Extract = &e
-	}
-	if expression.Aggregate != nil {
-		a := *expression.Aggregate
-		a.Source = rewritePhysicalValue(a.Source, fromTarget, toTarget, fromEdge, toEdge)
-		if a.Value != nil {
-			v := rewritePhysicalExpressionVariables(*a.Value, fromTarget, toTarget, fromEdge, toEdge)
-			a.Value = &v
+func rewritePhysicalNodeVariables(node ir.Node, fromTarget, toTarget, fromEdge, toEdge string) {
+	rewrite := func(variable *string) {
+		if *variable == fromTarget {
+			*variable = toTarget
 		}
-		if a.Predicate != nil {
-			predicate := rewritePhysicalPredicateExpressionVariables(*a.Predicate, fromTarget, toTarget, fromEdge, toEdge)
-			a.Predicate = &predicate
+		if *variable == fromEdge {
+			*variable = toEdge
 		}
-		expression.Aggregate = &a
 	}
-	if expression.Pivot != nil {
-		pivot := *expression.Pivot
-		pivot.Source = rewritePhysicalValue(pivot.Source, fromTarget, toTarget, fromEdge, toEdge)
-		expression.Pivot = &pivot
+	rewriteUnnest := func(variable *string) {
+		if *variable == fromTarget {
+			*variable = toTarget
+		} else if *variable == fromEdge {
+			*variable = toEdge
+		}
 	}
-	if expression.Slice != nil {
-		slice := *expression.Slice
-		slice.Source = rewritePhysicalValue(slice.Source, fromTarget, toTarget, fromEdge, toEdge)
-		if slice.Predicate != nil {
-			predicate := rewritePhysicalPredicateExpressionVariables(*slice.Predicate, fromTarget, toTarget, fromEdge, toEdge)
-			slice.Predicate = &predicate
+	allowed := make(map[ir.Node]bool)
+	allow := func(n ir.Node) { allowed[n] = true }
+	switch n := node.(type) {
+	case *ir.PhysicalValue:
+		rewrite(&n.Variable)
+	case *ir.PhysicalOperation:
+		switch n.Kind {
+		case ir.PhysicalTraversalOp:
+			if n.Traversal != nil {
+				rewrite(&n.Traversal.SourceVariable)
+				rewrite(&n.Traversal.TargetVariable)
+				rewrite(&n.Traversal.EdgeVariable)
+			}
+		case ir.PhysicalFilterOp:
+			if n.Filter != nil {
+				allow(&n.Filter.Predicate.Left)
+				allow(n.Filter.Predicate.LeftExpression)
+				allow(n.Filter.Predicate.Right)
+				allow(n.Filter.Expression)
+			}
+		case ir.PhysicalDerivedLetOp:
+			if n.DerivedLet != nil {
+				for i := range n.DerivedLet.Inputs {
+					allow(&n.DerivedLet.Inputs[i])
+				}
+			}
+		case ir.PhysicalUnnestOp:
+			if n.Unnest != nil {
+				rewriteUnnest(&n.Unnest.Owner.RootVariable)
+				rewriteUnnest(&n.Unnest.Owner.OwnerVariable)
+				for i := range n.Unnest.Owner.Route {
+					route := &n.Unnest.Owner.Route[i]
+					rewriteUnnest(&route.Traversal.SourceVariable)
+					rewriteUnnest(&route.Traversal.TargetVariable)
+					rewriteUnnest(&route.Traversal.EdgeVariable)
+					for j := range route.Scope {
+						allow(&route.Scope[j])
+					}
+				}
+				allow(&n.Unnest.Expression)
+			}
 		}
-		if slice.Sort != nil {
-			sort := rewritePhysicalExpressionVariables(*slice.Sort, fromTarget, toTarget, fromEdge, toEdge)
-			slice.Sort = &sort
+	case *ir.PhysicalExpression:
+		switch n.Kind {
+		case ir.PhysicalValueExpression:
+			allow(n.Value)
+		case ir.PhysicalExtractExpression:
+			if n.Extract != nil {
+				allow(&n.Extract.Source)
+			}
+		case ir.PhysicalAggregateExpression:
+			if n.Aggregate != nil {
+				allow(&n.Aggregate.Source)
+				allow(n.Aggregate.Value)
+				allow(n.Aggregate.Predicate)
+			}
+		case ir.PhysicalPivotExpression:
+			if n.Pivot != nil {
+				allow(&n.Pivot.Source)
+			}
+		case ir.PhysicalSliceExpression:
+			if n.Slice != nil {
+				allow(&n.Slice.Source)
+				allow(n.Slice.Predicate)
+				allow(n.Slice.Sort)
+				for i := range n.Slice.Projections {
+					allow(&n.Slice.Projections[i].Expression)
+				}
+			}
+		case ir.PhysicalObjectExpression:
+			if n.Object != nil {
+				for i := range n.Object.Fields {
+					allow(&n.Object.Fields[i].Expression)
+				}
+			}
+		case ir.PhysicalCallExpression:
+			if n.Call != nil {
+				for i := range n.Call.Args {
+					allow(&n.Call.Args[i])
+				}
+			}
 		}
-		for index := range slice.Projections {
-			slice.Projections[index].Expression = rewritePhysicalExpressionVariables(slice.Projections[index].Expression, fromTarget, toTarget, fromEdge, toEdge)
+	case *ir.PhysicalPredicateExpression:
+		switch n.Kind {
+		case ir.PhysicalComparisonPredicate:
+			if n.Comparison != nil {
+				allow(&n.Comparison.Left)
+				allow(n.Comparison.LeftExpression)
+				allow(n.Comparison.Right)
+			}
+		case ir.PhysicalAllPredicate, ir.PhysicalAnyPredicate, ir.PhysicalNotPredicate:
+			for i := range n.Children {
+				allow(&n.Children[i])
+			}
+		case ir.PhysicalExistsPredicate:
+			allow(n.Exists)
 		}
-		expression.Slice = &slice
+	case *ir.PhysicalSubplan:
+		for i := range n.Operations {
+			allow(&n.Operations[i])
+		}
+		allow(&n.Return)
 	}
-	if expression.Object != nil {
-		object := *expression.Object
-		object.Fields = append([]ir.PhysicalExpressionProjection(nil), object.Fields...)
-		for index := range object.Fields {
-			object.Fields[index].Expression = rewritePhysicalExpressionVariables(object.Fields[index].Expression, fromTarget, toTarget, fromEdge, toEdge)
+	for _, child := range ir.Children(node) {
+		if allowed[child] {
+			rewritePhysicalNodeVariables(child, fromTarget, toTarget, fromEdge, toEdge)
 		}
-		expression.Object = &object
 	}
-	if expression.Call != nil {
-		call := *expression.Call
-		call.Args = append([]ir.PhysicalExpression(nil), call.Args...)
-		for index := range call.Args {
-			call.Args[index] = rewritePhysicalExpressionVariables(call.Args[index], fromTarget, toTarget, fromEdge, toEdge)
-		}
-		expression.Call = &call
-	}
-	return expression
-}
-
-func rewritePhysicalPredicateExpressionVariables(predicate ir.PhysicalPredicateExpression, fromTarget, toTarget, fromEdge, toEdge string) ir.PhysicalPredicateExpression {
-	predicate = ir.ClonePhysicalPredicateExpression(predicate)
-	if predicate.Comparison != nil {
-		comparison := *predicate.Comparison
-		comparison.Left = rewritePhysicalValue(comparison.Left, fromTarget, toTarget, fromEdge, toEdge)
-		if comparison.LeftExpression != nil {
-			expression := rewritePhysicalExpressionVariables(*comparison.LeftExpression, fromTarget, toTarget, fromEdge, toEdge)
-			comparison.LeftExpression = &expression
-		}
-		if comparison.Right != nil {
-			right := rewritePhysicalValue(*comparison.Right, fromTarget, toTarget, fromEdge, toEdge)
-			comparison.Right = &right
-		}
-		predicate.Comparison = &comparison
-	}
-	for index := range predicate.Children {
-		predicate.Children[index] = rewritePhysicalPredicateExpressionVariables(predicate.Children[index], fromTarget, toTarget, fromEdge, toEdge)
-	}
-	if predicate.Exists != nil {
-		subplan := ir.ClonePhysicalSubplan(*predicate.Exists)
-		for index := range subplan.Operations {
-			subplan.Operations[index] = rewritePhysicalOperationVariables(subplan.Operations[index], fromTarget, toTarget, fromEdge, toEdge)
-		}
-		subplan.Return = rewritePhysicalExpressionVariables(subplan.Return, fromTarget, toTarget, fromEdge, toEdge)
-		predicate.Exists = &subplan
-	}
-	return predicate
 }

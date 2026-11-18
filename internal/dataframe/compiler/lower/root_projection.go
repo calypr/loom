@@ -11,10 +11,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// physicalSemanticBinding records the physical value and schema resource
-// associated with one semantic lexical binding. Recipe expressions use this
-// while lowering so a selector is rooted at the binding that is actually in
-// scope (root document, traversal item, set item, or unnest item).
 type physicalSemanticBinding struct {
 	ResourceType string
 	Source       ir.PhysicalValue
@@ -31,12 +27,6 @@ func clonePhysicalSemanticBindings(bindings map[string]physicalSemanticBinding) 
 	return copy
 }
 
-// semanticFieldProjectionLowerer is shared by root and child projection
-// construction. The generic dataframe compiler supplies nil and uses the
-// selector-only lowering below; recipe compilation supplies a direct checked
-// expression lowerer. Keeping this at the projection boundary means rich
-// expressions are lowered once, while the traversal/set walk still owns
-// lexical physical variables.
 type semanticFieldProjectionLowerer func(
 	physical *ir.PhysicalPlan,
 	node semantic.SemanticNode,
@@ -200,6 +190,9 @@ func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, so
 	if len(pivot.Columns) == 0 {
 		return nil, fmt.Errorf("pivot %q requires bounded columns", pivot.Name)
 	}
+	if pivot.SourceKind == "EXTENSION_COLUMN" {
+		prefix = pivot.ExtensionProjectionPrefix
+	}
 	projections := make([]ir.PhysicalProjection, 0, len(pivot.Columns))
 	columnsBindKey := "pivot_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(pivot.Name) + "_columns"
 	physical.BindVars[columnsBindKey] = append([]string(nil), pivot.Columns...)
@@ -240,9 +233,7 @@ func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, so
 		if err != nil {
 			return nil, err
 		}
-		// Exact correlated pivots match their code against the bounded pivot
-		// columns array in AQL; unlike filters and owner-record predicates they
-		// do not use a scalar code bind. Avoid emitting an undeclared/unused bind.
+
 		correlation.CodeBindKey = ""
 		sharedExpression.Pivot.Correlation = &correlation
 	}
@@ -251,10 +242,7 @@ func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, so
 		columnBindKey := columnsBindKey + "_" + sanitizeColumnName(column)
 		physical.BindVars[columnBindKey] = column
 		expression := ir.PhysicalExpression{Kind: ir.PhysicalObjectLookupExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, ObjectLookup: &ir.PhysicalObjectLookup{ObjectVariable: familyVariable, KeyBindKey: columnBindKey}}
-		name := prefix + pivot.Name + "__" + sanitizeColumnName(column)
-		if alias, ok := pivot.ColumnAliases[column]; ok {
-			name = prefix + alias
-		}
+		name := NativePivotColumnName(prefix, pivot.Name, column, pivot.ColumnAliases)
 		projections = append(projections, ir.PhysicalProjection{Name: name, Expression: &expression})
 	}
 	return projections, nil
@@ -285,11 +273,6 @@ func deferredExpressionVariableExists(physical ir.PhysicalPlan, variable string)
 	return false
 }
 
-// physicalAggregateExpression lowers one semantic aggregate into the typed
-// aggregate IR. A root source is a singleton document; child sources are
-// correlated PhysicalSet variables. Selector extraction remains typed so the
-// renderer can choose the correct payload iteration without embedding user
-// paths in AQL.
 func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, aggregate semantic.SemanticAggregate, sourceIsSet bool) (ir.PhysicalExpression, error) {
 	op := ir.PhysicalAggregateOperation(strings.ToUpper(strings.TrimSpace(aggregate.Operation)))
 	switch op {
@@ -386,19 +369,13 @@ func aggregateProjectionName(aggregate semantic.SemanticAggregate, prefix string
 	return prefix + aggregate.Name
 }
 
-// physicalSliceExpression lowers a representative slice into a typed,
-// bounded projection over either the singleton root document or a correlated
-// child set. The source set is already materialized in stable _key order;
-// the explicit sort expression below makes that ordering part of the slice
-// contract and gives the renderer a deterministic tie-break.
 func physicalSliceExpression(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, slice semantic.SemanticSlice) (ir.PhysicalExpression, error) {
 	if slice.Limit <= 0 {
 		return ir.PhysicalExpression{}, fmt.Errorf("slice %q requires positive limit", slice.Name)
 	}
 	limitKey := "slice_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(slice.Name) + "_limit"
 	physical.BindVars[limitKey] = slice.Limit
-	// Expressions are anchored to the declared source variable for validation;
-	// the renderer rebinds them to its per-item loop variable.
+
 	leftSource := source
 	physicalSlice := ir.PhysicalSlice{
 		Source:       source,
@@ -512,10 +489,7 @@ func appendRootPhysicalFilters(physical *ir.PhysicalPlan, root semantic.Semantic
 			}
 			predicate.Right = &ir.PhysicalValue{BindKey: key}
 		}
-		// Ingestion stores the FHIR id unchanged in both document.id and
-		// payload.id. Narrow exact ID matches with the indexed document field
-		// before extracting FHIR values or expanding repeated rows. Retain the
-		// original predicate below as the value-level check.
+
 		if selector.CanonicalPath() == "id" && selector.Filter == nil && filter.Quantifier == "" &&
 			(filter.Operator == spec.FilterEquals || filter.Operator == spec.FilterIn) {
 			physical.Operations = append(physical.Operations, ir.PhysicalOperation{
@@ -532,8 +506,3 @@ func appendRootPhysicalFilters(physical *ir.PhysicalPlan, root semantic.Semantic
 	}
 	return nil
 }
-
-// buildOptionalChildPhysicalSet lowers one root-relative optional traversal.
-// The set retains resource documents (rather than pre-shaped maps), allowing
-// the renderer to apply each child selector against the document payload at
-// the outer return while preserving root row grain.

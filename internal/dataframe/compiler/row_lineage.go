@@ -128,9 +128,6 @@ func RowLineageCapabilityForOutput(output lower.CompiledRecipeOutput) RowLineage
 	return RowLineageCapability{Available: true}
 }
 
-// rowLineageRelatedCodingGroup admits only the terminal direct-root Group
-// shape whose Coding tuple and scalar sources are prepared by one typed route
-// adapter. All other related Groups keep the existing unsupported behavior.
 func rowLineageRelatedCodingGroup(output lower.CompiledRecipeOutput) bool {
 	sequence := output.Plan.StageSequence
 	if sequence == nil || sequence.SourceRowIdentity != "_key" || len(sequence.Stages) != 1 ||
@@ -355,9 +352,6 @@ func rowLineageExpandedCodingGroup(output lower.CompiledRecipeOutput) bool {
 		sourceUnnest.Expression.Extract != nil && sourceUnnest.Expression.Extract.Selector.CanonicalPath() == group.CodingKey.CodingPath
 }
 
-// rowLineageConstructionPivotPreimage admits only a direct terminal ordinary
-// construction Pivot. Its typed key tuple selects the multi-root preimage;
-// mixed-owner sequences remain unsupported until their owner chain is decoded.
 func rowLineageConstructionPivotPreimage(output lower.CompiledRecipeOutput) bool {
 	sequence := output.Plan.StageSequence
 	if sequence == nil || sequence.SourceRowIdentity != "_key" || len(sequence.Stages) != 1 ||
@@ -376,11 +370,6 @@ func rowLineageConstructionPivotPreimage(output lower.CompiledRecipeOutput) bool
 		output.RootResourceType != "" && rowLineageHasPhysicalIdentity(output, stage, sequence)
 }
 
-// rowLineageConstructionGroupPivotPreimage admits the bounded first composed
-// construction shape: a direct-source scalar GROUP with COUNT_ROWS only,
-// followed by an ordinary Pivot over every Group dimension. The Group is a
-// fan-in owner set; the final Pivot's typed key tuple selects the relevant
-// Group tuples, whose source preimage is streamed from the original root rows.
 func rowLineageConstructionGroupPivotPreimage(output lower.CompiledRecipeOutput) bool {
 	sequence := output.Plan.StageSequence
 	if sequence == nil || sequence.SourceRowIdentity != "_key" || len(sequence.Stages) != 2 ||
@@ -623,7 +612,7 @@ func rowLineageGroupFilterSuffix(sequence *ir.PhysicalStageSequence) bool {
 }
 
 func rowLineageHasPhysicalIdentity(output lower.CompiledRecipeOutput, stage ir.PhysicalConstructionStage, sequence *ir.PhysicalStageSequence) bool {
-	// Publication-grain metadata need not name a construction stage's physical row ID.
+
 	return output.RowIdentity != nil && stage.RowIdentityColumn != "" && stage.RowIdentityColumn == sequence.FinalRowIdentity
 }
 
@@ -707,7 +696,7 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 		}, nil
 	}
 	physical := ir.ClonePhysicalPlan(output.Plan)
-	_ = policy // Row lineage uses the canonical pre-optimization stage semantics.
+	_ = policy
 	if physical.StageSequence == nil {
 		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage requires a construction stage sequence")
 	}
@@ -732,8 +721,7 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 		rootKey, decoded, decodedOK := decodeRelatedRowLineageIdentity(rowID, physical.StageSequence.Stages, physical.BindVars)
 		var rootKeyValue any = rootKey
 		if !decodedOK {
-			// Null cannot be a stored Arango _key, so malformed, wrong-stage, and
-			// wrong-owner identities become an unmatchable query.
+
 			rootKeyValue = nil
 			for stageIndex, stage := range physical.StageSequence.Stages {
 				if stage.Kind != ir.PhysicalStageRelatedExpandOp {

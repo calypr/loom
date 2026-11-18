@@ -44,9 +44,19 @@ func (s *Service) constructionGroupFieldChoices(
 		(context.SourceExpansion != nil && context.SourceIdentityColumn != "__loom_expansion_identity") {
 		return nil, false, conflict("construction-capabilities", "INVALID_COMPILATION_RECEIPT", "the Group source shape does not match its row identity", nil, nil)
 	}
+	if importedSourceRootChoiceInventoryMissing(base) {
+		return choices, semanticChoicesIncomplete, nil
+	}
 	index, err := fhirschema.GeneratedIndex()
 	if err != nil {
 		return nil, false, unavailable("construction-capabilities", "FHIR_SCHEMA_UNAVAILABLE", "FHIR field metadata is unavailable", err)
+	}
+	candidatesByNode := make(map[string][]capability.Candidate, len(base.snapshot.Nodes))
+	for _, candidate := range base.snapshot.Candidates {
+		if !candidate.Observed || !candidate.Populated || fhirNonGroupableGroupFieldPath(candidate.FieldPath) {
+			continue
+		}
+		candidatesByNode[candidate.NodeID] = append(candidatesByNode[candidate.NodeID], candidate)
 	}
 	choicesByID := make(map[string]ConstructionGroupFieldChoice)
 	for _, owner := range context.FieldOwners {
@@ -57,9 +67,8 @@ func (s *Service) constructionGroupFieldChoices(
 		if owner.Role == "ROOT" && (owner.OccurrenceID != base.document.Route.OccurrenceID || owner.ResourceType != base.document.RootResourceType) {
 			return nil, false, conflict("construction-capabilities", "STALE_ROUTE", "the compiled Group root field owner changed", nil, nil)
 		}
-		for _, candidate := range base.snapshot.Candidates {
-			if candidate.NodeID != occurrence.NodeID || candidate.ResourceType != owner.OwnerResourceType || !candidate.Observed || !candidate.Populated ||
-				fhirNonGroupableGroupFieldPath(candidate.FieldPath) {
+		for _, candidate := range candidatesByNode[occurrence.NodeID] {
+			if candidate.ResourceType != owner.OwnerResourceType {
 				continue
 			}
 			fieldPath, ok := groupFieldPathForOwner(owner, context.SourceExpansion, candidate.FieldPath)

@@ -584,12 +584,12 @@ func TestS04TableReshapeOracleAgainstArango(t *testing.T) {
 		t.Fatalf("insert reshape fixture: %v", err)
 	}
 
-	directIDOutput := reshapeOracleOutput("direct_id", &recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	directIDOutput := reshapeOracleOutput("direct_id", &oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "s04-pivot-direct-id", GroupKeys: []string{"source_id"},
 			CategoryColumn: "string_category", ValueColumn: "numeric_value",
-			Categories: []recipe.GroupedPivotCategory{
+			Categories: []oraclePivotCategory{
 				{Key: reshapeOracleString("alpha"), Output: "alpha", Label: "Alpha"},
 				{Key: reshapeOracleString("beta"), Output: "beta", Label: "Beta"},
 				{Key: reshapeOracleString("zero"), Output: "zero", Label: "Zero"},
@@ -604,9 +604,9 @@ func TestS04TableReshapeOracleAgainstArango(t *testing.T) {
 		t.Fatalf("compile direct-ID grouped pivot oracle: %v", err)
 	}
 	directIDFastPath := false
-	for _, operation := range directIDCompiled.Plan.Operations {
-		if operation.Kind == ir.PhysicalGroupedPivotOp && operation.GroupedPivot != nil {
-			directIDFastPath = operation.GroupedPivot.OneInputRowPerGroup
+	for _, stage := range directIDCompiled.Plan.StageSequence.Stages {
+		if stage.Kind == ir.PhysicalStagePivotOp && stage.GroupedPivot != nil {
+			directIDFastPath = stage.GroupedPivot.OneInputRowPerGroup
 		}
 	}
 	if !directIDFastPath {
@@ -658,12 +658,12 @@ func TestS04TableReshapeOracleAgainstArango(t *testing.T) {
 		}
 	}
 
-	output := reshapeOracleOutput("sum", &recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	output := reshapeOracleOutput("sum", &oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "s04-pivot-sum", GroupKeys: []string{"group_text", "group_number"},
 			CategoryColumn: "string_category", ValueColumn: "numeric_value",
-			Categories: []recipe.GroupedPivotCategory{
+			Categories: []oraclePivotCategory{
 				{Key: reshapeOracleString("alpha"), Output: "alpha", Label: "Alpha"},
 				{Key: reshapeOracleString("beta"), Output: "beta", Label: "Beta"},
 				{Key: reshapeOracleString("zero"), Output: "zero", Label: "Zero"},
@@ -774,12 +774,12 @@ func TestS04GroupedPivotMaterializationPreservesAuthResourcePathAgainstArango(t 
 		t.Fatalf("insert auth-scope pivot fixture: %v", err)
 	}
 
-	output := reshapeOracleOutput("auth_scope_pivot", &recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	output := reshapeOracleOutput("auth_scope_pivot", &oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "s04-auth-scope-pivot", GroupKeys: []string{"group_text", "group_number"},
 			CategoryColumn: "string_category", ValueColumn: "numeric_value",
-			Categories: []recipe.GroupedPivotCategory{
+			Categories: []oraclePivotCategory{
 				{Key: reshapeOracleString("alpha"), Output: "alpha", Label: "Alpha"},
 				{Key: reshapeOracleString("zero"), Output: "zero", Label: "Zero"},
 			},
@@ -793,6 +793,7 @@ func TestS04GroupedPivotMaterializationPreservesAuthResourcePathAgainstArango(t 
 		Right:              recipe.DerivedOperand{Kind: recipe.DerivedColumnOperand, Column: "zero"},
 		MissingInputPolicy: recipe.MissingInputPropagateNull,
 	}}
+	output = bindOracleCurrentDerived(output)
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-auth-scope-pivot", TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation, IncludeAuthResourcePath: true}
 	plan, err := semantic.BuildRecipePlan(bundle, bindings)
@@ -933,12 +934,12 @@ func assertReshapeOracleExclusions(t *testing.T, ctx context.Context, client *st
 		t.Fatalf("insert exclusion sentinels: %v", err)
 	}
 
-	stringOutput := reshapeOracleOutput("string_exclusions", &recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	stringOutput := reshapeOracleOutput("string_exclusions", &oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "s04-pivot-exclusion", GroupKeys: []string{"group_text", "group_number"},
 			CategoryColumn: "string_category", ValueColumn: "numeric_value",
-			Categories: []recipe.GroupedPivotCategory{
+			Categories: []oraclePivotCategory{
 				{Key: reshapeOracleString("alpha"), Output: "alpha", Label: "Alpha"},
 				{Key: reshapeOracleString("beta"), Output: "beta", Label: "Beta"},
 				{Key: reshapeOracleString("zero"), Output: "zero", Label: "Zero"},
@@ -968,12 +969,12 @@ func assertReshapeOracleExclusions(t *testing.T, ctx context.Context, client *st
 		t.Fatalf("source without payload resource ID was fabricated instead of omitted: %#v", missingPayloadID)
 	}
 
-	missingNullOutput := reshapeOracleOutput("direct_missing_null", &recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	missingNullOutput := reshapeOracleOutput("direct_missing_null", &oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "s04-pivot-direct-missing-null", GroupKeys: []string{"source_id"},
 			CategoryColumn: "string_category", ValueColumn: "numeric_value",
-			Categories: []recipe.GroupedPivotCategory{
+			Categories: []oraclePivotCategory{
 				{Key: recipe.TableScalar{Kind: recipe.TableScalarMissing}, Output: "missing_category", Label: "Missing"},
 				{Key: recipe.TableScalar{Kind: recipe.TableScalarNull}, Output: "null_category", Label: "Null"},
 			},
@@ -990,9 +991,9 @@ func assertReshapeOracleExclusions(t *testing.T, ctx context.Context, client *st
 		t.Fatalf("compile direct-ID missing/null category oracle: %v", err)
 	}
 	missingNullFastPath := false
-	for _, operation := range missingNullCompiled.Plan.Operations {
-		if operation.Kind == ir.PhysicalGroupedPivotOp && operation.GroupedPivot != nil {
-			missingNullFastPath = operation.GroupedPivot.OneInputRowPerGroup
+	for _, stage := range missingNullCompiled.Plan.StageSequence.Stages {
+		if stage.Kind == ir.PhysicalStagePivotOp && stage.GroupedPivot != nil {
+			missingNullFastPath = stage.GroupedPivot.OneInputRowPerGroup
 		}
 	}
 	if !missingNullFastPath || strings.Contains(missingNullQuery.Query, "COLLECT") {
@@ -1041,12 +1042,12 @@ func assertReshapeOracleExclusions(t *testing.T, ctx context.Context, client *st
 	}
 
 	trueValue := true
-	booleanOutput := reshapeOracleOutput("false_exclusions", &recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	booleanOutput := reshapeOracleOutput("false_exclusions", &oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "s04-pivot-false-exclusion", GroupKeys: []string{"group_text", "group_number"},
 			CategoryColumn: "flag_value", ValueColumn: "numeric_value",
-			Categories:      []recipe.GroupedPivotCategory{{Key: recipe.TableScalar{Kind: recipe.TableScalarBoolean, Boolean: &trueValue}, Output: "true", Label: "True"}},
+			Categories:      []oraclePivotCategory{{Key: recipe.TableScalar{Kind: recipe.TableScalarBoolean, Boolean: &trueValue}, Output: "true", Label: "True"}},
 			DuplicatePolicy: recipe.PivotDuplicateSum, MissingCellPolicy: recipe.PivotMissingCellNull,
 			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryExcludeWithEvidence,
 		},
@@ -1064,12 +1065,12 @@ func assertReshapeOracleExclusions(t *testing.T, ctx context.Context, client *st
 	}
 
 	zero, one, two := int64(0), int64(1), int64(2)
-	numericOutput := reshapeOracleOutput("zero_exclusions", &recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	numericOutput := reshapeOracleOutput("zero_exclusions", &oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "s04-pivot-zero-exclusion", GroupKeys: []string{"group_text", "group_number"},
 			CategoryColumn: "numeric_category", ValueColumn: "numeric_value",
-			Categories: []recipe.GroupedPivotCategory{
+			Categories: []oraclePivotCategory{
 				{Key: recipe.TableScalar{Kind: recipe.TableScalarInteger, Integer: &one}, Output: "one", Label: "One"},
 				{Key: recipe.TableScalar{Kind: recipe.TableScalarInteger, Integer: &two}, Output: "two", Label: "Two"},
 			},
@@ -1170,8 +1171,8 @@ func assertExclusionLiteral(t *testing.T, row map[string]any, category any, pres
 	}
 }
 
-func reshapeOracleOutput(name string, reshape *recipe.TableReshape) recipe.Output {
-	return recipe.Output{
+func reshapeOracleOutput(name string, reshape *oracleReshape) recipe.Output {
+	output := recipe.Output{
 		Name: name, RootResourceType: "Observation", RowGrain: "observation", RootColumnNaming: recipe.RootColumnNamingExact,
 		Fields: []recipe.Field{
 			{Name: "source_id", Expr: recipe.Expression{Select: "root.id"}},
@@ -1184,11 +1185,12 @@ func reshapeOracleOutput(name string, reshape *recipe.TableReshape) recipe.Outpu
 			{Name: "text_value", Expr: recipe.Expression{Select: "root.valueString"}},
 			{Name: "unrelated", Expr: recipe.Expression{Select: "root.issued"}},
 		},
-		TableReshape: reshape,
 	}
+	return bindOracleCurrentConstruction(output, reshape)
 }
 
 func compileReshapeOracle(output recipe.Output, project, generation string, limit int) (lower.CompiledRecipeOutput, CompiledQuery, error) {
+	output = bindOracleCurrentDerived(output)
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-table-reshape-oracle", TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
 	plan, err := semantic.BuildRecipePlan(bundle, bindings)
@@ -1295,12 +1297,12 @@ func assertReshapeOraclePivotReducers(t *testing.T, ctx context.Context, client 
 	}
 	for _, test := range tests {
 		t.Run(string(test.policy), func(t *testing.T) {
-			output := reshapeOracleOutput("pivot_"+strings.ToLower(string(test.policy)), &recipe.TableReshape{
-				Kind: recipe.TableReshapeGroupedPivot,
-				GroupedPivot: &recipe.GroupedPivot{
+			output := reshapeOracleOutput("pivot_"+strings.ToLower(string(test.policy)), &oracleReshape{
+				Kind: oracleReshapePivot,
+				GroupedPivot: &oraclePivot{
 					ConstructionID: "s04-pivot-" + strings.ToLower(string(test.policy)), GroupKeys: []string{"group_text", "group_number"},
 					CategoryColumn: "string_category", ValueColumn: "numeric_value",
-					Categories: []recipe.GroupedPivotCategory{
+					Categories: []oraclePivotCategory{
 						{Key: reshapeOracleString("alpha"), Output: "alpha", Label: "Alpha"},
 						{Key: reshapeOracleString("beta"), Output: "beta", Label: "Beta"},
 						{Key: reshapeOracleString("zero"), Output: "zero", Label: "Zero"},
@@ -1338,12 +1340,12 @@ func assertReshapeOraclePivotReducers(t *testing.T, ctx context.Context, client 
 
 func assertReshapeOracleNumericCategories(t *testing.T, ctx context.Context, client *store.Client, project, generation string) {
 	t.Helper()
-	output := reshapeOracleOutput("numeric_categories", &recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	output := reshapeOracleOutput("numeric_categories", &oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "s04-pivot-numeric-categories", GroupKeys: []string{"group_text"},
 			CategoryColumn: "numeric_category", ValueColumn: "numeric_value",
-			Categories: []recipe.GroupedPivotCategory{
+			Categories: []oraclePivotCategory{
 				{Key: reshapeOracleInteger(1), Output: "one", Label: "One"},
 				{Key: reshapeOracleInteger(2), Output: "two", Label: "Two"},
 			},
@@ -1380,12 +1382,12 @@ func assertReshapeOracleNumericCategories(t *testing.T, ctx context.Context, cli
 
 func assertReshapeOracleBooleanValues(t *testing.T, ctx context.Context, client *store.Client, project, generation string) {
 	t.Helper()
-	output := reshapeOracleOutput("boolean_values", &recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	output := reshapeOracleOutput("boolean_values", &oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "s04-pivot-bool", GroupKeys: []string{"source_id", "group_number"},
 			CategoryColumn: "group_text", ValueColumn: "flag_value",
-			Categories: []recipe.GroupedPivotCategory{
+			Categories: []oraclePivotCategory{
 				{Key: reshapeOracleString("final"), Output: "final", Label: "Final"},
 				{Key: reshapeOracleString("preliminary"), Output: "preliminary", Label: "Preliminary"},
 			},
@@ -1422,12 +1424,12 @@ func assertReshapeOracleBooleanValues(t *testing.T, ctx context.Context, client 
 
 func assertReshapeOracleEmptyStringValue(t *testing.T, ctx context.Context, client *store.Client, project, generation string) {
 	t.Helper()
-	output := reshapeOracleOutput("empty_string_value", &recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	output := reshapeOracleOutput("empty_string_value", &oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "s04-pivot-empty-string", GroupKeys: []string{"source_id", "group_number"},
 			CategoryColumn: "group_text", ValueColumn: "text_value",
-			Categories: []recipe.GroupedPivotCategory{
+			Categories: []oraclePivotCategory{
 				{Key: reshapeOracleString("final"), Output: "final", Label: "Final"},
 				{Key: reshapeOracleString("preliminary"), Output: "preliminary", Label: "Preliminary"},
 			},
@@ -1455,14 +1457,14 @@ func assertReshapeOraclePivotErrors(t *testing.T, ctx context.Context, client *s
 	t.Helper()
 	tests := []struct {
 		name      string
-		pivot     recipe.GroupedPivot
+		pivot     oraclePivot
 		stableErr string
 	}{
 		{
 			name: "duplicate error",
-			pivot: recipe.GroupedPivot{
+			pivot: oraclePivot{
 				ConstructionID: "s04-pivot-duplicate-error", GroupKeys: []string{"group_text", "group_number"}, CategoryColumn: "string_category", ValueColumn: "numeric_value",
-				Categories: []recipe.GroupedPivotCategory{
+				Categories: []oraclePivotCategory{
 					{Key: reshapeOracleString("alpha"), Output: "alpha", Label: "Alpha"}, {Key: reshapeOracleString("beta"), Output: "beta", Label: "Beta"},
 					{Key: reshapeOracleString("zero"), Output: "zero", Label: "Zero"}, {Key: reshapeOracleString(""), Output: "empty_category", Label: "Empty category"},
 					{Key: reshapeOracleString("unlisted"), Output: "unlisted", Label: "Unlisted"},
@@ -1473,18 +1475,18 @@ func assertReshapeOraclePivotErrors(t *testing.T, ctx context.Context, client *s
 		},
 		{
 			name: "missing cell error",
-			pivot: recipe.GroupedPivot{
+			pivot: oraclePivot{
 				ConstructionID: "s04-pivot-missing-error", GroupKeys: []string{"group_text", "group_number"}, CategoryColumn: "string_category", ValueColumn: "numeric_value",
-				Categories:      []recipe.GroupedPivotCategory{{Key: reshapeOracleString("ghost"), Output: "ghost", Label: "Ghost"}},
+				Categories:      []oraclePivotCategory{{Key: reshapeOracleString("ghost"), Output: "ghost", Label: "Ghost"}},
 				DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellError, UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryExcludeWithEvidence,
 			},
 			stableErr: "TABLE_PIVOT_CELL_MISSING",
 		},
 		{
 			name: "unlisted category error",
-			pivot: recipe.GroupedPivot{
+			pivot: oraclePivot{
 				ConstructionID: "s04-pivot-unlisted-error", GroupKeys: []string{"group_text", "group_number"}, CategoryColumn: "string_category", ValueColumn: "numeric_value",
-				Categories: []recipe.GroupedPivotCategory{
+				Categories: []oraclePivotCategory{
 					{Key: reshapeOracleString("alpha"), Output: "alpha", Label: "Alpha"}, {Key: reshapeOracleString("beta"), Output: "beta", Label: "Beta"},
 					{Key: reshapeOracleString("zero"), Output: "zero", Label: "Zero"}, {Key: reshapeOracleString(""), Output: "empty_category", Label: "Empty category"},
 				},
@@ -1495,7 +1497,7 @@ func assertReshapeOraclePivotErrors(t *testing.T, ctx context.Context, client *s
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			output := reshapeOracleOutput("expected_error", &recipe.TableReshape{Kind: recipe.TableReshapeGroupedPivot, GroupedPivot: &test.pivot})
+			output := reshapeOracleOutput("expected_error", &oracleReshape{Kind: oracleReshapePivot, GroupedPivot: &test.pivot})
 			_, query, err := compileReshapeOracle(output, project, generation, 100)
 			if err != nil {
 				t.Fatalf("compile error case: %v", err)
@@ -1558,7 +1560,7 @@ func assertReshapeOracleUnpivot(t *testing.T, ctx context.Context, client *store
 		wantDrop[index].RowID = reshapeOracleUnpivotID(project, "s04-unpivot-drop", wantDrop[index].SourceID, wantDrop[index].Key)
 	}
 	assertReshapeOracleUnpivotRows(t, dropRows, wantDrop)
-	droppedNullIdentity := reshapeOracleUnpivotID(project, "s04-unpivot-drop", "empty-and-null", "a-decimal")
+	droppedNullIdentity := currentReshapeOracleUnpivotIdentity(t, reshapeOracleUnpivotID(project, "s04-unpivot-drop", "empty-and-null", "a-decimal"))
 	for _, identity := range reshapeOracleIdentities(dropRows) {
 		if identity == droppedNullIdentity {
 			t.Fatalf("DROP output unexpectedly retained null-row identity %q", droppedNullIdentity)
@@ -1584,8 +1586,9 @@ func assertReshapeOracleUnpivot(t *testing.T, ctx context.Context, client *store
 	if err != nil {
 		t.Fatalf("execute unwindowed compiler plan: %v\n%s", err, rendered.Query)
 	}
-	if len(rawRows) != 2 || rawRows[0]["measure"] != "z-integer" || rawRows[1]["measure"] != "a-decimal" {
-		t.Fatalf("raw unpivot emitted keys in %#v, want authored [z-integer, a-decimal]", rawRows)
+	assertCurrentUnpivotAuthoredSlots(t, compiledOrder, rendered.Query, rendered.BindVars)
+	if len(rawRows) != 2 || rawRows[0]["measure"] != "a-decimal" || rawRows[1]["measure"] != "z-integer" {
+		t.Fatalf("current raw Unpivot canonical keys = %#v, want [a-decimal, z-integer]", rawRows)
 	}
 	windowRows := executeReshapeOracleQuery(t, ctx, client, orderedQuery)
 	if len(windowRows) != 2 || windowRows[0]["measure"] != "a-decimal" || windowRows[1]["measure"] != "z-integer" {
@@ -1601,10 +1604,18 @@ func assertReshapeOracleUnpivot(t *testing.T, ctx context.Context, client *store
 func assertReshapeOracleUnpivotCellTrace(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput, project string) {
 	t.Helper()
 	_, amount := executeReshapeOracleTrace(t, ctx, client, output, "amount")
-	alphaID := reshapeOracleUnpivotID(project, "s04-unpivot", "alpha-a", "a-decimal")
-	assertReshapeTraceResult(t, amount[alphaID], float64(2.5), "VALUE", reshapeOracleContributors("alpha-a", float64(2.5)), "")
-	nullID := reshapeOracleUnpivotID(project, "s04-unpivot", "empty-and-null", "a-decimal")
-	assertReshapeTraceResult(t, amount[nullID], nil, "RECORDED_NULL", reshapeOracleContributors("empty-and-null", nil), "")
+	alphaID := currentReshapeOracleUnpivotIdentity(t, reshapeOracleUnpivotID(project, "s04-unpivot", "alpha-a", "a-decimal"))
+	alphaTrace, exists := amount[alphaID]
+	if !exists {
+		t.Fatalf("Unpivot trace lacks current row identity %q; actual traces: %#v", alphaID, amount)
+	}
+	assertReshapeTraceResult(t, alphaTrace, float64(2.5), "VALUE", reshapeOracleContributors("alpha-a", float64(2.5)), "")
+	nullID := currentReshapeOracleUnpivotIdentity(t, reshapeOracleUnpivotID(project, "s04-unpivot", "empty-and-null", "a-decimal"))
+	nullTrace, exists := amount[nullID]
+	if !exists {
+		t.Fatalf("Unpivot null trace lacks current row identity %q; actual traces: %#v", nullID, amount)
+	}
+	assertReshapeTraceResult(t, nullTrace, nil, "RECORDED_NULL", reshapeOracleContributors("empty-and-null", nil), "")
 	trace, measure := executeReshapeOracleTrace(t, ctx, client, output, "measure")
 	keyCell := measure[alphaID]
 	if keyCell.value != "a-decimal" || keyCell.status != "NO_MATCH" || keyCell.omission != ir.PhysicalCellTraceGeneratedKeyOmission || len(keyCell.contributors) != 0 {
@@ -1616,11 +1627,11 @@ func assertReshapeOracleUnpivotCellTrace(t *testing.T, ctx context.Context, clie
 }
 
 func reshapeOracleUnpivotOutput(policy recipe.UnpivotNullRowPolicy, constructionID string) recipe.Output {
-	return reshapeOracleOutput("unpivot", &recipe.TableReshape{
-		Kind: recipe.TableReshapeUnpivot,
-		Unpivot: &recipe.Unpivot{
+	return reshapeOracleOutput("unpivot", &oracleReshape{
+		Kind: oracleReshapeUnpivot,
+		Unpivot: &oracleUnpivot{
 			ConstructionID: constructionID,
-			Inputs: []recipe.UnpivotInput{
+			Inputs: []oracleUnpivotInput{
 				{Column: "group_number", Key: reshapeOracleString("z-integer")},
 				{Column: "numeric_value", Key: reshapeOracleString("a-decimal")},
 			},
@@ -1640,10 +1651,21 @@ func assertReshapeOracleUnpivotRows(t *testing.T, rows []map[string]any, wants [
 	}
 	for index, want := range wants {
 		row := rows[index]
+		var legacyParts [][]string
+		if err := json.Unmarshal([]byte(want.RowID), &legacyParts); err != nil {
+			t.Fatal(err)
+		}
+		actualID, ok := row["__loom_row_id"].(string)
+		if !ok {
+			t.Fatalf("Unpivot raw current identity is not a string: %#v", row["__loom_row_id"])
+		}
+		if legacy := legacyReshapeOracleUnpivotIdentity(t, legacyParts[0][1], actualID); legacy != want.RowID {
+			t.Errorf("current Unpivot identity does not round-trip to unchanged legacy oracle: %s != %s", legacy, want.RowID)
+		}
 		for column, expected := range map[string]any{
 			"source_id": want.SourceID, "group_text": want.GroupText,
 			"string_category": want.StringCategory, "numeric_category": float64(want.NumericCategory), "flag_value": want.Flag,
-			"text_value": want.Text, "unrelated": want.Unrelated, "measure": want.Key, "amount": want.Value, "__loom_row_id": want.RowID,
+			"text_value": want.Text, "unrelated": want.Unrelated, "measure": want.Key, "amount": want.Value, "__loom_row_id": currentReshapeOracleUnpivotIdentity(t, want.RowID),
 		} {
 			if got := row[column]; !reflect.DeepEqual(got, expected) {
 				t.Errorf("unpivot row %d.%s = %#v, want literal %#v", index, column, got, expected)
@@ -1670,11 +1692,11 @@ func reshapeOracleStringFilter(value string) recipe.FilterValue {
 
 func assertReshapeOracleUnpivotRejectsIncompatibleInputs(t *testing.T, project, generation string) {
 	t.Helper()
-	output := reshapeOracleOutput("incompatible_unpivot", &recipe.TableReshape{
-		Kind: recipe.TableReshapeUnpivot,
-		Unpivot: &recipe.Unpivot{
+	output := reshapeOracleOutput("incompatible_unpivot", &oracleReshape{
+		Kind: oracleReshapeUnpivot,
+		Unpivot: &oracleUnpivot{
 			ConstructionID: "s04-unpivot-incompatible",
-			Inputs: []recipe.UnpivotInput{
+			Inputs: []oracleUnpivotInput{
 				{Column: "numeric_value", Key: reshapeOracleString("number")},
 				{Column: "text_value", Key: reshapeOracleString("text")},
 			},
@@ -1791,12 +1813,12 @@ func assertReshapeOraclePivotReducerTrace(t *testing.T, ctx context.Context, cli
 
 func assertReshapeOraclePivotErrorTrace(t *testing.T, ctx context.Context, client *store.Client, project, generation string) {
 	t.Helper()
-	output := reshapeOracleOutput("pivot_error_trace", &recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	output := reshapeOracleOutput("pivot_error_trace", &oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "s04-pivot-error", GroupKeys: []string{"source_id"},
 			CategoryColumn: "string_category", ValueColumn: "numeric_value",
-			Categories:      []recipe.GroupedPivotCategory{{Key: reshapeOracleString("alpha"), Output: "alpha", Label: "Alpha"}},
+			Categories:      []oraclePivotCategory{{Key: reshapeOracleString("alpha"), Output: "alpha", Label: "Alpha"}},
 			DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
 			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryExcludeWithEvidence,
 		},
@@ -1809,4 +1831,75 @@ func assertReshapeOraclePivotErrorTrace(t *testing.T, ctx context.Context, clien
 	_, cells := executeReshapeOracleTrace(t, ctx, client, compiled, "alpha")
 	rowID := `["GROUPED_PIVOT","s04-pivot-error",["STRING","alpha-a"]]`
 	assertReshapeTraceResult(t, cells[rowID], float64(2.5), "VALUE", reshapeOracleContributors("alpha-a", float64(2.5)), "")
+}
+
+func currentReshapeOracleUnpivotIdentity(t *testing.T, legacy string) string {
+	t.Helper()
+	var parts [][]string
+	if err := json.Unmarshal([]byte(legacy), &parts); err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 4 || len(parts[0]) != 2 || parts[0][0] != "project" || len(parts[1]) != 2 || parts[1][0] != "_key" || !strings.HasPrefix(parts[1][1], parts[0][1]+"_") || len(parts[2]) != 2 || parts[2][1] != "TABLE_UNPIVOT" || len(parts[3]) != 2 || parts[3][0] != "STRING" {
+		t.Fatalf("invalid legacy Unpivot identity witness: %s", legacy)
+	}
+	current, err := json.Marshal(parts[1:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(current)
+}
+func legacyReshapeOracleUnpivotIdentity(t *testing.T, project, current string) string {
+	t.Helper()
+	var parts [][]string
+	if err := json.Unmarshal([]byte(current), &parts); err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 3 || len(parts[0]) != 2 || parts[0][0] != "_key" || !strings.HasPrefix(parts[0][1], project+"_") || len(parts[1]) != 2 || parts[1][1] != "TABLE_UNPIVOT" || len(parts[2]) != 2 || parts[2][0] != "STRING" {
+		t.Fatalf("invalid current Unpivot identity witness: %s", current)
+	}
+	legacy, err := json.Marshal(append([][]string{{"project", project}}, parts...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(legacy)
+}
+func TestCurrentUnpivotOracleIdentityMapping(t *testing.T) {
+	const old = `[["project","p"],["_key","p_source"],["shape","TABLE_UNPIVOT"],["STRING","amount"]]`
+	const want = `[["_key","p_source"],["shape","TABLE_UNPIVOT"],["STRING","amount"]]`
+	if got := legacyReshapeOracleUnpivotIdentity(t, "p", want); got != old {
+		t.Fatalf("legacy identity = %s, want %s", got, old)
+	}
+	if got := currentReshapeOracleUnpivotIdentity(t, old); got != want {
+		t.Fatalf("current identity = %s, want %s", got, want)
+	}
+}
+
+func assertCurrentUnpivotAuthoredSlots(t *testing.T, output lower.CompiledRecipeOutput, query string, bindings map[string]any) {
+	t.Helper()
+	if output.Plan.StageSequence == nil || len(output.Plan.StageSequence.Stages) != 1 || output.Plan.StageSequence.Stages[0].Unpivot == nil {
+		t.Fatal("missing current Unpivot stage")
+	}
+	u := output.Plan.StageSequence.Stages[0].Unpivot
+	if len(u.Inputs) != 2 || u.Inputs[0].Column != "group_number" || u.Inputs[1].Column != "numeric_value" || bindings[u.Inputs[0].KeyBindKey] != "z-integer" || bindings[u.Inputs[1].KeyBindKey] != "a-decimal" || u.Inputs[0].KeyKind != "STRING" || u.Inputs[1].KeyKind != "STRING" {
+		t.Fatalf("Unpivot authored slot order changed: %#v, bindings=%#v", u.Inputs, bindings)
+	}
+	first := strings.Index(query, "{key: @"+u.Inputs[0].KeyBindKey+",")
+	second := strings.Index(query, "{key: @"+u.Inputs[1].KeyBindKey+",")
+	if first < 0 || second <= first {
+		t.Fatalf("AQL slot enumeration lost authored [z-integer, a-decimal] order: %s", query)
+	}
+	if !strings.Contains(query, "SORT __loom_construction_final_row.__loom_row_id ASC") {
+		t.Fatalf("current Unpivot lost canonical identity ordering: %s", query)
+	}
+}
+func TestCurrentUnpivotPreservesAuthoredSlotsAndCanonicalRendererOrdering(t *testing.T) {
+	compiled, _, err := compileReshapeOracle(reshapeOracleUnpivotOutput(recipe.UnpivotNullPreserve, "s04-unpivot-order"), "project", "generation", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCurrentUnpivotAuthoredSlots(t, compiled, rendered.Query, rendered.BindVars)
 }

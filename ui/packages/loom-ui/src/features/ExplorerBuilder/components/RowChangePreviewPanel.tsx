@@ -13,6 +13,7 @@ export const RowChangePreviewPanel = ({
   status,
   error,
   disabled,
+  sharedPreview = false,
   onApply,
   onCancel,
 }: {
@@ -21,10 +22,11 @@ export const RowChangePreviewPanel = ({
   readonly status: 'loading' | 'ready' | 'error';
   readonly error?: string;
   readonly disabled: boolean;
+  readonly sharedPreview?: boolean;
   readonly onApply: () => void;
   readonly onCancel: () => void;
 }) => {
-  // Only a ready preview has an authoritative count, so loading and error carry none.
+
   const impact = status === 'ready' && preview
     ? rowCountImpactSummary(preview, `${candidateRoot} row root`, PARTIAL_VALIDATION_MESSAGE)
     : '';
@@ -55,7 +57,7 @@ export const RowChangePreviewPanel = ({
       {status === 'error' ? (
         <p role="alert" className="mt-3 text-sm text-red-800">{error}</p>
       ) : null}
-      {status === 'ready' && preview ? (
+      {status === 'ready' && preview && !sharedPreview ? (
         <div className="mt-3 max-h-80 overflow-auto rounded-md border border-slate-200">
           <ConstructionProposalPreview
             preview={preview}

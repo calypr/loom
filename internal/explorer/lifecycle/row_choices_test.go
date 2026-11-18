@@ -34,7 +34,7 @@ func TestSchemaRowChoiceResolverListsEveryAuthoredOccurrenceAndPinsItsRoute(t *t
 		}},
 	}
 	choices, err := resolver.ListRowChoices(context.Background(), snapshot, authoringv2.Document{
-		RootResourceType: "SignalPacket", Route: route,
+		RootResourceType: "SignalPacket", Route: route, Rows: authoringv2.RecordsRowDefinition(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ func TestSchemaRowChoiceResolverUsesAuthorizedRepeatedBoundaries(t *testing.T) {
 		}}, nil,
 	)
 	route := authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"}
-	document := authoringv2.Document{RootResourceType: "Observation", Route: route}
+	document := authoringv2.Document{RootResourceType: "Observation", Route: route, Rows: authoringv2.RecordsRowDefinition()}
 
 	choices, err := resolver.ListRowChoices(context.Background(), snapshot, document)
 	if err != nil {

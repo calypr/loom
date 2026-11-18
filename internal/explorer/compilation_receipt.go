@@ -1,10 +1,5 @@
 package explorer
 
-// This file contains the immutable boundary between Explorer authoring and
-// execution. A receipt is a durable, server-owned description of one exact
-// compilation. It deliberately contains a resolved semantic recipe, not
-// physical plans, rendered AQL, bind variables, or storage identifiers.
-
 import (
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,14 +15,14 @@ import (
 )
 
 const (
-	// CompilationReceiptFormatVersion changes when the persisted receipt shape
-	// or its execution invariants change incompatibly.
 	CompilationReceiptFormatVersion         = 6
 	previousCompilationReceiptFormatVersion = 5
 	legacyCompilationReceiptFormatVersion   = 3
-	// CompilationReceiptCompilerContractVersion changes when compilation
-	// semantics change in a way that can alter a resolved receipt.
-	CompilationReceiptCompilerContractVersion          = "loom.explorer.compiler/v18"
+
+	CompilationReceiptCompilerContractVersion          = "loom.explorer.compiler/v21"
+	legacyCompilationReceiptV20CompilerContractVersion = "loom.explorer.compiler/v20"
+	legacyCompilationReceiptV19CompilerContractVersion = "loom.explorer.compiler/v19"
+	legacyCompilationReceiptV18CompilerContractVersion = "loom.explorer.compiler/v18"
 	legacyCompilationReceiptV17CompilerContractVersion = "loom.explorer.compiler/v17"
 	legacyCompilationReceiptV16CompilerContractVersion = "loom.explorer.compiler/v16"
 	previousCompilationReceiptCompilerContractVersion  = "loom.explorer.compiler/v15"
@@ -37,30 +32,17 @@ const (
 	legacyCompilationReceiptOlderContractVersion       = "loom.explorer.compiler/v11"
 	legacyCompilationReceiptV10ContractVersion         = "loom.explorer.compiler/v10"
 
-	// Short aliases make the current contract convenient for repositories and
-	// callers that do not need to distinguish the receipt prefix.
 	CurrentReceiptFormatVersion       = CompilationReceiptFormatVersion
 	CurrentCompilerContractVersion    = CompilationReceiptCompilerContractVersion
 	CurrentCompilationContractVersion = CompilationReceiptCompilerContractVersion
 )
 
-// ErrReceiptRecompileRequired is returned for an old receipt that has no
-// resolved recipe artifact. Such a receipt cannot be safely upgraded by an
-// execution request because doing so would reinterpret authoring intent.
 var ErrReceiptRecompileRequired = errors.New("RECEIPT_RECOMPILE_REQUIRED")
 
-// ReceiptContractSupportedForExecution distinguishes read compatibility from
-// execution compatibility. The immediately previous v4/v14 artifact remains
-// executable because it contains a complete frozen recipe; older historical
-// contracts remain readable for migration/inspection but must be recompiled
-// before native execution.
 func ReceiptContractSupportedForExecution(r CompilationReceipt) bool {
-	return (r.ReceiptFormatVersion == CompilationReceiptFormatVersion && r.CompilerContractVersion == CompilationReceiptCompilerContractVersion) ||
-		(r.ReceiptFormatVersion == previousCompilationReceiptFormatVersion && r.CompilerContractVersion == previousCompilationReceiptCompilerContractVersion)
+	return r.ReceiptFormatVersion == CompilationReceiptFormatVersion && r.CompilerContractVersion == CompilationReceiptCompilerContractVersion && !r.Bundle.HasArchivedReshape() && r.TableShapeProposal == nil
 }
 
-// CompilationArtifactDigest returns the content identity used for canonical
-// JSON artifacts embedded in a receipt, such as the public output contract.
 func CompilationArtifactDigest(raw json.RawMessage) (string, error) {
 	canonical, err := canonicalRaw(raw)
 	if err != nil {
@@ -73,10 +55,6 @@ func CompilationArtifactDigest(raw json.RawMessage) (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-// CompilationReceipt is immutable once persisted and content-addressed by
-// ReceiptID. NormalizedBundle is authoring intent retained for export and
-// compatibility; Bundle is the resolved recipe used by execution. Neither
-// field contains a physical IR or rendered query.
 type CompilationReceipt struct {
 	ConstructionProposal            *ConstructionProposalBinding            `json:"constructionProposal,omitempty"`
 	PopulationMemberRemovalProposal *PopulationMemberRemovalProposalBinding `json:"populationMemberRemovalProposal,omitempty"`
@@ -106,24 +84,19 @@ type CompilationReceipt struct {
 	EmittedColumns                  []EmittedColumn                         `json:"emittedColumns"`
 	OutputFingerprints              map[string]string                       `json:"outputFingerprints,omitempty"`
 	ConstructionStages              map[string][]ReceiptConstructionStage   `json:"constructionStages,omitempty"`
-	// OutputColumnProvenance is the durable publication behavior for every
-	// compiler output column. Recipe Discovered flags are compiler-local and
-	// intentionally do not cross the authoring recipe JSON boundary.
+
 	OutputColumnProvenance map[string]map[string]string `json:"outputColumnProvenance,omitempty"`
-	// CompiledOutputSchemas preserves the lowerer's exact finalized schema for
-	// every output in this workspace receipt. It is used only as server-owned
-	// source metadata when another draft output consumes a WORKSPACE_OUTPUT.
-	CompiledOutputSchemas map[string][]ReceiptCompiledOutputColumn `json:"compiledOutputSchemas,omitempty"`
-	Warnings              []CompilationWarning                     `json:"warnings,omitempty"`
-	RowDefinitionProposal *RowDefinitionProposalBinding            `json:"rowDefinitionProposal,omitempty"`
-	TableShapeProposal    *TableShapeProposalBinding               `json:"tableShapeProposal,omitempty"`
-	RequestID             string                                   `json:"requestId,omitempty"`
-	CreatedAt             time.Time                                `json:"createdAt"`
+
+	CompiledOutputSchemas      map[string][]ReceiptCompiledOutputColumn `json:"compiledOutputSchemas,omitempty"`
+	Warnings                   []CompilationWarning                     `json:"warnings,omitempty"`
+	ColumnPolicyProposal       *ColumnPolicyProposalBinding             `json:"columnPolicyProposal,omitempty"`
+	SourceRelationshipProposal *SourceRelationshipProposalBinding       `json:"sourceRelationshipProposal,omitempty"`
+	RowDefinitionProposal      *RowDefinitionProposalBinding            `json:"rowDefinitionProposal,omitempty"`
+	TableShapeProposal         *TableShapeProposalBinding               `json:"tableShapeProposal,omitempty"`
+	RequestID                  string                                   `json:"requestId,omitempty"`
+	CreatedAt                  time.Time                                `json:"createdAt"`
 }
 
-// ReceiptCompiledOutputColumn is the minimal stable schema projection needed
-// to describe a sibling output. IDs and logical facts come from lower's final
-// OutputSchema; no physical storage names are exposed to authoring clients.
 type ReceiptCompiledOutputColumn struct {
 	ID          string `json:"id,omitempty"`
 	Name        string `json:"name"`
@@ -135,9 +108,6 @@ type ReceiptCompiledOutputColumn struct {
 	Identity    bool   `json:"identity,omitempty"`
 }
 
-// RowDefinitionProposalBinding freezes the exact draft and output from which a
-// candidate row-definition workspace was compiled. It is optional because
-// ordinary compilation receipts are not row-definition proposals.
 type RowDefinitionProposalBinding struct {
 	DraftVersion             int64  `json:"draftVersion"`
 	DraftDigest              string `json:"draftDigest"`
@@ -148,31 +118,15 @@ type RowDefinitionProposalBinding struct {
 }
 
 func (b RowDefinitionProposalBinding) Validate(intentDigest, snapshotToken string) error {
-	if b.DraftVersion < 1 {
-		return fmt.Errorf("row-definition proposal draftVersion must be positive")
+	if err := validateDraftProposalFields("row-definition", b.DraftVersion, map[string]string{
+		"draftDigest": b.DraftDigest, "outputId": b.OutputID, "baseDocumentDigest": b.BaseDocumentDigest,
+		"candidateWorkspaceDigest": b.CandidateWorkspaceDigest, "snapshotToken": b.SnapshotToken,
+	}); err != nil {
+		return err
 	}
-	for name, value := range map[string]string{
-		"draftDigest": b.DraftDigest, "outputId": b.OutputID,
-		"baseDocumentDigest":       b.BaseDocumentDigest,
-		"candidateWorkspaceDigest": b.CandidateWorkspaceDigest,
-		"snapshotToken":            b.SnapshotToken,
-	} {
-		if strings.TrimSpace(value) == "" || value != strings.TrimSpace(value) {
-			return fmt.Errorf("row-definition proposal %s must be an exact non-empty value", name)
-		}
-	}
-	if b.CandidateWorkspaceDigest != intentDigest {
-		return fmt.Errorf("row-definition proposal candidate workspace digest does not match receipt intent")
-	}
-	if b.SnapshotToken != snapshotToken {
-		return fmt.Errorf("row-definition proposal snapshot token does not match receipt snapshot")
-	}
-	return nil
+	return validateDraftProposalDigests("row-definition", b.CandidateWorkspaceDigest, b.SnapshotToken, intentDigest, snapshotToken)
 }
 
-// TableShapeProposalBinding freezes the exact draft and output from which a
-// candidate table-shape workspace was compiled. It is optional because
-// ordinary compilation receipts are not table-shape proposals.
 type TableShapeProposalBinding struct {
 	DraftVersion             int64  `json:"draftVersion"`
 	DraftDigest              string `json:"draftDigest"`
@@ -183,31 +137,37 @@ type TableShapeProposalBinding struct {
 }
 
 func (b TableShapeProposalBinding) Validate(intentDigest, snapshotToken string) error {
-	if b.DraftVersion < 1 {
-		return fmt.Errorf("table-shape proposal draftVersion must be positive")
+	if err := validateDraftProposalFields("table-shape", b.DraftVersion, map[string]string{
+		"draftDigest": b.DraftDigest, "outputId": b.OutputID, "baseDocumentDigest": b.BaseDocumentDigest,
+		"candidateWorkspaceDigest": b.CandidateWorkspaceDigest, "snapshotToken": b.SnapshotToken,
+	}); err != nil {
+		return err
 	}
-	for name, value := range map[string]string{
-		"draftDigest": b.DraftDigest, "outputId": b.OutputID,
-		"baseDocumentDigest":       b.BaseDocumentDigest,
-		"candidateWorkspaceDigest": b.CandidateWorkspaceDigest,
-		"snapshotToken":            b.SnapshotToken,
-	} {
+	return validateDraftProposalDigests("table-shape", b.CandidateWorkspaceDigest, b.SnapshotToken, intentDigest, snapshotToken)
+}
+
+func validateDraftProposalFields(kind string, draftVersion int64, fields map[string]string) error {
+	if draftVersion < 1 {
+		return fmt.Errorf("%s proposal draftVersion must be positive", kind)
+	}
+	for name, value := range fields {
 		if strings.TrimSpace(value) == "" || value != strings.TrimSpace(value) {
-			return fmt.Errorf("table-shape proposal %s must be an exact non-empty value", name)
+			return fmt.Errorf("%s proposal %s must be an exact non-empty value", kind, name)
 		}
-	}
-	if b.CandidateWorkspaceDigest != intentDigest {
-		return fmt.Errorf("table-shape proposal candidate workspace digest does not match receipt intent")
-	}
-	if b.SnapshotToken != snapshotToken {
-		return fmt.Errorf("table-shape proposal snapshot token does not match receipt snapshot")
 	}
 	return nil
 }
 
-// PopulationMemberRemovalProposalBinding freezes one exact immutable source
-// selection change and the compiled workspace that previews it. It is absent
-// from ordinary compilation receipts.
+func validateDraftProposalDigests(kind, candidateWorkspaceDigest, bindingSnapshotToken, intentDigest, snapshotToken string) error {
+	if candidateWorkspaceDigest != intentDigest {
+		return fmt.Errorf("%s proposal candidate workspace digest does not match receipt intent", kind)
+	}
+	if bindingSnapshotToken != snapshotToken {
+		return fmt.Errorf("%s proposal snapshot token does not match receipt snapshot", kind)
+	}
+	return nil
+}
+
 type PopulationMemberRemovalProposalBinding struct {
 	DraftVersion                 int64       `json:"draftVersion"`
 	DraftDigest                  string      `json:"draftDigest"`
@@ -227,19 +187,13 @@ type PopulationMemberRemovalProposalBinding struct {
 }
 
 func (b PopulationMemberRemovalProposalBinding) Validate(intentDigest, snapshotToken, project, generation string) error {
-	if b.DraftVersion < 1 {
-		return fmt.Errorf("population member proposal draftVersion must be positive")
-	}
-	for name, value := range map[string]string{
-		"draftDigest": b.DraftDigest, "outputId": b.OutputID,
-		"baseDocumentDigest": b.BaseDocumentDigest, "baseSelectionRevisionId": b.BaseSelectionRevisionID,
-		"baseMembershipDigest": b.BaseMembershipDigest, "candidateSelectionRevisionId": b.CandidateSelectionRevisionID,
-		"candidateMembershipDigest": b.CandidateMembershipDigest, "routeChoiceId": b.RouteChoiceID,
-		"candidateWorkspaceDigest": b.CandidateWorkspaceDigest, "snapshotToken": b.SnapshotToken,
-	} {
-		if strings.TrimSpace(value) == "" || value != strings.TrimSpace(value) {
-			return fmt.Errorf("population member proposal %s must be an exact non-empty value", name)
-		}
+	if err := validateDraftProposalFields("population member", b.DraftVersion, map[string]string{
+		"draftDigest": b.DraftDigest, "outputId": b.OutputID, "baseDocumentDigest": b.BaseDocumentDigest,
+		"baseSelectionRevisionId": b.BaseSelectionRevisionID, "baseMembershipDigest": b.BaseMembershipDigest,
+		"candidateSelectionRevisionId": b.CandidateSelectionRevisionID, "candidateMembershipDigest": b.CandidateMembershipDigest,
+		"routeChoiceId": b.RouteChoiceID, "candidateWorkspaceDigest": b.CandidateWorkspaceDigest, "snapshotToken": b.SnapshotToken,
+	}); err != nil {
+		return err
 	}
 	if b.BaseSelectionRevisionID == b.CandidateSelectionRevisionID || b.BaseMembershipDigest == b.CandidateMembershipDigest {
 		return fmt.Errorf("population member proposal must bind distinct immutable selections")
@@ -250,11 +204,8 @@ func (b PopulationMemberRemovalProposalBinding) Validate(intentDigest, snapshotT
 	if err := b.RemovedMember.Validate(project, generation, b.RemovedMember.ResourceType); err != nil {
 		return fmt.Errorf("population member proposal removed member is outside the receipt scope: %w", err)
 	}
-	if b.CandidateWorkspaceDigest != intentDigest {
-		return fmt.Errorf("population member proposal candidate workspace digest does not match receipt intent")
-	}
-	if b.SnapshotToken != snapshotToken {
-		return fmt.Errorf("population member proposal snapshot token does not match receipt snapshot")
+	if err := validateDraftProposalDigests("population member", b.CandidateWorkspaceDigest, b.SnapshotToken, intentDigest, snapshotToken); err != nil {
+		return err
 	}
 	if b.PreviewLimit < 1 {
 		return fmt.Errorf("population member proposal previewLimit must be positive")
@@ -262,9 +213,6 @@ func (b PopulationMemberRemovalProposalBinding) Validate(intentDigest, snapshotT
 	return nil
 }
 
-// ConstructionProposalBinding freezes the saved base and exact typed candidate
-// for an operation proposal. CandidateWorkspaceDigest covers all stage inputs,
-// including immutable table revisions.
 type ConstructionProposalBinding struct {
 	DraftVersion             int64    `json:"draftVersion"`
 	DraftDigest              string   `json:"draftDigest"`
@@ -278,17 +226,11 @@ type ConstructionProposalBinding struct {
 }
 
 func (b ConstructionProposalBinding) Validate(intentDigest, snapshotToken string) error {
-	if b.DraftVersion < 1 {
-		return fmt.Errorf("construction proposal draftVersion must be positive")
-	}
-	for name, value := range map[string]string{
-		"draftDigest": b.DraftDigest, "outputId": b.OutputID,
-		"baseDocumentDigest": b.BaseDocumentDigest, "candidateWorkspaceDigest": b.CandidateWorkspaceDigest,
-		"snapshotToken": b.SnapshotToken,
-	} {
-		if strings.TrimSpace(value) == "" || value != strings.TrimSpace(value) {
-			return fmt.Errorf("construction proposal %s must be an exact non-empty value", name)
-		}
+	if err := validateDraftProposalFields("construction", b.DraftVersion, map[string]string{
+		"draftDigest": b.DraftDigest, "outputId": b.OutputID, "baseDocumentDigest": b.BaseDocumentDigest,
+		"candidateWorkspaceDigest": b.CandidateWorkspaceDigest, "snapshotToken": b.SnapshotToken,
+	}); err != nil {
+		return err
 	}
 	if b.ChangedStepID == "" {
 		if len(b.RemoveStepIDs) == 0 {
@@ -297,11 +239,8 @@ func (b ConstructionProposalBinding) Validate(intentDigest, snapshotToken string
 	} else if strings.TrimSpace(b.ChangedStepID) != b.ChangedStepID {
 		return fmt.Errorf("construction proposal changedStepId must be exact")
 	}
-	if b.CandidateWorkspaceDigest != intentDigest {
-		return fmt.Errorf("construction proposal candidate workspace digest does not match receipt intent")
-	}
-	if b.SnapshotToken != snapshotToken {
-		return fmt.Errorf("construction proposal snapshot token does not match receipt snapshot")
+	if err := validateDraftProposalDigests("construction", b.CandidateWorkspaceDigest, b.SnapshotToken, intentDigest, snapshotToken); err != nil {
+		return err
 	}
 	if b.PreviewLimit < 1 {
 		return fmt.Errorf("construction proposal previewLimit must be positive")
@@ -322,8 +261,6 @@ func (b ConstructionProposalBinding) Validate(intentDigest, snapshotToken string
 	return nil
 }
 
-// ReceiptConstructionStage preserves the exact inferred schema and supported
-// operation set for a stable stage in a compiled output.
 type ReceiptConstructionStage struct {
 	ID                      string                                      `json:"id"`
 	InputStageID            string                                      `json:"inputStageId"`
@@ -338,9 +275,6 @@ type ReceiptConstructionStage struct {
 	GroupFieldSourceContext *ReceiptConstructionGroupFieldSourceContext `json:"groupFieldSourceContext,omitempty"`
 }
 
-// ReceiptConstructionGroupFieldSourceContext is copied from the lowerer's
-// compiled stage descriptor so lifecycle can reauthorize Group sources
-// against the exact row expansion shape at proposal and apply time.
 type ReceiptConstructionGroupFieldSourceContext struct {
 	SourceStageID        string                                        `json:"sourceStageId"`
 	SourceShapeID        string                                        `json:"sourceShapeId"`
@@ -383,9 +317,6 @@ type ReceiptConstructionGroupFieldOwner struct {
 	StepIndex         int    `json:"stepIndex"`
 }
 
-// ReceiptConstructionCodedGroupChoice is attached only to a current
-// construction-capabilities response. Its choice ID is snapshot-bound; the
-// persisted operation stores the exact source path facts separately.
 type ReceiptConstructionCodedGroupChoice struct {
 	ChoiceID     string `json:"choiceId"`
 	OccurrenceID string `json:"occurrenceId"`
@@ -424,11 +355,12 @@ type ReceiptConstructionActiveRelatedRecord struct {
 }
 
 type ReceiptConstructionStageColumn struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Label string `json:"label"`
-	Type  string `json:"type,omitempty"`
-	// Cardinality is empty only on receipts created before stage cardinality was recorded.
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Label     string `json:"label"`
+	Type      string `json:"type,omitempty"`
+	SourceKey string `json:"sourceKey,omitempty"`
+
 	Cardinality expression.Cardinality `json:"cardinality,omitempty"`
 }
 
@@ -753,7 +685,7 @@ func validateReceiptCompiledOutputSchemas(
 	bundle recipe.Bundle,
 ) error {
 	if len(schemas) == 0 {
-		return nil // Older receipts remain readable; new compiles always populate this field.
+		return nil
 	}
 	if len(schemas) != len(bundle.Outputs) {
 		return fmt.Errorf("receipt compiled output schema set changed")
@@ -798,9 +730,6 @@ type IdentityMapping struct {
 	EmissionIDs    []string `json:"emissionIds"`
 }
 
-// CompilationWarning is the deterministic, request-independent diagnostic
-// subset that can be frozen in a receipt. Request IDs and timestamps must not
-// be included here because they would make equivalent receipts differ.
 type CompilationWarning struct {
 	Severity  string         `json:"severity,omitempty"`
 	Code      string         `json:"code"`
@@ -810,9 +739,6 @@ type CompilationWarning struct {
 	Details   map[string]any `json:"details,omitempty"`
 }
 
-// CompilationKey returns the idempotency identity for one authoring request.
-// It covers semantic inputs and compiler contracts, but not resolved output;
-// this permits a repository lookup before doing the expensive compilation.
 func CompilationKey(r CompilationReceipt) (string, error) {
 	identity := struct {
 		ReceiptFormatVersion            int                                     `json:"receiptFormatVersion"`
@@ -828,6 +754,8 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 		CapabilitySchema                string                                  `json:"capabilitySchemaDigest,omitempty"`
 		ShapeDigest                     string                                  `json:"shapeDigest,omitempty"`
 		SourceGeneration                string                                  `json:"sourceGeneration"`
+		ColumnPolicyProposal            *ColumnPolicyProposalBinding            `json:"columnPolicyProposal,omitempty"`
+		SourceRelationshipProposal      *SourceRelationshipProposalBinding      `json:"sourceRelationshipProposal,omitempty"`
 		RowDefinitionProposal           *RowDefinitionProposalBinding           `json:"rowDefinitionProposal,omitempty"`
 		TableShapeProposal              *TableShapeProposalBinding              `json:"tableShapeProposal,omitempty"`
 		ConstructionProposal            *ConstructionProposalBinding            `json:"constructionProposal,omitempty"`
@@ -852,6 +780,8 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 		CapabilitySchema                string                                  `json:"capabilitySchemaDigest,omitempty"`
 		ShapeDigest                     string                                  `json:"shapeDigest,omitempty"`
 		SourceGeneration                string                                  `json:"sourceGeneration"`
+		ColumnPolicyProposal            *ColumnPolicyProposalBinding            `json:"columnPolicyProposal,omitempty"`
+		SourceRelationshipProposal      *SourceRelationshipProposalBinding      `json:"sourceRelationshipProposal,omitempty"`
 		RowDefinitionProposal           *RowDefinitionProposalBinding           `json:"rowDefinitionProposal,omitempty"`
 		TableShapeProposal              *TableShapeProposalBinding              `json:"tableShapeProposal,omitempty"`
 		ConstructionProposal            *ConstructionProposalBinding            `json:"constructionProposal,omitempty"`
@@ -860,19 +790,21 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 	}{
 		r.ReceiptFormatVersion, r.CompilerContractVersion, r.Project, r.ExplorerID,
 		r.IntentDigest, r.ResolvedInputsDigest, r.ResolvedInterpretations, normalized, r.SnapshotToken,
-		r.AuthorizationScopeDigest, r.CapabilitySchemaDigest, r.ShapeDigest, r.SourceGeneration, r.RowDefinitionProposal, r.TableShapeProposal,
+		r.AuthorizationScopeDigest, r.CapabilitySchemaDigest, r.ShapeDigest, r.SourceGeneration, r.ColumnPolicyProposal, r.SourceRelationshipProposal, r.RowDefinitionProposal, r.TableShapeProposal,
 		r.ConstructionProposal, r.PopulationMemberRemovalProposal, r.ConstructionStages,
 	}
 	return digestIdentity("compile_", identity)
 }
 
-// ReceiptID returns the content identity for the complete immutable artifact.
-// ID, RequestID, and CreatedAt are intentionally excluded.
 func ReceiptID(r CompilationReceipt) (string, error) {
 	key, err := CompilationKey(r)
 	if err != nil {
 		return "", err
 	}
+	return receiptIDWithCompilationKey(r, key)
+}
+
+func receiptIDWithCompilationKey(r CompilationReceipt, key string) (string, error) {
 	compiledConfig, err := canonicalRaw(r.CompiledConfig)
 	if err != nil {
 		return "", fmt.Errorf("canonical compiled config: %w", err)
@@ -896,6 +828,8 @@ func ReceiptID(r CompilationReceipt) (string, error) {
 		ColumnProvenance                map[string]map[string]string             `json:"outputColumnProvenance,omitempty"`
 		ResolvedInterpretations         []ResolvedInterpretation                 `json:"resolvedInterpretations,omitempty"`
 		Warnings                        []CompilationWarning                     `json:"warnings,omitempty"`
+		ColumnPolicyProposal            *ColumnPolicyProposalBinding             `json:"columnPolicyProposal,omitempty"`
+		SourceRelationshipProposal      *SourceRelationshipProposalBinding       `json:"sourceRelationshipProposal,omitempty"`
 		RowDefinitionProposal           *RowDefinitionProposalBinding            `json:"rowDefinitionProposal,omitempty"`
 		TableShapeProposal              *TableShapeProposalBinding               `json:"tableShapeProposal,omitempty"`
 		ConstructionProposal            *ConstructionProposalBinding             `json:"constructionProposal,omitempty"`
@@ -906,7 +840,7 @@ func ReceiptID(r CompilationReceipt) (string, error) {
 		key, r.RecipeDigest, r.ResolvedRecipeDigest, r.ResolvedSchemaDigest,
 		r.OutputContractDigest, r.Bundle, compiledConfig,
 		publicContract, r.IdentityMappings, r.EmittedColumns,
-		r.OutputFingerprints, r.OutputColumnProvenance, r.ResolvedInterpretations, r.Warnings, r.RowDefinitionProposal, r.TableShapeProposal,
+		r.OutputFingerprints, r.OutputColumnProvenance, r.ResolvedInterpretations, r.Warnings, r.ColumnPolicyProposal, r.SourceRelationshipProposal, r.RowDefinitionProposal, r.TableShapeProposal,
 		r.ConstructionProposal, r.PopulationMemberRemovalProposal, r.ConstructionStages, r.CompiledOutputSchemas,
 	}
 	return digestIdentity("receipt_", identity)
@@ -935,8 +869,32 @@ func canonicalRaw(raw json.RawMessage) ([]byte, error) {
 	return canonicalJSONBytes(raw)
 }
 
-// Validate checks that a receipt is a supported, executable artifact.
-func (r CompilationReceipt) Validate() error {
+func (r CompilationReceipt) Validate() error { return r.ValidateArchive() }
+
+func (r CompilationReceipt) ValidateArchive() error {
+	var verifiedCompilationKey string
+	if r.ColumnPolicyProposal != nil {
+		if r.ReceiptFormatVersion != CompilationReceiptFormatVersion || r.CompilerContractVersion != CompilationReceiptCompilerContractVersion {
+			return fmt.Errorf("column policy proposals require the current receipt and compiler contract")
+		}
+		if r.SourceRelationshipProposal != nil || r.RowDefinitionProposal != nil || r.TableShapeProposal != nil || r.ConstructionProposal != nil || r.PopulationMemberRemovalProposal != nil {
+			return fmt.Errorf("column policy proposal cannot share a receipt with another proposal")
+		}
+		if err := r.ColumnPolicyProposal.Validate(r.IntentDigest, r.SnapshotToken); err != nil {
+			return err
+		}
+	}
+	if r.SourceRelationshipProposal != nil {
+		if r.ReceiptFormatVersion != CompilationReceiptFormatVersion || r.CompilerContractVersion != CompilationReceiptCompilerContractVersion {
+			return fmt.Errorf("source relationship proposals require the current receipt and compiler contract")
+		}
+		if r.RowDefinitionProposal != nil || r.TableShapeProposal != nil || r.ConstructionProposal != nil || r.PopulationMemberRemovalProposal != nil {
+			return fmt.Errorf("source relationship proposal cannot share a receipt with another proposal")
+		}
+		if err := r.SourceRelationshipProposal.Validate(r.IntentDigest, r.SnapshotToken); err != nil {
+			return err
+		}
+	}
 	if r.RowDefinitionProposal != nil {
 		if err := r.RowDefinitionProposal.Validate(r.IntentDigest, r.SnapshotToken); err != nil {
 			return err
@@ -975,7 +933,7 @@ func (r CompilationReceipt) Validate() error {
 	if r.ReceiptFormatVersion != 0 && r.ReceiptFormatVersion != CompilationReceiptFormatVersion && r.ReceiptFormatVersion != previousCompilationReceiptFormatVersion && r.ReceiptFormatVersion != legacyCompilationReceiptFormatVersion {
 		return fmt.Errorf("unsupported receipt format version %d", r.ReceiptFormatVersion)
 	}
-	if r.CompilerContractVersion != "" && r.CompilerContractVersion != CompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV17CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV16CompilerContractVersion && r.CompilerContractVersion != previousCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptB06CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV13CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptOlderContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV10ContractVersion {
+	if r.CompilerContractVersion != "" && r.CompilerContractVersion != CompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV20CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV19CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV18CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV17CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV16CompilerContractVersion && r.CompilerContractVersion != previousCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptB06CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV13CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptOlderContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV10ContractVersion {
 		return fmt.Errorf("unsupported compiler contract %q", r.CompilerContractVersion)
 	}
 	if strings.TrimSpace(r.Project) == "" || strings.TrimSpace(r.ExplorerID) == "" {
@@ -1006,7 +964,7 @@ func (r CompilationReceipt) Validate() error {
 				return fmt.Errorf("receipt %s is required", field.name)
 			}
 		}
-		if (r.CompilerContractVersion == CompilationReceiptCompilerContractVersion || r.CompilerContractVersion == previousCompilationReceiptCompilerContractVersion) && strings.TrimSpace(r.ShapeDigest) == "" {
+		if (r.CompilerContractVersion == CompilationReceiptCompilerContractVersion || r.CompilerContractVersion == legacyCompilationReceiptV20CompilerContractVersion || r.CompilerContractVersion == legacyCompilationReceiptV19CompilerContractVersion || r.CompilerContractVersion == previousCompilationReceiptCompilerContractVersion) && strings.TrimSpace(r.ShapeDigest) == "" {
 			return fmt.Errorf("receipt shapeDigest is required")
 		}
 		key, err := CompilationKey(r)
@@ -1016,7 +974,8 @@ func (r CompilationReceipt) Validate() error {
 		if r.CompilationKey != key {
 			return fmt.Errorf("receipt compilation key mismatch: got %q want %q", r.CompilationKey, key)
 		}
-		resolvedDigest, err := r.Bundle.Digest()
+		verifiedCompilationKey = key
+		resolvedDigest, err := r.Bundle.ArchiveDigest()
 		if err != nil {
 			return fmt.Errorf("digest resolved recipe: %w", err)
 		}
@@ -1053,22 +1012,22 @@ func (r CompilationReceipt) Validate() error {
 		return err
 	}
 	if r.ID != "" {
-		if err := r.ValidateID(); err != nil {
+		if err := r.validateIDWithCompilationKey(verifiedCompilationKey); err != nil {
 			return err
 		}
 	}
 	if len(r.NormalizedBundle) > 0 {
-		if _, err := canonicalJSONBytes(r.NormalizedBundle); err != nil {
+		if err := validateReceiptRawJSON(r.NormalizedBundle); err != nil {
 			return fmt.Errorf("invalid normalized bundle: %w", err)
 		}
 	}
 	if len(r.CompiledConfig) > 0 {
-		if _, err := canonicalJSONBytes(r.CompiledConfig); err != nil {
+		if err := validateReceiptRawJSON(r.CompiledConfig); err != nil {
 			return fmt.Errorf("invalid compiled config: %w", err)
 		}
 	}
 	if len(r.PublicOutputContract) > 0 {
-		if _, err := canonicalJSONBytes(r.PublicOutputContract); err != nil {
+		if err := validateReceiptRawJSON(r.PublicOutputContract); err != nil {
 			return fmt.Errorf("invalid public output contract: %w", err)
 		}
 	}
@@ -1132,12 +1091,21 @@ func validateResolvedInterpretations(project string, values []ResolvedInterpreta
 	return nil
 }
 
-// ValidateID verifies the stored ID against the receipt's content identity.
 func (r CompilationReceipt) ValidateID() error {
+	return r.validateIDWithCompilationKey("")
+}
+
+func (r CompilationReceipt) validateIDWithCompilationKey(key string) error {
 	if strings.TrimSpace(r.ID) == "" {
 		return fmt.Errorf("receipt id is required")
 	}
-	expected, err := ReceiptID(r)
+	var expected string
+	var err error
+	if key == "" {
+		expected, err = ReceiptID(r)
+	} else {
+		expected, err = receiptIDWithCompilationKey(r, key)
+	}
 	if err != nil {
 		return fmt.Errorf("calculate receipt id: %w", err)
 	}
@@ -1145,4 +1113,39 @@ func (r CompilationReceipt) ValidateID() error {
 		return fmt.Errorf("receipt id mismatch: got %q want %q", r.ID, expected)
 	}
 	return nil
+}
+
+type SourceRelationshipProposalBinding RowDefinitionProposalBinding
+
+func (b SourceRelationshipProposalBinding) Validate(intentDigest, snapshotToken string) error {
+	return RowDefinitionProposalBinding(b).Validate(intentDigest, snapshotToken)
+}
+
+type ColumnPolicyProposalBinding struct {
+	RowDefinitionProposalBinding
+	ColumnID       string `json:"columnId"`
+	ProjectionMode string `json:"projectionMode"`
+}
+
+func (b ColumnPolicyProposalBinding) Validate(intentDigest, snapshotToken string) error {
+	if err := b.RowDefinitionProposalBinding.Validate(intentDigest, snapshotToken); err != nil {
+		return err
+	}
+	if strings.TrimSpace(b.ColumnID) == "" || b.ColumnID != strings.TrimSpace(b.ColumnID) {
+		return fmt.Errorf("column policy proposal requires an exact columnId")
+	}
+	switch b.ProjectionMode {
+	case "VALUE", "INDEXED", "FIRST", "ALL", "DISTINCT":
+	default:
+		return fmt.Errorf("column policy proposal projectionMode is unsupported")
+	}
+	return nil
+}
+
+func validateReceiptRawJSON(raw []byte) error {
+	if json.Valid(raw) {
+		return nil
+	}
+	_, err := canonicalJSONBytes(raw)
+	return err
 }

@@ -11,8 +11,6 @@ func (s *HTTPServer) register() {
 	s.app.Use(s.requestIDMiddleware, s.recoveryMiddleware, s.loggingMiddleware, s.authenticationMiddleware)
 }
 
-// Health computes the cached dependency health response for generated HTTP
-// routes without requiring a Fiber context.
 func (s *HTTPServer) Health(parent context.Context) (map[string]any, int) {
 	s.healthMu.Lock()
 	defer s.healthMu.Unlock()

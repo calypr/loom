@@ -2,29 +2,20 @@ package arango
 
 import (
 	"context"
-	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
-	store "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
 )
 
-// This test is opt-in because it needs a real Arango instance. It exercises
-// the production AQL pin state document rather than a query-string fake.
 func TestExecutionReadPinArbitrationAgainstArango(t *testing.T) {
-	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
-	if url == "" || database == "" {
-		t.Skip("set LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE")
-	}
+	database := arangotest.Shared(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := database.Client
 	if err := client.Bootstrap(ctx, BootstrapSpec()); err != nil {
 		t.Fatal(err)
 	}
@@ -73,8 +64,6 @@ func TestExecutionReadPinArbitrationAgainstArango(t *testing.T) {
 	}
 	_ = registry.ReleaseExecutionReadPin(ctx, executionID, expiredOwner)
 
-	// Both contenders start from an unclaimed state. The shared state document
-	// must make the outcomes mutually exclusive, even when requests overlap.
 	for race := 0; race < 50; race++ {
 		tracedExecution := "pin-race-" + uuid.NewString()
 		tracedReader, tracedCleanup := "reader-"+uuid.NewString(), "cleanup-"+uuid.NewString()
@@ -110,16 +99,10 @@ func TestExecutionReadPinArbitrationAgainstArango(t *testing.T) {
 }
 
 func TestConcurrentExecutionReadPinsAgainstArango(t *testing.T) {
-	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
-	if url == "" || database == "" {
-		t.Skip("set LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE")
-	}
+	database := arangotest.Shared(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := database.Client
 	if err := client.Bootstrap(ctx, BootstrapSpec()); err != nil {
 		t.Fatal(err)
 	}

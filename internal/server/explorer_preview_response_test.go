@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
 func TestPreviewResponseEncoderProducesAtomicContract(t *testing.T) {
@@ -168,6 +170,7 @@ func TestPreviewErrorPreservesStableClassifications(t *testing.T) {
 		{"temporal-precision", dataframeerrors.NewError(dataframeerrors.CodeTemporalPrecisionUnsupported, "private"), http.StatusUnprocessableEntity, "TEMPORAL_PRECISION_UNSUPPORTED"},
 		{"temporal-tie", dataframeerrors.NewError(dataframeerrors.CodeTemporalTieAmbiguous, "private"), http.StatusUnprocessableEntity, "TEMPORAL_TIE_AMBIGUOUS"},
 		{"backend", dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "private", dataframeerrors.WithRetryable(true)), http.StatusServiceUnavailable, "BACKEND_UNAVAILABLE"},
+		{"preview-timeout", dataframeerrors.NewError(dataframeerrors.CodePreviewTimeout, ""), http.StatusGatewayTimeout, "PREVIEW_TIMEOUT"},
 		{"memory-limit", dataframeerrors.NewError(dataframeerrors.CodeQueryMemoryLimitExceeded, "private"), http.StatusServiceUnavailable, "QUERY_MEMORY_LIMIT_EXCEEDED"},
 		{"resource-limit", dataframeerrors.NewError(dataframeerrors.CodeQueryResourceLimitExceeded, "private"), http.StatusServiceUnavailable, "QUERY_RESOURCE_LIMIT_EXCEEDED"},
 		{"out-of-memory", dataframeerrors.NewError(dataframeerrors.CodeQueryBackendOutOfMemory, "private"), http.StatusServiceUnavailable, "QUERY_BACKEND_OUT_OF_MEMORY"},
@@ -181,6 +184,29 @@ func TestPreviewErrorPreservesStableClassifications(t *testing.T) {
 				t.Fatalf("error=%#v, want status=%d code=%s", got, test.status, test.code)
 			}
 		})
+	}
+}
+
+func TestNestedPreviewTimeoutKeepsGatewayTimeoutClassification(t *testing.T) {
+	lifecyclePreviewFailure := &lifecycle.Error{
+		Class: lifecycle.ClassUnprocessable, Stage: "preview", Code: string(dataframeerrors.CodePreviewTimeout),
+		Message: dataframeerrors.PublicMessage(dataframeerrors.NewError(dataframeerrors.CodePreviewTimeout, "")),
+		Cause:   dataframeerrors.Wrap(context.DeadlineExceeded, dataframeerrors.CodePreviewTimeout, "", dataframeerrors.WithRetryable(true)),
+	}
+	status, response := authoringErrorForOpenAPI(context.Background(), "proposeExplorerConstruction", previewRouteError(lifecyclePreviewFailure))
+	if status != http.StatusGatewayTimeout || response.Error.Code != "PREVIEW_TIMEOUT" {
+		t.Fatalf("nested preview timeout response status/code = %d/%q, want %d/PREVIEW_TIMEOUT", status, response.Error.Code, http.StatusGatewayTimeout)
+	}
+}
+
+func TestAuthoringErrorAdapterPreservesOuterLifecycleClassification(t *testing.T) {
+	inner := &explorer.AuthoringError{Status: http.StatusUnauthorized, Diagnostic: explorer.AuthoringDiagnostic{
+		Code: "INNER_FAILURE", Stage: "source", Message: "inner failure",
+	}}
+	outer := &lifecycle.Error{Class: lifecycle.ClassForbidden, Code: "ACCESS_DENIED", Stage: "preview", Message: "access denied", Cause: inner}
+	status, response := authoringErrorForOpenAPI(context.Background(), "preview", fmt.Errorf("wrapped: %w", outer))
+	if status != http.StatusForbidden || response.Error.Code != "ACCESS_DENIED" {
+		t.Fatalf("outer lifecycle failure lost its classification: %d/%q", status, response.Error.Code)
 	}
 }
 

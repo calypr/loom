@@ -88,8 +88,6 @@ func TestCapabilityEvidenceSynthesizesCodeableConceptTextFieldFromProfiler(t *te
 		t.Fatalf("synthesized scalar concept = %#v, want the profiler identity and text value selector with both examples", concept)
 	}
 
-	// The bridge exposes the checked text scalar while catalog consumers retain
-	// the original blank-aware fallback on their semantic observation.
 	var retained *catalog.SemanticObservation
 	for _, field := range fieldValues {
 		for index := range field.SemanticObservations {

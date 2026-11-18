@@ -4,31 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/calypr/loom/internal/dataset"
 	store "github.com/calypr/loom/internal/store/arango"
-	"github.com/google/uuid"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 )
-
-// F-B15 durable control (product repaired in REPAIR-5/Round 31; the red arm
-// stays armed as the regression witness and was observed PREVENTED against
-// the real store in Round 36): idempotent re-activation through the
-// pre-repair production ReleaseService.Activate path was NOT a no-op. Each identical
-// activation mints revision+1 into the sha-derived release ID
-// (internal/dataset/release.go:227,273-280) so the AQL alreadyActive guard
-// (internal/dataset/arango/release_store.go:158-159) can never match for
-// callers that re-enter via Create, and both pointer documents churn while the
-// release CONTENT (project/generation/gitCommit/publications/verifications) is
-// byte-identical. Recorded CONFIRMED in
-// verification/publication-bundle/FINDINGS.md Round 10 (runs 22ffa92b and
-// 97d6ab0f); this file replaces the broken truncated re-write (quarantined at
-// /tmp/opencode/revision_inflation_broken_a3a58c18.go).
 
 const riDatabasePrefix = "loom_verify_ri_"
 
@@ -40,42 +23,10 @@ func (riNoopVerifier) VerifyPublication(context.Context, string, string, dataset
 
 func riOpen(t *testing.T, budget time.Duration) (context.Context, *store.Client, *Store) {
 	t.Helper()
-	endpoint := os.Getenv("LOOM_TEST_ARANGO_URL")
-	if endpoint == "" {
-		t.Skip("set owned LOOM_TEST_ARANGO_URL")
-	}
-	name := riDatabasePrefix + strings.ReplaceAll(uuid.NewString(), "-", "")
-	if !strings.HasPrefix(name, riDatabasePrefix) {
-		t.Fatalf("verification database %q escapes the %s prefix", name, riDatabasePrefix)
-	}
+	database := arangotest.Owned(t, riDatabasePrefix)
 	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	t.Cleanup(cancel)
-	client, err := store.Open(ctx, endpoint, name)
-	if err != nil {
-		t.Fatalf("open %s: %v", name, err)
-	}
-	t.Logf("RI_DATABASE=%s", name)
-	t.Cleanup(func() {
-		_ = client.Close(context.Background())
-		cleanupCtx, stop := context.WithTimeout(context.Background(), 15*time.Second)
-		defer stop()
-		req, err := http.NewRequestWithContext(cleanupCtx, http.MethodDelete, strings.TrimRight(endpoint, "/")+"/_api/database/"+url.PathEscape(name), nil)
-		if err != nil {
-			t.Errorf("build cleanup request for %s: %v", name, err)
-			return
-		}
-		response, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Errorf("cleanup %s: %v", name, err)
-			return
-		}
-		defer response.Body.Close()
-		if response.StatusCode != http.StatusOK {
-			t.Errorf("cleanup %s status=%d", name, response.StatusCode)
-			return
-		}
-		t.Logf("RI_DATABASE_REMOVED=%s", name)
-	})
+	client := database.Client
 	if err := client.Bootstrap(ctx, BootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap dataset lifecycle collections: %v", err)
 	}
@@ -138,8 +89,7 @@ func riObserve(t *testing.T, ctx context.Context, client *store.Client, svc *dat
 		if uErr := json.Unmarshal(raw, &m); uErr != nil {
 			t.Fatalf("unmarshal active release: %v", uErr)
 		}
-		// Exclude derived, revision-dependent / wall-clock fields: content
-		// identity means project/generation/gitCommit/publications/verifications.
+
 		delete(m, "createdAt")
 		delete(m, "id")
 		canonical, mErr := json.Marshal(m)

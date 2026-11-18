@@ -39,10 +39,6 @@ func explorerScopeDigest(scope authscope.ReadScope) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// explorerCapabilityResolver is the one construction boundary for Builder
-// capabilities. Catalog observations are evidence only; every public item is
-// intersected with the real dataframe compiler before the immutable snapshot
-// is persisted or returned.
 type explorerCapabilityResolver struct {
 	evidence  catalog.CapabilityEvidenceReader
 	scopes    *authscope.ScopeResolver
@@ -62,9 +58,7 @@ func (r *explorerCapabilityResolver) Resolve(ctx context.Context, project, reque
 	project = projectid.Canonical(project)
 	storageProject := projectid.Legacy(project)
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	// Project membership is independent of whether generation-level Fence
-	// scopes are configured. A nil ScopeResolver means unrestricted dataframe
-	// reads, not that a principal's explicit project allowlist is ignored.
+
 	if err := authscope.AuthorizeProject(principal, project, false); err != nil {
 		return capability.Snapshot{}, err
 	}
@@ -158,9 +152,6 @@ func (r *explorerCapabilityResolver) Resolve(ctx context.Context, project, reque
 	return value.(capability.Snapshot).Clone(), nil
 }
 
-// ResolveToken loads an exact retained snapshot. It never substitutes the
-// current active generation, and it re-authorizes the caller against the
-// snapshot's generation and exact authorization-scope digest.
 func (r *explorerCapabilityResolver) ResolveToken(ctx context.Context, project, token string) (capability.Snapshot, error) {
 	authorized, err := r.ResolveForExecution(ctx, project, token)
 	if err != nil {
@@ -169,11 +160,6 @@ func (r *explorerCapabilityResolver) ResolveToken(ctx context.Context, project, 
 	return authorized.Snapshot.Clone(), nil
 }
 
-// ResolveForExecution loads an exact retained snapshot and its effective
-// generation-scoped read authorization. Retention is intentional here:
-// preview and other execution paths may use an inactive generation while its
-// immutable capability remains available. The caller's current effective
-// scope must still match the scope digest captured by the snapshot.
 func (r *explorerCapabilityResolver) ResolveForExecution(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {
 	project = projectid.Canonical(project)
 	token = strings.TrimSpace(token)
@@ -201,10 +187,6 @@ func (r *explorerCapabilityResolver) ResolveForExecution(ctx context.Context, pr
 	return lifecycle.AuthorizedCapability{Snapshot: snapshot.Clone(), Scope: scope.Clone()}, nil
 }
 
-// ResolveForCompilation loads an exact token for a new compile. Unlike
-// execution, compilation is only valid against the currently active immutable
-// dataset generation; a retained inactive token is rejected even when its
-// scope is otherwise still authorized.
 func (r *explorerCapabilityResolver) ResolveForCompilation(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {
 	project = projectid.Canonical(project)
 	authorized, err := r.ResolveForExecution(ctx, project, token)
@@ -255,11 +237,7 @@ func requireCompleteCapabilityEvidence(value catalog.CapabilityEvidence) error {
 	for _, item := range value.ResourceInventory.Values {
 		documents += item.DocumentCount
 	}
-	// A staged generation proves the catalog write phase completed, and every
-	// non-empty FHIR resource necessarily profiles at least its identity fields.
-	// Therefore a populated inventory with zero enrichment rows is a missing
-	// artifact, not a legitimate empty catalog (notably for older generations
-	// created before capability evidence existed).
+
 	if documents > 0 && len(value.FieldEnrichment.Values) == 0 {
 		return fmt.Errorf("%w: field enrichment artifact is empty for a populated generation", capability.ErrSnapshotUnavailable)
 	}
@@ -327,11 +305,7 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 		observed.Label, observed.StorageDirection, observed.BuilderDirection = item.Label, item.StorageDirection, builderDirection
 		observed.ObservedEdgeCount += item.EdgeCount
 		observedRelationships[observedKey] = observed
-		// A stored FHIR reference is navigable in both directions. Catalog
-		// evidence retains the physical OUTBOUND orientation, while the
-		// dataframe compiler proves whether either generated traversal is
-		// legal. Publish both observations here and let ProbeEdge remove any
-		// direction the generated schema cannot lower.
+
 		for _, route := range []struct {
 			from, to, direction string
 		}{
@@ -443,9 +417,7 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 			}
 			metadata, scalar := fhirschema.ResolveTerminalScalarMetadata(resourceType, targetPath)
 			if !scalar || metadata.Primitive == fhirschema.PrimitiveUnknown {
-				// A semantic observation with no generated scalar value path is
-				// retained only in the source catalog. Never turn an object or
-				// unresolved structural path into a projectable capability.
+
 				continue
 			}
 			maxPopulation := int64(0)
@@ -481,9 +453,7 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 	for _, aggregate := range fields {
 		key := aggregate.observation.ResourceType + "\x00" + aggregate.observation.Path
 		if _, semanticOwner := semanticOwnerFields[key]; semanticOwner {
-			// The repeated object is an evidence owner, not a scalar Builder
-			// candidate. Its concepts are attached to the checked value path;
-			// its maxItems remains available to boundary derivation above.
+
 			continue
 		}
 		for suggestion := range aggregate.values {
@@ -508,11 +478,6 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 	return out
 }
 
-// semanticConceptValuePath returns the generated scalar field that carries a
-// concept's value. Concept evidence is often discovered on an object owner
-// such as Observation.component[]; that owner is not itself a projectable
-// capability candidate. The owning scope and value selector preserve the
-// original pairing without advertising the object as scalar.
 func semanticConceptValuePath(observation catalog.SemanticObservation) string {
 	selector := strings.Trim(strings.TrimSpace(observation.Value.Selector), ".")
 	selector = strings.TrimPrefix(selector, "root.")
@@ -578,10 +543,7 @@ func (c explorerCapabilityCompiler) ProbeCandidate(ctx context.Context, candidat
 	if len(proof.ChartAggregations) > 0 {
 		proof.SupportedOperations = append(proof.SupportedOperations, capability.OperationChart, capability.OperationAggregate)
 	}
-	// Catalog candidates are route-independent. Advertise operations that the
-	// field can support when placed on a related occurrence; command validation
-	// derives the same contract again from the selected occurrence and rejects
-	// related-only operations at the row root.
+
 	input := capability.AggregateInput{
 		LogicalType:     string(result.Candidate.Primitive),
 		Cardinality:     string(result.Candidate.Cardinality),
@@ -613,117 +575,7 @@ func (c explorerCapabilityCompiler) ProbeCandidate(ctx context.Context, candidat
 }
 
 func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
-	result := authoringv2.CatalogSnapshot{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind,
-		Project: snapshot.Identity.Project, ExplorerID: explorerID,
-		SourceGeneration:         snapshot.Identity.Generation,
-		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
-		ResolvedSchemaDigest:     snapshot.Identity.SchemaDigest,
-		SnapshotToken:            snapshot.Token, Complete: snapshot.Complete, Truncated: snapshot.Truncated,
-		Availability: authoringCatalogAvailability(snapshot.Availability),
-		Nodes:        []authoringv2.CatalogNode{}, Edges: []authoringv2.CatalogEdge{}, Candidates: []authoringv2.CatalogCandidate{}, Diagnostics: []authoringv2.CatalogDiagnostic{},
-		RoutePolicy: authoringv2.RoutePolicy{Unbounded: snapshot.Policy.Route.MaxHops == 0, AllowRepeatedEdges: snapshot.Policy.Route.AllowsRepeatedEdges, AllowSelfLoops: snapshot.Policy.Route.AllowsSelfLoops},
-	}
-	if snapshot.Policy.Route.MaxHops > 0 {
-		maxHops := snapshot.Policy.Route.MaxHops
-		result.RoutePolicy.MaxHops = &maxHops
-	}
-	for _, node := range snapshot.Nodes {
-		count := node.DocumentCount
-		result.Nodes = append(result.Nodes, authoringv2.CatalogNode{
-			ID: node.ID, ResourceType: node.ResourceType, RowRootEligible: node.RowRootEligible,
-			RowGrain: node.RowGrain, Populated: node.Populated, DocumentCount: &count,
-		})
-	}
-	for _, edge := range snapshot.Edges {
-		result.Edges = append(result.Edges, authoringv2.CatalogEdge{
-			ID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID, Label: edge.Label,
-			StorageDirection: edge.StorageDirection, Populated: edge.ObservedEdgeCount > 0,
-		})
-	}
-	for _, candidate := range snapshot.Candidates {
-		projectionModes := stringProjectionModes(candidate.ProjectionModes)
-		count := candidate.ObservedDocumentCount
-		wire := authoringv2.CatalogCandidate{
-			ID: candidate.ID, NodeID: candidate.NodeID, Label: candidate.Label,
-			FieldPath:          candidate.FieldPath,
-			RepeatedBoundaries: repeatedBoundariesForAuthoring(candidate.RepeatedBoundaries),
-			LogicalType:        candidate.LogicalType, Cardinality: candidate.Cardinality, Repeated: capability.IsRepeatedCardinality(candidate.Cardinality),
-			Filterable: len(candidate.FilterOperators) > 0, Chartable: len(candidate.ChartAggregations) > 0,
-			ProjectionModes: projectionModes, DefaultProjectionMode: defaultProjectionMode(projectionModes),
-			FilterOperators: stringFilterOperators(candidate.FilterOperators), ChartOperations: stringChartOperations(candidate.ChartAggregations),
-			AggregateOperations: append([]capability.AggregateOperationCapability{}, candidate.AggregateOperations...),
-			Populated:           candidate.Populated, Count: &count,
-			SuggestionsAvailable: len(candidate.SuggestedValues) > 0,
-			SuggestionsComplete:  candidate.SuggestionsComplete,
-			SuggestionsTruncated: candidate.SuggestionsTruncated,
-			SuggestionCount:      len(candidate.SuggestedValues),
-			ConceptCandidates:    authoringConceptCandidates(candidate.ConceptCandidates),
-		}
-		choice, err := capability.NewFieldConstructionChoice(snapshot.Token, candidate)
-		if err != nil {
-			code := "CONSTRUCTION_CHOICE_UNAVAILABLE"
-			message := "A catalog candidate was omitted because no compiler-proved construction output is available."
-			if !capability.IsSupportedConstructionSourceType(candidate.LogicalType) {
-				code = "UNSUPPORTED_CONSTRUCTION_SOURCE_TYPE"
-				if typeErr := capability.ValidateConstructionSourceType(candidate, snapshot.Candidates); typeErr != nil {
-					message = typeErr.Error()
-				}
-			}
-			result.Diagnostics = append(result.Diagnostics, authoringv2.CatalogDiagnostic{
-				Severity: "WARNING", Code: code, Message: message,
-			})
-			continue
-		}
-		wire.ConstructionChoice = &choice
-		result.Candidates = append(result.Candidates, wire)
-	}
-	for index := range result.Candidates {
-		result.Candidates[index].Transformations = authoringv2.AggregateTransformationCapabilitiesForCatalog(result, result.Candidates[index].ID)
-		result.Candidates[index].ValueTransformations = authoringv2.ColumnValueTransformationCapabilitiesForCatalog(result, result.Candidates[index].ID)
-	}
-	for _, diagnostic := range snapshot.Diagnostics {
-		severity := diagnostic.Severity
-		if snapshot.Usable() && strings.EqualFold(severity, "ERROR") {
-			severity = "WARNING"
-		}
-		result.Diagnostics = append(result.Diagnostics, authoringv2.CatalogDiagnostic{Severity: severity, Code: diagnostic.Code, Message: diagnostic.Message})
-	}
-	return result
-}
-
-func authoringConceptCandidates(values []capability.ConceptCandidate) []authoringv2.ConceptCandidate {
-	if len(values) == 0 {
-		return nil
-	}
-	out := make([]authoringv2.ConceptCandidate, len(values))
-	for index, value := range values {
-		out[index] = authoringv2.ConceptCandidate{
-			SourceResourceType:     value.SourceResourceType,
-			SourcePath:             value.SourcePath,
-			SourceCanonical:        value.SourceCanonical,
-			SourceProfile:          value.SourceProfile,
-			OwningScope:            value.OwningScope,
-			ExtensionURLPath:       append([]string(nil), value.ExtensionURLPath...),
-			KeySelector:            value.KeySelector,
-			System:                 value.System,
-			Code:                   value.Code,
-			Display:                value.Display,
-			ValueSelector:          value.ValueSelector,
-			ChoiceArm:              value.ChoiceArm,
-			LogicalType:            value.LogicalType,
-			ObservedUnits:          append([]string(nil), value.ObservedUnits...),
-			ObservedUnitsTruncated: value.ObservedUnitsTruncated,
-			Completeness:           value.Completeness,
-			Status:                 value.Status,
-			Population:             value.Population,
-			Examples:               append([]string(nil), value.Examples...),
-			ExamplesTruncated:      value.ExamplesTruncated,
-			RuleHint:               value.RuleHint,
-			RuleVersion:            value.RuleVersion,
-		}
-	}
-	return out
+	return authoringv2.CatalogFromCapability(snapshot, explorerID)
 }
 
 func catalogAvailabilityReadiness(value catalog.CapabilityEvidence) capability.AvailabilityReadiness {
@@ -797,96 +649,4 @@ func capabilitySemanticCandidate(value catalog.SemanticObservation) capability.C
 		Examples: append([]string(nil), value.Examples...), ExamplesTruncated: value.ExamplesTruncated,
 		RuleHint: value.RuleHint, RuleVersion: value.RuleVersion,
 	}
-}
-
-func authoringCatalogAvailability(value *capability.Availability) *authoringv2.CatalogAvailability {
-	if value == nil {
-		return nil
-	}
-	result := &authoringv2.CatalogAvailability{
-		Readiness: authoringv2.CatalogAvailabilityReadiness{
-			Status: value.Readiness.Status, Reason: value.Readiness.Reason,
-			ResourceInventory: authoringv2.CatalogAvailabilitySourceReadiness{Status: value.Readiness.ResourceInventory.Status, Reason: value.Readiness.ResourceInventory.Reason},
-			Relationships:     authoringv2.CatalogAvailabilitySourceReadiness{Status: value.Readiness.Relationships.Status, Reason: value.Readiness.Relationships.Reason},
-			FieldProfiles:     authoringv2.CatalogAvailabilitySourceReadiness{Status: value.Readiness.FieldProfiles.Status, Reason: value.Readiness.FieldProfiles.Reason},
-		},
-		Resources:     make([]authoringv2.CatalogObservedResource, 0, len(value.Resources)),
-		Fields:        make([]authoringv2.CatalogObservedField, 0, len(value.Fields)),
-		Relationships: make([]authoringv2.CatalogObservedRelationship, 0, len(value.Relationships)),
-	}
-	for _, resource := range value.Resources {
-		result.Resources = append(result.Resources, authoringv2.CatalogObservedResource{ResourceType: resource.ResourceType, DocumentCount: resource.DocumentCount, Populated: resource.Populated})
-	}
-	for _, field := range value.Fields {
-		semanticObservations := authoringConceptCandidates(field.SemanticObservations)
-		if semanticObservations == nil {
-			semanticObservations = []authoringv2.ConceptCandidate{}
-		}
-		result.Fields = append(result.Fields, authoringv2.CatalogObservedField{
-			ResourceType: field.ResourceType, Path: field.Path, ObservedShapeKind: field.ShapeKind,
-			PathObservedDocumentCount: field.PathObservedCount, Examples: append([]string{}, field.Examples...),
-			ExamplesTruncated: field.ExamplesTruncated, SemanticObservations: semanticObservations,
-		})
-	}
-	for _, relationship := range value.Relationships {
-		result.Relationships = append(result.Relationships, authoringv2.CatalogObservedRelationship{
-			SourceResourceType: relationship.SourceResourceType, TargetResourceType: relationship.TargetResourceType,
-			Label: relationship.Label, StorageDirection: relationship.StorageDirection, BuilderDirection: relationship.BuilderDirection,
-			ObservedEdgeCount: relationship.ObservedEdgeCount,
-		})
-	}
-	return result
-}
-
-func stringProjectionModes(values []capability.ProjectionMode) []string {
-	// ALL and DISTINCT are stable authoring-v2 spellings. Legacy workspaces
-	// keep decoding ALL as array projection; DISTINCT is only needed when the
-	// capability snapshot can prove distinct-array semantics, so no persisted
-	// workspace version migration is needed here.
-	out := make([]string, len(values))
-	for i, value := range values {
-		switch value {
-		case capability.ProjectionScalar:
-			out[i] = "VALUE"
-		case capability.ProjectionArray:
-			out[i] = "ALL"
-		case capability.ProjectionDistinctArray:
-			out[i] = "DISTINCT"
-		default:
-			out[i] = string(value)
-		}
-	}
-	return out
-}
-func stringFilterOperators(values []capability.FilterOperator) []string {
-	out := make([]string, len(values))
-	for i, value := range values {
-		out[i] = string(value)
-	}
-	return out
-}
-func stringChartOperations(values []capability.ChartAggregation) []string {
-	out := make([]string, len(values))
-	for i, value := range values {
-		out[i] = string(value)
-	}
-	return out
-}
-func defaultProjectionMode(values []string) string {
-	for _, preferred := range []string{"VALUE", "INDEXED", "ALL", "FIRST", "COUNT"} {
-		for _, value := range values {
-			if value == preferred {
-				return value
-			}
-		}
-	}
-	return ""
-}
-
-func repeatedBoundariesForAuthoring(values []capability.RepeatedBoundary) []authoringv2.RepeatedBoundary {
-	out := make([]authoringv2.RepeatedBoundary, len(values))
-	for index, value := range values {
-		out[index] = authoringv2.RepeatedBoundary{Path: value.Path, MaxItems: value.MaxItems}
-	}
-	return out
 }

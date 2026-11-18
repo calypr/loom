@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import {useState} from 'react';
+import { useCommitLifecycle } from './useBrowserSubscription';
 import {
   layoutDatasetGraph,
   type GraphLayoutEdge,
@@ -10,7 +11,6 @@ interface GraphLayoutState {
   readonly positions: ReadonlyMap<string, { x: number; y: number }>;
 }
 
-/** Runs the asynchronous ELK layout and ignores results for obsolete catalogs. */
 export const useGraphLayout = (
   identity: string,
   nodes: ReadonlyArray<GraphLayoutNode>,
@@ -20,7 +20,7 @@ export const useGraphLayout = (
     positions: new Map(),
   });
 
-  useEffect(() => {
+  useCommitLifecycle(() => {
     let active = true;
     setLayout({ positions: new Map() });
     void layoutDatasetGraph(nodes, edges)

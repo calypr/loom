@@ -15,16 +15,12 @@ import (
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
 )
 
-// faultInjectionAuthPathStore is the overlay stub at the catalog-store
-// boundary the ScopeResolver consults for the F-B27 project binding
-// (ScopeResolverConfig.ListExistingAuthResourcePaths — the production seam
-// wired to catalogStore.DiscoverExistingAuthResourcePaths, which is exactly
-// where the dc52ed0a dataset_generation bind fault originated).
 type faultInjectionAuthPathStore struct {
 	calls int
 	paths []string
@@ -80,9 +76,6 @@ func faultInjectionRouteStack(handlers *explorerHTTPHandlers) *fiber.App {
 	return app
 }
 
-// arangoQueryFault mirrors the exact production chain of the masked bind
-// fault: store/arango queryRows wraps the Arango client error with
-// "arango query: %w" (client.go:345) and the catalog store propagates it raw.
 func arangoQueryFault() error {
 	return fmt.Errorf("arango query: %w", shared.ArangoError{HasError: true, Code: http.StatusBadRequest, ErrorNum: 1561, ErrorMessage: "bind parameter 'dataset_generation' was not declared in the query"})
 }
@@ -101,13 +94,6 @@ func authoringWriteStorageFaultCases() []struct {
 	}
 }
 
-// TestAuthoringWriteDirectStorageFaultNotMaskedAsForbidden is the durable for
-// the filed masking class: a storage-class fault injected at the catalog-store
-// boundary reaches authoringWriteDirect through the real ScopeResolver F-B27
-// project-binding branch (scope_resolver.go:242 region) and must not be
-// classified as a permission denial. The named fault is 503-class and the
-// injected cause stays visible through errors.Is. Pre-fix (HEAD d3a1d12a)
-// every case returned the 403 FORBIDDEN envelope.
 func TestAuthoringWriteDirectStorageFaultNotMaskedAsForbidden(t *testing.T) {
 	for _, test := range authoringWriteStorageFaultCases() {
 		t.Run(test.name, func(t *testing.T) {
@@ -143,12 +129,6 @@ func TestAuthoringWriteDirectStorageFaultNotMaskedAsForbidden(t *testing.T) {
 	}
 }
 
-// TestAuthoringWriteWriteDeniedReferencesKeepForbiddenEnvelope proves the
-// precision half of the repair from both directions: genuine denials from the
-// real ScopeResolver (outside caller scope, and the F-B27 recorded-path
-// branch with a healthy store) keep the byte-identical 403 FORBIDDEN
-// envelope and are never reinterpreted as 5xx. These assertions hold before
-// and after the classification change.
 func TestAuthoringWriteDeniedReferencesKeepForbiddenEnvelope(t *testing.T) {
 	t.Run("outside-caller-scope", func(t *testing.T) {
 		store := &faultInjectionAuthPathStore{paths: []string{faultInjectionCallerPath}}
@@ -207,10 +187,6 @@ func decodeAuthoringFaultCode(t *testing.T, response *http.Response) string {
 	return body.Error.Code
 }
 
-// TestPublishExplorerRouteStorageFaultRendersNamed503 proves the class fix at
-// the HTTP boundary for the generated authoring mutation routes: the store
-// fault renders the named 5xx envelope instead of 403, while a real denial
-// renders the unchanged 403.
 func TestPublishExplorerRouteStorageFaultRendersNamed503(t *testing.T) {
 	store := &faultInjectionAuthPathStore{fault: arangoQueryFault()}
 	app := faultInjectionRouteStack(faultInjectionHandlers(store))
@@ -248,11 +224,6 @@ func TestPublishExplorerRouteRealDenialStillRenders403(t *testing.T) {
 	}
 }
 
-// arangoDriverFault builds a store-seam fault that carries the go-driver
-// response fields (HTTP Code + Arango ErrorNum) the way store/arango
-// queryRows propagates them ("arango query: %w" at client.go:345). The
-// ErrorMessage is wire content only; the classifier must decide on the
-// numeric fields, never on it.
 func arangoDriverFault(code, errorNum int, message string) error {
 	return fmt.Errorf("arango query: %w", shared.ArangoError{HasError: true, Code: code, ErrorNum: errorNum, ErrorMessage: message})
 }
@@ -263,11 +234,6 @@ type authoringWriteArangoResponseCase struct {
 	wantStorage bool
 }
 
-// authoringWriteArangoResponseCases is the C2 matrix: auth-class driver
-// responses (HTTP 401/403, ErrorNum 11 ErrForbidden) must classify as a
-// permission decision (403 arm), while query-fault-class responses (Code 400
-// family, bind-parameter/undeclared error numbers) stay storage faults → 5xx.
-// The bind-1552 case mirrors the dc52ed0a production fault verbatim.
 func authoringWriteArangoResponseCases() []authoringWriteArangoResponseCase {
 	return []authoringWriteArangoResponseCase{
 		{name: "http-401-response", fault: arangoDriverFault(shared.ErrHttpUnauthorized, 0, "not authorized to execute this operation"), wantStorage: false},
@@ -276,15 +242,16 @@ func authoringWriteArangoResponseCases() []authoringWriteArangoResponseCase {
 		{name: "query-400-response", fault: arangoDriverFault(http.StatusBadRequest, shared.ErrQueryInvalidArithmeticValue, "query execution failed"), wantStorage: true},
 		{name: "bind-parameter-undeclared-1552", fault: arangoDriverFault(http.StatusBadRequest, shared.ErrQueryBindParameterUndeclared, "bind parameter 'dataset_generation' was not declared in the query"), wantStorage: true},
 		{name: "query-bind-1561", fault: arangoDriverFault(http.StatusBadRequest, 1561, "invalid query bind"), wantStorage: true},
+		{name: "joined-denial-and-outage-denial-wins", fault: errors.Join(authscope.ErrForbidden, authscope.ErrAuthorizationBackendUnavailable), wantStorage: false},
+		{name: "context-canceled-remains-denial", fault: context.Canceled, wantStorage: false},
+		{name: "deadline-is-retryable-outage", fault: context.DeadlineExceeded, wantStorage: true},
+		{name: "pretyped-backend-code-without-cause-remains-denial", fault: dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "pretyped"), wantStorage: false},
+		{name: "pretyped-error-with-backend-sentinel-is-outage", fault: dataframeerrors.Wrap(authscope.ErrAuthorizationBackendUnavailable, dataframeerrors.CodeForbidden, "pretyped"), wantStorage: true},
+		{name: "pointer-query-fault", fault: fmt.Errorf("arango query: %w", &shared.ArangoError{HasError: true, Code: http.StatusBadRequest, ErrorNum: 1552, ErrorMessage: "bind fault"}), wantStorage: true},
+		{name: "pointer-http-permission", fault: fmt.Errorf("arango: %w", &shared.ArangoError{Code: http.StatusForbidden, ErrorNum: shared.ErrForbidden}), wantStorage: false},
 	}
 }
 
-// TestAuthoringWriteDirectArangoResponseClassification pins the C2 repair at
-// the filed choke point: store-native permission responses stay in the
-// byte-identical 403 FORBIDDEN arm (never BACKEND_UNAVAILABLE), query faults
-// stay named 5xx, and the cause chain survives in both directions. Pre-fix
-// (blanket errors.As arm, no response-field guard) the three auth-class
-// cases returned 503 BACKEND_UNAVAILABLE.
 func TestAuthoringWriteDirectArangoResponseClassification(t *testing.T) {
 	for _, test := range authoringWriteArangoResponseCases() {
 		t.Run(test.name, func(t *testing.T) {
@@ -317,8 +284,6 @@ func TestAuthoringWriteDirectArangoResponseClassification(t *testing.T) {
 	}
 }
 
-// TestPublishExplorerRouteArangoResponseClassification pins the same matrix
-// through the generated authoring route (HTTP render + response body code).
 func TestPublishExplorerRouteArangoResponseClassification(t *testing.T) {
 	for _, test := range authoringWriteArangoResponseCases() {
 		t.Run(test.name, func(t *testing.T) {
@@ -349,8 +314,6 @@ func TestPublishExplorerRouteArangoResponseClassification(t *testing.T) {
 	}
 }
 
-// TestCreateExplorerLegacyArangoResponseClassification pins the matrix at the
-// legacy createExplorer AuthorizeWrite site (500-class arm).
 func TestCreateExplorerLegacyArangoResponseClassification(t *testing.T) {
 	for _, test := range authoringWriteArangoResponseCases() {
 		t.Run(test.name, func(t *testing.T) {
@@ -366,12 +329,12 @@ func TestCreateExplorerLegacyArangoResponseClassification(t *testing.T) {
 			if !errors.As(err, &legacy) {
 				t.Fatalf("err=%v (%T); want *explorerLegacyOperationError", err, err)
 			}
-			if ok, _ := shared.IsArangoError(err); !ok {
+			if !errors.Is(err, test.fault) {
 				t.Fatalf("cause chain %v does not preserve the injected driver fault", err)
 			}
 			if test.wantStorage {
-				if legacy.status != http.StatusInternalServerError || legacy.code != faultInjectionAuthoringFaultCode {
-					t.Fatalf("query fault legacy status=%d code=%q; want 500 %q", legacy.status, legacy.code, faultInjectionAuthoringFaultCode)
+				if legacy.status != http.StatusServiceUnavailable || legacy.code != faultInjectionAuthoringFaultCode {
+					t.Fatalf("query fault legacy status=%d code=%q; want 503 %q", legacy.status, legacy.code, faultInjectionAuthoringFaultCode)
 				}
 				return
 			}
@@ -385,9 +348,6 @@ func TestCreateExplorerLegacyArangoResponseClassification(t *testing.T) {
 	}
 }
 
-// TestPublishRepositoryLegacyArangoResponseClassification pins the matrix at
-// the legacy publishRepositoryExplorerConfig AuthorizeWrite site (503-class
-// arm for genuine storage faults; permission responses stay 403).
 func TestPublishRepositoryLegacyArangoResponseClassification(t *testing.T) {
 	authPath := faultInjectionCallerPath
 	request := loomapi.PublishRepositoryExplorerConfigRequestObject{
@@ -407,7 +367,7 @@ func TestPublishRepositoryLegacyArangoResponseClassification(t *testing.T) {
 			if !errors.As(err, &legacy) {
 				t.Fatalf("err=%v (%T); want *explorerLegacyOperationError", err, err)
 			}
-			if ok, _ := shared.IsArangoError(err); !ok {
+			if !errors.Is(err, test.fault) {
 				t.Fatalf("cause chain %v does not preserve the injected driver fault", err)
 			}
 			if test.wantStorage {
@@ -423,11 +383,6 @@ func TestPublishRepositoryLegacyArangoResponseClassification(t *testing.T) {
 	}
 }
 
-// TestAuthoringWriteDirectArangoResponseCompositePrecedence pins the C1
-// ordering after the response-field guard: a composite carrying the
-// authscope denial sentinel keeps the 403 arm even when joined with an
-// Arango 403 response, while a composite explicitly claiming the backend
-// sentinel stays the named 5xx availability fault. Both keep their causes.
 func TestAuthoringWriteDirectArangoResponseCompositePrecedence(t *testing.T) {
 	t.Run("joined-denial-beats-arango-403", func(t *testing.T) {
 		composite := errors.Join(
@@ -466,10 +421,6 @@ func TestAuthoringWriteDirectArangoResponseCompositePrecedence(t *testing.T) {
 	})
 }
 
-// third AuthorizeWrite masking site (legacy publishRepositoryExplorerConfig).
-// Its OpenAPI route supports a 503 arm, so a storage fault renders the named
-// 503-class legacy envelope; a real denial keeps the byte-identical
-// 403 forbidden string form.
 func TestPublishRepositoryLegacyAuthorizerFaultNotMaskedAsForbidden(t *testing.T) {
 	authPath := faultInjectionCallerPath
 	request := loomapi.PublishRepositoryExplorerConfigRequestObject{
@@ -487,7 +438,7 @@ func TestPublishRepositoryLegacyAuthorizerFaultNotMaskedAsForbidden(t *testing.T
 		if errors.Is(err, authscope.ErrForbidden) {
 			t.Fatalf("storage fault classified as permission denial: %v", err)
 		}
-		status, body := explorerLegacyResponse(err)
+		status, body := explorerErrorResponse(err)
 		if status != http.StatusServiceUnavailable {
 			t.Fatalf("storage fault legacy status=%d; want %d (named 503-class, route has a 503 arm)", status, http.StatusServiceUnavailable)
 		}
@@ -503,17 +454,13 @@ func TestPublishRepositoryLegacyAuthorizerFaultNotMaskedAsForbidden(t *testing.T
 		if !errors.Is(err, authscope.ErrForbidden) {
 			t.Fatalf("legacy denial err=%v; want authscope.ErrForbidden", err)
 		}
-		status, _ := explorerLegacyResponse(err)
+		status, _ := explorerErrorResponse(err)
 		if status != http.StatusForbidden {
 			t.Fatalf("legacy denial status=%d; want %d (denials must never become 5xx)", status, http.StatusForbidden)
 		}
 	})
 }
 
-// legacy twin of the same mask on POST /explorers (openapi_explorer_direct.go
-// authorizer call, whose generated route has no 503 arm, so the named fault
-// is the 500-class envelope with the cause preserved). Real denials keep the
-// byte-identical legacy FORBIDDEN.
 func TestCreateExplorerLegacyAuthorizerFaultNotMaskedAsForbidden(t *testing.T) {
 	t.Run("storage-fault", func(t *testing.T) {
 		store := &faultInjectionAuthPathStore{fault: arangoQueryFault()}
@@ -531,8 +478,8 @@ func TestCreateExplorerLegacyAuthorizerFaultNotMaskedAsForbidden(t *testing.T) {
 		if !errors.As(err, &legacy) {
 			t.Fatalf("err=%v (%T); want *explorerLegacyOperationError", err, err)
 		}
-		if legacy.status != http.StatusInternalServerError {
-			t.Fatalf("storage fault legacy status=%d; want %d (named 500-class; the legacy route has no 503 arm)", legacy.status, http.StatusInternalServerError)
+		if legacy.status != http.StatusServiceUnavailable {
+			t.Fatalf("storage fault legacy status=%d; want %d", legacy.status, http.StatusServiceUnavailable)
 		}
 		if legacy.code != faultInjectionAuthoringFaultCode || legacy.message != "authorization backend unavailable" {
 			t.Fatalf("storage fault legacy code=%q message=%q; want named %q fault", legacy.code, legacy.message, faultInjectionAuthoringFaultCode)

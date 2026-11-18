@@ -10,14 +10,13 @@ import (
 
 type explorerConfigReadAuthorizer func(context.Context, *authscope.Principal, string) error
 
-// explorerHTTPHandlers holds the dependencies used by the generated OpenAPI
-// Explorer adapter. Fiber routing is registered once, from the generated
-// server, rather than through a parallel handwritten handler tree.
 type explorerHTTPHandlers struct {
 	authorizer         authscope.Authorizer
 	authorizeRead      explorerConfigReadAuthorizer
+	views              *explorer.Service
 	application        *lifecycle.Service
 	constructionInputs constructionInputsCatalog
+	authorizeExecution func(context.Context, string) error
 }
 
 func newExplorerHTTPHandlers(authorizer authscope.Authorizer, authorizeRead explorerConfigReadAuthorizer, explorers *explorer.Service, configs ...lifecycle.Config) *explorerHTTPHandlers {
@@ -30,5 +29,6 @@ func newExplorerHTTPHandlers(authorizer authscope.Authorizer, authorizeRead expl
 		authorizer:    authorizer,
 		authorizeRead: authorizeRead,
 		application:   application,
+		views:         explorers,
 	}
 }

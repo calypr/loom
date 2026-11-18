@@ -1,7 +1,3 @@
-// Package execution is Loom's production recipe execution seam. It owns
-// recipe resolution, scoped discovery, canonical compiler orchestration, and
-// streaming row execution; transport adapters do not interpret recipes or
-// construct AQL.
 package execution
 
 import (
@@ -34,9 +30,8 @@ import (
 
 type QueryRows func(context.Context, string, int, map[string]any, func(map[string]any) error) error
 
-// ClickHouseQueryRows executes a typed ClickHouse result query with a fixed
-// result column contract and positional values. SQL fragments never come from
-// recipe or request data.
+type WithPreviewReadSnapshot func(context.Context, func(context.Context, QueryRows) error) error
+
 type ClickHouseQueryRows func(context.Context, string, []string, func(map[string]any) error, ...any) error
 
 type ResolveClickHouseInputs func(context.Context, ir.PhysicalClickHouseCombine, recipe.RuntimeBindings) ([]ir.ResolvedClickHouseTable, error)
@@ -44,23 +39,19 @@ type ResolveClickHouseInputs func(context.Context, ir.PhysicalClickHouseCombine,
 type WithExecutionReadPins func(context.Context, []string, func(context.Context) error) error
 
 const (
-	// DefaultPreviewLimit is used when a preview request omits its limit.
 	DefaultPreviewLimit = 25
-	// MaxPreviewLimit bounds rows accumulated by one output preview.
+
 	MaxPreviewLimit    = 1000
 	previewPlanMode    = "physical"
 	previewPlanProfile = "generic_fhir_graph_recipe"
 )
 
-// PreviewRequest selects one compiled output and bounds its preview rows.
 type PreviewRequest struct {
 	Output             string
 	Limit              int
 	IncludeRowIdentity bool
 }
 
-// PreviewSummary is safe execution metadata for one preview output. It does
-// not contain AQL, bind variables, or physical plan contents.
 type PreviewSummary struct {
 	Output           string
 	Columns          []string
@@ -71,14 +62,10 @@ type PreviewSummary struct {
 	TraversalCount   int
 	LoweringDuration time.Duration
 	QueryDuration    time.Duration
-	// Complete is true only when the execution naturally exhausted before
-	// reaching its configured row limit. Truncated is explicit when the
-	// bounded preview stopped at errPreviewLimit; callers must not infer full
-	// population facts from a bounded result.
+
 	Complete  bool
 	Truncated bool
-	// PartialValidation marks compiler-bounded construction previews that
-	// validate only the displayed deterministic sample of complete groups.
+
 	PartialValidation    bool
 	RowLineageCapability compiler.RowLineageCapability
 }
@@ -89,6 +76,7 @@ type Config struct {
 	ResolveBundle              func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
 	QueryRows                  QueryRows
 	PreviewQueryRows           QueryRows
+	WithPreviewReadSnapshot    WithPreviewReadSnapshot
 	PreparePreviewIndex        func(context.Context, compiler.PreviewCoveringIndexSpec) error
 	PreviewCoveringIndexes     func(context.Context, string) ([]arango.PreviewCoveringIndex, error)
 	PreviewCollectionRevision  func(context.Context, string) (string, error)
@@ -100,8 +88,7 @@ type Config struct {
 	PrivateClickHouseArtifacts *chartifact.Manager
 	ScopeDigest                func(recipe.RuntimeBindings) string
 	BatchSize                  int
-	// RootPageRows bounds the number of root documents evaluated by one wide
-	// output query. Zero keeps the legacy single-query execution path.
+
 	RootPageRows int
 }
 
@@ -111,6 +98,7 @@ type Engine struct {
 	resolveBundle              func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
 	queryRows                  QueryRows
 	previewQueryRows           QueryRows
+	withPreviewReadSnapshot    WithPreviewReadSnapshot
 	preparePreviewIndex        func(context.Context, compiler.PreviewCoveringIndexSpec) error
 	previewCoveringIndexes     func(context.Context, string) ([]arango.PreviewCoveringIndex, error)
 	previewCollectionRevision  func(context.Context, string) (string, error)
@@ -126,11 +114,6 @@ type Engine struct {
 	rootPageRows               int
 }
 
-// Resolved contains the immutable recipe after schema discovery, semantic
-// discovery provenance, and canonical physical plans per output. Bundle is the
-// fully resolved recipe that may be passed back through CompileResolvedBundle
-// after a receipt or other durable boundary. Compiled remains request-scoped
-// runtime state; callers must not persist it.
 type Resolved struct {
 	Bundle               recipe.Bundle
 	Semantic             semantic.ResolvedRecipePlan
@@ -139,9 +122,6 @@ type Resolved struct {
 	ResolvedSchemaDigest string
 }
 
-// ResolutionError marks failures while compiling a recipe before publication
-// starts. Transport adapters can expose these as actionable recipe errors;
-// publication and backend failures remain opaque internal errors.
 type ResolutionError struct{ Err error }
 
 func (e *ResolutionError) Error() string {
@@ -169,8 +149,8 @@ type OutputStream struct {
 	stream                   QueryRows
 	batchSize                int
 	rootPageRows             int
-	initialRootPageRows      int
 	page                     *compiler.CompiledOutputPage
+	withPreviewReadSnapshot  WithPreviewReadSnapshot
 	physicalEngine           ir.PhysicalEngine
 	clickHouseCombine        *ir.PhysicalClickHouseCombine
 	project                  string
@@ -180,6 +160,7 @@ type OutputStream struct {
 	withExecutionReadPins    WithExecutionReadPins
 	queryLimit               int
 	queryMemoryLimit         int64
+	sampledAggregate         bool
 	projectionDecisionKey    *groupPreviewRowsKey
 	projectionDecision       *groupPreviewProjectionDecision
 	recipeDigest             string
@@ -197,10 +178,6 @@ type OutputStream struct {
 	physicalPlan             ir.PhysicalPlan
 }
 
-// preparedClickHouseQuery is the immutable result of resolving every exact
-// published input and capturing every same-workspace dependency. Its identity
-// and opaque scope evidence are complete before a private artifact writer is
-// opened.
 type preparedClickHouseQuery struct {
 	Query         string
 	Columns       []string
@@ -211,9 +188,6 @@ type preparedClickHouseQuery struct {
 	ScopeEvidence ir.WholeRelationScopeEvidence
 }
 
-// materializedClickHouseCapture carries the source proof beside the live
-// artifact lease. The proof remains in memory for recursive workspace-output
-// composition; only its digest is persisted for whole-scope artifacts.
 type materializedClickHouseCapture struct {
 	Artifact      *chartifact.Artifact
 	Identity      ir.ClickHouseArtifactIdentity
@@ -251,7 +225,7 @@ func New(cfg Config) (*Engine, error) {
 	}
 	return &Engine{
 		registry: cfg.Registry, revisions: cfg.Revisions, resolveBundle: cfg.ResolveBundle,
-		queryRows: cfg.QueryRows, previewQueryRows: cfg.PreviewQueryRows, preparePreviewIndex: cfg.PreparePreviewIndex,
+		queryRows: cfg.QueryRows, previewQueryRows: cfg.PreviewQueryRows, withPreviewReadSnapshot: cfg.WithPreviewReadSnapshot, preparePreviewIndex: cfg.PreparePreviewIndex,
 		previewCoveringIndexes:    cfg.PreviewCoveringIndexes,
 		previewCollectionRevision: cfg.PreviewCollectionRevision, previewExplainQuery: cfg.PreviewExplainQuery,
 		previewCollectionCount: cfg.PreviewCollectionCount, clickHouseQueryRows: cfg.ClickHouseQueryRows,
@@ -261,10 +235,6 @@ func New(cfg Config) (*Engine, error) {
 	}, nil
 }
 
-// entry loads the addressed recipe revision when the bindings carry a
-// recipeDigest, otherwise the named default entry. Every control and run
-// surface must address recipes through this seam so a digest-addressed
-// request behaves identically across preview, run, explain, and validate.
 func (e *Engine) entry(ctx context.Context, name string, bindings recipe.RuntimeBindings) (exec.Entry, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return exec.Entry{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
@@ -287,8 +257,6 @@ func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.Runti
 	return e.resolveEntry(ctx, entry, bindings)
 }
 
-// ResolveVersion loads an exact immutable recipe version. New publication
-// workflows must use this method; Resolve is the deprecated default alias.
 func (e *Engine) ResolveVersion(ctx context.Context, name, translationVersion string, bindings recipe.RuntimeBindings) (Resolved, error) {
 	entry, err := e.registry.LoadRecipeVersion(ctx, name, translationVersion)
 	if err != nil {
@@ -297,10 +265,6 @@ func (e *Engine) ResolveVersion(ctx context.Context, name, translationVersion st
 	return e.resolveEntry(ctx, entry, bindings)
 }
 
-// ResolveBundle runs an unregistered immutable bundle through the identical
-// schema, semantic, optimization, and lowering pipeline as a registry entry.
-// Explorer uses this to avoid creating recipe drafts/revisions for authored UI
-// intent.
 func (e *Engine) ResolveBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
@@ -312,11 +276,6 @@ func (e *Engine) ResolveBundle(ctx context.Context, bundle recipe.Bundle, bindin
 	return e.resolveEntry(ctx, exec.Entry{Bundle: bundle, Digest: digest}, bindings)
 }
 
-// CompileResolvedBundle validates and compiles a bundle that has already been
-// resolved by schema discovery. It never invokes Config.ResolveBundle and
-// therefore performs no catalog or schema discovery. Dynamic declarations
-// with nil Columns are rejected by the semantic boundary; a non-nil empty
-// Columns slice is an explicitly resolved, zero-column family and is valid.
 func (e *Engine) CompileResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
@@ -336,8 +295,6 @@ func (e *Engine) PreviewBundle(ctx context.Context, bundle recipe.Bundle, bindin
 	return e.Preview(ctx, resolved, bindings.PreviewLimit)
 }
 
-// PreviewResolvedBundle compiles an already schema-resolved bundle without
-// catalog discovery, then executes its request-scoped preview.
 func (e *Engine) PreviewResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (map[string][]map[string]any, error) {
 	resolved, err := e.CompileResolvedBundle(ctx, bundle, bindings)
 	if err != nil {
@@ -359,9 +316,6 @@ func (e *Engine) MaterializeBundle(ctx context.Context, bundle recipe.Bundle, bi
 	return resolved, nil
 }
 
-// MaterializeResolvedBundle compiles an already schema-resolved bundle
-// without catalog discovery and hands the resulting request-scoped plan to
-// the publisher.
 func (e *Engine) MaterializeResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
 	resolved, err := e.CompileResolvedBundle(ctx, bundle, bindings)
 	if err != nil {
@@ -393,9 +347,6 @@ func (e *Engine) resolveEntry(ctx context.Context, entry exec.Entry, bindings re
 	return e.compileResolvedBundle(ctx, bundle, bindings, storedRecipeDigest)
 }
 
-// compileResolvedBundle is the shared post-discovery compiler. Keeping this
-// helper separate from resolveEntry makes it impossible for receipt-backed
-// callers to accidentally rediscover catalog fields during compilation.
 func (e *Engine) compileResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings, storedRecipeDigest string) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
@@ -411,9 +362,7 @@ func (e *Engine) compileResolvedBundle(ctx context.Context, bundle recipe.Bundle
 	if err != nil {
 		return Resolved{}, err
 	}
-	// The public recipe identity is the registered document digest. The
-	// resolved schema digest below captures catalog-derived fields and scope so
-	// materializations cannot collide when one recipe resolves differently.
+
 	semanticPlan.RecipeDigest = storedRecipeDigest
 	scope := ""
 	if e.scopeDigest != nil {
@@ -427,9 +376,7 @@ func (e *Engine) compileResolvedBundle(ctx context.Context, bundle recipe.Bundle
 	if err != nil {
 		return Resolved{}, err
 	}
-	// Lowering and AQL optimization are request-scoped work. ClickHouse plans
-	// have no AQL traversal rewrites; validate and cache their exact typed plan.
-	// Preview/materialization streams then only clone, window, and render it.
+
 	policy := ir.DefaultPhysicalOptimizationPolicy()
 	for index := range compiled.Outputs {
 		plan := compiled.Outputs[index].Plan
@@ -485,8 +432,6 @@ func resolvedBundleSchemaDigest(storedDigest string, bundle recipe.Bundle, bindi
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// Materialize resolves a recipe once and hands the complete resolved plan to
-// the publisher. Resolve and compile therefore share one discovery snapshot.
 func (e *Engine) Materialize(ctx context.Context, name string, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
 	resolved, err := e.Resolve(ctx, name, bindings)
 	if err != nil {
@@ -517,9 +462,6 @@ func (e *Engine) Streams(ctx context.Context, resolved Resolved) ([]OutputStream
 	return e.streamsWithLimit(ctx, resolved, 0)
 }
 
-// Run consumes every row from every selected output. Unlike Preview, this
-// deliberately compiles without an execution LIMIT and is intended for
-// callers that explicitly requested the complete dataframe in memory.
 func (e *Engine) Run(ctx context.Context, resolved Resolved) (map[string][]map[string]any, error) {
 	streams, err := e.Streams(ctx, resolved)
 	if err != nil {
@@ -583,9 +525,7 @@ func (e *Engine) buildCompiledOutputStream(resolved Resolved, output lower.Compi
 	defer delete(building, output.Name)
 	bindings := resolved.Semantic.SemanticPlan.Bindings.Clone()
 	if privateArtifactCapture && requiresRestrictedRowAuthPathCapture(output, bindings) {
-		// Private row-scoped artifacts need the source path on each row so the
-		// downstream Combine can reapply the exact authorization scope. Keep this
-		// projection request-local; it does not change preview bindings/schema.
+
 		bindings.IncludeAuthResourcePath = true
 	}
 	switch output.Plan.Engine {
@@ -620,7 +560,7 @@ func (e *Engine) buildCompiledOutputStream(resolved Resolved, output lower.Compi
 	if scopeMode == chartifact.ScopeModeWhole && scopeEvidence != nil {
 		stream.artifactScopeEvidence = scopeEvidence.Digest()
 	}
-	// Aggregation must see the full input before the output row limit applies.
+
 	wholeInput := len(output.Plan.Operations) == 1 &&
 		output.Plan.Operations[0].Kind == ir.PhysicalGroupRowsOp && output.Plan.Operations[0].GroupRows != nil
 	for _, operation := range output.Plan.Operations {
@@ -642,7 +582,9 @@ func (e *Engine) buildCompiledOutputStream(resolved Resolved, output lower.Compi
 			}
 		}
 	}
-	if rootPageRows > 0 && !wholeInput {
+	sampledAggregate := wholeInput && bindings.AllowSampledAggregatePreview
+	stream.sampledAggregate = sampledAggregate
+	if rootPageRows > 0 && (!wholeInput || sampledAggregate) {
 		pageBindings := resolved.Semantic.SemanticPlan.Bindings.Clone()
 		pageBindings.PreviewLimit = limit
 		page, pageErr := compiler.CompileRecipeOutputPageWithPolicy(output, pageBindings, rootPageRows, ir.DefaultPhysicalOptimizationPolicy())
@@ -650,9 +592,6 @@ func (e *Engine) buildCompiledOutputStream(resolved Resolved, output lower.Compi
 			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q paging: %w", output.Name, pageErr)
 		}
 		stream.page = &page
-		if limit > 0 && relatedExpandRootPageOrder(output.Plan.StageSequence) {
-			stream.initialRootPageRows = 1
-		}
 		query.PlanDiagnostics = page.RowsDiagnostics
 		stream.planFingerprint = query.PlanDiagnostics.Fingerprint
 	}
@@ -665,13 +604,6 @@ func compiledOutputFinalStageID(output lower.CompiledRecipeOutput) string {
 	}
 	if len(output.Stages) > 0 && strings.TrimSpace(output.Stages[len(output.Stages)-1].ID) != "" {
 		return output.Stages[len(output.Stages)-1].ID
-	}
-	return recipe.ConstructionSourceProjectionID
-}
-
-func compiledFinalStageID(plan ir.PhysicalPlan) string {
-	if plan.StageSequence != nil && plan.StageSequence.FinalStageID != "" {
-		return plan.StageSequence.FinalStageID
 	}
 	return recipe.ConstructionSourceProjectionID
 }
@@ -793,9 +725,7 @@ func compiledArtifactScope(output lower.CompiledRecipeOutput, bindings recipe.Ru
 		if outputUsesWholeRelationScope(output.Plan) {
 			mode = chartifact.ScopeModeWhole
 		}
-		// A preview query is intentionally bounded and therefore cannot carry
-		// whole-relation capture evidence. The complete lowered plan remains
-		// compiler-attested; private capture recompiles it without this window.
+
 		return mode, nil, nil, nil
 	}
 	optimizedEvidence, err := ir.NewWholeRelationScopeEvidence(actualPlan, identity)
@@ -859,9 +789,6 @@ func sameExecutionStrings(left, right []string) bool {
 	return true
 }
 
-// streamExecutionAuthScopeMode uses compiler-issued evidence or an exact typed
-// plan bind as the authority. An empty runtime mode by itself never grants
-// unrestricted access; when paths are present it remains restricted.
 func streamExecutionAuthScopeMode(stream OutputStream) (authscope.ReadScopeMode, error) {
 	if identity := stream.scopeEvidenceIdentity; identity != nil {
 		if identity.Project != stream.bindings.Project || identity.DatasetGeneration != stream.bindings.DatasetGeneration ||
@@ -881,8 +808,7 @@ func streamExecutionAuthScopeMode(stream OutputStream) (authscope.ReadScopeMode,
 		return stream.bindings.AuthScopeMode, nil
 	}
 	if len(stream.bindings.AuthResourcePaths) != 0 {
-		// Legacy callers that supply paths without a mode are restricted; the
-		// empty path-list case still requires a typed bind or opaque evidence.
+
 		return authscope.ReadScopeRestricted, nil
 	}
 	if unrestricted, ok := stream.physicalPlan.BindVars["auth_resource_paths_unrestricted"].(bool); ok {
@@ -1017,9 +943,6 @@ func hasCompiledOutput(resolved Resolved, name string) bool {
 	return false
 }
 
-// PreviewOutput executes exactly one selected output and exposes only the
-// public output schema. Physical query text, bind variables, and internal
-// projections never cross this boundary.
 func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request PreviewRequest, visit func(map[string]any) error) (PreviewSummary, error) {
 	if err := contextError(ctx); err != nil {
 		return PreviewSummary{}, err
@@ -1059,6 +982,7 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	if stream.physicalEngine != ir.PhysicalEngineClickHouse && e.previewQueryRows != nil {
 		stream.stream = e.previewQueryRows
 	}
+	stream.withPreviewReadSnapshot = e.withPreviewReadSnapshot
 	if err := e.chooseGroupPreviewScan(ctx, &query, &stream); err != nil {
 		return PreviewSummary{}, err
 	}
@@ -1088,7 +1012,7 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 			}
 		}
 	}
-	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: true, PartialValidation: query.PartialValidation}
+	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: !stream.sampledAggregate, PartialValidation: query.PartialValidation}
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name == request.Output {
 			summary.RowLineageCapability = compiler.RowLineageCapabilityForOutput(output)
@@ -1309,8 +1233,11 @@ func normalizePreviewError(err error, backend bool) error {
 	if userErr, ok := dataframeerrors.AsUserError(err); ok {
 		return userErr
 	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.Canceled) {
 		return dataframeerrors.Normalize(err)
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return dataframeerrors.Wrap(err, dataframeerrors.CodePreviewTimeout, dataframeerrors.PublicMessage(dataframeerrors.NewError(dataframeerrors.CodePreviewTimeout, "")), dataframeerrors.WithRetryable(true))
 	}
 	if backend {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
@@ -1355,10 +1282,6 @@ func (s OutputStream) Stream(ctx context.Context, visit func(map[string]any) err
 	return StreamResult{Output: s.Name, Columns: append([]string(nil), s.Columns...), RowCount: count}, err
 }
 
-// streamPreparedClickHouse consumes an already resolved query while its input
-// pins and private artifact leases remain owned by the preparation callback.
-// It applies the same row identity and post-query projection contract as
-// OutputStream.Stream without resolving or acquiring inputs a second time.
 func (s OutputStream) streamPreparedClickHouse(ctx context.Context, prepared preparedClickHouseQuery, visit func(map[string]any) error) (StreamResult, error) {
 	if ctx == nil || visit == nil || s.clickHouseQueryRows == nil || strings.TrimSpace(prepared.Query) == "" {
 		return StreamResult{}, fmt.Errorf("prepared ClickHouse stream requires context, query executor, query, and visitor")
@@ -1394,17 +1317,23 @@ func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) 
 	if s.page == nil || s.rootPageRows == 0 {
 		return s.stream(ctx, s.query, s.batchSize, s.bindVars, visit)
 	}
+	if len(s.page.RowsPartitions) > 0 && s.withPreviewReadSnapshot != nil {
+		return s.withPreviewReadSnapshot(ctx, func(snapshotCtx context.Context, query QueryRows) error {
+			return s.streamRootPages(snapshotCtx, query, true, visit)
+		})
+	}
+	return s.streamRootPages(ctx, s.stream, false, visit)
+}
+
+func (s OutputStream) streamRootPages(ctx context.Context, query QueryRows, partitioned bool, visit func(map[string]any) error) error {
 	after := ""
 	pageRows := s.rootPageRows
-	if s.initialRootPageRows > 0 {
-		pageRows = s.initialRootPageRows
-	}
 	for {
 		keys := make([]string, 0, pageRows)
 		keyBinds := cloneBindVars(s.page.RootKeysBindVars)
 		keyBinds[compiler.RootPageAfterKeyBind] = after
 		keyBinds[compiler.RootPageSizeBind] = pageRows
-		if err := s.stream(ctx, s.page.RootKeysQuery, s.batchSize, keyBinds, func(row map[string]any) error {
+		if err := query(ctx, s.page.RootKeysQuery, s.batchSize, keyBinds, func(row map[string]any) error {
 			key, ok := row["_key"].(string)
 			if !ok || key == "" {
 				return fmt.Errorf("root-key page returned an invalid _key")
@@ -1420,25 +1349,29 @@ func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) 
 		if len(keys) == 0 {
 			return nil
 		}
-		rowBinds := cloneBindVars(s.page.RowsBindVars)
-		rowBinds[compiler.RootPageKeysBind] = keys
-		emitted := 0
-		if err := s.stream(ctx, s.page.RowsQuery, s.batchSize, rowBinds, func(row map[string]any) error {
-			emitted++
-			return visit(row)
-		}); err != nil {
-			return err
+		if partitioned {
+			rows, err := previewProjectionRows(ctx, query, s.page.RowsPartitions, keys, s.batchSize)
+			if err != nil {
+				return err
+			}
+			for _, row := range rows {
+				if err := visit(row); err != nil {
+					return err
+				}
+			}
+		} else {
+			rowBinds := cloneBindVars(s.page.RowsBindVars)
+			rowBinds[compiler.RootPageKeysBind] = keys
+			if err := query(ctx, s.page.RowsQuery, s.batchSize, rowBinds, visit); err != nil {
+				return err
+			}
+		}
+		if s.sampledAggregate {
+			return nil
 		}
 		after = keys[len(keys)-1]
 		if len(keys) < pageRows {
 			return nil
-		}
-		if s.initialRootPageRows > 0 {
-			if emitted == 0 {
-				pageRows = min(pageRows*2, s.rootPageRows)
-			} else {
-				pageRows = s.initialRootPageRows
-			}
 		}
 	}
 }
@@ -1736,11 +1669,6 @@ func cloneBindVars(input map[string]any) map[string]any {
 	return clone
 }
 
-// publicStreamRow removes compiler-only projections after they have served
-// post-query validation and row-identity derivation. auth_resource_path is the
-// one hidden projection retained for publication because it preserves the
-// source row's authorization scope when a materialization spans multiple
-// authorized paths.
 func publicStreamRow(row map[string]any, columns []string) map[string]any {
 	public := make(map[string]any, len(columns)+2)
 	for _, column := range columns {

@@ -1,9 +1,7 @@
-// Package authoringv2 contains the hard-cut Explorer Builder authoring
-// protocol. It is deliberately separate from the V1 HTTP and persistence
-// contracts: this package describes user intent and catalog facts only.
 package authoringv2
 
 import (
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -17,37 +15,53 @@ const (
 	StateKind               = "ExplorerBuilderState"
 	CatalogKind             = "ExplorerBuilderCatalog"
 	RootOccurrenceID        = "base"
-	CurrentSemanticsVersion = 10
+	CurrentSemanticsVersion = 12
 
 	contributorSemanticsVersion             = 4
 	aggregateTemporalPolicySemanticsVersion = 9
 	tableShapeSemanticsVersion              = 9
 )
 
-// Document is the complete durable Builder intent. Route occurrences form a
-// semantic resource tree rooted at RootResourceType.
 type Document struct {
-	APIVersion       string            `json:"-"`
-	Kind             string            `json:"kind"`
-	Output           Output            `json:"output"`
-	RootResourceType string            `json:"rootResourceType,omitempty"`
-	Route            RouteNode         `json:"route,omitempty"`
-	Rows             RowDefinition     `json:"rows"`
-	Population       *Population       `json:"population,omitempty"`
-	Frames           []FrameDefinition `json:"frames,omitempty"`
-	Columns          []Column          `json:"columns"`
-	TableShape       *TableShape       `json:"tableShape,omitempty"`
-	// Construction is the canonical post-source operation sequence. When it is
-	// present, Route/Rows/Columns describe only the source projection and
-	// TableShape must be nil. A nil value preserves the existing V2 document
-	// semantics and compiler path.
-	Construction *Construction `json:"construction,omitempty"`
-	FixedFilters []FixedFilter `json:"fixedFilters,omitempty"`
-	Actions      []Action      `json:"actions,omitempty"`
+	APIVersion          string            `json:"-"`
+	Kind                string            `json:"kind"`
+	Output              Output            `json:"output"`
+	RootResourceType    string            `json:"rootResourceType,omitempty"`
+	Route               RouteNode         `json:"route,omitempty"`
+	Rows                RowDefinition     `json:"rows"`
+	Population          *Population       `json:"population,omitempty"`
+	Frames              []FrameDefinition `json:"frames,omitempty"`
+	Columns             []Column          `json:"columns"`
+	ArchiveRetiredShape *storedTableShape `json:"tableShape,omitempty"`
+
+	Construction   *Construction       `json:"construction,omitempty"`
+	FixedFilters   []FixedFilter       `json:"fixedFilters,omitempty"`
+	Actions        []Action            `json:"actions,omitempty"`
+	ImportedRecipe *ImportedRecipeRef  `json:"importedRecipe,omitempty"`
+	ImportedSource *ImportedSourcePlan `json:"importedSource,omitempty"`
 }
 
-// Population constrains an output's row roots to resources reachable from a
-// completed immutable selection.
+type ImportedRecipeRef struct {
+	Name               string `json:"name"`
+	TranslationVersion string `json:"translationVersion"`
+	Digest             string `json:"digest"`
+	Output             string `json:"output"`
+}
+
+func (r ImportedRecipeRef) Validate() error {
+	if strings.TrimSpace(r.Name) == "" || r.Name != strings.TrimSpace(r.Name) || strings.TrimSpace(r.TranslationVersion) == "" || r.TranslationVersion != strings.TrimSpace(r.TranslationVersion) || strings.TrimSpace(r.Output) == "" || r.Output != strings.TrimSpace(r.Output) {
+		return fmt.Errorf("imported recipe name, translationVersion, and output are required and must be trimmed")
+	}
+	if len(r.Digest) != 64 {
+		return fmt.Errorf("imported recipe digest must be a lowercase SHA-256 digest")
+	}
+	decoded, err := hex.DecodeString(r.Digest)
+	if err != nil || len(decoded) != 32 || strings.ToLower(r.Digest) != r.Digest {
+		return fmt.Errorf("imported recipe digest must be a lowercase SHA-256 digest")
+	}
+	return nil
+}
+
 type Population struct {
 	SelectionRevisionID string                `json:"selectionRevisionId"`
 	Route               []PopulationRouteStep `json:"route"`
@@ -81,14 +95,11 @@ type Output struct {
 	RowLabel string `json:"rowLabel,omitempty"`
 }
 
-// Workspace is the atomic authoring unit. Documents are independent table
-// intents; tabs provide their ordered, visible runtime presentation.
 type Workspace struct {
 	APIVersion       string `json:"apiVersion"`
 	Kind             string `json:"kind"`
 	SemanticsVersion int    `json:"semanticsVersion,omitempty"`
-	// MigrationDecisions records automatic interpretation of ambiguous legacy
-	// intent so the choice remains visible and part of the workspace digest.
+
 	MigrationDecisions []string                         `json:"migrationDecisions,omitempty"`
 	Explorer           ExplorerMetadata                 `json:"explorer"`
 	Documents          []Document                       `json:"documents"`
@@ -121,8 +132,6 @@ type ChartPresentation struct {
 	Order *int   `json:"order,omitempty"`
 }
 
-// CatalogSnapshot is an immutable, authorization-scoped projection. The
-// token identifies the exact snapshot used to validate a document.
 type CatalogSnapshot struct {
 	APIVersion               string               `json:"-"`
 	Kind                     string               `json:"-"`
@@ -194,40 +203,13 @@ type CatalogCandidate struct {
 	ConceptCandidates     []ConceptCandidate                        `json:"conceptCandidates,omitempty"`
 }
 
-// ConceptCandidate is an observed structural terminology/value candidate.
-// It is evidence for authoring, not a claim of clinical equivalence.
-type ConceptCandidate struct {
-	SourceResourceType     string   `json:"sourceResourceType"`
-	SourcePath             string   `json:"sourcePath,omitempty"`
-	SourceCanonical        string   `json:"sourceCanonical,omitempty"`
-	SourceProfile          string   `json:"sourceProfile,omitempty"`
-	OwningScope            string   `json:"owningScope,omitempty"`
-	ExtensionURLPath       []string `json:"extensionUrlPath,omitempty"`
-	KeySelector            string   `json:"keySelector,omitempty"`
-	System                 string   `json:"system,omitempty"`
-	Code                   string   `json:"code,omitempty"`
-	Display                string   `json:"display,omitempty"`
-	ValueSelector          string   `json:"valueSelector,omitempty"`
-	ChoiceArm              string   `json:"choiceArm,omitempty"`
-	LogicalType            string   `json:"logicalType,omitempty"`
-	ObservedUnits          []string `json:"observedUnits,omitempty"`
-	ObservedUnitsTruncated bool     `json:"observedUnitsTruncated,omitempty"`
-	Completeness           string   `json:"completeness"`
-	Status                 string   `json:"status"`
-	Population             int64    `json:"population"`
-	Examples               []string `json:"examples,omitempty"`
-	ExamplesTruncated      bool     `json:"examplesTruncated,omitempty"`
-	RuleHint               string   `json:"ruleHint,omitempty"`
-	RuleVersion            string   `json:"ruleVersion,omitempty"`
-}
+type ConceptCandidate = capability.ConceptCandidate
 
 type RepeatedBoundary struct {
 	Path     string `json:"path"`
 	MaxItems int    `json:"maxItems"`
 }
 
-// RoutePolicy has no default hop ceiling: nil MaxHops means every finite
-// route is valid. Repeated edges and self-loops are explicit capabilities.
 type RoutePolicy struct {
 	MaxHops            *int `json:"maxSteps"`
 	Unbounded          bool `json:"-"`
@@ -235,7 +217,6 @@ type RoutePolicy struct {
 	AllowSelfLoops     bool `json:"allowSelfLoops"`
 }
 
-// BuilderState joins one workspace to the one catalog snapshot that proves it.
 type BuilderState struct {
 	APIVersion              string          `json:"apiVersion"`
 	Kind                    string          `json:"kind"`

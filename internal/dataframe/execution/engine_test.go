@@ -468,6 +468,19 @@ func TestCodedGroupPreviewRunsAgainstWholeInput(t *testing.T) {
 	if stream.sourceIdentityMode != previewSourceComposite {
 		t.Fatalf("CODED_GROUP source mode = %q, want COMPOSITE", stream.sourceIdentityMode)
 	}
+	sampledResolved, err := engine.CompileResolvedBundle(context.Background(), bundle, recipe.RuntimeBindings{
+		Project: "P1", DatasetGeneration: "G1", AllowSampledAggregatePreview: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sampled, _, err := engine.streamForOutput(sampledResolved, "body_structures", 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sampled.page == nil || !sampled.sampledAggregate {
+		t.Fatal("builder aggregate preview was not bounded to the first root page")
+	}
 }
 
 func TestPreviewOutputUsesPreviewExecutorWithoutChangingOrdinaryStreams(t *testing.T) {
@@ -1013,6 +1026,18 @@ func TestNormalizePreviewErrorKeepsUnknownBackendFailuresRetryable(t *testing.T)
 	}
 }
 
+func TestNormalizePreviewErrorClassifiesDeadlineAsPreviewTimeout(t *testing.T) {
+	cause := fmt.Errorf("execute proposal preview: %w", context.DeadlineExceeded)
+	err := normalizePreviewError(cause, true)
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok || userErr.Code() != string(dataframeerrors.CodePreviewTimeout) || !userErr.Retryable() {
+		t.Fatalf("normalized error=%#v, want retryable PREVIEW_TIMEOUT", userErr)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("normalized error %v lost its deadline cause", err)
+	}
+}
+
 func TestValidatePreviewPlanRequiresCanonicalPhysicalClass(t *testing.T) {
 	valid := compiler.CompiledQuery{PlanMode: previewPlanMode, PlanProfile: previewPlanProfile, Limit: 2, PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: "fingerprint"}}
 	if err := validatePreviewPlan(valid, 2, ir.PhysicalEngineAQL); err != nil {
@@ -1168,11 +1193,11 @@ func TestCompileResolvedBundleRejectsUnresolvedDynamicDeclarations(t *testing.T)
 	}
 }
 
-func TestAdaptiveRelatedPreviewPagesPreserveSparseRoots(t *testing.T) {
+func TestRelatedPreviewPagingUsesConfiguredRootPageSize(t *testing.T) {
 	keys := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
 	var sizes []int
 	var visited []string
-	stream := OutputStream{rootPageRows: 4, initialRootPageRows: 1, page: &compiler.CompiledOutputPage{}}
+	stream := OutputStream{rootPageRows: 4, page: &compiler.CompiledOutputPage{}}
 	stream.stream = func(_ context.Context, _ string, _ int, binds map[string]any, visit func(map[string]any) error) error {
 		if after, ok := binds[compiler.RootPageAfterKeyBind].(string); ok {
 			size := binds[compiler.RootPageSizeBind].(int)
@@ -1203,7 +1228,35 @@ func TestAdaptiveRelatedPreviewPagesPreserveSparseRoots(t *testing.T) {
 	if err := stream.streamRaw(context.Background(), func(row map[string]any) error { rows = append(rows, row["id"].(string)); return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if fmt.Sprint(visited) != fmt.Sprint(keys) || fmt.Sprint(rows) != "[g h]" || fmt.Sprint(sizes) != "[1 2 4 1 1]" {
+	if fmt.Sprint(visited) != fmt.Sprint(keys) || fmt.Sprint(rows) != "[g h]" || fmt.Sprint(sizes) != "[4 4 4]" {
 		t.Fatalf("visited=%v rows=%v page sizes=%v", visited, rows, sizes)
+	}
+}
+
+func TestSampledAggregateStreamStopsAfterFirstRootPage(t *testing.T) {
+	rootKeyCalls := 0
+	stream := OutputStream{
+		sampledAggregate: true,
+		rootPageRows:     1,
+		batchSize:        10,
+		page: &compiler.CompiledOutputPage{
+			RootKeysQuery:    "root-keys",
+			RootKeysBindVars: map[string]any{},
+			RowsQuery:        "rows",
+			RowsBindVars:     map[string]any{},
+		},
+		stream: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			if query == "root-keys" {
+				rootKeyCalls++
+				return visit(map[string]any{"_key": "root-1"})
+			}
+			return visit(map[string]any{"count": 1})
+		},
+	}
+	if err := stream.streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if rootKeyCalls != 1 {
+		t.Fatalf("sampled aggregate root-key calls = %d, want 1", rootKeyCalls)
 	}
 }

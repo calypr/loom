@@ -10,9 +10,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// expandedItemFieldSuffix returns the selector suffix when a direct field
-// belongs to the selected expanded item. The persisted FieldRef remains the
-// owner-relative path for provenance; only the executable selector is rebased.
 func expandedItemFieldSuffix(expanded *authoringv2.ExpandedRows, occurrenceID, fieldPath string) (string, bool) {
 	if expanded == nil || expanded.OccurrenceID != occurrenceID {
 		return "", false

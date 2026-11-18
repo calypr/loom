@@ -92,7 +92,11 @@ func revisionImmutableContent(value explorer.Revision) immutableRevision {
 
 func (s *Store) GetRevision(ctx context.Context, id string) (*explorer.Revision, error) {
 	var out *explorer.Revision
-	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": RevisionsCollection, "key": id}, func(row map[string]any) error { value, err := decode[explorer.Revision](row); out = &value; return err })
+	err := s.client.QueryRows(ctx, migrationJSONQuery(`FOR d IN @@c FILTER d._key == @key RETURN d`, true), 1, map[string]any{"@c": RevisionsCollection, "key": id}, func(row map[string]any) error {
+		value, err := decodeMigrationJSON[explorer.Revision](row["migrationJSON"])
+		out = &value
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -102,8 +106,6 @@ func (s *Store) GetRevision(ctx context.Context, id string) (*explorer.Revision,
 	return out, nil
 }
 
-// FailRevision records the only non-activation revision transition performed
-// outside the atomic activation workflows.
 func (s *Store) FailRevision(ctx context.Context, id string, diagnostics []explorer.Diagnostic) (*explorer.Revision, error) {
 	now := time.Now().UTC()
 	patch := map[string]any{"status": explorer.RevisionFailed, "diagnostics": diagnostics, "failedAt": now}

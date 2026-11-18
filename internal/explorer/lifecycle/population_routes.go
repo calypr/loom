@@ -53,8 +53,11 @@ func (s *Service) SearchPopulationRoutes(ctx context.Context, request Population
 		return result, unavailable("population-routes", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 	}
 	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
-	if err != nil || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil {
-		return result, conflict("population-routes", "STALE_CATALOG_SNAPSHOT", "reload the catalog before searching population routes", nil, err)
+	if err != nil {
+		return result, capabilityResolutionFailure("population-routes", "reload the catalog before searching population routes", err)
+	}
+	if authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil {
+		return result, conflict("population-routes", "STALE_CATALOG_SNAPSHOT", "reload the catalog before searching population routes", nil, nil)
 	}
 	snapshot := authorized.Snapshot
 	if projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(request.Project) || snapshot.Identity.Generation == "" {
@@ -120,7 +123,7 @@ func (s *Service) SearchPopulationRoutes(ctx context.Context, request Population
 			continue
 		}
 		result.Choices = append(result.Choices, PopulationRouteChoice{
-			RouteChoiceID: choiceID, Route: cloneConstructionRoute(resolvedRoute),
+			RouteChoiceID: choiceID, Route: capability.CloneConstructionRoute(resolvedRoute),
 			Presentation: populationRoutePresentation(document.RootResourceType, selection.ResourceType, resolvedRoute),
 		})
 	}
@@ -129,8 +132,11 @@ func (s *Service) SearchPopulationRoutes(ctx context.Context, request Population
 
 func (s *Service) getAuthorizedPopulationSelection(ctx context.Context, project, selectionID string, snapshot capability.Snapshot) (*explorer.SelectionRevision, error) {
 	selection, err := s.store.GetSelection(ctx, projectid.Canonical(project), strings.TrimSpace(selectionID))
-	if err != nil || selection == nil {
-		return nil, unprocessable("population-routes", "INVALID_POPULATION_SOURCE", "the selected resource set is unavailable", err)
+	if err != nil {
+		return nil, unavailable("population-routes", "POPULATION_SOURCE_UNAVAILABLE", "the selected resource set could not be loaded", err)
+	}
+	if selection == nil {
+		return nil, unprocessable("population-routes", "INVALID_POPULATION_SOURCE", "the selected resource set is unavailable", nil)
 	}
 	if err := selection.Validate(); err != nil || !selection.Complete {
 		return nil, unprocessable("population-routes", "INVALID_POPULATION_SOURCE", "the selected resource set is incomplete or invalid", err)
@@ -181,12 +187,6 @@ func populationRoutePresentation(rootResourceType, terminalResourceType string, 
 		facts = append(facts, capability.ConstructionChoiceFact{Label: "Route", Value: strings.Join(parts, " / ")})
 	}
 	return capability.ConstructionChoicePresentation{Summary: summary, Facts: facts}
-}
-
-func cloneConstructionRoute(route []capability.ConstructionRouteStep) []capability.ConstructionRouteStep {
-	result := make([]capability.ConstructionRouteStep, len(route))
-	copy(result, route)
-	return result
 }
 
 func (s *Service) preparePopulationRouteChoices(ctx context.Context, project string, authorized AuthorizedCapability, identities []capability.PopulationRouteChoiceIdentity, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {

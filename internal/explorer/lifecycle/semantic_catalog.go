@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
@@ -47,8 +48,6 @@ const (
 	fieldPresentationReplacementLimit = 100
 )
 
-// FieldPresentationRequest scopes one bounded batch of raw candidates to an
-// exact current output, draft, source node, and saved route occurrence.
 type FieldPresentationRequest struct {
 	ExpectedDraftVersion int64
 	ExpectedDraftDigest  string
@@ -289,7 +288,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		return result, conflict("catalog", "STALE_CATALOG_SNAPSHOT", "reload the catalog before browsing", nil, err)
 	}
 	if err != nil {
-		return result, err
+		return result, capabilityResolutionFailure("catalog", "reload the catalog before browsing", err)
 	}
 	snapshot := authorized.Snapshot
 	if snapshot.ValidateToken(req.SnapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(req.Project) || snapshot.Identity.Generation == "" {
@@ -340,7 +339,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		for _, candidate := range workspace.Documents[documentIndex].Frames {
 			if candidate.ID == req.FrameID {
 				copy := candidate
-				copy.Route = cloneConstructionRoute(candidate.Route)
+				copy.Route = capability.CloneConstructionRoute(candidate.Route)
 				copy.Source.ChoiceArms = append([]string(nil), candidate.Source.ChoiceArms...)
 				frame = &copy
 			}
@@ -354,9 +353,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		req.ResourceType = frame.Source.ResourceType
 		bindingFilter = frame.Source.BindingID
 		if isPriorPrimaryOnlySemanticFrameFamily(frame.Source) {
-			// The current inventory uses semantic-binding/v2 IDs. Query the
-			// authorized resource page without the obsolete v1 filter, then require
-			// an exact reconstructed v1 identity in semanticEntryForFrameFamily.
+
 			bindingFilter = ""
 		}
 		result.FrameID, result.FrameSource = frame.ID, frame
@@ -434,7 +431,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		return result, conflict("catalog", "STALE_CATALOG_CURSOR", "restart catalog search with an empty cursor", nil, err)
 	}
 	if err != nil {
-		return result, err
+		return result, persistenceFailure("catalog", "semantic inventory could not be read", err)
 	}
 	result.ContextToken, err = semanticInventoryContextToken(snapshot, req.ExplorerID, req.RowRoot, page.Build.BuildID)
 	if err != nil {
@@ -660,7 +657,7 @@ func (s *Service) semanticInventoryPresentationForOutput(
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
 			return nil, nil, unavailable("catalog", "FIELD_PRESENTATION_LOOKUP_INTERRUPTED", "semantic field coverage lookup was interrupted", err)
 		}
-		return nil, nil, internal("catalog", "FIELD_PRESENTATION_LOOKUP_FAILED", "semantic field coverage could not be read", err)
+		return nil, nil, persistenceFailure("catalog", "semantic field coverage could not be read", err)
 	}
 	if lookup.State != catalogarango.SemanticCoverageBuildComplete && lookup.State != catalogarango.SemanticCoverageBuildPartial {
 		reason := FieldPresentationCoverageUnavailable
@@ -699,7 +696,7 @@ func (s *Service) semanticInventoryPresentationForOutput(
 		ExplorerID: current.owner.ExplorerID, OutputID: outputID,
 		DraftVersion: current.owner.DraftVersion, DraftDigest: current.owner.DraftDigest,
 		SourceNodeID: request.SourceNodeID, OccurrenceID: request.OccurrenceID,
-		Route: cloneConstructionRoute(current.route), StageID: current.stageID,
+		Route: capability.CloneConstructionRoute(current.route), StageID: current.stageID,
 		PresentationRevision: semanticFieldPresentationRevision, CandidateBatchDigest: batchDigest,
 	}
 	decisions := make([]fieldPresentationDecision, 0, len(current.candidates))
@@ -899,7 +896,7 @@ func proveSemanticCandidateForRoute(
 	if proof, ok := cache[key]; ok {
 		return proof, nil
 	}
-	proof := semanticCandidateRouteProof{candidate: candidate, route: cloneConstructionRoute(route), ok: true}
+	proof := semanticCandidateRouteProof{candidate: candidate, route: capability.CloneConstructionRoute(route), ok: true}
 	if len(route) > 0 || strings.HasPrefix(candidate.ID, "schema_field.") {
 		proven, err := proveConstructionCandidate(ctx, authorized, rootResourceType, candidate, route)
 		if err != nil {
@@ -1050,7 +1047,7 @@ func (s *Service) resolveFieldPresentationReplacements(
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
 			return nil, false, unavailable("catalog", "FIELD_PRESENTATION_REPLACEMENT_READ_INTERRUPTED", "semantic replacement resolution was interrupted", err)
 		}
-		return nil, false, internal("catalog", "FIELD_PRESENTATION_REPLACEMENT_READ_FAILED", "authorized semantic replacements could not be read", err)
+		return nil, false, persistenceFailure("catalog", "authorized semantic replacements could not be read", err)
 	}
 	if resolved.State != catalog.SemanticInventoryComplete || resolved.Build.State != catalog.SemanticInventoryComplete || resolved.Build.BuildID != buildID {
 		return items, false, nil
@@ -1204,12 +1201,12 @@ func (s *Service) fieldPresentationCurrentContext(
 	if s.store == nil {
 		return current, unavailable("catalog", "AUTHORING_STATE_UNAVAILABLE", "current Explorer drafts are not configured", nil)
 	}
-	owner, err := s.store.Get(ctx, projectid.Canonical(request.Project), request.ExplorerID)
+	owner, err := s.getOwner(ctx, projectid.Canonical(request.Project), request.ExplorerID)
 	if errors.Is(err, explorer.ErrNotFound) {
 		return current, notFound("catalog", "EXPLORER_NOT_FOUND", "Explorer not found", err)
 	}
 	if err != nil {
-		return current, internal("catalog", "EXPLORER_READ_FAILED", "the current Explorer draft could not be loaded", err)
+		return current, persistenceFailure("catalog", "the current Explorer draft could not be loaded", err)
 	}
 	if owner == nil || owner.ExplorerID != request.ExplorerID || projectid.Canonical(owner.Project) != projectid.Canonical(request.Project) {
 		return current, notFound("catalog", "EXPLORER_NOT_FOUND", "Explorer not found", explorer.ErrNotFound)
@@ -1292,10 +1289,6 @@ type semanticCandidateRouteProof struct {
 	ok        bool
 }
 
-// semanticInventoryChoicesForOutput keeps table applicability separate from
-// global semantic inventory. Routes are planned once per distinct candidate
-// node; repeated entries reuse the exact candidate+route compiler proof, while
-// each semantic binding still gets its own choice ID.
 func semanticInventoryChoicesForOutput(
 	ctx context.Context,
 	authorized AuthorizedCapability,
@@ -1438,10 +1431,6 @@ func semanticInventoryChoicesForOutput(
 	return choices, nil
 }
 
-// semanticInventoryReachableNodes uses the authorized snapshot graph only as
-// a negative prefilter. Every retained route is still reauthorized and
-// compiler-probed below; disconnected resource nodes never trigger a full
-// alternate-route search.
 func semanticInventoryReachableNodes(snapshot capability.Snapshot, rootResourceType string) map[string]bool {
 	adjacency := make(map[string][]string)
 	for _, edge := range snapshot.Edges {
@@ -1488,9 +1477,7 @@ func semanticInventoryConstructionChoice(snapshot capability.Snapshot, contextTo
 func semanticInventoryConstructionChoiceForRoute(snapshot capability.Snapshot, contextToken, buildID string, route []capability.ConstructionRouteStep, entry catalog.SemanticInventoryEntry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {
 	observation := entry.Observation
 	if observation.RuleHint == catalog.SemanticRuleHintCodedConceptV1 {
-		// Owner-record output is defined over the enclosing semantic owner. A
-		// standalone Coding choice must stay attached to the exact matched
-		// Coding, so expose only the compiler-proved scalar/list choices.
+
 		ownerRecordsProved = false
 	}
 	logicalType := observation.LogicalType
@@ -1625,35 +1612,36 @@ func semanticHumanizeLabel(value string) string {
 	if value == "" {
 		return ""
 	}
-	var words []string
-	var current strings.Builder
-	for index, r := range value {
-		if r == '_' || r == '-' || r == '.' {
-			if current.Len() > 0 {
-				words = append(words, current.String())
-				current.Reset()
-			}
+	words := make([]string, 0)
+	for _, raw := range strings.FieldsFunc(value, func(r rune) bool {
+		return r == '_' || r == '-' || r == '.'
+	}) {
+		if raw == "" {
 			continue
 		}
-		if index > 0 && r >= 'A' && r <= 'Z' && current.Len() > 0 {
-			words = append(words, current.String())
-			current.Reset()
+		if raw == strings.ToUpper(raw) {
+			words = append(words, strings.ToLower(raw))
+			continue
 		}
-		current.WriteRune(r)
-	}
-	if current.Len() > 0 {
-		words = append(words, current.String())
-	}
-	for index, word := range words {
-		word = strings.ToLower(word)
-		if word != "" {
-			if index == 0 {
-				words[index] = strings.ToUpper(word[:1]) + word[1:]
-			} else {
-				words[index] = word
+		runes := []rune(raw)
+		start := 0
+		for index := 1; index < len(runes); index++ {
+			previous, current := runes[index-1], runes[index]
+			if !unicode.IsUpper(current) {
+				continue
+			}
+			nextLower := index+1 < len(runes) && unicode.IsLower(runes[index+1])
+			if unicode.IsLower(previous) || (unicode.IsUpper(previous) && nextLower) {
+				words = append(words, strings.ToLower(string(runes[start:index])))
+				start = index
 			}
 		}
+		words = append(words, strings.ToLower(string(runes[start:])))
 	}
+	if len(words) == 0 {
+		return ""
+	}
+	words[0] = strings.ToUpper(words[0][:1]) + words[0][1:]
 	return strings.Join(words, " ")
 }
 
@@ -1682,11 +1670,6 @@ func semanticFrameFamilyMatchesPinnedPrior(current, pinned capability.SemanticFr
 		current.LogicalType == pinned.LogicalType && reflect.DeepEqual(current.ChoiceArms, pinned.ChoiceArms)
 }
 
-// semanticEntryForFrameFamily projects a current inventory observation back
-// to the exact value binding pinned by a saved frame. The only supported
-// transition is the immediately preceding semantic build, whose new behavior
-// adds fallback selectors. A legacy frame without fallbacks keeps its primary
-// selector and cannot silently acquire the new fallback behavior.
 func semanticEntryForFrameFamily(
 	entry catalog.SemanticInventoryEntry,
 	family capability.SemanticFrameFamily,
@@ -1736,10 +1719,6 @@ func semanticEntrySourceMatchesFrameFamily(observation catalog.SemanticObservati
 	return observation.Source.Type == family.ResourceType &&
 		observation.Source.Path == family.SourcePath && observation.Source.Canonical == family.SourceCanonical &&
 		observation.Source.Profile == family.SourceProfile
-}
-
-func proveOwnerRecords(ctx context.Context, authorized AuthorizedCapability, rootResourceType string, observation catalog.SemanticObservation) bool {
-	return proveOwnerRecordsForRoute(ctx, authorized, rootResourceType, observation, nil)
 }
 
 func proveOwnerRecordsForRoute(ctx context.Context, authorized AuthorizedCapability, rootResourceType string, observation catalog.SemanticObservation, route []capability.ConstructionRouteStep) bool {
@@ -1856,9 +1835,6 @@ func semanticCandidateWithFallback(snapshot capability.Snapshot, observation cat
 	return combined, true
 }
 
-// Coded-value observations keep key and value selectors relative to the object
-// that owns their correlation. Capability candidates address the scalar from
-// the resource root, so the owning scope is restored only at this boundary.
 func semanticObservationValuePath(observation catalog.SemanticObservation) string {
 	valuePath := canonicalInventoryPath(observation.Value.Selector)
 	ownerPath := canonicalInventoryPath(observation.OwningScope)

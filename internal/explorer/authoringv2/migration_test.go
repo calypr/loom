@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestDecodeWorkspacePreservesVersion9DraftDigest(t *testing.T) {
+func TestStoredWorkspaceMigrationInvalidatesVersion9Digest(t *testing.T) {
 	legacy := Workspace{
 		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: tableShapeSemanticsVersion,
 		Explorer:  ExplorerMetadata{Title: "Patients"},
@@ -22,24 +22,20 @@ func TestDecodeWorkspacePreservesVersion9DraftDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	decoded, err := DecodeWorkspace(raw)
+	migrated, err := MigrateStoredWorkspace(raw, CatalogSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decoded.SemanticsVersion != tableShapeSemanticsVersion {
-		t.Fatalf("decoded semanticsVersion = %d, want %d", decoded.SemanticsVersion, tableShapeSemanticsVersion)
+	if migrated.Workspace.SemanticsVersion != CurrentSemanticsVersion {
+		t.Fatalf("migrated semanticsVersion = %d, want %d", migrated.Workspace.SemanticsVersion, CurrentSemanticsVersion)
 	}
-	decodedDigest, err := decoded.Digest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decodedDigest != storedDigest {
-		t.Fatalf("decoded digest = %q, want persisted digest %q", decodedDigest, storedDigest)
+	if !contains(migrated.AcceptedOriginalDigests, storedDigest) || !migrated.DigestChanged || migrated.MigratedCanonicalDigest == storedDigest {
+		t.Fatalf("old digest invalidation evidence = %#v; old=%q", migrated, storedDigest)
 	}
 }
 
 func TestMigrateLosslessDefaultsAdvancesV7WithoutInventingTableShape(t *testing.T) {
-	legacy, err := DecodeWorkspace(persistedWorkspaceWithoutRows(explicitRowsSemanticsVersion - 1))
+	legacy, err := DecodeStoredWorkspaceForMigration(persistedWorkspaceWithoutRows(explicitRowsSemanticsVersion - 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,14 +43,14 @@ func TestMigrateLosslessDefaultsAdvancesV7WithoutInventingTableShape(t *testing.
 	if migrated.SemanticsVersion != CurrentSemanticsVersion {
 		t.Fatalf("semanticsVersion = %d, want %d", migrated.SemanticsVersion, CurrentSemanticsVersion)
 	}
-	if migrated.Documents[0].TableShape != nil {
-		t.Fatalf("migration invented table shape: %#v", migrated.Documents[0].TableShape)
+	if migrated.Documents[0].ArchiveRetiredShape != nil {
+		t.Fatalf("migration invented table shape: %#v", migrated.Documents[0].ArchiveRetiredShape)
 	}
 }
 
 func TestMigrateLegacyNestedAggregateWhereEmptyEqualsToExists(t *testing.T) {
 	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":3,"explorer":{"title":"Patients"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"columns":[{"column":"patient_count","label":"Patients","occurrenceId":"base","source":{"kind":"aggregate","aggregate":{"operation":"COUNT","where":{"path":"id","equals":""}}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
-	workspace, err := DecodeWorkspace([]byte(raw))
+	workspace, err := DecodeStoredWorkspaceForMigration([]byte(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +76,7 @@ func TestMigrateLegacyNestedAggregateWhereEmptyEqualsToExists(t *testing.T) {
 
 func TestDecodeWorkspaceMigratesPersistedFirstOrderedTemporalPolicy(t *testing.T) {
 	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":` + fmt.Sprint(aggregateTemporalPolicySemanticsVersion-1) + `,"explorer":{"title":"Observations"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient","children":[{"occurrenceId":"observations","resourceType":"Observation","relationship":"subject_Patient"}]},"rows":{"kind":"RECORDS","records":{}},"columns":[{"column":"latest","label":"Latest","occurrenceId":"observations","source":{"kind":"aggregate","aggregate":{"operation":"FIRST_ORDERED","path":"valueQuantity.value","temporal":{"timestampPath":"effectiveDateTime","anchorPath":"meta.lastUpdated","lowerOffsetSeconds":-86400,"upperOffsetSeconds":0,"lowerInclusive":true,"upperInclusive":false,"direction":"DESC","precision":"INSTANT","tiePolicy":"RESOURCE_KEY"}}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
-	workspace, err := DecodeWorkspace([]byte(raw))
+	workspace, err := DecodeStoredWorkspaceForMigration([]byte(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +94,7 @@ func TestDecodeWorkspaceMigratesPersistedFirstOrderedTemporalPolicy(t *testing.T
 	if strings.Contains(string(canonical), `"temporal":`) || !strings.Contains(string(canonical), `"contributorWindow":`) || !strings.Contains(string(canonical), `"ordering":`) {
 		t.Fatalf("canonical persisted source did not use the new contract: %s", canonical)
 	}
-	reloaded, err := DecodeWorkspace(canonical)
+	reloaded, err := DecodeStoredWorkspaceForMigration(canonical)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +133,7 @@ func TestMigrateLosslessDefaultsUpgradesRepeatedFirstOnce(t *testing.T) {
 	if len(migrated.MigrationDecisions) != 1 || migrated.MigrationDecisions[0] != "semantics-v2:repeated-first-to-indexed:patients:names" {
 		t.Fatalf("migration decisions = %#v", migrated.MigrationDecisions)
 	}
-	legacyDigest, err := legacy.Digest()
+	legacyDigest, err := migrateMissingRowsBeforeCurrent(legacy).Digest()
 	if err != nil {
 		t.Fatal(err)
 	}

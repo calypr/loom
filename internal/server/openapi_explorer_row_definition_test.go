@@ -142,6 +142,9 @@ func TestRowDefinitionHTTPContractListsChoicesAndPreviewsWithoutDraftMutation(t 
 	if proposal.ProposalID == "" || proposal.Comparison.Status != lifecycle.RowDefinitionComparisonAvailable || proposal.Comparison.Base == nil || proposal.Comparison.Candidate == nil || proposal.Comparison.Base.RowCount != 1 || proposal.Comparison.Candidate.RowCount != 1 || proposal.Comparison.Base.Sampled || proposal.Comparison.Candidate.Sampled || len(proposal.Comparison.AffectedColumns) != 1 || proposal.Comparison.AffectedColumns[0] != "value" || previews != 2 {
 		t.Fatalf("proposal comparison=%#v preview calls=%d", proposal.Comparison, previews)
 	}
+	if proposal.CandidateDocument.Output.ID != "patients" || proposal.CandidateDocument.Rows.Kind != authoringv2.RowDefinitionExpanded || proposal.CandidateDocument.Rows.Expanded == nil || proposal.CandidateDocument.Rows.Expanded.ScopePath != "values[]" || proposal.CandidateNetwork.OutputID != "patients" || proposal.CandidateNetwork.SourceRows.Kind != authoringv2.RowDefinitionExpanded || proposal.CandidateRowIdentity.OutputID != "patients" || len(proposal.CandidateRowIdentity.Stages) != 1 || proposal.CandidateRowIdentity.Stages[0].Identity.Kind != "SOURCE_ITEM" || proposal.CandidateRowIdentity.Stages[0].Identity.MissingPolicy != "PRESERVE_PARENT" {
+		t.Fatalf("row proposal HTTP transport lost exact candidate source meaning: %s", proposed.Body)
+	}
 	if !strings.Contains(proposed.Body, `"rowIdentity":"row-1"`) || strings.Contains(proposed.Body, `"value":`) {
 		t.Fatalf("comparison omitted identity or exposed row cell values: %s", proposed.Body)
 	}

@@ -26,10 +26,6 @@ func workspaceOutputCaptureRequired(output lower.CompiledRecipeOutput) bool {
 	return false
 }
 
-// CompileResolvedRecipePlanWithPolicy is the common execution boundary for a
-// resolved recipe bundle. Lowering produces canonical physical plans; this
-// function applies the generic optimizer, inserts the typed execution window,
-// and renders through RenderPhysicalPlan for each output.
 func CompileResolvedRecipePlanWithPolicy(resolved semantic.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) ([]CompiledQuery, error) {
 	compiled, err := lower.CompileResolvedRecipePlan(resolved, policy)
 	if err != nil {
@@ -47,8 +43,6 @@ func CompileResolvedRecipePlanWithPolicy(resolved semantic.ResolvedRecipePlan, l
 	return queries, nil
 }
 
-// CompileRecipeOutputWithPolicy applies the common optimizer, execution
-// window, and canonical renderer to one already-lowered recipe output.
 func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledQuery, error) {
 	if workspaceOutputCaptureRequired(output) {
 		return CompiledQuery{}, fmt.Errorf("output %q references same-workspace outputs; server-owned workspace capture is not available", output.Name)
@@ -56,9 +50,9 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 	var physical ir.PhysicalPlan
 	groupRows := len(output.Plan.Operations) == 1 && output.Plan.Operations[0].Kind == ir.PhysicalGroupRowsOp
 	if groupRows {
-		physical = clonePhysicalPlan(output.Plan)
+		physical = ir.ClonePhysicalPlan(output.Plan)
 	} else if output.OptimizedPlan != nil {
-		physical = clonePhysicalPlan(*output.OptimizedPlan)
+		physical = ir.ClonePhysicalPlan(*output.OptimizedPlan)
 	} else {
 		var err error
 		physical, err = optimize.OptimizePhysicalPlanWithPolicy(output.Plan, policy)
@@ -92,11 +86,6 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 	previewCoveringIndex := legacyPreviewCoveringIndex
 	if streamingMissingCategoryPivot {
 		if storedValuesIndex := streamingMissingCategoryPivotIndexSpec(physical); storedValuesIndex != nil {
-			if storedValuesIndex.Supersedes == nil && legacyPreviewCoveringIndex != nil && legacyPreviewCoveringIndex.Name != storedValuesIndex.Name {
-				storedValuesIndex.Supersedes = &PreviewCoveringIndexReplacement{
-					Name: legacyPreviewCoveringIndex.Name, Fields: append([]string(nil), legacyPreviewCoveringIndex.Fields...),
-				}
-			}
 			previewCoveringIndex = storedValuesIndex
 		}
 	}
@@ -145,12 +134,12 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		}
 	}
 	return CompiledQuery{
-		PhysicalPlan:       clonePhysicalPlan(physical),
+		PhysicalPlan:       ir.ClonePhysicalPlan(physical),
 		Project:            bindings.Project,
 		DatasetGeneration:  normalizeDatasetGeneration(bindings.DatasetGeneration),
 		RootResourceType:   output.RootResourceType,
 		TranslationVersion: output.TranslationVersion,
-		AuthResourcePaths:  cloneStrings(bindings.AuthResourcePaths),
+		AuthResourcePaths:  ir.CloneStrings(bindings.AuthResourcePaths),
 		PlanMode:           "physical",
 		PlanProfile:        "generic_fhir_graph_recipe",
 		TraversalCount:     physicalTraversalCount(physical),
@@ -172,11 +161,6 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 	}, nil
 }
 
-// canRenderStreamingMissingCategoryPivotPreview only enables the streaming
-// renderer for a direct typed-root scan feeding one terminal Pivot. The
-// renderer retains the full source query and all scope predicates; this gate
-// only excludes shapes whose projections or row membership need an
-// intermediate table.
 func canRenderStreamingMissingCategoryPivotPreview(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, plan ir.PhysicalPlan) bool {
 	sequence := plan.StageSequence
 	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
@@ -248,10 +232,6 @@ func canRenderStreamingMissingCategoryPivotPreview(output lower.CompiledRecipeOu
 	return true
 }
 
-// streamingPivotInputProjectsSourceRows proves that the Pivot's row-shaped
-// inputs are a pure projection of the immediately preceding source RETURN.
-// Lowering represents that relationship through the stage input variable,
-// even when the source itself is a direct root scan.
 func streamingPivotInputProjectsSourceRows(pivot ir.PhysicalGroupedPivot, inputRowVariable string, sourceNames map[string]struct{}) bool {
 	if inputRowVariable == "" || len(pivot.InputProjections) == 0 {
 		return false
@@ -286,12 +266,6 @@ func streamingPivotInputProjectsSourceRows(pivot ir.PhysicalGroupedPivot, inputR
 	return true
 }
 
-// withoutUnusedTerminalPivotPresenceCompanions keeps category-presence
-// sidecars out of ordinary terminal Pivot previews. Lowering retains them in
-// the canonical plan so a later category-discovery scan can distinguish an
-// absent source property from explicit NULL. A frozen Pivot only consumes
-// that proof when one of its categories is MISSING; otherwise carrying the
-// hidden boolean through the preview would disable the bounded two-scan path.
 func withoutUnusedTerminalPivotPresenceCompanions(plan ir.PhysicalPlan) ir.PhysicalPlan {
 	sequence := plan.StageSequence
 	if sequence == nil || len(sequence.Stages) != 1 || sequence.PreviewLimitBindKey == "" ||
@@ -512,6 +486,9 @@ func appendAuthResourcePathProjection(physical *ir.PhysicalPlan) error {
 	}
 	if rootVariable == "" {
 		return fmt.Errorf("canonical plan has no root scan for auth_resource_path projection")
+	}
+	if constructionReshapeAuthPathSupported(physical.StageSequence) {
+		return appendConstructionReshapeAuthPath(physical, rootVariable)
 	}
 	for index := range physical.Operations {
 		operation := &physical.Operations[index]

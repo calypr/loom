@@ -19,7 +19,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/api/dataframe"
+	recipe "github.com/calypr/loom/internal/dataframe/recipe"
 	authoringv2 "github.com/calypr/loom/internal/explorer/authoringv2"
+	lifecycle "github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gofiber/fiber/v3"
 	"github.com/oapi-codegen/runtime"
@@ -385,39 +388,44 @@ func (e AuthoringCommandRowValuePolicy) Valid() bool {
 
 // Defines values for AuthoringCommandType.
 const (
-	ADDCOLUMN                     AuthoringCommandType = "ADD_COLUMN"
-	ADDCOLUMNSOURCE               AuthoringCommandType = "ADD_COLUMN_SOURCE"
-	ADDROUTE                      AuthoringCommandType = "ADD_ROUTE"
-	ADDSEMANTICSELECTIONS         AuthoringCommandType = "ADD_SEMANTIC_SELECTIONS"
-	APPLYCONSTRUCTIONCHOICE       AuthoringCommandType = "APPLY_CONSTRUCTION_CHOICE"
-	APPLYCONSTRUCTIONPROPOSAL     AuthoringCommandType = "APPLY_CONSTRUCTION_PROPOSAL"
-	APPLYINTERPRETATIONCANDIDATE  AuthoringCommandType = "APPLY_INTERPRETATION_CANDIDATE"
-	APPLYPOPULATIONMEMBERPROPOSAL AuthoringCommandType = "APPLY_POPULATION_MEMBER_PROPOSAL"
-	APPLYROWDEFINITIONPROPOSAL    AuthoringCommandType = "APPLY_ROW_DEFINITION_PROPOSAL"
-	APPLYTABLEROOTREBASE          AuthoringCommandType = "APPLY_TABLE_ROOT_REBASE"
-	CLEARCOLUMNCONTRIBUTOR        AuthoringCommandType = "CLEAR_COLUMN_CONTRIBUTOR"
-	CLEARTABLEPOPULATION          AuthoringCommandType = "CLEAR_TABLE_POPULATION"
-	CREATETABLE                   AuthoringCommandType = "CREATE_TABLE"
-	DELETETABLE                   AuthoringCommandType = "DELETE_TABLE"
-	DUPLICATETABLE                AuthoringCommandType = "DUPLICATE_TABLE"
-	REMOVECOLUMN                  AuthoringCommandType = "REMOVE_COLUMN"
-	REMOVEFRAMESOURCE             AuthoringCommandType = "REMOVE_FRAME_SOURCE"
-	REMOVEROUTE                   AuthoringCommandType = "REMOVE_ROUTE"
-	RENAMETABLE                   AuthoringCommandType = "RENAME_TABLE"
-	REORDERTABLES                 AuthoringCommandType = "REORDER_TABLES"
-	REPLACEFRAMESOURCE            AuthoringCommandType = "REPLACE_FRAME_SOURCE"
-	RESTOREDRAFTREVISION          AuthoringCommandType = "RESTORE_DRAFT_REVISION"
-	SETCOLUMNCONTRIBUTOR          AuthoringCommandType = "SET_COLUMN_CONTRIBUTOR"
-	SETFRAMESOURCE                AuthoringCommandType = "SET_FRAME_SOURCE"
-	SETROUTEMATCHMODE             AuthoringCommandType = "SET_ROUTE_MATCH_MODE"
-	SETTABLEPOPULATION            AuthoringCommandType = "SET_TABLE_POPULATION"
-	SETTABLEROOT                  AuthoringCommandType = "SET_TABLE_ROOT"
-	UPDATECOLUMN                  AuthoringCommandType = "UPDATE_COLUMN"
-	UPDATECOLUMNROWVALUEPOLICY    AuthoringCommandType = "UPDATE_COLUMN_ROW_VALUE_POLICY"
-	UPDATECOLUMNSOURCE            AuthoringCommandType = "UPDATE_COLUMN_SOURCE"
-	UPDATECOLUMNTRANSFORMATION    AuthoringCommandType = "UPDATE_COLUMN_TRANSFORMATION"
-	UPDATECONSTRUCTIONOUTPUT      AuthoringCommandType = "UPDATE_CONSTRUCTION_OUTPUT"
-	UPDATEROUTEEDGE               AuthoringCommandType = "UPDATE_ROUTE_EDGE"
+	ADDCOLUMN                         AuthoringCommandType = "ADD_COLUMN"
+	ADDCOLUMNSOURCE                   AuthoringCommandType = "ADD_COLUMN_SOURCE"
+	ADDROUTE                          AuthoringCommandType = "ADD_ROUTE"
+	ADDSEMANTICSELECTIONS             AuthoringCommandType = "ADD_SEMANTIC_SELECTIONS"
+	APPLYCOLUMNPOLICYPROPOSAL         AuthoringCommandType = "APPLY_COLUMN_POLICY_PROPOSAL"
+	APPLYCONSTRUCTIONCHOICE           AuthoringCommandType = "APPLY_CONSTRUCTION_CHOICE"
+	APPLYCONSTRUCTIONPROPOSAL         AuthoringCommandType = "APPLY_CONSTRUCTION_PROPOSAL"
+	APPLYIMPORTEDRELATIONSHIPPROPOSAL AuthoringCommandType = "APPLY_IMPORTED_RELATIONSHIP_PROPOSAL"
+	APPLYINTERPRETATIONCANDIDATE      AuthoringCommandType = "APPLY_INTERPRETATION_CANDIDATE"
+	APPLYPOPULATIONMEMBERPROPOSAL     AuthoringCommandType = "APPLY_POPULATION_MEMBER_PROPOSAL"
+	APPLYROWDEFINITIONPROPOSAL        AuthoringCommandType = "APPLY_ROW_DEFINITION_PROPOSAL"
+	APPLYTABLEROOTREBASE              AuthoringCommandType = "APPLY_TABLE_ROOT_REBASE"
+	CLEARCOLUMNCONTRIBUTOR            AuthoringCommandType = "CLEAR_COLUMN_CONTRIBUTOR"
+	CLEARTABLEPOPULATION              AuthoringCommandType = "CLEAR_TABLE_POPULATION"
+	CREATETABLE                       AuthoringCommandType = "CREATE_TABLE"
+	DELETETABLE                       AuthoringCommandType = "DELETE_TABLE"
+	DUPLICATETABLE                    AuthoringCommandType = "DUPLICATE_TABLE"
+	REFRESHIMPORTEDSOURCE             AuthoringCommandType = "REFRESH_IMPORTED_SOURCE"
+	REMOVECOLUMN                      AuthoringCommandType = "REMOVE_COLUMN"
+	REMOVEFRAMESOURCE                 AuthoringCommandType = "REMOVE_FRAME_SOURCE"
+	REMOVEPROJECTEDFIELD              AuthoringCommandType = "REMOVE_PROJECTED_FIELD"
+	REMOVEROUTE                       AuthoringCommandType = "REMOVE_ROUTE"
+	RENAMETABLE                       AuthoringCommandType = "RENAME_TABLE"
+	REORDERTABLES                     AuthoringCommandType = "REORDER_TABLES"
+	REPLACEFRAMESOURCE                AuthoringCommandType = "REPLACE_FRAME_SOURCE"
+	RESTOREDRAFTREVISION              AuthoringCommandType = "RESTORE_DRAFT_REVISION"
+	SETCOLUMNCONTRIBUTOR              AuthoringCommandType = "SET_COLUMN_CONTRIBUTOR"
+	SETFRAMESOURCE                    AuthoringCommandType = "SET_FRAME_SOURCE"
+	SETROUTEMATCHMODE                 AuthoringCommandType = "SET_ROUTE_MATCH_MODE"
+	SETTABLEPOPULATION                AuthoringCommandType = "SET_TABLE_POPULATION"
+	SETTABLEROOT                      AuthoringCommandType = "SET_TABLE_ROOT"
+	UPDATECOLUMN                      AuthoringCommandType = "UPDATE_COLUMN"
+	UPDATECOLUMNROWVALUEPOLICY        AuthoringCommandType = "UPDATE_COLUMN_ROW_VALUE_POLICY"
+	UPDATECOLUMNSOURCE                AuthoringCommandType = "UPDATE_COLUMN_SOURCE"
+	UPDATECOLUMNTRANSFORMATION        AuthoringCommandType = "UPDATE_COLUMN_TRANSFORMATION"
+	UPDATECONSTRUCTIONOUTPUT          AuthoringCommandType = "UPDATE_CONSTRUCTION_OUTPUT"
+	UPDATEIMPORTEDSOURCESTEP          AuthoringCommandType = "UPDATE_IMPORTED_SOURCE_STEP"
+	UPDATEROUTEEDGE                   AuthoringCommandType = "UPDATE_ROUTE_EDGE"
 )
 
 // Valid indicates whether the value is a known member of the AuthoringCommandType enum.
@@ -431,9 +439,13 @@ func (e AuthoringCommandType) Valid() bool {
 		return true
 	case ADDSEMANTICSELECTIONS:
 		return true
+	case APPLYCOLUMNPOLICYPROPOSAL:
+		return true
 	case APPLYCONSTRUCTIONCHOICE:
 		return true
 	case APPLYCONSTRUCTIONPROPOSAL:
+		return true
+	case APPLYIMPORTEDRELATIONSHIPPROPOSAL:
 		return true
 	case APPLYINTERPRETATIONCANDIDATE:
 		return true
@@ -453,9 +465,13 @@ func (e AuthoringCommandType) Valid() bool {
 		return true
 	case DUPLICATETABLE:
 		return true
+	case REFRESHIMPORTEDSOURCE:
+		return true
 	case REMOVECOLUMN:
 		return true
 	case REMOVEFRAMESOURCE:
+		return true
+	case REMOVEPROJECTEDFIELD:
 		return true
 	case REMOVEROUTE:
 		return true
@@ -487,7 +503,27 @@ func (e AuthoringCommandType) Valid() bool {
 		return true
 	case UPDATECONSTRUCTIONOUTPUT:
 		return true
+	case UPDATEIMPORTEDSOURCESTEP:
+		return true
 	case UPDATEROUTEEDGE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AuthoringNetworkOwner.
+const (
+	DOCUMENT       AuthoringNetworkOwner = "DOCUMENT"
+	IMPORTEDSOURCE AuthoringNetworkOwner = "IMPORTED_SOURCE"
+)
+
+// Valid indicates whether the value is a known member of the AuthoringNetworkOwner enum.
+func (e AuthoringNetworkOwner) Valid() bool {
+	switch e {
+	case DOCUMENT:
+		return true
+	case IMPORTEDSOURCE:
 		return true
 	default:
 		return false
@@ -671,6 +707,27 @@ func (e CellTraceTraceStatus) Valid() bool {
 	}
 }
 
+// Defines values for ColumnPopulationSummaryStatus.
+const (
+	COLUMNPOPULATIONEMPTY     ColumnPopulationSummaryStatus = "EMPTY"
+	COLUMNPOPULATIONPOPULATED ColumnPopulationSummaryStatus = "POPULATED"
+	COLUMNPOPULATIONUNKNOWN   ColumnPopulationSummaryStatus = "UNKNOWN"
+)
+
+// Valid indicates whether the value is a known member of the ColumnPopulationSummaryStatus enum.
+func (e ColumnPopulationSummaryStatus) Valid() bool {
+	switch e {
+	case COLUMNPOPULATIONEMPTY:
+		return true
+	case COLUMNPOPULATIONPOPULATED:
+		return true
+	case COLUMNPOPULATIONUNKNOWN:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ColumnSourceKind.
 const (
 	Aggregate          ColumnSourceKind = "aggregate"
@@ -678,6 +735,7 @@ const (
 	ExtensionByUrl     ColumnSourceKind = "extensionByUrl"
 	Field              ColumnSourceKind = "field"
 	IdentifierBySystem ColumnSourceKind = "identifierBySystem"
+	Imported           ColumnSourceKind = "imported"
 	OwnerRecords       ColumnSourceKind = "ownerRecords"
 	ProjectId          ColumnSourceKind = "projectId"
 )
@@ -694,6 +752,8 @@ func (e ColumnSourceKind) Valid() bool {
 	case Field:
 		return true
 	case IdentifierBySystem:
+		return true
+	case Imported:
 		return true
 	case OwnerRecords:
 		return true
@@ -826,6 +886,7 @@ const (
 	ConstructionCategoryDiscoveryResponseOutcomeCOMPLETE           ConstructionCategoryDiscoveryResponseOutcome = "COMPLETE"
 	ConstructionCategoryDiscoveryResponseOutcomeLIMITEXCEEDED      ConstructionCategoryDiscoveryResponseOutcome = "LIMIT_EXCEEDED"
 	ConstructionCategoryDiscoveryResponseOutcomeMISSINGUNSUPPORTED ConstructionCategoryDiscoveryResponseOutcome = "MISSING_UNSUPPORTED"
+	ConstructionCategoryDiscoveryResponseOutcomeNOVALUES           ConstructionCategoryDiscoveryResponseOutcome = "NO_VALUES"
 )
 
 // Valid indicates whether the value is a known member of the ConstructionCategoryDiscoveryResponseOutcome enum.
@@ -836,6 +897,8 @@ func (e ConstructionCategoryDiscoveryResponseOutcome) Valid() bool {
 	case ConstructionCategoryDiscoveryResponseOutcomeLIMITEXCEEDED:
 		return true
 	case ConstructionCategoryDiscoveryResponseOutcomeMISSINGUNSUPPORTED:
+		return true
+	case ConstructionCategoryDiscoveryResponseOutcomeNOVALUES:
 		return true
 	default:
 		return false
@@ -995,9 +1058,11 @@ func (e ConstructionChoiceProposalResponsePreviewStatus) Valid() bool {
 // Defines values for ConstructionChoiceProposalSelectionForm.
 const (
 	ConstructionChoiceProposalSelectionFormALL          ConstructionChoiceProposalSelectionForm = "ALL"
+	ConstructionChoiceProposalSelectionFormCOUNT        ConstructionChoiceProposalSelectionForm = "COUNT"
 	ConstructionChoiceProposalSelectionFormDISTINCT     ConstructionChoiceProposalSelectionForm = "DISTINCT"
 	ConstructionChoiceProposalSelectionFormFIRST        ConstructionChoiceProposalSelectionForm = "FIRST"
 	ConstructionChoiceProposalSelectionFormOWNERRECORDS ConstructionChoiceProposalSelectionForm = "OWNER_RECORDS"
+	ConstructionChoiceProposalSelectionFormPRESENCE     ConstructionChoiceProposalSelectionForm = "PRESENCE"
 	ConstructionChoiceProposalSelectionFormVALUE        ConstructionChoiceProposalSelectionForm = "VALUE"
 )
 
@@ -1006,11 +1071,15 @@ func (e ConstructionChoiceProposalSelectionForm) Valid() bool {
 	switch e {
 	case ConstructionChoiceProposalSelectionFormALL:
 		return true
+	case ConstructionChoiceProposalSelectionFormCOUNT:
+		return true
 	case ConstructionChoiceProposalSelectionFormDISTINCT:
 		return true
 	case ConstructionChoiceProposalSelectionFormFIRST:
 		return true
 	case ConstructionChoiceProposalSelectionFormOWNERRECORDS:
+		return true
+	case ConstructionChoiceProposalSelectionFormPRESENCE:
 		return true
 	case ConstructionChoiceProposalSelectionFormVALUE:
 		return true
@@ -1180,8 +1249,8 @@ func (e ConstructionCodedPivotDuplicatePolicy) Valid() bool {
 
 // Defines values for ConstructionCodedPivotMissingCellPolicy.
 const (
-	ConstructionCodedPivotMissingCellPolicyERROR       ConstructionCodedPivotMissingCellPolicy = "ERROR"
-	ConstructionCodedPivotMissingCellPolicyLessThannil ConstructionCodedPivotMissingCellPolicy = "<nil>"
+	ConstructionCodedPivotMissingCellPolicyERROR ConstructionCodedPivotMissingCellPolicy = "ERROR"
+	ConstructionCodedPivotMissingCellPolicyNULL  ConstructionCodedPivotMissingCellPolicy = "NULL"
 )
 
 // Valid indicates whether the value is a known member of the ConstructionCodedPivotMissingCellPolicy enum.
@@ -1189,7 +1258,7 @@ func (e ConstructionCodedPivotMissingCellPolicy) Valid() bool {
 	switch e {
 	case ConstructionCodedPivotMissingCellPolicyERROR:
 		return true
-	case ConstructionCodedPivotMissingCellPolicyLessThannil:
+	case ConstructionCodedPivotMissingCellPolicyNULL:
 		return true
 	default:
 		return false
@@ -1270,8 +1339,8 @@ func (e ConstructionCombineRightMatchPolicy) Valid() bool {
 
 // Defines values for ConstructionDeriveDivisionByZeroPolicy.
 const (
-	ConstructionDeriveDivisionByZeroPolicyERROR       ConstructionDeriveDivisionByZeroPolicy = "ERROR"
-	ConstructionDeriveDivisionByZeroPolicyLessThannil ConstructionDeriveDivisionByZeroPolicy = "<nil>"
+	ConstructionDeriveDivisionByZeroPolicyERROR ConstructionDeriveDivisionByZeroPolicy = "ERROR"
+	ConstructionDeriveDivisionByZeroPolicyNULL  ConstructionDeriveDivisionByZeroPolicy = "NULL"
 )
 
 // Valid indicates whether the value is a known member of the ConstructionDeriveDivisionByZeroPolicy enum.
@@ -1279,7 +1348,7 @@ func (e ConstructionDeriveDivisionByZeroPolicy) Valid() bool {
 	switch e {
 	case ConstructionDeriveDivisionByZeroPolicyERROR:
 		return true
-	case ConstructionDeriveDivisionByZeroPolicyLessThannil:
+	case ConstructionDeriveDivisionByZeroPolicyNULL:
 		return true
 	default:
 		return false
@@ -1306,22 +1375,22 @@ func (e ConstructionDeriveMissingInputPolicy) Valid() bool {
 
 // Defines values for ConstructionDeriveOperation.
 const (
-	ConstructionDeriveOperationADD      ConstructionDeriveOperation = "ADD"
-	ConstructionDeriveOperationDIVIDE   ConstructionDeriveOperation = "DIVIDE"
-	ConstructionDeriveOperationMULTIPLY ConstructionDeriveOperation = "MULTIPLY"
-	ConstructionDeriveOperationSUBTRACT ConstructionDeriveOperation = "SUBTRACT"
+	ADD      ConstructionDeriveOperation = "ADD"
+	DIVIDE   ConstructionDeriveOperation = "DIVIDE"
+	MULTIPLY ConstructionDeriveOperation = "MULTIPLY"
+	SUBTRACT ConstructionDeriveOperation = "SUBTRACT"
 )
 
 // Valid indicates whether the value is a known member of the ConstructionDeriveOperation enum.
 func (e ConstructionDeriveOperation) Valid() bool {
 	switch e {
-	case ConstructionDeriveOperationADD:
+	case ADD:
 		return true
-	case ConstructionDeriveOperationDIVIDE:
+	case DIVIDE:
 		return true
-	case ConstructionDeriveOperationMULTIPLY:
+	case MULTIPLY:
 		return true
-	case ConstructionDeriveOperationSUBTRACT:
+	case SUBTRACT:
 		return true
 	default:
 		return false
@@ -2014,6 +2083,7 @@ const (
 	ConstructionInputRefKindSOURCEPROJECTION ConstructionInputRefKind = "SOURCE_PROJECTION"
 	ConstructionInputRefKindSTEPOUTPUT       ConstructionInputRefKind = "STEP_OUTPUT"
 	ConstructionInputRefKindTABLEREVISION    ConstructionInputRefKind = "TABLE_REVISION"
+	ConstructionInputRefKindWORKSPACEOUTPUT  ConstructionInputRefKind = "WORKSPACE_OUTPUT"
 )
 
 // Valid indicates whether the value is a known member of the ConstructionInputRefKind enum.
@@ -2024,6 +2094,8 @@ func (e ConstructionInputRefKind) Valid() bool {
 	case ConstructionInputRefKindSTEPOUTPUT:
 		return true
 	case ConstructionInputRefKindTABLEREVISION:
+		return true
+	case ConstructionInputRefKindWORKSPACEOUTPUT:
 		return true
 	default:
 		return false
@@ -2065,16 +2137,16 @@ func (e ConstructionLiteralKind) Valid() bool {
 
 // Defines values for ConstructionOperandKind.
 const (
-	ConstructionOperandKindCOLUMN  ConstructionOperandKind = "COLUMN"
-	ConstructionOperandKindLITERAL ConstructionOperandKind = "LITERAL"
+	COLUMN  ConstructionOperandKind = "COLUMN"
+	LITERAL ConstructionOperandKind = "LITERAL"
 )
 
 // Valid indicates whether the value is a known member of the ConstructionOperandKind enum.
 func (e ConstructionOperandKind) Valid() bool {
 	switch e {
-	case ConstructionOperandKindCOLUMN:
+	case COLUMN:
 		return true
-	case ConstructionOperandKindLITERAL:
+	case LITERAL:
 		return true
 	default:
 		return false
@@ -2209,8 +2281,8 @@ func (e ConstructionPivotDuplicatePolicy) Valid() bool {
 
 // Defines values for ConstructionPivotMissingCellPolicy.
 const (
-	ConstructionPivotMissingCellPolicyERROR       ConstructionPivotMissingCellPolicy = "ERROR"
-	ConstructionPivotMissingCellPolicyLessThannil ConstructionPivotMissingCellPolicy = "<nil>"
+	ConstructionPivotMissingCellPolicyERROR ConstructionPivotMissingCellPolicy = "ERROR"
+	ConstructionPivotMissingCellPolicyNULL  ConstructionPivotMissingCellPolicy = "NULL"
 )
 
 // Valid indicates whether the value is a known member of the ConstructionPivotMissingCellPolicy enum.
@@ -2218,7 +2290,7 @@ func (e ConstructionPivotMissingCellPolicy) Valid() bool {
 	switch e {
 	case ConstructionPivotMissingCellPolicyERROR:
 		return true
-	case ConstructionPivotMissingCellPolicyLessThannil:
+	case ConstructionPivotMissingCellPolicyNULL:
 		return true
 	default:
 		return false
@@ -2461,12 +2533,12 @@ func (e ConstructionStageColumnDescriptorCardinality) Valid() bool {
 
 // Defines values for ConstructionTableScalarKind.
 const (
-	ConstructionTableScalarKindBOOLEAN     ConstructionTableScalarKind = "BOOLEAN"
-	ConstructionTableScalarKindDECIMAL     ConstructionTableScalarKind = "DECIMAL"
-	ConstructionTableScalarKindINTEGER     ConstructionTableScalarKind = "INTEGER"
-	ConstructionTableScalarKindLessThannil ConstructionTableScalarKind = "<nil>"
-	ConstructionTableScalarKindMISSING     ConstructionTableScalarKind = "MISSING"
-	ConstructionTableScalarKindSTRING      ConstructionTableScalarKind = "STRING"
+	ConstructionTableScalarKindBOOLEAN ConstructionTableScalarKind = "BOOLEAN"
+	ConstructionTableScalarKindDECIMAL ConstructionTableScalarKind = "DECIMAL"
+	ConstructionTableScalarKindINTEGER ConstructionTableScalarKind = "INTEGER"
+	ConstructionTableScalarKindMISSING ConstructionTableScalarKind = "MISSING"
+	ConstructionTableScalarKindNULL    ConstructionTableScalarKind = "NULL"
+	ConstructionTableScalarKindSTRING  ConstructionTableScalarKind = "STRING"
 )
 
 // Valid indicates whether the value is a known member of the ConstructionTableScalarKind enum.
@@ -2478,9 +2550,9 @@ func (e ConstructionTableScalarKind) Valid() bool {
 		return true
 	case ConstructionTableScalarKindINTEGER:
 		return true
-	case ConstructionTableScalarKindLessThannil:
-		return true
 	case ConstructionTableScalarKindMISSING:
+		return true
+	case ConstructionTableScalarKindNULL:
 		return true
 	case ConstructionTableScalarKindSTRING:
 		return true
@@ -3022,8 +3094,8 @@ func (e FrameDefinitionManyPolicy) Valid() bool {
 
 // Defines values for FrameDefinitionZeroPolicy.
 const (
-	FrameDefinitionZeroPolicyEMPTYLIST   FrameDefinitionZeroPolicy = "EMPTY_LIST"
-	FrameDefinitionZeroPolicyLessThannil FrameDefinitionZeroPolicy = "<nil>"
+	FrameDefinitionZeroPolicyEMPTYLIST FrameDefinitionZeroPolicy = "EMPTY_LIST"
+	FrameDefinitionZeroPolicyNULL      FrameDefinitionZeroPolicy = "NULL"
 )
 
 // Valid indicates whether the value is a known member of the FrameDefinitionZeroPolicy enum.
@@ -3031,7 +3103,7 @@ func (e FrameDefinitionZeroPolicy) Valid() bool {
 	switch e {
 	case FrameDefinitionZeroPolicyEMPTYLIST:
 		return true
-	case FrameDefinitionZeroPolicyLessThannil:
+	case FrameDefinitionZeroPolicyNULL:
 		return true
 	default:
 		return false
@@ -3106,8 +3178,8 @@ func (e FrameSourceFormManyPolicy) Valid() bool {
 
 // Defines values for FrameSourceFormZeroPolicy.
 const (
-	FrameSourceFormZeroPolicyEMPTYLIST   FrameSourceFormZeroPolicy = "EMPTY_LIST"
-	FrameSourceFormZeroPolicyLessThannil FrameSourceFormZeroPolicy = "<nil>"
+	FrameSourceFormZeroPolicyEMPTYLIST FrameSourceFormZeroPolicy = "EMPTY_LIST"
+	FrameSourceFormZeroPolicyNULL      FrameSourceFormZeroPolicy = "NULL"
 )
 
 // Valid indicates whether the value is a known member of the FrameSourceFormZeroPolicy enum.
@@ -3115,7 +3187,7 @@ func (e FrameSourceFormZeroPolicy) Valid() bool {
 	switch e {
 	case FrameSourceFormZeroPolicyEMPTYLIST:
 		return true
-	case FrameSourceFormZeroPolicyLessThannil:
+	case FrameSourceFormZeroPolicyNULL:
 		return true
 	default:
 		return false
@@ -3140,6 +3212,120 @@ func (e FrameSourceOptionDefaultForm) Valid() bool {
 	case FrameSourceOptionDefaultFormFIRST:
 		return true
 	case FrameSourceOptionDefaultFormVALUE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ImportedRelationshipMatchMode.
+const (
+	ImportedRelationshipMatchModeOPTIONAL ImportedRelationshipMatchMode = "OPTIONAL"
+	ImportedRelationshipMatchModeREQUIRED ImportedRelationshipMatchMode = "REQUIRED"
+)
+
+// Valid indicates whether the value is a known member of the ImportedRelationshipMatchMode enum.
+func (e ImportedRelationshipMatchMode) Valid() bool {
+	switch e {
+	case ImportedRelationshipMatchModeOPTIONAL:
+		return true
+	case ImportedRelationshipMatchModeREQUIRED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ImportedRelationshipStorageDirection.
+const (
+	ImportedRelationshipStorageDirectionINBOUND  ImportedRelationshipStorageDirection = "INBOUND"
+	ImportedRelationshipStorageDirectionOUTBOUND ImportedRelationshipStorageDirection = "OUTBOUND"
+)
+
+// Valid indicates whether the value is a known member of the ImportedRelationshipStorageDirection enum.
+func (e ImportedRelationshipStorageDirection) Valid() bool {
+	switch e {
+	case ImportedRelationshipStorageDirectionINBOUND:
+		return true
+	case ImportedRelationshipStorageDirectionOUTBOUND:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ImportedRelationshipFieldValueMode.
+const (
+	ImportedRelationshipFieldValueModeALL      ImportedRelationshipFieldValueMode = "ALL"
+	ImportedRelationshipFieldValueModeDISTINCT ImportedRelationshipFieldValueMode = "DISTINCT"
+	ImportedRelationshipFieldValueModeFIRST    ImportedRelationshipFieldValueMode = "FIRST"
+)
+
+// Valid indicates whether the value is a known member of the ImportedRelationshipFieldValueMode enum.
+func (e ImportedRelationshipFieldValueMode) Valid() bool {
+	switch e {
+	case ImportedRelationshipFieldValueModeALL:
+		return true
+	case ImportedRelationshipFieldValueModeDISTINCT:
+		return true
+	case ImportedRelationshipFieldValueModeFIRST:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ImportedRelationshipMatchMatchMode.
+const (
+	ImportedRelationshipMatchMatchModeOPTIONAL ImportedRelationshipMatchMatchMode = "OPTIONAL"
+	ImportedRelationshipMatchMatchModeREQUIRED ImportedRelationshipMatchMatchMode = "REQUIRED"
+)
+
+// Valid indicates whether the value is a known member of the ImportedRelationshipMatchMatchMode enum.
+func (e ImportedRelationshipMatchMatchMode) Valid() bool {
+	switch e {
+	case ImportedRelationshipMatchMatchModeOPTIONAL:
+		return true
+	case ImportedRelationshipMatchMatchModeREQUIRED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ImportedSourceRuleAdditionKind.
+const (
+	CATALOGPROJECTION ImportedSourceRuleAdditionKind = "CATALOG_PROJECTION"
+	DYNAMICCOLUMN     ImportedSourceRuleAdditionKind = "DYNAMIC_COLUMN"
+	EXTENSIONCOLUMN   ImportedSourceRuleAdditionKind = "EXTENSION_COLUMN"
+)
+
+// Valid indicates whether the value is a known member of the ImportedSourceRuleAdditionKind enum.
+func (e ImportedSourceRuleAdditionKind) Valid() bool {
+	switch e {
+	case CATALOGPROJECTION:
+		return true
+	case DYNAMICCOLUMN:
+		return true
+	case EXTENSIONCOLUMN:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ImportedSourceStepMatchMode.
+const (
+	ImportedSourceStepMatchModeOPTIONAL ImportedSourceStepMatchMode = "OPTIONAL"
+	ImportedSourceStepMatchModeREQUIRED ImportedSourceStepMatchMode = "REQUIRED"
+)
+
+// Valid indicates whether the value is a known member of the ImportedSourceStepMatchMode enum.
+func (e ImportedSourceStepMatchMode) Valid() bool {
+	switch e {
+	case ImportedSourceStepMatchModeOPTIONAL:
+		return true
+	case ImportedSourceStepMatchModeREQUIRED:
 		return true
 	default:
 		return false
@@ -3296,6 +3482,69 @@ func (e PreviewRowSourceKind) Valid() bool {
 	case PreviewRowSourceKindSINGLE:
 		return true
 	case PreviewRowSourceKindUNAVAILABLE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectedFieldOwner.
+const (
+	PROJECTEDFIELDAUTHORED     ProjectedFieldOwner = "AUTHORED"
+	PROJECTEDFIELDPINNEDSOURCE ProjectedFieldOwner = "PINNED_SOURCE"
+	PROJECTEDFIELDUNKNOWNOWNER ProjectedFieldOwner = "UNKNOWN"
+)
+
+// Valid indicates whether the value is a known member of the ProjectedFieldOwner enum.
+func (e ProjectedFieldOwner) Valid() bool {
+	switch e {
+	case PROJECTEDFIELDAUTHORED:
+		return true
+	case PROJECTEDFIELDPINNEDSOURCE:
+		return true
+	case PROJECTEDFIELDUNKNOWNOWNER:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectedFieldRemoval.
+const (
+	PROJECTEDFIELDDISABLEPINNED       ProjectedFieldRemoval = "DISABLE_PINNED_FIELD"
+	PROJECTEDFIELDDISABLEPINNEDOUTPUT ProjectedFieldRemoval = "DISABLE_PINNED_OUTPUT"
+	PROJECTEDFIELDREMOVECOLUMN        ProjectedFieldRemoval = "REMOVE_COLUMN"
+	PROJECTEDFIELDUNAVAILABLE         ProjectedFieldRemoval = "UNAVAILABLE"
+)
+
+// Valid indicates whether the value is a known member of the ProjectedFieldRemoval enum.
+func (e ProjectedFieldRemoval) Valid() bool {
+	switch e {
+	case PROJECTEDFIELDDISABLEPINNED:
+		return true
+	case PROJECTEDFIELDDISABLEPINNEDOUTPUT:
+		return true
+	case PROJECTEDFIELDREMOVECOLUMN:
+		return true
+	case PROJECTEDFIELDUNAVAILABLE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectedFieldStatus.
+const (
+	PROJECTEDFIELDEXACT         ProjectedFieldStatus = "EXACT"
+	PROJECTEDFIELDUNKNOWNSTATUS ProjectedFieldStatus = "UNKNOWN"
+)
+
+// Valid indicates whether the value is a known member of the ProjectedFieldStatus enum.
+func (e ProjectedFieldStatus) Valid() bool {
+	switch e {
+	case PROJECTEDFIELDEXACT:
+		return true
+	case PROJECTEDFIELDUNKNOWNSTATUS:
 		return true
 	default:
 		return false
@@ -3524,15 +3773,48 @@ func (e RelatedSourceFieldKind) Valid() bool {
 	}
 }
 
+// Defines values for RelationshipRowEffectMatchMode.
+const (
+	RelationshipRowEffectMatchModeOPTIONAL RelationshipRowEffectMatchMode = "OPTIONAL"
+	RelationshipRowEffectMatchModeREQUIRED RelationshipRowEffectMatchMode = "REQUIRED"
+)
+
+// Valid indicates whether the value is a known member of the RelationshipRowEffectMatchMode enum.
+func (e RelationshipRowEffectMatchMode) Valid() bool {
+	switch e {
+	case RelationshipRowEffectMatchModeOPTIONAL:
+		return true
+	case RelationshipRowEffectMatchModeREQUIRED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RelationshipRowEffectMultiplicity.
+const (
+	RelationshipRowEffectMultiplicityUNKNOWN RelationshipRowEffectMultiplicity = "UNKNOWN"
+)
+
+// Valid indicates whether the value is a known member of the RelationshipRowEffectMultiplicity enum.
+func (e RelationshipRowEffectMultiplicity) Valid() bool {
+	switch e {
+	case RelationshipRowEffectMultiplicityUNKNOWN:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RemoveColumnTransformationKind.
 const (
-	RemoveColumnTransformationKindREMOVE RemoveColumnTransformationKind = "REMOVE"
+	REMOVE RemoveColumnTransformationKind = "REMOVE"
 )
 
 // Valid indicates whether the value is a known member of the RemoveColumnTransformationKind enum.
 func (e RemoveColumnTransformationKind) Valid() bool {
 	switch e {
-	case RemoveColumnTransformationKindREMOVE:
+	case REMOVE:
 		return true
 	default:
 		return false
@@ -3626,6 +3908,21 @@ func (e RowChangeUnresolvedReferenceKind) Valid() bool {
 	case RowChangeUnresolvedReferenceKindColumn:
 		return true
 	case RowChangeUnresolvedReferenceKindRoute:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowCountEvidenceKind.
+const (
+	RowCountEvidenceKindUNKNOWN RowCountEvidenceKind = "UNKNOWN"
+)
+
+// Valid indicates whether the value is a known member of the RowCountEvidenceKind enum.
+func (e RowCountEvidenceKind) Valid() bool {
+	switch e {
+	case RowCountEvidenceKindUNKNOWN:
 		return true
 	default:
 		return false
@@ -3866,6 +4163,21 @@ const (
 func (e RowDefinitionRecordsSelectionKind) Valid() bool {
 	switch e {
 	case RowDefinitionRecordsSelectionKindRECORDS:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowIdentityStageMultiplicity.
+const (
+	RowIdentityStageMultiplicityUNKNOWN RowIdentityStageMultiplicity = "UNKNOWN"
+)
+
+// Valid indicates whether the value is a known member of the RowIdentityStageMultiplicity enum.
+func (e RowIdentityStageMultiplicity) Valid() bool {
+	switch e {
+	case RowIdentityStageMultiplicityUNKNOWN:
 		return true
 	default:
 		return false
@@ -4256,6 +4568,93 @@ func (e SetColumnTransformationKind) Valid() bool {
 	}
 }
 
+// Defines values for SourceFileReceiptState.
+const (
+	SourceFileReceiptStateREADY SourceFileReceiptState = "READY"
+)
+
+// Valid indicates whether the value is a known member of the SourceFileReceiptState enum.
+func (e SourceFileReceiptState) Valid() bool {
+	switch e {
+	case SourceFileReceiptStateREADY:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SourceLoadStatusState.
+const (
+	SourceLoadStatusStatePUBLISHED      SourceLoadStatusState = "PUBLISHED"
+	SourceLoadStatusStatePUBLISHPENDING SourceLoadStatusState = "PUBLISH_PENDING"
+	SourceLoadStatusStateREADY          SourceLoadStatusState = "READY"
+	SourceLoadStatusStateSUPERSEDED     SourceLoadStatusState = "SUPERSEDED"
+	SourceLoadStatusStateUPLOADING      SourceLoadStatusState = "UPLOADING"
+)
+
+// Valid indicates whether the value is a known member of the SourceLoadStatusState enum.
+func (e SourceLoadStatusState) Valid() bool {
+	switch e {
+	case SourceLoadStatusStatePUBLISHED:
+		return true
+	case SourceLoadStatusStatePUBLISHPENDING:
+		return true
+	case SourceLoadStatusStateREADY:
+		return true
+	case SourceLoadStatusStateSUPERSEDED:
+		return true
+	case SourceLoadStatusStateUPLOADING:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SourceLoadValidationErrorResponseErrorCode.
+const (
+	INVALIDDATA SourceLoadValidationErrorResponseErrorCode = "INVALID_DATA"
+)
+
+// Valid indicates whether the value is a known member of the SourceLoadValidationErrorResponseErrorCode enum.
+func (e SourceLoadValidationErrorResponseErrorCode) Valid() bool {
+	switch e {
+	case INVALIDDATA:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SourcePublishReceiptState.
+const (
+	SourcePublishReceiptStatePUBLISHED SourcePublishReceiptState = "PUBLISHED"
+)
+
+// Valid indicates whether the value is a known member of the SourcePublishReceiptState enum.
+func (e SourcePublishReceiptState) Valid() bool {
+	switch e {
+	case SourcePublishReceiptStatePUBLISHED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SourceRelationshipProposalPreviewStatus.
+const (
+	SourceRelationshipProposalPreviewStatusREADY SourceRelationshipProposalPreviewStatus = "READY"
+)
+
+// Valid indicates whether the value is a known member of the SourceRelationshipProposalPreviewStatus enum.
+func (e SourceRelationshipProposalPreviewStatus) Valid() bool {
+	switch e {
+	case SourceRelationshipProposalPreviewStatusREADY:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TablePresentationCellRenderer.
 const (
 	TablePresentationCellRendererFileActions TablePresentationCellRenderer = "fileActions"
@@ -4265,726 +4664,6 @@ const (
 func (e TablePresentationCellRenderer) Valid() bool {
 	switch e {
 	case TablePresentationCellRendererFileActions:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeBinaryOperatorChoiceChoiceKind.
-const (
-	TableShapeBinaryOperatorChoiceChoiceKindBinaryOperator TableShapeBinaryOperatorChoiceChoiceKind = "binaryOperator"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeBinaryOperatorChoiceChoiceKind enum.
-func (e TableShapeBinaryOperatorChoiceChoiceKind) Valid() bool {
-	switch e {
-	case TableShapeBinaryOperatorChoiceChoiceKindBinaryOperator:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeBinaryOperatorReferenceKind.
-const (
-	TableShapeBinaryOperatorReferenceKindBinaryOperator TableShapeBinaryOperatorReferenceKind = "binaryOperator"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeBinaryOperatorReferenceKind enum.
-func (e TableShapeBinaryOperatorReferenceKind) Valid() bool {
-	switch e {
-	case TableShapeBinaryOperatorReferenceKindBinaryOperator:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeCategoryDiscoveryResponseKind.
-const (
-	TableShapeCategoryDiscoveryResponseKindComplete TableShapeCategoryDiscoveryResponseKind = "complete"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeCategoryDiscoveryResponseKind enum.
-func (e TableShapeCategoryDiscoveryResponseKind) Valid() bool {
-	switch e {
-	case TableShapeCategoryDiscoveryResponseKindComplete:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeCellTraceState.
-const (
-	TableShapeCellTraceStateAVAILABLE     TableShapeCellTraceState = "AVAILABLE"
-	TableShapeCellTraceStateFAILED        TableShapeCellTraceState = "FAILED"
-	TableShapeCellTraceStateNOTAPPLICABLE TableShapeCellTraceState = "NOT_APPLICABLE"
-	TableShapeCellTraceStateNOTREQUESTED  TableShapeCellTraceState = "NOT_REQUESTED"
-	TableShapeCellTraceStateUNAVAILABLE   TableShapeCellTraceState = "UNAVAILABLE"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeCellTraceState enum.
-func (e TableShapeCellTraceState) Valid() bool {
-	switch e {
-	case TableShapeCellTraceStateAVAILABLE:
-		return true
-	case TableShapeCellTraceStateFAILED:
-		return true
-	case TableShapeCellTraceStateNOTAPPLICABLE:
-		return true
-	case TableShapeCellTraceStateNOTREQUESTED:
-		return true
-	case TableShapeCellTraceStateUNAVAILABLE:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeChoiceAvailabilityKind.
-const (
-	TableShapeChoiceAvailabilityKindSupported   TableShapeChoiceAvailabilityKind = "supported"
-	TableShapeChoiceAvailabilityKindUnsupported TableShapeChoiceAvailabilityKind = "unsupported"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeChoiceAvailabilityKind enum.
-func (e TableShapeChoiceAvailabilityKind) Valid() bool {
-	switch e {
-	case TableShapeChoiceAvailabilityKindSupported:
-		return true
-	case TableShapeChoiceAvailabilityKindUnsupported:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeColumnReferenceKind.
-const (
-	TableShapeColumnReferenceKindColumn TableShapeColumnReferenceKind = "column"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeColumnReferenceKind enum.
-func (e TableShapeColumnReferenceKind) Valid() bool {
-	switch e {
-	case TableShapeColumnReferenceKindColumn:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeComparisonAvailableStatus.
-const (
-	TableShapeComparisonAvailableStatusAVAILABLE TableShapeComparisonAvailableStatus = "AVAILABLE"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeComparisonAvailableStatus enum.
-func (e TableShapeComparisonAvailableStatus) Valid() bool {
-	switch e {
-	case TableShapeComparisonAvailableStatusAVAILABLE:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeComparisonUnavailableStatus.
-const (
-	TableShapeComparisonUnavailableStatusUNAVAILABLE TableShapeComparisonUnavailableStatus = "UNAVAILABLE"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeComparisonUnavailableStatus enum.
-func (e TableShapeComparisonUnavailableStatus) Valid() bool {
-	switch e {
-	case TableShapeComparisonUnavailableStatusUNAVAILABLE:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeDeclaredInformationLossStatus.
-const (
-	TableShapeDeclaredInformationLossStatusCOMPLETE    TableShapeDeclaredInformationLossStatus = "COMPLETE"
-	TableShapeDeclaredInformationLossStatusUNAVAILABLE TableShapeDeclaredInformationLossStatus = "UNAVAILABLE"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeDeclaredInformationLossStatus enum.
-func (e TableShapeDeclaredInformationLossStatus) Valid() bool {
-	switch e {
-	case TableShapeDeclaredInformationLossStatusCOMPLETE:
-		return true
-	case TableShapeDeclaredInformationLossStatusUNAVAILABLE:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeDerivedOperandIntentKind.
-const (
-	TableShapeDerivedOperandIntentKindBase        TableShapeDerivedOperandIntentKind = "base"
-	TableShapeDerivedOperandIntentKindDerived     TableShapeDerivedOperandIntentKind = "derived"
-	TableShapeDerivedOperandIntentKindLiteral     TableShapeDerivedOperandIntentKind = "literal"
-	TableShapeDerivedOperandIntentKindPivotOutput TableShapeDerivedOperandIntentKind = "pivotOutput"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeDerivedOperandIntentKind enum.
-func (e TableShapeDerivedOperandIntentKind) Valid() bool {
-	switch e {
-	case TableShapeDerivedOperandIntentKindBase:
-		return true
-	case TableShapeDerivedOperandIntentKindDerived:
-		return true
-	case TableShapeDerivedOperandIntentKindLiteral:
-		return true
-	case TableShapeDerivedOperandIntentKindPivotOutput:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeDerivedOperandIntentRepresentation.
-const (
-	Decimal TableShapeDerivedOperandIntentRepresentation = "decimal"
-	Integer TableShapeDerivedOperandIntentRepresentation = "integer"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeDerivedOperandIntentRepresentation enum.
-func (e TableShapeDerivedOperandIntentRepresentation) Valid() bool {
-	switch e {
-	case Decimal:
-		return true
-	case Integer:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeDerivedOperandReferenceKind.
-const (
-	TableShapeDerivedOperandReferenceKindCategory TableShapeDerivedOperandReferenceKind = "category"
-	TableShapeDerivedOperandReferenceKindGroup    TableShapeDerivedOperandReferenceKind = "group"
-	TableShapeDerivedOperandReferenceKindOperand  TableShapeDerivedOperandReferenceKind = "operand"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeDerivedOperandReferenceKind enum.
-func (e TableShapeDerivedOperandReferenceKind) Valid() bool {
-	switch e {
-	case TableShapeDerivedOperandReferenceKindCategory:
-		return true
-	case TableShapeDerivedOperandReferenceKindGroup:
-		return true
-	case TableShapeDerivedOperandReferenceKindOperand:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeDivisionByZeroPolicyReferenceKind.
-const (
-	TableShapeDivisionByZeroPolicyReferenceKindDivisionByZeroPolicy TableShapeDivisionByZeroPolicyReferenceKind = "divisionByZeroPolicy"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeDivisionByZeroPolicyReferenceKind enum.
-func (e TableShapeDivisionByZeroPolicyReferenceKind) Valid() bool {
-	switch e {
-	case TableShapeDivisionByZeroPolicyReferenceKindDivisionByZeroPolicy:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeDuplicatePolicyReferenceKind.
-const (
-	TableShapeDuplicatePolicyReferenceKindDuplicatePolicy TableShapeDuplicatePolicyReferenceKind = "duplicatePolicy"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeDuplicatePolicyReferenceKind enum.
-func (e TableShapeDuplicatePolicyReferenceKind) Valid() bool {
-	switch e {
-	case TableShapeDuplicatePolicyReferenceKindDuplicatePolicy:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeEditorChoiceChoiceKind.
-const (
-	TableShapeEditorChoiceChoiceKindBinaryOperator         TableShapeEditorChoiceChoiceKind = "binaryOperator"
-	TableShapeEditorChoiceChoiceKindColumn                 TableShapeEditorChoiceChoiceKind = "column"
-	TableShapeEditorChoiceChoiceKindDivisionByZeroPolicy   TableShapeEditorChoiceChoiceKind = "divisionByZeroPolicy"
-	TableShapeEditorChoiceChoiceKindDuplicatePolicy        TableShapeEditorChoiceChoiceKind = "duplicatePolicy"
-	TableShapeEditorChoiceChoiceKindMissingCellPolicy      TableShapeEditorChoiceChoiceKind = "missingCellPolicy"
-	TableShapeEditorChoiceChoiceKindMissingInputPolicy     TableShapeEditorChoiceChoiceKind = "missingInputPolicy"
-	TableShapeEditorChoiceChoiceKindOperand                TableShapeEditorChoiceChoiceKind = "operand"
-	TableShapeEditorChoiceChoiceKindUnlistedCategoryPolicy TableShapeEditorChoiceChoiceKind = "unlistedCategoryPolicy"
-	TableShapeEditorChoiceChoiceKindUnpivotNullRowPolicy   TableShapeEditorChoiceChoiceKind = "unpivotNullRowPolicy"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeEditorChoiceChoiceKind enum.
-func (e TableShapeEditorChoiceChoiceKind) Valid() bool {
-	switch e {
-	case TableShapeEditorChoiceChoiceKindBinaryOperator:
-		return true
-	case TableShapeEditorChoiceChoiceKindColumn:
-		return true
-	case TableShapeEditorChoiceChoiceKindDivisionByZeroPolicy:
-		return true
-	case TableShapeEditorChoiceChoiceKindDuplicatePolicy:
-		return true
-	case TableShapeEditorChoiceChoiceKindMissingCellPolicy:
-		return true
-	case TableShapeEditorChoiceChoiceKindMissingInputPolicy:
-		return true
-	case TableShapeEditorChoiceChoiceKindOperand:
-		return true
-	case TableShapeEditorChoiceChoiceKindUnlistedCategoryPolicy:
-		return true
-	case TableShapeEditorChoiceChoiceKindUnpivotNullRowPolicy:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeExclusionEvidenceStatus.
-const (
-	TableShapeExclusionEvidenceStatusCOMPLETE    TableShapeExclusionEvidenceStatus = "COMPLETE"
-	TableShapeExclusionEvidenceStatusINCOMPLETE  TableShapeExclusionEvidenceStatus = "INCOMPLETE"
-	TableShapeExclusionEvidenceStatusUNAVAILABLE TableShapeExclusionEvidenceStatus = "UNAVAILABLE"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeExclusionEvidenceStatus enum.
-func (e TableShapeExclusionEvidenceStatus) Valid() bool {
-	switch e {
-	case TableShapeExclusionEvidenceStatusCOMPLETE:
-		return true
-	case TableShapeExclusionEvidenceStatusINCOMPLETE:
-		return true
-	case TableShapeExclusionEvidenceStatusUNAVAILABLE:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeLogicalType.
-const (
-	TableShapeLogicalTypeBOOLEAN  TableShapeLogicalType = "BOOLEAN"
-	TableShapeLogicalTypeDATE     TableShapeLogicalType = "DATE"
-	TableShapeLogicalTypeDATETIME TableShapeLogicalType = "DATETIME"
-	TableShapeLogicalTypeDECIMAL  TableShapeLogicalType = "DECIMAL"
-	TableShapeLogicalTypeINTEGER  TableShapeLogicalType = "INTEGER"
-	TableShapeLogicalTypeOBJECT   TableShapeLogicalType = "OBJECT"
-	TableShapeLogicalTypeSTRING   TableShapeLogicalType = "STRING"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeLogicalType enum.
-func (e TableShapeLogicalType) Valid() bool {
-	switch e {
-	case TableShapeLogicalTypeBOOLEAN:
-		return true
-	case TableShapeLogicalTypeDATE:
-		return true
-	case TableShapeLogicalTypeDATETIME:
-		return true
-	case TableShapeLogicalTypeDECIMAL:
-		return true
-	case TableShapeLogicalTypeINTEGER:
-		return true
-	case TableShapeLogicalTypeOBJECT:
-		return true
-	case TableShapeLogicalTypeSTRING:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeMissingCellPolicyReferenceKind.
-const (
-	TableShapeMissingCellPolicyReferenceKindMissingCellPolicy TableShapeMissingCellPolicyReferenceKind = "missingCellPolicy"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeMissingCellPolicyReferenceKind enum.
-func (e TableShapeMissingCellPolicyReferenceKind) Valid() bool {
-	switch e {
-	case TableShapeMissingCellPolicyReferenceKindMissingCellPolicy:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeMissingInputPolicyReferenceKind.
-const (
-	TableShapeMissingInputPolicyReferenceKindMissingInputPolicy TableShapeMissingInputPolicyReferenceKind = "missingInputPolicy"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeMissingInputPolicyReferenceKind enum.
-func (e TableShapeMissingInputPolicyReferenceKind) Valid() bool {
-	switch e {
-	case TableShapeMissingInputPolicyReferenceKindMissingInputPolicy:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeOperandSelectionKind.
-const (
-	TableShapeOperandSelectionKindCATALOGCHOICE    TableShapeOperandSelectionKind = "CATALOG_CHOICE"
-	TableShapeOperandSelectionKindLITERAL          TableShapeOperandSelectionKind = "LITERAL"
-	TableShapeOperandSelectionKindRESOLUTIONOUTPUT TableShapeOperandSelectionKind = "RESOLUTION_OUTPUT"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeOperandSelectionKind enum.
-func (e TableShapeOperandSelectionKind) Valid() bool {
-	switch e {
-	case TableShapeOperandSelectionKindCATALOGCHOICE:
-		return true
-	case TableShapeOperandSelectionKindLITERAL:
-		return true
-	case TableShapeOperandSelectionKindRESOLUTIONOUTPUT:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeOutputDescriptorSupportKind.
-const (
-	TableShapeOutputDescriptorSupportKindSupported   TableShapeOutputDescriptorSupportKind = "supported"
-	TableShapeOutputDescriptorSupportKindUnsupported TableShapeOutputDescriptorSupportKind = "unsupported"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeOutputDescriptorSupportKind enum.
-func (e TableShapeOutputDescriptorSupportKind) Valid() bool {
-	switch e {
-	case TableShapeOutputDescriptorSupportKindSupported:
-		return true
-	case TableShapeOutputDescriptorSupportKindUnsupported:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeOutputSuggestionChoiceKind.
-const (
-	DerivedOutput      TableShapeOutputSuggestionChoiceKind = "derivedOutput"
-	UnpivotKeyOutput   TableShapeOutputSuggestionChoiceKind = "unpivotKeyOutput"
-	UnpivotValueOutput TableShapeOutputSuggestionChoiceKind = "unpivotValueOutput"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeOutputSuggestionChoiceKind enum.
-func (e TableShapeOutputSuggestionChoiceKind) Valid() bool {
-	switch e {
-	case DerivedOutput:
-		return true
-	case UnpivotKeyOutput:
-		return true
-	case UnpivotValueOutput:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapePivotCategoryChoiceChoiceKind.
-const (
-	TableShapePivotCategoryChoiceChoiceKindPivotCategory TableShapePivotCategoryChoiceChoiceKind = "pivotCategory"
-)
-
-// Valid indicates whether the value is a known member of the TableShapePivotCategoryChoiceChoiceKind enum.
-func (e TableShapePivotCategoryChoiceChoiceKind) Valid() bool {
-	switch e {
-	case TableShapePivotCategoryChoiceChoiceKindPivotCategory:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapePivotCategoryDiscoveryKind.
-const (
-	TableShapePivotCategoryDiscoveryKindComplete     TableShapePivotCategoryDiscoveryKind = "complete"
-	TableShapePivotCategoryDiscoveryKindNotRequested TableShapePivotCategoryDiscoveryKind = "not-requested"
-)
-
-// Valid indicates whether the value is a known member of the TableShapePivotCategoryDiscoveryKind enum.
-func (e TableShapePivotCategoryDiscoveryKind) Valid() bool {
-	switch e {
-	case TableShapePivotCategoryDiscoveryKindComplete:
-		return true
-	case TableShapePivotCategoryDiscoveryKindNotRequested:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapePivotCategoryReferenceKind.
-const (
-	TableShapePivotCategoryReferenceKindPivotCategory TableShapePivotCategoryReferenceKind = "pivotCategory"
-)
-
-// Valid indicates whether the value is a known member of the TableShapePivotCategoryReferenceKind enum.
-func (e TableShapePivotCategoryReferenceKind) Valid() bool {
-	switch e {
-	case TableShapePivotCategoryReferenceKindPivotCategory:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeProposalMode.
-const (
-	TableShapeProposalModeADD     TableShapeProposalMode = "ADD"
-	TableShapeProposalModeREMOVE  TableShapeProposalMode = "REMOVE"
-	TableShapeProposalModeREPLACE TableShapeProposalMode = "REPLACE"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeProposalMode enum.
-func (e TableShapeProposalMode) Valid() bool {
-	switch e {
-	case TableShapeProposalModeADD:
-		return true
-	case TableShapeProposalModeREMOVE:
-		return true
-	case TableShapeProposalModeREPLACE:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeProposalIntentKind.
-const (
-	TableShapeProposalIntentKindGROUPEDPIVOT TableShapeProposalIntentKind = "GROUPED_PIVOT"
-	TableShapeProposalIntentKindNONE         TableShapeProposalIntentKind = "NONE"
-	TableShapeProposalIntentKindUNPIVOT      TableShapeProposalIntentKind = "UNPIVOT"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeProposalIntentKind enum.
-func (e TableShapeProposalIntentKind) Valid() bool {
-	switch e {
-	case TableShapeProposalIntentKindGROUPEDPIVOT:
-		return true
-	case TableShapeProposalIntentKindNONE:
-		return true
-	case TableShapeProposalIntentKindUNPIVOT:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeProposalRequestMode.
-const (
-	TableShapeProposalRequestModeADD     TableShapeProposalRequestMode = "ADD"
-	TableShapeProposalRequestModeREMOVE  TableShapeProposalRequestMode = "REMOVE"
-	TableShapeProposalRequestModeREPLACE TableShapeProposalRequestMode = "REPLACE"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeProposalRequestMode enum.
-func (e TableShapeProposalRequestMode) Valid() bool {
-	switch e {
-	case TableShapeProposalRequestModeADD:
-		return true
-	case TableShapeProposalRequestModeREMOVE:
-		return true
-	case TableShapeProposalRequestModeREPLACE:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeReshapeModeChoiceChoiceKind.
-const (
-	TableShapeReshapeModeChoiceChoiceKindReshapeMode TableShapeReshapeModeChoiceChoiceKind = "reshapeMode"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeReshapeModeChoiceChoiceKind enum.
-func (e TableShapeReshapeModeChoiceChoiceKind) Valid() bool {
-	switch e {
-	case TableShapeReshapeModeChoiceChoiceKindReshapeMode:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeReshapeModeChoiceMode.
-const (
-	TableShapeReshapeModeChoiceModeGROUPEDPIVOT TableShapeReshapeModeChoiceMode = "GROUPED_PIVOT"
-	TableShapeReshapeModeChoiceModeNONE         TableShapeReshapeModeChoiceMode = "NONE"
-	TableShapeReshapeModeChoiceModeUNPIVOT      TableShapeReshapeModeChoiceMode = "UNPIVOT"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeReshapeModeChoiceMode enum.
-func (e TableShapeReshapeModeChoiceMode) Valid() bool {
-	switch e {
-	case TableShapeReshapeModeChoiceModeGROUPEDPIVOT:
-		return true
-	case TableShapeReshapeModeChoiceModeNONE:
-		return true
-	case TableShapeReshapeModeChoiceModeUNPIVOT:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeReshapeModeReferenceKind.
-const (
-	TableShapeReshapeModeReferenceKindReshapeMode TableShapeReshapeModeReferenceKind = "reshapeMode"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeReshapeModeReferenceKind enum.
-func (e TableShapeReshapeModeReferenceKind) Valid() bool {
-	switch e {
-	case TableShapeReshapeModeReferenceKindReshapeMode:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeResolutionRequestKind.
-const (
-	TableShapeResolutionRequestKindDERIVED TableShapeResolutionRequestKind = "DERIVED"
-	TableShapeResolutionRequestKindPIVOT   TableShapeResolutionRequestKind = "PIVOT"
-	TableShapeResolutionRequestKindUNPIVOT TableShapeResolutionRequestKind = "UNPIVOT"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeResolutionRequestKind enum.
-func (e TableShapeResolutionRequestKind) Valid() bool {
-	switch e {
-	case TableShapeResolutionRequestKindDERIVED:
-		return true
-	case TableShapeResolutionRequestKindPIVOT:
-		return true
-	case TableShapeResolutionRequestKindUNPIVOT:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeResolutionResponseKind.
-const (
-	TableShapeResolutionResponseKindDERIVED TableShapeResolutionResponseKind = "DERIVED"
-	TableShapeResolutionResponseKindPIVOT   TableShapeResolutionResponseKind = "PIVOT"
-	TableShapeResolutionResponseKindUNPIVOT TableShapeResolutionResponseKind = "UNPIVOT"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeResolutionResponseKind enum.
-func (e TableShapeResolutionResponseKind) Valid() bool {
-	switch e {
-	case TableShapeResolutionResponseKindDERIVED:
-		return true
-	case TableShapeResolutionResponseKindPIVOT:
-		return true
-	case TableShapeResolutionResponseKindUNPIVOT:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeResolvedOutputDescriptorKind.
-const (
-	TableShapeResolvedOutputDescriptorKindCategory     TableShapeResolvedOutputDescriptorKind = "category"
-	TableShapeResolvedOutputDescriptorKindDerived      TableShapeResolvedOutputDescriptorKind = "derived"
-	TableShapeResolvedOutputDescriptorKindGroup        TableShapeResolvedOutputDescriptorKind = "group"
-	TableShapeResolvedOutputDescriptorKindUnpivotKey   TableShapeResolvedOutputDescriptorKind = "unpivotKey"
-	TableShapeResolvedOutputDescriptorKindUnpivotValue TableShapeResolvedOutputDescriptorKind = "unpivotValue"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeResolvedOutputDescriptorKind enum.
-func (e TableShapeResolvedOutputDescriptorKind) Valid() bool {
-	switch e {
-	case TableShapeResolvedOutputDescriptorKindCategory:
-		return true
-	case TableShapeResolvedOutputDescriptorKindDerived:
-		return true
-	case TableShapeResolvedOutputDescriptorKindGroup:
-		return true
-	case TableShapeResolvedOutputDescriptorKindUnpivotKey:
-		return true
-	case TableShapeResolvedOutputDescriptorKindUnpivotValue:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeScalarKind.
-const (
-	TableShapeScalarKindBOOLEAN     TableShapeScalarKind = "BOOLEAN"
-	TableShapeScalarKindDECIMAL     TableShapeScalarKind = "DECIMAL"
-	TableShapeScalarKindINTEGER     TableShapeScalarKind = "INTEGER"
-	TableShapeScalarKindLessThannil TableShapeScalarKind = "<nil>"
-	TableShapeScalarKindMISSING     TableShapeScalarKind = "MISSING"
-	TableShapeScalarKindSTRING      TableShapeScalarKind = "STRING"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeScalarKind enum.
-func (e TableShapeScalarKind) Valid() bool {
-	switch e {
-	case TableShapeScalarKindBOOLEAN:
-		return true
-	case TableShapeScalarKindDECIMAL:
-		return true
-	case TableShapeScalarKindINTEGER:
-		return true
-	case TableShapeScalarKindLessThannil:
-		return true
-	case TableShapeScalarKindMISSING:
-		return true
-	case TableShapeScalarKindSTRING:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeUnlistedCategoryPolicyReferenceKind.
-const (
-	TableShapeUnlistedCategoryPolicyReferenceKindUnlistedCategoryPolicy TableShapeUnlistedCategoryPolicyReferenceKind = "unlistedCategoryPolicy"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeUnlistedCategoryPolicyReferenceKind enum.
-func (e TableShapeUnlistedCategoryPolicyReferenceKind) Valid() bool {
-	switch e {
-	case TableShapeUnlistedCategoryPolicyReferenceKindUnlistedCategoryPolicy:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for TableShapeUnpivotNullRowPolicyReferenceKind.
-const (
-	TableShapeUnpivotNullRowPolicyReferenceKindUnpivotNullRowPolicy TableShapeUnpivotNullRowPolicyReferenceKind = "unpivotNullRowPolicy"
-)
-
-// Valid indicates whether the value is a known member of the TableShapeUnpivotNullRowPolicyReferenceKind enum.
-func (e TableShapeUnpivotNullRowPolicyReferenceKind) Valid() bool {
-	switch e {
-	case TableShapeUnpivotNullRowPolicyReferenceKindUnpivotNullRowPolicy:
 		return true
 	default:
 		return false
@@ -5209,6 +4888,7 @@ type AuthoringCapabilityOperations string
 type AuthoringCommand struct {
 	CandidateId             *string                              `json:"candidateId,omitempty"`
 	Column                  *string                              `json:"column,omitempty"`
+	ColumnId                *string                              `json:"columnId,omitempty"`
 	ColumnValue             *Column                              `json:"columnValue,omitempty"`
 	ConstructionChoice      *ConstructionChoiceSelection         `json:"constructionChoice,omitempty"`
 	ConstructionOutput      *ConstructionOutputPresentation      `json:"constructionOutput,omitempty"`
@@ -5236,6 +4916,7 @@ type AuthoringCommand struct {
 	SemanticSelections      *[]SemanticSelectionIntent           `json:"semanticSelections,omitempty"`
 	Source                  *ColumnSource                        `json:"source,omitempty"`
 	SourceOutputId          *string                              `json:"sourceOutputId,omitempty"`
+	SourceStep              *ImportedSourceStepChange            `json:"sourceStep,omitempty"`
 	Title                   *string                              `json:"title,omitempty"`
 	TransformationChange    *ColumnTransformationChange          `json:"transformationChange,omitempty"`
 	Type                    AuthoringCommandType                 `json:"type"`
@@ -5264,6 +4945,32 @@ type AuthoringFeatures struct {
 	FileActions     bool `json:"fileActions"`
 	FixedFilters    bool `json:"fixedFilters"`
 	SharedFilters   bool `json:"sharedFilters"`
+}
+
+// AuthoringNetwork defines model for AuthoringNetwork.
+type AuthoringNetwork struct {
+	Bindings        []NetworkColumnBinding `json:"bindings"`
+	Occurrences     []NetworkOccurrence    `json:"occurrences"`
+	Operations      []NetworkOperation     `json:"operations"`
+	OutputId        string                 `json:"outputId"`
+	Owner           AuthoringNetworkOwner  `json:"owner"`
+	ProjectedFields *[]ProjectedField      `json:"projectedFields,omitempty"`
+	SourceRows      RowDefinition          `json:"sourceRows"`
+}
+
+// AuthoringNetworkOwner defines model for AuthoringNetwork.Owner.
+type AuthoringNetworkOwner string
+
+// AuthoringNetworkRequest defines model for AuthoringNetworkRequest.
+type AuthoringNetworkRequest = lifecycle.AuthoringNetworkRequest
+
+// AuthoringNetworkResponse defines model for AuthoringNetworkResponse.
+type AuthoringNetworkResponse struct {
+	DraftDigest   string           `json:"draftDigest"`
+	DraftVersion  int64            `json:"draftVersion"`
+	Network       AuthoringNetwork `json:"network"`
+	RowIdentity   RowIdentityPlan  `json:"rowIdentity"`
+	SnapshotToken string           `json:"snapshotToken"`
 }
 
 // BuilderState defines model for BuilderState.
@@ -5524,10 +5231,26 @@ type Column struct {
 	ValueTransformation *ColumnValueTransformation `json:"valueTransformation,omitempty"`
 }
 
+// ColumnPolicyProposal defines model for ColumnPolicyProposal.
+type ColumnPolicyProposal = SourceRelationshipProposal
+
+// ColumnPolicyProposalRequest defines model for ColumnPolicyProposalRequest.
+type ColumnPolicyProposalRequest = lifecycle.ColumnPolicyProposalRequest
+
+// ColumnPopulationSummary defines model for ColumnPopulationSummary.
+type ColumnPopulationSummary struct {
+	ColumnId string                        `json:"columnId"`
+	Status   ColumnPopulationSummaryStatus `json:"status"`
+}
+
+// ColumnPopulationSummaryStatus defines model for ColumnPopulationSummary.Status.
+type ColumnPopulationSummaryStatus string
+
 // ColumnSource defines model for ColumnSource.
 type ColumnSource struct {
 	Aggregate *AggregateSource `json:"aggregate,omitempty"`
 	Field     *FieldSource     `json:"field,omitempty"`
+	Imported  *ImportedSource  `json:"imported,omitempty"`
 	Kind      ColumnSourceKind `json:"kind"`
 
 	// Lookup Typed Identifier, Extension, and coded-value bindings remain distinct. Correlated binding/key is writable only for codedValue. Legacy Identifier and Extension match/path payloads remain readable at the persisted-draft boundary.
@@ -5718,6 +5441,7 @@ type ConstructionCapabilitiesRequest struct {
 	ExpectedDraftDigest  string  `json:"expectedDraftDigest"`
 	ExpectedDraftVersion int     `json:"expectedDraftVersion"`
 	GroupStepId          *string `json:"groupStepId,omitempty"`
+	IncludeGroupChoices  *bool   `json:"includeGroupChoices,omitempty"`
 	OutputId             string  `json:"outputId"`
 	SnapshotToken        string  `json:"snapshotToken"`
 	StageId              string  `json:"stageId"`
@@ -5725,22 +5449,25 @@ type ConstructionCapabilitiesRequest struct {
 
 // ConstructionCapabilitiesResponse defines model for ConstructionCapabilitiesResponse.
 type ConstructionCapabilitiesResponse struct {
-	BaseConstruction               Construction                               `json:"baseConstruction"`
-	DeriveSourceInput              *ConstructionDeriveSourceInput             `json:"deriveSourceInput,omitempty"`
-	DraftDigest                    string                                     `json:"draftDigest"`
-	DraftVersion                   int                                        `json:"draftVersion"`
-	ExpandSourceInput              *ConstructionExpandSourceInput             `json:"expandSourceInput,omitempty"`
-	FilterSourceInput              *ConstructionFilterSourceInput             `json:"filterSourceInput,omitempty"`
-	GroupFieldChoices              []ConstructionGroupFieldChoice             `json:"groupFieldChoices"`
-	GroupFieldChoicesIncomplete    *bool                                      `json:"groupFieldChoicesIncomplete,omitempty"`
-	GroupRowValueChoices           []ConstructionGroupFieldScalarSourceOption `json:"groupRowValueChoices"`
-	OutputId                       string                                     `json:"outputId"`
-	PivotSourceInput               *ConstructionSourceInput                   `json:"pivotSourceInput,omitempty"`
-	SelectedStage                  ConstructionStageDescriptor                `json:"selectedStage"`
-	SemanticGroupChoices           *[]ConstructionSemanticGroupChoice         `json:"semanticGroupChoices,omitempty"`
-	SemanticGroupChoicesIncomplete *bool                                      `json:"semanticGroupChoicesIncomplete,omitempty"`
-	SnapshotToken                  string                                     `json:"snapshotToken"`
-	SourceInput                    ConstructionSourceInput                    `json:"sourceInput"`
+	BaseConstruction            Construction                               `json:"baseConstruction"`
+	DeriveSourceInput           *ConstructionDeriveSourceInput             `json:"deriveSourceInput,omitempty"`
+	DraftDigest                 string                                     `json:"draftDigest"`
+	DraftVersion                int                                        `json:"draftVersion"`
+	ExpandSourceInput           *ConstructionExpandSourceInput             `json:"expandSourceInput,omitempty"`
+	FilterSourceInput           *ConstructionFilterSourceInput             `json:"filterSourceInput,omitempty"`
+	GroupFieldChoices           []ConstructionGroupFieldChoice             `json:"groupFieldChoices"`
+	GroupFieldChoicesIncomplete *bool                                      `json:"groupFieldChoicesIncomplete,omitempty"`
+	GroupRowValueChoices        []ConstructionGroupFieldScalarSourceOption `json:"groupRowValueChoices"`
+
+	// NodeOccurrences Maps catalog node IDs to their authored route occurrence IDs.
+	NodeOccurrences                *map[string]string                 `json:"nodeOccurrences,omitempty"`
+	OutputId                       string                             `json:"outputId"`
+	PivotSourceInput               *ConstructionSourceInput           `json:"pivotSourceInput,omitempty"`
+	SelectedStage                  ConstructionStageDescriptor        `json:"selectedStage"`
+	SemanticGroupChoices           *[]ConstructionSemanticGroupChoice `json:"semanticGroupChoices,omitempty"`
+	SemanticGroupChoicesIncomplete *bool                              `json:"semanticGroupChoicesIncomplete,omitempty"`
+	SnapshotToken                  string                             `json:"snapshotToken"`
+	SourceInput                    ConstructionSourceInput            `json:"sourceInput"`
 
 	// SourceProjectionAvailability Indicates whether root scalar source projection can be carried into the exact selected construction stage. This does not certify individual fields or describe other source-choice modes.
 	SourceProjectionAvailability *ConstructionSourceProjectionAvailability `json:"sourceProjectionAvailability,omitempty"`
@@ -5767,7 +5494,7 @@ type ConstructionCategoryDiscoveryRequest struct {
 
 // ConstructionCategoryDiscoveryResponse defines model for ConstructionCategoryDiscoveryResponse.
 type ConstructionCategoryDiscoveryResponse struct {
-	// Categories Empty for LIMIT_EXCEEDED and MISSING_UNSUPPORTED; partial or unsupported category values are never returned.
+	// Categories Empty for LIMIT_EXCEEDED, MISSING_UNSUPPORTED, and NO_VALUES; partial or unsupported category values are never returned.
 	Categories       []ConstructionDiscoveredCategory `json:"categories"`
 	CategoryColumnId string                           `json:"categoryColumnId"`
 
@@ -5779,10 +5506,10 @@ type ConstructionCategoryDiscoveryResponse struct {
 	// Limit Present only for LIMIT_EXCEEDED; maximum supported number of categories.
 	Limit *int `json:"limit,omitempty"`
 
-	// Message Present for LIMIT_EXCEEDED or MISSING_UNSUPPORTED; user-facing recovery guidance.
+	// Message Present for LIMIT_EXCEEDED, MISSING_UNSUPPORTED, or NO_VALUES; user-facing recovery guidance.
 	Message *string `json:"message,omitempty"`
 
-	// Outcome COMPLETE includes a complete compiler proof; LIMIT_EXCEEDED is a compiler-proven overflow and carries no partial category set; MISSING_UNSUPPORTED means the selected stage contains MISSING values that a construction Pivot cannot preserve separately from NULL.
+	// Outcome COMPLETE includes a complete compiler proof; LIMIT_EXCEEDED is a compiler-proven overflow and carries no partial category set; MISSING_UNSUPPORTED means the selected stage contains MISSING values that a construction Pivot cannot preserve separately from NULL; NO_VALUES means no category has a non-null value for the selected value column.
 	Outcome  ConstructionCategoryDiscoveryResponseOutcome `json:"outcome"`
 	OutputId string                                       `json:"outputId"`
 
@@ -5793,7 +5520,7 @@ type ConstructionCategoryDiscoveryResponse struct {
 	ValueColumnId    string  `json:"valueColumnId"`
 }
 
-// ConstructionCategoryDiscoveryResponseOutcome COMPLETE includes a complete compiler proof; LIMIT_EXCEEDED is a compiler-proven overflow and carries no partial category set; MISSING_UNSUPPORTED means the selected stage contains MISSING values that a construction Pivot cannot preserve separately from NULL.
+// ConstructionCategoryDiscoveryResponseOutcome COMPLETE includes a complete compiler proof; LIMIT_EXCEEDED is a compiler-proven overflow and carries no partial category set; MISSING_UNSUPPORTED means the selected stage contains MISSING values that a construction Pivot cannot preserve separately from NULL; NO_VALUES means no category has a non-null value for the selected value column.
 type ConstructionCategoryDiscoveryResponseOutcome string
 
 // ConstructionChoice defines model for ConstructionChoice.
@@ -6023,6 +5750,26 @@ type ConstructionCodedPivotSource struct {
 	FieldPath   string                  `json:"fieldPath"`
 	NodeId      string                  `json:"nodeId"`
 	Route       []ConstructionRouteStep `json:"route"`
+}
+
+// ConstructionColumnPopulationRequest defines model for ConstructionColumnPopulationRequest.
+type ConstructionColumnPopulationRequest struct {
+	ColumnIds            []string `json:"columnIds"`
+	ExpectedDraftDigest  string   `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int      `json:"expectedDraftVersion"`
+	OutputId             string   `json:"outputId"`
+	SnapshotToken        string   `json:"snapshotToken"`
+	StageId              string   `json:"stageId"`
+}
+
+// ConstructionColumnPopulationResponse defines model for ConstructionColumnPopulationResponse.
+type ConstructionColumnPopulationResponse struct {
+	Columns       []ColumnPopulationSummary `json:"columns"`
+	DraftDigest   string                    `json:"draftDigest"`
+	DraftVersion  int                       `json:"draftVersion"`
+	OutputId      string                    `json:"outputId"`
+	SnapshotToken string                    `json:"snapshotToken"`
+	StageId       string                    `json:"stageId"`
 }
 
 // ConstructionCombine defines model for ConstructionCombine.
@@ -6747,6 +6494,7 @@ type ConstructionPivot struct {
 	Categories             []ConstructionPivotCategory             `json:"categories"`
 	CategoryColumnId       string                                  `json:"categoryColumnId"`
 	ConstructionId         string                                  `json:"constructionId"`
+	Discovery              *ConstructionPivotDiscovery             `json:"discovery,omitempty"`
 	DuplicatePolicy        ConstructionPivotDuplicatePolicy        `json:"duplicatePolicy"`
 	GroupKeyIds            []string                                `json:"groupKeyIds"`
 	MissingCellPolicy      ConstructionPivotMissingCellPolicy      `json:"missingCellPolicy"`
@@ -6769,10 +6517,23 @@ type ConstructionPivotCategory struct {
 	OutputColumnId string                  `json:"outputColumnId"`
 }
 
+// ConstructionPivotDiscovery defines model for ConstructionPivotDiscovery.
+type ConstructionPivotDiscovery struct {
+	MaxCategories int `json:"maxCategories"`
+}
+
 // ConstructionPivotSourceSelection defines model for ConstructionPivotSourceSelection.
 type ConstructionPivotSourceSelection struct {
 	ChoiceId string `json:"choiceId"`
 	ColumnId string `json:"columnId"`
+}
+
+// ConstructionProposalDiagnostic defines model for ConstructionProposalDiagnostic.
+type ConstructionProposalDiagnostic struct {
+	Code    string  `json:"code"`
+	Message string  `json:"message"`
+	Outcome *string `json:"outcome,omitempty"`
+	StepId  *string `json:"stepId,omitempty"`
 }
 
 // ConstructionProposalRequest defines model for ConstructionProposalRequest.
@@ -6802,6 +6563,7 @@ type ConstructionProposalResponse struct {
 	CandidateWorkspaceDigest string                                    `json:"candidateWorkspaceDigest"`
 	ChangedStepId            string                                    `json:"changedStepId"`
 	DependencyImpact         ConstructionDependencyImpact              `json:"dependencyImpact"`
+	Diagnostics              *[]ConstructionProposalDiagnostic         `json:"diagnostics,omitempty"`
 	DraftDigest              string                                    `json:"draftDigest"`
 	DraftVersion             int                                       `json:"draftVersion"`
 	OutputId                 string                                    `json:"outputId"`
@@ -7240,6 +7002,60 @@ type CorrelatedBindingSelectionScope string
 // CorrelatedBindingValueScope Binding paths are relative to the matched Coding. Omitted for legacy owner-scoped coded-value bindings.
 type CorrelatedBindingValueScope string
 
+// DataframeAggregationSpecInput defines model for DataframeAggregationSpecInput.
+type DataframeAggregationSpecInput = dataframe.DataframeAggregationSpecInput
+
+// DataframeAggregationsInput defines model for DataframeAggregationsInput.
+type DataframeAggregationsInput = dataframe.DataframeAggregationsInput
+
+// DataframeAggregationsResult defines model for DataframeAggregationsResult.
+type DataframeAggregationsResult = dataframe.DataframeAggregationsResult
+
+// DataframeColumn defines model for DataframeColumn.
+type DataframeColumn = dataframe.DataframeColumn
+
+// DataframeCompilerPlanDiagnostics defines model for DataframeCompilerPlanDiagnostics.
+type DataframeCompilerPlanDiagnostics = dataframe.DataframeCompilerPlanDiagnostics
+
+// DataframeFilterInput defines model for DataframeFilterInput.
+type DataframeFilterInput = dataframe.DataframeFilterInput
+
+// DataframeMaterialization defines model for DataframeMaterialization.
+type DataframeMaterialization = dataframe.DataframeMaterialization
+
+// DataframeMaterializationState defines model for DataframeMaterializationState.
+type DataframeMaterializationState = dataframe.DataframeMaterializationState
+
+// DataframeOptimizationDecision defines model for DataframeOptimizationDecision.
+type DataframeOptimizationDecision = dataframe.DataframeOptimizationDecision
+
+// DataframeOptimizationPolicy defines model for DataframeOptimizationPolicy.
+type DataframeOptimizationPolicy = dataframe.DataframeOptimizationPolicy
+
+// DataframePageInfo defines model for DataframePageInfo.
+type DataframePageInfo = dataframe.DataframePageInfo
+
+// DataframeQueryDiagnostics defines model for DataframeQueryDiagnostics.
+type DataframeQueryDiagnostics = dataframe.DataframeQueryDiagnostics
+
+// DataframeRichSourceReuse defines model for DataframeRichSourceReuse.
+type DataframeRichSourceReuse = dataframe.DataframeRichSourceReuse
+
+// DataframeRowConnection defines model for DataframeRowConnection.
+type DataframeRowConnection = dataframe.DataframeRowConnection
+
+// DataframeRowsInput defines model for DataframeRowsInput.
+type DataframeRowsInput = dataframe.DataframeRowsInput
+
+// DataframeSelector defines model for DataframeSelector.
+type DataframeSelector = dataframe.DataframeSelector
+
+// DataframeSelectorInput defines model for DataframeSelectorInput.
+type DataframeSelectorInput = dataframe.DataframeSelectorInput
+
+// DataframeSortInput defines model for DataframeSortInput.
+type DataframeSortInput = dataframe.DataframeSortInput
+
 // Diagnostic defines model for Diagnostic.
 type Diagnostic struct {
 	Code      string                  `json:"code"`
@@ -7253,17 +7069,19 @@ type Diagnostic struct {
 
 // Document defines model for Document.
 type Document struct {
-	Actions          *[]Action          `json:"actions,omitempty"`
-	Columns          []Column           `json:"columns"`
-	Construction     *Construction      `json:"construction,omitempty"`
-	FixedFilters     *[]FixedFilter     `json:"fixedFilters,omitempty"`
-	Frames           *[]FrameDefinition `json:"frames,omitempty"`
-	Kind             DocumentKind       `json:"kind"`
-	Output           Output             `json:"output"`
-	Population       *Population        `json:"population,omitempty"`
-	RootResourceType string             `json:"rootResourceType"`
-	Route            RouteNode          `json:"route"`
-	Rows             RowDefinition      `json:"rows"`
+	Actions          *[]Action           `json:"actions,omitempty"`
+	Columns          []Column            `json:"columns"`
+	Construction     *Construction       `json:"construction,omitempty"`
+	FixedFilters     *[]FixedFilter      `json:"fixedFilters,omitempty"`
+	Frames           *[]FrameDefinition  `json:"frames,omitempty"`
+	ImportedRecipe   *ImportedRecipeRef  `json:"importedRecipe,omitempty"`
+	ImportedSource   *ImportedSourcePlan `json:"importedSource,omitempty"`
+	Kind             DocumentKind        `json:"kind"`
+	Output           Output              `json:"output"`
+	Population       *Population         `json:"population,omitempty"`
+	RootResourceType string              `json:"rootResourceType"`
+	Route            RouteNode           `json:"route"`
+	Rows             RowDefinition       `json:"rows"`
 }
 
 // DocumentKind defines model for Document.Kind.
@@ -7271,11 +7089,12 @@ type DocumentKind string
 
 // ErrorBody defines model for ErrorBody.
 type ErrorBody struct {
-	Code                 string                 `json:"code"`
-	Diagnostic           *Diagnostic            `json:"diagnostic,omitempty"`
-	Message              string                 `json:"message"`
-	RequestId            *string                `json:"requestId,omitempty"`
-	AdditionalProperties map[string]interface{} `json:"-"`
+	Code                 string                  `json:"code"`
+	Details              *map[string]interface{} `json:"details,omitempty"`
+	Diagnostic           *Diagnostic             `json:"diagnostic,omitempty"`
+	Message              string                  `json:"message"`
+	RequestId            *string                 `json:"requestId,omitempty"`
+	AdditionalProperties map[string]interface{}  `json:"-"`
 }
 
 // ErrorResponse defines model for ErrorResponse.
@@ -7389,6 +7208,78 @@ type FamilySemanticInventoryItemIdentity struct {
 
 // FamilySemanticInventoryItemIdentityKind defines model for FamilySemanticInventoryItemIdentity.Kind.
 type FamilySemanticInventoryItemIdentityKind string
+
+// FhirAggregateInput defines model for FhirAggregateInput.
+type FhirAggregateInput = dataframe.FhirAggregateInput
+
+// FhirAggregateOperation defines model for FhirAggregateOperation.
+type FhirAggregateOperation = dataframe.FhirAggregateOperation
+
+// FhirCatalogProjectionInput defines model for FhirCatalogProjectionInput.
+type FhirCatalogProjectionInput = dataframe.FhirCatalogProjectionInput
+
+// FhirCodeValueInput defines model for FhirCodeValueInput.
+type FhirCodeValueInput = dataframe.FhirCodeValueInput
+
+// FhirColumnNaming defines model for FhirColumnNaming.
+type FhirColumnNaming = dataframe.FhirColumnNaming
+
+// FhirDataframeInput defines model for FhirDataframeInput.
+type FhirDataframeInput = dataframe.FhirDataframeInput
+
+// FhirDataframeRequest defines model for FhirDataframeRequest.
+type FhirDataframeRequest struct {
+	Input FhirDataframeInput `json:"input"`
+	Limit *int               `json:"limit,omitempty"`
+}
+
+// FhirDataframeResult defines model for FhirDataframeResult.
+type FhirDataframeResult = dataframe.FhirDataframeResult
+
+// FhirFieldPredicateInput defines model for FhirFieldPredicateInput.
+type FhirFieldPredicateInput = dataframe.FhirFieldPredicateInput
+
+// FhirFieldPredicateOperation defines model for FhirFieldPredicateOperation.
+type FhirFieldPredicateOperation = dataframe.FhirFieldPredicateOperation
+
+// FhirFieldSelectInput defines model for FhirFieldSelectInput.
+type FhirFieldSelectInput = dataframe.FhirFieldSelectInput
+
+// FhirFieldSelectorInput defines model for FhirFieldSelectorInput.
+type FhirFieldSelectorInput = dataframe.FhirFieldSelectorInput
+
+// FhirFilterInput defines model for FhirFilterInput.
+type FhirFilterInput = dataframe.FhirFilterInput
+
+// FhirFilterOperator defines model for FhirFilterOperator.
+type FhirFilterOperator = dataframe.FhirFilterOperator
+
+// FhirFilterQuantifier defines model for FhirFilterQuantifier.
+type FhirFilterQuantifier = dataframe.FhirFilterQuantifier
+
+// FhirFilterValueInput defines model for FhirFilterValueInput.
+type FhirFilterValueInput = dataframe.FhirFilterValueInput
+
+// FhirFilterValueKind defines model for FhirFilterValueKind.
+type FhirFilterValueKind = dataframe.FhirFilterValueKind
+
+// FhirPivotDiscoveryInput defines model for FhirPivotDiscoveryInput.
+type FhirPivotDiscoveryInput = dataframe.FhirPivotDiscoveryInput
+
+// FhirPivotInput defines model for FhirPivotInput.
+type FhirPivotInput = dataframe.FhirPivotInput
+
+// FhirRepresentativeSliceInput defines model for FhirRepresentativeSliceInput.
+type FhirRepresentativeSliceInput = dataframe.FhirRepresentativeSliceInput
+
+// FhirTraversalMatchMode defines model for FhirTraversalMatchMode.
+type FhirTraversalMatchMode = dataframe.FhirTraversalMatchMode
+
+// FhirTraversalStepInput defines model for FhirTraversalStepInput.
+type FhirTraversalStepInput = dataframe.FhirTraversalStepInput
+
+// FhirValueMode defines model for FhirValueMode.
+type FhirValueMode = dataframe.FhirValueMode
 
 // FieldChoiceSource defines model for FieldChoiceSource.
 type FieldChoiceSource struct {
@@ -7643,6 +7534,146 @@ type IdentifierBinding struct {
 	ValuePath   string `json:"valuePath"`
 }
 
+// ImportedCatalogParameters defines model for ImportedCatalogParameters.
+type ImportedCatalogParameters = authoringv2.ImportedCatalogParameters
+
+// ImportedDynamicParameters defines model for ImportedDynamicParameters.
+type ImportedDynamicParameters = authoringv2.ImportedDynamicParameters
+
+// ImportedExpansionParameters defines model for ImportedExpansionParameters.
+type ImportedExpansionParameters = authoringv2.ImportedExpansionParameters
+
+// ImportedExtensionParameters defines model for ImportedExtensionParameters.
+type ImportedExtensionParameters = authoringv2.ImportedExtensionParameters
+
+// ImportedFieldGroupParameters defines model for ImportedFieldGroupParameters.
+type ImportedFieldGroupParameters = authoringv2.ImportedFieldGroupParameters
+
+// ImportedIdentityParameters defines model for ImportedIdentityParameters.
+type ImportedIdentityParameters = authoringv2.ImportedIdentityParameters
+
+// ImportedOutputParameters defines model for ImportedOutputParameters.
+type ImportedOutputParameters = authoringv2.ImportedOutputParameters
+
+// ImportedPivotParameters defines model for ImportedPivotParameters.
+type ImportedPivotParameters = authoringv2.ImportedPivotParameters
+
+// ImportedRecipeRef defines model for ImportedRecipeRef.
+type ImportedRecipeRef struct {
+	Digest             string `json:"digest"`
+	Name               string `json:"name"`
+	Output             string `json:"output"`
+	TranslationVersion string `json:"translationVersion"`
+}
+
+// ImportedRelationship defines model for ImportedRelationship.
+type ImportedRelationship struct {
+	CatalogEdgeId      string                                `json:"catalogEdgeId"`
+	Fields             *[]ImportedRelationshipField          `json:"fields,omitempty"`
+	MatchMode          ImportedRelationshipMatchMode         `json:"matchMode"`
+	OccurrenceId       string                                `json:"occurrenceId"`
+	ParentOccurrenceId string                                `json:"parentOccurrenceId"`
+	Relationship       string                                `json:"relationship"`
+	ResourceType       string                                `json:"resourceType"`
+	StorageDirection   *ImportedRelationshipStorageDirection `json:"storageDirection,omitempty"`
+}
+
+// ImportedRelationshipMatchMode defines model for ImportedRelationship.MatchMode.
+type ImportedRelationshipMatchMode string
+
+// ImportedRelationshipStorageDirection defines model for ImportedRelationship.StorageDirection.
+type ImportedRelationshipStorageDirection string
+
+// ImportedRelationshipField defines model for ImportedRelationshipField.
+type ImportedRelationshipField struct {
+	CandidateId string                             `json:"candidateId"`
+	Column      string                             `json:"column"`
+	ColumnId    string                             `json:"columnId"`
+	FieldPath   string                             `json:"fieldPath"`
+	Label       string                             `json:"label"`
+	ValueMode   ImportedRelationshipFieldValueMode `json:"valueMode"`
+}
+
+// ImportedRelationshipFieldValueMode defines model for ImportedRelationshipField.ValueMode.
+type ImportedRelationshipFieldValueMode string
+
+// ImportedRelationshipMatch defines model for ImportedRelationshipMatch.
+type ImportedRelationshipMatch struct {
+	MatchMode    ImportedRelationshipMatchMatchMode `json:"matchMode"`
+	OccurrenceId string                             `json:"occurrenceId"`
+}
+
+// ImportedRelationshipMatchMatchMode defines model for ImportedRelationshipMatch.MatchMode.
+type ImportedRelationshipMatchMatchMode string
+
+// ImportedRelationshipOverlay defines model for ImportedRelationshipOverlay.
+type ImportedRelationshipOverlay struct {
+	Additions      *[]ImportedRelationship      `json:"additions,omitempty"`
+	MatchOverrides *[]ImportedRelationshipMatch `json:"matchOverrides,omitempty"`
+	Removals       *[]string                    `json:"removals,omitempty"`
+}
+
+// ImportedSource defines model for ImportedSource.
+type ImportedSource struct {
+	OutputColumn string `json:"outputColumn"`
+}
+
+// ImportedSourceFieldParameters defines model for ImportedSourceFieldParameters.
+type ImportedSourceFieldParameters = authoringv2.ImportedFieldParameters
+
+// ImportedSourceParameters defines model for ImportedSourceParameters.
+type ImportedSourceParameters = authoringv2.ImportedSourceParameters
+
+// ImportedSourcePlan defines model for ImportedSourcePlan.
+type ImportedSourcePlan struct {
+	FieldBindings *[]struct {
+		ColumnId string `json:"columnId"`
+		FieldId  string `json:"fieldId"`
+	} `json:"fieldBindings,omitempty"`
+	Relationships *ImportedRelationshipOverlay  `json:"relationships,omitempty"`
+	RuleAdditions *[]ImportedSourceRuleAddition `json:"ruleAdditions,omitempty"`
+	Steps         []ImportedSourceStep          `json:"steps"`
+}
+
+// ImportedSourceRuleAddition defines model for ImportedSourceRuleAddition.
+type ImportedSourceRuleAddition struct {
+	Enabled      bool                           `json:"enabled"`
+	Kind         ImportedSourceRuleAdditionKind `json:"kind"`
+	MaxColumns   *int                           `json:"maxColumns,omitempty"`
+	OccurrenceId *string                        `json:"occurrenceId,omitempty"`
+	Parameters   ImportedSourceParameters       `json:"parameters"`
+	StepId       string                         `json:"stepId"`
+}
+
+// ImportedSourceRuleAdditionKind defines model for ImportedSourceRuleAddition.Kind.
+type ImportedSourceRuleAdditionKind string
+
+// ImportedSourceStep defines model for ImportedSourceStep.
+type ImportedSourceStep struct {
+	Editable     bool                         `json:"editable"`
+	Enabled      bool                         `json:"enabled"`
+	Id           string                       `json:"id"`
+	Kind         string                       `json:"kind"`
+	MatchMode    *ImportedSourceStepMatchMode `json:"matchMode,omitempty"`
+	MaxColumns   *int                         `json:"maxColumns,omitempty"`
+	OccurrenceId *string                      `json:"occurrenceId,omitempty"`
+	Parameters   *ImportedSourceParameters    `json:"parameters,omitempty"`
+	ParentId     *string                      `json:"parentId,omitempty"`
+	SourceKey    *string                      `json:"sourceKey,omitempty"`
+	Summary      string                       `json:"summary"`
+	Title        string                       `json:"title"`
+	ValueMode    *string                      `json:"valueMode,omitempty"`
+}
+
+// ImportedSourceStepMatchMode defines model for ImportedSourceStep.MatchMode.
+type ImportedSourceStepMatchMode string
+
+// ImportedSourceStepChange defines model for ImportedSourceStepChange.
+type ImportedSourceStepChange = authoringv2.ImportedSourceStepChange
+
+// ImportedTraversalParameters defines model for ImportedTraversalParameters.
+type ImportedTraversalParameters = authoringv2.ImportedTraversalParameters
+
 // InterpretationApplicability defines model for InterpretationApplicability.
 type InterpretationApplicability struct {
 	Cardinalities   *[]string `json:"cardinalities,omitempty"`
@@ -7846,6 +7877,41 @@ type LookupSource struct {
 // LookupSourceProjectionMode defines model for LookupSource.ProjectionMode.
 type LookupSourceProjectionMode string
 
+// NetworkColumnBinding defines model for NetworkColumnBinding.
+type NetworkColumnBinding struct {
+	ColumnId     string  `json:"columnId"`
+	OccurrenceId *string `json:"occurrenceId,omitempty"`
+	OutputKey    *string `json:"outputKey,omitempty"`
+	SourceStepId *string `json:"sourceStepId,omitempty"`
+	Status       string  `json:"status"`
+	ValueMode    *string `json:"valueMode,omitempty"`
+}
+
+// NetworkOccurrence defines model for NetworkOccurrence.
+type NetworkOccurrence struct {
+	CanExcludeRows       bool    `json:"canExcludeRows"`
+	CatalogEdgeId        *string `json:"catalogEdgeId,omitempty"`
+	Enabled              bool    `json:"enabled"`
+	Label                *string `json:"label,omitempty"`
+	LabelMissing         bool    `json:"labelMissing"`
+	MatchMode            *string `json:"matchMode,omitempty"`
+	OccurrenceId         string  `json:"occurrenceId"`
+	ParentOccurrenceId   *string `json:"parentOccurrenceId,omitempty"`
+	PreservesRowIdentity bool    `json:"preservesRowIdentity"`
+	Relationship         *string `json:"relationship,omitempty"`
+	ResourceType         string  `json:"resourceType"`
+	SourceStepId         *string `json:"sourceStepId,omitempty"`
+	StorageDirection     *string `json:"storageDirection,omitempty"`
+}
+
+// NetworkOperation defines model for NetworkOperation.
+type NetworkOperation struct {
+	AnchorColumnId *string  `json:"anchorColumnId,omitempty"`
+	InputStepIds   []string `json:"inputStepIds"`
+	Kind           string   `json:"kind"`
+	OperationId    string   `json:"operationId"`
+}
+
 // Output defines model for Output.
 type Output struct {
 	Id       string  `json:"id"`
@@ -8018,6 +8084,29 @@ type PreviewRowSource struct {
 // PreviewRowSourceKind defines model for PreviewRowSource.Kind.
 type PreviewRowSourceKind string
 
+// ProjectedField defines model for ProjectedField.
+type ProjectedField struct {
+	Column          string                `json:"column"`
+	ColumnId        *string               `json:"columnId,omitempty"`
+	Label           string                `json:"label"`
+	OccurrenceId    *string               `json:"occurrenceId,omitempty"`
+	Owner           ProjectedFieldOwner   `json:"owner"`
+	Removal         ProjectedFieldRemoval `json:"removal"`
+	SourceFieldId   *string               `json:"sourceFieldId,omitempty"`
+	SourceOutputKey *string               `json:"sourceOutputKey,omitempty"`
+	SourceStepId    *string               `json:"sourceStepId,omitempty"`
+	Status          ProjectedFieldStatus  `json:"status"`
+}
+
+// ProjectedFieldOwner defines model for ProjectedField.Owner.
+type ProjectedFieldOwner string
+
+// ProjectedFieldRemoval defines model for ProjectedField.Removal.
+type ProjectedFieldRemoval string
+
+// ProjectedFieldStatus defines model for ProjectedField.Status.
+type ProjectedFieldStatus string
+
 // ProjectionMode defines model for ProjectionMode.
 type ProjectionMode string
 
@@ -8129,9 +8218,12 @@ type RelatedExpandChoiceSearchRequest struct {
 	ExpectedDraftVersion int     `json:"expectedDraftVersion"`
 	Limit                *int    `json:"limit,omitempty"`
 	OutputId             string  `json:"outputId"`
-	SnapshotToken        string  `json:"snapshotToken"`
-	StageId              string  `json:"stageId"`
-	TargetResourceType   string  `json:"targetResourceType"`
+
+	// SavedGraphOnly Resolve paths already connected to the table starting records without searching the catalog.
+	SavedGraphOnly     *bool  `json:"savedGraphOnly,omitempty"`
+	SnapshotToken      string `json:"snapshotToken"`
+	StageId            string `json:"stageId"`
+	TargetResourceType string `json:"targetResourceType"`
 }
 
 // RelatedExpandChoiceSearchResponse defines model for RelatedExpandChoiceSearchResponse.
@@ -8290,6 +8382,22 @@ type RelatedSourceFieldCardinality string
 // RelatedSourceFieldKind defines model for RelatedSourceField.Kind.
 type RelatedSourceFieldKind string
 
+// RelationshipRowEffect defines model for RelationshipRowEffect.
+type RelationshipRowEffect struct {
+	CatalogEdgeId     *string                           `json:"catalogEdgeId,omitempty"`
+	MatchMode         RelationshipRowEffectMatchMode    `json:"matchMode"`
+	MayExcludeRows    bool                              `json:"mayExcludeRows"`
+	Multiplicity      RelationshipRowEffectMultiplicity `json:"multiplicity"`
+	OccurrenceId      string                            `json:"occurrenceId"`
+	PreservesIdentity bool                              `json:"preservesIdentity"`
+}
+
+// RelationshipRowEffectMatchMode defines model for RelationshipRowEffect.MatchMode.
+type RelationshipRowEffectMatchMode string
+
+// RelationshipRowEffectMultiplicity defines model for RelationshipRowEffect.Multiplicity.
+type RelationshipRowEffectMultiplicity string
+
 // RemoveColumnTransformation defines model for RemoveColumnTransformation.
 type RemoveColumnTransformation struct {
 	Kind RemoveColumnTransformationKind `json:"kind"`
@@ -8339,9 +8447,13 @@ type RouteRebaseChoice struct {
 
 // RowChangeAssessmentResponse defines model for RowChangeAssessmentResponse.
 type RowChangeAssessmentResponse struct {
+	CandidateDocument *Document         `json:"candidateDocument,omitempty"`
+	CandidateNetwork  *AuthoringNetwork `json:"candidateNetwork,omitempty"`
+
 	// CandidateReceiptId Present only when status is READY. Preview this candidate receipt before applying the row-root rebase.
 	CandidateReceiptId        *string                           `json:"candidateReceiptId,omitempty"`
 	CandidateRootResourceType string                            `json:"candidateRootResourceType"`
+	CandidateRowIdentity      *RowIdentityPlan                  `json:"candidateRowIdentity,omitempty"`
 	CurrentRootResourceType   string                            `json:"currentRootResourceType"`
 	Diagnostics               []Diagnostic                      `json:"diagnostics"`
 	DraftDigest               string                            `json:"draftDigest"`
@@ -8394,6 +8506,15 @@ type RowChangeUnresolvedReference struct {
 
 // RowChangeUnresolvedReferenceKind defines model for RowChangeUnresolvedReference.Kind.
 type RowChangeUnresolvedReferenceKind string
+
+// RowCountEvidence defines model for RowCountEvidence.
+type RowCountEvidence struct {
+	Kind  RowCountEvidenceKind `json:"kind"`
+	Value *int64               `json:"value,omitempty"`
+}
+
+// RowCountEvidenceKind defines model for RowCountEvidence.Kind.
+type RowCountEvidenceKind string
 
 // RowDefinition defines model for RowDefinition.
 type RowDefinition = authoringv2.RowDefinition
@@ -8530,6 +8651,9 @@ type RowDefinitionPreviewSummary struct {
 type RowDefinitionProposal struct {
 	BaseDocumentDigest       string                    `json:"baseDocumentDigest"`
 	BaseReceiptId            string                    `json:"baseReceiptId"`
+	CandidateDocument        Document                  `json:"candidateDocument"`
+	CandidateNetwork         AuthoringNetwork          `json:"candidateNetwork"`
+	CandidateRowIdentity     RowIdentityPlan           `json:"candidateRowIdentity"`
 	CandidateWorkspaceDigest string                    `json:"candidateWorkspaceDigest"`
 	Comparison               RowDefinitionComparison   `json:"comparison"`
 	DraftDigest              string                    `json:"draftDigest"`
@@ -8567,6 +8691,45 @@ type RowDefinitionRecordsSelection struct {
 
 // RowDefinitionRecordsSelectionKind defines model for RowDefinitionRecordsSelection.Kind.
 type RowDefinitionRecordsSelectionKind string
+
+// RowIdentity defines model for RowIdentity.
+type RowIdentity struct {
+	AnchorColumnId        *string   `json:"anchorColumnId,omitempty"`
+	GroupRevisionId       *string   `json:"groupRevisionId,omitempty"`
+	InputStageId          *string   `json:"inputStageId,omitempty"`
+	KeyColumnIds          *[]string `json:"keyColumnIds,omitempty"`
+	Kind                  string    `json:"kind"`
+	MissingPolicy         *string   `json:"missingPolicy,omitempty"`
+	OccurrenceId          *string   `json:"occurrenceId,omitempty"`
+	RelatedRecordColumnId *string   `json:"relatedRecordColumnId,omitempty"`
+	ResourceType          *string   `json:"resourceType,omitempty"`
+	Scope                 string    `json:"scope"`
+	ScopePath             *string   `json:"scopePath,omitempty"`
+}
+
+// RowIdentityPlan defines model for RowIdentityPlan.
+type RowIdentityPlan struct {
+	OutputId         string                  `json:"outputId"`
+	Relationships    []RelationshipRowEffect `json:"relationships"`
+	SourceDefinition RowDefinition           `json:"sourceDefinition"`
+	Stages           []RowIdentityStage      `json:"stages"`
+}
+
+// RowIdentityStage defines model for RowIdentityStage.
+type RowIdentityStage struct {
+	Count             RowCountEvidence             `json:"count"`
+	Effect            string                       `json:"effect"`
+	Identity          RowIdentity                  `json:"identity"`
+	MayExcludeRows    bool                         `json:"mayExcludeRows"`
+	Meaning           string                       `json:"meaning"`
+	Multiplicity      RowIdentityStageMultiplicity `json:"multiplicity"`
+	OperationId       *string                      `json:"operationId,omitempty"`
+	StageId           string                       `json:"stageId"`
+	UnsupportedReason *string                      `json:"unsupportedReason,omitempty"`
+}
+
+// RowIdentityStageMultiplicity defines model for RowIdentityStage.Multiplicity.
+type RowIdentityStageMultiplicity string
 
 // RowLineageCapability defines model for RowLineageCapability.
 type RowLineageCapability struct {
@@ -9002,6 +9165,129 @@ type SharedFilterBindingRef struct {
 	OutputId     string `json:"outputId"`
 }
 
+// SourceFileReceipt defines model for SourceFileReceipt.
+type SourceFileReceipt struct {
+	Path         string                 `json:"path"`
+	ResourceType string                 `json:"resource_type"`
+	Rows         int64                  `json:"rows"`
+	Sha256       string                 `json:"sha256"`
+	State        SourceFileReceiptState `json:"state"`
+}
+
+// SourceFileReceiptState defines model for SourceFileReceipt.State.
+type SourceFileReceiptState string
+
+// SourceLoadPlan defines model for SourceLoadPlan.
+type SourceLoadPlan struct {
+	AuthResourcePath *string              `json:"auth_resource_path,omitempty"`
+	Commit           string               `json:"commit"`
+	ExpectedRevision *int64               `json:"expected_revision,omitempty"`
+	Files            []SourceManifestFile `json:"files"`
+	Repository       string               `json:"repository"`
+}
+
+// SourceLoadStatus defines model for SourceLoadStatus.
+type SourceLoadStatus struct {
+	BaseRevision int64                 `json:"base_revision"`
+	Files        []SourceFileReceipt   `json:"files"`
+	Generation   string                `json:"generation"`
+	OperationId  string                `json:"operation_id"`
+	State        SourceLoadStatusState `json:"state"`
+}
+
+// SourceLoadStatusState defines model for SourceLoadStatus.State.
+type SourceLoadStatusState string
+
+// SourceLoadValidationDetails defines model for SourceLoadValidationDetails.
+type SourceLoadValidationDetails struct {
+	Issues      []SourceLoadValidationIssue `json:"issues"`
+	TotalErrors int64                       `json:"totalErrors"`
+	Truncated   bool                        `json:"truncated"`
+}
+
+// SourceLoadValidationErrorResponse defines model for SourceLoadValidationErrorResponse.
+type SourceLoadValidationErrorResponse struct {
+	Error struct {
+		Code      SourceLoadValidationErrorResponseErrorCode `json:"code"`
+		Details   SourceLoadValidationDetails                `json:"details"`
+		Message   string                                     `json:"message"`
+		RequestId *string                                    `json:"requestId,omitempty"`
+		Retryable *bool                                      `json:"retryable,omitempty"`
+	} `json:"error"`
+}
+
+// SourceLoadValidationErrorResponseErrorCode defines model for SourceLoadValidationErrorResponse.Error.Code.
+type SourceLoadValidationErrorResponseErrorCode string
+
+// SourceLoadValidationIssue defines model for SourceLoadValidationIssue.
+type SourceLoadValidationIssue struct {
+	Category string `json:"category"`
+	Filename string `json:"filename"`
+
+	// Message Safe summary without resource payloads or credentials.
+	Message      string `json:"message"`
+	ResourceType string `json:"resourceType"`
+	Row          int64  `json:"row"`
+}
+
+// SourceManifestFile defines model for SourceManifestFile.
+type SourceManifestFile struct {
+	// Path Canonical META/<ResourceType>.ndjson path.
+	Path string `json:"path"`
+
+	// Sha256 Optional expected file digest.
+	Sha256 *string `json:"sha256,omitempty"`
+}
+
+// SourcePublishReceipt defines model for SourcePublishReceipt.
+type SourcePublishReceipt struct {
+	ExecutionId    string                    `json:"execution_id"`
+	ManifestHash   string                    `json:"manifest_hash"`
+	OperationId    string                    `json:"operation_id"`
+	Reused         bool                      `json:"reused"`
+	SourceRevision int64                     `json:"source_revision"`
+	State          SourcePublishReceiptState `json:"state"`
+}
+
+// SourcePublishReceiptState defines model for SourcePublishReceipt.State.
+type SourcePublishReceiptState string
+
+// SourceRecipeExpression Existing recipe expression wire format. Read descriptors preserve pinned functions. Source edits admit only select, primitive literal, and first/all/reference_id/last_segment/coalesce/coalesce_string/join/concat/uuid5; document references are not editable.
+type SourceRecipeExpression = recipe.Expression
+
+// SourceRelationshipChange defines model for SourceRelationshipChange.
+type SourceRelationshipChange = authoringv2.ImportedRelationshipChange
+
+// SourceRelationshipProposal defines model for SourceRelationshipProposal.
+type SourceRelationshipProposal struct {
+	AffectedColumns          []string                                `json:"affectedColumns"`
+	BaseDocumentDigest       string                                  `json:"baseDocumentDigest"`
+	CandidateDocument        Document                                `json:"candidateDocument"`
+	CandidateNetwork         AuthoringNetwork                        `json:"candidateNetwork"`
+	CandidateReceiptId       string                                  `json:"candidateReceiptId"`
+	CandidateRowIdentity     RowIdentityPlan                         `json:"candidateRowIdentity"`
+	CandidateWorkspaceDigest string                                  `json:"candidateWorkspaceDigest"`
+	DraftDigest              string                                  `json:"draftDigest"`
+	DraftVersion             int64                                   `json:"draftVersion"`
+	Notices                  []string                                `json:"notices"`
+	OutputId                 string                                  `json:"outputId"`
+	Preview                  *PreviewResponse                        `json:"preview,omitempty"`
+	PreviewStatus            SourceRelationshipProposalPreviewStatus `json:"previewStatus"`
+	ProposalId               string                                  `json:"proposalId"`
+	Sampled                  bool                                    `json:"sampled"`
+	SampledRows              int                                     `json:"sampledRows"`
+	SnapshotToken            string                                  `json:"snapshotToken"`
+}
+
+// SourceRelationshipProposalPreviewStatus defines model for SourceRelationshipProposal.PreviewStatus.
+type SourceRelationshipProposalPreviewStatus string
+
+// SourceRelationshipProposalRequest defines model for SourceRelationshipProposalRequest.
+type SourceRelationshipProposalRequest = lifecycle.SourceRelationshipProposalRequest
+
+// SourceRuleCreate defines model for SourceRuleCreate.
+type SourceRuleCreate = authoringv2.SourceRuleCreate
+
 // Tab defines model for Tab.
 type Tab struct {
 	Id       string `json:"id"`
@@ -9021,660 +9307,6 @@ type TablePresentation struct {
 
 // TablePresentationCellRenderer defines model for TablePresentation.CellRenderer.
 type TablePresentationCellRenderer string
-
-// TableShapeBinaryOperatorChoice defines model for TableShapeBinaryOperatorChoice.
-type TableShapeBinaryOperatorChoice struct {
-	Availability                 TableShapeChoiceAvailability             `json:"availability"`
-	ChoiceId                     string                                   `json:"choiceId"`
-	ChoiceKind                   TableShapeBinaryOperatorChoiceChoiceKind `json:"choiceKind"`
-	Label                        string                                   `json:"label"`
-	RequiresDivisionByZeroPolicy bool                                     `json:"requiresDivisionByZeroPolicy"`
-}
-
-// TableShapeBinaryOperatorChoiceChoiceKind defines model for TableShapeBinaryOperatorChoice.ChoiceKind.
-type TableShapeBinaryOperatorChoiceChoiceKind string
-
-// TableShapeBinaryOperatorReference defines model for TableShapeBinaryOperatorReference.
-type TableShapeBinaryOperatorReference struct {
-	ChoiceId string                                `json:"choiceId"`
-	Kind     TableShapeBinaryOperatorReferenceKind `json:"kind"`
-}
-
-// TableShapeBinaryOperatorReferenceKind defines model for TableShapeBinaryOperatorReference.Kind.
-type TableShapeBinaryOperatorReferenceKind string
-
-// TableShapeCapabilitiesRequest defines model for TableShapeCapabilitiesRequest.
-type TableShapeCapabilitiesRequest struct {
-	ExpectedDraftDigest  string `json:"expectedDraftDigest"`
-	ExpectedDraftVersion int    `json:"expectedDraftVersion"`
-	OutputId             string `json:"outputId"`
-	SnapshotToken        string `json:"snapshotToken"`
-}
-
-// TableShapeCapabilitiesResponse defines model for TableShapeCapabilitiesResponse.
-type TableShapeCapabilitiesResponse struct {
-	BinaryOperators                []TableShapeBinaryOperatorChoice  `json:"binaryOperators"`
-	CatalogId                      string                            `json:"catalogId"`
-	CategoryColumns                []TableShapeEditorChoice          `json:"categoryColumns"`
-	DerivedAvailability            TableShapeChoiceAvailability      `json:"derivedAvailability"`
-	DerivedOutputSuggestions       []TableShapeOutputSuggestion      `json:"derivedOutputSuggestions"`
-	DivisionByZeroPolicies         []TableShapeEditorChoice          `json:"divisionByZeroPolicies"`
-	DuplicatePolicies              []TableShapeEditorChoice          `json:"duplicatePolicies"`
-	GroupColumns                   []TableShapeEditorChoice          `json:"groupColumns"`
-	MissingCellPolicies            []TableShapeEditorChoice          `json:"missingCellPolicies"`
-	MissingInputPolicies           []TableShapeEditorChoice          `json:"missingInputPolicies"`
-	Operands                       []TableShapeEditorChoice          `json:"operands"`
-	OutputId                       string                            `json:"outputId"`
-	PivotCategoryDiscovery         TableShapePivotCategoryDiscovery  `json:"pivotCategoryDiscovery"`
-	ReshapeModes                   []TableShapeReshapeModeChoice     `json:"reshapeModes"`
-	SavedProposalAvailability      TableShapeChoiceAvailability      `json:"savedProposalAvailability"`
-	SavedProposalIntent            TableShapeProposalIntent          `json:"savedProposalIntent"`
-	UnlistedCategoryPolicies       []TableShapeEditorChoice          `json:"unlistedCategoryPolicies"`
-	UnpivotColumns                 []TableShapeEditorChoice          `json:"unpivotColumns"`
-	UnpivotKeyOutput               TableShapeOutputDescriptorSupport `json:"unpivotKeyOutput"`
-	UnpivotNullRowPolicies         []TableShapeEditorChoice          `json:"unpivotNullRowPolicies"`
-	UnpivotValueOutput             TableShapeOutputDescriptorSupport `json:"unpivotValueOutput"`
-	UnpivotWithDerivedAvailability TableShapeChoiceAvailability      `json:"unpivotWithDerivedAvailability"`
-	ValueColumns                   []TableShapeEditorChoice          `json:"valueColumns"`
-}
-
-// TableShapeCategoryDiscoveryRequest defines model for TableShapeCategoryDiscoveryRequest.
-type TableShapeCategoryDiscoveryRequest struct {
-	CatalogId              string `json:"catalogId"`
-	CategoryColumnChoiceId string `json:"categoryColumnChoiceId"`
-	ExpectedDraftDigest    string `json:"expectedDraftDigest"`
-	ExpectedDraftVersion   int    `json:"expectedDraftVersion"`
-	OutputId               string `json:"outputId"`
-	SnapshotToken          string `json:"snapshotToken"`
-	ValueColumnChoiceId    string `json:"valueColumnChoiceId"`
-}
-
-// TableShapeCategoryDiscoveryResponse defines model for TableShapeCategoryDiscoveryResponse.
-type TableShapeCategoryDiscoveryResponse struct {
-	CatalogId         string                                  `json:"catalogId"`
-	Categories        []TableShapePivotCategoryChoice         `json:"categories"`
-	DiscoveryIdentity string                                  `json:"discoveryIdentity"`
-	Kind              TableShapeCategoryDiscoveryResponseKind `json:"kind"`
-	Pair              TableShapePivotCategoryPair             `json:"pair"`
-}
-
-// TableShapeCategoryDiscoveryResponseKind defines model for TableShapeCategoryDiscoveryResponse.Kind.
-type TableShapeCategoryDiscoveryResponseKind string
-
-// TableShapeCategoryValue defines model for TableShapeCategoryValue.
-type TableShapeCategoryValue struct {
-	Present bool        `json:"present"`
-	Value   interface{} `json:"value"`
-}
-
-// TableShapeCellContributor defines model for TableShapeCellContributor.
-type TableShapeCellContributor struct {
-	ResourceId   string      `json:"resourceId"`
-	ResourceType string      `json:"resourceType"`
-	Value        interface{} `json:"value"`
-}
-
-// TableShapeCellTrace defines model for TableShapeCellTrace.
-type TableShapeCellTrace struct {
-	CellStatus   *string                     `json:"cellStatus,omitempty"`
-	Complete     bool                        `json:"complete"`
-	Contributors []TableShapeCellContributor `json:"contributors"`
-	FailureCode  *string                     `json:"failureCode,omitempty"`
-	OmissionCode *string                     `json:"omissionCode,omitempty"`
-	Sampled      bool                        `json:"sampled"`
-	State        TableShapeCellTraceState    `json:"state"`
-}
-
-// TableShapeCellTraceState defines model for TableShapeCellTrace.State.
-type TableShapeCellTraceState string
-
-// TableShapeCellValue defines model for TableShapeCellValue.
-type TableShapeCellValue struct {
-	Present bool        `json:"present"`
-	Value   interface{} `json:"value"`
-}
-
-// TableShapeChangedCell defines model for TableShapeChangedCell.
-type TableShapeChangedCell struct {
-	After  TableShapeCellValue `json:"after"`
-	Before TableShapeCellValue `json:"before"`
-	Column string              `json:"column"`
-	Trace  TableShapeCellTrace `json:"trace"`
-}
-
-// TableShapeChangedRow defines model for TableShapeChangedRow.
-type TableShapeChangedRow struct {
-	BasePresent      bool                    `json:"basePresent"`
-	CandidatePresent bool                    `json:"candidatePresent"`
-	ChangedCells     []TableShapeChangedCell `json:"changedCells"`
-	ChangedColumns   []string                `json:"changedColumns"`
-	RowIdentity      string                  `json:"rowIdentity"`
-}
-
-// TableShapeChoiceAvailability defines model for TableShapeChoiceAvailability.
-type TableShapeChoiceAvailability struct {
-	Kind   TableShapeChoiceAvailabilityKind `json:"kind"`
-	Reason *string                          `json:"reason,omitempty"`
-}
-
-// TableShapeChoiceAvailabilityKind defines model for TableShapeChoiceAvailability.Kind.
-type TableShapeChoiceAvailabilityKind string
-
-// TableShapeColumnReference defines model for TableShapeColumnReference.
-type TableShapeColumnReference struct {
-	ChoiceId string                        `json:"choiceId"`
-	Kind     TableShapeColumnReferenceKind `json:"kind"`
-}
-
-// TableShapeColumnReferenceKind defines model for TableShapeColumnReference.Kind.
-type TableShapeColumnReferenceKind string
-
-// TableShapeComparison defines model for TableShapeComparison.
-type TableShapeComparison struct {
-	union json.RawMessage
-}
-
-// TableShapeComparisonAvailable defines model for TableShapeComparisonAvailable.
-type TableShapeComparisonAvailable struct {
-	Base                    TableShapePreviewSummary            `json:"base"`
-	Candidate               TableShapePreviewSummary            `json:"candidate"`
-	ChangedColumns          []string                            `json:"changedColumns"`
-	ChangedRowCount         int                                 `json:"changedRowCount"`
-	ChangedRows             []TableShapeChangedRow              `json:"changedRows"`
-	ChangedRowsSampled      bool                                `json:"changedRowsSampled"`
-	Contributors            []TableShapeContributor             `json:"contributors"`
-	ContributorsSampled     bool                                `json:"contributorsSampled"`
-	DeclaredInformationLoss TableShapeDeclaredInformationLoss   `json:"declaredInformationLoss"`
-	EvidenceLimitations     []TableShapeEvidenceLimitation      `json:"evidenceLimitations"`
-	Exclusions              TableShapeExclusionEvidence         `json:"exclusions"`
-	Notices                 []string                            `json:"notices"`
-	Status                  TableShapeComparisonAvailableStatus `json:"status"`
-}
-
-// TableShapeComparisonAvailableStatus defines model for TableShapeComparisonAvailable.Status.
-type TableShapeComparisonAvailableStatus string
-
-// TableShapeComparisonUnavailable defines model for TableShapeComparisonUnavailable.
-type TableShapeComparisonUnavailable struct {
-	Base                    *TableShapePreviewSummary             `json:"base,omitempty"`
-	Candidate               *TableShapePreviewSummary             `json:"candidate,omitempty"`
-	ChangedColumns          []string                              `json:"changedColumns"`
-	ChangedRowCount         int                                   `json:"changedRowCount"`
-	ChangedRows             []TableShapeChangedRow                `json:"changedRows"`
-	ChangedRowsSampled      bool                                  `json:"changedRowsSampled"`
-	Contributors            []TableShapeContributor               `json:"contributors"`
-	ContributorsSampled     bool                                  `json:"contributorsSampled"`
-	DeclaredInformationLoss TableShapeDeclaredInformationLoss     `json:"declaredInformationLoss"`
-	EvidenceLimitations     []TableShapeEvidenceLimitation        `json:"evidenceLimitations"`
-	Exclusions              TableShapeExclusionEvidence           `json:"exclusions"`
-	Notices                 []string                              `json:"notices"`
-	Reason                  string                                `json:"reason"`
-	ReasonCode              string                                `json:"reasonCode"`
-	Status                  TableShapeComparisonUnavailableStatus `json:"status"`
-}
-
-// TableShapeComparisonUnavailableStatus defines model for TableShapeComparisonUnavailable.Status.
-type TableShapeComparisonUnavailableStatus string
-
-// TableShapeContributor defines model for TableShapeContributor.
-type TableShapeContributor struct {
-	ResourceId   string `json:"resourceId"`
-	ResourceType string `json:"resourceType"`
-}
-
-// TableShapeDeclaredInformationLoss defines model for TableShapeDeclaredInformationLoss.
-type TableShapeDeclaredInformationLoss struct {
-	FailureCode *string                                 `json:"failureCode,omitempty"`
-	Items       []TableShapeInformationLoss             `json:"items"`
-	Status      TableShapeDeclaredInformationLossStatus `json:"status"`
-}
-
-// TableShapeDeclaredInformationLossStatus defines model for TableShapeDeclaredInformationLoss.Status.
-type TableShapeDeclaredInformationLossStatus string
-
-// TableShapeDerivedColumnProposal defines model for TableShapeDerivedColumnProposal.
-type TableShapeDerivedColumnProposal struct {
-	DivisionByZeroPolicy *TableShapeDivisionByZeroPolicyReference `json:"divisionByZeroPolicy,omitempty"`
-	LeftOperand          TableShapeDerivedOperandIntent           `json:"leftOperand"`
-	LocalId              string                                   `json:"localId"`
-	MissingInputPolicy   TableShapeMissingInputPolicyReference    `json:"missingInputPolicy"`
-	Operator             TableShapeBinaryOperatorReference        `json:"operator"`
-	Output               TableShapeOutputName                     `json:"output"`
-	RightOperand         TableShapeDerivedOperandIntent           `json:"rightOperand"`
-}
-
-// TableShapeDerivedOperandIntent defines model for TableShapeDerivedOperandIntent.
-type TableShapeDerivedOperandIntent struct {
-	Kind           TableShapeDerivedOperandIntentKind            `json:"kind"`
-	LocalId        *string                                       `json:"localId,omitempty"`
-	Reference      *TableShapeDerivedOperandReference            `json:"reference,omitempty"`
-	Representation *TableShapeDerivedOperandIntentRepresentation `json:"representation,omitempty"`
-	Text           *string                                       `json:"text,omitempty"`
-}
-
-// TableShapeDerivedOperandIntentKind defines model for TableShapeDerivedOperandIntent.Kind.
-type TableShapeDerivedOperandIntentKind string
-
-// TableShapeDerivedOperandIntentRepresentation defines model for TableShapeDerivedOperandIntent.Representation.
-type TableShapeDerivedOperandIntentRepresentation string
-
-// TableShapeDerivedOperandReference defines model for TableShapeDerivedOperandReference.
-type TableShapeDerivedOperandReference struct {
-	Category *TableShapePivotCategoryReference     `json:"category,omitempty"`
-	ChoiceId *string                               `json:"choiceId,omitempty"`
-	Column   *TableShapeColumnReference            `json:"column,omitempty"`
-	Kind     TableShapeDerivedOperandReferenceKind `json:"kind"`
-}
-
-// TableShapeDerivedOperandReferenceKind defines model for TableShapeDerivedOperandReference.Kind.
-type TableShapeDerivedOperandReferenceKind string
-
-// TableShapeDerivedSelection defines model for TableShapeDerivedSelection.
-type TableShapeDerivedSelection struct {
-	DivisionByZeroPolicyChoiceId *string                    `json:"divisionByZeroPolicyChoiceId,omitempty"`
-	Left                         TableShapeOperandSelection `json:"left"`
-	MissingPolicyChoiceId        string                     `json:"missingPolicyChoiceId"`
-	OperatorChoiceId             string                     `json:"operatorChoiceId"`
-	OutputColumn                 string                     `json:"outputColumn"`
-	OutputLabel                  string                     `json:"outputLabel"`
-	PivotResolutionId            *string                    `json:"pivotResolutionId,omitempty"`
-	Right                        TableShapeOperandSelection `json:"right"`
-}
-
-// TableShapeDivisionByZeroPolicyReference defines model for TableShapeDivisionByZeroPolicyReference.
-type TableShapeDivisionByZeroPolicyReference struct {
-	ChoiceId string                                      `json:"choiceId"`
-	Kind     TableShapeDivisionByZeroPolicyReferenceKind `json:"kind"`
-}
-
-// TableShapeDivisionByZeroPolicyReferenceKind defines model for TableShapeDivisionByZeroPolicyReference.Kind.
-type TableShapeDivisionByZeroPolicyReferenceKind string
-
-// TableShapeDuplicatePolicyReference defines model for TableShapeDuplicatePolicyReference.
-type TableShapeDuplicatePolicyReference struct {
-	ChoiceId string                                 `json:"choiceId"`
-	Kind     TableShapeDuplicatePolicyReferenceKind `json:"kind"`
-}
-
-// TableShapeDuplicatePolicyReferenceKind defines model for TableShapeDuplicatePolicyReference.Kind.
-type TableShapeDuplicatePolicyReferenceKind string
-
-// TableShapeEditorChoice defines model for TableShapeEditorChoice.
-type TableShapeEditorChoice struct {
-	Availability TableShapeChoiceAvailability     `json:"availability"`
-	ChoiceId     string                           `json:"choiceId"`
-	ChoiceKind   TableShapeEditorChoiceChoiceKind `json:"choiceKind"`
-	Label        string                           `json:"label"`
-}
-
-// TableShapeEditorChoiceChoiceKind defines model for TableShapeEditorChoice.ChoiceKind.
-type TableShapeEditorChoiceChoiceKind string
-
-// TableShapeEvidenceLimitation defines model for TableShapeEvidenceLimitation.
-type TableShapeEvidenceLimitation struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
-// TableShapeExcludedRecord defines model for TableShapeExcludedRecord.
-type TableShapeExcludedRecord struct {
-	Category       TableShapeCategoryValue   `json:"category"`
-	CategoryType   string                    `json:"categoryType"`
-	OmissionCode   *string                   `json:"omissionCode,omitempty"`
-	OutputRowId    string                    `json:"outputRowId"`
-	Reason         string                    `json:"reason"`
-	SourceIdentity *TableShapeSourceIdentity `json:"sourceIdentity,omitempty"`
-}
-
-// TableShapeExclusionEvidence defines model for TableShapeExclusionEvidence.
-type TableShapeExclusionEvidence struct {
-	Complete    bool                              `json:"complete"`
-	FailureCode *string                           `json:"failureCode,omitempty"`
-	Records     []TableShapeExcludedRecord        `json:"records"`
-	Sampled     bool                              `json:"sampled"`
-	Status      TableShapeExclusionEvidenceStatus `json:"status"`
-}
-
-// TableShapeExclusionEvidenceStatus defines model for TableShapeExclusionEvidence.Status.
-type TableShapeExclusionEvidenceStatus string
-
-// TableShapeInformationLoss defines model for TableShapeInformationLoss.
-type TableShapeInformationLoss struct {
-	AffectedColumns []string `json:"affectedColumns"`
-	Code            string   `json:"code"`
-	Detail          string   `json:"detail"`
-	Label           string   `json:"label"`
-}
-
-// TableShapeLogicalType defines model for TableShapeLogicalType.
-type TableShapeLogicalType string
-
-// TableShapeMissingCellPolicyReference defines model for TableShapeMissingCellPolicyReference.
-type TableShapeMissingCellPolicyReference struct {
-	ChoiceId string                                   `json:"choiceId"`
-	Kind     TableShapeMissingCellPolicyReferenceKind `json:"kind"`
-}
-
-// TableShapeMissingCellPolicyReferenceKind defines model for TableShapeMissingCellPolicyReference.Kind.
-type TableShapeMissingCellPolicyReferenceKind string
-
-// TableShapeMissingInputPolicyReference defines model for TableShapeMissingInputPolicyReference.
-type TableShapeMissingInputPolicyReference struct {
-	ChoiceId string                                    `json:"choiceId"`
-	Kind     TableShapeMissingInputPolicyReferenceKind `json:"kind"`
-}
-
-// TableShapeMissingInputPolicyReferenceKind defines model for TableShapeMissingInputPolicyReference.Kind.
-type TableShapeMissingInputPolicyReferenceKind string
-
-// TableShapeOperandSelection defines model for TableShapeOperandSelection.
-type TableShapeOperandSelection struct {
-	ChoiceId     *string                        `json:"choiceId,omitempty"`
-	Kind         TableShapeOperandSelectionKind `json:"kind"`
-	Literal      *TableShapeScalar              `json:"literal,omitempty"`
-	ResolutionId *string                        `json:"resolutionId,omitempty"`
-}
-
-// TableShapeOperandSelectionKind defines model for TableShapeOperandSelection.Kind.
-type TableShapeOperandSelectionKind string
-
-// TableShapeOutputDescriptorSupport defines model for TableShapeOutputDescriptorSupport.
-type TableShapeOutputDescriptorSupport struct {
-	Kind            TableShapeOutputDescriptorSupportKind `json:"kind"`
-	Reason          *string                               `json:"reason,omitempty"`
-	ResultTypeLabel *string                               `json:"resultTypeLabel,omitempty"`
-	Suggestions     *[]TableShapeOutputSuggestion         `json:"suggestions,omitempty"`
-}
-
-// TableShapeOutputDescriptorSupportKind defines model for TableShapeOutputDescriptorSupport.Kind.
-type TableShapeOutputDescriptorSupportKind string
-
-// TableShapeOutputName defines model for TableShapeOutputName.
-type TableShapeOutputName struct {
-	Column string `json:"column"`
-	Label  string `json:"label"`
-}
-
-// TableShapeOutputSuggestion defines model for TableShapeOutputSuggestion.
-type TableShapeOutputSuggestion struct {
-	Availability    TableShapeChoiceAvailability         `json:"availability"`
-	ChoiceId        string                               `json:"choiceId"`
-	ChoiceKind      TableShapeOutputSuggestionChoiceKind `json:"choiceKind"`
-	Label           string                               `json:"label"`
-	ResultTypeLabel string                               `json:"resultTypeLabel"`
-	SuggestedOutput TableShapeOutputName                 `json:"suggestedOutput"`
-}
-
-// TableShapeOutputSuggestionChoiceKind defines model for TableShapeOutputSuggestion.ChoiceKind.
-type TableShapeOutputSuggestionChoiceKind string
-
-// TableShapePivotCategoryChoice defines model for TableShapePivotCategoryChoice.
-type TableShapePivotCategoryChoice struct {
-	Availability    TableShapeChoiceAvailability            `json:"availability"`
-	ChoiceId        string                                  `json:"choiceId"`
-	ChoiceKind      TableShapePivotCategoryChoiceChoiceKind `json:"choiceKind"`
-	Label           string                                  `json:"label"`
-	SuggestedOutput TableShapeOutputName                    `json:"suggestedOutput"`
-	Value           TableShapeScalar                        `json:"value"`
-}
-
-// TableShapePivotCategoryChoiceChoiceKind defines model for TableShapePivotCategoryChoice.ChoiceKind.
-type TableShapePivotCategoryChoiceChoiceKind string
-
-// TableShapePivotCategoryDiscovery defines model for TableShapePivotCategoryDiscovery.
-type TableShapePivotCategoryDiscovery struct {
-	Categories        *[]TableShapePivotCategoryChoice     `json:"categories,omitempty"`
-	DiscoveryIdentity *string                              `json:"discoveryIdentity,omitempty"`
-	Kind              TableShapePivotCategoryDiscoveryKind `json:"kind"`
-	Pair              *TableShapePivotCategoryPair         `json:"pair,omitempty"`
-}
-
-// TableShapePivotCategoryDiscoveryKind defines model for TableShapePivotCategoryDiscovery.Kind.
-type TableShapePivotCategoryDiscoveryKind string
-
-// TableShapePivotCategoryPair defines model for TableShapePivotCategoryPair.
-type TableShapePivotCategoryPair struct {
-	CategoryColumn TableShapeColumnReference `json:"categoryColumn"`
-	ValueColumn    TableShapeColumnReference `json:"valueColumn"`
-}
-
-// TableShapePivotCategoryReference defines model for TableShapePivotCategoryReference.
-type TableShapePivotCategoryReference struct {
-	ChoiceId string                               `json:"choiceId"`
-	Kind     TableShapePivotCategoryReferenceKind `json:"kind"`
-}
-
-// TableShapePivotCategoryReferenceKind defines model for TableShapePivotCategoryReference.Kind.
-type TableShapePivotCategoryReferenceKind string
-
-// TableShapePivotCategorySelection defines model for TableShapePivotCategorySelection.
-type TableShapePivotCategorySelection struct {
-	ChoiceId     string `json:"choiceId"`
-	OutputColumn string `json:"outputColumn"`
-	OutputLabel  string `json:"outputLabel"`
-}
-
-// TableShapePivotProposal defines model for TableShapePivotProposal.
-type TableShapePivotProposal struct {
-	CategoryColumn            TableShapeColumnReference                 `json:"categoryColumn"`
-	CategoryDiscoveryIdentity string                                    `json:"categoryDiscoveryIdentity"`
-	DuplicatePolicy           TableShapeDuplicatePolicyReference        `json:"duplicatePolicy"`
-	GroupColumns              []TableShapeColumnReference               `json:"groupColumns"`
-	IncludedCategories        []TableShapeSavedPivotCategorySelection   `json:"includedCategories"`
-	MissingCellPolicy         TableShapeMissingCellPolicyReference      `json:"missingCellPolicy"`
-	UnlistedCategoryPolicy    TableShapeUnlistedCategoryPolicyReference `json:"unlistedCategoryPolicy"`
-	ValueColumn               TableShapeColumnReference                 `json:"valueColumn"`
-}
-
-// TableShapePivotSelection defines model for TableShapePivotSelection.
-type TableShapePivotSelection struct {
-	Categories              []TableShapePivotCategorySelection `json:"categories"`
-	CategoryColumnChoiceId  string                             `json:"categoryColumnChoiceId"`
-	CategoryDiscoveryId     string                             `json:"categoryDiscoveryId"`
-	DuplicatePolicyChoiceId string                             `json:"duplicatePolicyChoiceId"`
-	GroupColumnChoiceIds    []string                           `json:"groupColumnChoiceIds"`
-	MissingPolicyChoiceId   string                             `json:"missingPolicyChoiceId"`
-	UnlistedPolicyChoiceId  string                             `json:"unlistedPolicyChoiceId"`
-	ValueColumnChoiceId     string                             `json:"valueColumnChoiceId"`
-}
-
-// TableShapePreviewSummary defines model for TableShapePreviewSummary.
-type TableShapePreviewSummary struct {
-	RowCount int  `json:"rowCount"`
-	Sampled  bool `json:"sampled"`
-}
-
-// TableShapeProposal defines model for TableShapeProposal.
-type TableShapeProposal struct {
-	BaseDocumentDigest       string                 `json:"baseDocumentDigest"`
-	BaseReceiptId            string                 `json:"baseReceiptId"`
-	CandidateWorkspaceDigest string                 `json:"candidateWorkspaceDigest"`
-	Comparison               TableShapeComparison   `json:"comparison"`
-	DraftDigest              string                 `json:"draftDigest"`
-	DraftVersion             int                    `json:"draftVersion"`
-	Mode                     TableShapeProposalMode `json:"mode"`
-	OutputId                 string                 `json:"outputId"`
-	ProposalId               string                 `json:"proposalId"`
-	SnapshotToken            string                 `json:"snapshotToken"`
-}
-
-// TableShapeProposalMode defines model for TableShapeProposal.Mode.
-type TableShapeProposalMode string
-
-// TableShapeProposalIntent defines model for TableShapeProposalIntent.
-type TableShapeProposalIntent struct {
-	DerivedColumns []TableShapeDerivedColumnProposal `json:"derivedColumns"`
-	Kind           TableShapeProposalIntentKind      `json:"kind"`
-	Pivot          *TableShapePivotProposal          `json:"pivot,omitempty"`
-	ReshapeMode    TableShapeReshapeModeReference    `json:"reshapeMode"`
-	Unpivot        *TableShapeUnpivotProposal        `json:"unpivot,omitempty"`
-}
-
-// TableShapeProposalIntentKind defines model for TableShapeProposalIntent.Kind.
-type TableShapeProposalIntentKind string
-
-// TableShapeProposalRequest defines model for TableShapeProposalRequest.
-type TableShapeProposalRequest struct {
-	CatalogId            string                        `json:"catalogId"`
-	DerivedResolutionIds *[]string                     `json:"derivedResolutionIds,omitempty"`
-	ExpectedDraftDigest  string                        `json:"expectedDraftDigest"`
-	ExpectedDraftVersion int                           `json:"expectedDraftVersion"`
-	Limit                *int                          `json:"limit,omitempty"`
-	Mode                 TableShapeProposalRequestMode `json:"mode"`
-	OutputId             string                        `json:"outputId"`
-	ReshapeResolutionId  *string                       `json:"reshapeResolutionId,omitempty"`
-	SnapshotToken        string                        `json:"snapshotToken"`
-}
-
-// TableShapeProposalRequestMode defines model for TableShapeProposalRequest.Mode.
-type TableShapeProposalRequestMode string
-
-// TableShapeReshapeModeChoice defines model for TableShapeReshapeModeChoice.
-type TableShapeReshapeModeChoice struct {
-	Availability TableShapeChoiceAvailability          `json:"availability"`
-	ChoiceId     string                                `json:"choiceId"`
-	ChoiceKind   TableShapeReshapeModeChoiceChoiceKind `json:"choiceKind"`
-	Label        string                                `json:"label"`
-	Mode         TableShapeReshapeModeChoiceMode       `json:"mode"`
-}
-
-// TableShapeReshapeModeChoiceChoiceKind defines model for TableShapeReshapeModeChoice.ChoiceKind.
-type TableShapeReshapeModeChoiceChoiceKind string
-
-// TableShapeReshapeModeChoiceMode defines model for TableShapeReshapeModeChoice.Mode.
-type TableShapeReshapeModeChoiceMode string
-
-// TableShapeReshapeModeReference defines model for TableShapeReshapeModeReference.
-type TableShapeReshapeModeReference struct {
-	ChoiceId string                             `json:"choiceId"`
-	Kind     TableShapeReshapeModeReferenceKind `json:"kind"`
-}
-
-// TableShapeReshapeModeReferenceKind defines model for TableShapeReshapeModeReference.Kind.
-type TableShapeReshapeModeReferenceKind string
-
-// TableShapeResolutionRequest defines model for TableShapeResolutionRequest.
-type TableShapeResolutionRequest struct {
-	CatalogId            string                          `json:"catalogId"`
-	Derived              *TableShapeDerivedSelection     `json:"derived,omitempty"`
-	ExpectedDraftDigest  string                          `json:"expectedDraftDigest"`
-	ExpectedDraftVersion int                             `json:"expectedDraftVersion"`
-	Kind                 TableShapeResolutionRequestKind `json:"kind"`
-	OutputId             string                          `json:"outputId"`
-	Pivot                *TableShapePivotSelection       `json:"pivot,omitempty"`
-	SnapshotToken        string                          `json:"snapshotToken"`
-	Unpivot              *TableShapeUnpivotSelection     `json:"unpivot,omitempty"`
-}
-
-// TableShapeResolutionRequestKind defines model for TableShapeResolutionRequest.Kind.
-type TableShapeResolutionRequestKind string
-
-// TableShapeResolutionResponse defines model for TableShapeResolutionResponse.
-type TableShapeResolutionResponse struct {
-	CatalogId           string                               `json:"catalogId"`
-	Categories          *[]TableShapeResolvedCategory        `json:"categories,omitempty"`
-	CategoryDiscoveryId *string                              `json:"categoryDiscoveryId,omitempty"`
-	KeyResult           *TableShapeTypeFact                  `json:"keyResult,omitempty"`
-	Kind                TableShapeResolutionResponseKind     `json:"kind"`
-	OutputDescriptors   []TableShapeResolvedOutputDescriptor `json:"outputDescriptors"`
-	PostPivotOperands   []TableShapeEditorChoice             `json:"postPivotOperands"`
-	ResolutionId        string                               `json:"resolutionId"`
-	Result              *TableShapeTypeFact                  `json:"result,omitempty"`
-	ValueResult         *TableShapeTypeFact                  `json:"valueResult,omitempty"`
-}
-
-// TableShapeResolutionResponseKind defines model for TableShapeResolutionResponse.Kind.
-type TableShapeResolutionResponseKind string
-
-// TableShapeResolvedCategory defines model for TableShapeResolvedCategory.
-type TableShapeResolvedCategory struct {
-	Id           string             `json:"id"`
-	OutputColumn string             `json:"outputColumn"`
-	OutputLabel  string             `json:"outputLabel"`
-	Type         TableShapeTypeFact `json:"type"`
-	Value        TableShapeScalar   `json:"value"`
-}
-
-// TableShapeResolvedOutputDescriptor defines model for TableShapeResolvedOutputDescriptor.
-type TableShapeResolvedOutputDescriptor struct {
-	Category        *TableShapePivotCategoryReference      `json:"category,omitempty"`
-	GroupColumn     *TableShapeColumnReference             `json:"groupColumn,omitempty"`
-	Kind            TableShapeResolvedOutputDescriptorKind `json:"kind"`
-	OperandChoiceId *string                                `json:"operandChoiceId,omitempty"`
-	OutputColumn    string                                 `json:"outputColumn"`
-	OutputLabel     string                                 `json:"outputLabel"`
-	Type            TableShapeTypeFact                     `json:"type"`
-}
-
-// TableShapeResolvedOutputDescriptorKind defines model for TableShapeResolvedOutputDescriptor.Kind.
-type TableShapeResolvedOutputDescriptorKind string
-
-// TableShapeSavedPivotCategorySelection defines model for TableShapeSavedPivotCategorySelection.
-type TableShapeSavedPivotCategorySelection struct {
-	Category TableShapePivotCategoryReference `json:"category"`
-	Output   TableShapeOutputName             `json:"output"`
-}
-
-// TableShapeScalar defines model for TableShapeScalar.
-type TableShapeScalar struct {
-	Boolean *bool                `json:"boolean,omitempty"`
-	Decimal *float64             `json:"decimal,omitempty"`
-	Integer *int64               `json:"integer,omitempty"`
-	Kind    TableShapeScalarKind `json:"kind"`
-	String  *string              `json:"string,omitempty"`
-}
-
-// TableShapeScalarKind defines model for TableShapeScalar.Kind.
-type TableShapeScalarKind string
-
-// TableShapeSourceIdentity defines model for TableShapeSourceIdentity.
-type TableShapeSourceIdentity struct {
-	ResourceId   string `json:"resourceId"`
-	ResourceType string `json:"resourceType"`
-}
-
-// TableShapeTypeFact defines model for TableShapeTypeFact.
-type TableShapeTypeFact struct {
-	LogicalType  TableShapeLogicalType `json:"logicalType"`
-	Nullable     bool                  `json:"nullable"`
-	UnitIdentity *string               `json:"unitIdentity,omitempty"`
-}
-
-// TableShapeUnlistedCategoryPolicyReference defines model for TableShapeUnlistedCategoryPolicyReference.
-type TableShapeUnlistedCategoryPolicyReference struct {
-	ChoiceId string                                        `json:"choiceId"`
-	Kind     TableShapeUnlistedCategoryPolicyReferenceKind `json:"kind"`
-}
-
-// TableShapeUnlistedCategoryPolicyReferenceKind defines model for TableShapeUnlistedCategoryPolicyReference.Kind.
-type TableShapeUnlistedCategoryPolicyReferenceKind string
-
-// TableShapeUnpivotNullRowPolicyReference defines model for TableShapeUnpivotNullRowPolicyReference.
-type TableShapeUnpivotNullRowPolicyReference struct {
-	ChoiceId string                                      `json:"choiceId"`
-	Kind     TableShapeUnpivotNullRowPolicyReferenceKind `json:"kind"`
-}
-
-// TableShapeUnpivotNullRowPolicyReferenceKind defines model for TableShapeUnpivotNullRowPolicyReference.Kind.
-type TableShapeUnpivotNullRowPolicyReferenceKind string
-
-// TableShapeUnpivotProposal defines model for TableShapeUnpivotProposal.
-type TableShapeUnpivotProposal struct {
-	InputColumns  []TableShapeColumnReference             `json:"inputColumns"`
-	KeyOutput     TableShapeOutputName                    `json:"keyOutput"`
-	NullRowPolicy TableShapeUnpivotNullRowPolicyReference `json:"nullRowPolicy"`
-	ValueOutput   TableShapeOutputName                    `json:"valueOutput"`
-}
-
-// TableShapeUnpivotSelection defines model for TableShapeUnpivotSelection.
-type TableShapeUnpivotSelection struct {
-	InputColumnChoiceIds []string `json:"inputColumnChoiceIds"`
-	KeyOutputColumn      string   `json:"keyOutputColumn"`
-	KeyOutputLabel       string   `json:"keyOutputLabel"`
-	NullPolicyChoiceId   string   `json:"nullPolicyChoiceId"`
-	ValueOutputColumn    string   `json:"valueOutputColumn"`
-	ValueOutputLabel     string   `json:"valueOutputLabel"`
-}
 
 // TemporalFieldChoice defines model for TemporalFieldChoice.
 type TemporalFieldChoice struct {
@@ -9818,29 +9450,20 @@ type AuthoringUnavailable = ErrorResponse
 // AuthoringUnprocessable defines model for AuthoringUnprocessable.
 type AuthoringUnprocessable = ErrorResponse
 
-// LegacyBadRequest Error envelope retained by legacy Explorer and recipe-execution routes.
-type LegacyBadRequest = LegacyErrorResponse
-
-// LegacyConflict Error envelope retained by legacy Explorer and recipe-execution routes.
-type LegacyConflict = LegacyErrorResponse
+// ExplorerUnauthorized defines model for ExplorerUnauthorized.
+type ExplorerUnauthorized = ErrorResponse
 
 // LegacyForbidden Error envelope retained by legacy Explorer and recipe-execution routes.
 type LegacyForbidden = LegacyErrorResponse
 
-// LegacyInternalError Error envelope retained by legacy Explorer and recipe-execution routes.
-type LegacyInternalError = LegacyErrorResponse
-
 // LegacyNotFound Error envelope retained by legacy Explorer and recipe-execution routes.
 type LegacyNotFound = LegacyErrorResponse
 
-// LegacyUnavailable Error envelope retained by legacy Explorer and recipe-execution routes.
-type LegacyUnavailable = LegacyErrorResponse
-
-// LegacyUnprocessable Error envelope retained by legacy Explorer and recipe-execution routes.
-type LegacyUnprocessable = LegacyErrorResponse
-
 // ServiceBadRequest Stable error envelope emitted by Loom's shared HTTP error mapper and snapshot routes.
 type ServiceBadRequest = ServiceErrorResponse
+
+// ServiceClientClosedRequest Stable error envelope emitted by Loom's shared HTTP error mapper and snapshot routes.
+type ServiceClientClosedRequest = ServiceErrorResponse
 
 // ServiceConflict Stable error envelope emitted by Loom's shared HTTP error mapper and snapshot routes.
 type ServiceConflict = ServiceErrorResponse
@@ -9848,11 +9471,20 @@ type ServiceConflict = ServiceErrorResponse
 // ServiceForbidden Stable error envelope emitted by Loom's shared HTTP error mapper and snapshot routes.
 type ServiceForbidden = ServiceErrorResponse
 
+// ServiceGatewayTimeout Stable error envelope emitted by Loom's shared HTTP error mapper and snapshot routes.
+type ServiceGatewayTimeout = ServiceErrorResponse
+
 // ServiceInternalError Stable error envelope emitted by Loom's shared HTTP error mapper and snapshot routes.
 type ServiceInternalError = ServiceErrorResponse
 
 // ServiceNotFound Stable error envelope emitted by Loom's shared HTTP error mapper and snapshot routes.
 type ServiceNotFound = ServiceErrorResponse
+
+// ServicePayloadTooLarge Stable error envelope emitted by Loom's shared HTTP error mapper and snapshot routes.
+type ServicePayloadTooLarge = ServiceErrorResponse
+
+// ServiceTooManyRequests Stable error envelope emitted by Loom's shared HTTP error mapper and snapshot routes.
+type ServiceTooManyRequests = ServiceErrorResponse
 
 // ServiceUnauthorized Stable error envelope emitted by Loom's shared HTTP error mapper and snapshot routes.
 type ServiceUnauthorized = ServiceErrorResponse
@@ -9885,6 +9517,12 @@ type CreateDatasetGenerationMultipartBody struct {
 type ActivateDatasetGenerationParams struct {
 	DataframeExecutionId string  `form:"dataframe_execution_id" json:"dataframe_execution_id"`
 	AuthResourcePath     *string `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
+// UploadDatasetSourceLoadFileMultipartBody defines parameters for UploadDatasetSourceLoadFile.
+type UploadDatasetSourceLoadFileMultipartBody struct {
+	// File Exactly one file named META/{resourceType}.ndjson.
+	File openapi_types.File `json:"file"`
 }
 
 // CreateExplorerParams defines parameters for CreateExplorer.
@@ -9953,8 +9591,54 @@ type CreateInterpretationRevisionParams struct {
 	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
 }
 
+// GetProjectViewBuilderParams defines parameters for GetProjectViewBuilder.
+type GetProjectViewBuilderParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
+// AdoptProjectViewBuilderParams defines parameters for AdoptProjectViewBuilder.
+type AdoptProjectViewBuilderParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
+// DeleteProjectViewConfigParams defines parameters for DeleteProjectViewConfig.
+type DeleteProjectViewConfigParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath   *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+	ExpectedRevisionId string            `form:"expectedRevisionId" json:"expectedRevisionId"`
+}
+
+// SaveProjectViewConfigParams defines parameters for SaveProjectViewConfig.
+type SaveProjectViewConfigParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
+// SaveProjectViewDefaultsParams defines parameters for SaveProjectViewDefaults.
+type SaveProjectViewDefaultsParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
 // CreateDatasetGenerationMultipartRequestBody defines body for CreateDatasetGeneration for multipart/form-data ContentType.
 type CreateDatasetGenerationMultipartRequestBody CreateDatasetGenerationMultipartBody
+
+// BeginDatasetSourceLoadJSONRequestBody defines body for BeginDatasetSourceLoad for application/json ContentType.
+type BeginDatasetSourceLoadJSONRequestBody = SourceLoadPlan
+
+// UploadDatasetSourceLoadFileMultipartRequestBody defines body for UploadDatasetSourceLoadFile for multipart/form-data ContentType.
+type UploadDatasetSourceLoadFileMultipartRequestBody UploadDatasetSourceLoadFileMultipartBody
+
+// PostDataframeAggregationsJSONRequestBody defines body for PostDataframeAggregations for application/json ContentType.
+type PostDataframeAggregationsJSONRequestBody = DataframeAggregationsInput
+
+// PostDataframeRowsJSONRequestBody defines body for PostDataframeRows for application/json ContentType.
+type PostDataframeRowsJSONRequestBody = DataframeRowsInput
+
+// PostFhirDataframeJSONRequestBody defines body for PostFhirDataframe for application/json ContentType.
+type PostFhirDataframeJSONRequestBody = FhirDataframeRequest
 
 // CreateExplorerJSONRequestBody defines body for CreateExplorer for application/json ContentType.
 type CreateExplorerJSONRequestBody = RawJSON
@@ -9962,8 +9646,14 @@ type CreateExplorerJSONRequestBody = RawJSON
 // PrepareExplorerArtifactJSONRequestBody defines body for PrepareExplorerArtifact for application/json ContentType.
 type PrepareExplorerArtifactJSONRequestBody = ArtifactPrepareRequest
 
+// DescribeExplorerAuthoringNetworkJSONRequestBody defines body for DescribeExplorerAuthoringNetwork for application/json ContentType.
+type DescribeExplorerAuthoringNetworkJSONRequestBody = AuthoringNetworkRequest
+
 // TraceExplorerCellJSONRequestBody defines body for TraceExplorerCell for application/json ContentType.
 type TraceExplorerCellJSONRequestBody = CellTraceRequest
+
+// ProposeExplorerColumnPolicyJSONRequestBody defines body for ProposeExplorerColumnPolicy for application/json ContentType.
+type ProposeExplorerColumnPolicyJSONRequestBody = ColumnPolicyProposalRequest
 
 // GetExplorerColumnSourceJSONRequestBody defines body for GetExplorerColumnSource for application/json ContentType.
 type GetExplorerColumnSourceJSONRequestBody = ColumnSourceRequest
@@ -9985,6 +9675,9 @@ type ProposeExplorerConstructionChoiceJSONRequestBody = ConstructionChoicePropos
 
 // SearchExplorerConstructionChoicesJSONRequestBody defines body for SearchExplorerConstructionChoices for application/json ContentType.
 type SearchExplorerConstructionChoicesJSONRequestBody = ConstructionChoiceSearchRequest
+
+// GetExplorerConstructionColumnPopulationJSONRequestBody defines body for GetExplorerConstructionColumnPopulation for application/json ContentType.
+type GetExplorerConstructionColumnPopulationJSONRequestBody = ConstructionColumnPopulationRequest
 
 // GetExplorerConstructionInputsJSONRequestBody defines body for GetExplorerConstructionInputs for application/json ContentType.
 type GetExplorerConstructionInputsJSONRequestBody = ConstructionInputsRequest
@@ -10043,20 +9736,11 @@ type SearchExplorerSchemaFieldsJSONRequestBody = SchemaFieldSearchRequest
 // BrowseExplorerSemanticInventoryJSONRequestBody defines body for BrowseExplorerSemanticInventory for application/json ContentType.
 type BrowseExplorerSemanticInventoryJSONRequestBody = SemanticInventoryBrowseRequest
 
+// ProposeExplorerSourceRelationshipJSONRequestBody defines body for ProposeExplorerSourceRelationship for application/json ContentType.
+type ProposeExplorerSourceRelationshipJSONRequestBody = SourceRelationshipProposalRequest
+
 // SearchExplorerCandidatesJSONRequestBody defines body for SearchExplorerCandidates for application/json ContentType.
 type SearchExplorerCandidatesJSONRequestBody = CandidateSearchRequest
-
-// GetExplorerTableShapeCapabilitiesJSONRequestBody defines body for GetExplorerTableShapeCapabilities for application/json ContentType.
-type GetExplorerTableShapeCapabilitiesJSONRequestBody = TableShapeCapabilitiesRequest
-
-// DiscoverExplorerTableShapeCategoriesJSONRequestBody defines body for DiscoverExplorerTableShapeCategories for application/json ContentType.
-type DiscoverExplorerTableShapeCategoriesJSONRequestBody = TableShapeCategoryDiscoveryRequest
-
-// ProposeExplorerTableShapeJSONRequestBody defines body for ProposeExplorerTableShape for application/json ContentType.
-type ProposeExplorerTableShapeJSONRequestBody = TableShapeProposalRequest
-
-// ResolveExplorerTableShapeJSONRequestBody defines body for ResolveExplorerTableShape for application/json ContentType.
-type ResolveExplorerTableShapeJSONRequestBody = TableShapeResolutionRequest
 
 // CreateExplorerSelectionJSONRequestBody defines body for CreateExplorerSelection for application/json ContentType.
 type CreateExplorerSelectionJSONRequestBody = SelectionCreateRequest
@@ -10070,11 +9754,11 @@ type PublishRepositoryExplorerConfigJSONRequestBody = Workspace
 // CreateInterpretationRevisionJSONRequestBody defines body for CreateInterpretationRevision for application/json ContentType.
 type CreateInterpretationRevisionJSONRequestBody = InterpretationRevisionCreateRequest
 
-// ExecuteDataframeGraphQLJSONRequestBody defines body for ExecuteDataframeGraphQL for application/json ContentType.
-type ExecuteDataframeGraphQLJSONRequestBody = RawJSON
+// SaveProjectViewConfigJSONRequestBody defines body for SaveProjectViewConfig for application/json ContentType.
+type SaveProjectViewConfigJSONRequestBody = RawJSON
 
-// ExecuteGraphQLJSONRequestBody defines body for ExecuteGraphQL for application/json ContentType.
-type ExecuteGraphQLJSONRequestBody = RawJSON
+// SaveProjectViewDefaultsJSONRequestBody defines body for SaveProjectViewDefaults for application/json ContentType.
+type SaveProjectViewDefaultsJSONRequestBody = RawJSON
 
 // Getter for additional properties for ErrorBody. Returns the specified
 // element and whether it was found
@@ -10107,6 +9791,14 @@ func (a *ErrorBody) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'code': %w", err)
 		}
 		delete(object, "code")
+	}
+
+	if raw, found := object["details"]; found {
+		err = json.Unmarshal(raw, &a.Details)
+		if err != nil {
+			return fmt.Errorf("error reading 'details': %w", err)
+		}
+		delete(object, "details")
 	}
 
 	if raw, found := object["diagnostic"]; found {
@@ -10155,6 +9847,13 @@ func (a ErrorBody) MarshalJSON() ([]byte, error) {
 	object["code"], err = json.Marshal(a.Code)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'code': %w", err)
+	}
+
+	if a.Details != nil {
+		object["details"], err = json.Marshal(a.Details)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'details': %w", err)
+		}
 	}
 
 	if a.Diagnostic != nil {
@@ -12076,107 +11775,6 @@ func (t *SemanticInventoryItemIdentity) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// AsTableShapeComparisonAvailable returns the union data inside the TableShapeComparison as a TableShapeComparisonAvailable
-func (t TableShapeComparison) AsTableShapeComparisonAvailable() (TableShapeComparisonAvailable, error) {
-	var body TableShapeComparisonAvailable
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromTableShapeComparisonAvailable overwrites any union data inside the TableShapeComparison as the provided TableShapeComparisonAvailable
-func (t *TableShapeComparison) FromTableShapeComparisonAvailable(v TableShapeComparisonAvailable) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	b, err = runtime.JSONMerge(b, []byte(`{"status":"AVAILABLE"}`))
-	t.union = b
-	return err
-}
-
-// MergeTableShapeComparisonAvailable performs a merge with any union data inside the TableShapeComparison, using the provided TableShapeComparisonAvailable
-func (t *TableShapeComparison) MergeTableShapeComparisonAvailable(v TableShapeComparisonAvailable) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	b, err = runtime.JSONMerge(b, []byte(`{"status":"AVAILABLE"}`))
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsTableShapeComparisonUnavailable returns the union data inside the TableShapeComparison as a TableShapeComparisonUnavailable
-func (t TableShapeComparison) AsTableShapeComparisonUnavailable() (TableShapeComparisonUnavailable, error) {
-	var body TableShapeComparisonUnavailable
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromTableShapeComparisonUnavailable overwrites any union data inside the TableShapeComparison as the provided TableShapeComparisonUnavailable
-func (t *TableShapeComparison) FromTableShapeComparisonUnavailable(v TableShapeComparisonUnavailable) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	b, err = runtime.JSONMerge(b, []byte(`{"status":"UNAVAILABLE"}`))
-	t.union = b
-	return err
-}
-
-// MergeTableShapeComparisonUnavailable performs a merge with any union data inside the TableShapeComparison, using the provided TableShapeComparisonUnavailable
-func (t *TableShapeComparison) MergeTableShapeComparisonUnavailable(v TableShapeComparisonUnavailable) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	b, err = runtime.JSONMerge(b, []byte(`{"status":"UNAVAILABLE"}`))
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t TableShapeComparison) Discriminator() (string, error) {
-	var discriminator struct {
-		Discriminator string `json:"status"`
-	}
-	err := json.Unmarshal(t.union, &discriminator)
-	return discriminator.Discriminator, err
-}
-
-func (t TableShapeComparison) ValueByDiscriminator() (interface{}, error) {
-	discriminator, err := t.Discriminator()
-	if err != nil {
-		return nil, err
-	}
-	switch discriminator {
-	case "AVAILABLE":
-		return t.AsTableShapeComparisonAvailable()
-	case "UNAVAILABLE":
-		return t.AsTableShapeComparisonUnavailable()
-	default:
-		return nil, errors.New("unknown discriminator value: " + discriminator)
-	}
-}
-
-func (t TableShapeComparison) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *TableShapeComparison) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// GetRecipeExecution Read public metadata for a dataframe recipe execution.
@@ -12191,6 +11789,27 @@ type ServerInterface interface {
 	// ActivateDatasetGeneration Activate a generation after dataframe publication.
 	// (POST /api/v1/datasets/{project}/generations/{generation}/activate)
 	ActivateDatasetGeneration(c fiber.Ctx, project Project, generation Generation, params ActivateDatasetGenerationParams) error
+	// GetDatasetSourceLoadStatus Read a durable source-load plan and completed file receipts.
+	// (GET /api/v1/datasets/{project}/source-loads/{operation})
+	GetDatasetSourceLoadStatus(c fiber.Ctx, project Project, operation string) error
+	// BeginDatasetSourceLoad Create or retrieve a durable source-load plan.
+	// (PUT /api/v1/datasets/{project}/source-loads/{operation})
+	BeginDatasetSourceLoad(c fiber.Ctx, project Project, operation string) error
+	// UploadDatasetSourceLoadFile Upload exactly one canonical META NDJSON file into the inactive source generation.
+	// (PUT /api/v1/datasets/{project}/source-loads/{operation}/files/{resourceType})
+	UploadDatasetSourceLoadFile(c fiber.Ctx, project Project, operation string, resourceType string) error
+	// PublishDatasetSourceLoad Materialize the completed candidate and select its published release.
+	// (POST /api/v1/datasets/{project}/source-loads/{operation}/publish)
+	PublishDatasetSourceLoad(c fiber.Ctx, project Project, operation string) error
+	// PostDataframeAggregations Evaluate named aggregations against the selected published dataframe.
+	// (POST /api/v1/projects/{project}/dataframes/aggregations)
+	PostDataframeAggregations(c fiber.Ctx, project Project) error
+	// PostDataframeRows Page through the selected published dataframe.
+	// (POST /api/v1/projects/{project}/dataframes/rows)
+	PostDataframeRows(c fiber.Ctx, project Project) error
+	// PostFhirDataframe Compile and run an authorized FHIR dataframe query.
+	// (POST /api/v1/projects/{project}/dataframes/run)
+	PostFhirDataframe(c fiber.Ctx, project Project) error
 	// ListExplorers List Explorer summaries for a project.
 	// (GET /api/v1/projects/{project}/explorers)
 	ListExplorers(c fiber.Ctx, project Project) error
@@ -12207,6 +11826,9 @@ type ServerInterface interface {
 	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/artifacts/{artifactId})
 	DownloadExplorerArtifact(c fiber.Ctx, project Project, explorerId ExplorerId, artifactId string) error
 
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/authoring-network)
+	DescribeExplorerAuthoringNetwork(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
 	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder)
 	GetExplorerBuilder(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
@@ -12215,6 +11837,9 @@ type ServerInterface interface {
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/cell-trace)
 	TraceExplorerCell(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-policy-proposals)
+	ProposeExplorerColumnPolicy(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-source)
 	GetExplorerColumnSource(c fiber.Ctx, project Project, explorerId ExplorerId) error
@@ -12236,6 +11861,9 @@ type ServerInterface interface {
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices)
 	SearchExplorerConstructionChoices(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-column-population)
+	GetExplorerConstructionColumnPopulation(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-inputs)
 	GetExplorerConstructionInputs(c fiber.Ctx, project Project, explorerId ExplorerId) error
@@ -12297,20 +11925,11 @@ type ServerInterface interface {
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory)
 	BrowseExplorerSemanticInventory(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/source-relationship-proposals)
+	ProposeExplorerSourceRelationship(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions)
 	SearchExplorerCandidates(c fiber.Ctx, project Project, explorerId ExplorerId) error
-
-	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-capabilities)
-	GetExplorerTableShapeCapabilities(c fiber.Ctx, project Project, explorerId ExplorerId) error
-
-	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-category-discoveries)
-	DiscoverExplorerTableShapeCategories(c fiber.Ctx, project Project, explorerId ExplorerId) error
-
-	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-proposals)
-	ProposeExplorerTableShape(c fiber.Ctx, project Project, explorerId ExplorerId) error
-
-	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-resolutions)
-	ResolveExplorerTableShape(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/selections)
 	CreateExplorerSelection(c fiber.Ctx, project Project, explorerId ExplorerId, params CreateExplorerSelectionParams) error
@@ -12332,18 +11951,21 @@ type ServerInterface interface {
 
 	// (GET /api/v1/projects/{project}/interpretation-revisions/{revisionId})
 	GetInterpretationRevision(c fiber.Ctx, project Project, revisionId string) error
-	// GetApolloSandbox Render the Apollo GraphQL sandbox.
-	// (GET /apollo)
-	GetApolloSandbox(c fiber.Ctx) error
-	// ExecuteDataframeGraphQL Execute a dataframe GraphQL operation.
-	// (POST /graphql/dataframe)
-	ExecuteDataframeGraphQL(c fiber.Ctx) error
-	// GetGraphQLPlayground Render the GraphQL playground.
-	// (GET /graphql/graph)
-	GetGraphQLPlayground(c fiber.Ctx) error
-	// ExecuteGraphQL Execute a graph or FHIR GraphQL operation.
-	// (POST /graphql/graph)
-	ExecuteGraphQL(c fiber.Ctx) error
+	// GetProjectViewBuilder Read project views and exact published dataframe metadata.
+	// (GET /api/v1/projects/{project}/view-builder)
+	GetProjectViewBuilder(c fiber.Ctx, project Project, params GetProjectViewBuilderParams) error
+	// AdoptProjectViewBuilder Attach existing publication metadata without reloading data.
+	// (POST /api/v1/projects/{project}/view-builder/adopt)
+	AdoptProjectViewBuilder(c fiber.Ctx, project Project, params AdoptProjectViewBuilderParams) error
+	// DeleteProjectViewConfig Delete a non-default saved view while retaining publication history.
+	// (DELETE /api/v1/projects/{project}/view-builder/configs/{explorerId})
+	DeleteProjectViewConfig(c fiber.Ctx, project Project, explorerId ExplorerId, params DeleteProjectViewConfigParams) error
+	// SaveProjectViewConfig Save presentation against an existing published dataframe.
+	// (PUT /api/v1/projects/{project}/view-builder/configs/{explorerId})
+	SaveProjectViewConfig(c fiber.Ctx, project Project, explorerId ExplorerId, params SaveProjectViewConfigParams) error
+	// SaveProjectViewDefaults Choose the default saved view and dataframe.
+	// (PUT /api/v1/projects/{project}/view-builder/defaults)
+	SaveProjectViewDefaults(c fiber.Ctx, project Project, params SaveProjectViewDefaultsParams) error
 	// GetHealth Report cached core and dataframe health.
 	// (GET /health)
 	GetHealth(c fiber.Ctx) error
@@ -12530,6 +12152,249 @@ func (siw *ServerInterfaceWrapper) ActivateDatasetGeneration(c fiber.Ctx) error 
 
 	handler := func(c fiber.Ctx) error {
 		return siw.Handler.ActivateDatasetGeneration(c, project, generation, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// GetDatasetSourceLoadStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetDatasetSourceLoadStatus(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "operation" -------------
+	var operation string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "operation", c.Params("operation"), &operation, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter operation: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.GetDatasetSourceLoadStatus(c, project, operation)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// BeginDatasetSourceLoad operation middleware
+func (siw *ServerInterfaceWrapper) BeginDatasetSourceLoad(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "operation" -------------
+	var operation string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "operation", c.Params("operation"), &operation, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter operation: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.BeginDatasetSourceLoad(c, project, operation)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// UploadDatasetSourceLoadFile operation middleware
+func (siw *ServerInterfaceWrapper) UploadDatasetSourceLoadFile(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "operation" -------------
+	var operation string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "operation", c.Params("operation"), &operation, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter operation: %w", err).Error())
+	}
+
+	// ------------- Path parameter "resourceType" -------------
+	var resourceType string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "resourceType", c.Params("resourceType"), &resourceType, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter resourceType: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.UploadDatasetSourceLoadFile(c, project, operation, resourceType)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// PublishDatasetSourceLoad operation middleware
+func (siw *ServerInterfaceWrapper) PublishDatasetSourceLoad(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "operation" -------------
+	var operation string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "operation", c.Params("operation"), &operation, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter operation: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.PublishDatasetSourceLoad(c, project, operation)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// PostDataframeAggregations operation middleware
+func (siw *ServerInterfaceWrapper) PostDataframeAggregations(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.PostDataframeAggregations(c, project)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// PostDataframeRows operation middleware
+func (siw *ServerInterfaceWrapper) PostDataframeRows(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.PostDataframeRows(c, project)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// PostFhirDataframe operation middleware
+func (siw *ServerInterfaceWrapper) PostFhirDataframe(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.PostFhirDataframe(c, project)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -12736,6 +12601,43 @@ func (siw *ServerInterfaceWrapper) DownloadExplorerArtifact(c fiber.Ctx) error {
 	return handler(c)
 }
 
+// DescribeExplorerAuthoringNetwork operation middleware
+func (siw *ServerInterfaceWrapper) DescribeExplorerAuthoringNetwork(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.DescribeExplorerAuthoringNetwork(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
 // GetExplorerBuilder operation middleware
 func (siw *ServerInterfaceWrapper) GetExplorerBuilder(c fiber.Ctx) error {
 
@@ -12834,6 +12736,43 @@ func (siw *ServerInterfaceWrapper) TraceExplorerCell(c fiber.Ctx) error {
 
 	handler := func(c fiber.Ctx) error {
 		return siw.Handler.TraceExplorerCell(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// ProposeExplorerColumnPolicy operation middleware
+func (siw *ServerInterfaceWrapper) ProposeExplorerColumnPolicy(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.ProposeExplorerColumnPolicy(c, project, explorerId)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -13109,6 +13048,43 @@ func (siw *ServerInterfaceWrapper) SearchExplorerConstructionChoices(c fiber.Ctx
 
 	handler := func(c fiber.Ctx) error {
 		return siw.Handler.SearchExplorerConstructionChoices(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// GetExplorerConstructionColumnPopulation operation middleware
+func (siw *ServerInterfaceWrapper) GetExplorerConstructionColumnPopulation(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.GetExplorerConstructionColumnPopulation(c, project, explorerId)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -13933,6 +13909,43 @@ func (siw *ServerInterfaceWrapper) BrowseExplorerSemanticInventory(c fiber.Ctx) 
 	return handler(c)
 }
 
+// ProposeExplorerSourceRelationship operation middleware
+func (siw *ServerInterfaceWrapper) ProposeExplorerSourceRelationship(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.ProposeExplorerSourceRelationship(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
 // SearchExplorerCandidates operation middleware
 func (siw *ServerInterfaceWrapper) SearchExplorerCandidates(c fiber.Ctx) error {
 
@@ -13957,154 +13970,6 @@ func (siw *ServerInterfaceWrapper) SearchExplorerCandidates(c fiber.Ctx) error {
 
 	handler := func(c fiber.Ctx) error {
 		return siw.Handler.SearchExplorerCandidates(c, project, explorerId)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// GetExplorerTableShapeCapabilities operation middleware
-func (siw *ServerInterfaceWrapper) GetExplorerTableShapeCapabilities(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "explorerId" -------------
-	var explorerId ExplorerId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.GetExplorerTableShapeCapabilities(c, project, explorerId)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// DiscoverExplorerTableShapeCategories operation middleware
-func (siw *ServerInterfaceWrapper) DiscoverExplorerTableShapeCategories(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "explorerId" -------------
-	var explorerId ExplorerId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.DiscoverExplorerTableShapeCategories(c, project, explorerId)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// ProposeExplorerTableShape operation middleware
-func (siw *ServerInterfaceWrapper) ProposeExplorerTableShape(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "explorerId" -------------
-	var explorerId ExplorerId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.ProposeExplorerTableShape(c, project, explorerId)
-	}
-
-	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
-		m := siw.HandlerMiddlewares[i]
-		next := handler
-		handler = func(c fiber.Ctx) error {
-			return m(c, next)
-		}
-	}
-
-	return handler(c)
-}
-
-// ResolveExplorerTableShape operation middleware
-func (siw *ServerInterfaceWrapper) ResolveExplorerTableShape(c fiber.Ctx) error {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project" -------------
-	var project Project
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
-	}
-
-	// ------------- Path parameter "explorerId" -------------
-	var explorerId ExplorerId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
-	}
-
-	handler := func(c fiber.Ctx) error {
-		return siw.Handler.ResolveExplorerTableShape(c, project, explorerId)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -14485,11 +14350,38 @@ func (siw *ServerInterfaceWrapper) GetInterpretationRevision(c fiber.Ctx) error 
 	return handler(c)
 }
 
-// GetApolloSandbox operation middleware
-func (siw *ServerInterfaceWrapper) GetApolloSandbox(c fiber.Ctx) error {
+// GetProjectViewBuilder operation middleware
+func (siw *ServerInterfaceWrapper) GetProjectViewBuilder(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetProjectViewBuilderParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
 
 	handler := func(c fiber.Ctx) error {
-		return siw.Handler.GetApolloSandbox(c)
+		return siw.Handler.GetProjectViewBuilder(c, project, params)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -14503,11 +14395,38 @@ func (siw *ServerInterfaceWrapper) GetApolloSandbox(c fiber.Ctx) error {
 	return handler(c)
 }
 
-// ExecuteDataframeGraphQL operation middleware
-func (siw *ServerInterfaceWrapper) ExecuteDataframeGraphQL(c fiber.Ctx) error {
+// AdoptProjectViewBuilder operation middleware
+func (siw *ServerInterfaceWrapper) AdoptProjectViewBuilder(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AdoptProjectViewBuilderParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
 
 	handler := func(c fiber.Ctx) error {
-		return siw.Handler.ExecuteDataframeGraphQL(c)
+		return siw.Handler.AdoptProjectViewBuilder(c, project, params)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -14521,11 +14440,53 @@ func (siw *ServerInterfaceWrapper) ExecuteDataframeGraphQL(c fiber.Ctx) error {
 	return handler(c)
 }
 
-// GetGraphQLPlayground operation middleware
-func (siw *ServerInterfaceWrapper) GetGraphQLPlayground(c fiber.Ctx) error {
+// DeleteProjectViewConfig operation middleware
+func (siw *ServerInterfaceWrapper) DeleteProjectViewConfig(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteProjectViewConfigParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
+
+	// ------------- Required query parameter "expectedRevisionId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "expectedRevisionId", query, &params.ExpectedRevisionId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter expectedRevisionId: %w", err).Error())
+	}
 
 	handler := func(c fiber.Ctx) error {
-		return siw.Handler.GetGraphQLPlayground(c)
+		return siw.Handler.DeleteProjectViewConfig(c, project, explorerId, params)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -14539,11 +14500,91 @@ func (siw *ServerInterfaceWrapper) GetGraphQLPlayground(c fiber.Ctx) error {
 	return handler(c)
 }
 
-// ExecuteGraphQL operation middleware
-func (siw *ServerInterfaceWrapper) ExecuteGraphQL(c fiber.Ctx) error {
+// SaveProjectViewConfig operation middleware
+func (siw *ServerInterfaceWrapper) SaveProjectViewConfig(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SaveProjectViewConfigParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
 
 	handler := func(c fiber.Ctx) error {
-		return siw.Handler.ExecuteGraphQL(c)
+		return siw.Handler.SaveProjectViewConfig(c, project, explorerId, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// SaveProjectViewDefaults operation middleware
+func (siw *ServerInterfaceWrapper) SaveProjectViewDefaults(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SaveProjectViewDefaultsParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.SaveProjectViewDefaults(c, project, params)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -14634,6 +14675,12 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 		router.Use(fiber.Handler(m))
 	}
 
+	router.Post(options.BaseURL+"/api/v1/projects/:project/dataframes/rows", wrapper.PostDataframeRows)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/dataframes/aggregations", wrapper.PostDataframeAggregations)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/dataframes/run", wrapper.PostFhirDataframe)
+
 	router.Get(options.BaseURL+"/api/v1/projects/:project/interpretation-libraries", wrapper.ListInterpretationLibraries)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/interpretation-libraries", wrapper.CreateInterpretationRevision)
@@ -14668,19 +14715,19 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/row-definition-proposals", wrapper.ProposeExplorerRowDefinition)
 
-	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/table-shape-capabilities", wrapper.GetExplorerTableShapeCapabilities)
-
-	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/table-shape-category-discoveries", wrapper.DiscoverExplorerTableShapeCategories)
-
-	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/table-shape-resolutions", wrapper.ResolveExplorerTableShape)
-
-	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/table-shape-proposals", wrapper.ProposeExplorerTableShape)
-
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/construction-capabilities", wrapper.GetExplorerConstructionCapabilities)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/construction-column-population", wrapper.GetExplorerConstructionColumnPopulation)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/construction-category-discoveries", wrapper.DiscoverExplorerConstructionCategories)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/construction-inputs", wrapper.GetExplorerConstructionInputs)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/authoring-network", wrapper.DescribeExplorerAuthoringNetwork)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/source-relationship-proposals", wrapper.ProposeExplorerSourceRelationship)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/column-policy-proposals", wrapper.ProposeExplorerColumnPolicy)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/construction-proposals", wrapper.ProposeExplorerConstruction)
 
@@ -14732,15 +14779,15 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 
 	router.Post(options.BaseURL+"/api/v1/datasets/:project/generations/:generation/activate", wrapper.ActivateDatasetGeneration)
 
+	router.Get(options.BaseURL+"/api/v1/datasets/:project/source-loads/:operation", wrapper.GetDatasetSourceLoadStatus)
+
+	router.Put(options.BaseURL+"/api/v1/datasets/:project/source-loads/:operation", wrapper.BeginDatasetSourceLoad)
+
+	router.Put(options.BaseURL+"/api/v1/datasets/:project/source-loads/:operation/files/:resourceType", wrapper.UploadDatasetSourceLoadFile)
+
+	router.Post(options.BaseURL+"/api/v1/datasets/:project/source-loads/:operation/publish", wrapper.PublishDatasetSourceLoad)
+
 	router.Get(options.BaseURL+"/api/v1/dataframe/recipe-executions/:id", wrapper.GetRecipeExecution)
-
-	router.Get(options.BaseURL+"/graphql/graph", wrapper.GetGraphQLPlayground)
-
-	router.Post(options.BaseURL+"/graphql/graph", wrapper.ExecuteGraphQL)
-
-	router.Post(options.BaseURL+"/graphql/dataframe", wrapper.ExecuteDataframeGraphQL)
-
-	router.Get(options.BaseURL+"/apollo", wrapper.GetApolloSandbox)
 
 	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers", wrapper.ListExplorers)
 
@@ -14749,6 +14796,16 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId", wrapper.GetExplorer)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/generations/:generation/explorer-config", wrapper.PublishRepositoryExplorerConfig)
+
+	router.Get(options.BaseURL+"/api/v1/projects/:project/view-builder", wrapper.GetProjectViewBuilder)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/view-builder/adopt", wrapper.AdoptProjectViewBuilder)
+
+	router.Put(options.BaseURL+"/api/v1/projects/:project/view-builder/defaults", wrapper.SaveProjectViewDefaults)
+
+	router.Delete(options.BaseURL+"/api/v1/projects/:project/view-builder/configs/:explorerId", wrapper.DeleteProjectViewConfig)
+
+	router.Put(options.BaseURL+"/api/v1/projects/:project/view-builder/configs/:explorerId", wrapper.SaveProjectViewConfig)
 
 }
 
@@ -14774,35 +14831,29 @@ type AuthoringUnavailableJSONResponse ErrorResponse
 
 type AuthoringUnprocessableJSONResponse ErrorResponse
 
-type HTMLTexthtmlResponse struct {
-	Body io.Reader
-
-	ContentLength int64
-}
-
-type LegacyBadRequestJSONResponse LegacyErrorResponse
-
-type LegacyConflictJSONResponse LegacyErrorResponse
+type ExplorerUnauthorizedJSONResponse ErrorResponse
 
 type LegacyForbiddenJSONResponse LegacyErrorResponse
 
-type LegacyInternalErrorJSONResponse LegacyErrorResponse
-
 type LegacyNotFoundJSONResponse LegacyErrorResponse
 
-type LegacyUnavailableJSONResponse LegacyErrorResponse
-
-type LegacyUnprocessableJSONResponse LegacyErrorResponse
-
 type ServiceBadRequestJSONResponse ServiceErrorResponse
+
+type ServiceClientClosedRequestJSONResponse ServiceErrorResponse
 
 type ServiceConflictJSONResponse ServiceErrorResponse
 
 type ServiceForbiddenJSONResponse ServiceErrorResponse
 
+type ServiceGatewayTimeoutJSONResponse ServiceErrorResponse
+
 type ServiceInternalErrorJSONResponse ServiceErrorResponse
 
 type ServiceNotFoundJSONResponse ServiceErrorResponse
+
+type ServicePayloadTooLargeJSONResponse ServiceErrorResponse
+
+type ServiceTooManyRequestsJSONResponse ServiceErrorResponse
 
 type ServiceUnauthorizedJSONResponse ServiceErrorResponse
 
@@ -15118,6 +15169,866 @@ func (response ActivateDatasetGeneration503JSONResponse) VisitActivateDatasetGen
 	return ctx.JSON(&response)
 }
 
+type GetDatasetSourceLoadStatusRequestObject struct {
+	Project   Project `json:"project"`
+	Operation string  `json:"operation"`
+}
+
+type GetDatasetSourceLoadStatusResponseObject interface {
+	VisitGetDatasetSourceLoadStatusResponse(ctx fiber.Ctx) error
+}
+
+type GetDatasetSourceLoadStatus200JSONResponse SourceLoadStatus
+
+func (response GetDatasetSourceLoadStatus200JSONResponse) VisitGetDatasetSourceLoadStatusResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type GetDatasetSourceLoadStatus400JSONResponse struct{ ServiceBadRequestJSONResponse }
+
+func (response GetDatasetSourceLoadStatus400JSONResponse) VisitGetDatasetSourceLoadStatusResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type GetDatasetSourceLoadStatus401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response GetDatasetSourceLoadStatus401JSONResponse) VisitGetDatasetSourceLoadStatusResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type GetDatasetSourceLoadStatus403JSONResponse struct{ ServiceForbiddenJSONResponse }
+
+func (response GetDatasetSourceLoadStatus403JSONResponse) VisitGetDatasetSourceLoadStatusResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type GetDatasetSourceLoadStatus404JSONResponse struct{ ServiceNotFoundJSONResponse }
+
+func (response GetDatasetSourceLoadStatus404JSONResponse) VisitGetDatasetSourceLoadStatusResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type GetDatasetSourceLoadStatus409JSONResponse struct{ ServiceConflictJSONResponse }
+
+func (response GetDatasetSourceLoadStatus409JSONResponse) VisitGetDatasetSourceLoadStatusResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type GetDatasetSourceLoadStatus500JSONResponse struct {
+	ServiceInternalErrorJSONResponse
+}
+
+func (response GetDatasetSourceLoadStatus500JSONResponse) VisitGetDatasetSourceLoadStatusResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type GetDatasetSourceLoadStatus503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response GetDatasetSourceLoadStatus503JSONResponse) VisitGetDatasetSourceLoadStatusResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type BeginDatasetSourceLoadRequestObject struct {
+	Project   Project `json:"project"`
+	Operation string  `json:"operation"`
+	Body      *BeginDatasetSourceLoadJSONRequestBody
+}
+
+type BeginDatasetSourceLoadResponseObject interface {
+	VisitBeginDatasetSourceLoadResponse(ctx fiber.Ctx) error
+}
+
+type BeginDatasetSourceLoad200JSONResponse SourceLoadStatus
+
+func (response BeginDatasetSourceLoad200JSONResponse) VisitBeginDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type BeginDatasetSourceLoad400JSONResponse struct{ ServiceBadRequestJSONResponse }
+
+func (response BeginDatasetSourceLoad400JSONResponse) VisitBeginDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type BeginDatasetSourceLoad401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response BeginDatasetSourceLoad401JSONResponse) VisitBeginDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type BeginDatasetSourceLoad403JSONResponse struct{ ServiceForbiddenJSONResponse }
+
+func (response BeginDatasetSourceLoad403JSONResponse) VisitBeginDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type BeginDatasetSourceLoad404JSONResponse struct{ ServiceNotFoundJSONResponse }
+
+func (response BeginDatasetSourceLoad404JSONResponse) VisitBeginDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type BeginDatasetSourceLoad409JSONResponse struct{ ServiceConflictJSONResponse }
+
+func (response BeginDatasetSourceLoad409JSONResponse) VisitBeginDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type BeginDatasetSourceLoad413JSONResponse struct {
+	ServicePayloadTooLargeJSONResponse
+}
+
+func (response BeginDatasetSourceLoad413JSONResponse) VisitBeginDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(413)
+
+	return ctx.JSON(&response)
+}
+
+type BeginDatasetSourceLoad415JSONResponse struct {
+	ServiceUnsupportedMediaTypeJSONResponse
+}
+
+func (response BeginDatasetSourceLoad415JSONResponse) VisitBeginDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(415)
+
+	return ctx.JSON(&response)
+}
+
+type BeginDatasetSourceLoad422JSONResponse struct {
+	ServiceUnprocessableJSONResponse
+}
+
+func (response BeginDatasetSourceLoad422JSONResponse) VisitBeginDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type BeginDatasetSourceLoad500JSONResponse struct {
+	ServiceInternalErrorJSONResponse
+}
+
+func (response BeginDatasetSourceLoad500JSONResponse) VisitBeginDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type BeginDatasetSourceLoad503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response BeginDatasetSourceLoad503JSONResponse) VisitBeginDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type UploadDatasetSourceLoadFileRequestObject struct {
+	Project      Project `json:"project"`
+	Operation    string  `json:"operation"`
+	ResourceType string  `json:"resourceType"`
+	Body         *multipart.Reader
+}
+
+type UploadDatasetSourceLoadFileResponseObject interface {
+	VisitUploadDatasetSourceLoadFileResponse(ctx fiber.Ctx) error
+}
+
+type UploadDatasetSourceLoadFile200JSONResponse SourceFileReceipt
+
+func (response UploadDatasetSourceLoadFile200JSONResponse) VisitUploadDatasetSourceLoadFileResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type UploadDatasetSourceLoadFile400JSONResponse struct{ ServiceBadRequestJSONResponse }
+
+func (response UploadDatasetSourceLoadFile400JSONResponse) VisitUploadDatasetSourceLoadFileResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type UploadDatasetSourceLoadFile401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response UploadDatasetSourceLoadFile401JSONResponse) VisitUploadDatasetSourceLoadFileResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type UploadDatasetSourceLoadFile403JSONResponse struct{ ServiceForbiddenJSONResponse }
+
+func (response UploadDatasetSourceLoadFile403JSONResponse) VisitUploadDatasetSourceLoadFileResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type UploadDatasetSourceLoadFile404JSONResponse struct{ ServiceNotFoundJSONResponse }
+
+func (response UploadDatasetSourceLoadFile404JSONResponse) VisitUploadDatasetSourceLoadFileResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type UploadDatasetSourceLoadFile409JSONResponse struct{ ServiceConflictJSONResponse }
+
+func (response UploadDatasetSourceLoadFile409JSONResponse) VisitUploadDatasetSourceLoadFileResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type UploadDatasetSourceLoadFile413JSONResponse struct {
+	ServicePayloadTooLargeJSONResponse
+}
+
+func (response UploadDatasetSourceLoadFile413JSONResponse) VisitUploadDatasetSourceLoadFileResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(413)
+
+	return ctx.JSON(&response)
+}
+
+type UploadDatasetSourceLoadFile415JSONResponse struct {
+	ServiceUnsupportedMediaTypeJSONResponse
+}
+
+func (response UploadDatasetSourceLoadFile415JSONResponse) VisitUploadDatasetSourceLoadFileResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(415)
+
+	return ctx.JSON(&response)
+}
+
+type UploadDatasetSourceLoadFile422JSONResponse SourceLoadValidationErrorResponse
+
+func (response UploadDatasetSourceLoadFile422JSONResponse) VisitUploadDatasetSourceLoadFileResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type UploadDatasetSourceLoadFile500JSONResponse struct {
+	ServiceInternalErrorJSONResponse
+}
+
+func (response UploadDatasetSourceLoadFile500JSONResponse) VisitUploadDatasetSourceLoadFileResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type UploadDatasetSourceLoadFile503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response UploadDatasetSourceLoadFile503JSONResponse) VisitUploadDatasetSourceLoadFileResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type PublishDatasetSourceLoadRequestObject struct {
+	Project   Project `json:"project"`
+	Operation string  `json:"operation"`
+}
+
+type PublishDatasetSourceLoadResponseObject interface {
+	VisitPublishDatasetSourceLoadResponse(ctx fiber.Ctx) error
+}
+
+type PublishDatasetSourceLoad200JSONResponse SourcePublishReceipt
+
+func (response PublishDatasetSourceLoad200JSONResponse) VisitPublishDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type PublishDatasetSourceLoad400JSONResponse struct{ ServiceBadRequestJSONResponse }
+
+func (response PublishDatasetSourceLoad400JSONResponse) VisitPublishDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type PublishDatasetSourceLoad401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response PublishDatasetSourceLoad401JSONResponse) VisitPublishDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type PublishDatasetSourceLoad403JSONResponse struct{ ServiceForbiddenJSONResponse }
+
+func (response PublishDatasetSourceLoad403JSONResponse) VisitPublishDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type PublishDatasetSourceLoad404JSONResponse struct{ ServiceNotFoundJSONResponse }
+
+func (response PublishDatasetSourceLoad404JSONResponse) VisitPublishDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type PublishDatasetSourceLoad409JSONResponse struct{ ServiceConflictJSONResponse }
+
+func (response PublishDatasetSourceLoad409JSONResponse) VisitPublishDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type PublishDatasetSourceLoad413JSONResponse struct {
+	ServicePayloadTooLargeJSONResponse
+}
+
+func (response PublishDatasetSourceLoad413JSONResponse) VisitPublishDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(413)
+
+	return ctx.JSON(&response)
+}
+
+type PublishDatasetSourceLoad415JSONResponse struct {
+	ServiceUnsupportedMediaTypeJSONResponse
+}
+
+func (response PublishDatasetSourceLoad415JSONResponse) VisitPublishDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(415)
+
+	return ctx.JSON(&response)
+}
+
+type PublishDatasetSourceLoad422JSONResponse struct {
+	ServiceUnprocessableJSONResponse
+}
+
+func (response PublishDatasetSourceLoad422JSONResponse) VisitPublishDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type PublishDatasetSourceLoad500JSONResponse struct {
+	ServiceInternalErrorJSONResponse
+}
+
+func (response PublishDatasetSourceLoad500JSONResponse) VisitPublishDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type PublishDatasetSourceLoad503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response PublishDatasetSourceLoad503JSONResponse) VisitPublishDatasetSourceLoadResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeAggregationsRequestObject struct {
+	Project Project `json:"project"`
+	Body    *PostDataframeAggregationsJSONRequestBody
+}
+
+type PostDataframeAggregationsResponseObject interface {
+	VisitPostDataframeAggregationsResponse(ctx fiber.Ctx) error
+}
+
+type PostDataframeAggregations200JSONResponse DataframeAggregationsResult
+
+func (response PostDataframeAggregations200JSONResponse) VisitPostDataframeAggregationsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeAggregations400JSONResponse struct{ ServiceBadRequestJSONResponse }
+
+func (response PostDataframeAggregations400JSONResponse) VisitPostDataframeAggregationsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeAggregations401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response PostDataframeAggregations401JSONResponse) VisitPostDataframeAggregationsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeAggregations403JSONResponse struct{ ServiceForbiddenJSONResponse }
+
+func (response PostDataframeAggregations403JSONResponse) VisitPostDataframeAggregationsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeAggregations404JSONResponse struct{ ServiceNotFoundJSONResponse }
+
+func (response PostDataframeAggregations404JSONResponse) VisitPostDataframeAggregationsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeAggregations409JSONResponse struct{ ServiceConflictJSONResponse }
+
+func (response PostDataframeAggregations409JSONResponse) VisitPostDataframeAggregationsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeAggregations413JSONResponse struct {
+	ServicePayloadTooLargeJSONResponse
+}
+
+func (response PostDataframeAggregations413JSONResponse) VisitPostDataframeAggregationsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(413)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeAggregations422JSONResponse struct {
+	ServiceUnprocessableJSONResponse
+}
+
+func (response PostDataframeAggregations422JSONResponse) VisitPostDataframeAggregationsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeAggregations429JSONResponse struct {
+	ServiceTooManyRequestsJSONResponse
+}
+
+func (response PostDataframeAggregations429JSONResponse) VisitPostDataframeAggregationsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(429)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeAggregations499JSONResponse struct {
+	ServiceClientClosedRequestJSONResponse
+}
+
+func (response PostDataframeAggregations499JSONResponse) VisitPostDataframeAggregationsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(499)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeAggregations500JSONResponse struct {
+	ServiceInternalErrorJSONResponse
+}
+
+func (response PostDataframeAggregations500JSONResponse) VisitPostDataframeAggregationsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeAggregations503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response PostDataframeAggregations503JSONResponse) VisitPostDataframeAggregationsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeAggregations504JSONResponse struct {
+	ServiceGatewayTimeoutJSONResponse
+}
+
+func (response PostDataframeAggregations504JSONResponse) VisitPostDataframeAggregationsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(504)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeRowsRequestObject struct {
+	Project Project `json:"project"`
+	Body    *PostDataframeRowsJSONRequestBody
+}
+
+type PostDataframeRowsResponseObject interface {
+	VisitPostDataframeRowsResponse(ctx fiber.Ctx) error
+}
+
+type PostDataframeRows200JSONResponse DataframeRowConnection
+
+func (response PostDataframeRows200JSONResponse) VisitPostDataframeRowsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeRows400JSONResponse struct{ ServiceBadRequestJSONResponse }
+
+func (response PostDataframeRows400JSONResponse) VisitPostDataframeRowsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeRows401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response PostDataframeRows401JSONResponse) VisitPostDataframeRowsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeRows403JSONResponse struct{ ServiceForbiddenJSONResponse }
+
+func (response PostDataframeRows403JSONResponse) VisitPostDataframeRowsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeRows404JSONResponse struct{ ServiceNotFoundJSONResponse }
+
+func (response PostDataframeRows404JSONResponse) VisitPostDataframeRowsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeRows409JSONResponse struct{ ServiceConflictJSONResponse }
+
+func (response PostDataframeRows409JSONResponse) VisitPostDataframeRowsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeRows413JSONResponse struct {
+	ServicePayloadTooLargeJSONResponse
+}
+
+func (response PostDataframeRows413JSONResponse) VisitPostDataframeRowsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(413)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeRows422JSONResponse struct {
+	ServiceUnprocessableJSONResponse
+}
+
+func (response PostDataframeRows422JSONResponse) VisitPostDataframeRowsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeRows429JSONResponse struct {
+	ServiceTooManyRequestsJSONResponse
+}
+
+func (response PostDataframeRows429JSONResponse) VisitPostDataframeRowsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(429)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeRows499JSONResponse struct {
+	ServiceClientClosedRequestJSONResponse
+}
+
+func (response PostDataframeRows499JSONResponse) VisitPostDataframeRowsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(499)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeRows500JSONResponse struct {
+	ServiceInternalErrorJSONResponse
+}
+
+func (response PostDataframeRows500JSONResponse) VisitPostDataframeRowsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeRows503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response PostDataframeRows503JSONResponse) VisitPostDataframeRowsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type PostDataframeRows504JSONResponse struct {
+	ServiceGatewayTimeoutJSONResponse
+}
+
+func (response PostDataframeRows504JSONResponse) VisitPostDataframeRowsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(504)
+
+	return ctx.JSON(&response)
+}
+
+type PostFhirDataframeRequestObject struct {
+	Project Project `json:"project"`
+	Body    *PostFhirDataframeJSONRequestBody
+}
+
+type PostFhirDataframeResponseObject interface {
+	VisitPostFhirDataframeResponse(ctx fiber.Ctx) error
+}
+
+type PostFhirDataframe200JSONResponse FhirDataframeResult
+
+func (response PostFhirDataframe200JSONResponse) VisitPostFhirDataframeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type PostFhirDataframe400JSONResponse struct{ ServiceBadRequestJSONResponse }
+
+func (response PostFhirDataframe400JSONResponse) VisitPostFhirDataframeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type PostFhirDataframe401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response PostFhirDataframe401JSONResponse) VisitPostFhirDataframeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type PostFhirDataframe403JSONResponse struct{ ServiceForbiddenJSONResponse }
+
+func (response PostFhirDataframe403JSONResponse) VisitPostFhirDataframeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type PostFhirDataframe404JSONResponse struct{ ServiceNotFoundJSONResponse }
+
+func (response PostFhirDataframe404JSONResponse) VisitPostFhirDataframeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type PostFhirDataframe409JSONResponse struct{ ServiceConflictJSONResponse }
+
+func (response PostFhirDataframe409JSONResponse) VisitPostFhirDataframeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type PostFhirDataframe413JSONResponse struct {
+	ServicePayloadTooLargeJSONResponse
+}
+
+func (response PostFhirDataframe413JSONResponse) VisitPostFhirDataframeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(413)
+
+	return ctx.JSON(&response)
+}
+
+type PostFhirDataframe422JSONResponse struct {
+	ServiceUnprocessableJSONResponse
+}
+
+func (response PostFhirDataframe422JSONResponse) VisitPostFhirDataframeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type PostFhirDataframe429JSONResponse struct {
+	ServiceTooManyRequestsJSONResponse
+}
+
+func (response PostFhirDataframe429JSONResponse) VisitPostFhirDataframeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(429)
+
+	return ctx.JSON(&response)
+}
+
+type PostFhirDataframe499JSONResponse struct {
+	ServiceClientClosedRequestJSONResponse
+}
+
+func (response PostFhirDataframe499JSONResponse) VisitPostFhirDataframeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(499)
+
+	return ctx.JSON(&response)
+}
+
+type PostFhirDataframe500JSONResponse struct {
+	ServiceInternalErrorJSONResponse
+}
+
+func (response PostFhirDataframe500JSONResponse) VisitPostFhirDataframeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type PostFhirDataframe503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response PostFhirDataframe503JSONResponse) VisitPostFhirDataframeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type PostFhirDataframe504JSONResponse struct {
+	ServiceGatewayTimeoutJSONResponse
+}
+
+func (response PostFhirDataframe504JSONResponse) VisitPostFhirDataframeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(504)
+
+	return ctx.JSON(&response)
+}
+
 type ListExplorersRequestObject struct {
 	Project Project `json:"project"`
 }
@@ -15136,7 +16047,7 @@ func (response ListExplorers200JSONResponse) VisitListExplorersResponse(ctx fibe
 }
 
 type ListExplorers401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response ListExplorers401JSONResponse) VisitListExplorersResponse(ctx fiber.Ctx) error {
@@ -15146,7 +16057,7 @@ func (response ListExplorers401JSONResponse) VisitListExplorersResponse(ctx fibe
 	return ctx.JSON(&response)
 }
 
-type ListExplorers403JSONResponse struct{ LegacyForbiddenJSONResponse }
+type ListExplorers403JSONResponse struct{ AuthoringForbiddenJSONResponse }
 
 func (response ListExplorers403JSONResponse) VisitListExplorersResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
@@ -15156,12 +16067,23 @@ func (response ListExplorers403JSONResponse) VisitListExplorersResponse(ctx fibe
 }
 
 type ListExplorers500JSONResponse struct {
-	LegacyInternalErrorJSONResponse
+	AuthoringInternalErrorJSONResponse
 }
 
 func (response ListExplorers500JSONResponse) VisitListExplorersResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ListExplorers503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response ListExplorers503JSONResponse) VisitListExplorersResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
 
 	return ctx.JSON(&response)
 }
@@ -15185,7 +16107,9 @@ func (response CreateExplorer201JSONResponse) VisitCreateExplorerResponse(ctx fi
 	return ctx.JSON(&response)
 }
 
-type CreateExplorer400JSONResponse struct{ LegacyBadRequestJSONResponse }
+type CreateExplorer400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
 
 func (response CreateExplorer400JSONResponse) VisitCreateExplorerResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
@@ -15195,7 +16119,7 @@ func (response CreateExplorer400JSONResponse) VisitCreateExplorerResponse(ctx fi
 }
 
 type CreateExplorer401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response CreateExplorer401JSONResponse) VisitCreateExplorerResponse(ctx fiber.Ctx) error {
@@ -15205,7 +16129,7 @@ func (response CreateExplorer401JSONResponse) VisitCreateExplorerResponse(ctx fi
 	return ctx.JSON(&response)
 }
 
-type CreateExplorer403JSONResponse struct{ LegacyForbiddenJSONResponse }
+type CreateExplorer403JSONResponse struct{ AuthoringForbiddenJSONResponse }
 
 func (response CreateExplorer403JSONResponse) VisitCreateExplorerResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
@@ -15214,7 +16138,7 @@ func (response CreateExplorer403JSONResponse) VisitCreateExplorerResponse(ctx fi
 	return ctx.JSON(&response)
 }
 
-type CreateExplorer409JSONResponse struct{ LegacyConflictJSONResponse }
+type CreateExplorer409JSONResponse struct{ AuthoringConflictJSONResponse }
 
 func (response CreateExplorer409JSONResponse) VisitCreateExplorerResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
@@ -15224,7 +16148,7 @@ func (response CreateExplorer409JSONResponse) VisitCreateExplorerResponse(ctx fi
 }
 
 type CreateExplorer422JSONResponse struct {
-	LegacyUnprocessableJSONResponse
+	AuthoringUnprocessableJSONResponse
 }
 
 func (response CreateExplorer422JSONResponse) VisitCreateExplorerResponse(ctx fiber.Ctx) error {
@@ -15235,12 +16159,23 @@ func (response CreateExplorer422JSONResponse) VisitCreateExplorerResponse(ctx fi
 }
 
 type CreateExplorer500JSONResponse struct {
-	LegacyInternalErrorJSONResponse
+	AuthoringInternalErrorJSONResponse
 }
 
 func (response CreateExplorer500JSONResponse) VisitCreateExplorerResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type CreateExplorer503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response CreateExplorer503JSONResponse) VisitCreateExplorerResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
 
 	return ctx.JSON(&response)
 }
@@ -15264,7 +16199,7 @@ func (response GetExplorer200JSONResponse) VisitGetExplorerResponse(ctx fiber.Ct
 }
 
 type GetExplorer401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response GetExplorer401JSONResponse) VisitGetExplorerResponse(ctx fiber.Ctx) error {
@@ -15274,7 +16209,7 @@ func (response GetExplorer401JSONResponse) VisitGetExplorerResponse(ctx fiber.Ct
 	return ctx.JSON(&response)
 }
 
-type GetExplorer403JSONResponse struct{ LegacyForbiddenJSONResponse }
+type GetExplorer403JSONResponse struct{ AuthoringForbiddenJSONResponse }
 
 func (response GetExplorer403JSONResponse) VisitGetExplorerResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
@@ -15283,7 +16218,7 @@ func (response GetExplorer403JSONResponse) VisitGetExplorerResponse(ctx fiber.Ct
 	return ctx.JSON(&response)
 }
 
-type GetExplorer404JSONResponse struct{ LegacyNotFoundJSONResponse }
+type GetExplorer404JSONResponse struct{ AuthoringNotFoundJSONResponse }
 
 func (response GetExplorer404JSONResponse) VisitGetExplorerResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
@@ -15293,12 +16228,23 @@ func (response GetExplorer404JSONResponse) VisitGetExplorerResponse(ctx fiber.Ct
 }
 
 type GetExplorer500JSONResponse struct {
-	LegacyInternalErrorJSONResponse
+	AuthoringInternalErrorJSONResponse
 }
 
 func (response GetExplorer500JSONResponse) VisitGetExplorerResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorer503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response GetExplorer503JSONResponse) VisitGetExplorerResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
 
 	return ctx.JSON(&response)
 }
@@ -15334,7 +16280,7 @@ func (response PrepareExplorerArtifact400JSONResponse) VisitPrepareExplorerArtif
 }
 
 type PrepareExplorerArtifact401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response PrepareExplorerArtifact401JSONResponse) VisitPrepareExplorerArtifactResponse(ctx fiber.Ctx) error {
@@ -15468,7 +16414,7 @@ func (response DownloadExplorerArtifact200ApplicationzipResponse) VisitDownloadE
 }
 
 type DownloadExplorerArtifact401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response DownloadExplorerArtifact401JSONResponse) VisitDownloadExplorerArtifactResponse(ctx fiber.Ctx) error {
@@ -15536,6 +16482,118 @@ func (response DownloadExplorerArtifact503JSONResponse) VisitDownloadExplorerArt
 	return ctx.JSON(&response)
 }
 
+type DescribeExplorerAuthoringNetworkRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *DescribeExplorerAuthoringNetworkJSONRequestBody
+}
+
+type DescribeExplorerAuthoringNetworkResponseObject interface {
+	VisitDescribeExplorerAuthoringNetworkResponse(ctx fiber.Ctx) error
+}
+
+type DescribeExplorerAuthoringNetwork200JSONResponse AuthoringNetworkResponse
+
+func (response DescribeExplorerAuthoringNetwork200JSONResponse) VisitDescribeExplorerAuthoringNetworkResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type DescribeExplorerAuthoringNetwork400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response DescribeExplorerAuthoringNetwork400JSONResponse) VisitDescribeExplorerAuthoringNetworkResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type DescribeExplorerAuthoringNetwork401JSONResponse struct {
+	ExplorerUnauthorizedJSONResponse
+}
+
+func (response DescribeExplorerAuthoringNetwork401JSONResponse) VisitDescribeExplorerAuthoringNetworkResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type DescribeExplorerAuthoringNetwork403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response DescribeExplorerAuthoringNetwork403JSONResponse) VisitDescribeExplorerAuthoringNetworkResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type DescribeExplorerAuthoringNetwork404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response DescribeExplorerAuthoringNetwork404JSONResponse) VisitDescribeExplorerAuthoringNetworkResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type DescribeExplorerAuthoringNetwork409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response DescribeExplorerAuthoringNetwork409JSONResponse) VisitDescribeExplorerAuthoringNetworkResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type DescribeExplorerAuthoringNetwork422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response DescribeExplorerAuthoringNetwork422JSONResponse) VisitDescribeExplorerAuthoringNetworkResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type DescribeExplorerAuthoringNetwork500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response DescribeExplorerAuthoringNetwork500JSONResponse) VisitDescribeExplorerAuthoringNetworkResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type DescribeExplorerAuthoringNetwork503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response DescribeExplorerAuthoringNetwork503JSONResponse) VisitDescribeExplorerAuthoringNetworkResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type DescribeExplorerAuthoringNetwork504JSONResponse struct {
+	AuthoringGatewayTimeoutJSONResponse
+}
+
+func (response DescribeExplorerAuthoringNetwork504JSONResponse) VisitDescribeExplorerAuthoringNetworkResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(504)
+
+	return ctx.JSON(&response)
+}
+
 type GetExplorerBuilderRequestObject struct {
 	Project    Project    `json:"project"`
 	ExplorerId ExplorerId `json:"explorerId"`
@@ -15555,7 +16613,7 @@ func (response GetExplorerBuilder200JSONResponse) VisitGetExplorerBuilderRespons
 }
 
 type GetExplorerBuilder401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response GetExplorerBuilder401JSONResponse) VisitGetExplorerBuilderResponse(ctx fiber.Ctx) error {
@@ -15633,7 +16691,7 @@ func (response GetExplorerAuthoringCapability200JSONResponse) VisitGetExplorerAu
 }
 
 type GetExplorerAuthoringCapability401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response GetExplorerAuthoringCapability401JSONResponse) VisitGetExplorerAuthoringCapabilityResponse(ctx fiber.Ctx) error {
@@ -15659,6 +16717,17 @@ type GetExplorerAuthoringCapability500JSONResponse struct {
 func (response GetExplorerAuthoringCapability500JSONResponse) VisitGetExplorerAuthoringCapabilityResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerAuthoringCapability503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response GetExplorerAuthoringCapability503JSONResponse) VisitGetExplorerAuthoringCapabilityResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
 
 	return ctx.JSON(&response)
 }
@@ -15694,7 +16763,7 @@ func (response TraceExplorerCell400JSONResponse) VisitTraceExplorerCellResponse(
 }
 
 type TraceExplorerCell401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response TraceExplorerCell401JSONResponse) VisitTraceExplorerCellResponse(ctx fiber.Ctx) error {
@@ -15764,6 +16833,118 @@ func (response TraceExplorerCell503JSONResponse) VisitTraceExplorerCellResponse(
 	return ctx.JSON(&response)
 }
 
+type ProposeExplorerColumnPolicyRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *ProposeExplorerColumnPolicyJSONRequestBody
+}
+
+type ProposeExplorerColumnPolicyResponseObject interface {
+	VisitProposeExplorerColumnPolicyResponse(ctx fiber.Ctx) error
+}
+
+type ProposeExplorerColumnPolicy200JSONResponse ColumnPolicyProposal
+
+func (response ProposeExplorerColumnPolicy200JSONResponse) VisitProposeExplorerColumnPolicyResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerColumnPolicy400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response ProposeExplorerColumnPolicy400JSONResponse) VisitProposeExplorerColumnPolicyResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerColumnPolicy401JSONResponse struct {
+	ExplorerUnauthorizedJSONResponse
+}
+
+func (response ProposeExplorerColumnPolicy401JSONResponse) VisitProposeExplorerColumnPolicyResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerColumnPolicy403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response ProposeExplorerColumnPolicy403JSONResponse) VisitProposeExplorerColumnPolicyResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerColumnPolicy404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response ProposeExplorerColumnPolicy404JSONResponse) VisitProposeExplorerColumnPolicyResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerColumnPolicy409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response ProposeExplorerColumnPolicy409JSONResponse) VisitProposeExplorerColumnPolicyResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerColumnPolicy422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response ProposeExplorerColumnPolicy422JSONResponse) VisitProposeExplorerColumnPolicyResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerColumnPolicy500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response ProposeExplorerColumnPolicy500JSONResponse) VisitProposeExplorerColumnPolicyResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerColumnPolicy503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response ProposeExplorerColumnPolicy503JSONResponse) VisitProposeExplorerColumnPolicyResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerColumnPolicy504JSONResponse struct {
+	AuthoringGatewayTimeoutJSONResponse
+}
+
+func (response ProposeExplorerColumnPolicy504JSONResponse) VisitProposeExplorerColumnPolicyResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(504)
+
+	return ctx.JSON(&response)
+}
+
 type GetExplorerColumnSourceRequestObject struct {
 	Project    Project    `json:"project"`
 	ExplorerId ExplorerId `json:"explorerId"`
@@ -15795,7 +16976,7 @@ func (response GetExplorerColumnSource400JSONResponse) VisitGetExplorerColumnSou
 }
 
 type GetExplorerColumnSource401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response GetExplorerColumnSource401JSONResponse) VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error {
@@ -15886,7 +17067,7 @@ func (response ApplyExplorerBuilderCommands400JSONResponse) VisitApplyExplorerBu
 }
 
 type ApplyExplorerBuilderCommands401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response ApplyExplorerBuilderCommands401JSONResponse) VisitApplyExplorerBuilderCommandsResponse(ctx fiber.Ctx) error {
@@ -15987,7 +17168,7 @@ func (response ResolveConfiguredColumnContext400JSONResponse) VisitResolveConfig
 }
 
 type ResolveConfiguredColumnContext401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response ResolveConfiguredColumnContext401JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
@@ -16088,7 +17269,7 @@ func (response GetExplorerConstructionCapabilities400JSONResponse) VisitGetExplo
 }
 
 type GetExplorerConstructionCapabilities401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response GetExplorerConstructionCapabilities401JSONResponse) VisitGetExplorerConstructionCapabilitiesResponse(ctx fiber.Ctx) error {
@@ -16189,7 +17370,7 @@ func (response DiscoverExplorerConstructionCategories400JSONResponse) VisitDisco
 }
 
 type DiscoverExplorerConstructionCategories401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response DiscoverExplorerConstructionCategories401JSONResponse) VisitDiscoverExplorerConstructionCategoriesResponse(ctx fiber.Ctx) error {
@@ -16290,7 +17471,7 @@ func (response ProposeExplorerConstructionChoice400JSONResponse) VisitProposeExp
 }
 
 type ProposeExplorerConstructionChoice401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response ProposeExplorerConstructionChoice401JSONResponse) VisitProposeExplorerConstructionChoiceResponse(ctx fiber.Ctx) error {
@@ -16402,7 +17583,7 @@ func (response SearchExplorerConstructionChoices400JSONResponse) VisitSearchExpl
 }
 
 type SearchExplorerConstructionChoices401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response SearchExplorerConstructionChoices401JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
@@ -16472,6 +17653,107 @@ func (response SearchExplorerConstructionChoices503JSONResponse) VisitSearchExpl
 	return ctx.JSON(&response)
 }
 
+type GetExplorerConstructionColumnPopulationRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *GetExplorerConstructionColumnPopulationJSONRequestBody
+}
+
+type GetExplorerConstructionColumnPopulationResponseObject interface {
+	VisitGetExplorerConstructionColumnPopulationResponse(ctx fiber.Ctx) error
+}
+
+type GetExplorerConstructionColumnPopulation200JSONResponse ConstructionColumnPopulationResponse
+
+func (response GetExplorerConstructionColumnPopulation200JSONResponse) VisitGetExplorerConstructionColumnPopulationResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionColumnPopulation400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response GetExplorerConstructionColumnPopulation400JSONResponse) VisitGetExplorerConstructionColumnPopulationResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionColumnPopulation401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response GetExplorerConstructionColumnPopulation401JSONResponse) VisitGetExplorerConstructionColumnPopulationResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionColumnPopulation403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response GetExplorerConstructionColumnPopulation403JSONResponse) VisitGetExplorerConstructionColumnPopulationResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionColumnPopulation404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response GetExplorerConstructionColumnPopulation404JSONResponse) VisitGetExplorerConstructionColumnPopulationResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionColumnPopulation409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response GetExplorerConstructionColumnPopulation409JSONResponse) VisitGetExplorerConstructionColumnPopulationResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionColumnPopulation422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response GetExplorerConstructionColumnPopulation422JSONResponse) VisitGetExplorerConstructionColumnPopulationResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionColumnPopulation500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response GetExplorerConstructionColumnPopulation500JSONResponse) VisitGetExplorerConstructionColumnPopulationResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerConstructionColumnPopulation503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response GetExplorerConstructionColumnPopulation503JSONResponse) VisitGetExplorerConstructionColumnPopulationResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
 type GetExplorerConstructionInputsRequestObject struct {
 	Project    Project    `json:"project"`
 	ExplorerId ExplorerId `json:"explorerId"`
@@ -16503,7 +17785,7 @@ func (response GetExplorerConstructionInputs400JSONResponse) VisitGetExplorerCon
 }
 
 type GetExplorerConstructionInputs401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response GetExplorerConstructionInputs401JSONResponse) VisitGetExplorerConstructionInputsResponse(ctx fiber.Ctx) error {
@@ -16604,7 +17886,7 @@ func (response ProposeExplorerConstruction400JSONResponse) VisitProposeExplorerC
 }
 
 type ProposeExplorerConstruction401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response ProposeExplorerConstruction401JSONResponse) VisitProposeExplorerConstructionResponse(ctx fiber.Ctx) error {
@@ -16716,7 +17998,7 @@ func (response BrowseExplorerFrameSourceOptions400JSONResponse) VisitBrowseExplo
 }
 
 type BrowseExplorerFrameSourceOptions401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response BrowseExplorerFrameSourceOptions401JSONResponse) VisitBrowseExplorerFrameSourceOptionsResponse(ctx fiber.Ctx) error {
@@ -16817,7 +18099,7 @@ func (response PreviewInterpretationCandidate400JSONResponse) VisitPreviewInterp
 }
 
 type PreviewInterpretationCandidate401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response PreviewInterpretationCandidate401JSONResponse) VisitPreviewInterpretationCandidateResponse(ctx fiber.Ctx) error {
@@ -16963,7 +18245,7 @@ func (response CreateInterpretationRevisionFromColumn400JSONResponse) VisitCreat
 }
 
 type CreateInterpretationRevisionFromColumn401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response CreateInterpretationRevisionFromColumn401JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
@@ -17064,7 +18346,7 @@ func (response CheckExplorerPopulationMapping400JSONResponse) VisitCheckExplorer
 }
 
 type CheckExplorerPopulationMapping401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response CheckExplorerPopulationMapping401JSONResponse) VisitCheckExplorerPopulationMappingResponse(ctx fiber.Ctx) error {
@@ -17176,7 +18458,7 @@ func (response ProposeExplorerPopulationMemberRemoval400JSONResponse) VisitPropo
 }
 
 type ProposeExplorerPopulationMemberRemoval401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response ProposeExplorerPopulationMemberRemoval401JSONResponse) VisitProposeExplorerPopulationMemberRemovalResponse(ctx fiber.Ctx) error {
@@ -17288,7 +18570,7 @@ func (response SearchExplorerPopulationRoutes400JSONResponse) VisitSearchExplore
 }
 
 type SearchExplorerPopulationRoutes401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response SearchExplorerPopulationRoutes401JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
@@ -17389,7 +18671,7 @@ func (response PreviewExplorer400JSONResponse) VisitPreviewExplorerResponse(ctx 
 }
 
 type PreviewExplorer401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response PreviewExplorer401JSONResponse) VisitPreviewExplorerResponse(ctx fiber.Ctx) error {
@@ -17535,7 +18817,7 @@ func (response PublishExplorer400JSONResponse) VisitPublishExplorerResponse(ctx 
 }
 
 type PublishExplorer401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response PublishExplorer401JSONResponse) VisitPublishExplorerResponse(ctx fiber.Ctx) error {
@@ -17637,7 +18919,7 @@ func (response ReconcileExplorerBuilder400JSONResponse) VisitReconcileExplorerBu
 }
 
 type ReconcileExplorerBuilder401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response ReconcileExplorerBuilder401JSONResponse) VisitReconcileExplorerBuilderResponse(ctx fiber.Ctx) error {
@@ -17738,7 +19020,7 @@ func (response SearchExplorerRelatedExpandChoices400JSONResponse) VisitSearchExp
 }
 
 type SearchExplorerRelatedExpandChoices401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response SearchExplorerRelatedExpandChoices401JSONResponse) VisitSearchExplorerRelatedExpandChoicesResponse(ctx fiber.Ctx) error {
@@ -17839,7 +19121,7 @@ func (response SearchExplorerRelatedExpandContributors400JSONResponse) VisitSear
 }
 
 type SearchExplorerRelatedExpandContributors401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response SearchExplorerRelatedExpandContributors401JSONResponse) VisitSearchExplorerRelatedExpandContributorsResponse(ctx fiber.Ctx) error {
@@ -17940,7 +19222,7 @@ func (response SearchExplorerRelatedFieldChoices400JSONResponse) VisitSearchExpl
 }
 
 type SearchExplorerRelatedFieldChoices401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response SearchExplorerRelatedFieldChoices401JSONResponse) VisitSearchExplorerRelatedFieldChoicesResponse(ctx fiber.Ctx) error {
@@ -18041,7 +19323,7 @@ func (response AssessExplorerRowChange400JSONResponse) VisitAssessExplorerRowCha
 }
 
 type AssessExplorerRowChange401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response AssessExplorerRowChange401JSONResponse) VisitAssessExplorerRowChangeResponse(ctx fiber.Ctx) error {
@@ -18142,7 +19424,7 @@ func (response ListExplorerRowDefinitionChoices400JSONResponse) VisitListExplore
 }
 
 type ListExplorerRowDefinitionChoices401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response ListExplorerRowDefinitionChoices401JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
@@ -18243,7 +19525,7 @@ func (response ProposeExplorerRowDefinition400JSONResponse) VisitProposeExplorer
 }
 
 type ProposeExplorerRowDefinition401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response ProposeExplorerRowDefinition401JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
@@ -18344,7 +19626,7 @@ func (response TraceExplorerRowLineage400JSONResponse) VisitTraceExplorerRowLine
 }
 
 type TraceExplorerRowLineage401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response TraceExplorerRowLineage401JSONResponse) VisitTraceExplorerRowLineageResponse(ctx fiber.Ctx) error {
@@ -18456,7 +19738,7 @@ func (response SearchExplorerSchemaFields400JSONResponse) VisitSearchExplorerSch
 }
 
 type SearchExplorerSchemaFields401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response SearchExplorerSchemaFields401JSONResponse) VisitSearchExplorerSchemaFieldsResponse(ctx fiber.Ctx) error {
@@ -18548,7 +19830,7 @@ func (response BrowseExplorerSemanticInventory400JSONResponse) VisitBrowseExplor
 }
 
 type BrowseExplorerSemanticInventory401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response BrowseExplorerSemanticInventory401JSONResponse) VisitBrowseExplorerSemanticInventoryResponse(ctx fiber.Ctx) error {
@@ -18618,6 +19900,151 @@ func (response BrowseExplorerSemanticInventory503JSONResponse) VisitBrowseExplor
 	return ctx.JSON(&response)
 }
 
+type ProposeExplorerSourceRelationshipRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *ProposeExplorerSourceRelationshipJSONRequestBody
+}
+
+type ProposeExplorerSourceRelationshipResponseObject interface {
+	VisitProposeExplorerSourceRelationshipResponse(ctx fiber.Ctx) error
+}
+
+type ProposeExplorerSourceRelationship200JSONResponse SourceRelationshipProposal
+
+func (response ProposeExplorerSourceRelationship200JSONResponse) VisitProposeExplorerSourceRelationshipResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerSourceRelationship400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response ProposeExplorerSourceRelationship400JSONResponse) VisitProposeExplorerSourceRelationshipResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerSourceRelationship401JSONResponse struct {
+	ExplorerUnauthorizedJSONResponse
+}
+
+func (response ProposeExplorerSourceRelationship401JSONResponse) VisitProposeExplorerSourceRelationshipResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerSourceRelationship403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response ProposeExplorerSourceRelationship403JSONResponse) VisitProposeExplorerSourceRelationshipResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerSourceRelationship404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response ProposeExplorerSourceRelationship404JSONResponse) VisitProposeExplorerSourceRelationshipResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerSourceRelationship409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response ProposeExplorerSourceRelationship409JSONResponse) VisitProposeExplorerSourceRelationshipResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerSourceRelationship413JSONResponse struct {
+	AuthoringPayloadTooLargeJSONResponse
+}
+
+func (response ProposeExplorerSourceRelationship413JSONResponse) VisitProposeExplorerSourceRelationshipResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(413)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerSourceRelationship422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response ProposeExplorerSourceRelationship422JSONResponse) VisitProposeExplorerSourceRelationshipResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerSourceRelationship429JSONResponse struct {
+	AuthoringTooManyRequestsJSONResponse
+}
+
+func (response ProposeExplorerSourceRelationship429JSONResponse) VisitProposeExplorerSourceRelationshipResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(429)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerSourceRelationship499JSONResponse struct {
+	AuthoringClientClosedRequestJSONResponse
+}
+
+func (response ProposeExplorerSourceRelationship499JSONResponse) VisitProposeExplorerSourceRelationshipResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(499)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerSourceRelationship500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response ProposeExplorerSourceRelationship500JSONResponse) VisitProposeExplorerSourceRelationshipResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerSourceRelationship503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response ProposeExplorerSourceRelationship503JSONResponse) VisitProposeExplorerSourceRelationshipResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerSourceRelationship504JSONResponse struct {
+	AuthoringGatewayTimeoutJSONResponse
+}
+
+func (response ProposeExplorerSourceRelationship504JSONResponse) VisitProposeExplorerSourceRelationshipResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(504)
+
+	return ctx.JSON(&response)
+}
+
 type SearchExplorerCandidatesRequestObject struct {
 	Project    Project    `json:"project"`
 	ExplorerId ExplorerId `json:"explorerId"`
@@ -18649,7 +20076,7 @@ func (response SearchExplorerCandidates400JSONResponse) VisitSearchExplorerCandi
 }
 
 type SearchExplorerCandidates401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response SearchExplorerCandidates401JSONResponse) VisitSearchExplorerCandidatesResponse(ctx fiber.Ctx) error {
@@ -18699,410 +20126,6 @@ func (response SearchExplorerCandidates503JSONResponse) VisitSearchExplorerCandi
 	return ctx.JSON(&response)
 }
 
-type GetExplorerTableShapeCapabilitiesRequestObject struct {
-	Project    Project    `json:"project"`
-	ExplorerId ExplorerId `json:"explorerId"`
-	Body       *GetExplorerTableShapeCapabilitiesJSONRequestBody
-}
-
-type GetExplorerTableShapeCapabilitiesResponseObject interface {
-	VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error
-}
-
-type GetExplorerTableShapeCapabilities200JSONResponse TableShapeCapabilitiesResponse
-
-func (response GetExplorerTableShapeCapabilities200JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerTableShapeCapabilities400JSONResponse struct {
-	AuthoringBadRequestJSONResponse
-}
-
-func (response GetExplorerTableShapeCapabilities400JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerTableShapeCapabilities401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response GetExplorerTableShapeCapabilities401JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerTableShapeCapabilities403JSONResponse struct{ AuthoringForbiddenJSONResponse }
-
-func (response GetExplorerTableShapeCapabilities403JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerTableShapeCapabilities404JSONResponse struct{ AuthoringNotFoundJSONResponse }
-
-func (response GetExplorerTableShapeCapabilities404JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerTableShapeCapabilities409JSONResponse struct{ AuthoringConflictJSONResponse }
-
-func (response GetExplorerTableShapeCapabilities409JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerTableShapeCapabilities422JSONResponse struct {
-	AuthoringUnprocessableJSONResponse
-}
-
-func (response GetExplorerTableShapeCapabilities422JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(422)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerTableShapeCapabilities500JSONResponse struct {
-	AuthoringInternalErrorJSONResponse
-}
-
-func (response GetExplorerTableShapeCapabilities500JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type GetExplorerTableShapeCapabilities503JSONResponse struct {
-	AuthoringUnavailableJSONResponse
-}
-
-func (response GetExplorerTableShapeCapabilities503JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type DiscoverExplorerTableShapeCategoriesRequestObject struct {
-	Project    Project    `json:"project"`
-	ExplorerId ExplorerId `json:"explorerId"`
-	Body       *DiscoverExplorerTableShapeCategoriesJSONRequestBody
-}
-
-type DiscoverExplorerTableShapeCategoriesResponseObject interface {
-	VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error
-}
-
-type DiscoverExplorerTableShapeCategories200JSONResponse TableShapeCategoryDiscoveryResponse
-
-func (response DiscoverExplorerTableShapeCategories200JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type DiscoverExplorerTableShapeCategories400JSONResponse struct {
-	AuthoringBadRequestJSONResponse
-}
-
-func (response DiscoverExplorerTableShapeCategories400JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type DiscoverExplorerTableShapeCategories401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response DiscoverExplorerTableShapeCategories401JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type DiscoverExplorerTableShapeCategories403JSONResponse struct{ AuthoringForbiddenJSONResponse }
-
-func (response DiscoverExplorerTableShapeCategories403JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type DiscoverExplorerTableShapeCategories404JSONResponse struct{ AuthoringNotFoundJSONResponse }
-
-func (response DiscoverExplorerTableShapeCategories404JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type DiscoverExplorerTableShapeCategories409JSONResponse struct{ AuthoringConflictJSONResponse }
-
-func (response DiscoverExplorerTableShapeCategories409JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type DiscoverExplorerTableShapeCategories422JSONResponse struct {
-	AuthoringUnprocessableJSONResponse
-}
-
-func (response DiscoverExplorerTableShapeCategories422JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(422)
-
-	return ctx.JSON(&response)
-}
-
-type DiscoverExplorerTableShapeCategories500JSONResponse struct {
-	AuthoringInternalErrorJSONResponse
-}
-
-func (response DiscoverExplorerTableShapeCategories500JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type DiscoverExplorerTableShapeCategories503JSONResponse struct {
-	AuthoringUnavailableJSONResponse
-}
-
-func (response DiscoverExplorerTableShapeCategories503JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type ProposeExplorerTableShapeRequestObject struct {
-	Project    Project    `json:"project"`
-	ExplorerId ExplorerId `json:"explorerId"`
-	Body       *ProposeExplorerTableShapeJSONRequestBody
-}
-
-type ProposeExplorerTableShapeResponseObject interface {
-	VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error
-}
-
-type ProposeExplorerTableShape200JSONResponse TableShapeProposal
-
-func (response ProposeExplorerTableShape200JSONResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type ProposeExplorerTableShape400JSONResponse struct {
-	AuthoringBadRequestJSONResponse
-}
-
-func (response ProposeExplorerTableShape400JSONResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type ProposeExplorerTableShape401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response ProposeExplorerTableShape401JSONResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type ProposeExplorerTableShape403JSONResponse struct{ AuthoringForbiddenJSONResponse }
-
-func (response ProposeExplorerTableShape403JSONResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type ProposeExplorerTableShape404JSONResponse struct{ AuthoringNotFoundJSONResponse }
-
-func (response ProposeExplorerTableShape404JSONResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type ProposeExplorerTableShape409JSONResponse struct{ AuthoringConflictJSONResponse }
-
-func (response ProposeExplorerTableShape409JSONResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type ProposeExplorerTableShape422JSONResponse struct {
-	AuthoringUnprocessableJSONResponse
-}
-
-func (response ProposeExplorerTableShape422JSONResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(422)
-
-	return ctx.JSON(&response)
-}
-
-type ProposeExplorerTableShape500JSONResponse struct {
-	AuthoringInternalErrorJSONResponse
-}
-
-func (response ProposeExplorerTableShape500JSONResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type ProposeExplorerTableShape503JSONResponse struct {
-	AuthoringUnavailableJSONResponse
-}
-
-func (response ProposeExplorerTableShape503JSONResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
-type ResolveExplorerTableShapeRequestObject struct {
-	Project    Project    `json:"project"`
-	ExplorerId ExplorerId `json:"explorerId"`
-	Body       *ResolveExplorerTableShapeJSONRequestBody
-}
-
-type ResolveExplorerTableShapeResponseObject interface {
-	VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error
-}
-
-type ResolveExplorerTableShape200JSONResponse TableShapeResolutionResponse
-
-func (response ResolveExplorerTableShape200JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(200)
-
-	return ctx.JSON(&response)
-}
-
-type ResolveExplorerTableShape400JSONResponse struct {
-	AuthoringBadRequestJSONResponse
-}
-
-func (response ResolveExplorerTableShape400JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(400)
-
-	return ctx.JSON(&response)
-}
-
-type ResolveExplorerTableShape401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response ResolveExplorerTableShape401JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type ResolveExplorerTableShape403JSONResponse struct{ AuthoringForbiddenJSONResponse }
-
-func (response ResolveExplorerTableShape403JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(403)
-
-	return ctx.JSON(&response)
-}
-
-type ResolveExplorerTableShape404JSONResponse struct{ AuthoringNotFoundJSONResponse }
-
-func (response ResolveExplorerTableShape404JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type ResolveExplorerTableShape409JSONResponse struct{ AuthoringConflictJSONResponse }
-
-func (response ResolveExplorerTableShape409JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(409)
-
-	return ctx.JSON(&response)
-}
-
-type ResolveExplorerTableShape422JSONResponse struct {
-	AuthoringUnprocessableJSONResponse
-}
-
-func (response ResolveExplorerTableShape422JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(422)
-
-	return ctx.JSON(&response)
-}
-
-type ResolveExplorerTableShape500JSONResponse struct {
-	AuthoringInternalErrorJSONResponse
-}
-
-func (response ResolveExplorerTableShape500JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(500)
-
-	return ctx.JSON(&response)
-}
-
-type ResolveExplorerTableShape503JSONResponse struct {
-	AuthoringUnavailableJSONResponse
-}
-
-func (response ResolveExplorerTableShape503JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(503)
-
-	return ctx.JSON(&response)
-}
-
 type CreateExplorerSelectionRequestObject struct {
 	Project    Project    `json:"project"`
 	ExplorerId ExplorerId `json:"explorerId"`
@@ -19135,7 +20158,7 @@ func (response CreateExplorerSelection400JSONResponse) VisitCreateExplorerSelect
 }
 
 type CreateExplorerSelection401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response CreateExplorerSelection401JSONResponse) VisitCreateExplorerSelectionResponse(ctx fiber.Ctx) error {
@@ -19237,7 +20260,7 @@ func (response GetExplorerSelection400JSONResponse) VisitGetExplorerSelectionRes
 }
 
 type GetExplorerSelection401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response GetExplorerSelection401JSONResponse) VisitGetExplorerSelectionResponse(ctx fiber.Ctx) error {
@@ -19340,7 +20363,7 @@ func (response CreateExplorerExplicitGroupRevision400JSONResponse) VisitCreateEx
 }
 
 type CreateExplorerExplicitGroupRevision401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response CreateExplorerExplicitGroupRevision401JSONResponse) VisitCreateExplorerExplicitGroupRevisionResponse(ctx fiber.Ctx) error {
@@ -19430,7 +20453,9 @@ func (response PublishRepositoryExplorerConfig200JSONResponse) VisitPublishRepos
 	return ctx.JSON(&response)
 }
 
-type PublishRepositoryExplorerConfig400JSONResponse struct{ LegacyBadRequestJSONResponse }
+type PublishRepositoryExplorerConfig400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
 
 func (response PublishRepositoryExplorerConfig400JSONResponse) VisitPublishRepositoryExplorerConfigResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
@@ -19440,7 +20465,7 @@ func (response PublishRepositoryExplorerConfig400JSONResponse) VisitPublishRepos
 }
 
 type PublishRepositoryExplorerConfig401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+	ExplorerUnauthorizedJSONResponse
 }
 
 func (response PublishRepositoryExplorerConfig401JSONResponse) VisitPublishRepositoryExplorerConfigResponse(ctx fiber.Ctx) error {
@@ -19450,7 +20475,7 @@ func (response PublishRepositoryExplorerConfig401JSONResponse) VisitPublishRepos
 	return ctx.JSON(&response)
 }
 
-type PublishRepositoryExplorerConfig403JSONResponse struct{ LegacyForbiddenJSONResponse }
+type PublishRepositoryExplorerConfig403JSONResponse struct{ AuthoringForbiddenJSONResponse }
 
 func (response PublishRepositoryExplorerConfig403JSONResponse) VisitPublishRepositoryExplorerConfigResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
@@ -19459,7 +20484,7 @@ func (response PublishRepositoryExplorerConfig403JSONResponse) VisitPublishRepos
 	return ctx.JSON(&response)
 }
 
-type PublishRepositoryExplorerConfig409JSONResponse struct{ LegacyConflictJSONResponse }
+type PublishRepositoryExplorerConfig409JSONResponse struct{ AuthoringConflictJSONResponse }
 
 func (response PublishRepositoryExplorerConfig409JSONResponse) VisitPublishRepositoryExplorerConfigResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
@@ -19469,7 +20494,7 @@ func (response PublishRepositoryExplorerConfig409JSONResponse) VisitPublishRepos
 }
 
 type PublishRepositoryExplorerConfig422JSONResponse struct {
-	LegacyUnprocessableJSONResponse
+	AuthoringUnprocessableJSONResponse
 }
 
 func (response PublishRepositoryExplorerConfig422JSONResponse) VisitPublishRepositoryExplorerConfigResponse(ctx fiber.Ctx) error {
@@ -19480,7 +20505,7 @@ func (response PublishRepositoryExplorerConfig422JSONResponse) VisitPublishRepos
 }
 
 type PublishRepositoryExplorerConfig500JSONResponse struct {
-	LegacyInternalErrorJSONResponse
+	AuthoringInternalErrorJSONResponse
 }
 
 func (response PublishRepositoryExplorerConfig500JSONResponse) VisitPublishRepositoryExplorerConfigResponse(ctx fiber.Ctx) error {
@@ -19490,7 +20515,9 @@ func (response PublishRepositoryExplorerConfig500JSONResponse) VisitPublishRepos
 	return ctx.JSON(&response)
 }
 
-type PublishRepositoryExplorerConfig503JSONResponse struct{ LegacyUnavailableJSONResponse }
+type PublishRepositoryExplorerConfig503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
 
 func (response PublishRepositoryExplorerConfig503JSONResponse) VisitPublishRepositoryExplorerConfigResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
@@ -19728,342 +20755,506 @@ func (response GetInterpretationRevision503JSONResponse) VisitGetInterpretationR
 	return ctx.JSON(&response)
 }
 
-type GetApolloSandboxRequestObject struct {
+type GetProjectViewBuilderRequestObject struct {
+	Project Project `json:"project"`
+	Params  GetProjectViewBuilderParams
 }
 
-type GetApolloSandboxResponseObject interface {
-	VisitGetApolloSandboxResponse(ctx fiber.Ctx) error
+type GetProjectViewBuilderResponseObject interface {
+	VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error
 }
 
-type GetApolloSandbox200TexthtmlResponse struct{ HTMLTexthtmlResponse }
+type GetProjectViewBuilder200JSONResponse RawJSON
 
-func (response GetApolloSandbox200TexthtmlResponse) VisitGetApolloSandboxResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "text/html")
-	if response.ContentLength != 0 {
-		ctx.Response().Header.Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	ctx.Status(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(ctx.Response().BodyWriter(), response.Body)
-	return err
-}
-
-type GetApolloSandbox401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response GetApolloSandbox401JSONResponse) VisitGetApolloSandboxResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type GetApolloSandbox404JSONResponse struct{ ServiceNotFoundJSONResponse }
-
-func (response GetApolloSandbox404JSONResponse) VisitGetApolloSandboxResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type ExecuteDataframeGraphQLRequestObject struct {
-	Body *ExecuteDataframeGraphQLJSONRequestBody
-}
-
-type ExecuteDataframeGraphQLResponseObject interface {
-	VisitExecuteDataframeGraphQLResponse(ctx fiber.Ctx) error
-}
-
-type ExecuteDataframeGraphQL200JSONResponse RawJSON
-
-func (response ExecuteDataframeGraphQL200JSONResponse) VisitExecuteDataframeGraphQLResponse(ctx fiber.Ctx) error {
+func (response GetProjectViewBuilder200JSONResponse) VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(200)
 
 	return ctx.JSON(&response)
 }
 
-type ExecuteDataframeGraphQL400JSONResponse RawJSON
+type GetProjectViewBuilder400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
 
-func (response ExecuteDataframeGraphQL400JSONResponse) VisitExecuteDataframeGraphQLResponse(ctx fiber.Ctx) error {
+func (response GetProjectViewBuilder400JSONResponse) VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(400)
 
 	return ctx.JSON(&response)
 }
 
-type ExecuteDataframeGraphQL401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+type GetProjectViewBuilder401JSONResponse struct {
+	ExplorerUnauthorizedJSONResponse
 }
 
-func (response ExecuteDataframeGraphQL401JSONResponse) VisitExecuteDataframeGraphQLResponse(ctx fiber.Ctx) error {
+func (response GetProjectViewBuilder401JSONResponse) VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(401)
 
 	return ctx.JSON(&response)
 }
 
-type ExecuteDataframeGraphQL403JSONResponse RawJSON
+type GetProjectViewBuilder403JSONResponse struct{ AuthoringForbiddenJSONResponse }
 
-func (response ExecuteDataframeGraphQL403JSONResponse) VisitExecuteDataframeGraphQLResponse(ctx fiber.Ctx) error {
+func (response GetProjectViewBuilder403JSONResponse) VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(403)
 
 	return ctx.JSON(&response)
 }
 
-type ExecuteDataframeGraphQL404JSONResponse RawJSON
+type GetProjectViewBuilder404JSONResponse struct{ AuthoringNotFoundJSONResponse }
 
-func (response ExecuteDataframeGraphQL404JSONResponse) VisitExecuteDataframeGraphQLResponse(ctx fiber.Ctx) error {
+func (response GetProjectViewBuilder404JSONResponse) VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(404)
 
 	return ctx.JSON(&response)
 }
 
-type ExecuteDataframeGraphQL409JSONResponse RawJSON
+type GetProjectViewBuilder409JSONResponse struct{ AuthoringConflictJSONResponse }
 
-func (response ExecuteDataframeGraphQL409JSONResponse) VisitExecuteDataframeGraphQLResponse(ctx fiber.Ctx) error {
+func (response GetProjectViewBuilder409JSONResponse) VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(409)
 
 	return ctx.JSON(&response)
 }
 
-type ExecuteDataframeGraphQL413JSONResponse RawJSON
-
-func (response ExecuteDataframeGraphQL413JSONResponse) VisitExecuteDataframeGraphQLResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(413)
-
-	return ctx.JSON(&response)
+type GetProjectViewBuilder422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
 }
 
-type ExecuteDataframeGraphQL422JSONResponse RawJSON
-
-func (response ExecuteDataframeGraphQL422JSONResponse) VisitExecuteDataframeGraphQLResponse(ctx fiber.Ctx) error {
+func (response GetProjectViewBuilder422JSONResponse) VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(422)
 
 	return ctx.JSON(&response)
 }
 
-type ExecuteDataframeGraphQL429JSONResponse RawJSON
-
-func (response ExecuteDataframeGraphQL429JSONResponse) VisitExecuteDataframeGraphQLResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(429)
-
-	return ctx.JSON(&response)
+type GetProjectViewBuilder500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
 }
 
-type ExecuteDataframeGraphQL499JSONResponse RawJSON
-
-func (response ExecuteDataframeGraphQL499JSONResponse) VisitExecuteDataframeGraphQLResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(499)
-
-	return ctx.JSON(&response)
-}
-
-type ExecuteDataframeGraphQL500JSONResponse RawJSON
-
-func (response ExecuteDataframeGraphQL500JSONResponse) VisitExecuteDataframeGraphQLResponse(ctx fiber.Ctx) error {
+func (response GetProjectViewBuilder500JSONResponse) VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(500)
 
 	return ctx.JSON(&response)
 }
 
-type ExecuteDataframeGraphQL503JSONResponse RawJSON
+type GetProjectViewBuilder503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
 
-func (response ExecuteDataframeGraphQL503JSONResponse) VisitExecuteDataframeGraphQLResponse(ctx fiber.Ctx) error {
+func (response GetProjectViewBuilder503JSONResponse) VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(503)
 
 	return ctx.JSON(&response)
 }
 
-type ExecuteDataframeGraphQL504JSONResponse RawJSON
-
-func (response ExecuteDataframeGraphQL504JSONResponse) VisitExecuteDataframeGraphQLResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(504)
-
-	return ctx.JSON(&response)
+type AdoptProjectViewBuilderRequestObject struct {
+	Project Project `json:"project"`
+	Params  AdoptProjectViewBuilderParams
 }
 
-type GetGraphQLPlaygroundRequestObject struct {
+type AdoptProjectViewBuilderResponseObject interface {
+	VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error
 }
 
-type GetGraphQLPlaygroundResponseObject interface {
-	VisitGetGraphQLPlaygroundResponse(ctx fiber.Ctx) error
-}
+type AdoptProjectViewBuilder200JSONResponse RawJSON
 
-type GetGraphQLPlayground200TexthtmlResponse struct{ HTMLTexthtmlResponse }
-
-func (response GetGraphQLPlayground200TexthtmlResponse) VisitGetGraphQLPlaygroundResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "text/html")
-	if response.ContentLength != 0 {
-		ctx.Response().Header.Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	ctx.Status(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(ctx.Response().BodyWriter(), response.Body)
-	return err
-}
-
-type GetGraphQLPlayground401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
-}
-
-func (response GetGraphQLPlayground401JSONResponse) VisitGetGraphQLPlaygroundResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(401)
-
-	return ctx.JSON(&response)
-}
-
-type GetGraphQLPlayground404JSONResponse struct{ ServiceNotFoundJSONResponse }
-
-func (response GetGraphQLPlayground404JSONResponse) VisitGetGraphQLPlaygroundResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(404)
-
-	return ctx.JSON(&response)
-}
-
-type ExecuteGraphQLRequestObject struct {
-	Body *ExecuteGraphQLJSONRequestBody
-}
-
-type ExecuteGraphQLResponseObject interface {
-	VisitExecuteGraphQLResponse(ctx fiber.Ctx) error
-}
-
-type ExecuteGraphQL200JSONResponse RawJSON
-
-func (response ExecuteGraphQL200JSONResponse) VisitExecuteGraphQLResponse(ctx fiber.Ctx) error {
+func (response AdoptProjectViewBuilder200JSONResponse) VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(200)
 
 	return ctx.JSON(&response)
 }
 
-type ExecuteGraphQL400JSONResponse RawJSON
+type AdoptProjectViewBuilder400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
 
-func (response ExecuteGraphQL400JSONResponse) VisitExecuteGraphQLResponse(ctx fiber.Ctx) error {
+func (response AdoptProjectViewBuilder400JSONResponse) VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(400)
 
 	return ctx.JSON(&response)
 }
 
-type ExecuteGraphQL401JSONResponse struct {
-	ServiceUnauthorizedJSONResponse
+type AdoptProjectViewBuilder401JSONResponse struct {
+	ExplorerUnauthorizedJSONResponse
 }
 
-func (response ExecuteGraphQL401JSONResponse) VisitExecuteGraphQLResponse(ctx fiber.Ctx) error {
+func (response AdoptProjectViewBuilder401JSONResponse) VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(401)
 
 	return ctx.JSON(&response)
 }
 
-type ExecuteGraphQL403JSONResponse RawJSON
+type AdoptProjectViewBuilder403JSONResponse struct{ AuthoringForbiddenJSONResponse }
 
-func (response ExecuteGraphQL403JSONResponse) VisitExecuteGraphQLResponse(ctx fiber.Ctx) error {
+func (response AdoptProjectViewBuilder403JSONResponse) VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(403)
 
 	return ctx.JSON(&response)
 }
 
-type ExecuteGraphQL404JSONResponse RawJSON
+type AdoptProjectViewBuilder404JSONResponse struct{ AuthoringNotFoundJSONResponse }
 
-func (response ExecuteGraphQL404JSONResponse) VisitExecuteGraphQLResponse(ctx fiber.Ctx) error {
+func (response AdoptProjectViewBuilder404JSONResponse) VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(404)
 
 	return ctx.JSON(&response)
 }
 
-type ExecuteGraphQL409JSONResponse RawJSON
+type AdoptProjectViewBuilder409JSONResponse struct{ AuthoringConflictJSONResponse }
 
-func (response ExecuteGraphQL409JSONResponse) VisitExecuteGraphQLResponse(ctx fiber.Ctx) error {
+func (response AdoptProjectViewBuilder409JSONResponse) VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(409)
 
 	return ctx.JSON(&response)
 }
 
-type ExecuteGraphQL413JSONResponse RawJSON
-
-func (response ExecuteGraphQL413JSONResponse) VisitExecuteGraphQLResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(413)
-
-	return ctx.JSON(&response)
+type AdoptProjectViewBuilder422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
 }
 
-type ExecuteGraphQL422JSONResponse RawJSON
-
-func (response ExecuteGraphQL422JSONResponse) VisitExecuteGraphQLResponse(ctx fiber.Ctx) error {
+func (response AdoptProjectViewBuilder422JSONResponse) VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(422)
 
 	return ctx.JSON(&response)
 }
 
-type ExecuteGraphQL429JSONResponse RawJSON
-
-func (response ExecuteGraphQL429JSONResponse) VisitExecuteGraphQLResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(429)
-
-	return ctx.JSON(&response)
+type AdoptProjectViewBuilder500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
 }
 
-type ExecuteGraphQL499JSONResponse RawJSON
-
-func (response ExecuteGraphQL499JSONResponse) VisitExecuteGraphQLResponse(ctx fiber.Ctx) error {
-	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(499)
-
-	return ctx.JSON(&response)
-}
-
-type ExecuteGraphQL500JSONResponse RawJSON
-
-func (response ExecuteGraphQL500JSONResponse) VisitExecuteGraphQLResponse(ctx fiber.Ctx) error {
+func (response AdoptProjectViewBuilder500JSONResponse) VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(500)
 
 	return ctx.JSON(&response)
 }
 
-type ExecuteGraphQL503JSONResponse RawJSON
+type AdoptProjectViewBuilder503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
 
-func (response ExecuteGraphQL503JSONResponse) VisitExecuteGraphQLResponse(ctx fiber.Ctx) error {
+func (response AdoptProjectViewBuilder503JSONResponse) VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(503)
 
 	return ctx.JSON(&response)
 }
 
-type ExecuteGraphQL504JSONResponse RawJSON
+type DeleteProjectViewConfigRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Params     DeleteProjectViewConfigParams
+}
 
-func (response ExecuteGraphQL504JSONResponse) VisitExecuteGraphQLResponse(ctx fiber.Ctx) error {
+type DeleteProjectViewConfigResponseObject interface {
+	VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error
+}
+
+type DeleteProjectViewConfig200JSONResponse RawJSON
+
+func (response DeleteProjectViewConfig200JSONResponse) VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
-	ctx.Status(504)
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type DeleteProjectViewConfig400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response DeleteProjectViewConfig400JSONResponse) VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type DeleteProjectViewConfig401JSONResponse struct {
+	ExplorerUnauthorizedJSONResponse
+}
+
+func (response DeleteProjectViewConfig401JSONResponse) VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type DeleteProjectViewConfig403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response DeleteProjectViewConfig403JSONResponse) VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type DeleteProjectViewConfig404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response DeleteProjectViewConfig404JSONResponse) VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type DeleteProjectViewConfig409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response DeleteProjectViewConfig409JSONResponse) VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type DeleteProjectViewConfig422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response DeleteProjectViewConfig422JSONResponse) VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type DeleteProjectViewConfig500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response DeleteProjectViewConfig500JSONResponse) VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type DeleteProjectViewConfig503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response DeleteProjectViewConfig503JSONResponse) VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewConfigRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Params     SaveProjectViewConfigParams
+	Body       *SaveProjectViewConfigJSONRequestBody
+}
+
+type SaveProjectViewConfigResponseObject interface {
+	VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error
+}
+
+type SaveProjectViewConfig200JSONResponse RawJSON
+
+func (response SaveProjectViewConfig200JSONResponse) VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewConfig400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response SaveProjectViewConfig400JSONResponse) VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewConfig401JSONResponse struct {
+	ExplorerUnauthorizedJSONResponse
+}
+
+func (response SaveProjectViewConfig401JSONResponse) VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewConfig403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response SaveProjectViewConfig403JSONResponse) VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewConfig404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response SaveProjectViewConfig404JSONResponse) VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewConfig409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response SaveProjectViewConfig409JSONResponse) VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewConfig422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response SaveProjectViewConfig422JSONResponse) VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewConfig500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response SaveProjectViewConfig500JSONResponse) VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewConfig503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response SaveProjectViewConfig503JSONResponse) VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewDefaultsRequestObject struct {
+	Project Project `json:"project"`
+	Params  SaveProjectViewDefaultsParams
+	Body    *SaveProjectViewDefaultsJSONRequestBody
+}
+
+type SaveProjectViewDefaultsResponseObject interface {
+	VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error
+}
+
+type SaveProjectViewDefaults200JSONResponse RawJSON
+
+func (response SaveProjectViewDefaults200JSONResponse) VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewDefaults400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response SaveProjectViewDefaults400JSONResponse) VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewDefaults401JSONResponse struct {
+	ExplorerUnauthorizedJSONResponse
+}
+
+func (response SaveProjectViewDefaults401JSONResponse) VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewDefaults403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response SaveProjectViewDefaults403JSONResponse) VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewDefaults404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response SaveProjectViewDefaults404JSONResponse) VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewDefaults409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response SaveProjectViewDefaults409JSONResponse) VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewDefaults422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response SaveProjectViewDefaults422JSONResponse) VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewDefaults500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response SaveProjectViewDefaults500JSONResponse) VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewDefaults503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response SaveProjectViewDefaults503JSONResponse) VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
 
 	return ctx.JSON(&response)
 }
@@ -20148,6 +21339,27 @@ type StrictServerInterface interface {
 	// ActivateDatasetGeneration Activate a generation after dataframe publication.
 	// (POST /api/v1/datasets/{project}/generations/{generation}/activate)
 	ActivateDatasetGeneration(ctx context.Context, request ActivateDatasetGenerationRequestObject) (ActivateDatasetGenerationResponseObject, error)
+	// GetDatasetSourceLoadStatus Read a durable source-load plan and completed file receipts.
+	// (GET /api/v1/datasets/{project}/source-loads/{operation})
+	GetDatasetSourceLoadStatus(ctx context.Context, request GetDatasetSourceLoadStatusRequestObject) (GetDatasetSourceLoadStatusResponseObject, error)
+	// BeginDatasetSourceLoad Create or retrieve a durable source-load plan.
+	// (PUT /api/v1/datasets/{project}/source-loads/{operation})
+	BeginDatasetSourceLoad(ctx context.Context, request BeginDatasetSourceLoadRequestObject) (BeginDatasetSourceLoadResponseObject, error)
+	// UploadDatasetSourceLoadFile Upload exactly one canonical META NDJSON file into the inactive source generation.
+	// (PUT /api/v1/datasets/{project}/source-loads/{operation}/files/{resourceType})
+	UploadDatasetSourceLoadFile(ctx context.Context, request UploadDatasetSourceLoadFileRequestObject) (UploadDatasetSourceLoadFileResponseObject, error)
+	// PublishDatasetSourceLoad Materialize the completed candidate and select its published release.
+	// (POST /api/v1/datasets/{project}/source-loads/{operation}/publish)
+	PublishDatasetSourceLoad(ctx context.Context, request PublishDatasetSourceLoadRequestObject) (PublishDatasetSourceLoadResponseObject, error)
+	// PostDataframeAggregations Evaluate named aggregations against the selected published dataframe.
+	// (POST /api/v1/projects/{project}/dataframes/aggregations)
+	PostDataframeAggregations(ctx context.Context, request PostDataframeAggregationsRequestObject) (PostDataframeAggregationsResponseObject, error)
+	// PostDataframeRows Page through the selected published dataframe.
+	// (POST /api/v1/projects/{project}/dataframes/rows)
+	PostDataframeRows(ctx context.Context, request PostDataframeRowsRequestObject) (PostDataframeRowsResponseObject, error)
+	// PostFhirDataframe Compile and run an authorized FHIR dataframe query.
+	// (POST /api/v1/projects/{project}/dataframes/run)
+	PostFhirDataframe(ctx context.Context, request PostFhirDataframeRequestObject) (PostFhirDataframeResponseObject, error)
 	// ListExplorers List Explorer summaries for a project.
 	// (GET /api/v1/projects/{project}/explorers)
 	ListExplorers(ctx context.Context, request ListExplorersRequestObject) (ListExplorersResponseObject, error)
@@ -20164,6 +21376,9 @@ type StrictServerInterface interface {
 	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/artifacts/{artifactId})
 	DownloadExplorerArtifact(ctx context.Context, request DownloadExplorerArtifactRequestObject) (DownloadExplorerArtifactResponseObject, error)
 
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/authoring-network)
+	DescribeExplorerAuthoringNetwork(ctx context.Context, request DescribeExplorerAuthoringNetworkRequestObject) (DescribeExplorerAuthoringNetworkResponseObject, error)
+
 	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder)
 	GetExplorerBuilder(ctx context.Context, request GetExplorerBuilderRequestObject) (GetExplorerBuilderResponseObject, error)
 
@@ -20172,6 +21387,9 @@ type StrictServerInterface interface {
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/cell-trace)
 	TraceExplorerCell(ctx context.Context, request TraceExplorerCellRequestObject) (TraceExplorerCellResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-policy-proposals)
+	ProposeExplorerColumnPolicy(ctx context.Context, request ProposeExplorerColumnPolicyRequestObject) (ProposeExplorerColumnPolicyResponseObject, error)
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-source)
 	GetExplorerColumnSource(ctx context.Context, request GetExplorerColumnSourceRequestObject) (GetExplorerColumnSourceResponseObject, error)
@@ -20193,6 +21411,9 @@ type StrictServerInterface interface {
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices)
 	SearchExplorerConstructionChoices(ctx context.Context, request SearchExplorerConstructionChoicesRequestObject) (SearchExplorerConstructionChoicesResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-column-population)
+	GetExplorerConstructionColumnPopulation(ctx context.Context, request GetExplorerConstructionColumnPopulationRequestObject) (GetExplorerConstructionColumnPopulationResponseObject, error)
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-inputs)
 	GetExplorerConstructionInputs(ctx context.Context, request GetExplorerConstructionInputsRequestObject) (GetExplorerConstructionInputsResponseObject, error)
@@ -20254,20 +21475,11 @@ type StrictServerInterface interface {
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory)
 	BrowseExplorerSemanticInventory(ctx context.Context, request BrowseExplorerSemanticInventoryRequestObject) (BrowseExplorerSemanticInventoryResponseObject, error)
 
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/source-relationship-proposals)
+	ProposeExplorerSourceRelationship(ctx context.Context, request ProposeExplorerSourceRelationshipRequestObject) (ProposeExplorerSourceRelationshipResponseObject, error)
+
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions)
 	SearchExplorerCandidates(ctx context.Context, request SearchExplorerCandidatesRequestObject) (SearchExplorerCandidatesResponseObject, error)
-
-	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-capabilities)
-	GetExplorerTableShapeCapabilities(ctx context.Context, request GetExplorerTableShapeCapabilitiesRequestObject) (GetExplorerTableShapeCapabilitiesResponseObject, error)
-
-	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-category-discoveries)
-	DiscoverExplorerTableShapeCategories(ctx context.Context, request DiscoverExplorerTableShapeCategoriesRequestObject) (DiscoverExplorerTableShapeCategoriesResponseObject, error)
-
-	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-proposals)
-	ProposeExplorerTableShape(ctx context.Context, request ProposeExplorerTableShapeRequestObject) (ProposeExplorerTableShapeResponseObject, error)
-
-	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-resolutions)
-	ResolveExplorerTableShape(ctx context.Context, request ResolveExplorerTableShapeRequestObject) (ResolveExplorerTableShapeResponseObject, error)
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/selections)
 	CreateExplorerSelection(ctx context.Context, request CreateExplorerSelectionRequestObject) (CreateExplorerSelectionResponseObject, error)
@@ -20289,18 +21501,21 @@ type StrictServerInterface interface {
 
 	// (GET /api/v1/projects/{project}/interpretation-revisions/{revisionId})
 	GetInterpretationRevision(ctx context.Context, request GetInterpretationRevisionRequestObject) (GetInterpretationRevisionResponseObject, error)
-	// GetApolloSandbox Render the Apollo GraphQL sandbox.
-	// (GET /apollo)
-	GetApolloSandbox(ctx context.Context, request GetApolloSandboxRequestObject) (GetApolloSandboxResponseObject, error)
-	// ExecuteDataframeGraphQL Execute a dataframe GraphQL operation.
-	// (POST /graphql/dataframe)
-	ExecuteDataframeGraphQL(ctx context.Context, request ExecuteDataframeGraphQLRequestObject) (ExecuteDataframeGraphQLResponseObject, error)
-	// GetGraphQLPlayground Render the GraphQL playground.
-	// (GET /graphql/graph)
-	GetGraphQLPlayground(ctx context.Context, request GetGraphQLPlaygroundRequestObject) (GetGraphQLPlaygroundResponseObject, error)
-	// ExecuteGraphQL Execute a graph or FHIR GraphQL operation.
-	// (POST /graphql/graph)
-	ExecuteGraphQL(ctx context.Context, request ExecuteGraphQLRequestObject) (ExecuteGraphQLResponseObject, error)
+	// GetProjectViewBuilder Read project views and exact published dataframe metadata.
+	// (GET /api/v1/projects/{project}/view-builder)
+	GetProjectViewBuilder(ctx context.Context, request GetProjectViewBuilderRequestObject) (GetProjectViewBuilderResponseObject, error)
+	// AdoptProjectViewBuilder Attach existing publication metadata without reloading data.
+	// (POST /api/v1/projects/{project}/view-builder/adopt)
+	AdoptProjectViewBuilder(ctx context.Context, request AdoptProjectViewBuilderRequestObject) (AdoptProjectViewBuilderResponseObject, error)
+	// DeleteProjectViewConfig Delete a non-default saved view while retaining publication history.
+	// (DELETE /api/v1/projects/{project}/view-builder/configs/{explorerId})
+	DeleteProjectViewConfig(ctx context.Context, request DeleteProjectViewConfigRequestObject) (DeleteProjectViewConfigResponseObject, error)
+	// SaveProjectViewConfig Save presentation against an existing published dataframe.
+	// (PUT /api/v1/projects/{project}/view-builder/configs/{explorerId})
+	SaveProjectViewConfig(ctx context.Context, request SaveProjectViewConfigRequestObject) (SaveProjectViewConfigResponseObject, error)
+	// SaveProjectViewDefaults Choose the default saved view and dataframe.
+	// (PUT /api/v1/projects/{project}/view-builder/defaults)
+	SaveProjectViewDefaults(ctx context.Context, request SaveProjectViewDefaultsRequestObject) (SaveProjectViewDefaultsResponseObject, error)
 	// GetHealth Report cached core and dataframe health.
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
@@ -20315,6 +21530,65 @@ type StrictServerInterface interface {
 type StrictHandlerFunc func(ctx fiber.Ctx, args any) (any, error)
 
 type StrictMiddlewareFunc func(f StrictHandlerFunc, operationID string) StrictHandlerFunc
+
+type streamedMultipartBody struct {
+	reader io.Reader
+	eof    bool
+}
+
+func (body *streamedMultipartBody) Read(p []byte) (int, error) {
+	if body.eof {
+		return 0, io.EOF
+	}
+	n, err := body.reader.Read(p)
+	body.eof = err == io.EOF
+	return n, err
+}
+
+func streamedBodyReader(ctx fiber.Ctx) *streamedMultipartBody {
+	if body := ctx.Request().BodyStream(); body != nil {
+		return &streamedMultipartBody{reader: body}
+	}
+	return &streamedMultipartBody{reader: bytes.NewReader(ctx.Request().Body())}
+}
+
+func finishStreamedMultipartBody(ctx fiber.Ctx, body *streamedMultipartBody, responseWritten bool) {
+	if ctx.Request().BodyStream() == nil {
+		return
+	}
+	if !responseWritten || ctx.Response().StatusCode() >= 300 {
+		ctx.RequestCtx().SetConnectionClose()
+		return
+	}
+	// MIME EOF can precede HTTP EOF. Consume the chunk terminator before
+	// reusing the connection; close instead of draining an arbitrary epilogue.
+	if _, err := io.CopyN(io.Discard, body, 1); err != io.EOF {
+		ctx.RequestCtx().SetConnectionClose()
+	}
+}
+
+func limitSourceLoadPlanBody(ctx fiber.Ctx) error {
+	const maxBytes = 1 << 20
+	if contentLength := ctx.Request().Header.ContentLength(); contentLength > maxBytes {
+		return fiber.NewError(fiber.StatusRequestEntityTooLarge)
+	}
+	body := ctx.Request().BodyStream()
+	if body == nil {
+		if len(ctx.Request().Body()) > maxBytes {
+			return fiber.NewError(fiber.StatusRequestEntityTooLarge)
+		}
+		return nil
+	}
+	data, err := io.ReadAll(io.LimitReader(body, maxBytes+1))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid source-load plan body")
+	}
+	if len(data) > maxBytes {
+		return fiber.NewError(fiber.StatusRequestEntityTooLarge)
+	}
+	ctx.Request().SetBody(data)
+	return nil
+}
 
 func NewStrictHandler(ssi StrictServerInterface, middlewares []StrictMiddlewareFunc) ServerInterface {
 	return &strictHandler{ssi: ssi, middlewares: middlewares}
@@ -20384,11 +21658,14 @@ func (sh *strictHandler) GetDatasetGenerationStatus(ctx fiber.Ctx, project Proje
 // CreateDatasetGeneration operation middleware
 func (sh *strictHandler) CreateDatasetGeneration(ctx fiber.Ctx, project Project, generation Generation) error {
 	var request CreateDatasetGenerationRequestObject
+	multipartBody := streamedBodyReader(ctx)
+	multipartResponseWritten := false
+	defer func() { finishStreamedMultipartBody(ctx, multipartBody, multipartResponseWritten) }()
 
 	request.Project = project
 	request.Generation = generation
 
-	request.Body = multipart.NewReader(bytes.NewReader(ctx.Request().Body()), string(ctx.Request().Header.MultipartFormBoundary()))
+	request.Body = multipart.NewReader(multipartBody, string(ctx.Request().Header.MultipartFormBoundary()))
 
 	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
 		return sh.ssi.CreateDatasetGeneration(ctx.Context(), request.(CreateDatasetGenerationRequestObject))
@@ -20405,6 +21682,7 @@ func (sh *strictHandler) CreateDatasetGeneration(ctx fiber.Ctx, project Project,
 		if err := validResponse.VisitCreateDatasetGenerationResponse(ctx); err != nil {
 			return err
 		}
+		multipartResponseWritten = true
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}
@@ -20432,6 +21710,233 @@ func (sh *strictHandler) ActivateDatasetGeneration(ctx fiber.Ctx, project Projec
 		return err
 	} else if validResponse, ok := response.(ActivateDatasetGenerationResponseObject); ok {
 		if err := validResponse.VisitActivateDatasetGenerationResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetDatasetSourceLoadStatus operation middleware
+func (sh *strictHandler) GetDatasetSourceLoadStatus(ctx fiber.Ctx, project Project, operation string) error {
+	var request GetDatasetSourceLoadStatusRequestObject
+
+	request.Project = project
+	request.Operation = operation
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetDatasetSourceLoadStatus(ctx.Context(), request.(GetDatasetSourceLoadStatusRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetDatasetSourceLoadStatus")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetDatasetSourceLoadStatusResponseObject); ok {
+		if err := validResponse.VisitGetDatasetSourceLoadStatusResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// BeginDatasetSourceLoad operation middleware
+func (sh *strictHandler) BeginDatasetSourceLoad(ctx fiber.Ctx, project Project, operation string) error {
+	var request BeginDatasetSourceLoadRequestObject
+
+	request.Project = project
+	request.Operation = operation
+
+	if err := limitSourceLoadPlanBody(ctx); err != nil {
+		return err
+	}
+	var body BeginDatasetSourceLoadJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.BeginDatasetSourceLoad(ctx.Context(), request.(BeginDatasetSourceLoadRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "BeginDatasetSourceLoad")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(BeginDatasetSourceLoadResponseObject); ok {
+		if err := validResponse.VisitBeginDatasetSourceLoadResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// UploadDatasetSourceLoadFile operation middleware
+func (sh *strictHandler) UploadDatasetSourceLoadFile(ctx fiber.Ctx, project Project, operation string, resourceType string) error {
+	var request UploadDatasetSourceLoadFileRequestObject
+	multipartBody := streamedBodyReader(ctx)
+	multipartResponseWritten := false
+	defer func() { finishStreamedMultipartBody(ctx, multipartBody, multipartResponseWritten) }()
+
+	request.Project = project
+	request.Operation = operation
+	request.ResourceType = resourceType
+
+	request.Body = multipart.NewReader(multipartBody, string(ctx.Request().Header.MultipartFormBoundary()))
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.UploadDatasetSourceLoadFile(ctx.Context(), request.(UploadDatasetSourceLoadFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UploadDatasetSourceLoadFile")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(UploadDatasetSourceLoadFileResponseObject); ok {
+		if err := validResponse.VisitUploadDatasetSourceLoadFileResponse(ctx); err != nil {
+			return err
+		}
+		multipartResponseWritten = true
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// PublishDatasetSourceLoad operation middleware
+func (sh *strictHandler) PublishDatasetSourceLoad(ctx fiber.Ctx, project Project, operation string) error {
+	var request PublishDatasetSourceLoadRequestObject
+
+	request.Project = project
+	request.Operation = operation
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.PublishDatasetSourceLoad(ctx.Context(), request.(PublishDatasetSourceLoadRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PublishDatasetSourceLoad")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(PublishDatasetSourceLoadResponseObject); ok {
+		if err := validResponse.VisitPublishDatasetSourceLoadResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// PostDataframeAggregations operation middleware
+func (sh *strictHandler) PostDataframeAggregations(ctx fiber.Ctx, project Project) error {
+	var request PostDataframeAggregationsRequestObject
+
+	request.Project = project
+
+	var body PostDataframeAggregationsJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.PostDataframeAggregations(ctx.Context(), request.(PostDataframeAggregationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PostDataframeAggregations")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(PostDataframeAggregationsResponseObject); ok {
+		if err := validResponse.VisitPostDataframeAggregationsResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// PostDataframeRows operation middleware
+func (sh *strictHandler) PostDataframeRows(ctx fiber.Ctx, project Project) error {
+	var request PostDataframeRowsRequestObject
+
+	request.Project = project
+
+	var body PostDataframeRowsJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.PostDataframeRows(ctx.Context(), request.(PostDataframeRowsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PostDataframeRows")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(PostDataframeRowsResponseObject); ok {
+		if err := validResponse.VisitPostDataframeRowsResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// PostFhirDataframe operation middleware
+func (sh *strictHandler) PostFhirDataframe(ctx fiber.Ctx, project Project) error {
+	var request PostFhirDataframeRequestObject
+
+	request.Project = project
+
+	var body PostFhirDataframeJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.PostFhirDataframe(ctx.Context(), request.(PostFhirDataframeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PostFhirDataframe")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(PostFhirDataframeResponseObject); ok {
+		if err := validResponse.VisitPostFhirDataframeResponse(ctx); err != nil {
 			return err
 		}
 	} else if response != nil {
@@ -20592,6 +22097,40 @@ func (sh *strictHandler) DownloadExplorerArtifact(ctx fiber.Ctx, project Project
 	return nil
 }
 
+// DescribeExplorerAuthoringNetwork operation middleware
+func (sh *strictHandler) DescribeExplorerAuthoringNetwork(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request DescribeExplorerAuthoringNetworkRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body DescribeExplorerAuthoringNetworkJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.DescribeExplorerAuthoringNetwork(ctx.Context(), request.(DescribeExplorerAuthoringNetworkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DescribeExplorerAuthoringNetwork")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(DescribeExplorerAuthoringNetworkResponseObject); ok {
+		if err := validResponse.VisitDescribeExplorerAuthoringNetworkResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // GetExplorerBuilder operation middleware
 func (sh *strictHandler) GetExplorerBuilder(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
 	var request GetExplorerBuilderRequestObject
@@ -20674,6 +22213,40 @@ func (sh *strictHandler) TraceExplorerCell(ctx fiber.Ctx, project Project, explo
 		return err
 	} else if validResponse, ok := response.(TraceExplorerCellResponseObject); ok {
 		if err := validResponse.VisitTraceExplorerCellResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ProposeExplorerColumnPolicy operation middleware
+func (sh *strictHandler) ProposeExplorerColumnPolicy(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request ProposeExplorerColumnPolicyRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body ProposeExplorerColumnPolicyJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.ProposeExplorerColumnPolicy(ctx.Context(), request.(ProposeExplorerColumnPolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ProposeExplorerColumnPolicy")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ProposeExplorerColumnPolicyResponseObject); ok {
+		if err := validResponse.VisitProposeExplorerColumnPolicyResponse(ctx); err != nil {
 			return err
 		}
 	} else if response != nil {
@@ -20913,6 +22486,40 @@ func (sh *strictHandler) SearchExplorerConstructionChoices(ctx fiber.Ctx, projec
 		return err
 	} else if validResponse, ok := response.(SearchExplorerConstructionChoicesResponseObject); ok {
 		if err := validResponse.VisitSearchExplorerConstructionChoicesResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetExplorerConstructionColumnPopulation operation middleware
+func (sh *strictHandler) GetExplorerConstructionColumnPopulation(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request GetExplorerConstructionColumnPopulationRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body GetExplorerConstructionColumnPopulationJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetExplorerConstructionColumnPopulation(ctx.Context(), request.(GetExplorerConstructionColumnPopulationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetExplorerConstructionColumnPopulation")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetExplorerConstructionColumnPopulationResponseObject); ok {
+		if err := validResponse.VisitGetExplorerConstructionColumnPopulationResponse(ctx); err != nil {
 			return err
 		}
 	} else if response != nil {
@@ -21599,6 +23206,40 @@ func (sh *strictHandler) BrowseExplorerSemanticInventory(ctx fiber.Ctx, project 
 	return nil
 }
 
+// ProposeExplorerSourceRelationship operation middleware
+func (sh *strictHandler) ProposeExplorerSourceRelationship(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request ProposeExplorerSourceRelationshipRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body ProposeExplorerSourceRelationshipJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.ProposeExplorerSourceRelationship(ctx.Context(), request.(ProposeExplorerSourceRelationshipRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ProposeExplorerSourceRelationship")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ProposeExplorerSourceRelationshipResponseObject); ok {
+		if err := validResponse.VisitProposeExplorerSourceRelationshipResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // SearchExplorerCandidates operation middleware
 func (sh *strictHandler) SearchExplorerCandidates(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
 	var request SearchExplorerCandidatesRequestObject
@@ -21625,142 +23266,6 @@ func (sh *strictHandler) SearchExplorerCandidates(ctx fiber.Ctx, project Project
 		return err
 	} else if validResponse, ok := response.(SearchExplorerCandidatesResponseObject); ok {
 		if err := validResponse.VisitSearchExplorerCandidatesResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// GetExplorerTableShapeCapabilities operation middleware
-func (sh *strictHandler) GetExplorerTableShapeCapabilities(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
-	var request GetExplorerTableShapeCapabilitiesRequestObject
-
-	request.Project = project
-	request.ExplorerId = explorerId
-
-	var body GetExplorerTableShapeCapabilitiesJSONRequestBody
-	if err := ctx.Bind().Body(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-	request.Body = &body
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.GetExplorerTableShapeCapabilities(ctx.Context(), request.(GetExplorerTableShapeCapabilitiesRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetExplorerTableShapeCapabilities")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(GetExplorerTableShapeCapabilitiesResponseObject); ok {
-		if err := validResponse.VisitGetExplorerTableShapeCapabilitiesResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// DiscoverExplorerTableShapeCategories operation middleware
-func (sh *strictHandler) DiscoverExplorerTableShapeCategories(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
-	var request DiscoverExplorerTableShapeCategoriesRequestObject
-
-	request.Project = project
-	request.ExplorerId = explorerId
-
-	var body DiscoverExplorerTableShapeCategoriesJSONRequestBody
-	if err := ctx.Bind().Body(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-	request.Body = &body
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.DiscoverExplorerTableShapeCategories(ctx.Context(), request.(DiscoverExplorerTableShapeCategoriesRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DiscoverExplorerTableShapeCategories")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(DiscoverExplorerTableShapeCategoriesResponseObject); ok {
-		if err := validResponse.VisitDiscoverExplorerTableShapeCategoriesResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// ProposeExplorerTableShape operation middleware
-func (sh *strictHandler) ProposeExplorerTableShape(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
-	var request ProposeExplorerTableShapeRequestObject
-
-	request.Project = project
-	request.ExplorerId = explorerId
-
-	var body ProposeExplorerTableShapeJSONRequestBody
-	if err := ctx.Bind().Body(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-	request.Body = &body
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.ProposeExplorerTableShape(ctx.Context(), request.(ProposeExplorerTableShapeRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ProposeExplorerTableShape")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(ProposeExplorerTableShapeResponseObject); ok {
-		if err := validResponse.VisitProposeExplorerTableShapeResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// ResolveExplorerTableShape operation middleware
-func (sh *strictHandler) ResolveExplorerTableShape(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
-	var request ResolveExplorerTableShapeRequestObject
-
-	request.Project = project
-	request.ExplorerId = explorerId
-
-	var body ResolveExplorerTableShapeJSONRequestBody
-	if err := ctx.Bind().Body(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-	request.Body = &body
-
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.ResolveExplorerTableShape(ctx.Context(), request.(ResolveExplorerTableShapeRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ResolveExplorerTableShape")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(ResolveExplorerTableShapeResponseObject); ok {
-		if err := validResponse.VisitResolveExplorerTableShapeResponse(ctx); err != nil {
 			return err
 		}
 	} else if response != nil {
@@ -21994,23 +23499,26 @@ func (sh *strictHandler) GetInterpretationRevision(ctx fiber.Ctx, project Projec
 	return nil
 }
 
-// GetApolloSandbox operation middleware
-func (sh *strictHandler) GetApolloSandbox(ctx fiber.Ctx) error {
-	var request GetApolloSandboxRequestObject
+// GetProjectViewBuilder operation middleware
+func (sh *strictHandler) GetProjectViewBuilder(ctx fiber.Ctx, project Project, params GetProjectViewBuilderParams) error {
+	var request GetProjectViewBuilderRequestObject
+
+	request.Project = project
+	request.Params = params
 
 	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.GetApolloSandbox(ctx.Context(), request.(GetApolloSandboxRequestObject))
+		return sh.ssi.GetProjectViewBuilder(ctx.Context(), request.(GetProjectViewBuilderRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetApolloSandbox")
+		handler = middleware(handler, "GetProjectViewBuilder")
 	}
 
 	response, err := handler(ctx, request)
 
 	if err != nil {
 		return err
-	} else if validResponse, ok := response.(GetApolloSandboxResponseObject); ok {
-		if err := validResponse.VisitGetApolloSandboxResponse(ctx); err != nil {
+	} else if validResponse, ok := response.(GetProjectViewBuilderResponseObject); ok {
+		if err := validResponse.VisitGetProjectViewBuilderResponse(ctx); err != nil {
 			return err
 		}
 	} else if response != nil {
@@ -22019,29 +23527,90 @@ func (sh *strictHandler) GetApolloSandbox(ctx fiber.Ctx) error {
 	return nil
 }
 
-// ExecuteDataframeGraphQL operation middleware
-func (sh *strictHandler) ExecuteDataframeGraphQL(ctx fiber.Ctx) error {
-	var request ExecuteDataframeGraphQLRequestObject
+// AdoptProjectViewBuilder operation middleware
+func (sh *strictHandler) AdoptProjectViewBuilder(ctx fiber.Ctx, project Project, params AdoptProjectViewBuilderParams) error {
+	var request AdoptProjectViewBuilderRequestObject
 
-	var body ExecuteDataframeGraphQLJSONRequestBody
+	request.Project = project
+	request.Params = params
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.AdoptProjectViewBuilder(ctx.Context(), request.(AdoptProjectViewBuilderRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AdoptProjectViewBuilder")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(AdoptProjectViewBuilderResponseObject); ok {
+		if err := validResponse.VisitAdoptProjectViewBuilderResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// DeleteProjectViewConfig operation middleware
+func (sh *strictHandler) DeleteProjectViewConfig(ctx fiber.Ctx, project Project, explorerId ExplorerId, params DeleteProjectViewConfigParams) error {
+	var request DeleteProjectViewConfigRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+	request.Params = params
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteProjectViewConfig(ctx.Context(), request.(DeleteProjectViewConfigRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteProjectViewConfig")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(DeleteProjectViewConfigResponseObject); ok {
+		if err := validResponse.VisitDeleteProjectViewConfigResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// SaveProjectViewConfig operation middleware
+func (sh *strictHandler) SaveProjectViewConfig(ctx fiber.Ctx, project Project, explorerId ExplorerId, params SaveProjectViewConfigParams) error {
+	var request SaveProjectViewConfigRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+	request.Params = params
+
+	var body SaveProjectViewConfigJSONRequestBody
 	if err := ctx.Bind().Body(&body); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 	request.Body = &body
 
 	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.ExecuteDataframeGraphQL(ctx.Context(), request.(ExecuteDataframeGraphQLRequestObject))
+		return sh.ssi.SaveProjectViewConfig(ctx.Context(), request.(SaveProjectViewConfigRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ExecuteDataframeGraphQL")
+		handler = middleware(handler, "SaveProjectViewConfig")
 	}
 
 	response, err := handler(ctx, request)
 
 	if err != nil {
 		return err
-	} else if validResponse, ok := response.(ExecuteDataframeGraphQLResponseObject); ok {
-		if err := validResponse.VisitExecuteDataframeGraphQLResponse(ctx); err != nil {
+	} else if validResponse, ok := response.(SaveProjectViewConfigResponseObject); ok {
+		if err := validResponse.VisitSaveProjectViewConfigResponse(ctx); err != nil {
 			return err
 		}
 	} else if response != nil {
@@ -22050,54 +23619,32 @@ func (sh *strictHandler) ExecuteDataframeGraphQL(ctx fiber.Ctx) error {
 	return nil
 }
 
-// GetGraphQLPlayground operation middleware
-func (sh *strictHandler) GetGraphQLPlayground(ctx fiber.Ctx) error {
-	var request GetGraphQLPlaygroundRequestObject
+// SaveProjectViewDefaults operation middleware
+func (sh *strictHandler) SaveProjectViewDefaults(ctx fiber.Ctx, project Project, params SaveProjectViewDefaultsParams) error {
+	var request SaveProjectViewDefaultsRequestObject
 
-	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.GetGraphQLPlayground(ctx.Context(), request.(GetGraphQLPlaygroundRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetGraphQLPlayground")
-	}
+	request.Project = project
+	request.Params = params
 
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(GetGraphQLPlaygroundResponseObject); ok {
-		if err := validResponse.VisitGetGraphQLPlaygroundResponse(ctx); err != nil {
-			return err
-		}
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// ExecuteGraphQL operation middleware
-func (sh *strictHandler) ExecuteGraphQL(ctx fiber.Ctx) error {
-	var request ExecuteGraphQLRequestObject
-
-	var body ExecuteGraphQLJSONRequestBody
+	var body SaveProjectViewDefaultsJSONRequestBody
 	if err := ctx.Bind().Body(&body); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 	request.Body = &body
 
 	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
-		return sh.ssi.ExecuteGraphQL(ctx.Context(), request.(ExecuteGraphQLRequestObject))
+		return sh.ssi.SaveProjectViewDefaults(ctx.Context(), request.(SaveProjectViewDefaultsRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ExecuteGraphQL")
+		handler = middleware(handler, "SaveProjectViewDefaults")
 	}
 
 	response, err := handler(ctx, request)
 
 	if err != nil {
 		return err
-	} else if validResponse, ok := response.(ExecuteGraphQLResponseObject); ok {
-		if err := validResponse.VisitExecuteGraphQLResponse(ctx); err != nil {
+	} else if validResponse, ok := response.(SaveProjectViewDefaultsResponseObject); ok {
+		if err := validResponse.VisitSaveProjectViewDefaultsResponse(ctx); err != nil {
 			return err
 		}
 	} else if response != nil {
@@ -22181,536 +23728,6779 @@ func (sh *strictHandler) GetReadiness(ctx fiber.Ctx) error {
 	return nil
 }
 
+// NewGetRecipeExecutionErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetRecipeExecutionErrorResponse(status int, body any) (GetRecipeExecutionResponseObject, error) {
+	switch status {
+
+	case 401:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for GetRecipeExecution status %d", body, status)
+		}
+		return GetRecipeExecution401JSONResponse(responseBody), nil
+
+	case 403:
+		responseBody, ok := body.(LegacyForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetRecipeExecution status %d", body, status)
+			}
+			responseBody = LegacyForbiddenJSONResponse(baseBody)
+		}
+		return GetRecipeExecution403JSONResponse{LegacyForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(LegacyNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetRecipeExecution status %d", body, status)
+			}
+			responseBody = LegacyNotFoundJSONResponse(baseBody)
+		}
+		return GetRecipeExecution404JSONResponse{LegacyNotFoundJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetRecipeExecution status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return GetRecipeExecution503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getRecipeExecution", status)
+	}
+}
+
+// NewGetDatasetGenerationStatusErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetDatasetGenerationStatusErrorResponse(status int, body any) (GetDatasetGenerationStatusResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(ServiceBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetGenerationStatus status %d", body, status)
+			}
+			responseBody = ServiceBadRequestJSONResponse(baseBody)
+		}
+		return GetDatasetGenerationStatus400JSONResponse{ServiceBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetGenerationStatus status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return GetDatasetGenerationStatus401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(ServiceForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetGenerationStatus status %d", body, status)
+			}
+			responseBody = ServiceForbiddenJSONResponse(baseBody)
+		}
+		return GetDatasetGenerationStatus403JSONResponse{ServiceForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(ServiceNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetGenerationStatus status %d", body, status)
+			}
+			responseBody = ServiceNotFoundJSONResponse(baseBody)
+		}
+		return GetDatasetGenerationStatus404JSONResponse{ServiceNotFoundJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(ServiceInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetGenerationStatus status %d", body, status)
+			}
+			responseBody = ServiceInternalErrorJSONResponse(baseBody)
+		}
+		return GetDatasetGenerationStatus500JSONResponse{ServiceInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetGenerationStatus status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return GetDatasetGenerationStatus503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getDatasetGenerationStatus", status)
+	}
+}
+
+// NewCreateDatasetGenerationErrorResponse maps a documented JSON error status to its generated response type.
+func NewCreateDatasetGenerationErrorResponse(status int, body any) (CreateDatasetGenerationResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(ServiceBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceBadRequestJSONResponse(baseBody)
+		}
+		return CreateDatasetGeneration400JSONResponse{ServiceBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return CreateDatasetGeneration401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(ServiceForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceForbiddenJSONResponse(baseBody)
+		}
+		return CreateDatasetGeneration403JSONResponse{ServiceForbiddenJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(ServiceConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceConflictJSONResponse(baseBody)
+		}
+		return CreateDatasetGeneration409JSONResponse{ServiceConflictJSONResponse: responseBody}, nil
+
+	case 415:
+		responseBody, ok := body.(ServiceUnsupportedMediaTypeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceUnsupportedMediaTypeJSONResponse(baseBody)
+		}
+		return CreateDatasetGeneration415JSONResponse{ServiceUnsupportedMediaTypeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(ServiceUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceUnprocessableJSONResponse(baseBody)
+		}
+		return CreateDatasetGeneration422JSONResponse{ServiceUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(ServiceInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceInternalErrorJSONResponse(baseBody)
+		}
+		return CreateDatasetGeneration500JSONResponse{ServiceInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return CreateDatasetGeneration503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "createDatasetGeneration", status)
+	}
+}
+
+// NewActivateDatasetGenerationErrorResponse maps a documented JSON error status to its generated response type.
+func NewActivateDatasetGenerationErrorResponse(status int, body any) (ActivateDatasetGenerationResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(ServiceBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ActivateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceBadRequestJSONResponse(baseBody)
+		}
+		return ActivateDatasetGeneration400JSONResponse{ServiceBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ActivateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ActivateDatasetGeneration401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(ServiceForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ActivateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceForbiddenJSONResponse(baseBody)
+		}
+		return ActivateDatasetGeneration403JSONResponse{ServiceForbiddenJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(ServiceConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ActivateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceConflictJSONResponse(baseBody)
+		}
+		return ActivateDatasetGeneration409JSONResponse{ServiceConflictJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(ServiceInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ActivateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceInternalErrorJSONResponse(baseBody)
+		}
+		return ActivateDatasetGeneration500JSONResponse{ServiceInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ActivateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return ActivateDatasetGeneration503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "activateDatasetGeneration", status)
+	}
+}
+
+// NewGetDatasetSourceLoadStatusErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetDatasetSourceLoadStatusErrorResponse(status int, body any) (GetDatasetSourceLoadStatusResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(ServiceBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetSourceLoadStatus status %d", body, status)
+			}
+			responseBody = ServiceBadRequestJSONResponse(baseBody)
+		}
+		return GetDatasetSourceLoadStatus400JSONResponse{ServiceBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetSourceLoadStatus status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return GetDatasetSourceLoadStatus401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(ServiceForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetSourceLoadStatus status %d", body, status)
+			}
+			responseBody = ServiceForbiddenJSONResponse(baseBody)
+		}
+		return GetDatasetSourceLoadStatus403JSONResponse{ServiceForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(ServiceNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetSourceLoadStatus status %d", body, status)
+			}
+			responseBody = ServiceNotFoundJSONResponse(baseBody)
+		}
+		return GetDatasetSourceLoadStatus404JSONResponse{ServiceNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(ServiceConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetSourceLoadStatus status %d", body, status)
+			}
+			responseBody = ServiceConflictJSONResponse(baseBody)
+		}
+		return GetDatasetSourceLoadStatus409JSONResponse{ServiceConflictJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(ServiceInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetSourceLoadStatus status %d", body, status)
+			}
+			responseBody = ServiceInternalErrorJSONResponse(baseBody)
+		}
+		return GetDatasetSourceLoadStatus500JSONResponse{ServiceInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetSourceLoadStatus status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return GetDatasetSourceLoadStatus503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getDatasetSourceLoadStatus", status)
+	}
+}
+
+// NewBeginDatasetSourceLoadErrorResponse maps a documented JSON error status to its generated response type.
+func NewBeginDatasetSourceLoadErrorResponse(status int, body any) (BeginDatasetSourceLoadResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(ServiceBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceBadRequestJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad400JSONResponse{ServiceBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(ServiceForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceForbiddenJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad403JSONResponse{ServiceForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(ServiceNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceNotFoundJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad404JSONResponse{ServiceNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(ServiceConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceConflictJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad409JSONResponse{ServiceConflictJSONResponse: responseBody}, nil
+
+	case 413:
+		responseBody, ok := body.(ServicePayloadTooLargeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServicePayloadTooLargeJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad413JSONResponse{ServicePayloadTooLargeJSONResponse: responseBody}, nil
+
+	case 415:
+		responseBody, ok := body.(ServiceUnsupportedMediaTypeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceUnsupportedMediaTypeJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad415JSONResponse{ServiceUnsupportedMediaTypeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(ServiceUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceUnprocessableJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad422JSONResponse{ServiceUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(ServiceInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceInternalErrorJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad500JSONResponse{ServiceInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "beginDatasetSourceLoad", status)
+	}
+}
+
+// NewUploadDatasetSourceLoadFileErrorResponse maps a documented JSON error status to its generated response type.
+func NewUploadDatasetSourceLoadFileErrorResponse(status int, body any) (UploadDatasetSourceLoadFileResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(ServiceBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+			}
+			responseBody = ServiceBadRequestJSONResponse(baseBody)
+		}
+		return UploadDatasetSourceLoadFile400JSONResponse{ServiceBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return UploadDatasetSourceLoadFile401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(ServiceForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+			}
+			responseBody = ServiceForbiddenJSONResponse(baseBody)
+		}
+		return UploadDatasetSourceLoadFile403JSONResponse{ServiceForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(ServiceNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+			}
+			responseBody = ServiceNotFoundJSONResponse(baseBody)
+		}
+		return UploadDatasetSourceLoadFile404JSONResponse{ServiceNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(ServiceConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+			}
+			responseBody = ServiceConflictJSONResponse(baseBody)
+		}
+		return UploadDatasetSourceLoadFile409JSONResponse{ServiceConflictJSONResponse: responseBody}, nil
+
+	case 413:
+		responseBody, ok := body.(ServicePayloadTooLargeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+			}
+			responseBody = ServicePayloadTooLargeJSONResponse(baseBody)
+		}
+		return UploadDatasetSourceLoadFile413JSONResponse{ServicePayloadTooLargeJSONResponse: responseBody}, nil
+
+	case 415:
+		responseBody, ok := body.(ServiceUnsupportedMediaTypeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+			}
+			responseBody = ServiceUnsupportedMediaTypeJSONResponse(baseBody)
+		}
+		return UploadDatasetSourceLoadFile415JSONResponse{ServiceUnsupportedMediaTypeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(SourceLoadValidationErrorResponse)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+		}
+		return UploadDatasetSourceLoadFile422JSONResponse(responseBody), nil
+
+	case 500:
+		responseBody, ok := body.(ServiceInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+			}
+			responseBody = ServiceInternalErrorJSONResponse(baseBody)
+		}
+		return UploadDatasetSourceLoadFile500JSONResponse{ServiceInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return UploadDatasetSourceLoadFile503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "uploadDatasetSourceLoadFile", status)
+	}
+}
+
+// NewPublishDatasetSourceLoadErrorResponse maps a documented JSON error status to its generated response type.
+func NewPublishDatasetSourceLoadErrorResponse(status int, body any) (PublishDatasetSourceLoadResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(ServiceBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceBadRequestJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad400JSONResponse{ServiceBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(ServiceForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceForbiddenJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad403JSONResponse{ServiceForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(ServiceNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceNotFoundJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad404JSONResponse{ServiceNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(ServiceConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceConflictJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad409JSONResponse{ServiceConflictJSONResponse: responseBody}, nil
+
+	case 413:
+		responseBody, ok := body.(ServicePayloadTooLargeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServicePayloadTooLargeJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad413JSONResponse{ServicePayloadTooLargeJSONResponse: responseBody}, nil
+
+	case 415:
+		responseBody, ok := body.(ServiceUnsupportedMediaTypeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceUnsupportedMediaTypeJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad415JSONResponse{ServiceUnsupportedMediaTypeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(ServiceUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceUnprocessableJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad422JSONResponse{ServiceUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(ServiceInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceInternalErrorJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad500JSONResponse{ServiceInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "publishDatasetSourceLoad", status)
+	}
+}
+
+// NewPostDataframeAggregationsErrorResponse maps a documented JSON error status to its generated response type.
+func NewPostDataframeAggregationsErrorResponse(status int, body any) (PostDataframeAggregationsResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(ServiceBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeAggregations status %d", body, status)
+			}
+			responseBody = ServiceBadRequestJSONResponse(baseBody)
+		}
+		return PostDataframeAggregations400JSONResponse{ServiceBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeAggregations status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return PostDataframeAggregations401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(ServiceForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeAggregations status %d", body, status)
+			}
+			responseBody = ServiceForbiddenJSONResponse(baseBody)
+		}
+		return PostDataframeAggregations403JSONResponse{ServiceForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(ServiceNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeAggregations status %d", body, status)
+			}
+			responseBody = ServiceNotFoundJSONResponse(baseBody)
+		}
+		return PostDataframeAggregations404JSONResponse{ServiceNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(ServiceConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeAggregations status %d", body, status)
+			}
+			responseBody = ServiceConflictJSONResponse(baseBody)
+		}
+		return PostDataframeAggregations409JSONResponse{ServiceConflictJSONResponse: responseBody}, nil
+
+	case 413:
+		responseBody, ok := body.(ServicePayloadTooLargeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeAggregations status %d", body, status)
+			}
+			responseBody = ServicePayloadTooLargeJSONResponse(baseBody)
+		}
+		return PostDataframeAggregations413JSONResponse{ServicePayloadTooLargeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(ServiceUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeAggregations status %d", body, status)
+			}
+			responseBody = ServiceUnprocessableJSONResponse(baseBody)
+		}
+		return PostDataframeAggregations422JSONResponse{ServiceUnprocessableJSONResponse: responseBody}, nil
+
+	case 429:
+		responseBody, ok := body.(ServiceTooManyRequestsJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeAggregations status %d", body, status)
+			}
+			responseBody = ServiceTooManyRequestsJSONResponse(baseBody)
+		}
+		return PostDataframeAggregations429JSONResponse{ServiceTooManyRequestsJSONResponse: responseBody}, nil
+
+	case 499:
+		responseBody, ok := body.(ServiceClientClosedRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeAggregations status %d", body, status)
+			}
+			responseBody = ServiceClientClosedRequestJSONResponse(baseBody)
+		}
+		return PostDataframeAggregations499JSONResponse{ServiceClientClosedRequestJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(ServiceInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeAggregations status %d", body, status)
+			}
+			responseBody = ServiceInternalErrorJSONResponse(baseBody)
+		}
+		return PostDataframeAggregations500JSONResponse{ServiceInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeAggregations status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return PostDataframeAggregations503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(ServiceGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeAggregations status %d", body, status)
+			}
+			responseBody = ServiceGatewayTimeoutJSONResponse(baseBody)
+		}
+		return PostDataframeAggregations504JSONResponse{ServiceGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "postDataframeAggregations", status)
+	}
+}
+
+// NewPostDataframeRowsErrorResponse maps a documented JSON error status to its generated response type.
+func NewPostDataframeRowsErrorResponse(status int, body any) (PostDataframeRowsResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(ServiceBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeRows status %d", body, status)
+			}
+			responseBody = ServiceBadRequestJSONResponse(baseBody)
+		}
+		return PostDataframeRows400JSONResponse{ServiceBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeRows status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return PostDataframeRows401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(ServiceForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeRows status %d", body, status)
+			}
+			responseBody = ServiceForbiddenJSONResponse(baseBody)
+		}
+		return PostDataframeRows403JSONResponse{ServiceForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(ServiceNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeRows status %d", body, status)
+			}
+			responseBody = ServiceNotFoundJSONResponse(baseBody)
+		}
+		return PostDataframeRows404JSONResponse{ServiceNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(ServiceConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeRows status %d", body, status)
+			}
+			responseBody = ServiceConflictJSONResponse(baseBody)
+		}
+		return PostDataframeRows409JSONResponse{ServiceConflictJSONResponse: responseBody}, nil
+
+	case 413:
+		responseBody, ok := body.(ServicePayloadTooLargeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeRows status %d", body, status)
+			}
+			responseBody = ServicePayloadTooLargeJSONResponse(baseBody)
+		}
+		return PostDataframeRows413JSONResponse{ServicePayloadTooLargeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(ServiceUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeRows status %d", body, status)
+			}
+			responseBody = ServiceUnprocessableJSONResponse(baseBody)
+		}
+		return PostDataframeRows422JSONResponse{ServiceUnprocessableJSONResponse: responseBody}, nil
+
+	case 429:
+		responseBody, ok := body.(ServiceTooManyRequestsJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeRows status %d", body, status)
+			}
+			responseBody = ServiceTooManyRequestsJSONResponse(baseBody)
+		}
+		return PostDataframeRows429JSONResponse{ServiceTooManyRequestsJSONResponse: responseBody}, nil
+
+	case 499:
+		responseBody, ok := body.(ServiceClientClosedRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeRows status %d", body, status)
+			}
+			responseBody = ServiceClientClosedRequestJSONResponse(baseBody)
+		}
+		return PostDataframeRows499JSONResponse{ServiceClientClosedRequestJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(ServiceInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeRows status %d", body, status)
+			}
+			responseBody = ServiceInternalErrorJSONResponse(baseBody)
+		}
+		return PostDataframeRows500JSONResponse{ServiceInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeRows status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return PostDataframeRows503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(ServiceGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostDataframeRows status %d", body, status)
+			}
+			responseBody = ServiceGatewayTimeoutJSONResponse(baseBody)
+		}
+		return PostDataframeRows504JSONResponse{ServiceGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "postDataframeRows", status)
+	}
+}
+
+// NewPostFhirDataframeErrorResponse maps a documented JSON error status to its generated response type.
+func NewPostFhirDataframeErrorResponse(status int, body any) (PostFhirDataframeResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(ServiceBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostFhirDataframe status %d", body, status)
+			}
+			responseBody = ServiceBadRequestJSONResponse(baseBody)
+		}
+		return PostFhirDataframe400JSONResponse{ServiceBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostFhirDataframe status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return PostFhirDataframe401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(ServiceForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostFhirDataframe status %d", body, status)
+			}
+			responseBody = ServiceForbiddenJSONResponse(baseBody)
+		}
+		return PostFhirDataframe403JSONResponse{ServiceForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(ServiceNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostFhirDataframe status %d", body, status)
+			}
+			responseBody = ServiceNotFoundJSONResponse(baseBody)
+		}
+		return PostFhirDataframe404JSONResponse{ServiceNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(ServiceConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostFhirDataframe status %d", body, status)
+			}
+			responseBody = ServiceConflictJSONResponse(baseBody)
+		}
+		return PostFhirDataframe409JSONResponse{ServiceConflictJSONResponse: responseBody}, nil
+
+	case 413:
+		responseBody, ok := body.(ServicePayloadTooLargeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostFhirDataframe status %d", body, status)
+			}
+			responseBody = ServicePayloadTooLargeJSONResponse(baseBody)
+		}
+		return PostFhirDataframe413JSONResponse{ServicePayloadTooLargeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(ServiceUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostFhirDataframe status %d", body, status)
+			}
+			responseBody = ServiceUnprocessableJSONResponse(baseBody)
+		}
+		return PostFhirDataframe422JSONResponse{ServiceUnprocessableJSONResponse: responseBody}, nil
+
+	case 429:
+		responseBody, ok := body.(ServiceTooManyRequestsJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostFhirDataframe status %d", body, status)
+			}
+			responseBody = ServiceTooManyRequestsJSONResponse(baseBody)
+		}
+		return PostFhirDataframe429JSONResponse{ServiceTooManyRequestsJSONResponse: responseBody}, nil
+
+	case 499:
+		responseBody, ok := body.(ServiceClientClosedRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostFhirDataframe status %d", body, status)
+			}
+			responseBody = ServiceClientClosedRequestJSONResponse(baseBody)
+		}
+		return PostFhirDataframe499JSONResponse{ServiceClientClosedRequestJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(ServiceInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostFhirDataframe status %d", body, status)
+			}
+			responseBody = ServiceInternalErrorJSONResponse(baseBody)
+		}
+		return PostFhirDataframe500JSONResponse{ServiceInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostFhirDataframe status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return PostFhirDataframe503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(ServiceGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PostFhirDataframe status %d", body, status)
+			}
+			responseBody = ServiceGatewayTimeoutJSONResponse(baseBody)
+		}
+		return PostFhirDataframe504JSONResponse{ServiceGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "postFhirDataframe", status)
+	}
+}
+
+// NewListExplorersErrorResponse maps a documented JSON error status to its generated response type.
+func NewListExplorersErrorResponse(status int, body any) (ListExplorersResponseObject, error) {
+	switch status {
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorers status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return ListExplorers401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorers status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ListExplorers403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorers status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ListExplorers500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorers status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ListExplorers503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "listExplorers", status)
+	}
+}
+
+// NewCreateExplorerErrorResponse maps a documented JSON error status to its generated response type.
+func NewCreateExplorerErrorResponse(status int, body any) (CreateExplorerResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorer status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return CreateExplorer400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorer status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return CreateExplorer401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorer status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return CreateExplorer403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorer status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return CreateExplorer409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorer status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return CreateExplorer422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorer status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return CreateExplorer500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorer status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return CreateExplorer503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "createExplorer", status)
+	}
+}
+
+// NewGetExplorerErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetExplorerErrorResponse(status int, body any) (GetExplorerResponseObject, error) {
+	switch status {
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorer status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return GetExplorer401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorer status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetExplorer403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorer status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return GetExplorer404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorer status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetExplorer500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorer status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetExplorer503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getExplorer", status)
+	}
+}
+
+// NewPrepareExplorerArtifactErrorResponse maps a documented JSON error status to its generated response type.
+func NewPrepareExplorerArtifactErrorResponse(status int, body any) (PrepareExplorerArtifactResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 413:
+		responseBody, ok := body.(AuthoringPayloadTooLargeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringPayloadTooLargeJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact413JSONResponse{AuthoringPayloadTooLargeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "prepareExplorerArtifact", status)
+	}
+}
+
+// NewDownloadExplorerArtifactErrorResponse maps a documented JSON error status to its generated response type.
+func NewDownloadExplorerArtifactErrorResponse(status int, body any) (DownloadExplorerArtifactResponseObject, error) {
+	switch status {
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DownloadExplorerArtifact status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return DownloadExplorerArtifact401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DownloadExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return DownloadExplorerArtifact403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DownloadExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return DownloadExplorerArtifact404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DownloadExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return DownloadExplorerArtifact409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 410:
+		responseBody, ok := body.(ErrorResponse)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for DownloadExplorerArtifact status %d", body, status)
+		}
+		return DownloadExplorerArtifact410JSONResponse(responseBody), nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DownloadExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return DownloadExplorerArtifact500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DownloadExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return DownloadExplorerArtifact503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "downloadExplorerArtifact", status)
+	}
+}
+
+// NewDescribeExplorerAuthoringNetworkErrorResponse maps a documented JSON error status to its generated response type.
+func NewDescribeExplorerAuthoringNetworkErrorResponse(status int, body any) (DescribeExplorerAuthoringNetworkResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DescribeExplorerAuthoringNetwork status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return DescribeExplorerAuthoringNetwork400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DescribeExplorerAuthoringNetwork status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return DescribeExplorerAuthoringNetwork401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DescribeExplorerAuthoringNetwork status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return DescribeExplorerAuthoringNetwork403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DescribeExplorerAuthoringNetwork status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return DescribeExplorerAuthoringNetwork404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DescribeExplorerAuthoringNetwork status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return DescribeExplorerAuthoringNetwork409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DescribeExplorerAuthoringNetwork status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return DescribeExplorerAuthoringNetwork422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DescribeExplorerAuthoringNetwork status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return DescribeExplorerAuthoringNetwork500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DescribeExplorerAuthoringNetwork status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return DescribeExplorerAuthoringNetwork503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DescribeExplorerAuthoringNetwork status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return DescribeExplorerAuthoringNetwork504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "describeExplorerAuthoringNetwork", status)
+	}
+}
+
+// NewGetExplorerBuilderErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetExplorerBuilderErrorResponse(status int, body any) (GetExplorerBuilderResponseObject, error) {
+	switch status {
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerBuilder status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return GetExplorerBuilder401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetExplorerBuilder403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return GetExplorerBuilder404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return GetExplorerBuilder409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetExplorerBuilder500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetExplorerBuilder503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getExplorerBuilder", status)
+	}
+}
+
+// NewGetExplorerAuthoringCapabilityErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetExplorerAuthoringCapabilityErrorResponse(status int, body any) (GetExplorerAuthoringCapabilityResponseObject, error) {
+	switch status {
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerAuthoringCapability status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return GetExplorerAuthoringCapability401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerAuthoringCapability status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetExplorerAuthoringCapability403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerAuthoringCapability status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetExplorerAuthoringCapability500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerAuthoringCapability status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetExplorerAuthoringCapability503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getExplorerAuthoringCapability", status)
+	}
+}
+
+// NewTraceExplorerCellErrorResponse maps a documented JSON error status to its generated response type.
+func NewTraceExplorerCellErrorResponse(status int, body any) (TraceExplorerCellResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerCell status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return TraceExplorerCell400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerCell status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return TraceExplorerCell401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerCell status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return TraceExplorerCell403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerCell status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return TraceExplorerCell404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerCell status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return TraceExplorerCell409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerCell status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return TraceExplorerCell422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerCell status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return TraceExplorerCell500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerCell status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return TraceExplorerCell503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "traceExplorerCell", status)
+	}
+}
+
+// NewProposeExplorerColumnPolicyErrorResponse maps a documented JSON error status to its generated response type.
+func NewProposeExplorerColumnPolicyErrorResponse(status int, body any) (ProposeExplorerColumnPolicyResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerColumnPolicy status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ProposeExplorerColumnPolicy400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerColumnPolicy status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return ProposeExplorerColumnPolicy401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerColumnPolicy status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ProposeExplorerColumnPolicy403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerColumnPolicy status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ProposeExplorerColumnPolicy404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerColumnPolicy status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ProposeExplorerColumnPolicy409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerColumnPolicy status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ProposeExplorerColumnPolicy422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerColumnPolicy status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ProposeExplorerColumnPolicy500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerColumnPolicy status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ProposeExplorerColumnPolicy503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerColumnPolicy status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return ProposeExplorerColumnPolicy504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "proposeExplorerColumnPolicy", status)
+	}
+}
+
+// NewGetExplorerColumnSourceErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetExplorerColumnSourceErrorResponse(status int, body any) (GetExplorerColumnSourceResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerColumnSource status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return GetExplorerColumnSource400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerColumnSource status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return GetExplorerColumnSource401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerColumnSource status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetExplorerColumnSource403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerColumnSource status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return GetExplorerColumnSource404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerColumnSource status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return GetExplorerColumnSource409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerColumnSource status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetExplorerColumnSource500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerColumnSource status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetExplorerColumnSource503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getExplorerColumnSource", status)
+	}
+}
+
+// NewApplyExplorerBuilderCommandsErrorResponse maps a documented JSON error status to its generated response type.
+func NewApplyExplorerBuilderCommandsErrorResponse(status int, body any) (ApplyExplorerBuilderCommandsResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ApplyExplorerBuilderCommands status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ApplyExplorerBuilderCommands400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ApplyExplorerBuilderCommands status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return ApplyExplorerBuilderCommands401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ApplyExplorerBuilderCommands status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ApplyExplorerBuilderCommands403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ApplyExplorerBuilderCommands status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ApplyExplorerBuilderCommands404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ApplyExplorerBuilderCommands status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ApplyExplorerBuilderCommands409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ApplyExplorerBuilderCommands status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ApplyExplorerBuilderCommands422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ApplyExplorerBuilderCommands status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ApplyExplorerBuilderCommands500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ApplyExplorerBuilderCommands status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ApplyExplorerBuilderCommands503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "applyExplorerBuilderCommands", status)
+	}
+}
+
+// NewResolveConfiguredColumnContextErrorResponse maps a documented JSON error status to its generated response type.
+func NewResolveConfiguredColumnContextErrorResponse(status int, body any) (ResolveConfiguredColumnContextResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveConfiguredColumnContext status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ResolveConfiguredColumnContext400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveConfiguredColumnContext status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return ResolveConfiguredColumnContext401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveConfiguredColumnContext status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ResolveConfiguredColumnContext403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveConfiguredColumnContext status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ResolveConfiguredColumnContext404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveConfiguredColumnContext status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ResolveConfiguredColumnContext409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveConfiguredColumnContext status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ResolveConfiguredColumnContext422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveConfiguredColumnContext status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ResolveConfiguredColumnContext500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveConfiguredColumnContext status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ResolveConfiguredColumnContext503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "resolveConfiguredColumnContext", status)
+	}
+}
+
+// NewGetExplorerConstructionCapabilitiesErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetExplorerConstructionCapabilitiesErrorResponse(status int, body any) (GetExplorerConstructionCapabilitiesResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionCapabilities400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionCapabilities status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionCapabilities401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionCapabilities403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionCapabilities404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionCapabilities409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionCapabilities422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionCapabilities500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionCapabilities503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getExplorerConstructionCapabilities", status)
+	}
+}
+
+// NewDiscoverExplorerConstructionCategoriesErrorResponse maps a documented JSON error status to its generated response type.
+func NewDiscoverExplorerConstructionCategoriesErrorResponse(status int, body any) (DiscoverExplorerConstructionCategoriesResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerConstructionCategories status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return DiscoverExplorerConstructionCategories400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerConstructionCategories status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return DiscoverExplorerConstructionCategories401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerConstructionCategories status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return DiscoverExplorerConstructionCategories403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerConstructionCategories status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return DiscoverExplorerConstructionCategories404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerConstructionCategories status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return DiscoverExplorerConstructionCategories409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerConstructionCategories status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return DiscoverExplorerConstructionCategories422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerConstructionCategories status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return DiscoverExplorerConstructionCategories500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerConstructionCategories status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return DiscoverExplorerConstructionCategories503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "discoverExplorerConstructionCategories", status)
+	}
+}
+
+// NewProposeExplorerConstructionChoiceErrorResponse maps a documented JSON error status to its generated response type.
+func NewProposeExplorerConstructionChoiceErrorResponse(status int, body any) (ProposeExplorerConstructionChoiceResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstructionChoice status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstructionChoice400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstructionChoice status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstructionChoice401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstructionChoice status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstructionChoice403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstructionChoice status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstructionChoice404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstructionChoice status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstructionChoice409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstructionChoice status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstructionChoice422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstructionChoice status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstructionChoice500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstructionChoice status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstructionChoice503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstructionChoice status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstructionChoice504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "proposeExplorerConstructionChoice", status)
+	}
+}
+
+// NewSearchExplorerConstructionChoicesErrorResponse maps a documented JSON error status to its generated response type.
+func NewSearchExplorerConstructionChoicesErrorResponse(status int, body any) (SearchExplorerConstructionChoicesResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerConstructionChoices status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return SearchExplorerConstructionChoices400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerConstructionChoices status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return SearchExplorerConstructionChoices401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerConstructionChoices status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return SearchExplorerConstructionChoices403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerConstructionChoices status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return SearchExplorerConstructionChoices404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerConstructionChoices status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return SearchExplorerConstructionChoices409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerConstructionChoices status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return SearchExplorerConstructionChoices422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerConstructionChoices status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return SearchExplorerConstructionChoices500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerConstructionChoices status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return SearchExplorerConstructionChoices503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "searchExplorerConstructionChoices", status)
+	}
+}
+
+// NewGetExplorerConstructionColumnPopulationErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetExplorerConstructionColumnPopulationErrorResponse(status int, body any) (GetExplorerConstructionColumnPopulationResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionColumnPopulation status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionColumnPopulation400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionColumnPopulation status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionColumnPopulation401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionColumnPopulation status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionColumnPopulation403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionColumnPopulation status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionColumnPopulation404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionColumnPopulation status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionColumnPopulation409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionColumnPopulation status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionColumnPopulation422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionColumnPopulation status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionColumnPopulation500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionColumnPopulation status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionColumnPopulation503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getExplorerConstructionColumnPopulation", status)
+	}
+}
+
+// NewGetExplorerConstructionInputsErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetExplorerConstructionInputsErrorResponse(status int, body any) (GetExplorerConstructionInputsResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionInputs status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionInputs400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionInputs status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionInputs401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionInputs status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionInputs403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionInputs status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionInputs404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionInputs status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionInputs409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionInputs status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionInputs422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionInputs status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionInputs500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionInputs status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionInputs503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getExplorerConstructionInputs", status)
+	}
+}
+
+// NewProposeExplorerConstructionErrorResponse maps a documented JSON error status to its generated response type.
+func NewProposeExplorerConstructionErrorResponse(status int, body any) (ProposeExplorerConstructionResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstruction status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstruction400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstruction status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstruction401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstruction status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstruction403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstruction status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstruction404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstruction status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstruction409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstruction status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstruction422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstruction status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstruction500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstruction status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstruction503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstruction status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstruction504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "proposeExplorerConstruction", status)
+	}
+}
+
+// NewBrowseExplorerFrameSourceOptionsErrorResponse maps a documented JSON error status to its generated response type.
+func NewBrowseExplorerFrameSourceOptionsErrorResponse(status int, body any) (BrowseExplorerFrameSourceOptionsResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerFrameSourceOptions status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return BrowseExplorerFrameSourceOptions400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerFrameSourceOptions status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return BrowseExplorerFrameSourceOptions401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerFrameSourceOptions status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return BrowseExplorerFrameSourceOptions403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerFrameSourceOptions status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return BrowseExplorerFrameSourceOptions404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerFrameSourceOptions status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return BrowseExplorerFrameSourceOptions409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerFrameSourceOptions status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return BrowseExplorerFrameSourceOptions422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerFrameSourceOptions status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return BrowseExplorerFrameSourceOptions500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerFrameSourceOptions status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return BrowseExplorerFrameSourceOptions503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "browseExplorerFrameSourceOptions", status)
+	}
+}
+
+// NewPreviewInterpretationCandidateErrorResponse maps a documented JSON error status to its generated response type.
+func NewPreviewInterpretationCandidateErrorResponse(status int, body any) (PreviewInterpretationCandidateResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 413:
+		responseBody, ok := body.(AuthoringPayloadTooLargeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringPayloadTooLargeJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate413JSONResponse{AuthoringPayloadTooLargeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 429:
+		responseBody, ok := body.(AuthoringTooManyRequestsJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringTooManyRequestsJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate429JSONResponse{AuthoringTooManyRequestsJSONResponse: responseBody}, nil
+
+	case 499:
+		responseBody, ok := body.(AuthoringClientClosedRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringClientClosedRequestJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate499JSONResponse{AuthoringClientClosedRequestJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "previewInterpretationCandidate", status)
+	}
+}
+
+// NewCreateInterpretationRevisionFromColumnErrorResponse maps a documented JSON error status to its generated response type.
+func NewCreateInterpretationRevisionFromColumnErrorResponse(status int, body any) (CreateInterpretationRevisionFromColumnResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevisionFromColumn status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevisionFromColumn400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevisionFromColumn status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevisionFromColumn401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevisionFromColumn status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevisionFromColumn403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevisionFromColumn status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevisionFromColumn404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevisionFromColumn status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevisionFromColumn409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevisionFromColumn status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevisionFromColumn422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevisionFromColumn status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevisionFromColumn500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevisionFromColumn status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevisionFromColumn503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "createInterpretationRevisionFromColumn", status)
+	}
+}
+
+// NewCheckExplorerPopulationMappingErrorResponse maps a documented JSON error status to its generated response type.
+func NewCheckExplorerPopulationMappingErrorResponse(status int, body any) (CheckExplorerPopulationMappingResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CheckExplorerPopulationMapping status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return CheckExplorerPopulationMapping400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CheckExplorerPopulationMapping status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return CheckExplorerPopulationMapping401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CheckExplorerPopulationMapping status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return CheckExplorerPopulationMapping403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CheckExplorerPopulationMapping status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return CheckExplorerPopulationMapping404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CheckExplorerPopulationMapping status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return CheckExplorerPopulationMapping409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CheckExplorerPopulationMapping status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return CheckExplorerPopulationMapping422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CheckExplorerPopulationMapping status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return CheckExplorerPopulationMapping500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CheckExplorerPopulationMapping status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return CheckExplorerPopulationMapping503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CheckExplorerPopulationMapping status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return CheckExplorerPopulationMapping504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "checkExplorerPopulationMapping", status)
+	}
+}
+
+// NewProposeExplorerPopulationMemberRemovalErrorResponse maps a documented JSON error status to its generated response type.
+func NewProposeExplorerPopulationMemberRemovalErrorResponse(status int, body any) (ProposeExplorerPopulationMemberRemovalResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerPopulationMemberRemoval status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ProposeExplorerPopulationMemberRemoval400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerPopulationMemberRemoval status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return ProposeExplorerPopulationMemberRemoval401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerPopulationMemberRemoval status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ProposeExplorerPopulationMemberRemoval403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerPopulationMemberRemoval status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ProposeExplorerPopulationMemberRemoval404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerPopulationMemberRemoval status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ProposeExplorerPopulationMemberRemoval409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerPopulationMemberRemoval status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ProposeExplorerPopulationMemberRemoval422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerPopulationMemberRemoval status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ProposeExplorerPopulationMemberRemoval500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerPopulationMemberRemoval status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ProposeExplorerPopulationMemberRemoval503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerPopulationMemberRemoval status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return ProposeExplorerPopulationMemberRemoval504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "proposeExplorerPopulationMemberRemoval", status)
+	}
+}
+
+// NewSearchExplorerPopulationRoutesErrorResponse maps a documented JSON error status to its generated response type.
+func NewSearchExplorerPopulationRoutesErrorResponse(status int, body any) (SearchExplorerPopulationRoutesResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerPopulationRoutes status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return SearchExplorerPopulationRoutes400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerPopulationRoutes status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return SearchExplorerPopulationRoutes401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerPopulationRoutes status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return SearchExplorerPopulationRoutes403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerPopulationRoutes status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return SearchExplorerPopulationRoutes404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerPopulationRoutes status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return SearchExplorerPopulationRoutes409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerPopulationRoutes status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return SearchExplorerPopulationRoutes422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerPopulationRoutes status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return SearchExplorerPopulationRoutes500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerPopulationRoutes status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return SearchExplorerPopulationRoutes503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "searchExplorerPopulationRoutes", status)
+	}
+}
+
+// NewPreviewExplorerErrorResponse maps a documented JSON error status to its generated response type.
+func NewPreviewExplorerErrorResponse(status int, body any) (PreviewExplorerResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return PreviewExplorer400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return PreviewExplorer401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return PreviewExplorer403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return PreviewExplorer404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return PreviewExplorer409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 413:
+		responseBody, ok := body.(AuthoringPayloadTooLargeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringPayloadTooLargeJSONResponse(baseBody)
+		}
+		return PreviewExplorer413JSONResponse{AuthoringPayloadTooLargeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return PreviewExplorer422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 429:
+		responseBody, ok := body.(AuthoringTooManyRequestsJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringTooManyRequestsJSONResponse(baseBody)
+		}
+		return PreviewExplorer429JSONResponse{AuthoringTooManyRequestsJSONResponse: responseBody}, nil
+
+	case 499:
+		responseBody, ok := body.(AuthoringClientClosedRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringClientClosedRequestJSONResponse(baseBody)
+		}
+		return PreviewExplorer499JSONResponse{AuthoringClientClosedRequestJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return PreviewExplorer500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return PreviewExplorer503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return PreviewExplorer504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "previewExplorer", status)
+	}
+}
+
+// NewPublishExplorerErrorResponse maps a documented JSON error status to its generated response type.
+func NewPublishExplorerErrorResponse(status int, body any) (PublishExplorerResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishExplorer status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return PublishExplorer400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishExplorer status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return PublishExplorer401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishExplorer status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return PublishExplorer403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishExplorer status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return PublishExplorer404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishExplorer status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return PublishExplorer409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishExplorer status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return PublishExplorer422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishExplorer status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return PublishExplorer500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishExplorer status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return PublishExplorer503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "publishExplorer", status)
+	}
+}
+
+// NewReconcileExplorerBuilderErrorResponse maps a documented JSON error status to its generated response type.
+func NewReconcileExplorerBuilderErrorResponse(status int, body any) (ReconcileExplorerBuilderResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ReconcileExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ReconcileExplorerBuilder400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ReconcileExplorerBuilder status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return ReconcileExplorerBuilder401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ReconcileExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ReconcileExplorerBuilder403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ReconcileExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ReconcileExplorerBuilder404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ReconcileExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ReconcileExplorerBuilder409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ReconcileExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ReconcileExplorerBuilder422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ReconcileExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ReconcileExplorerBuilder500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ReconcileExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ReconcileExplorerBuilder503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "reconcileExplorerBuilder", status)
+	}
+}
+
+// NewSearchExplorerRelatedExpandChoicesErrorResponse maps a documented JSON error status to its generated response type.
+func NewSearchExplorerRelatedExpandChoicesErrorResponse(status int, body any) (SearchExplorerRelatedExpandChoicesResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandChoices status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandChoices400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandChoices status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandChoices401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandChoices status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandChoices403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandChoices status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandChoices404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandChoices status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandChoices409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandChoices status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandChoices422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandChoices status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandChoices500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandChoices status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandChoices503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "searchExplorerRelatedExpandChoices", status)
+	}
+}
+
+// NewSearchExplorerRelatedExpandContributorsErrorResponse maps a documented JSON error status to its generated response type.
+func NewSearchExplorerRelatedExpandContributorsErrorResponse(status int, body any) (SearchExplorerRelatedExpandContributorsResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandContributors status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandContributors400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandContributors status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandContributors401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandContributors status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandContributors403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandContributors status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandContributors404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandContributors status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandContributors409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandContributors status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandContributors422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandContributors status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandContributors500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandContributors status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandContributors503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "searchExplorerRelatedExpandContributors", status)
+	}
+}
+
+// NewSearchExplorerRelatedFieldChoicesErrorResponse maps a documented JSON error status to its generated response type.
+func NewSearchExplorerRelatedFieldChoicesErrorResponse(status int, body any) (SearchExplorerRelatedFieldChoicesResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedFieldChoices status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedFieldChoices400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedFieldChoices status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedFieldChoices401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedFieldChoices status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedFieldChoices403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedFieldChoices status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedFieldChoices404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedFieldChoices status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedFieldChoices409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedFieldChoices status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedFieldChoices422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedFieldChoices status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedFieldChoices500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedFieldChoices status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedFieldChoices503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "searchExplorerRelatedFieldChoices", status)
+	}
+}
+
+// NewAssessExplorerRowChangeErrorResponse maps a documented JSON error status to its generated response type.
+func NewAssessExplorerRowChangeErrorResponse(status int, body any) (AssessExplorerRowChangeResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AssessExplorerRowChange status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return AssessExplorerRowChange400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AssessExplorerRowChange status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return AssessExplorerRowChange401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AssessExplorerRowChange status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return AssessExplorerRowChange403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AssessExplorerRowChange status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return AssessExplorerRowChange404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AssessExplorerRowChange status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return AssessExplorerRowChange409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AssessExplorerRowChange status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return AssessExplorerRowChange422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AssessExplorerRowChange status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return AssessExplorerRowChange500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AssessExplorerRowChange status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return AssessExplorerRowChange503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "assessExplorerRowChange", status)
+	}
+}
+
+// NewListExplorerRowDefinitionChoicesErrorResponse maps a documented JSON error status to its generated response type.
+func NewListExplorerRowDefinitionChoicesErrorResponse(status int, body any) (ListExplorerRowDefinitionChoicesResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorerRowDefinitionChoices status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ListExplorerRowDefinitionChoices400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorerRowDefinitionChoices status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return ListExplorerRowDefinitionChoices401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorerRowDefinitionChoices status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ListExplorerRowDefinitionChoices403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorerRowDefinitionChoices status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ListExplorerRowDefinitionChoices404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorerRowDefinitionChoices status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ListExplorerRowDefinitionChoices409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorerRowDefinitionChoices status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ListExplorerRowDefinitionChoices422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorerRowDefinitionChoices status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ListExplorerRowDefinitionChoices500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorerRowDefinitionChoices status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ListExplorerRowDefinitionChoices503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "listExplorerRowDefinitionChoices", status)
+	}
+}
+
+// NewProposeExplorerRowDefinitionErrorResponse maps a documented JSON error status to its generated response type.
+func NewProposeExplorerRowDefinitionErrorResponse(status int, body any) (ProposeExplorerRowDefinitionResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerRowDefinition status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ProposeExplorerRowDefinition400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerRowDefinition status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return ProposeExplorerRowDefinition401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerRowDefinition status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ProposeExplorerRowDefinition403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerRowDefinition status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ProposeExplorerRowDefinition404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerRowDefinition status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ProposeExplorerRowDefinition409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerRowDefinition status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ProposeExplorerRowDefinition422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerRowDefinition status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ProposeExplorerRowDefinition500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerRowDefinition status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ProposeExplorerRowDefinition503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "proposeExplorerRowDefinition", status)
+	}
+}
+
+// NewTraceExplorerRowLineageErrorResponse maps a documented JSON error status to its generated response type.
+func NewTraceExplorerRowLineageErrorResponse(status int, body any) (TraceExplorerRowLineageResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerRowLineage status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return TraceExplorerRowLineage400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerRowLineage status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return TraceExplorerRowLineage401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerRowLineage status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return TraceExplorerRowLineage403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerRowLineage status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return TraceExplorerRowLineage404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerRowLineage status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return TraceExplorerRowLineage409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerRowLineage status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return TraceExplorerRowLineage422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerRowLineage status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return TraceExplorerRowLineage500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerRowLineage status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return TraceExplorerRowLineage503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerRowLineage status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return TraceExplorerRowLineage504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "traceExplorerRowLineage", status)
+	}
+}
+
+// NewSearchExplorerSchemaFieldsErrorResponse maps a documented JSON error status to its generated response type.
+func NewSearchExplorerSchemaFieldsErrorResponse(status int, body any) (SearchExplorerSchemaFieldsResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerSchemaFields status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return SearchExplorerSchemaFields400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerSchemaFields status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return SearchExplorerSchemaFields401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerSchemaFields status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return SearchExplorerSchemaFields403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerSchemaFields status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return SearchExplorerSchemaFields409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerSchemaFields status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return SearchExplorerSchemaFields422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerSchemaFields status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return SearchExplorerSchemaFields500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerSchemaFields status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return SearchExplorerSchemaFields503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "searchExplorerSchemaFields", status)
+	}
+}
+
+// NewBrowseExplorerSemanticInventoryErrorResponse maps a documented JSON error status to its generated response type.
+func NewBrowseExplorerSemanticInventoryErrorResponse(status int, body any) (BrowseExplorerSemanticInventoryResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerSemanticInventory status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return BrowseExplorerSemanticInventory400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerSemanticInventory status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return BrowseExplorerSemanticInventory401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerSemanticInventory status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return BrowseExplorerSemanticInventory403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerSemanticInventory status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return BrowseExplorerSemanticInventory404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerSemanticInventory status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return BrowseExplorerSemanticInventory409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerSemanticInventory status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return BrowseExplorerSemanticInventory422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerSemanticInventory status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return BrowseExplorerSemanticInventory500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerSemanticInventory status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return BrowseExplorerSemanticInventory503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "browseExplorerSemanticInventory", status)
+	}
+}
+
+// NewProposeExplorerSourceRelationshipErrorResponse maps a documented JSON error status to its generated response type.
+func NewProposeExplorerSourceRelationshipErrorResponse(status int, body any) (ProposeExplorerSourceRelationshipResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 413:
+		responseBody, ok := body.(AuthoringPayloadTooLargeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringPayloadTooLargeJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship413JSONResponse{AuthoringPayloadTooLargeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 429:
+		responseBody, ok := body.(AuthoringTooManyRequestsJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringTooManyRequestsJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship429JSONResponse{AuthoringTooManyRequestsJSONResponse: responseBody}, nil
+
+	case 499:
+		responseBody, ok := body.(AuthoringClientClosedRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringClientClosedRequestJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship499JSONResponse{AuthoringClientClosedRequestJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "proposeExplorerSourceRelationship", status)
+	}
+}
+
+// NewSearchExplorerCandidatesErrorResponse maps a documented JSON error status to its generated response type.
+func NewSearchExplorerCandidatesErrorResponse(status int, body any) (SearchExplorerCandidatesResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerCandidates status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return SearchExplorerCandidates400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerCandidates status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return SearchExplorerCandidates401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerCandidates status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return SearchExplorerCandidates403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerCandidates status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return SearchExplorerCandidates409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerCandidates status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return SearchExplorerCandidates500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerCandidates status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return SearchExplorerCandidates503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "searchExplorerCandidates", status)
+	}
+}
+
+// NewCreateExplorerSelectionErrorResponse maps a documented JSON error status to its generated response type.
+func NewCreateExplorerSelectionErrorResponse(status int, body any) (CreateExplorerSelectionResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return CreateExplorerSelection400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerSelection status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return CreateExplorerSelection401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return CreateExplorerSelection403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return CreateExplorerSelection404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return CreateExplorerSelection409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return CreateExplorerSelection422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return CreateExplorerSelection500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return CreateExplorerSelection503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "createExplorerSelection", status)
+	}
+}
+
+// NewGetExplorerSelectionErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetExplorerSelectionErrorResponse(status int, body any) (GetExplorerSelectionResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return GetExplorerSelection400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerSelection status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return GetExplorerSelection401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetExplorerSelection403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return GetExplorerSelection404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return GetExplorerSelection409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return GetExplorerSelection422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetExplorerSelection500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetExplorerSelection503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getExplorerSelection", status)
+	}
+}
+
+// NewCreateExplorerExplicitGroupRevisionErrorResponse maps a documented JSON error status to its generated response type.
+func NewCreateExplorerExplicitGroupRevisionErrorResponse(status int, body any) (CreateExplorerExplicitGroupRevisionResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerExplicitGroupRevision status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return CreateExplorerExplicitGroupRevision400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerExplicitGroupRevision status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return CreateExplorerExplicitGroupRevision401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerExplicitGroupRevision status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return CreateExplorerExplicitGroupRevision403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerExplicitGroupRevision status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return CreateExplorerExplicitGroupRevision404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerExplicitGroupRevision status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return CreateExplorerExplicitGroupRevision409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerExplicitGroupRevision status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return CreateExplorerExplicitGroupRevision422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerExplicitGroupRevision status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return CreateExplorerExplicitGroupRevision500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerExplicitGroupRevision status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return CreateExplorerExplicitGroupRevision503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "createExplorerExplicitGroupRevision", status)
+	}
+}
+
+// NewPublishRepositoryExplorerConfigErrorResponse maps a documented JSON error status to its generated response type.
+func NewPublishRepositoryExplorerConfigErrorResponse(status int, body any) (PublishRepositoryExplorerConfigResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishRepositoryExplorerConfig status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return PublishRepositoryExplorerConfig400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishRepositoryExplorerConfig status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return PublishRepositoryExplorerConfig401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishRepositoryExplorerConfig status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return PublishRepositoryExplorerConfig403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishRepositoryExplorerConfig status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return PublishRepositoryExplorerConfig409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishRepositoryExplorerConfig status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return PublishRepositoryExplorerConfig422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishRepositoryExplorerConfig status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return PublishRepositoryExplorerConfig500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishRepositoryExplorerConfig status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return PublishRepositoryExplorerConfig503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "publishRepositoryExplorerConfig", status)
+	}
+}
+
+// NewListInterpretationLibrariesErrorResponse maps a documented JSON error status to its generated response type.
+func NewListInterpretationLibrariesErrorResponse(status int, body any) (ListInterpretationLibrariesResponseObject, error) {
+	switch status {
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListInterpretationLibraries status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ListInterpretationLibraries401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListInterpretationLibraries status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ListInterpretationLibraries403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListInterpretationLibraries status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ListInterpretationLibraries500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListInterpretationLibraries status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ListInterpretationLibraries503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "listInterpretationLibraries", status)
+	}
+}
+
+// NewCreateInterpretationRevisionErrorResponse maps a documented JSON error status to its generated response type.
+func NewCreateInterpretationRevisionErrorResponse(status int, body any) (CreateInterpretationRevisionResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevision400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevision status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevision401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevision403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevision404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevision409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevision422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevision500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevision503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "createInterpretationRevision", status)
+	}
+}
+
+// NewGetInterpretationRevisionErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetInterpretationRevisionErrorResponse(status int, body any) (GetInterpretationRevisionResponseObject, error) {
+	switch status {
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetInterpretationRevision status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return GetInterpretationRevision401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetInterpretationRevision403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return GetInterpretationRevision404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetInterpretationRevision500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetInterpretationRevision503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getInterpretationRevision", status)
+	}
+}
+
+// NewGetProjectViewBuilderErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetProjectViewBuilderErrorResponse(status int, body any) (GetProjectViewBuilderResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "GetProjectViewBuilder", status)
+	}
+}
+
+// NewAdoptProjectViewBuilderErrorResponse maps a documented JSON error status to its generated response type.
+func NewAdoptProjectViewBuilderErrorResponse(status int, body any) (AdoptProjectViewBuilderResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "AdoptProjectViewBuilder", status)
+	}
+}
+
+// NewDeleteProjectViewConfigErrorResponse maps a documented JSON error status to its generated response type.
+func NewDeleteProjectViewConfigErrorResponse(status int, body any) (DeleteProjectViewConfigResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "DeleteProjectViewConfig", status)
+	}
+}
+
+// NewSaveProjectViewConfigErrorResponse maps a documented JSON error status to its generated response type.
+func NewSaveProjectViewConfigErrorResponse(status int, body any) (SaveProjectViewConfigResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "SaveProjectViewConfig", status)
+	}
+}
+
+// NewSaveProjectViewDefaultsErrorResponse maps a documented JSON error status to its generated response type.
+func NewSaveProjectViewDefaultsErrorResponse(status int, body any) (SaveProjectViewDefaultsResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "SaveProjectViewDefaults", status)
+	}
+}
+
+// NewGetHealthErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetHealthErrorResponse(status int, body any) (GetHealthResponseObject, error) {
+	switch status {
+
+	case 503:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for GetHealth status %d", body, status)
+		}
+		return GetHealth503JSONResponse(responseBody), nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getHealth", status)
+	}
+}
+
+// NewGetLivenessErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetLivenessErrorResponse(status int, body any) (GetLivenessResponseObject, error) {
+	switch status {
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getLiveness", status)
+	}
+}
+
+// NewGetReadinessErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetReadinessErrorResponse(status int, body any) (GetReadinessResponseObject, error) {
+	switch status {
+
+	case 503:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for GetReadiness status %d", body, status)
+		}
+		return GetReadiness503JSONResponse(responseBody), nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getReadiness", status)
+	}
+}
+
 // Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
 // Stored as a slice of fixed-width chunks rather than one concatenated
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"1VCwIn5QMBpLgeOVePhipRLdVWuNfC50J6uyFjHXgtskDpWZYlyRQEKocIpKJ0CWAKoIkY9hm2hcExgD",
-	"AvupdSjIlcoURv75HTxzC7vYq2+5ib3bJnlpzqtZ3fU7WZm9lkpJApPEw89TGg/Vj0ovqh+cuIlCHIa1",
-	"525c771LH5PrxWTqDhUsBON0iQNo/PGK+bQj37RJlkIPPgCmUprZqss20yNG7AFb1VcGadVVtblVQ5HF",
-	"RUktLYMVb5e+Jru+Th35FjV6Xd2JBpL3QnCZCC2qLyefpZbhxHtdVUhFhw8ZCgNIqG3owF3SXACyo6j4",
-	"0HL+JzGBLINqXfy+DMtiptzS4qS2mFIhmnfJIpjk9w+V+DjykWIqbrZwyP48dW1W3ke1WwMvgkTQ6iSk",
-	"zW7nQf5+tnzbi9h+w9e9oXmcfUhtTN0vFeFh8KWHIRcE3da+SosNDKH0siz/zD1hFh2yFmsCExgxTuN9",
-	"5lxoJobGsgHTwnS5JjCgkVPFnWL1WITBwWw/8+tJPrjU1ikslKPxiNkxC6uo7gQ9EnDiYpsPWSoR33z3",
-	"h//zx041gvZgNF0UoRTlTC1tiTT77eR2wWa/2LreaDya/jjx9LOuSBBxCLq2aK5vxrNW6A0OUv94X7nG",
-	"hem/tAk3mH3t7lqLa198WpFpJs45STgCAiNbhYAr6AhHgirtYSDK16x9jBMQXkO7ydJhnFveZ50aDv9w",
-	"zVfDW1MByW3iEr+wY7da6rW9RIg4K5kgjImFgDS3JW2qTecsMoqy+ydhqeW3YrPhNikcQN3XQenIYK1W",
-	"5qxu7HpWnQlG+8gmt9W1lJzZxVPWcydbdy/E0my3Xsynym/c/KVb/Oi5y8m9/CN1EbGfN6PxaONu2Q97",
-	"b7Wi4nm9Xvwi/WrvubeTjat8ul6td4tJLn9ygbhwJ57uD5PZbO+tdtu87W49yydJf9y7s7eiP/aL+8l2",
-	"+uP+fjVjU7xfvXeLlnkv09Vid79UfthvVjtvKnVdfFP8vNxsvd00n8x+tduud9vqx/utN1lu7lbevZhy",
-	"PiX+t+lqufXmt7vtyisWqf0TI9h8uXW9teduaVf76WQ5m+dD1cbUz3vvrX5iXsH9erWYT38pCaEsfuPe",
-	"T5bb+XS/cRcuXdummIKy4umPq/lUUPnOy3mgGJk/++q/puNVfsv6zqc3c+/myzntfe2t1qsNvXw0Y9f+",
-	"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",
-	"Z99///7PAAAA//8=",
+	"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",
+	"u1vermiM9TYcs+joh6PR0cvjy/8GAAD//w==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

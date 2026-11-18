@@ -13,8 +13,6 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
-// Publish consumes each stream once and keeps at most one bounded batch in
-// memory. A target is not committed until every stream has passed validation.
 func Publish(ctx context.Context, target Target, identity PublicationIdentity, outputs []OutputStream, limits Limits) (Result, error) {
 	if target == nil {
 		return Result{}, fmt.Errorf("publication target is required")
@@ -204,20 +202,12 @@ func qualityReportsFromError(completed []QualityReport, err error) []QualityRepo
 func injectPublicationMetadata(identity PublicationIdentity, outputs []OutputStream) ([]OutputStream, error) {
 	result := make([]OutputStream, 0, len(outputs))
 	for _, output := range outputs {
-		columns := make([]LogicalColumn, 0, len(output.Columns))
-		for _, column := range output.Columns {
-			if column.Name == "auth_resource_path" {
-				return nil, fmt.Errorf("output %q column %q is reserved by Loom", output.Name, column.Name)
-			}
-			if column.Name != "project_id" {
-				columns = append(columns, column)
-			}
+		columns, err := WithPublicationMetadata(output.Columns)
+		if err != nil {
+			return nil, fmt.Errorf("output %q: %w", output.Name, err)
 		}
 		copyOutput := output
-		copyOutput.Columns = append([]LogicalColumn{
-			{Name: "auth_resource_path", Kind: "string", Nullable: true, Provenance: ColumnExplicit, LoomOwned: true},
-			{Name: "project_id", Kind: "string", Provenance: ColumnExplicit, LoomOwned: true},
-		}, columns...)
+		copyOutput.Columns = columns
 		originalStream := output.Stream
 		copyOutput.Stream = func(ctx context.Context, visit func(map[string]any) error) error {
 			return originalStream(ctx, func(row map[string]any) error {
@@ -232,7 +222,7 @@ func injectPublicationMetadata(identity PublicationIdentity, outputs []OutputStr
 						row["auth_resource_path"] = ""
 					}
 				}
-				// project_id is Loom-owned metadata; never trust a source row value.
+
 				row["project_id"] = identity.Project
 				return visit(row)
 			})

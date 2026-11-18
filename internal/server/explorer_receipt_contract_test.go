@@ -86,20 +86,14 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}},
 		Table:  &authoringv2.TablePresentation{Visible: &visible, Order: &order},
 	})
-	document.TableShape = &authoringv2.TableShape{Derived: []authoringv2.DerivedConstruction{
-		{
-			ConstructionID: "scale_patient_count", Output: authoringv2.ColumnOutput{Column: "scaled_patient_count", Label: "Scaled patient count"},
-			Operation: "MULTIPLY", Left: authoringv2.ArithmeticOperand{Kind: "COLUMN", Column: "patient_count"},
-			Right:              authoringv2.ArithmeticOperand{Kind: "LITERAL", Literal: &authoringv2.TableScalar{Kind: "INTEGER", Integer: &two}},
-			MissingInputPolicy: "ERROR",
-		},
-		{
-			ConstructionID: "add_one", Output: authoringv2.ColumnOutput{Column: "doubled_patient_count", Label: "Doubled patient count"},
-			Operation: "ADD", Left: authoringv2.ArithmeticOperand{Kind: "COLUMN", Column: "scaled_patient_count"},
-			Right:              authoringv2.ArithmeticOperand{Kind: "LITERAL", Literal: &authoringv2.TableScalar{Kind: "INTEGER", Integer: &one}},
-			MissingInputPolicy: "ERROR",
-		},
-	}}
+	started, err := authoringv2.StartDocumentConstruction(*document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	*document = started
+	receiptAppendDeriveFixture(document, "scale_patient_count", authoringv2.StageColumn{ID: "scaled_patient_count", Name: "scaled_patient_count", Label: "Scaled patient count", Type: "integer"}, authoringv2.ConstructionDerivedMultiply, receiptColumnOperand(document.Columns[1].ColumnID), receiptIntegerOperand(&two), authoringv2.ConstructionMissingInputError)
+	receiptAppendDeriveFixture(document, "add_one", authoringv2.StageColumn{ID: "doubled_patient_count", Name: "doubled_patient_count", Label: "Doubled patient count", Type: "integer"}, authoringv2.ConstructionDerivedAdd, receiptColumnOperand("scaled_patient_count"), receiptIntegerOperand(&one), authoringv2.ConstructionMissingInputError)
+
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry:  compilerTestRegistry{},
 		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
@@ -135,12 +129,12 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 	if !reflect.DeepEqual(scaled.InputColumns, []string{"patient_count"}) || !reflect.DeepEqual(scaled.AuthoredColumns, []string{"patient_count"}) {
 		t.Fatalf("first derived direct inputs/roots = %#v/%#v, emission=%#v", scaled.InputColumns, scaled.AuthoredColumns, scaled)
 	}
-	if !reflect.DeepEqual(doubled.InputColumns, []string{"scaled_patient_count"}) || !reflect.DeepEqual(doubled.AuthoredColumns, []string{"patient_count"}) {
-		t.Fatalf("chained derived direct inputs/roots = %#v/%#v", doubled.InputColumns, doubled.AuthoredColumns)
+	if !reflect.DeepEqual(doubled.InputColumns, []string{"patient_count"}) || !reflect.DeepEqual(doubled.AuthoredColumns, []string{"patient_count"}) {
+		t.Fatalf("chained derived source inputs/roots = %#v/%#v", doubled.InputColumns, doubled.AuthoredColumns)
 	}
 	wantConstructed := []explorer.EmittedColumn{
 		{EmissionID: "construction:scale_patient_count:scaled_patient_count", OutputID: "patients", AuthoredColumns: []string{"patient_count"}, InputColumns: []string{"patient_count"}, ConstructionID: "scale_patient_count", PublicColumn: "scaled_patient_count", Label: "Scaled patient count", LogicalType: "integer", Cardinality: "required_one", Shape: "scalar", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"TABLE_SHAPE_DERIVED_MULTIPLY_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}, Filterable: true, Chartable: true},
-		{EmissionID: "construction:add_one:doubled_patient_count", OutputID: "patients", AuthoredColumns: []string{"patient_count"}, InputColumns: []string{"scaled_patient_count"}, ConstructionID: "add_one", PublicColumn: "doubled_patient_count", Label: "Doubled patient count", LogicalType: "integer", Cardinality: "required_one", Shape: "scalar", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"TABLE_SHAPE_DERIVED_ADD_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}, Filterable: true, Chartable: true},
+		{EmissionID: "construction:add_one:doubled_patient_count", OutputID: "patients", AuthoredColumns: []string{"patient_count"}, InputColumns: []string{"patient_count"}, ConstructionID: "add_one", PublicColumn: "doubled_patient_count", Label: "Doubled patient count", LogicalType: "integer", Cardinality: "required_one", Shape: "scalar", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"TABLE_SHAPE_DERIVED_ADD_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}, Filterable: true, Chartable: true},
 	}
 	if !reflect.DeepEqual([]explorer.EmittedColumn{scaled, doubled}, wantConstructed) {
 		t.Fatalf("constructed output metadata = %#v, want %#v", []explorer.EmittedColumn{scaled, doubled}, wantConstructed)
@@ -194,7 +188,7 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 	document.Columns[0].ColumnID = "source_c7df487a53e218785ad00f6bd656f320"
 	document.Columns[0].Column = "col_26a18d9205b062fde575cdf7"
 	document.Columns[0].Label = "Original Specimen ID"
-	document, err = authoringv2.UpgradeDocumentToConstruction(document)
+	document, err = authoringv2.StartDocumentConstruction(document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +345,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringV2Catalog(snapshot, "custom")).NormalizePresentationOrders()
 	baseWorkspace := workspace
 	document = workspace.Documents[0]
-	document, err = authoringv2.UpgradeDocumentToConstruction(document)
+	document, err = authoringv2.StartDocumentConstruction(document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -596,7 +590,7 @@ func TestCompileExplorerReceiptReconcilesTypedConstructionOutputs(t *testing.T) 
 		Column: "patient_count", Label: "Patient count", LogicalType: "integer", OccurrenceID: "base",
 		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}},
 	})
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -769,17 +763,20 @@ func TestReconcileFinalOutputMetadataRejectsMissingOutputIdentity(t *testing.T) 
 
 func TestReconcileFinalOutputMetadataRejectsMissingConstructedDependency(t *testing.T) {
 	translated, resolved := reconciliationFixture()
-	translated.Workspace.Documents[0].TableShape.Derived[0].Left.Column = "missing"
-	if _, err := reconcileFinalOutputMetadata(translated, resolved); err == nil || !strings.Contains(err.Error(), "missing dependency") {
-		t.Fatalf("missing constructed dependency error = %v", err)
+	translated.Workspace.Documents[0].Construction.Steps[0].Operation.Derive.Left.ColumnID = "missing"
+	var missing *constructionInputMissingError
+	if _, err := reconcileFinalOutputMetadata(translated, resolved); err == nil || !errors.As(err, &missing) || missing.ColumnID != "missing" || missing.StepID != "scale_score" || missing.OutputID != "scaled_score" {
+		t.Fatalf("missing constructed prior-stage input error = %v", err)
 	}
 }
 
 func TestReconcileFinalOutputMetadataRejectsConstructedDependencyCycle(t *testing.T) {
 	translated, resolved := reconciliationFixture()
-	translated.Workspace.Documents[0].TableShape.Derived[0].Left.Column = "scaled_score"
-	if _, err := reconcileFinalOutputMetadata(translated, resolved); err == nil || !strings.Contains(err.Error(), "dependency cycle") {
-		t.Fatalf("constructed dependency cycle error = %v", err)
+	translated.Workspace.Documents[0].Construction.Steps[0].Operation.Derive.Left.ColumnID = "scaled_score"
+
+	var missing *constructionInputMissingError
+	if _, err := reconcileFinalOutputMetadata(translated, resolved); err == nil || !errors.As(err, &missing) || missing.ColumnID != "scaled_score" || missing.StepID != "scale_score" || missing.OutputID != "scaled_score" {
+		t.Fatalf("constructed self-dependency error = %v", err)
 	}
 }
 
@@ -792,21 +789,11 @@ func TestReconcileFinalOutputMetadataRejectsConstructedEmissionCollision(t *test
 }
 
 func TestAuthoredOutputColumnsDeduplicatesDirectInputsInAuthoringOrder(t *testing.T) {
-	workspace := authoringv2.Workspace{Documents: []authoringv2.Document{{
-		Output: authoringv2.Output{ID: "patients"},
-		TableShape: &authoringv2.TableShape{Derived: []authoringv2.DerivedConstruction{
-			{
-				ConstructionID: "same_input", Output: authoringv2.ColumnOutput{Column: "same_result", Label: "Same result"},
-				Operation: "ADD", Left: authoringv2.ArithmeticOperand{Kind: "COLUMN", Column: "score"},
-				Right: authoringv2.ArithmeticOperand{Kind: "COLUMN", Column: "score"}, MissingInputPolicy: "ERROR",
-			},
-			{
-				ConstructionID: "ordered_inputs", Output: authoringv2.ColumnOutput{Column: "ordered_result", Label: "Ordered result"},
-				Operation: "SUBTRACT", Left: authoringv2.ArithmeticOperand{Kind: "COLUMN", Column: "score"},
-				Right: authoringv2.ArithmeticOperand{Kind: "COLUMN", Column: "patient_count"}, MissingInputPolicy: "ERROR",
-			},
-		}},
-	}}}
+	document := receiptStageFixture("patients", []authoringv2.StageColumn{{ID: "score", Name: "score", Label: "Score", Type: "decimal"}, {ID: "patient_count", Name: "patient_count", Label: "Patient count", Type: "integer"}})
+	receiptAppendDeriveFixture(&document, "same_input", authoringv2.StageColumn{ID: "same_result", Name: "same_result", Label: "Same result", Type: "decimal"}, authoringv2.ConstructionDerivedAdd, receiptColumnOperand("score"), receiptColumnOperand("score"), authoringv2.ConstructionMissingInputError)
+	receiptAppendDeriveFixture(&document, "ordered_inputs", authoringv2.StageColumn{ID: "ordered_result", Name: "ordered_result", Label: "Ordered result", Type: "decimal"}, authoringv2.ConstructionDerivedSubtract, receiptColumnOperand("score"), receiptColumnOperand("patient_count"), authoringv2.ConstructionMissingInputError)
+	workspace := receiptStageWorkspace(document)
+
 	_, columns, err := authoredOutputColumns(workspace)
 	if err != nil {
 		t.Fatal(err)
@@ -1441,33 +1428,15 @@ func TestAuthoredOutputColumnsKeepsExactRelatedFieldScalarAndSource(t *testing.T
 func TestReconcileFinalOutputMetadataUsesAuthoredReshapeOutputs(t *testing.T) {
 	one := int64(1)
 	bundle := recipe.Bundle{Outputs: []recipe.Output{{Name: "pivoted"}, {Name: "unpivoted"}}}
-	workspace := authoringv2.Workspace{Documents: []authoringv2.Document{
-		{Output: authoringv2.Output{ID: "pivoted"}, TableShape: &authoringv2.TableShape{
-			Reshape: &authoringv2.TableReshape{
-				Kind: "PIVOT",
-				Pivot: &authoringv2.PivotConstruction{
-					ConstructionID: "pivot_vitals", GroupKeys: []string{"patient_id"}, CategoryColumn: "kind", ValueColumn: "value",
-					Categories:      []authoringv2.PivotCategory{{Output: authoringv2.ColumnOutput{Column: "systolic", Label: "Systolic"}}},
-					DuplicatePolicy: "ERROR", MissingCellPolicy: "NULL", UnlistedCategoryPolicy: "ERROR",
-				},
-			},
-			Derived: []authoringv2.DerivedConstruction{{
-				ConstructionID: "adjust_systolic", Output: authoringv2.ColumnOutput{Column: "adjusted_systolic", Label: "Adjusted systolic"},
-				Operation: "ADD", Left: authoringv2.ArithmeticOperand{Kind: "COLUMN", Column: "systolic"},
-				Right:              authoringv2.ArithmeticOperand{Kind: "LITERAL", Literal: &authoringv2.TableScalar{Kind: "INTEGER", Integer: &one}},
-				MissingInputPolicy: "ERROR",
-			}},
-		}},
-		{Output: authoringv2.Output{ID: "unpivoted"}, TableShape: &authoringv2.TableShape{Reshape: &authoringv2.TableReshape{
-			Kind: "UNPIVOT",
-			Unpivot: &authoringv2.UnpivotConstruction{
-				ConstructionID: "unpivot_vitals", Inputs: []authoringv2.UnpivotInput{{Column: "height"}, {Column: "weight"}},
-				KeyOutput:     authoringv2.ColumnOutput{Column: "measure_name", Label: "Measure"},
-				ValueOutput:   authoringv2.ColumnOutput{Column: "measure_value", Label: "Value"},
-				NullRowPolicy: "DROP",
-			},
-		}}},
-	}}
+	pivoted := receiptStageFixture("pivoted", []authoringv2.StageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient", Type: "string"}, {ID: "kind", Name: "kind", Label: "Kind", Type: "string"}, {ID: "value", Name: "value", Label: "Value", Type: "decimal"}})
+	category := "systolic"
+	pivoted.Construction.Steps = []authoringv2.ConstructionStep{{ID: "pivot_vitals", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}}, Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot, Pivot: &authoringv2.ConstructionPivot{ConstructionID: "pivot_vitals", GroupKeyIDs: []string{"patient_id"}, CategoryColumnID: "kind", ValueColumnID: "value", Categories: []authoringv2.ConstructionPivotCategory{{Key: authoringv2.TableScalar{Kind: "STRING", String: &category}, OutputColumnID: "systolic"}}, DuplicatePolicy: authoringv2.ConstructionPivotDuplicateError, MissingCellPolicy: authoringv2.ConstructionPivotMissingNull, UnlistedCategoryPolicy: authoringv2.ConstructionPivotUnlistedError}}, Outputs: []authoringv2.StageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient", Type: "string"}, {ID: "systolic", Name: "systolic", Label: "Systolic", Type: "decimal", Nullable: true}}}}
+	receiptAppendDeriveFixture(&pivoted, "adjust_systolic", authoringv2.StageColumn{ID: "adjusted_systolic", Name: "adjusted_systolic", Label: "Adjusted systolic", Type: "decimal", Nullable: true}, authoringv2.ConstructionDerivedAdd, receiptColumnOperand("systolic"), receiptIntegerOperand(&one), authoringv2.ConstructionMissingInputError)
+	unpivoted := receiptStageFixture("unpivoted", []authoringv2.StageColumn{{ID: "height", Name: "height", Label: "Height", Type: "decimal"}, {ID: "weight", Name: "weight", Label: "Weight", Type: "decimal"}})
+	height, weight := "height", "weight"
+	unpivoted.Construction.Steps = []authoringv2.ConstructionStep{{ID: "unpivot_vitals", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}}, Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationUnpivot, Unpivot: &authoringv2.ConstructionUnpivot{ConstructionID: "unpivot_vitals", Inputs: []authoringv2.ConstructionUnpivotInput{{ColumnID: "height", Key: authoringv2.TableScalar{Kind: "STRING", String: &height}}, {ColumnID: "weight", Key: authoringv2.TableScalar{Kind: "STRING", String: &weight}}}, KeyOutputColumnID: "measure_name", ValueOutputColumnID: "measure_value", NullRowPolicy: authoringv2.ConstructionUnpivotDrop}}, Outputs: []authoringv2.StageColumn{{ID: "measure_name", Name: "measure_name", Label: "Measure", Type: "string"}, {ID: "measure_value", Name: "measure_value", Label: "Value", Type: "decimal", Nullable: true}}}}
+	workspace := receiptStageWorkspace(pivoted, unpivoted)
+
 	emitted := []explorer.EmittedColumn{
 		{EmissionID: "emit_patient_id", OutputID: "pivoted", AuthoredColumns: []string{"person_root", "shared_root"}, PublicColumn: "patient_id", Label: "Patient", LogicalType: "string", Shape: "scalar", Lossless: true, MLReady: true, StructuralSuitability: "scalar"},
 		{EmissionID: "emit_kind", OutputID: "pivoted", AuthoredColumns: []string{"category_root", "shared_root"}, PublicColumn: "kind", Label: "Kind", LogicalType: "string", Shape: "scalar", Lossless: true, MLReady: true, StructuralSuitability: "scalar"},
@@ -1504,7 +1473,7 @@ func TestReconcileFinalOutputMetadataUsesAuthoredReshapeOutputs(t *testing.T) {
 	want := []explorer.EmittedColumn{
 		{EmissionID: "emit_patient_id", OutputID: "pivoted", AuthoredColumns: []string{"person_root", "shared_root"}, PublicColumn: "patient_id", Label: "Patient", LogicalType: "string", Cardinality: "required_one", Shape: "scalar", Lossless: true, MLReady: true, StructuralSuitability: "scalar"},
 		{EmissionID: "construction:pivot_vitals:systolic", OutputID: "pivoted", AuthoredColumns: []string{"category_root", "person_root", "result_root", "shared_root"}, InputColumns: []string{"patient_id", "kind", "value"}, ConstructionID: "pivot_vitals", PublicColumn: "systolic", Label: "Systolic", LogicalType: "decimal", Cardinality: "optional_one", Nullable: true, Shape: "scalar", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"TABLE_SHAPE_PIVOT_BASE_COLUMNS_DROPPED", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}, Filterable: true, Chartable: true},
-		{EmissionID: "construction:adjust_systolic:adjusted_systolic", OutputID: "pivoted", AuthoredColumns: []string{"category_root", "person_root", "result_root", "shared_root"}, InputColumns: []string{"systolic"}, ConstructionID: "adjust_systolic", PublicColumn: "adjusted_systolic", Label: "Adjusted systolic", LogicalType: "decimal", Cardinality: "optional_one", Nullable: true, Shape: "scalar", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"TABLE_SHAPE_DERIVED_ADD_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}, Filterable: true, Chartable: true},
+		{EmissionID: "construction:adjust_systolic:adjusted_systolic", OutputID: "pivoted", AuthoredColumns: []string{"category_root", "person_root", "result_root", "shared_root"}, InputColumns: []string{"patient_id", "kind", "value"}, ConstructionID: "adjust_systolic", PublicColumn: "adjusted_systolic", Label: "Adjusted systolic", LogicalType: "decimal", Cardinality: "optional_one", Nullable: true, Shape: "scalar", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"TABLE_SHAPE_DERIVED_ADD_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}, Filterable: true, Chartable: true},
 		{EmissionID: "construction:unpivot_vitals:measure_name", OutputID: "unpivoted", AuthoredColumns: []string{"height_root", "shared_root", "weight_root"}, InputColumns: []string{"height", "weight"}, ConstructionID: "unpivot_vitals", PublicColumn: "measure_name", Label: "Measure", LogicalType: "string", Cardinality: "required_one", Shape: "scalar", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"TABLE_SHAPE_UNPIVOT_NULL_ROWS_DROPPED", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}, Filterable: true, Chartable: true},
 		{EmissionID: "construction:unpivot_vitals:measure_value", OutputID: "unpivoted", AuthoredColumns: []string{"height_root", "shared_root", "weight_root"}, InputColumns: []string{"height", "weight"}, ConstructionID: "unpivot_vitals", PublicColumn: "measure_value", Label: "Value", LogicalType: "decimal", Cardinality: "optional_one", Nullable: true, Shape: "scalar", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"TABLE_SHAPE_UNPIVOT_NULL_ROWS_DROPPED", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}, Filterable: true, Chartable: true},
 	}
@@ -1526,12 +1495,9 @@ func TestReconcileFinalOutputMetadataUsesAuthoredReshapeOutputs(t *testing.T) {
 }
 
 func reconciliationFixture() (explorercompilation.WorkspaceResult, dataframeexecution.Resolved) {
-	shape := &authoringv2.TableShape{Derived: []authoringv2.DerivedConstruction{{
-		ConstructionID: "scale_score", Output: authoringv2.ColumnOutput{Column: "scaled_score", Label: "Scaled score"},
-		Operation: "MULTIPLY", Left: authoringv2.ArithmeticOperand{Kind: "COLUMN", Column: "score"},
-		Right:              authoringv2.ArithmeticOperand{Kind: "LITERAL", Literal: &authoringv2.TableScalar{Kind: "DECIMAL", Decimal: float64Pointer(2)}},
-		MissingInputPolicy: "PROPAGATE_NULL",
-	}}}
+	document := receiptStageFixture("patients", []authoringv2.StageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient ID", Type: "string"}, {ID: "score", Name: "score", Label: "Authored score", Type: "decimal"}, {ID: "stale", Name: "stale", Label: "Stale", Type: "string"}})
+	receiptAppendDeriveFixture(&document, "scale_score", authoringv2.StageColumn{ID: "scaled_score", Name: "scaled_score", Label: "Scaled score", Type: "decimal", Nullable: true}, authoringv2.ConstructionDerivedMultiply, receiptColumnOperand("score"), receiptDecimalOperand(float64Pointer(2)), authoringv2.ConstructionMissingInputPropagateNull)
+
 	policy := &explorer.PublicUnitNormalization{Target: unit.UnitIdentity{System: "urn:test:source", Code: "source-unit"}, Rules: []explorer.PublicUnitRuleIdentity{{ID: "source-to-target", Version: "1"}}}
 	emitted := []explorer.EmittedColumn{
 		{EmissionID: "emit_patient_id", OutputID: "patients", NodeID: "node-patient", CandidateID: "candidate-id", AuthoredColumns: []string{"patient_id"}, PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string", Nullable: true, Shape: "scalar", SourceResourceType: "Patient", SourcePath: "id", Lossless: true, MLReady: true, StructuralSuitability: "scalar", Filterable: true, Chartable: true},
@@ -1551,7 +1517,7 @@ func reconciliationFixture() (explorercompilation.WorkspaceResult, dataframeexec
 			{EmissionID: "emit_stale", PublicColumn: "stale", Label: "Stale", Visible: true, Order: 50, PhysicalOrder: 2},
 		}}},
 		IdentityMappings: []explorer.IdentityMapping{{OutputID: "patients", CandidateID: "candidate", EmissionIDs: []string{"emit_patient_id", "emit_score", "emit_stale"}}},
-		Workspace:        authoringv2.Workspace{Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, TableShape: shape}}},
+		Workspace:        receiptStageWorkspace(document),
 	}
 	resolved := dataframeexecution.Resolved{
 		Bundle: bundle,
@@ -1658,63 +1624,6 @@ func TestCompileExplorerReceiptBindsRowDefinitionProposalBeforeIdentity(t *testi
 	}
 }
 
-func TestCompileExplorerReceiptBindsTableShapeProposalBeforeIdentity(t *testing.T) {
-	snapshot := testAuthoringV2CapabilitySnapshot()
-	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
-	if err != nil {
-		t.Fatal(err)
-	}
-	intentDigest, err := workspace.Digest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	service, err := explorer.NewService(newTestExplorerStore())
-	if err != nil {
-		t.Fatal(err)
-	}
-	binding := &explorer.TableShapeProposalBinding{
-		DraftVersion: 3, DraftDigest: "sha256:draft", OutputID: "patients",
-		BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: intentDigest,
-		SnapshotToken: snapshot.Token,
-	}
-	receipt, err := compileExplorerReceipt(context.Background(), lifecycle.CompileReceiptRequest{
-		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
-		Authorized:         lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
-		TableShapeProposal: binding,
-	}, nil, recipeEngine, service, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(receipt.TableShapeProposal, binding) {
-		t.Fatalf("stored proposal binding = %#v, want %#v", receipt.TableShapeProposal, binding)
-	}
-	if receipt.TableShapeProposal == binding {
-		t.Fatal("stored receipt aliases the caller-owned proposal binding")
-	}
-	withoutBinding := *receipt
-	withoutBinding.TableShapeProposal = nil
-	withoutBinding.CompilationKey = ""
-	withoutBinding.ID = ""
-	keyWithoutBinding, err := explorer.CompilationKey(withoutBinding)
-	if err != nil {
-		t.Fatal(err)
-	}
-	idWithoutBinding, err := explorer.ReceiptID(withoutBinding)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if receipt.CompilationKey == keyWithoutBinding || receipt.ID == idWithoutBinding {
-		t.Fatalf("proposal binding did not enter receipt identity: with=(%q,%q) without=(%q,%q)", receipt.CompilationKey, receipt.ID, keyWithoutBinding, idWithoutBinding)
-	}
-}
-
 func TestCompileValidatedReceiptResolutionChecksAllOutputsForScopedPreview(t *testing.T) {
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry: compilerTestRegistry{},
@@ -1758,8 +1667,7 @@ func TestCompileValidatedReceiptResolutionChecksAllOutputsForScopedPreview(t *te
 		OutputFingerprints:     fingerprints,
 		OutputColumnProvenance: provenance,
 		EmittedColumns: []explorer.EmittedColumn{
-			// Presentation order is intentionally different from compiler field
-			// order. It must not invalidate an otherwise identical receipt.
+
 			{OutputID: "patients", PublicColumn: "patient_gender"},
 			{OutputID: "patients", PublicColumn: "patient_id"},
 			{OutputID: "specimens", PublicColumn: "specimen_id"},
@@ -2156,7 +2064,7 @@ func TestPreviewSourceIdentityDoesNotChangeUnpivotReceiptArtifacts(t *testing.T)
 func TestCompiledExplorerWorkspaceConfigPreservesSemanticOrderForPresentationTies(t *testing.T) {
 	compiled := explorercompilation.WorkspaceResult{
 		Workspace: authoringv2.Workspace{
-			APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
+			APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 			Explorer:  authoringv2.ExplorerMetadata{Title: "Stable"},
 			Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Out"}}},
 			Tabs:      []authoringv2.Tab{{ID: "tab", Title: "Out", OutputID: "out", Order: 0, Visible: true}},
@@ -2427,10 +2335,10 @@ func persistTestNativeReceipt(ctx context.Context, t *testing.T, service *explor
 		SourceGeneration: snapshot.Identity.Generation, RecipeDigest: bundleDigest, ResolvedRecipeDigest: bundleDigest,
 		ResolvedSchemaDigest: "resolved-schema", OutputContractDigest: contractDigest,
 		NormalizedBundle: normalized, Bundle: bundle, CompiledConfig: json.RawMessage(`{"apiVersion":"` + explorer.ConfigV2APIVersion + `","kind":"ExplorerConfig"}`), PublicOutputContract: contract,
-		RowDefinitionProposal: request.RowDefinitionProposal, TableShapeProposal: request.TableShapeProposal,
-		ConstructionProposal: request.ConstructionProposal,
-		EmittedColumns:       []explorer.EmittedColumn{{EmissionID: "em_patient", OutputID: "patients", CandidateID: "c_patient_id", OccurrenceID: authoringv2.RootOccurrenceID, ProjectionMode: "FIRST", PublicColumn: "c_patient", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: true}},
-		OutputFingerprints:   map[string]string{"patients": "fingerprint"}, OutputColumnProvenance: map[string]map[string]string{"patients": {"c_patient": "EXPLICIT"}}, CreatedAt: time.Now().UTC(),
+		RowDefinitionProposal: request.RowDefinitionProposal,
+		ConstructionProposal:  request.ConstructionProposal,
+		EmittedColumns:        []explorer.EmittedColumn{{EmissionID: "em_patient", OutputID: "patients", CandidateID: "c_patient_id", OccurrenceID: authoringv2.RootOccurrenceID, ProjectionMode: "FIRST", PublicColumn: "c_patient", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: true}},
+		OutputFingerprints:    map[string]string{"patients": "fingerprint"}, OutputColumnProvenance: map[string]map[string]string{"patients": {"c_patient": "EXPLICIT"}}, CreatedAt: time.Now().UTC(),
 	}
 	receipt.CompilationKey, err = explorer.CompilationKey(receipt)
 	if err != nil {
@@ -2453,7 +2361,7 @@ func TestCompileExplorerReceiptAllowsEmptyConstructionTargetWithSiblingOutputs(t
 	emptyTarget := template
 	emptyTarget.Output = authoringv2.Output{ID: "empty_target", Title: "Empty target"}
 	emptyTarget.Columns = []authoringv2.Column{}
-	emptyTarget, err = authoringv2.UpgradeDocumentToConstruction(emptyTarget)
+	emptyTarget, err = authoringv2.StartDocumentConstruction(emptyTarget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2588,7 +2496,7 @@ func TestCompileExplorerReceiptReconcilesSparsePublishedAppendWithExactSourceSch
 		source.Columns = append([]authoringv2.Column(nil), source.Columns...)
 		source.Columns[0].ColumnID = fmt.Sprintf("source_column_%d", index+1)
 		source.Columns[0].Column = fmt.Sprintf("patient_id_%d", index+1)
-		source, err = authoringv2.UpgradeDocumentToConstruction(source)
+		source, err = authoringv2.StartDocumentConstruction(source)
 		if err != nil {
 			t.Fatalf("upgrade non-Combine source output %q: %v", outputID, err)
 		}
@@ -2598,7 +2506,7 @@ func TestCompileExplorerReceiptReconcilesSparsePublishedAppendWithExactSourceSch
 	documents := append(sourceDocuments, document)
 	tabs = append(tabs, authoringv2.Tab{ID: "combined-tab", Title: "Combined", OutputID: "combined", Order: len(tabs), Visible: true})
 	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		Explorer:  authoringv2.ExplorerMetadata{Title: "Combined"},
 		Documents: documents,
 		Tabs:      tabs,

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -241,7 +242,7 @@ export const RelatedSourceStepEditor = ({
       ? {
           kind: 'RELATED_SOURCE',
           relatedSource: {
-            anchorColumnId: stage.rowIdentityColumn ?? relatedSource.anchorColumnId,
+            anchorColumnId: relatedSource.anchorColumnId,
             choiceId: sourceSelection.choice.choiceId,
             sourceOccurrenceId: selectedField.nodeId,
             source: {
@@ -341,6 +342,7 @@ export const RelatedSourceStepEditor = ({
     );
   const labelIsValid = Boolean(outputLabel.trim());
 
+  useEscapeToClose(true, onCancel);
   return (
     <section
       aria-label="Related source editor"
@@ -385,6 +387,7 @@ export const RelatedSourceStepEditor = ({
 
       <div>
         <h4 className="font-semibold text-slate-900">Source field and route</h4>
+        <p className="mt-1 text-sm text-slate-600">Saved stage anchor: {relatedSource.anchorColumnId}. Graph selection does not change this anchor.</p>
         <p className="mt-1 text-sm text-slate-600">
           Current source: {relatedSource.source.resourceType}.{relatedSource.source.path}
         </p>

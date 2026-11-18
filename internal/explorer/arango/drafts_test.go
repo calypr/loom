@@ -37,6 +37,7 @@ func (c *draftHistoryClient) WithTransaction(ctx context.Context, collections st
 }
 
 func (c *draftHistoryClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit storepkg.RowVisitor) error {
+	visit = storedJSONVisitorForTest(query, visit)
 	c.calls = append(c.calls, queryCall{query: query, binds: binds})
 	collection, _ := binds["@c"].(string)
 	switch {
@@ -130,7 +131,7 @@ func TestSaveDraftPersistsExactPreimageAtomicallyAndPreservesActiveRevision(t *t
 
 	updated := previous
 	updated.DraftConfig = json.RawMessage(`{"documents":[{"outputId":"patients","construction":{"steps":[{"id":"pivot","outputs":[{"id":"col_age","name":"age"}]},{"id":"derive","outputs":[{"id":"col_ratio","name":"ratio"}]}]}}]}`)
-	updated.DraftVersion = 999 // The adapter owns the monotonic CAS version.
+	updated.DraftVersion = 999
 	updated.DraftDigest = "sha256:new-draft"
 	updated.DraftSnapshotToken = "snapshot-new"
 	updated.DraftSourceGeneration = "generation-new"

@@ -34,3 +34,14 @@ func traversalColumnNamePrefix(prefix string) string {
 	}
 	return prefix + "__"
 }
+
+func NativePivotColumnName(prefix, family, key string, aliases map[string]string) string {
+	if alias, ok := aliases[key]; ok {
+		return prefix + alias
+	}
+	return prefix + family + "__" + sanitizeColumnName(key)
+}
+
+func NativeTraversalColumnPrefix(naming recipe.TraversalColumnNaming, parentPrefix, alias string) string {
+	return traversalColumnPrefix(naming, parentPrefix, alias)
+}

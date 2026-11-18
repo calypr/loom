@@ -35,8 +35,6 @@ type RetainedSemanticInventoryPage struct {
 	SourceExists bool
 }
 
-// PrepareSemanticInventoryBackfill bootstraps only the derived inventory
-// collections. Retained resource collections are never created or changed.
 func (s *Store) PrepareSemanticInventoryBackfill(ctx context.Context) error {
 	return s.client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
 		{Name: catalog.SemanticInventoryCollection, Indexes: [][]string{
@@ -53,9 +51,6 @@ func (s *Store) PrepareSemanticInventoryBackfill(ctx context.Context) error {
 	}})
 }
 
-// ReadRetainedSemanticInventoryPage returns at most limit retained source
-// vertices in stable _key order, without loading a resource collection into
-// application memory.
 func (s *Store) ReadRetainedSemanticInventoryPage(ctx context.Context, project, generation, collection, afterKey string, limit int) (RetainedSemanticInventoryPage, error) {
 	canonical, ok := fhirschema.ConcreteResourceType(collection)
 	if !ok || canonical != collection || strings.TrimSpace(project) == "" || catalog.NormalizeDatasetGeneration(generation) == "" || limit < 1 || limit > 1000 {
@@ -117,20 +112,12 @@ func (s *Store) retainedSourceFieldProfileExists(ctx context.Context, project, g
 	if err != nil || !exists {
 		return false, err
 	}
-	found := false
-	err = s.client.QueryRows(ctx, retainedSemanticInventoryFieldProfileAQL, 1, map[string]interface{}{
+	found, err := store.QueryHasRow(ctx, s.client, retainedSemanticInventoryFieldProfileAQL, 1, map[string]interface{}{
 		"project": project, "dataset_generation": catalog.NormalizeDatasetGeneration(generation), "resource_type": resourceType,
-	}, func(map[string]any) error {
-		found = true
-		return nil
 	})
 	return found, err
 }
 
-// ClaimSemanticInventoryBackfill atomically acquires or resumes the retained
-// source scanner. A complete build is returned with claimed=false and is not
-// rewritten, which prevents file and retained-vertex contribution sets from
-// being mixed by a second scan.
 func (s *Store) ClaimSemanticInventoryBackfill(ctx context.Context, build catalog.SemanticInventoryBuild, token string, lease time.Duration) (catalog.SemanticInventoryBuild, bool, error) {
 	if err := catalog.ValidateSemanticInventoryBuild(build); err != nil {
 		return catalog.SemanticInventoryBuild{}, false, err
@@ -176,9 +163,6 @@ func (s *Store) ClaimSemanticInventoryBackfill(ctx context.Context, build catalo
 	return catalog.SemanticInventoryBuild{}, false, ErrSemanticInventoryClaimed
 }
 
-// RefreshSemanticInventorySourceAvailability upgrades only the source-coverage
-// metadata of an unchanged completed retained build. Callers must independently
-// prove the generation's source counts before requesting this compare-and-set.
 func (s *Store) RefreshSemanticInventorySourceAvailability(ctx context.Context, expected catalog.SemanticInventoryBuild) (catalog.SemanticInventoryBuild, bool, error) {
 	if err := catalog.ValidateSemanticInventoryBuild(expected); err != nil {
 		return catalog.SemanticInventoryBuild{}, false, err
@@ -509,9 +493,6 @@ func (s *Store) PageSemanticInventory(ctx context.Context, opts catalog.Semantic
 	return page, nil
 }
 
-// ResolveSemanticInventorySelections resolves only requested catalog identities
-// under the caller's current authorization scope. It never pages or returns the
-// wider inventory to the authoring path.
 func (s *Store) ResolveSemanticInventorySelections(ctx context.Context, opts catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error) {
 	selectionCount := len(opts.References) + len(opts.FamilyReferences)
 	if strings.TrimSpace(opts.Project) == "" || catalog.NormalizeDatasetGeneration(opts.DatasetGeneration) == "" || opts.AuthResourcePathsUnrestricted == nil || selectionCount == 0 || selectionCount > 100 {
@@ -926,103 +907,102 @@ LET identities = (
     SORT binding_id, selected_id
     LIMIT @limit
     RETURN {
-      binding_id: binding_id, selection_id: selected_id, category: is_category,
-      concept_id: is_category ? null : selected_id,
-      family_scope: is_category ? JSON_PARSE(SUBSTRING(selected_id, 7)) : null
+      key: CONCAT(binding_id, "\u0000", selected_id),
+      binding_id: binding_id, selection_id: selected_id, category: is_category
     }
 )
-FOR identity IN identities
-  LET observation_rows = (
-    FOR d IN @@inventory
-      FILTER d.project == @project
-      FILTER d.dataset_generation == @dataset_generation
-      FILTER d.build_id == @build_id
-      FILTER NOT_NULL(d.source_kind, "file") == @source_kind
-      FILTER @auth_resource_paths_unrestricted == true OR d.auth_resource_path IN @auth_resource_paths
-      FILTER @resource_type == "" OR d.resource_type == @resource_type
-      FILTER @binding_id == "" OR d.binding_id == @binding_id
-      FILTER d.binding_id == identity.binding_id
-      FILTER identity.category ? (
-        d.observation.rule_hint == "CODED_CONCEPT_V1"
-        AND LENGTH(NOT_NULL(d.observation.extension_url_path, [])) == 0
-        AND [d.observation.source.type, d.observation.source.path, d.observation.key.system,
-          NOT_NULL(d.observation.key.version, "")] == identity.family_scope
-      ) : d.concept_id == identity.concept_id
-      COLLECT AGGREGATE population = SUM(d.observation.population),
-        example = MIN(d.example),
-        canonical = MIN(d.observation.source.canonical),
-        resource_type = MIN(d.observation.source.type),
-        profile = MIN(d.observation.source.profile),
-        path = MIN(d.observation.source.path),
-        key_selector = MIN(d.observation.key.selector),
-        system = MIN(d.observation.key.system),
-        version = MIN(d.observation.key.version),
-        code = MIN(d.observation.key.code),
-        display = MIN(d.observation.key.display),
-        value_selector = MIN(d.observation.value.selector),
-        value_type = MIN(d.observation.value.type),
-        fallback_selectors = MIN(d.observation.value.fallback_selectors),
-        fallback_on_blank_string = MIN(d.observation.value.fallback_on_blank_string),
-        owning_scope = MIN(d.observation.owning_scope),
-        extension_url_path = MIN(d.observation.extension_url_path),
-        choice_arm = MIN(d.observation.choice_arm),
-        logical_type = MIN(d.observation.logical_type),
-        units_min = MIN(d.observation.observed_units),
-        units_max = MAX(d.observation.observed_units),
-        completeness = MIN(d.observation.completeness),
-        status = MIN(d.observation.status),
-        rule_hint = MIN(d.observation.rule_hint),
-        rule_version = MIN(d.observation.rule_version),
-        examples_truncated = MAX(d.observation.examples_truncated ? 1 : 0)
-      RETURN identity.category ? {
-        binding_id: identity.binding_id,
-        selection_id: identity.selection_id,
-        family: {
-          binding_id: identity.binding_id, source_kind: @source_kind,
-          resource_type: resource_type, source_path: path, system: system, version: NOT_NULL(version, ""),
-          schema_version: @observation_schema,
-          source: {canonical: canonical, type: resource_type, profile: profile, path: path},
-          key_selector: key_selector,
-          value: {
-            selector: value_selector, type: value_type,
-            fallback_selectors: fallback_selectors, fallback_on_blank_string: fallback_on_blank_string
-          },
-          owning_scope: owning_scope, logical_type: logical_type,
-          completeness: completeness, status: status, population: population,
-          examples: example == null || example == "" ? [] : [example],
-          examples_truncated: examples_truncated > 0 OR population > 1,
-          rule_version: rule_version
-        }
-      } : {
-        concept_id: identity.concept_id,
-        binding_id: identity.binding_id,
-        observation: {
-          schema_version: @observation_schema,
-          source: {canonical: canonical, type: resource_type, profile: profile, path: path},
-          key: {selector: key_selector, system: system, version: version, code: code, display: display},
-          value: {
-            selector: value_selector,
-            type: value_type,
-            fallback_selectors: fallback_selectors,
-            fallback_on_blank_string: fallback_on_blank_string
-          },
-          owning_scope: owning_scope,
-          extension_url_path: extension_url_path,
-          choice_arm: choice_arm,
-          logical_type: logical_type,
-          observed_units: units_min == null ? [] : units_min,
-          observed_units_truncated: units_min != units_max,
-          completeness: completeness,
-          status: status,
-          population: population,
-          examples: example == null || example == "" ? [] : [example],
-          examples_truncated: examples_truncated > 0 OR population > 1,
-          rule_hint: rule_hint,
-          rule_version: rule_version
-        }
-      }
-  )
-  RETURN FIRST(observation_rows)`
+FOR d IN @@inventory
+  FILTER d.project == @project
+  FILTER d.dataset_generation == @dataset_generation
+  FILTER d.build_id == @build_id
+  FILTER NOT_NULL(d.source_kind, "file") == @source_kind
+  FILTER @auth_resource_paths_unrestricted == true OR d.auth_resource_path IN @auth_resource_paths
+  FILTER @resource_type == "" OR d.resource_type == @resource_type
+  FILTER @binding_id == "" OR d.binding_id == @binding_id
+  LET category = d.observation.rule_hint == "CODED_CONCEPT_V1"
+    AND NOT_NULL(d.observation.key.system, "") != ""
+    AND LENGTH(NOT_NULL(d.observation.extension_url_path, [])) == 0
+  LET selection_id = category ? CONCAT("family:", JSON_STRINGIFY([
+    d.observation.source.type, d.observation.source.path,
+    d.observation.key.system, NOT_NULL(d.observation.key.version, "")
+  ])) : d.concept_id
+  FILTER CONCAT(d.binding_id, "\u0000", selection_id) IN identities[*].key
+  COLLECT binding_id = d.binding_id, selected_id = selection_id, is_category = category
+  AGGREGATE population = SUM(d.observation.population),
+    example = MIN(d.example),
+    canonical = MIN(d.observation.source.canonical),
+    resource_type = MIN(d.observation.source.type),
+    profile = MIN(d.observation.source.profile),
+    path = MIN(d.observation.source.path),
+    key_selector = MIN(d.observation.key.selector),
+    system = MIN(d.observation.key.system),
+    version = MIN(d.observation.key.version),
+    code = MIN(d.observation.key.code),
+    display = MIN(d.observation.key.display),
+    value_selector = MIN(d.observation.value.selector),
+    value_type = MIN(d.observation.value.type),
+    fallback_selectors = MIN(d.observation.value.fallback_selectors),
+    fallback_on_blank_string = MIN(d.observation.value.fallback_on_blank_string),
+    owning_scope = MIN(d.observation.owning_scope),
+    extension_url_path = MIN(d.observation.extension_url_path),
+    choice_arm = MIN(d.observation.choice_arm),
+    logical_type = MIN(d.observation.logical_type),
+    units_min = MIN(d.observation.observed_units),
+    units_max = MAX(d.observation.observed_units),
+    completeness = MIN(d.observation.completeness),
+    status = MIN(d.observation.status),
+    rule_hint = MIN(d.observation.rule_hint),
+    rule_version = MIN(d.observation.rule_version),
+    examples_truncated = MAX(d.observation.examples_truncated ? 1 : 0)
+  SORT binding_id, selected_id
+  LET family_scope = is_category ? JSON_PARSE(SUBSTRING(selected_id, 7)) : null
+  RETURN is_category ? {
+    binding_id: binding_id,
+    selection_id: selected_id,
+    family: {
+      binding_id: binding_id, source_kind: @source_kind,
+      resource_type: resource_type, source_path: path, system: system, version: NOT_NULL(version, ""),
+      schema_version: @observation_schema,
+      source: {canonical: canonical, type: resource_type, profile: profile, path: path},
+      key_selector: key_selector,
+      value: {
+        selector: value_selector, type: value_type,
+        fallback_selectors: fallback_selectors, fallback_on_blank_string: fallback_on_blank_string
+      },
+      owning_scope: owning_scope, logical_type: logical_type,
+      completeness: completeness, status: status, population: population,
+      examples: example == null || example == "" ? [] : [example],
+      examples_truncated: examples_truncated > 0 OR population > 1,
+      rule_version: rule_version
+    }
+  } : {
+    concept_id: selected_id,
+    binding_id: binding_id,
+    observation: {
+      schema_version: @observation_schema,
+      source: {canonical: canonical, type: resource_type, profile: profile, path: path},
+      key: {selector: key_selector, system: system, version: version, code: code, display: display},
+      value: {
+        selector: value_selector,
+        type: value_type,
+        fallback_selectors: fallback_selectors,
+        fallback_on_blank_string: fallback_on_blank_string
+      },
+      owning_scope: owning_scope,
+      extension_url_path: extension_url_path,
+      choice_arm: choice_arm,
+      logical_type: logical_type,
+      observed_units: units_min == null ? [] : units_min,
+      observed_units_truncated: units_min != units_max,
+      completeness: completeness,
+      status: status,
+      population: population,
+      examples: example == null || example == "" ? [] : [example],
+      examples_truncated: examples_truncated > 0 OR population > 1,
+      rule_hint: rule_hint,
+      rule_version: rule_version
+    }
+  }`
 
 const semanticInventoryResolveFamiliesAQL = `
 FOR requested IN @references

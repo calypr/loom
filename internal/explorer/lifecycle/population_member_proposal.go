@@ -12,9 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// PopulationMemberRemovalProposalRequest identifies one exact member in the
-// currently attached immutable selection. The caller never supplies candidate
-// membership or a population route.
 type PopulationMemberRemovalProposalRequest struct {
 	Project              string
 	ExplorerID           string
@@ -52,8 +49,6 @@ func (r PopulationMemberRemovalProposalRequest) Validate() error {
 	return nil
 }
 
-// PopulationMemberRemovalProposalResponse exposes immutable headers for
-// paginated inspection; member arrays are never downloaded by this operation.
 type PopulationMemberRemovalProposalResponse struct {
 	ProposalID               string                      `json:"proposalId,omitempty"`
 	OutputID                 string                      `json:"outputId"`
@@ -68,11 +63,6 @@ type PopulationMemberRemovalProposalResponse struct {
 	PreviewStatus            string                      `json:"previewStatus"`
 }
 
-// ProposePopulationMemberRemoval creates an unattached immutable candidate
-// selection by excluding one exact member from the current attached selection,
-// reissues the same authorized population route for that candidate, and stores
-// a purpose-bound compilation receipt. Apply is the only operation that saves
-// the changed population on the draft.
 func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request PopulationMemberRemovalProposalRequest) (PopulationMemberRemovalProposalResponse, error) {
 	if err := request.Validate(); err != nil {
 		return PopulationMemberRemovalProposalResponse{}, malformed("population-member-proposal", err.Error(), err)
@@ -84,8 +74,11 @@ func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request Po
 		return PopulationMemberRemovalProposalResponse{}, unavailable("population-member-proposal", "CAPABILITY_UNAVAILABLE", "authorized population proposal compilation is not configured", nil)
 	}
 	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
-	if err != nil || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil {
-		return PopulationMemberRemovalProposalResponse{}, conflict("population-member-proposal", "STALE_CATALOG_SNAPSHOT", "reload the catalog before changing the selected population", nil, err)
+	if err != nil {
+		return PopulationMemberRemovalProposalResponse{}, capabilityResolutionFailure("population-member-proposal", "reload the catalog before changing the selected population", err)
+	}
+	if authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil {
+		return PopulationMemberRemovalProposalResponse{}, conflict("population-member-proposal", "STALE_CATALOG_SNAPSHOT", "reload the catalog before changing the selected population", nil, nil)
 	}
 	snapshot := authorized.Snapshot.Clone()
 	if projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(request.Project) || snapshot.Identity.Generation == "" {
@@ -94,9 +87,9 @@ func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request Po
 	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return PopulationMemberRemovalProposalResponse{}, conflict("population-member-proposal", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 	}
-	owner, err := s.store.Get(ctx, projectid.Canonical(request.Project), request.ExplorerID)
+	owner, err := s.getOwner(ctx, projectid.Canonical(request.Project), request.ExplorerID)
 	if err != nil {
-		return PopulationMemberRemovalProposalResponse{}, err
+		return PopulationMemberRemovalProposalResponse{}, persistenceFailure("population-member-proposal", "the Explorer workspace could not be loaded", err)
 	}
 	if owner == nil || owner.ExplorerID != request.ExplorerID || projectid.Canonical(owner.Project) != projectid.Canonical(request.Project) {
 		return PopulationMemberRemovalProposalResponse{}, notFound("population-member-proposal", "EXPLORER_NOT_FOUND", "the Explorer was not found", explorer.ErrNotFound)
@@ -133,7 +126,7 @@ func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request Po
 	}
 	contains, err := selectionContainsExactMember(ctx, s.store, projectid.Canonical(request.Project), baseSelection.ID, request.RemovedMember)
 	if err != nil {
-		return PopulationMemberRemovalProposalResponse{}, internal("population-member-proposal", "SELECTION_READ_FAILED", "the selected resource set could not be inspected", err)
+		return PopulationMemberRemovalProposalResponse{}, persistenceFailure("population-member-proposal", "the selected resource set could not be inspected", err)
 	}
 	if !contains {
 		return PopulationMemberRemovalProposalResponse{}, unprocessable("population-member-proposal", "POPULATION_MEMBER_NOT_FOUND", "the exact resource reference is not a member of the attached selection", nil)
@@ -372,17 +365,16 @@ func (s *Service) preparePopulationMemberRemovalProposal(ctx context.Context, pr
 		return nil, nil, err
 	}
 	containsRemovedMember, memberReadErr := selectionContainsExactMember(ctx, s.store, projectid.Canonical(project), baseSelection.ID, binding.RemovedMember)
+	if memberReadErr != nil {
+		return nil, nil, persistenceFailure("commands", "the selected resource set could not be inspected", memberReadErr)
+	}
 	if validationErr := validatePopulationRemovalSelection(baseSelection, candidateSelection, binding.RemovedMember, snapshot); validationErr != nil {
 		return nil, nil, conflict("commands", "INVALID_POPULATION_MEMBER_PROPOSAL", "the immutable selection revisions no longer prove the exact removed member", nil, validationErr)
 	}
 	if baseSelection.MembershipDigest != binding.BaseMembershipDigest || baseSelection.MemberCount != binding.BaseMemberCount ||
 		candidateSelection.MembershipDigest != binding.CandidateMembershipDigest || candidateSelection.MemberCount != binding.CandidateMemberCount ||
-		memberReadErr != nil || !containsRemovedMember {
-		cause := memberReadErr
-		if cause == nil {
-			cause = fmt.Errorf("the immutable selection revisions do not match the proposal binding")
-		}
-		return nil, nil, conflict("commands", "INVALID_POPULATION_MEMBER_PROPOSAL", "the immutable selection revisions no longer prove the exact removed member", nil, cause)
+		!containsRemovedMember {
+		return nil, nil, conflict("commands", "INVALID_POPULATION_MEMBER_PROPOSAL", "the immutable selection revisions no longer prove the exact removed member", nil, fmt.Errorf("the immutable selection revisions do not match the proposal binding"))
 	}
 	identity, decodeErr := capability.DecodePopulationRouteChoiceID(binding.RouteChoiceID)
 	if decodeErr != nil || identity.SnapshotToken != request.SnapshotToken || identity.OutputID != command.OutputID || identity.SelectionRevisionID != candidateSelection.ID ||

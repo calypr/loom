@@ -15,8 +15,6 @@ const (
 	defaultReadPinInterval = 30 * time.Second
 )
 
-// SelectionSourceAdapter adapts the exact published reader to Explorer
-// lifecycle source resolution without exposing current-pointer lookup.
 type SelectionSourceAdapter struct {
 	Reader *Reader
 }
@@ -43,9 +41,6 @@ func (a SelectionSourceAdapter) StreamSelectionSource(ctx context.Context, mater
 	return a.Reader.StreamExactExecution(ctx, materialization.Revision, materialization.Selector.Output, req, visit)
 }
 
-// ExactExecutionMaterialization resolves one stored execution/output without
-// consulting a moving project-current pointer. It is the only resolver a
-// selection or export may use after persisting source identity.
 func (r *Reader) ExactExecutionMaterialization(ctx context.Context, executionID, outputID string) (Materialization, error) {
 	if r == nil || r.Catalog == nil {
 		return Materialization{}, fmt.Errorf("bundle catalog dependency is required")
@@ -87,9 +82,6 @@ func (r *Reader) ExactExecutionMaterialization(ctx context.Context, executionID,
 	return Materialization{}, publication.ErrBundleNotFound
 }
 
-// SourceResourceRef extracts a typed source identity from one output row. It
-// deliberately refuses labels, synthetic row numbers, and missing identity
-// metadata.
 func SourceResourceRef(materialization Materialization, row map[string]any) (string, string, error) {
 	if materialization.SourceRow == nil || !materialization.SourceRow.Valid() {
 		return "", "", publication.ErrSelectionSourceNotAddressable
@@ -113,9 +105,6 @@ func SourceResourceRef(materialization Materialization, row map[string]any) (str
 	return materialization.SourceRow.ResourceType, id, nil
 }
 
-// StreamExactExecution acquires a renewable reader pin before scanning an
-// exact output. Pin loss cancels the ClickHouse query and is surfaced as a
-// failure; callers must never return a partial membership as complete.
 func (r *Reader) StreamExactExecution(ctx context.Context, executionID, outputID string, req StreamRequest, visit func(map[string]any) error) error {
 	return r.WithExecutionReadPins(ctx, []string{executionID}, func(scanCtx context.Context) error {
 		materialization, err := r.ExactExecutionMaterialization(scanCtx, executionID, outputID)
@@ -126,9 +115,6 @@ func (r *Reader) StreamExactExecution(ctx context.Context, executionID, outputID
 	})
 }
 
-// ValidateTypedFilters is the boundary check used by selection creation. It
-// accepts the existing data-reader filter representation but requires a
-// bounded, supported operator/value shape before the reader builds SQL.
 func ValidateTypedFilters(filters []Filter) error {
 	for _, filter := range filters {
 		if strings.TrimSpace(filter.Column) == "" || strings.TrimSpace(filter.Op) == "" {

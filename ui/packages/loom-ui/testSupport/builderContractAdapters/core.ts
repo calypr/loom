@@ -151,10 +151,20 @@ const openConstructionFamily = async (
   const testId = `construction-action-${family.toLocaleLowerCase().replace('_', '-')}`;
   let button = screen.queryByTestId(testId);
   if (!button && family === 'CALCULATE') {
-    const moreActions = await screen.findByTestId('construction-more-actions');
-    if (moreActions.getAttribute('aria-expanded') !== 'true') fireEvent.click(moreActions);
-    button = await screen.findByTestId(testId);
+    const moreActions = screen.queryByTestId('construction-more-actions');
+    if (moreActions) {
+      if (moreActions.getAttribute('aria-expanded') !== 'true') fireEvent.click(moreActions);
+      button = await screen.findByTestId(testId);
+    }
   }
+  if (!button) throw new CoreAdapterGapError(input.uiAction.affordanceId, `the mounted ${family} action is unavailable.`);
+
+  await waitFor(() => {
+    button = screen.getByTestId(testId);
+    if (button.hasAttribute('disabled') || button.getAttribute('aria-disabled') === 'true') {
+      throw new Error(`${family} action is not enabled yet.`);
+    }
+  });
   if (!button) throw new CoreAdapterGapError(input.uiAction.affordanceId, `the mounted ${family} action is unavailable.`);
   failIfUnavailable(input, button, `${family} action`);
   if (button.getAttribute('aria-pressed') !== 'true') fireEvent.click(button);
@@ -420,9 +430,10 @@ const driveCalculate = async (input: CoreAdapterInput): Promise<void> => {
   }
   const missingPolicy = optionalString(values, 'missing_input_policy');
   if (missingPolicy) await selectLabel(input, 'Missing input policy', missingPolicy);
-  const outputName = optionalString(values, 'output_name');
+  if (optionalString(values, 'output_name')) {
+    throw new CoreAdapterGapError(input.uiAction.affordanceId, 'Calculate derives the output column name automatically.');
+  }
   const outputLabel = optionalString(values, 'output_label');
-  if (outputName) await setText(input, 'Output column name', outputName);
   if (outputLabel) await setText(input, 'Output column label', outputLabel);
   const dividePolicy = optionalString(values, 'division_by_zero_policy');
   if (dividePolicy) await selectLabel(input, 'Division by zero policy', dividePolicy);
@@ -435,7 +446,8 @@ const driveProposalLifecycle = async (input: CoreAdapterInput): Promise<void> =>
   const values = valuesOf(input);
   const actionId = input.requestStep?.actionId;
   if (input.requestStep === null && values.localAction === 'cancel_construction_proposal') {
-    await clickTestId(input, 'construction-cancel-proposal', 'Cancel proposal');
+
+    await clickTestId(input, 'construction-close-operation-editor', 'Close operation editor');
     return;
   }
   switch (actionId) {
@@ -506,23 +518,6 @@ const driveRelatedField = async (input: CoreAdapterInput): Promise<void> => {
   await setText(input, 'Output name', outputName);
   await setText(input, 'Output label', outputLabel);
   await screen.findByTestId('construction-proposal-loading');
-};
-
-const driveColumnFilterPresentation = async (input: CoreAdapterInput): Promise<void> => {
-  const values = valuesOf(input);
-  const label = requiredString(input, values, 'columnLabel');
-  const desired = values.enabled;
-  if (typeof desired !== 'boolean') throw new CoreAdapterGapError(input.uiAction.affordanceId, 'column filter presentation requires boolean enabled.');
-  const control = await screen.findByRole('checkbox', { name: `Use ${label} as filter` });
-  if (!(control instanceof HTMLInputElement) || control.type !== 'checkbox') {
-    throw new CoreAdapterGapError(input.uiAction.affordanceId, `filter presentation for ${label} is not a mounted checkbox.`);
-  }
-  failIfUnavailable(input, control, `filter presentation for ${label}`);
-  if (control.checked !== desired) fireEvent.click(control);
-  await waitFor(() => {
-    const current = screen.getByRole('checkbox', { name: `Use ${label} as filter` });
-    if (!(current instanceof HTMLInputElement) || current.checked !== desired) throw new Error(`Filter presentation for ${label} did not update.`);
-  });
 };
 
 const driveFirstTable = async (input: CoreAdapterInput): Promise<void> => {
@@ -720,17 +715,6 @@ const driveWorkspaceHydration = async (input: CoreAdapterInput): Promise<void> =
   else if (!control.value) throw new CoreAdapterGapError(input.uiAction.affordanceId, 'mounted Builder has no selected explorer to observe.');
 };
 
-const driveTableShapeDerived = async (input: CoreAdapterInput): Promise<void> => {
-  const values = valuesOf(input);
-  const label = optionalString(values, 'outputLabel', 'output_label');
-  const shapeEditor = screen.queryByRole('region', { name: /table shape/i });
-  if (!shapeEditor) throw new CoreAdapterGapError(input.uiAction.affordanceId, 'the legacy TableShape settings editor is not mounted by this Builder workspace state.');
-  const outputName = optionalString(values, 'outputName', 'output_name');
-  if (outputName) await setText(input, 'Derived column 1 output name', outputName);
-  if (label) await setText(input, 'Derived column 1 output label', label);
-  if (!outputName && !label) throw new CoreAdapterGapError(input.uiAction.affordanceId, 'table-shape derived column requires outputName or outputLabel.');
-};
-
 const driveDemoEntryRoute = async (input: CoreAdapterInput): Promise<void> => {
   throw new CoreAdapterGapError(input.uiAction.affordanceId, 'demo entry routing belongs to the outer Builder/router; this adapter is invoked inside the mounted BuilderWorkspace and cannot observe that route boundary.');
 };
@@ -799,16 +783,6 @@ export const coreAdapters = {
     'builder.calculate.derive', 'core.calculate.derive', 'core.driveDerivedCalculation',
     ['ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4432', 'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1135', 'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1178'],
     driveCalculate,
-  ),
-  'builder.calculate.table_shape_derived_column': adapter(
-    'builder.calculate.table_shape_derived_column', 'core.calculate.table_shape_derived_column', 'core.driveTableShapeDerivedColumn',
-    ['ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4865', 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:242', 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:268'],
-    driveTableShapeDerived,
-  ),
-  'builder.column_filter_presentation': adapter(
-    'builder.column_filter_presentation', 'core.column_filter_presentation', 'core.driveColumnFilterPresentation',
-    ['ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:298', 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:440'],
-    driveColumnFilterPresentation,
   ),
   'builder.automatic_preview_refresh_and_recovery': adapter(
     'builder.automatic_preview_refresh_and_recovery', 'core.automatic_preview_refresh_and_recovery', 'core.driveAutomaticPreviewRecovery',

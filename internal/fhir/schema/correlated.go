@@ -19,21 +19,13 @@ const (
 	CorrelatedValueScopeCoding CorrelatedValueScope = "CODING"
 )
 
-// CorrelatedBinding is the backend-neutral description of one terminology
-// key/value relationship. OwnerPath names the repeated FHIR item that owns the
-// value; KeyPath names a repeated Coding collection or singular Coding within
-// that item. System and Code are relative to one Coding item, so they cannot be
-// accidentally paired from different array members.
 type CorrelatedBinding struct {
 	OwnerPath   string `json:"ownerPath,omitempty"`
 	KeyPath     string `json:"keyPath"`
 	VersionPath string `json:"versionPath,omitempty"`
-	// Empty and EXACT match a selected code. SYSTEM_VERSION matches every
-	// code within one exact system and version, including an empty version.
+
 	SelectionScope CorrelatedSelectionScope `json:"selectionScope,omitempty"`
-	// ValueScope selects the object that owns ValuePath and ValueFallback.
-	// Empty and OWNER preserve the legacy owner-relative binding; CODING uses
-	// the exact Coding item matched by KeyPath.
+
 	ValueScope            CorrelatedValueScope `json:"valueScope,omitempty"`
 	SystemPath            string               `json:"systemPath"`
 	CodePath              string               `json:"codePath"`
@@ -45,28 +37,17 @@ type CorrelatedBinding struct {
 	UnitPath              string               `json:"unitPath,omitempty"`
 }
 
-// CorrelatedKey is the selected terminology identity for one correlated
-// projection. It is deliberately separate from CorrelatedBinding, which only
-// describes where the identity and value are structurally found.
 type CorrelatedKey struct {
 	System  string `json:"system"`
 	Code    string `json:"code"`
 	Version string `json:"version,omitempty"`
 }
 
-// ExtensionBinding is the closed authoring shape for an ancestor-aware FHIR
-// extension lookup. OwnerPath names the full repeated path ending at the
-// terminal extension (for example extension[].extension[]); URLPath contains
-// one selected URL for each extension boundary. ValuePath and its optional
-// fallbacks are relative to the terminal Extension object.
-//
-// URLPath is deliberately a literal sequence rather than a predicate or a
-// flattened URL string. This keeps each ancestor identity in the same lexical
-// traversal scope as the value it owns.
 type ExtensionBinding struct {
 	OwnerPath             string   `json:"ownerPath,omitempty"`
 	URLPath               []string `json:"urlPath"`
 	ValuePath             string   `json:"valuePath"`
+	CanonicalJSONValue    bool     `json:"canonicalJsonValue,omitempty"`
 	LogicalType           string   `json:"logicalType"`
 	ChoiceArms            []string `json:"choiceArms,omitempty"`
 	ValueFallback         []string `json:"valueFallback,omitempty"`
@@ -74,9 +55,6 @@ type ExtensionBinding struct {
 	UnitPath              string   `json:"unitPath,omitempty"`
 }
 
-// CorrelatedBindingSpec is the checked form consumed by semantic and physical
-// compilers. Key selectors are relative to the owning item unless OwnerSelector
-// is empty. Value selectors use ValueScope to select the owner or matched Coding.
 type CorrelatedBindingSpec struct {
 	ResourceType          string
 	OwnerSelector         Selector
@@ -98,16 +76,13 @@ type CorrelatedBindingSpec struct {
 	UnitSelector          *Selector
 }
 
-// ExtensionBindingSpec is the checked extension form consumed by semantic and
-// physical lowering. OwnerSelector addresses the repeated item immediately
-// before the first extension boundary; URLSelectors are each relative to the
-// current Extension item and therefore preserve nested parent identity.
 type ExtensionBindingSpec struct {
 	ResourceType          string
 	OwnerSelector         Selector
 	OwnerResource         string
 	URLSelectors          []Selector
 	ValueSelector         Selector
+	CanonicalJSONValue    bool
 	ValueFallbacks        []Selector
 	FallbackOnBlankString bool
 	ChoiceArms            []string
@@ -116,10 +91,6 @@ type ExtensionBindingSpec struct {
 	UnitSelector          *Selector
 }
 
-// ValidateCorrelatedBinding validates one binding against generated FHIR
-// metadata and returns selectors suitable for lowering. It intentionally
-// rejects an independently rooted system/code path and any key outside the
-// declared owner scope.
 func ValidateCorrelatedBinding(resourceType string, binding CorrelatedBinding) (CorrelatedBindingSpec, error) {
 	if !HasResource(resourceType) {
 		return CorrelatedBindingSpec{}, fmt.Errorf("resource type %q is not represented by generated FHIR schema", resourceType)
@@ -270,9 +241,6 @@ type checkedBindingValue struct {
 	UnitSelector          *Selector
 }
 
-// validateBindingValue is shared by terminology and extension bindings. The
-// generated schema, not a client-declared label, owns primitive compatibility
-// and valid value[x] arms.
 func validateBindingValue(valueResource, valuePath string, valueFallback []string, fallbackOnBlankString bool, requestedChoiceArms []string, requestedLogicalType, unitPath string) (checkedBindingValue, error) {
 	valuePath = CanonicalizePath(valuePath)
 	if valuePath == "" {
@@ -376,10 +344,6 @@ func validateBindingValue(valueResource, valuePath string, valueFallback []strin
 	return checkedBindingValue{ValueSelector: value, ValueFallbacks: fallbacks, FallbackOnBlankString: fallbackOnBlankString, ChoiceArms: choiceArms, LogicalType: logicalType, ValuePrimitive: valueMetadata.Primitive, UnitSelector: unit}, nil
 }
 
-// inferQuantityUnitSelector retains the display unit owned by the same FHIR
-// Quantity as a selected numeric value. The generated datatype reference is
-// the authority; a coincidental sibling named "unit" on another structure is
-// not treated as a measurement unit.
 func inferQuantityUnitSelector(valueResource, valuePath string) (Selector, bool) {
 	valuePath = CanonicalizePath(valuePath)
 	separator := strings.LastIndex(valuePath, ".")
@@ -400,64 +364,10 @@ func inferQuantityUnitSelector(valueResource, valuePath string) (Selector, bool)
 	return unit, err == nil
 }
 
-// ValidateExtensionBinding validates the ancestor chain and terminal value
-// against generated FHIR metadata. Every path segment before the first
-// extension boundary is scoped normally; once an extension boundary begins,
-// only nested extension[] segments are accepted. This makes URLPath depth and
-// lexical traversal unambiguous.
 func ValidateExtensionBinding(resourceType string, binding ExtensionBinding) (ExtensionBindingSpec, error) {
-	if !HasResource(resourceType) {
-		return ExtensionBindingSpec{}, fmt.Errorf("resource type %q is not represented by generated FHIR schema", resourceType)
-	}
-	ownerPath := CanonicalizePath(binding.OwnerPath)
-	if ownerPath == "" {
-		return ExtensionBindingSpec{}, fmt.Errorf("ownerPath is required")
-	}
-	parts := strings.Split(ownerPath, ".")
-	baseParts := make([]string, 0, len(parts))
-	currentResource := resourceType
-	startedExtension := false
-	extensionDepth := 0
-	for index, part := range parts {
-		resolved, ok := ResolvePath(currentResource, part)
-		if !ok {
-			return ExtensionBindingSpec{}, fmt.Errorf("ownerPath segment %q is not represented in resource %q", part, currentResource)
-		}
-		name := strings.TrimSuffix(part, "[]")
-		isExtension := name == "extension" && strings.HasSuffix(part, "[]")
-		if isExtension {
-			if resolved.Property.Kind != "array" || resolved.Property.ItemRef != "Extension" {
-				return ExtensionBindingSpec{}, fmt.Errorf("ownerPath segment %q must be a repeated Extension", part)
-			}
-			startedExtension = true
-			extensionDepth++
-			currentResource = "Extension"
-			continue
-		}
-		if startedExtension {
-			return ExtensionBindingSpec{}, fmt.Errorf("ownerPath segment %q follows an extension boundary and is not allowed", part)
-		}
-		if !strings.HasSuffix(part, "[]") && index == len(parts)-1 {
-			return ExtensionBindingSpec{}, fmt.Errorf("ownerPath must end at a repeated extension")
-		}
-		baseParts = append(baseParts, part)
-		switch resolved.Property.Kind {
-		case "array":
-			if strings.TrimSpace(resolved.Property.ItemRef) == "" {
-				return ExtensionBindingSpec{}, fmt.Errorf("ownerPath segment %q must resolve to a repeated object", part)
-			}
-			currentResource = resolved.Property.ItemRef
-		case "object":
-			if strings.TrimSpace(resolved.Property.Ref) == "" {
-				return ExtensionBindingSpec{}, fmt.Errorf("ownerPath segment %q must resolve to a named object", part)
-			}
-			currentResource = resolved.Property.Ref
-		default:
-			return ExtensionBindingSpec{}, fmt.Errorf("ownerPath segment %q is not an object boundary", part)
-		}
-	}
-	if extensionDepth == 0 {
-		return ExtensionBindingSpec{}, fmt.Errorf("ownerPath must contain at least one repeated extension")
+	ownerSelector, extensionDepth, err := extensionOwnerPath(resourceType, binding.OwnerPath)
+	if err != nil {
+		return ExtensionBindingSpec{}, err
 	}
 	if len(binding.URLPath) != extensionDepth {
 		return ExtensionBindingSpec{}, fmt.Errorf("urlPath must contain one URL per extension boundary (got %d, want %d)", len(binding.URLPath), extensionDepth)
@@ -469,28 +379,103 @@ func ValidateExtensionBinding(resourceType string, binding ExtensionBinding) (Ex
 			return ExtensionBindingSpec{}, fmt.Errorf("urlPath[%d] is empty", index)
 		}
 	}
+	value := checkedBindingValue{LogicalType: binding.LogicalType}
+	if binding.CanonicalJSONValue {
+		if strings.TrimSpace(binding.ValuePath) != "" || len(binding.ValueFallback) != 0 || len(binding.ChoiceArms) != 0 || binding.UnitPath != "" || binding.FallbackOnBlankString {
+			return ExtensionBindingSpec{}, fmt.Errorf("canonical JSON Extension values cannot also select a value[x] arm or fallback")
+		}
+		if logical := strings.TrimSpace(binding.LogicalType); logical != "" && !strings.EqualFold(logical, "string") {
+			return ExtensionBindingSpec{}, fmt.Errorf("canonical JSON Extension values must have string logical type")
+		}
+		value.LogicalType = "string"
+	} else {
+		var err error
+		value, err = validateBindingValue("Extension", binding.ValuePath, binding.ValueFallback, binding.FallbackOnBlankString, binding.ChoiceArms, binding.LogicalType, binding.UnitPath)
+		if err != nil {
+			return ExtensionBindingSpec{}, err
+		}
+	}
+	urlSelectors := make([]Selector, extensionDepth)
+	for index := range urlSelectors {
+		urlSelectors[index], _ = ParseSelector("url")
+	}
+	return ExtensionBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: "Extension", URLSelectors: urlSelectors, ValueSelector: value.ValueSelector, CanonicalJSONValue: binding.CanonicalJSONValue, ValueFallbacks: value.ValueFallbacks, FallbackOnBlankString: value.FallbackOnBlankString, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, UnitSelector: value.UnitSelector}, nil
+}
+
+func ValidateExtensionOwnerPath(resourceType, path string) error {
+	_, _, err := extensionOwnerPath(resourceType, path)
+	return err
+}
+
+func extensionOwnerPath(resourceType, path string) (Selector, int, error) {
+	if !HasResource(resourceType) {
+		return Selector{}, 0, fmt.Errorf("resource type %q is not represented by generated FHIR schema", resourceType)
+	}
+	ownerPath := CanonicalizePath(path)
+	if ownerPath == "" {
+		return Selector{}, 0, fmt.Errorf("ownerPath is required")
+	}
+	parts := strings.Split(ownerPath, ".")
+	baseParts := make([]string, 0, len(parts))
+	currentResource := resourceType
+	startedExtension := false
+	extensionDepth := 0
+	for index, part := range parts {
+		resolved, ok := ResolvePath(currentResource, part)
+		if !ok {
+			return Selector{}, 0, fmt.Errorf("ownerPath segment %q is not represented in resource %q", part, currentResource)
+		}
+		name := strings.TrimSuffix(part, "[]")
+		isExtension := name == "extension" && strings.HasSuffix(part, "[]")
+		if isExtension {
+			if resolved.Property.Kind != "array" || resolved.Property.ItemRef != "Extension" {
+				return Selector{}, 0, fmt.Errorf("ownerPath segment %q must be a repeated Extension", part)
+			}
+			startedExtension = true
+			extensionDepth++
+			currentResource = "Extension"
+			continue
+		}
+		if startedExtension {
+			return Selector{}, 0, fmt.Errorf("ownerPath segment %q follows an extension boundary and is not allowed", part)
+		}
+		if !strings.HasSuffix(part, "[]") && index == len(parts)-1 {
+			return Selector{}, 0, fmt.Errorf("ownerPath must end at a repeated extension")
+		}
+		baseParts = append(baseParts, part)
+		switch resolved.Property.Kind {
+		case "array":
+			if strings.TrimSpace(resolved.Property.ItemRef) == "" {
+				return Selector{}, 0, fmt.Errorf("ownerPath segment %q must resolve to a repeated object", part)
+			}
+			currentResource = resolved.Property.ItemRef
+		case "object":
+			if strings.TrimSpace(resolved.Property.Ref) == "" {
+				return Selector{}, 0, fmt.Errorf("ownerPath segment %q must resolve to a named object", part)
+			}
+			currentResource = resolved.Property.Ref
+		default:
+			return Selector{}, 0, fmt.Errorf("ownerPath segment %q is not an object boundary", part)
+		}
+	}
+	if extensionDepth == 0 {
+		return Selector{}, 0, fmt.Errorf("ownerPath must contain at least one repeated extension")
+	}
 	ownerSelector := Selector{}
 	if len(baseParts) > 0 {
 		basePath := strings.Join(baseParts, ".")
 		var err error
 		ownerSelector, err = ParseSelector(basePath)
 		if err != nil {
-			return ExtensionBindingSpec{}, fmt.Errorf("ownerPath base: %w", err)
+			return Selector{}, 0, fmt.Errorf("ownerPath base: %w", err)
 		}
 		resolved, ok := ResolvePath(resourceType, basePath)
-		if !ok || resolved.Property.Kind != "array" || strings.TrimSpace(resolved.Property.ItemRef) == "" {
-			return ExtensionBindingSpec{}, fmt.Errorf("ownerPath base %q must resolve to a repeated object", basePath)
+		if !ok || !((resolved.Property.Kind == "array" && strings.TrimSpace(resolved.Property.ItemRef) != "") ||
+			(resolved.Property.Kind == "object" && strings.TrimSpace(resolved.Property.Ref) != "")) {
+			return Selector{}, 0, fmt.Errorf("ownerPath base %q must resolve to an object or repeated object", basePath)
 		}
 	}
-	value, err := validateBindingValue("Extension", binding.ValuePath, binding.ValueFallback, binding.FallbackOnBlankString, binding.ChoiceArms, binding.LogicalType, binding.UnitPath)
-	if err != nil {
-		return ExtensionBindingSpec{}, err
-	}
-	urlSelectors := make([]Selector, extensionDepth)
-	for index := range urlSelectors {
-		urlSelectors[index], _ = ParseSelector("url")
-	}
-	return ExtensionBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: "Extension", URLSelectors: urlSelectors, ValueSelector: value.ValueSelector, ValueFallbacks: value.ValueFallbacks, FallbackOnBlankString: value.FallbackOnBlankString, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, UnitSelector: value.UnitSelector}, nil
+	return ownerSelector, extensionDepth, nil
 }
 
 func normalizeCorrelatedLogicalType(input string) (string, bool) {

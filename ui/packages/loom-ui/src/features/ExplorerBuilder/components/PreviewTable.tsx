@@ -1,22 +1,18 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { useBrowserSubscription } from '../hooks/useBrowserSubscription';
 import type {
-  ColumnTransformationChange,
   ExplorerBuilderColumn,
-  ExplorerBuilderCandidate,
   ExplorerBuilderEmission,
   ExplorerBuilderPreviewResult,
   ExplorerBuilderPreviewRowSource,
   ExplorerBuilderRowLineageResponse,
-  ExplorerRowDefinition,
   ConstructionStageColumn,
-  ConstructionStep,
 } from '../../../types';
 import type { DraftTable } from '../authoring/model';
 import { effectiveOutputAvailability } from '../constructionWorkspace/outputEligibility';
 import { displayValue, losslessText } from '../../../valueDisplay';
 import { resultUnitTitle } from '../../../resultUnitDisplay';
-import { useDismissibleLayer } from './useDismissibleLayer';
-import { ExactCategoryRecodeEditor } from './FeaturePolicyEditor';
 import { BoundedCache, useVirtualViewport, virtualRange } from './virtualization';
 
 const PREVIEW_ROW_HEIGHT = 44;
@@ -48,32 +44,6 @@ export type PreviewTablePresentationChange =
       readonly column: ConstructionStageColumn;
     };
 
-type PreviewPresentationColumn = {
-  readonly name: string;
-  readonly label: string;
-  readonly table?: ConstructionStageColumn['table'];
-  readonly visibleByDefault: boolean;
-  readonly change: PreviewTablePresentationChange;
-};
-
-type ExplicitGroupRowValue = NonNullable<Extract<ExplorerRowDefinition, { kind: 'GROUPS' }>['groups']['rowValues']>[number];
-
-const withPresentationTable = (
-  entry: PreviewPresentationColumn,
-  table: NonNullable<ConstructionStageColumn['table']>,
-): PreviewTablePresentationChange => {
-  if (entry.change.kind === 'AUTHORED_COLUMN') {
-    return {
-      kind: 'AUTHORED_COLUMN',
-      column: { ...entry.change.column, table },
-    };
-  }
-  return {
-    ...entry.change,
-    column: { ...entry.change.column, table },
-  };
-};
-
 export const sortByPresentationOrder = <T,>(
   values: ReadonlyArray<T>,
   orderOf: (value: T, index: number) => number,
@@ -81,18 +51,6 @@ export const sortByPresentationOrder = <T,>(
   .map((value, index) => ({ value, index, order: orderOf(value, index) }))
   .sort((left, right) => left.order - right.order || left.index - right.index)
   .map(({ value }) => value);
-
-const withConstructionOutputTable = (
-  entry: PreviewPresentationColumn,
-  constructionStep: ConstructionStep | undefined,
-  table: NonNullable<ConstructionStageColumn['table']>,
-): PreviewTablePresentationChange | undefined => {
-  if (entry.change.kind !== 'AUTHORED_COLUMN' || !constructionStep) return undefined;
-  const output = constructionStep.outputs.find((candidate) => candidate.name === entry.name);
-  return output
-    ? { kind: 'CONSTRUCTION_OUTPUT', stepId: constructionStep.id, column: { ...output, table } }
-    : undefined;
-};
 
 const isStructuredRecord = (value: unknown): value is object =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -129,15 +87,7 @@ export const PreviewTable = ({
   table,
   limit,
   onLimitChange,
-  onColumnChange,
-  onColumnsChange,
-  candidateForColumn,
-  onTransformationChange,
-  onRowValuePolicyChange,
   onRowLineage,
-  onRemoveColumn,
-  expandableColumnIds,
-  onExpandColumn,
   disabled = false,
 }: {
   readonly preview?: ExplorerBuilderPreviewResult;
@@ -145,24 +95,6 @@ export const PreviewTable = ({
   readonly table?: DraftTable;
   readonly limit: number;
   readonly onLimitChange: (value: 25 | 50 | 100 | 500 | 1000) => void;
-  readonly onColumnChange: (change: PreviewTablePresentationChange) => void;
-  readonly onColumnsChange: (
-    changes: ReadonlyArray<PreviewTablePresentationChange>,
-  ) => void;
-  readonly candidateForColumn?: (
-    column: ExplorerBuilderColumn,
-  ) => ExplorerBuilderCandidate | undefined;
-  readonly onTransformationChange?: (
-    column: string,
-    change: ColumnTransformationChange,
-  ) => void;
-  readonly onRowValuePolicyChange?: (
-    physicalColumn: string,
-    policy: ExplicitGroupRowValue['policy'],
-  ) => void;
-  readonly onRemoveColumn?: (column: string) => void;
-  readonly expandableColumnIds?: ReadonlySet<string>;
-  readonly onExpandColumn?: (columnId: string) => void;
   readonly disabled?: boolean;
   readonly onRowLineage?: (
     rowId: string,
@@ -170,51 +102,12 @@ export const PreviewTable = ({
     signal: AbortSignal,
   ) => Promise<ExplorerBuilderRowLineageResponse>;
 }) => {
-  const [columnsOpen, setColumnsOpen] = useState(false);
-  const columnsMenuRef = useDismissibleLayer<HTMLDivElement>(
-    columnsOpen,
-    setColumnsOpen,
-  );
-  const columnsButtonRef = useRef<HTMLButtonElement>(null);
-  const [columnsMenuPosition, setColumnsMenuPosition] = useState<{
-    readonly top: number;
-    readonly right: number;
-  }>();
-  useEffect(() => {
-    if (!columnsOpen) {
-      setColumnsMenuPosition(undefined);
-      return undefined;
-    }
-    const updatePosition = () => {
-      const button = columnsButtonRef.current;
-      if (!button) return;
-      const bounds = button.getBoundingClientRect();
-      const panelHeight = Math.min(window.innerHeight * 0.6, 448) + 72;
-      const below = bounds.bottom + 4;
-      const top = below + panelHeight <= window.innerHeight - 8
-        ? below
-        : Math.max(8, bounds.top - panelHeight - 4);
-      setColumnsMenuPosition({
-        top,
-        right: Math.max(8, window.innerWidth - bounds.right),
-      });
-    };
-    updatePosition();
-    window.addEventListener('resize', updatePosition);
-    window.addEventListener('scroll', updatePosition, true);
-    return () => {
-      window.removeEventListener('resize', updatePosition);
-      window.removeEventListener('scroll', updatePosition, true);
-    };
-  }, [columnsOpen]);
-  const [draggedColumn, setDraggedColumn] = useState<string>();
-  const [dropIndex, setDropIndex] = useState<number>();
   const [ownerRecordInspector, setOwnerRecordInspector] =
     useState<OwnerRecordInspectorState>();
   const [inspectedRow, setInspectedRow] = useState<{ number: number; identity: string; source?: ExplorerBuilderPreviewRowSource }>();
   const [rowLineage, setRowLineage] = useState<RowLineageState>();
   const lineageAbortRef = useRef<AbortController | undefined>(undefined);
-  useEffect(() => () => lineageAbortRef.current?.abort(), [preview?.receiptId, preview?.outputId]);
+  useBrowserSubscription((_onStoreChange) => () => lineageAbortRef.current?.abort(), [preview?.receiptId, preview?.outputId]);
   const loadRowLineage = (rowId: string, offset: number) => {
     if (!onRowLineage) return;
     lineageAbortRef.current?.abort();
@@ -253,7 +146,7 @@ export const PreviewTable = ({
     setInspectedRow(undefined);
     setRowLineage(undefined);
   };
-  const draggedColumnRef = React.useRef<string | undefined>(undefined);
+  useEscapeToClose(Boolean(inspectedRow), closeInspectedRow);
   const { viewport, ref: previewScrollRef } =
     useVirtualViewport<HTMLDivElement>();
   const formattingCacheRef = React.useRef<BoundedCache<string> | null>(null);
@@ -281,9 +174,7 @@ export const PreviewTable = ({
       : explicitGroups.afterStepId === authoredConstructionStep.id
   ));
   const constructionStep = cohortTerminal ? undefined : authoredConstructionStep;
-  // A row-value output represents the grouped value even when it reuses the
-  // authored source's physical name. Keep its stable output ID as the owner
-  // of presentation changes while leaving ordinary source passthroughs alone.
+
   const rowValueOutputIds = new Set(
     (constructionStep?.rowValues ?? []).map((value) => value.outputColumnId),
   );
@@ -304,11 +195,9 @@ export const PreviewTable = ({
       ? [['group_label', 0], ['group_ordinal', 1], ['members', 2]]
       : [],
   );
-  const selectedCohortFields = new Set<string>();
   (explicitGroups?.rowValues ?? []).forEach((value, index) => {
       const column = table?.document.columns.find((candidate) => candidate.columnId === value.columnId);
       if (!column) return;
-      selectedCohortFields.add(column.column);
       cohortOrderByName.set(column.column, 3 + index);
   });
   const authoredColumnsFor = (column: Pick<ExplorerBuilderEmission, 'authoredColumns' | 'column'>) => {
@@ -336,53 +225,6 @@ export const PreviewTable = ({
   };
   const authoredColumnFor = (column: ExplorerBuilderEmission) =>
     authoredColumnsFor(column)[0];
-  const finalOutputNames = cohortTerminal
-    ? selectedCohortFields
-    : new Set(authoredConstructionStep?.outputs.map((output) => output.name));
-  const configuredColumns: PreviewPresentationColumn[] = [
-    ...[...authoredByColumn.values()]
-      .filter((column) => cohortTerminal
-        ? finalOutputNames.has(column.column)
-        : (!constructionStep || finalOutputNames.has(column.column)) &&
-          !constructionOutputByName.has(column.column))
-      .map((column) => ({
-      name: column.column,
-      label: column.label,
-      table: column.table,
-      visibleByDefault: Boolean(column.table),
-      change: { kind: 'AUTHORED_COLUMN' as const, column },
-    })),
-    ...(constructionStep ? constructionOutputs.map((column) => ({
-      name: column.name,
-      label: column.label,
-      table: column.table,
-      visibleByDefault: effectiveConstructionOutputVisibility(column.name),
-      change: {
-        kind: 'CONSTRUCTION_OUTPUT' as const,
-        stepId: constructionStep.id,
-        column,
-      },
-    })) : []),
-  ].sort(
-    (left, right) =>
-      (constructionOrderByName.get(left.name) ?? left.table?.order ?? Number.MAX_SAFE_INTEGER) -
-      (constructionOrderByName.get(right.name) ?? right.table?.order ?? Number.MAX_SAFE_INTEGER),
-  );
-  const removableColumnName = (entry: PreviewPresentationColumn): string | undefined => {
-    switch (entry.change.kind) {
-      case 'AUTHORED_COLUMN':
-        return entry.change.column.column;
-      case 'CONSTRUCTION_OUTPUT': {
-        const output = entry.change.column;
-        if (!rowValueOutputIds.has(output.id)) return undefined;
-        return authoredByColumn.get(output.name)?.column;
-      }
-      default: {
-        const exhaustive: never = entry.change;
-        return exhaustive;
-      }
-    }
-  };
   const orderForEmission = (column: ExplorerBuilderEmission): number => {
     const outputOrder = constructionOrderByName.get(column.column);
     if (outputOrder !== undefined) return outputOrder;
@@ -441,6 +283,11 @@ export const PreviewTable = ({
     );
   });
   const rows = preview?.rows ?? [];
+  const hasEmptyPreview = preview !== undefined && rows.length === 0;
+  const previewContentHeight =
+    PREVIEW_HEADER_HEIGHT +
+    rows.length * PREVIEW_ROW_HEIGHT +
+    (hasEmptyPreview ? 48 : 0);
   const previewTableWidth = Math.max(
     viewport.width,
     PREVIEW_ROW_GUTTER_WIDTH +
@@ -477,286 +324,12 @@ export const PreviewTable = ({
     formattingCache.getOrSet(`display:${rowIndex}:${column.emissionId}`, () => formatPreviewCell(rawValue));
   const titledCell = (rowIndex: number, column: ExplorerBuilderEmission, rawValue: unknown): string =>
     formattingCache.getOrSet(`title:${rowIndex}:${column.emissionId}`, () => previewCellTitle(rawValue));
-  const resetDrag = () => {
-    draggedColumnRef.current = undefined;
-    setDraggedColumn(undefined);
-    setDropIndex(undefined);
-  };
-  const reorderColumns = (columnName: string, insertionIndex: number) => {
-    const fromIndex = configuredColumns.findIndex(
-      (column) => column.name === columnName,
-    );
-    if (fromIndex < 0) return;
-    const reordered = [...configuredColumns];
-    const [moved] = reordered.splice(fromIndex, 1);
-    const adjustedIndex = Math.max(
-      0,
-      Math.min(
-        reordered.length,
-        insertionIndex - (fromIndex < insertionIndex ? 1 : 0),
-      ),
-    );
-    reordered.splice(adjustedIndex, 0, moved);
-    const updates = reordered.flatMap((column, order) => {
-      const changes: PreviewTablePresentationChange[] = [];
-      const table = { ...(column.table ?? {}), order };
-      if (column.table?.order !== order) changes.push(withPresentationTable(column, table));
-      const output = constructionStep?.outputs.find((candidate) => candidate.name === column.name);
-      if (output && output.table?.order !== order) {
-        const outputChange = withConstructionOutputTable(column, constructionStep, {
-          ...(output.table ?? {}),
-          order,
-        });
-        if (outputChange) changes.push(outputChange);
-      }
-      return changes;
-    });
-    if (updates.length > 0) onColumnsChange(updates);
-  };
   const tableControls = (
     <div
-      ref={columnsMenuRef}
       data-testid="preview-table-header-controls"
       className="sticky right-0 top-0 z-20 ml-auto flex h-[42px] shrink-0 items-center justify-end gap-2 bg-slate-50 px-2 text-slate-700"
       style={{ width: PREVIEW_HEADER_CONTROLS_WIDTH }}
     >
-      <button
-        type="button"
-        ref={columnsButtonRef}
-        aria-expanded={columnsOpen}
-        className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-        onClick={() => setColumnsOpen((value) => !value)}
-      >
-        Columns
-      </button>
-      {columnsOpen && (
-        <div
-          data-testid="preview-table-column-settings"
-          className="fixed z-[120] w-[min(32rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white p-2 shadow-lg"
-          style={columnsMenuPosition ?? { visibility: 'hidden' }}
-        >
-          <p className="border-b border-slate-100 px-2 pb-2 text-[11px] text-slate-500">
-            Rename or recode column values here. Uncheck to hide a column; drag to change its order.
-          </p>
-          <div
-            role="list"
-            aria-label="Table columns"
-            className="max-h-[min(60dvh,28rem)] overflow-y-auto overflow-x-hidden py-1 pr-1"
-          >
-            {configuredColumns.map((column, index) => {
-              const visible = column.table?.visible ?? column.visibleByDefault;
-              const removeTarget = removableColumnName(column);
-              const authoredColumn = column.change.kind === 'AUTHORED_COLUMN'
-                ? column.change.column
-                : undefined;
-              const expandableColumnId = column.change.kind === 'AUTHORED_COLUMN'
-                ? column.change.column.columnId
-                : column.change.column.id;
-              const splitValuesIntoRows = expandableColumnId &&
-                expandableColumnIds?.has(expandableColumnId) && onExpandColumn
-                ? () => {
-                    setColumnsOpen(false);
-                    onExpandColumn(expandableColumnId);
-                  }
-                : undefined;
-              const transformation = authoredColumn?.valueTransformation;
-              const recodeCandidate = authoredColumn
-                ? candidateForColumn?.(authoredColumn)
-                : undefined;
-              const recodeCapability = authoredColumn?.source.kind === 'codedValue'
-                ? recodeCandidate?.valueTransformations.codedValueRecoding
-                : recodeCandidate?.valueTransformations.exactCategoryRecode;
-              const canEditCategoryRecode = Boolean(
-                authoredColumn && onTransformationChange && (
-                  transformation?.kind === 'EXACT_CATEGORY_RECODE' ||
-                  recodeCapability?.available
-                ),
-              );
-              const sourceProjectionMode = authoredColumn?.source.kind === 'field'
-                ? authoredColumn.source.field?.projectionMode?.toUpperCase()
-                : undefined;
-              const rowValueTransformationSupported = transformation === undefined || (
-                transformation.kind === 'EXACT_CATEGORY_RECODE' &&
-                authoredColumn?.logicalType?.toLowerCase() === 'string' &&
-                (sourceProjectionMode === undefined || sourceProjectionMode === 'VALUE' || sourceProjectionMode === 'FIRST')
-              );
-              const rowValueBinding = authoredColumn?.columnId &&
-                authoredColumn.occurrenceId === 'base' &&
-                authoredColumn.source.kind === 'field' &&
-                authoredColumn.source.field &&
-                rowValueTransformationSupported &&
-                table?.document.rows.kind === 'GROUPS' &&
-                table.document.rows.groups.source.kind === 'EXPLICIT'
-                ? table.document.rows.groups.rowValues?.find(
-                    (binding) => binding.columnId === authoredColumn.columnId,
-                  )
-                : undefined;
-              return (
-                <div
-                  key={column.name}
-                  role="listitem"
-                  data-column-name={column.name}
-                  onDragOver={(event) => {
-                    if (disabled || !draggedColumnRef.current) return;
-                    event.preventDefault();
-                    const bounds = event.currentTarget.getBoundingClientRect();
-                    setDropIndex(
-                      index +
-                        (event.clientY > bounds.top + bounds.height / 2
-                          ? 1
-                          : 0),
-                    );
-                  }}
-                  onDrop={(event) => {
-                    if (disabled) return;
-                    event.preventDefault();
-                    const columnName =
-                      draggedColumnRef.current ??
-                      event.dataTransfer.getData('text/plain');
-                    if (columnName) {
-                      const bounds = event.currentTarget.getBoundingClientRect();
-                      const insertionIndex =
-                        index +
-                        (event.clientY > bounds.top + bounds.height / 2
-                          ? 1
-                          : 0);
-                      reorderColumns(columnName, insertionIndex);
-                    }
-                    resetDrag();
-                  }}
-                  className={`relative flex items-center gap-2 rounded px-2 py-2 text-xs hover:bg-slate-50 ${draggedColumn === column.name ? 'opacity-50' : ''}`}
-                >
-                  {draggedColumn && dropIndex === index && (
-                    <span className="pointer-events-none absolute inset-x-1 -top-px h-0.5 rounded bg-blue-500" />
-                  )}
-                  <span
-                    aria-label={`Drag ${column.label}`}
-                    draggable={!disabled}
-                    onDragStart={(event) => {
-                      event.dataTransfer.effectAllowed = 'move';
-                      event.dataTransfer.setData('text/plain', column.name);
-                      draggedColumnRef.current = column.name;
-                      setDraggedColumn(column.name);
-                      setDropIndex(index);
-                    }}
-                    onDragEnd={resetDrag}
-                    className="cursor-grab select-none text-base leading-none text-slate-400 active:cursor-grabbing"
-                  >
-                    ⋮⋮
-                  </span>
-                  <div className="flex min-w-0 flex-1 flex-col gap-1 leading-5">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className="mt-0.5 shrink-0"
-                        aria-label={column.label}
-                        disabled={disabled}
-                        checked={visible}
-                        onChange={(event) =>
-                          onColumnChange(
-                            withPresentationTable(column, {
-                              ...(column.table ?? {}),
-                              visible: event.currentTarget.checked,
-                              order: column.table?.order ?? index,
-                            }),
-                          )
-                        }
-                      />
-                      <input
-                        key={column.label}
-                        aria-label={`Column name for ${column.label}`}
-                        defaultValue={column.label}
-                        disabled={disabled}
-                        className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1.5 py-1 text-xs text-slate-800 hover:border-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none disabled:opacity-50"
-                        onBlur={(event) => {
-                          const label = event.currentTarget.value.trim();
-                          if (!label) {
-                            event.currentTarget.value = column.label;
-                            return;
-                          }
-                          if (label === column.label) return;
-                          if (column.change.kind === 'AUTHORED_COLUMN') {
-                            onColumnChange({
-                              kind: 'AUTHORED_COLUMN',
-                              column: { ...column.change.column, label },
-                            });
-                          } else {
-                            onColumnChange({
-                              ...column.change,
-                              column: { ...column.change.column, label },
-                            });
-                          }
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Escape') {
-                            event.currentTarget.value = column.label;
-                          }
-                          if (event.key === 'Enter' || event.key === 'Escape') {
-                            event.currentTarget.blur();
-                          }
-                        }}
-                      />
-                    </div>
-                    {rowValueBinding && onRowValuePolicyChange ? (
-                      <label className="ml-6 flex min-w-0 items-center gap-2 text-[10px] text-slate-600">
-                        <span className="shrink-0">Cohort member values</span>
-                        <select
-                          aria-label={`Values per cohort member for ${column.label} (${column.name})`}
-                          className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-1.5 py-1 text-[10px]"
-                          value={rowValueBinding.policy}
-                          disabled={disabled}
-                          onChange={(event) => {
-                            const policy = event.currentTarget.value;
-                            if ((policy === 'ALL' || policy === 'ONE') && authoredColumn) {
-                              onRowValuePolicyChange(authoredColumn.column, policy);
-                            }
-                          }}
-                        >
-                          <option value="ONE">One unique value</option>
-                          <option value="ALL">All unique values</option>
-                        </select>
-                      </label>
-                    ) : null}
-                    {canEditCategoryRecode && authoredColumn ? (
-                      <ExactCategoryRecodeEditor
-                        column={authoredColumn}
-                        candidate={recodeCandidate}
-                        disabled={disabled}
-                        onChange={(change) => onTransformationChange?.(authoredColumn.column, change)}
-                      />
-                    ) : null}
-                  </div>
-                  {splitValuesIntoRows ? (
-                    <button
-                      type="button"
-                      aria-label={`Split ${column.label} values into rows`}
-                      disabled={disabled}
-                      onClick={splitValuesIntoRows}
-                      className="shrink-0 rounded border border-slate-300 px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-50 disabled:opacity-50"
-                    >
-                      Split values into rows
-                    </button>
-                  ) : null}
-                  {onRemoveColumn && removeTarget ? (
-                    <button
-                      type="button"
-                      aria-label={`Remove ${column.label} column`}
-                      disabled={disabled}
-                      onClick={() => onRemoveColumn(removeTarget)}
-                      className="shrink-0 rounded px-1.5 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50"
-                    >
-                      Remove
-                    </button>
-                  ) : null}
-                </div>
-              );
-            })}
-            {draggedColumn && dropIndex === configuredColumns.length && (
-              <div className="mx-1 h-0.5 rounded bg-blue-500" />
-            )}
-          </div>
-        </div>
-      )}
       <label className="flex items-center gap-1 text-xs font-medium text-slate-600">
         Show
         <select
@@ -809,7 +382,7 @@ export const PreviewTable = ({
             className="relative"
             style={{
               width: previewTableWidth,
-              height: PREVIEW_HEADER_HEIGHT + rows.length * PREVIEW_ROW_HEIGHT,
+              height: previewContentHeight,
             }}
           >
             {tableControls}
@@ -977,6 +550,16 @@ export const PreviewTable = ({
               );
             })}
             </div>
+            {hasEmptyPreview ? (
+              <p
+                role="status"
+                data-testid="preview-table-empty-state"
+                className="absolute inset-x-0 px-4 py-3 text-sm text-slate-500"
+                style={{ top: PREVIEW_HEADER_HEIGHT }}
+              >
+                No rows in this table.
+              </p>
+            ) : null}
           </div>
         )}
       </div>

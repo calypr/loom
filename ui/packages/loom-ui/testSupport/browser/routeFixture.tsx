@@ -15,11 +15,12 @@ const routeId = (construction: Construction) => { const operation = construction
 const previewFor = (construction: Construction, receiptId: string): ExplorerBuilderPreviewResult => ({ apiVersion: 'loom.calypr.org/explorer-authoring/v2', kind: 'ExplorerBuilderPreview', receiptId, outputId: 'patients', columns: columns.map(c => ({ column: c.name, label: c.label, logicalType: 'string', filterable: true, chartable: false })), rows: routeId(construction) === 'route-A' ? [{ patient_id:'p1', observation_id:'o1', __loom_row_id:'p1/o1' }, {patient_id:'p2',observation_id:'o2',__loom_row_id:'p2/o2'}] : [{patient_id:'p1',observation_id:'o2',__loom_row_id:'p1/o2'}], rowCount: routeId(construction) === 'route-A' ? 2 : 1, diagnostics: [], rowLineageCapability: {status:'UNAVAILABLE',reasonCode:'CONTROLLED_ROUTE_FIXTURE'} });
 export function RouteFixture() {
   const [saved,setSaved] = useState<{construction:Construction;version:number;writes:number}>(()=>JSON.parse(sessionStorage.getItem('route-saved') || 'null') || {construction:initial,version:1,writes:0});
+  const [previewLimit, setPreviewLimit] = useState<25 | 50 | 100 | 500 | 1000>(25);
   const [epoch,setEpoch] = useState(0);
   const [hold,setHold] = useState(false);
   const [pending,setPending] = useState<(() => void) | undefined>();
   const [released,setReleased] = useState(0);
-  const capabilities: ConstructionCapabilitiesResponse = {snapshotToken:catalog.snapshotToken,draftVersion:saved.version,draftDigest:`digest-${saved.version}`,outputId:'patients',stageId:'source_projection',groupFieldChoices:[],groupRowValueChoices:[],workspaceInputs:[],baseConstruction:saved.construction,stages:[],selectedStage:{id:'source_projection',inputStageId:'',rowIdentityColumn:'_key',columns:[columns[0]!],capabilities:[{kind:'RELATED_EXPAND',supported:true}],relatedExpandAnchors:[{anchorColumnId:'_key',kind:'root',nodeId:'patient',resourceType:'Patient',label:'Original Patient record'}]}};
+  const capabilities: ConstructionCapabilitiesResponse = {snapshotToken:catalog.snapshotToken,draftVersion:saved.version,draftDigest:`digest-${saved.version}`,outputId:'patients',stageId:'source_projection',sourceInput:{supported:false,stageId:'source_projection',reasonCode:'TEST_FIXTURE_NO_CHOICES',choices:[]},groupFieldChoices:[],groupRowValueChoices:[],workspaceInputs:[],baseConstruction:saved.construction,stages:[],selectedStage:{id:'source_projection',inputStageId:'',rowIdentityColumn:'_key',columns:[columns[0]!],capabilities:[{kind:'RELATED_EXPAND',supported:true}],relatedExpandAnchors:[{anchorColumnId:'_key',kind:'root',nodeId:'patient',resourceType:'Patient',label:'Original Patient record'}]}};
   const client = useMemo(()=>({
     getConstructionCapabilities: async () => capabilities,
     searchRelatedExpandChoices: async () => ({snapshotToken:catalog.snapshotToken,draftVersion:saved.version,draftDigest:`digest-${saved.version}`,outputId:'patients',stageId:'source_projection',complete:true,truncated:false,choices:['route-A','route-B'].map(choiceId=>({choiceId,anchorColumnId:'_key',kind:'root',nodeId:'patient',resourceType:'Patient',label:'Original Patient record',targetNodeId:'observation',targetResourceType:'Observation',route:route(choiceId)}))}),
@@ -46,6 +47,6 @@ export function RouteFixture() {
     <output data-testid="route-released">{released}</output>
     <RelatedExpandEditor key={`${saved.version}/${epoch}`} project="fixture/project" explorerId="browser-routes" snapshotToken={catalog.snapshotToken} outputId="patients" catalog={catalog} construction={saved.construction} capabilities={capabilities} step={saved.construction.steps[0] as Parameters<typeof RelatedExpandEditor>[0]['step']} disabled={false} onCandidateChange={lifecycle.onCandidateChange}/>
     <ConstructionProposalPanel state={lifecycle.proposal} canApply={lifecycle.canApply} baseConstruction={saved.construction} onApply={apply} onCancel={cancel} onRetry={lifecycle.retry}/>
-    <section data-testid="route-preview"><PreviewTable preview={shown} limit={25} onLimitChange={()=>undefined} onColumnChange={()=>undefined} onColumnsChange={()=>undefined}/></section>
+    <section data-testid="route-preview"><PreviewTable preview={shown} limit={previewLimit} onLimitChange={setPreviewLimit}/></section>
   </LoomProvider>;
 }

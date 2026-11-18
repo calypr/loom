@@ -16,15 +16,17 @@ import {
   usePublishExplorerAuthoringV2Mutation,
   useReconcileExplorerBuilderV2Mutation,
 } from '../../react';
+import type { LoomClient } from '../../api';
+import { createLoomClientMock } from '../../../testSupport/loomClientMock';
 import BuilderWorkspace from './BuilderWorkspace';
 
-const mockLoomClient = vi.hoisted(() => ({ getSelection: vi.fn(), createSelection: vi.fn() }));
+const mockLoomClient = vi.hoisted(() => ({ client: null as unknown as LoomClient }));
 
 vi.mock('../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../react')>();
   return {
     ...actual,
-    useLoomClient: () => mockLoomClient,
+    useLoomClient: () => mockLoomClient.client,
     useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
     useAssessExplorerRowChangeMutation: vi.fn(),
     useCreateExplorerAuthoringMutation: vi.fn(),
@@ -53,6 +55,8 @@ vi.mock('../../react', async (importOriginal) => {
     useReconcileExplorerBuilderV2Mutation: vi.fn(),
   };
 });
+
+mockLoomClient.client = createLoomClientMock();
 
 const mutationResult = () => [vi.fn(), { isLoading: false }];
 const newBuilderState = () => ({

@@ -16,10 +16,6 @@ const (
 	workspaceCombinePrivateOperand   workspaceCombineOperandKind = "private-aql-prefix"
 )
 
-// WorkspaceCombineScopeOperand is opaque provenance for one ordered input to
-// a workspace Combine. Callers can only obtain one through a validating
-// constructor below; its fields are copied so later resolver mutations cannot
-// change the issued evidence.
 type WorkspaceCombineScopeOperand struct {
 	inputIndex            int
 	ref                   PhysicalCombineInputRef
@@ -31,9 +27,6 @@ type WorkspaceCombineScopeOperand struct {
 	resolvedColumns       []ResolvedClickHouseColumn
 }
 
-// NewWorkspaceOutputScopeOperand binds one exact same-workspace output ref to
-// the already validated evidence for that output. The source plan may be an
-// ordinary AQL plan or a previously composed ClickHouse plan.
 func NewWorkspaceOutputScopeOperand(inputIndex int, ref PhysicalCombineInputRef, sourcePlan PhysicalPlan, sourceIdentity WholeRelationScopeIdentity, sourceEvidence WholeRelationScopeEvidence) (WorkspaceCombineScopeOperand, error) {
 	if inputIndex < 0 || strings.TrimSpace(ref.WorkspaceOutputID) == "" || ref.WorkspaceOutputID != strings.TrimSpace(ref.WorkspaceOutputID) ||
 		ref.TableID != "" || ref.RevisionID != "" || ref.OutputID != "" || ref.PrivateStageID != "" {
@@ -60,10 +53,6 @@ func NewWorkspaceOutputScopeOperand(inputIndex int, ref PhysicalCombineInputRef,
 	}, nil
 }
 
-// NewPublishedWorkspaceScopeOperand binds an exact immutable published
-// revision returned by the server resolver to the requested output scope.
-// Call it at the resolver boundary, immediately after exact revision lookup,
-// reauthorization, and schema validation.
 func NewPublishedWorkspaceScopeOperand(inputIndex int, ref PhysicalCombineInputRef, resolved ResolvedClickHouseTable, expectedScope WholeRelationScopeIdentity) (WorkspaceCombineScopeOperand, error) {
 	if inputIndex < 0 || strings.TrimSpace(ref.TableID) == "" || ref.TableID != strings.TrimSpace(ref.TableID) ||
 		strings.TrimSpace(ref.RevisionID) == "" || ref.RevisionID != strings.TrimSpace(ref.RevisionID) ||
@@ -108,8 +97,6 @@ func NewPublishedWorkspaceScopeOperand(inputIndex int, ref PhysicalCombineInputR
 	}, nil
 }
 
-// NewPrivateAQLPrefixScopeOperand binds the composite plan's exact private
-// AQL stage to the evidence issued for that complete source query.
 func NewPrivateAQLPrefixScopeOperand(inputIndex int, ref PhysicalCombineInputRef, sourcePlan PhysicalPlan, sourceIdentity WholeRelationScopeIdentity, sourceEvidence WholeRelationScopeEvidence) (WorkspaceCombineScopeOperand, error) {
 	if inputIndex < 0 || strings.TrimSpace(ref.PrivateStageID) == "" || ref.PrivateStageID != strings.TrimSpace(ref.PrivateStageID) ||
 		ref.TableID != "" || ref.RevisionID != "" || ref.OutputID != "" || ref.WorkspaceOutputID != "" {
@@ -137,9 +124,6 @@ func NewPrivateAQLPrefixScopeOperand(inputIndex int, ref PhysicalCombineInputRef
 	}, nil
 }
 
-// NewWorkspaceCombineScopeEvidence composes the exact authorized provenance
-// of every ordered input and binds it to the actual optimized typed Combine
-// plan and its compiler-final output identity.
 func NewWorkspaceCombineScopeEvidence(actualPlan PhysicalPlan, finalizedIdentity WholeRelationScopeIdentity, orderedOperands []WorkspaceCombineScopeOperand) (WholeRelationScopeEvidence, error) {
 	if err := validateWorkspaceCombinePhysicalPlan(actualPlan, finalizedIdentity); err != nil {
 		return WholeRelationScopeEvidence{}, err

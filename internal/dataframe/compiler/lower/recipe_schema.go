@@ -1,9 +1,5 @@
 package lower
 
-// This file contains the canonical recipe lowering boundary. Persisted
-// recipes are a frontend: after resolution each output is lowered to the same
-// ir.PhysicalPlan used by the GraphQL dataframe compiler.
-
 import (
 	"fmt"
 	"strings"
@@ -15,15 +11,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
-// CompiledRecipe is orchestration metadata around one canonical physical plan
-// per output.  It deliberately contains no recipe-specific traversal,
-// projection, or renderer structures.  Output order is the persisted recipe
-// order and therefore part of the stable materialization contract.
-// recipeOutputSchema is the single schema capture point for recipe outputs.
-// Names and order come from the physical RETURN operation after all recipe
-// identity and bounded dynamic projections have been appended. Semantic
-// metadata is used only to enrich those already-finalized projections with
-// logical type/cardinality information.
 func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynamicMetadata []DynamicColumnMetadata, derivedTypes map[string]derivedColumnMetadata) ([]CompiledOutputColumn, error) {
 	if output.GroupRows != nil {
 		columns := []CompiledOutputColumn{
@@ -68,7 +55,12 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 	}
 	logical := make(map[string]CompiledOutputColumn)
 	fieldMetadata := make(map[string]struct{ id, label string })
+	dynamicOrigins := make(map[string]*CompiledSourceOrigin)
 	for _, dynamic := range dynamicMetadata {
+		if dynamic.Name == "" {
+			continue
+		}
+		dynamicOrigins[dynamic.Name] = dynamic.SourceOrigin
 		kind := dynamic.ValueType
 		if kind == "" || kind == "unknown" {
 			kind = string(expression.KindString)
@@ -77,14 +69,18 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 		if dynamic.Many {
 			cardinality, nullable = string(expression.Many), false
 		}
-		logical[dynamic.Name] = CompiledOutputColumn{Name: dynamic.Name, SemanticPath: dynamic.SemanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, Discovered: dynamic.Discovered}
+		logical[dynamic.Name] = CompiledOutputColumn{SourceOrigin: dynamic.SourceOrigin, Name: dynamic.Name, SemanticPath: dynamic.SemanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, Discovered: dynamic.Discovered}
 	}
 	addLogical := func(name, semanticPath, kind, cardinality string, nullable, discovered bool, normalizedUnit *unit.UnitIdentity) {
 		if strings.TrimSpace(name) == "" {
 			return
 		}
 		if existing, exists := logical[name]; exists {
-			// Explicit declarations win collisions under overwrite policies.
+			if output.Collision == "overwrite" {
+				logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: cloneUnitIdentity(normalizedUnit), Discovered: discovered}
+				return
+			}
+
 			if existing.Discovered && !discovered {
 				logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: cloneUnitIdentity(normalizedUnit), Discovered: false}
 			}
@@ -103,12 +99,23 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 		}
 		addLogical(name, semanticPath, kind, cardinality, typ.Cardinality.Optional(), discovered, normalizedUnit)
 	}
-	var addNode func(semantic.SemanticNode, string)
-	addNode = func(node semantic.SemanticNode, prefix string) {
+	origins := make(map[string]*CompiledSourceOrigin)
+	var addNode func(semantic.SemanticNode, string, string)
+	addNode = func(node semantic.SemanticNode, prefix, sourcePath string) {
 		for _, field := range node.Fields {
 			name := prefix + field.Name
 			addType(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, field.FieldRef, field.Expr.Expression), field.Expr.Type, field.Discovered, nil)
 			fieldMetadata[name] = struct{ id, label string }{field.ColumnID, field.Label}
+			kind := "FIELD_GROUP"
+			if field.Discovered {
+				kind = "CATALOG_PROJECTION"
+			}
+			origin := &CompiledSourceOrigin{SourceKind: kind, OccurrenceID: node.OccurrenceID, ResourceType: node.ResourceType, SourcePath: sourcePath + "fields", ValueMode: string(field.Projection)}
+			if field.Discovered {
+				origin.SourceKey = field.SourceKey
+				origin.OutputKey = field.FieldRef
+			}
+			origins[name] = origin
 		}
 		for _, aggregate := range node.Aggregates {
 			name := aggregate.Name
@@ -133,9 +140,10 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 				target := aggregate.UnitNormalization.Target
 				normalizedUnit = &target
 			}
+			origins[name] = &CompiledSourceOrigin{OccurrenceID: node.OccurrenceID, ResourceType: node.ResourceType, SourcePath: sourcePath + "aggregates", ValueMode: aggregate.Operation}
 			addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, aggregate.FieldRef, expression.Expression{}), string(kind), string(cardinality), true, false, normalizedUnit)
 		}
-		for _, pivot := range node.Pivots {
+		for pivotIndex, pivot := range node.Pivots {
 			kind := pivot.ValueKind
 			if kind == "" {
 				kind = expression.KindString
@@ -144,27 +152,43 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 			switch strings.ToUpper(strings.TrimSpace(pivot.ProjectionMode)) {
 			case "ALL", "DISTINCT":
 				cardinality = expression.Many
+			case "FIRST":
+				if pivot.SourceKind == "EXTENSION_COLUMN" {
+					cardinality = expression.OptionalOne
+				}
 			}
 			for _, column := range pivot.Columns {
-				name := prefix + pivot.Name + "__" + sanitizeColumnName(column)
-				if alias, ok := pivot.ColumnAliases[column]; ok {
-					name = prefix + alias
+				projectionPrefix := prefix
+				if pivot.SourceKind == "EXTENSION_COLUMN" {
+					projectionPrefix = pivot.ExtensionProjectionPrefix
 				}
-				addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, pivot.FieldRef, expression.Expression{})+"["+column+"]", string(kind), string(cardinality), true, pivot.Discovered, nil)
+				name := NativePivotColumnName(projectionPrefix, pivot.Name, column, pivot.ColumnAliases)
+				sourceKind, sourceKey, outputKey, outputPath := pivot.SourceKind, pivot.SourceKey, pivot.OutputKey, pivot.SourcePath
+				if sourceKind == "" {
+					sourceKind, sourceKey, outputKey, outputPath = "PIVOT", pivot.Name, column, fmt.Sprintf("%spivots[%d]", sourcePath, pivotIndex)
+				}
+				origins[name] = &CompiledSourceOrigin{SourceKey: sourceKey, OutputKey: outputKey, SourceKind: sourceKind, OccurrenceID: node.OccurrenceID, ResourceType: node.ResourceType, SourcePath: outputPath, ValueMode: pivot.ProjectionMode}
+				identityPath := pivot.ColumnIdentityPath
+				if identityPath == "" {
+					identityPath = recipeSemanticPath(output.RootResourceType, node.ResourceType, pivot.FieldRef, expression.Expression{}) + "[" + column + "]"
+				}
+				addLogical(name, identityPath, string(kind), string(cardinality), true, pivot.Discovered, nil)
 			}
 		}
 		for _, ownerRecords := range node.OwnerRecords {
+			origins[prefix+ownerRecords.Name] = &CompiledSourceOrigin{OccurrenceID: node.OccurrenceID, ResourceType: node.ResourceType, SourcePath: sourcePath + "ownerRecords", ValueMode: "ALL"}
 			addLogical(prefix+ownerRecords.Name, recipeSemanticPath(output.RootResourceType, node.ResourceType, ownerRecords.FieldRef, expression.Expression{}), string(expression.KindObject), string(expression.Many), true, false, nil)
 		}
 		for _, slice := range node.Slices {
+			origins[prefix+slice.Name] = &CompiledSourceOrigin{OccurrenceID: node.OccurrenceID, ResourceType: node.ResourceType, SourcePath: sourcePath + "slices", ValueMode: "FIRST"}
 			addLogical(prefix+slice.Name, recipeSemanticPath(output.RootResourceType, node.ResourceType, "", expression.Expression{})+"."+slice.Name, string(expression.KindObject), string(expression.RequiredOne), true, false, nil)
 		}
-		for _, child := range node.Children {
+		for childIndex, child := range node.Children {
 			childPrefix := traversalColumnPrefix(output.TraversalColumnNaming, prefix, child.Alias)
-			addNode(child, traversalColumnNamePrefix(childPrefix))
+			addNode(child, traversalColumnNamePrefix(childPrefix), fmt.Sprintf("%straversals[%d].", sourcePath, childIndex))
 		}
 	}
-	addNode(output.Root, "")
+	addNode(output.Root, "", "")
 	for _, derived := range output.DerivedColumns {
 		if typ, ok := derivedTypes[derived.Name]; ok {
 			addType(derived.Name, "derived:"+derived.ConstructionID, typ.Type, false, typ.NormalizedUnit)
@@ -190,7 +214,21 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 					column.Kind = string(expression.KindObject)
 				}
 			}
+			if projection.Name == "__loom_row_id" {
+				column.Cardinality = string(expression.RequiredOne)
+				column.Nullable = false
+			}
 			column.Name = projection.Name
+			if origin, ok := origins[projection.Name]; ok {
+				column.SourceOrigin = origin
+			}
+
+			if projection.Expression != nil && projection.Expression.Kind == ir.PhysicalObjectLookupExpression {
+				if origin, ok := dynamicOrigins[projection.Name]; ok {
+					column.SourceOrigin = origin
+				}
+			}
+
 			if field, ok := fieldMetadata[projection.Name]; ok {
 				column.ID = field.id
 				column.Label = field.label
@@ -213,10 +251,7 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 			}
 			semanticCounts[path]++
 		}
-		// Legacy recipes may intentionally project the same FHIR value more than
-		// once. Keep those columns addressable by qualifying the ambiguous source
-		// with the authored projection name. New recipes should use fieldRef when
-		// they need rename-stable identities for such duplicate projections.
+
 		for index := range result {
 			if !result[index].Internal && semanticCounts[result[index].SemanticPath] > 1 {
 				result[index].SemanticPath += "#" + result[index].Name
@@ -227,9 +262,6 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 	return nil, nil
 }
 
-// recipeSemanticPath produces a storage-independent identity. Explicit
-// fieldRef values are frontend/catalog provenance and are retained verbatim;
-// selector expressions fall back to resource type plus normalized FHIR path.
 func recipeSemanticPath(rootResource, resource, fieldRef string, expr expression.Expression) string {
 	ref := strings.TrimSpace(fieldRef)
 	if ref != "" {

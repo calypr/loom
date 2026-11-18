@@ -12,11 +12,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// CompiledPopulationMappingQuery is an internal witness query. Its rows are
-// (selected member, final row identity) pairs and are not a dataframe schema.
-// Default identities are returned as ordered IdentityPartsColumn values for
-// the execution layer to hash with RowIdentity. Explicit recipe identities
-// use ExplicitIdentityColumn and preserve the compiled identity expression.
 type CompiledPopulationMappingQuery struct {
 	Query                  string
 	BindVars               map[string]any
@@ -27,10 +22,6 @@ type CompiledPopulationMappingQuery struct {
 	Diagnostics            ir.CompilerPlanDiagnostics
 }
 
-// CompilePopulationMappingOutputWithPolicy builds the complete mapping query
-// from the canonical final output plan. Unlike ordinary Preview/Publish, it
-// has no execution limit: required filters, authored filters, child sets, and
-// explicit expansion all run before the internal witness terminal.
 func CompilePopulationMappingOutputWithPolicy(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, policy ir.PhysicalOptimizationPolicy) (CompiledPopulationMappingQuery, error) {
 	if output.RowIdentity == nil {
 		return CompiledPopulationMappingQuery{}, fmt.Errorf("population mapping requires a row identity")
@@ -68,7 +59,7 @@ func CompilePopulationMappingOutputWithPolicy(output lower.CompiledRecipeOutput,
 func mappingPhysicalPlan(output lower.CompiledRecipeOutput, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
 	var physical ir.PhysicalPlan
 	if output.OptimizedPlan != nil {
-		physical = clonePhysicalPlan(*output.OptimizedPlan)
+		physical = ir.ClonePhysicalPlan(*output.OptimizedPlan)
 	} else {
 		optimized, err := optimize.OptimizePhysicalPlanWithPolicy(output.Plan, policy)
 		if err != nil {

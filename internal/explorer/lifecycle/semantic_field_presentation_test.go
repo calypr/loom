@@ -280,7 +280,7 @@ func TestFieldPresentationDoesNotCollapseCompilerOrCoverageReadErrors(t *testing
 			return catalogarango.SemanticCoverageLookupResult{}, errors.New("injected coverage read failure")
 		}
 		_, err := fixture.service.BrowseSemanticInventory(context.Background(), fixture.request())
-		assertLifecycleError(t, err, ClassInternal, "FIELD_PRESENTATION_LOOKUP_FAILED")
+		assertLifecycleError(t, err, ClassUnavailable, "PERSISTENCE_UNAVAILABLE")
 	})
 }
 

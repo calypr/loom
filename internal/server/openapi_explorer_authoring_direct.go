@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	shared "github.com/arangodb/go-driver/v2/arangodb/shared"
 	loomapi "github.com/calypr/loom/generated/loomapi"
+	"github.com/calypr/loom/internal/api/authpolicy"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -37,6 +37,9 @@ func (h *explorerHTTPHandlers) authoringReadDirect(ctx context.Context, project 
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := h.authorizeRead(ctx, principal, project); err != nil {
+		if authorizerResponseStatus(err) == http.StatusServiceUnavailable {
+			return &explorer.AuthoringError{Status: http.StatusServiceUnavailable, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "authorization", Code: authoringBackendUnavailableCode, Message: authoringBackendUnavailableMessage}, Cause: err}
+		}
 		return &explorer.AuthoringError{Status: http.StatusForbidden, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "authorization", Code: "FORBIDDEN", Message: "forbidden"}, Cause: err}
 	}
 	return nil
@@ -49,72 +52,18 @@ func authResourcePathFromParam(value *loomapi.AuthResourcePath) string {
 	return string(*value)
 }
 
-// Authorizer storage faults are reported with the repo's backend-unavailable
-// named fault rather than 403, so a store/client failure is never mistaken for
-// a permission decision. The name follows the shared taxonomy: authscope
-// authorizes the boundary with ErrAuthorizationBackendUnavailable and the
-// dataframe layer maps it to dataframeerrors.CodeBackendUnavailable (see
-// internal/api/http/errors.go:53-55 and internal/api/authpolicy/policy.go:36-37).
 const (
 	authoringBackendUnavailableCode    = "BACKEND_UNAVAILABLE"
 	authoringBackendUnavailableMessage = "authorization backend unavailable"
 )
 
-// isAuthorizerStorageFault classifies an AuthorizeWrite error as a storage or
-// transport fault (not a permission decision) by error TYPE and explicit
-// numeric response fields — there is no message-substring matching. It
-// extends the repo's authz taxonomy exactly as
-// internal/api/authpolicy/policy.go:36-37 groups context.DeadlineExceeded,
-// dataframeerrors.ErrBackendUnavailable and authscope.ErrAuthorizationBackendUnavailable
-// into the retryable backend-unavailable class (mirrored at
-// internal/api/http/errors.go:53-55), and recognises Arango client faults by
-// the driver error TYPE (errors.As on shared.ArangoError, read for value and
-// pointer form as in internal/server/server.go:237-243). A driver response
-// that carries the Arango permission-decision fields (HTTP 401/403 or
-// ErrorNum shared.ErrForbidden=11 — the fields the driver itself defines as
-// ErrHttpUnauthorized/ErrHttpForbidden/ErrForbidden) is a store-level
-// permission DENIAL, not a backend fault: it keeps the 403 arm. Query-fault
-// responses (Code 400 family, bind-parameter error numbers such as
-// shared.ErrQueryBindParameterUndeclared) remain storage faults. Genuine
-// permission denials from the ScopeResolver wrap
-// authscope.ErrForbidden/ErrUnauthenticated (scope_resolver.go) and are
-// checked first, so this predicate can only ever lift a non-permission
-// storage fault out of the 403 arm; it can never relabel a denial — sentinel
-// or store-native — as 5xx. An unclassified error stays in the 403 arm
-// (unchanged pre-repair posture) — fail closed.
-func isAuthorizerStorageFault(err error) bool {
-	if err == nil {
-		return false
+func authorizerResponseStatus(err error) int {
+	classified := authpolicy.Classify(err, authpolicy.OperationExplorerAuthorization)
+	userErr, ok := dataframeerrors.AsUserError(classified)
+	if ok && userErr.Code() == string(dataframeerrors.CodeBackendUnavailable) && userErr.Retryable() {
+		return http.StatusServiceUnavailable
 	}
-	if errors.Is(err, authscope.ErrForbidden) || errors.Is(err, authscope.ErrUnauthenticated) {
-		return false
-	}
-	if errors.Is(err, authscope.ErrAuthorizationBackendUnavailable) ||
-		errors.Is(err, dataframeerrors.ErrBackendUnavailable) ||
-		errors.Is(err, context.DeadlineExceeded) {
-		return true
-	}
-	var arangoErr shared.ArangoError
-	if errors.As(err, &arangoErr) {
-		return !isArangoPermissionResponse(arangoErr)
-	}
-	var arangoErrPointer *shared.ArangoError
-	if errors.As(err, &arangoErrPointer) && arangoErrPointer != nil {
-		return !isArangoPermissionResponse(*arangoErrPointer)
-	}
-	return false
-}
-
-// isArangoPermissionResponse reports whether an Arango driver response is the
-// store's own permission decision (fail closed to 403) rather than a backend
-// fault (retryable 5xx). Matching is on the driver's numeric response fields
-// only: go-driver v2 shared/error.go defines ErrHttpUnauthorized=401,
-// ErrHttpForbidden=403 and ErrForbidden=11; those are Arango saying
-// "not authorized", which must never surface as retryable availability.
-func isArangoPermissionResponse(arangoErr shared.ArangoError) bool {
-	return arangoErr.Code == shared.ErrHttpUnauthorized ||
-		arangoErr.Code == shared.ErrHttpForbidden ||
-		arangoErr.ErrorNum == shared.ErrForbidden
+	return http.StatusForbidden
 }
 
 func (h *explorerHTTPHandlers) authoringWriteDirect(ctx context.Context, project, authResourcePath string) error {
@@ -123,7 +72,7 @@ func (h *explorerHTTPHandlers) authoringWriteDirect(ctx context.Context, project
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := h.authorizer.AuthorizeWrite(ctx, principal, project, authResourcePath); err != nil {
-		if isAuthorizerStorageFault(err) {
+		if authorizerResponseStatus(err) == http.StatusServiceUnavailable {
 			return &explorer.AuthoringError{Status: http.StatusServiceUnavailable, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "authorization", Code: authoringBackendUnavailableCode, Message: authoringBackendUnavailableMessage}, Cause: err}
 		}
 		return &explorer.AuthoringError{Status: http.StatusForbidden, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "authorization", Code: "FORBIDDEN", Message: "forbidden"}, Cause: err}
@@ -525,18 +474,22 @@ func (h *explorerHTTPHandlers) assessAuthoringRowChangeDirect(ctx context.Contex
 	}
 	return directAuthoringJSON[loomapi.RowChangeAssessmentResponse](struct {
 		authoringv2.RowChangeAssessment
-		SnapshotToken      string           `json:"snapshotToken"`
-		DraftVersion       int64            `json:"draftVersion"`
-		DraftDigest        string           `json:"draftDigest"`
-		CandidateReceiptID string           `json:"candidateReceiptId,omitempty"`
-		Diagnostics        []map[string]any `json:"diagnostics"`
+		SnapshotToken        string                        `json:"snapshotToken"`
+		DraftVersion         int64                         `json:"draftVersion"`
+		DraftDigest          string                        `json:"draftDigest"`
+		CandidateReceiptID   string                        `json:"candidateReceiptId,omitempty"`
+		CandidateDocument    *authoringv2.Document         `json:"candidateDocument,omitempty"`
+		CandidateNetwork     *authoringv2.AuthoringNetwork `json:"candidateNetwork,omitempty"`
+		CandidateRowIdentity *authoringv2.RowIdentityPlan  `json:"candidateRowIdentity,omitempty"`
+		Diagnostics          []map[string]any              `json:"diagnostics"`
 	}{
 		RowChangeAssessment: value.Assessment,
 		SnapshotToken:       value.SnapshotToken,
 		DraftVersion:        value.DraftVersion,
 		DraftDigest:         value.DraftDigest,
 		CandidateReceiptID:  value.CandidateReceiptID,
-		Diagnostics:         []map[string]any{},
+		CandidateDocument:   value.CandidateDocument, CandidateNetwork: value.CandidateNetwork, CandidateRowIdentity: value.CandidateRowIdentity,
+		Diagnostics: []map[string]any{},
 	})
 }
 
@@ -563,10 +516,10 @@ func (h *explorerHTTPHandlers) reconcileAuthoringDirect(ctx context.Context, pro
 }
 
 func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, project, explorerID string, body *loomapi.PreviewExplorerJSONRequestBody) (loomapi.PreviewResponse, error) {
-	return h.previewAuthoringDirectWithTimeout(ctx, project, explorerID, body, explorerPreviewTimeout)
+	return h.previewAuthoringDirectWithTimeout(ctx, project, explorerID, body, explorerPreviewTimeout, false)
 }
 
-func (h *explorerHTTPHandlers) previewAuthoringDirectWithTimeout(ctx context.Context, project, explorerID string, body *loomapi.PreviewExplorerJSONRequestBody, timeout time.Duration) (loomapi.PreviewResponse, error) {
+func (h *explorerHTTPHandlers) previewAuthoringDirectWithTimeout(ctx context.Context, project, explorerID string, body *loomapi.PreviewExplorerJSONRequestBody, timeout time.Duration, allowSampledAggregate bool) (loomapi.PreviewResponse, error) {
 	var result loomapi.PreviewResponse
 	if err := h.authoringReadDirect(ctx, project); err != nil {
 		return result, err
@@ -584,7 +537,7 @@ func (h *explorerHTTPHandlers) previewAuthoringDirectWithTimeout(ctx context.Con
 	previewCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var encoder *previewResponseEncoder
-	preview, err := h.application.Preview(previewCtx, lifecycle.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, SinkFactory: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
+	preview, err := h.application.Preview(previewCtx, lifecycle.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, AllowSampledAggregatePreview: allowSampledAggregate, SinkFactory: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
 		var encoderErr error
 		encoder, encoderErr = newPreviewResponseEncoder(receipt, body.OutputId, columns, maxExplorerPreviewResponseBytes)
 		if encoderErr != nil {
@@ -817,17 +770,20 @@ func authoringErrorForOpenAPI(ctx context.Context, operation string, err error) 
 	typed := false
 	var lifecycleErr *lifecycle.Error
 	var authoringErr *explorer.AuthoringError
-	if errors.As(err, &lifecycleErr) {
-		typed = true
-		status = lifecycleErrorStatus(lifecycleErr.Class)
-		code, message, stage, path, details, cause = lifecycleErr.Code, lifecycleErr.Message, lifecycleErr.Stage, lifecycleErr.Path, lifecycleErr.Details, lifecycleErr.Cause
-	} else if errors.As(err, &authoringErr) {
+	hasLifecycleError := errors.As(err, &lifecycleErr)
+	hasAuthoringError := errors.As(err, &authoringErr)
+
+	if hasAuthoringError && (!hasLifecycleError || errors.Is(authoringErr, lifecycleErr)) {
 		typed = true
 		status = authoringErr.Status
 		code, message, stage, path, details = authoringErr.Diagnostic.Code, authoringErr.Diagnostic.Message, authoringErr.Diagnostic.Stage, authoringErr.Diagnostic.JSONPath, authoringErr.Diagnostic.Details
 		if authoringErr.Cause != nil {
 			cause = authoringErr.Cause
 		}
+	} else if hasLifecycleError {
+		typed = true
+		status = lifecycleErrorStatus(lifecycleErr.Class)
+		code, message, stage, path, details, cause = lifecycleErr.Code, lifecycleErr.Message, lifecycleErr.Stage, lifecycleErr.Path, lifecycleErr.Details, lifecycleErr.Cause
 	} else if errors.Is(err, explorer.ErrNotFound) {
 		typed = true
 		status, code, message = http.StatusNotFound, "NOT_FOUND", "Explorer resource not found"
@@ -869,7 +825,8 @@ func authoringErrorForOpenAPI(ctx context.Context, operation string, err error) 
 		body.RequestId = &requestID
 	}
 	if details != nil {
-		body.AdditionalProperties = map[string]interface{}{"details": details}
+		converted := map[string]interface{}(details)
+		body.Details = &converted
 	}
 	return status, loomapi.ErrorResponse{Error: body, Diagnostics: &diagnostics}
 }

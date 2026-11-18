@@ -108,8 +108,7 @@ func TestBrowseSemanticInventoryThroughPublicAPI(t *testing.T) {
 		status int
 	}{
 		{`{"snapshotToken":"snapshot","rowRoot":"Observation","limit":51}`, http.StatusBadRequest},
-		// A self-declared authorization scope in the body is rejected at the boundary
-		// (additionalProperties:false -> documented 400); scope only ever comes from the principal.
+
 		{`{"snapshotToken":"snapshot","rowRoot":"Observation","query":"glucose","limit":2,"authResourcePaths":["/secret"]}`, http.StatusBadRequest},
 		{`{"snapshotToken":"old","rowRoot":"Observation"}`, http.StatusConflict},
 	} {
@@ -120,19 +119,12 @@ func TestBrowseSemanticInventoryThroughPublicAPI(t *testing.T) {
 	}
 	denied = true
 	response = requestJSON(t, app, http.MethodPost, path, body)
-	// reads==1: only the top-level browse reached the provider; the body-scoped
-	// injection is refused at the boundary before any read.
+
 	if response.StatusCode != http.StatusForbidden || reads != 1 {
 		t.Fatalf("denied status=%d reads=%d body=%s", response.StatusCode, reads, response.Body)
 	}
 }
 
-// TestBrowseSemanticInventoryOutputScopeReturnsTypedNotFound pins that lifecycle
-// notFound classifications for output-scoped browsing reach the client as typed 404s.
-// Before the 404/422 response mappings existed, the adapter collapsed them into
-// 500 INTERNAL_ERROR ("browseExplorerSemanticInventory returned undocumented HTTP status 404").
-// Two branches are covered: EXPLORER_NOT_FOUND (no saved workspace) and
-// OUTPUT_NOT_FOUND (saved doc-less workspace, semantic_catalog.go findSemanticOutput).
 func TestBrowseSemanticInventoryOutputScopeReturnsTypedNotFound(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}}
 	digest := sha256.Sum256([]byte(string(scope.Mode) + "\x00/allowed"))
@@ -162,7 +154,7 @@ func TestBrowseSemanticInventoryOutputScopeReturnsTypedNotFound(t *testing.T) {
 	if response.StatusCode != http.StatusNotFound || !strings.Contains(response.Body, "EXPLORER_NOT_FOUND") {
 		t.Fatalf("missing-workspace browse must be typed EXPLORER_NOT_FOUND 404: status=%d body=%s", response.StatusCode, response.Body)
 	}
-	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind}
+	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion}
 	workspace.Explorer.Title = "typed-not-found probe"
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {

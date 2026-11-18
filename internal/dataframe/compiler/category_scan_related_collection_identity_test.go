@@ -80,9 +80,6 @@ func TestRelatedCategoryReverseLookupPreservesCrossCollectionResourceTypeMatchAg
 	insertEdge("canonical_root_patient", "Specimen", canonicalRoot, "Patient", canonicalPatient, "Specimen", "Patient")
 	insertEdge("canonical_observation_patient", "Observation", canonicalObservation, "Patient", canonicalPatient, "Observation", "Patient")
 
-	// Keep a scoped cross-collection endpoint claiming Patient in the fixture:
-	// current lookup semantics accept it because its declared type and scope
-	// match the route, regardless of its actual collection.
 	foreignRoot := insertDocument("Specimen", "Specimen", "root_foreign_collection", nil)
 	foreignPatient := insertDocument("Observation", "Patient", "patient_stored_as_observation", nil)
 	foreignObservation := insertDocument("Observation", "Observation", "observation_foreign_collection", "cross-collection-category")

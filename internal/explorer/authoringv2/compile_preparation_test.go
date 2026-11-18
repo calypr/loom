@@ -2,11 +2,12 @@ package authoringv2
 
 import (
 	"bytes"
+	"encoding/json"
 	"testing"
 )
 
-func TestPrepareWorkspaceForCompilationUpgradesV9WithoutMutatingInput(t *testing.T) {
-	workspace := compilationPreparationWorkspace(tableShapeSemanticsVersion)
+func TestPrepareWorkspaceForCompilationNormalizesCurrentWithoutMutatingInput(t *testing.T) {
+	workspace := compilationPreparationWorkspace(CurrentSemanticsVersion)
 	inputTableOrder := 7
 	workspace.Documents[0].Columns[0].Table.Order = &inputTableOrder
 
@@ -49,8 +50,26 @@ func TestPrepareWorkspaceForCompilationUpgradesV9WithoutMutatingInput(t *testing
 	}
 }
 
+func TestPrepareWorkspaceForCompilationRejectsLegacySemantics(t *testing.T) {
+	legacy := compilationPreparationWorkspace(tableShapeSemanticsVersion)
+	if _, err := PrepareWorkspaceForCompilation(legacy, CatalogSnapshot{}); err == nil {
+		t.Fatal("runtime compilation preparation accepted a v9 workspace")
+	}
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrated, err := MigrateStoredWorkspace(raw, CatalogSnapshot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migrated.Workspace.SemanticsVersion != CurrentSemanticsVersion {
+		t.Fatalf("offline migration semanticsVersion=%d, want %d", migrated.Workspace.SemanticsVersion, CurrentSemanticsVersion)
+	}
+}
+
 func TestPrepareWorkspaceForCompilationIsDeterministicAndIdempotent(t *testing.T) {
-	workspace := compilationPreparationWorkspace(tableShapeSemanticsVersion)
+	workspace := compilationPreparationWorkspace(CurrentSemanticsVersion)
 	order := 9
 	workspace.Documents[0].Columns[0].Table.Order = &order
 
@@ -88,8 +107,8 @@ func TestPrepareWorkspaceForCompilationIsDeterministicAndIdempotent(t *testing.T
 }
 
 func TestPrepareWorkspaceForCompilationDigestIncludesUnrelatedFieldEdits(t *testing.T) {
-	original := compilationPreparationWorkspace(tableShapeSemanticsVersion)
-	changed := compilationPreparationWorkspace(tableShapeSemanticsVersion)
+	original := compilationPreparationWorkspace(CurrentSemanticsVersion)
+	changed := compilationPreparationWorkspace(CurrentSemanticsVersion)
 	changed.Explorer.Description = "Updated workspace description"
 
 	preparedOriginal, err := PrepareWorkspaceForCompilation(original, CatalogSnapshot{})
@@ -132,9 +151,27 @@ func TestPrepareWorkspaceForCompilationPreservesV3ContributorDefaultsWithPinnedC
 	}
 	catalog := commandCatalog()
 
-	prepared, err := PrepareWorkspaceForCompilation(legacy, catalog)
+	raw, err := json.Marshal(legacy)
 	if err != nil {
 		t.Fatal(err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal(raw, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	source := persisted["documents"].([]any)[0].(map[string]any)["columns"].([]any)[0].(map[string]any)["source"].(map[string]any)
+	source["aggregate"].(map[string]any)["where"] = map[string]any{"path": "id", "equals": ""}
+	raw, err = json.Marshal(persisted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	migration, err := MigrateStoredWorkspace(raw, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared := migration.Workspace
+	if !migration.DigestChanged || migration.MigratedCanonicalDigest == "" {
+		t.Fatalf("offline legacy migration omitted digest invalidation evidence: %#v", migration)
 	}
 	if prepared.SemanticsVersion != CurrentSemanticsVersion {
 		t.Fatalf("prepared semanticsVersion = %d, want %d", prepared.SemanticsVersion, CurrentSemanticsVersion)

@@ -72,12 +72,6 @@ export type BuilderAction =
       readonly values: ReadonlyArray<ExplorerBuilderColumn>;
     }
   | {
-      readonly type: 'updateColumn';
-      readonly outputId: string;
-      readonly column: string;
-      readonly value: ExplorerBuilderColumn;
-    }
-  | {
       readonly type: 'removeColumn';
       readonly outputId: string;
       readonly column: string;
@@ -145,12 +139,11 @@ const reconcileSharedFilters = (
 
 const invalidate = (
   state: BuilderAuthoringState,
-  { preservePreview = false }: { readonly preservePreview?: boolean } = {},
 ): BuilderAuthoringState => ({
   ...state,
   workspace: reconcileSharedFilters(state),
   receipt: undefined,
-  preview: preservePreview ? state.preview : undefined,
+  preview: undefined,
   diagnostics: [],
   dirty: true,
   reconciliation: 'idle',
@@ -160,7 +153,6 @@ const updateTable = (
   state: BuilderAuthoringState,
   outputId: string,
   update: (table: DraftTable) => DraftTable,
-  options?: { readonly preservePreview?: boolean },
 ): BuilderAuthoringState => {
   const current = state.tables.find((table) => table.outputId === outputId);
   if (!current) return state;
@@ -171,7 +163,6 @@ const updateTable = (
         table.outputId === outputId ? update(table) : table,
       ),
     },
-    options,
   );
 };
 
@@ -210,6 +201,7 @@ export const builderAuthoringReducer = (
             ...state,
             selectedOutputId: action.outputId,
             selectedOccurrenceId: 'base',
+            previewRequestVersion: state.previewRequestVersion + 1,
             preview: undefined,
           }
         : state;
@@ -218,9 +210,7 @@ export const builderAuthoringReducer = (
       const table = state.tables.find(
         (candidate) => candidate.outputId === state.selectedOutputId,
       );
-      return derivedOccurrences(table, state.catalog).some(
-        (occurrence) => occurrence.id === action.occurrenceId,
-      )
+      return table && routeNode(table.document.route, action.occurrenceId)
         ? { ...state, selectedOccurrenceId: action.occurrenceId }
         : state;
     }
@@ -420,21 +410,6 @@ export const builderAuthoringReducer = (
           },
         };
       });
-    case 'updateColumn':
-      return updateTable(
-        state,
-        action.outputId,
-        (table) => ({
-          ...table,
-          document: {
-            ...table.document,
-            columns: table.document.columns.map((column) =>
-              column.column === action.column ? action.value : column,
-            ),
-          },
-        }),
-        { preservePreview: true },
-      );
     case 'removeColumn':
       return updateTable(state, action.outputId, (table) => ({
         ...table,

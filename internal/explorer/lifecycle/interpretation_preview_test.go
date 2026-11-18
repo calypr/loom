@@ -66,6 +66,8 @@ func TestPreviewInterpretationCandidateUsesBothReceiptsWithoutMutatingDraft(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
+	migration := migrateStoredWorkspaceFixture(t, draft, lifecycleInterpretationCatalog(snapshot, "patients"))
+	workspace, draft = migration.Workspace, migration.CanonicalJSON
 	digest, err := workspace.Digest()
 	if err != nil {
 		t.Fatal(err)

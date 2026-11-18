@@ -107,6 +107,31 @@ func TestConstructionProposalPreviewBudgetExtendsOnlyPivot(t *testing.T) {
 	}
 }
 
+func TestConstructionColumnPopulationHTTPRouteMapsMalformedBody(t *testing.T) {
+	store, err := explorer.NewService(newTestExplorerStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	application, err := lifecycle.New(store, lifecycle.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	routes := &HTTPRoutes{explorer: &explorerHTTPHandlers{
+		application:   application,
+		authorizeRead: func(context.Context, *authscope.Principal, string) error { return nil },
+	}}
+	response, err := routes.GetExplorerConstructionColumnPopulation(context.Background(), loomapi.GetExplorerConstructionColumnPopulationRequestObject{
+		Project: loomapi.Project("project-a"), ExplorerId: loomapi.ExplorerId("explorer-a"),
+		Body: &loomapi.ConstructionColumnPopulationRequest{SnapshotToken: "snapshot", ExpectedDraftDigest: "digest", OutputId: "patients", StageId: "source_projection", ColumnIds: []string{"column"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := response.(loomapi.GetExplorerConstructionColumnPopulation400JSONResponse); !ok {
+		t.Fatalf("malformed request response = %T, want HTTP 400", response)
+	}
+}
+
 func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
@@ -121,7 +146,7 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 	sibling.Columns[0].Label = "Sibling patient ID"
 	workspace.Documents = append(workspace.Documents, sibling)
 	workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: "sibling-patients-tab", Title: "Sibling patients", OutputID: "sibling_patients", Order: 1, Visible: true})
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +235,7 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 
 	capabilitiesHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
-		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection"}`,
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection","includeGroupChoices":true}`,
 		snapshot.Token, digest,
 	))
 	if capabilitiesHTTP.StatusCode != http.StatusOK {
@@ -526,7 +551,7 @@ func TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute(t *testing.T) {
 		len(contributor.SuggestedValues) != 2 || contributor.SuggestedValues[0] != "final" || contributor.SuggestedValues[1] != "preliminary" {
 		t.Fatalf("related expansion contributor choice = %#v", contributor)
 	}
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -638,7 +663,7 @@ func TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata
 	}
 	workspace.Tabs[0].OutputID = "specimens"
 	workspace.Tabs[0].Title = "Specimens"
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -728,7 +753,7 @@ func TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
 	basePath := "/api/v1/projects/project-a/explorers/specimen-explorer/authoring/v2"
 	capabilitiesResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
-		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"specimens","stageId":"source_projection"}`,
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"specimens","stageId":"source_projection","includeGroupChoices":true}`,
 		snapshot.Token, digest,
 	))
 	if capabilitiesResponse.StatusCode != http.StatusOK {
@@ -863,7 +888,7 @@ func TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP(t *tes
 	}}
 	document.Columns = []authoringv2.Column{}
 	document.Output = authoringv2.Output{ID: "observations", Title: "Observations", RowLabel: "Observations"}
-	document, err = authoringv2.UpgradeDocumentToConstruction(document)
+	document, err = authoringv2.StartDocumentConstruction(document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -955,7 +980,7 @@ func TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP(t *tes
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
 	basePath := "/api/v1/projects/project-a/explorers/observation-explorer/authoring/v2"
 	capabilitiesResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
-		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"observations","stageId":"source_projection"}`,
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"observations","stageId":"source_projection","includeGroupChoices":true}`,
 		snapshot.Token, digest,
 	))
 	if capabilitiesResponse.StatusCode != http.StatusOK {
@@ -1139,7 +1164,7 @@ func TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP(t *tes
 	}
 	acceptedConstruction := *acceptedWorkspace.Documents[0].Construction
 	rowValueCapabilitiesResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
-		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"observations","stageId":"source_projection","groupStepId":%q}`,
+		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"observations","stageId":"source_projection","includeGroupChoices":true,"groupStepId":%q}`,
 		snapshot.Token, updated.DraftVersion, updated.DraftDigest, stepID,
 	))
 	if rowValueCapabilitiesResponse.StatusCode != http.StatusOK {
@@ -1308,7 +1333,7 @@ func TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1390,7 +1415,7 @@ func TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP(t *
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
 	basePath := "/api/v1/projects/project-a/explorers/patient-specimen-related-group/authoring/v2"
 	capabilitiesResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
-		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection"}`,
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection","includeGroupChoices":true}`,
 		snapshot.Token, digest,
 	))
 	if capabilitiesResponse.StatusCode != http.StatusOK {
@@ -1524,7 +1549,7 @@ func TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP(t *
 		t.Fatalf("related Group was not durably applied: version=%d workspace=%#v", updated.DraftVersion, acceptedWorkspace)
 	}
 	rowValueCapabilitiesResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
-		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection","groupStepId":%q}`,
+		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection","includeGroupChoices":true,"groupStepId":%q}`,
 		snapshot.Token, updated.DraftVersion, updated.DraftDigest, stepID,
 	))
 	if rowValueCapabilitiesResponse.StatusCode != http.StatusOK {
@@ -1753,7 +1778,7 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 			ProjectionModes: []capability.ProjectionMode{field.projection},
 		})
 	}
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1950,8 +1975,6 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 		t.Fatalf("related-source default ALL value = %#v, want the full matching list", got)
 	}
 
-	// Exercise the same exact proposal through the generated OpenAPI request DTO.
-	// A missing wire field silently resets ONE to the default ALL array.
 	related.RowValuePolicy = authoringv2.ConstructionRowValueOne
 	candidateJSON, err = json.Marshal(candidateConstruction)
 	if err != nil {
@@ -2006,7 +2029,7 @@ func TestBuilderHTTPSerializesEmptyConstructionStepsAsArray(t *testing.T) {
 	if !bytes.Contains(draft, []byte(`"steps":[]`)) {
 		t.Fatalf("test draft did not contain canonical empty steps: %s", draft)
 	}
-	// Simulate a legacy persisted draft that decoded its empty slice as null.
+
 	draft = bytes.Replace(draft, []byte(`"steps":[]`), []byte(`"steps":null`), 1)
 	legacyDigest, err := workspace.LegacyNilConstructionStepsDigest()
 	if err != nil {
@@ -2024,6 +2047,23 @@ func TestBuilderHTTPSerializesEmptyConstructionStepsAsArray(t *testing.T) {
 		Project: "project-a", ExplorerID: "custom", Title: "Patients",
 		DraftConfig: draft, DraftVersion: 1, DraftDigest: legacyDigest,
 	}); err != nil {
+		t.Fatal(err)
+	}
+
+	migration, err := authoringv2.MigrateStoredWorkspace(draft, authoringV2Catalog(snapshot, "custom"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migration.MigratedCanonicalDigest != digest {
+		t.Fatal("offline migration changed expected canonical digest")
+	}
+	owner, err := store.Get(context.Background(), "project-a", "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner.DraftConfig = migration.CanonicalJSON
+	owner.DraftDigest = migration.MigratedCanonicalDigest
+	if _, err := store.SaveDraft(context.Background(), *owner, 1, legacyDigest); err != nil {
 		t.Fatal(err)
 	}
 	service, err := explorer.NewService(store)
@@ -2073,7 +2113,7 @@ func TestBuilderHTTPSerializesEmptyConstructionStepsAsArray(t *testing.T) {
 		t.Fatalf("stored draft was not durably normalized: version=%d digest=%q draft=%s", stored.DraftVersion, stored.DraftDigest, stored.DraftConfig)
 	}
 	capabilitiesHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
-		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection"}`,
+		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection","includeGroupChoices":true}`,
 		snapshot.Token, state.DraftVersion, state.DraftDigest,
 	))
 	if capabilitiesHTTP.StatusCode != http.StatusOK {
@@ -2129,7 +2169,7 @@ func TestConstructionProposalCurrentCodingGroupSpecimenFocusObservationHTTP(t *t
 	}}
 	document.Columns = []authoringv2.Column{}
 	document.Output = authoringv2.Output{ID: outputID, Title: "Specimen coding groups", RowLabel: "Specimens"}
-	document, err = authoringv2.UpgradeDocumentToConstruction(document)
+	document, err = authoringv2.StartDocumentConstruction(document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2228,7 +2268,7 @@ func TestConstructionProposalCurrentCodingGroupSpecimenFocusObservationHTTP(t *t
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
 	basePath := "/api/v1/projects/project-a/explorers/" + explorerID + "/authoring/v2"
 	capabilitiesResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
-		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":%q,"stageId":"source_projection"}`,
+		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":%q,"stageId":"source_projection","includeGroupChoices":true}`,
 		snapshot.Token, draftVersion, digest, outputID,
 	))
 	if capabilitiesResponse.StatusCode != http.StatusOK {
@@ -2370,7 +2410,6 @@ func TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation(t *testing.
 	document.Route.ResourceType = "Observation"
 	document.Columns = nil
 	document.Construction = nil
-	document.TableShape = nil
 	workspace.Documents[0] = document
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -2431,7 +2470,7 @@ func TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation(t *testing.
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 
 	capabilitiesHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
-		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection"}`,
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection","includeGroupChoices":true}`,
 		snapshot.Token, digest,
 	))
 	if capabilitiesHTTP.StatusCode != http.StatusOK {
@@ -2501,7 +2540,7 @@ func TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation(t *testing.
 	}
 	digest = updated.DraftDigest
 	capabilitiesHTTP = requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
-		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection"}`,
+		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection","includeGroupChoices":true}`,
 		snapshot.Token, updated.DraftVersion, digest,
 	))
 	if capabilitiesHTTP.StatusCode != http.StatusOK {
@@ -2637,3 +2676,5 @@ func TestRelatedExpandContributorTypedWireSourcesPreserveRepeatedBoundaries(t *t
 		t.Fatalf("typed RelatedExpand proposal request round trip dropped repeated boundaries: %#v", restoredSource)
 	}
 }
+
+func stringPointer(value string) *string { return &value }

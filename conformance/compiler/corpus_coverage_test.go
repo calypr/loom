@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// TestGenericFHIRCorpusCoverage keeps the optimization benchmark honest. The
-// GDC request is intentionally only one mixed-shape case; each independent
-// semantic feature must also have a small fixture that can be compiled and
-// profiled in isolation.
 func TestGenericFHIRCorpusCoverage(t *testing.T) {
 	fixtures, err := LoadDir(filepath.Join("fixtures"))
 	if err != nil {

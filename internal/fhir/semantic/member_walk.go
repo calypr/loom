@@ -9,7 +9,6 @@ import (
 	"github.com/calypr/loom/internal/fhir/schema"
 )
 
-// WalkDiagnosticCode is a closed classification of payload/schema drift.
 type WalkDiagnosticCode string
 
 const (
@@ -25,7 +24,6 @@ const (
 	WalkMembersWithResourceTypesMaxDepth       = 128
 )
 
-// WalkLimitKind classifies a hard stop in the resource-aware member walker.
 type WalkLimitKind string
 
 const (
@@ -34,7 +32,6 @@ const (
 	WalkLimitDepth        WalkLimitKind = "DEPTH"
 )
 
-// WalkLimitError reports a hard limit reached by WalkMembersWithResourceTypes.
 type WalkLimitError struct {
 	Kind  WalkLimitKind
 	Limit int
@@ -44,7 +41,6 @@ func (e *WalkLimitError) Error() string {
 	return fmt.Sprintf("walk FHIR members: %s limit %d reached", e.Kind, e.Limit)
 }
 
-// WalkDiagnostic identifies one structural mismatch at a concrete owner.
 type WalkDiagnostic struct {
 	Code          WalkDiagnosticCode
 	CanonicalPath string
@@ -53,16 +49,12 @@ type WalkDiagnostic struct {
 	ChoiceGroup   string
 }
 
-// ResourceBoundary records one concrete abstract Resource reference resolved
-// to an allowed concrete resource type.
 type ResourceBoundary struct {
 	CanonicalPath string
 	OwnerPath     string
 	ResourceType  schema.ResourceType
 }
 
-// MemberFact is one present member or repeated item resolved through the
-// generated schema. RawJSON is an owned copy of the exact source value.
 type MemberFact struct {
 	RootDefinition     schema.DefinitionName
 	DeclaringType      schema.DefinitionName
@@ -79,9 +71,6 @@ type MemberFact struct {
 	Null               bool
 }
 
-// WalkMembers visits every present schema member and repeated item while
-// returning structural diagnostics. Named references are resolved only for
-// concrete values in the payload, so recursive definitions remain finite.
 func WalkMembers(
 	index *schema.Index,
 	root schema.DefinitionName,
@@ -91,9 +80,6 @@ func WalkMembers(
 	return walkMembers(index, root, payload, visit, memberWalkOptions{})
 }
 
-// WalkMembersWithResourceTypes walks present members and resolves schema-
-// declared abstract Resource references only when their exact resourceType is
-// permitted by allowed and represented in index.
 func WalkMembersWithResourceTypes(
 	index *schema.Index,
 	root schema.DefinitionName,
@@ -538,8 +524,6 @@ func unknownMemberNames(object map[string]json.RawMessage, declared map[string]s
 		return unknown
 	}
 
-	// Keep only the lexicographically first remaining diagnostic names plus
-	// one overflow witness, so a wide unknown object cannot grow scratch memory.
 	capacity := state.options.limits.maxDiagnostics - diagnosticCount + 1
 	if capacity < 1 {
 		capacity = 1

@@ -65,6 +65,10 @@ func TestCodedCategoryChoiceReauthorizesExactSystemVersionFamily(t *testing.T) {
 	if label := semanticCategoryLabel(hyphenatedSystem, capability.Candidate{}); label != "My code system" {
 		t.Fatalf("meaningful system-tail label = %q", label)
 	}
+	allCapsSystem := testCodedCategoryFamily("file", "DocumentReference", "DocumentReference.category[].coding[]", "https://humantumoratlas.org/DE_IDENTIFICATION_METHOD_DESCRIPTION", "")
+	if label := semanticCategoryLabel(allCapsSystem, capability.Candidate{}); label != "De identification method description" {
+		t.Fatalf("all-caps system-tail label = %q", label)
+	}
 
 	fieldCandidate, ok := semanticCandidateWithFallback(snapshot, semanticInventoryEntryForFamily(family).Observation, candidate)
 	if !ok {

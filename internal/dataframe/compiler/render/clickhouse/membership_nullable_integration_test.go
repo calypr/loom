@@ -21,10 +21,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Run with LOOM_CLICKHOUSE_URL and optional LOOM_CLICKHOUSE_DATABASE/
-// LOOM_CLICKHOUSE_USERNAME/LOOM_CLICKHOUSE_PASSWORD, or with
-// LOOM_CLICKHOUSE_CONTAINER to use clickhouse-client in an owned container.
-// The ordinary unit suite stays hermetic.
 func TestRenderNullableCompositeMembershipClickHouseSemantics(t *testing.T) {
 	client := newNullableMembershipClickHouse(t)
 	defer func() {
@@ -78,7 +74,7 @@ func TestRenderNullableCompositeMembershipClickHouseSemantics(t *testing.T) {
 	}
 	if err := client.InsertRows(ctx, rightTable, columns, []map[string]any{
 		{"__loom_row_id": "a", "k1": "alpha", "k2": "one"},
-		{"__loom_row_id": "b", "k1": "alpha", "k2": "one"}, // duplicate match must not multiply the left row
+		{"__loom_row_id": "b", "k1": "alpha", "k2": "one"},
 		{"__loom_row_id": "c", "k1": nil, "k2": "two"},
 		{"__loom_row_id": "d", "k1": "beta", "k2": nil},
 		{"__loom_row_id": "e", "k1": nil, "k2": nil},

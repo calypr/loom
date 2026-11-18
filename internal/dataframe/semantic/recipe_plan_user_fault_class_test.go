@@ -10,15 +10,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// Structural user-input rejections of a registered recipe bundle must reach
-// the GraphQL class layer as typed, non-retryable INVALID_REQUEST errors.
-// These payloads pass every Register-path validation (CanonicalBundle +
-// Digest); before the classification repair they escaped as raw fmt.Errorf
-// values, matched no recipeGraphQLError case, and surfaced as INTERNAL_ERROR
-// 500 with retry bait (evidence/recipe-control-classification). Exact wire
-// text, including the outputs[i]/traversals[i] context prefixes, is pinned so
-// clients keep the messages they already parse.
-
 func buildPlanForClass(t *testing.T, raw string) error {
 	t.Helper()
 	var bundle recipe.Bundle
@@ -85,9 +76,6 @@ func TestBuildRecipePlanGroupsGrainWithoutGroupRowsIsUserFault(t *testing.T) {
 	assertStructuralUserFault(t, err, `groups row grain requires a pinned group revision`)
 }
 
-// Contrast: sibling duplicate aliases are caught EARLY and typed by the
-// register gate (recipe.ValidationError), not by the semantic layer; the
-// repair must not have moved that class.
 func TestBuildRecipePlanDuplicateAliasStillCaughtAtRegisterGate(t *testing.T) {
 	var bundle recipe.Bundle
 	if err := json.Unmarshal([]byte(`{"recipeSchemaVersion":1,"name":"p","translationVersion":"p","outputs":[{"name":"rows","rootResourceType":"Patient","rowGrain":"patient","traversals":[{"name":"a","toResourceType":"Observation","alias":"e"},{"name":"b","toResourceType":"Observation","alias":"e"}]}]}`), &bundle); err != nil {
@@ -100,7 +88,6 @@ func TestBuildRecipePlanDuplicateAliasStillCaughtAtRegisterGate(t *testing.T) {
 	}
 }
 
-// Structure-preservation legs: valid payloads must still build unchanged.
 func TestBuildRecipePlanValidStructuralPayloadsStillBuild(t *testing.T) {
 	for _, raw := range []string{
 		`{"recipeSchemaVersion":1,"name":"p","translationVersion":"p","outputs":[{"name":"rows","rootResourceType":"Patient","rowGrain":"patient","traversals":[{"name":"obs","toResourceType":"Observation","alias":"o"}]}]}`,
@@ -120,9 +107,6 @@ func TestBuildRecipePlanValidStructuralPayloadsStillBuild(t *testing.T) {
 	}
 }
 
-// Message-stability guard: the typed errors must not silently acquire the
-// wrapper prefix twice or lose it, and the raw-escape classes must remain
-// distinguishable from typed user errors.
 func TestStructuralUserFaultMessagesAreComposedOnce(t *testing.T) {
 	err := buildPlanForClass(t, `{"recipeSchemaVersion":1,"name":"p","translationVersion":"p","outputs":[{"name":"rows","rootResourceType":"Patient","rowGrain":"Patient"}]}`)
 	if strings.Count(err.Error(), "outputs[0]") != 1 {
@@ -130,10 +114,6 @@ func TestStructuralUserFaultMessagesAreComposedOnce(t *testing.T) {
 	}
 }
 
-// Boundary canary: internal-invariant rejections of derived structures are
-// deliberately NOT user errors. A corrupted semantic graph must still reach
-// the class layer untyped so real compiler faults keep INTERNAL_ERROR
-// semantics instead of masquerading as 400s.
 func TestSemanticGraphInvariantRejectionsStayUntyped(t *testing.T) {
 	if err := ValidateSemanticGraph(SemanticNode{ResourceType: "NotAThing", Alias: "root"}); err == nil {
 		t.Fatal("expected invariant rejection for a bogus graph root")
@@ -141,11 +121,6 @@ func TestSemanticGraphInvariantRejectionsStayUntyped(t *testing.T) {
 		t.Fatalf("internal-invariant rejection was typed as user fault: %#v", err)
 	}
 }
-
-// Reachable sites that stay untested without row expansion: with expand set,
-// the occurrence index (recipe_plan_output.go) walks the traversals before
-// the build side does, and expansionItemScope passes child()'s shadow
-// rejection through un-rewrapped. All three must stay typed user faults.
 
 func TestBuildRecipePlanGroupRowsWithoutGroupsGrainIsUserFault(t *testing.T) {
 	err := buildPlanForClass(t, `{"recipeSchemaVersion":1,"name":"p","translationVersion":"p","outputs":[{"name":"rows","rootResourceType":"Patient","rowGrain":"patient","groupRows":{"revisionId":"gen-group-1","unassignedMemberPolicy":"EXCLUDE"}}]}`)

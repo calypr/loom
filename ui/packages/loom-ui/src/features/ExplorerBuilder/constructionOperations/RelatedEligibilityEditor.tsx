@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { useLoomClient } from '../../../react';
+import React, { useRef, useState } from 'react';
+import { useLoomClient, useQuery } from '../../../react';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -9,7 +9,8 @@ import type {
   ExplorerBuilderCatalog,
   RelatedExpandChoiceSearchResponse,
 } from '../../../types';
-import { constructionSchema } from '../../../types';
+import { constructionWithStep } from './editorShared';
+import { constructionInputForStage } from '../constructionWorkspace/constructionStages';
 import { RelatedExpandContributorEditor, type ContributorChoice, type ContributorCondition } from './RelatedExpandContributorEditor';
 import { routePath } from '../constructionWorkspace/routeDisplay';
 import { TraversalPath } from '../constructionWorkspace/TraversalPath';
@@ -89,9 +90,7 @@ const candidateFor = (
       };
   const nextStep: EligibilityStep = {
     id: stepId,
-    inputs: [stage.id === 'source_projection'
-      ? { kind: 'SOURCE_PROJECTION' }
-      : { kind: 'STEP_OUTPUT', stepId: stage.id }],
+    inputs: [constructionInputForStage(stage)],
     operation: {
       kind: 'RELATED_ELIGIBILITY',
       relatedEligibility: {
@@ -109,13 +108,8 @@ const candidateFor = (
       id, name, label, ...(type ? { type } : {}),
     })),
   };
-  const parsed = constructionSchema.safeParse({
-    version: construction.version,
-    steps: step
-      ? construction.steps.map((current) => current.id === step.id ? nextStep : current)
-      : [...construction.steps, nextStep],
-  });
-  return parsed.success ? { candidateConstruction: parsed.data, changedStepId: stepId } : undefined;
+  const candidateConstruction = constructionWithStep({ construction, editingStep: step, step: nextStep });
+  return candidateConstruction ? { candidateConstruction, changedStepId: stepId } : undefined;
 };
 
 export const RelatedEligibilityEditor = ({
@@ -160,47 +154,50 @@ export const RelatedEligibilityEditor = ({
   const [match, setMatch] = useState<Match>(saved?.match ?? { kind: 'EXISTS' });
   const [condition, setCondition] = useState<ContributorCondition>(() => savedCondition(step));
   const [conditionOpen, setConditionOpen] = useState(savedCondition(step).kind !== 'ALL');
-  const [choices, setChoices] = useState<ReadonlyArray<RouteChoice>>([]);
-  const [cursor, setCursor] = useState<string>();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const requestVersion = useRef(0);
   const moreController = useRef<AbortController | undefined>(undefined);
   const targetTypes = [...new Set(catalog.nodes.map((node) => node.resourceType))].sort();
   const support = stage.capabilities.find((capability) => capability.kind === 'RELATED_ELIGIBILITY');
 
-  useEffect(() => () => moreController.current?.abort(), [targetResourceType, stage.id, anchorColumnId]);
-  useEffect(() => {
-    if (!support?.supported || !targetResourceType || !anchorColumnId) return;
-    const controller = new AbortController();
-    const version = ++requestVersion.current;
-    setLoading(true);
-    setError('');
-    void client.searchRelatedExpandChoices({
-      project, explorerId, authResourcePath, snapshotToken, outputId,
-      expectedDraftVersion: capabilities.draftVersion,
-      expectedDraftDigest: capabilities.draftDigest,
-      stageId: stage.id, anchorColumnId, targetResourceType, limit: 10,
-    }, controller.signal).then((response) => {
-      if (controller.signal.aborted || version !== requestVersion.current) return;
+  const queryKey = JSON.stringify([
+    snapshotToken, outputId, capabilities.draftVersion, capabilities.draftDigest,
+    stage.id, anchorColumnId, targetResourceType,
+  ]);
+  const choicesQuery = useQuery(
+    async (signal) => {
+      const response = await client.searchRelatedExpandChoices({
+        project, explorerId, authResourcePath, snapshotToken, outputId,
+        expectedDraftVersion: capabilities.draftVersion,
+        expectedDraftDigest: capabilities.draftDigest,
+        stageId: stage.id, anchorColumnId, targetResourceType, limit: 10,
+      }, signal);
       if (response.snapshotToken !== snapshotToken || response.draftVersion !== capabilities.draftVersion ||
           response.draftDigest !== capabilities.draftDigest || response.outputId !== outputId ||
           response.stageId !== stage.id || response.choices.some((item) =>
             item.anchorColumnId !== anchorColumnId || item.targetResourceType !== targetResourceType)) {
         throw new Error('The available paths changed. Reload this table to choose related records.');
       }
-      setChoices(response.choices);
-      setCursor(response.nextCursor);
-    }).catch((cause: unknown) => {
-      if (!controller.signal.aborted && version === requestVersion.current) {
-        setError(cause instanceof Error ? cause.message : 'Could not load related paths.');
-      }
-    }).finally(() => {
-      if (!controller.signal.aborted && version === requestVersion.current) setLoading(false);
-    });
-    return () => controller.abort();
-  }, [client, project, explorerId, authResourcePath, snapshotToken, outputId,
-    capabilities.draftVersion, capabilities.draftDigest, stage.id, anchorColumnId, targetResourceType, support?.supported]);
+      return response;
+    },
+    [client, project, explorerId, authResourcePath, snapshotToken, outputId,
+      capabilities.draftVersion, capabilities.draftDigest, stage.id, anchorColumnId, targetResourceType, support?.supported],
+    Boolean(support?.supported && targetResourceType && anchorColumnId),
+  );
+  const [moreChoices, setMoreChoices] = useState<{
+    readonly key: string;
+    readonly choices: ReadonlyArray<RouteChoice>;
+    readonly cursor?: string;
+    readonly loading: boolean;
+    readonly error: string;
+  }>({ key: '', choices: [], loading: false, error: '' });
+  const choices = [
+    ...(choicesQuery.data?.choices ?? []),
+    ...(moreChoices.key === queryKey ? moreChoices.choices : []),
+  ];
+  const cursor = moreChoices.key === queryKey ? moreChoices.cursor : choicesQuery.data?.nextCursor;
+  const loading = choicesQuery.isLoading || (moreChoices.key === queryKey && moreChoices.loading);
+  const error = choicesQuery.error
+    ? choicesQuery.error instanceof Error ? choicesQuery.error.message : 'Could not load related paths.'
+    : moreChoices.key === queryKey ? moreChoices.error : '';
 
   const emit = (nextChoice = choice, nextMatch = match, nextCondition = condition, nextAnchor = anchorColumnId) =>
     onCandidateChange(candidateFor(construction, stage, step, stepId, nextAnchor, nextChoice, nextMatch, nextCondition));
@@ -209,9 +206,8 @@ export const RelatedEligibilityEditor = ({
     moreController.current?.abort();
     const controller = new AbortController();
     moreController.current = controller;
-    const version = requestVersion.current;
-    setLoading(true);
-    setError('');
+    const currentChoices = moreChoices.key === queryKey ? moreChoices.choices : [];
+    setMoreChoices({ key: queryKey, choices: currentChoices, cursor, loading: true, error: '' });
     try {
       const response = await client.searchRelatedExpandChoices({
         project, explorerId, authResourcePath, snapshotToken, outputId,
@@ -219,15 +215,16 @@ export const RelatedEligibilityEditor = ({
         expectedDraftDigest: capabilities.draftDigest,
         stageId: stage.id, anchorColumnId, targetResourceType, limit: 10, cursor,
       }, controller.signal);
-      if (controller.signal.aborted || version !== requestVersion.current) return;
-      setChoices((current) => [...current, ...response.choices]);
-      setCursor(response.nextCursor);
+      if (controller.signal.aborted) return;
+      setMoreChoices((current) => current.key === queryKey
+        ? { key: queryKey, choices: [...current.choices, ...response.choices], cursor: response.nextCursor, loading: false, error: '' }
+        : current);
     } catch (cause) {
-      if (!controller.signal.aborted && version === requestVersion.current) {
-        setError(cause instanceof Error ? cause.message : 'Could not load more paths.');
+      if (!controller.signal.aborted) {
+        setMoreChoices((current) => current.key === queryKey
+          ? { ...current, loading: false, error: cause instanceof Error ? cause.message : 'Could not load more paths.' }
+          : current);
       }
-    } finally {
-      if (!controller.signal.aborted && version === requestVersion.current) setLoading(false);
     }
   };
 
@@ -270,7 +267,7 @@ export const RelatedEligibilityEditor = ({
       </label> : null}
       <label className="grid gap-1 text-sm font-medium text-slate-800">Related record type
         <select aria-label="Related eligibility record type" value={targetResourceType} disabled={disabled || anchors.length === 0}
-          onChange={(event) => { setTargetResourceType(event.target.value); setChoice(undefined); setCondition({ kind: 'ALL' }); setChoices([]); setCursor(undefined); emit(undefined, match, { kind: 'ALL' }); }}
+          onChange={(event) => { setTargetResourceType(event.target.value); setChoice(undefined); setCondition({ kind: 'ALL' }); emit(undefined, match, { kind: 'ALL' }); }}
           className="rounded border border-slate-300 bg-white px-3 py-2">
           <option value="">Choose a record type</option>
           {targetTypes.map((target) => <option key={target} value={target}>{target}</option>)}

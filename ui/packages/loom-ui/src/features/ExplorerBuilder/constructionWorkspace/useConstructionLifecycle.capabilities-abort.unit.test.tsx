@@ -28,6 +28,7 @@ const capabilitiesFor = (args: GetConstructionCapabilitiesArgs): ConstructionCap
     draftDigest: args.expectedDraftDigest,
     outputId: args.outputId,
     stageId: args.stageId,
+    sourceInput: { supported: false, stageId: args.stageId, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
     baseConstruction: { version: 1, steps: [] },
     stages: [stage],
     selectedStage: stage,

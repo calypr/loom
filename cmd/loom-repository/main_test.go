@@ -212,6 +212,26 @@ func TestLoadRepositoryMetaDoesNotUploadAfterStatusFailure(t *testing.T) {
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
+func TestDoJSONReportsStructuredExplorerConfigError(t *testing.T) {
+	const body = `{"error":{"code":"SOURCE_COMMIT_REQUIRED","message":"X-Loom-Source-Commit is required","details":{"retryable":false}}}`
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Status:     "400 Bad Request",
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    request,
+		}, nil
+	})}
+	request, err := http.NewRequest(http.MethodPost, "http://loom/api/v1/projects/p/generations/g/explorer-config", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doJSON(client, request); err == nil || !strings.Contains(err.Error(), body) {
+		t.Fatalf("doJSON error = %v, want exact structured response body %s", err, body)
+	}
+}
+
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
 }

@@ -20,7 +20,7 @@ import (
 func TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	workspace := authoringv2.Workspace{
-		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 		Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
 		Documents: []authoringv2.Document{
 			{

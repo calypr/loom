@@ -57,7 +57,15 @@ func (s *Store) getVerifiedCompilationReceipt(ctx context.Context, receipt explo
 	if err != nil {
 		return nil, err
 	}
-	if !sameReceipt(*stored, receipt) {
+
+	same := false
+	if isContentAddressedReceiptID(stored.ID) {
+		expectedID, identityErr := explorer.ReceiptID(receipt)
+		same = identityErr == nil && expectedID == stored.ID
+	} else {
+		same = sameReceipt(*stored, receipt)
+	}
+	if !same {
 		return nil, explorer.ErrCorruptReceipt
 	}
 	return stored, nil
@@ -80,8 +88,8 @@ func (s *Store) GetCompilationReceiptForExplorer(ctx context.Context, project, e
 
 func (s *Store) readCompilationReceipt(ctx context.Context, query string, binds map[string]any) (*explorer.CompilationReceipt, error) {
 	var out *explorer.CompilationReceipt
-	err := s.client.QueryRows(ctx, query, 1, binds, func(row map[string]any) error {
-		value, decodeErr := decode[explorer.CompilationReceipt](row)
+	err := s.client.QueryRows(ctx, migrationJSONQuery(query, true), 1, binds, func(row map[string]any) error {
+		value, decodeErr := decodeMigrationJSON[explorer.CompilationReceipt](row["migrationJSON"])
 		if decodeErr != nil {
 			return decodeErr
 		}
@@ -104,7 +112,8 @@ func validateReceipt(receipt explorer.CompilationReceipt) error {
 	if strings.TrimSpace(receipt.ID) == "" {
 		return explorer.ErrCorruptReceipt
 	}
-	if receipt.ReceiptFormatVersion != 0 || receipt.CompilerContractVersion != "" || receipt.CompilationKey != "" {
+	hasContract := receipt.ReceiptFormatVersion != 0 || receipt.CompilerContractVersion != "" || receipt.CompilationKey != ""
+	if hasContract {
 		if err := receipt.Validate(); err != nil {
 			return err
 		}
@@ -113,8 +122,11 @@ func validateReceipt(receipt explorer.CompilationReceipt) error {
 		if _, err := hex.DecodeString(strings.TrimPrefix(receipt.ID, "receipt_")); err != nil {
 			return explorer.ErrCorruptReceipt
 		}
-		if err := receipt.ValidateID(); err != nil {
-			return explorer.ErrCorruptReceipt
+
+		if !hasContract {
+			if err := receipt.ValidateID(); err != nil {
+				return explorer.ErrCorruptReceipt
+			}
 		}
 	}
 	return nil
@@ -124,4 +136,12 @@ func sameReceipt(a, b explorer.CompilationReceipt) bool {
 	left, leftErr := explorer.ReceiptID(a)
 	right, rightErr := explorer.ReceiptID(b)
 	return leftErr == nil && rightErr == nil && left == right
+}
+
+func isContentAddressedReceiptID(id string) bool {
+	if !strings.HasPrefix(id, "receipt_") || len(id) != len("receipt_")+sha256.Size*2 {
+		return false
+	}
+	_, err := hex.DecodeString(strings.TrimPrefix(id, "receipt_"))
+	return err == nil
 }

@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { fieldPickerList, fieldPickerMetadata, fieldPickerRow, fieldPickerSelected } from './fieldPickerStyles';
+import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { useLoomClient, useQuery } from '../../../react';
 import type {
   ConstructionChoice,
@@ -20,6 +21,7 @@ import {
   catalogItemKey,
   catalogItemLabel,
   catalogItemSelectionLabel,
+  catalogItemSourceKey,
   catalogItemTitle,
   catalogItemConstructionChoice,
   catalogSourceOptions,
@@ -42,7 +44,6 @@ import {
   type GroupedRowValuePolicyControl,
   type RouteCoverage,
 } from './CatalogSelectionOptions';
-import type { PairedColumnSuggestion } from '../constructionWorkspace/PairedColumnSuggestions';
 
 const PAGE_SIZE = 50;
 const ROUTE_PAGE_SIZE = 10;
@@ -126,9 +127,6 @@ const availabilityMessage = (
   }
   if (response.sourceAvailability === 'unproven') {
     return 'Loom found concepts, but some declared resource collections could not be verified. Semantic search results may be incomplete.';
-  }
-  if (response.sourceAvailability === 'unknown') {
-    return 'This concept list may be incomplete. If a concept is missing, check the Other fields tab.';
   }
   return undefined;
 };
@@ -746,7 +744,10 @@ const ConceptCatalogContent = ({
   resourceType,
   sourceNodeId,
   routeContext,
+  scopeToSource = false,
+  structuredOnly = false,
   layout = 'workspace',
+  dense = false,
   catalog,
   disabled = false,
   disabledReason,
@@ -759,11 +760,11 @@ const ConceptCatalogContent = ({
   sourceControls,
   suppressUnavailableNotices = false,
   semanticSelectionMode,
+  existingSourceKeys,
+  nodeOccurrences,
   initialSelection,
   initialFieldSource,
-  pairedColumnSuggestion,
   groupedRowValuePolicy,
-  onPairedColumnSuggestionHandled,
   onAddSelected,
   onPreviewSelected,
   onInspectRouteCoverage,
@@ -778,7 +779,10 @@ const ConceptCatalogContent = ({
   readonly resourceType?: string;
   readonly sourceNodeId?: string;
   readonly routeContext?: CatalogRouteContext;
+  readonly scopeToSource?: boolean;
+  readonly structuredOnly?: boolean;
   readonly layout?: 'workspace' | 'panel';
+  readonly dense?: boolean;
   readonly catalog: ExplorerBuilderCatalog;
   readonly disabled?: boolean;
   readonly disabledReason?: string;
@@ -791,11 +795,11 @@ const ConceptCatalogContent = ({
   readonly sourceControls?: React.ReactNode;
   readonly suppressUnavailableNotices?: boolean;
   readonly semanticSelectionMode?: SemanticInventorySelectionMode;
+  readonly existingSourceKeys?: ReadonlySet<string>;
+  readonly nodeOccurrences?: Readonly<Record<string, string>>;
   readonly initialSelection?: CatalogInitialSelection;
   readonly initialFieldSource?: Pick<FieldChoiceSource, 'candidateId' | 'nodeId' | 'path'>;
-  readonly pairedColumnSuggestion?: PairedColumnSuggestion;
   readonly groupedRowValuePolicy?: GroupedRowValuePolicyControl;
-  readonly onPairedColumnSuggestionHandled?: (requestId: string) => void;
   readonly onAddSelected?: (
     selections: ReadonlyArray<CatalogChoiceIntent>,
   ) => Promise<'preview-ready' | 'preview-pending' | void>;
@@ -833,11 +837,11 @@ const ConceptCatalogContent = ({
   const setQuery = (value: string) => updateQueryState((current) => ({ ...current, query: value }));
   const setSearchGeneration = (update: (current: number) => number) =>
     updateQueryState((current) => ({ ...current, searchGeneration: update(current.searchGeneration) }));
-  const searchAcrossSources = query.trim().length > 0;
+  const searchAcrossSources = !scopeToSource && query.trim().length > 0;
   const browseResourceType = searchAcrossSources ? undefined : resourceType;
   const browseSourceNodeId = searchAcrossSources ? undefined : sourceNodeId;
   const browseRouteContext = searchAcrossSources ? undefined : routeContext;
-  const [rawFieldsExpanded, setRawFieldsExpanded] = useState(layout !== 'panel');
+  const [rawFieldsExpanded, setRawFieldsExpanded] = useState(true);
   const [pageNavigation, setPageNavigation] = useState<{
     readonly scopeKey: string;
     readonly cursors: ReadonlyArray<string | undefined>;
@@ -876,6 +880,8 @@ const ConceptCatalogContent = ({
   currentTableContextKey.current = tableContextKey;
   const canAddFromSourceProjection = sourceProjectionAvailability?.available ?? true;
   const canAddCatalogItem = (item: CatalogItem): boolean => {
+    const sourceKey = catalogItemSourceKey(item, nodeOccurrences);
+    if (sourceKey && existingSourceKeys?.has(sourceKey)) return false;
     if (view !== 'all' && item.kind === 'SEMANTIC' &&
       !semanticItemMatchesAnyRule(item.item, CODED_SEMANTIC_RULE_HINTS)) return false;
     if (relatedSourceAvailability && isRelatedFieldCatalogItem(item, rowRoot)) {
@@ -889,7 +895,6 @@ const ConceptCatalogContent = ({
     readonly client: typeof client;
     readonly value?: { readonly contextToken: string; readonly buildId: string };
   }>({ scopeKey: '', client });
-  const handledSuggestionRequests = useRef<Set<string>>(new Set());
   const cancelLoadMoreRoutes = () => {
     activeMoreRouteRequest.current?.controller.abort();
     activeMoreRouteRequest.current = undefined;
@@ -1166,7 +1171,7 @@ const ConceptCatalogContent = ({
   };
   const fieldItems = useMemo(
     () => {
-      if (view === 'coded') return [];
+      if (view === 'coded' || structuredOnly) return [];
       const reachableSourceNodeIds = new Set(catalogSourceOptions(catalog, rowRoot)
         .flatMap((source) => source.kind === 'RELATED' ? [source.sourceNodeId] : []));
       const catalogFields = fieldCatalogItems(
@@ -1185,7 +1190,7 @@ const ConceptCatalogContent = ({
           canAddCatalogItem(item) && catalogItemAvailability(item).selectable,
       );
     },
-    [browseResourceType, browseRouteContext, browseSourceNodeId, catalog, choiceDetails, contextKey, query, rowRoot, relatedSourceAvailability, sourceProjectionAvailability, view],
+    [browseResourceType, browseRouteContext, browseSourceNodeId, catalog, choiceDetails, contextKey, query, rowRoot, relatedSourceAvailability, sourceProjectionAvailability, structuredOnly, view],
   );
   const initialFieldItem = initialFieldSource
     ? fieldItems.find((candidate) => candidate.kind === 'FIELD' &&
@@ -1323,70 +1328,15 @@ const ConceptCatalogContent = ({
   const focusedIdentityKey = focusedPresentation?.scopeKey === presentationScopeKey
     ? semanticInventoryIdentityKey(focusedPresentation.identity)
     : undefined;
-  useEffect(() => {
-    const suggestion = pairedColumnSuggestion;
-    if (view === 'fields' || !suggestion || handledSuggestionRequests.current.has(suggestion.requestId)) return;
-    handledSuggestionRequests.current.add(suggestion.requestId);
-    onPairedColumnSuggestionHandled?.(suggestion.requestId);
-
-    if (
-      suggestion.snapshotToken !== snapshotToken ||
-      suggestion.outputId !== outputId ||
-      suggestion.choices.snapshotToken !== snapshotToken ||
-      suggestion.choices.outputId !== outputId
-    ) {
-      setActionMessage('The table changed. Choose the paired concept again for the current table.');
-      return;
-    }
-
-    const choices = suggestion.choices.choices.filter((choice) =>
-      choice.source.kind === 'SEMANTIC' &&
-      choice.source.conceptId === suggestion.item.conceptId &&
-      choice.source.bindingId === suggestion.item.bindingId &&
-      choice.source.resourceType === suggestion.item.resourceType &&
-      choice.options.some((option) => option.support === 'SUPPORTED'),
-    );
-    const firstChoice = choices[0];
-    if (!firstChoice || !catalogItemAvailability({
-      kind: 'SEMANTIC',
-      item: suggestion.item,
-      constructionChoice: firstChoice,
-    }).selectable) {
-      setActionMessage('Loom no longer provides a supported route and result form for this paired concept.');
-      return;
-    }
-
-    const item: CatalogItem = {
-      kind: 'SEMANTIC',
-      item: suggestion.item,
-      constructionChoice: firstChoice,
-    };
-    setSelected(new Map([[catalogItemKey(item), item]]));
-    setPendingSelection([{
-      item,
-      choices,
-      complete: suggestion.choices.complete,
-      truncated: suggestion.choices.truncated,
-      ...(suggestion.choices.nextCursor ? { nextCursor: suggestion.choices.nextCursor } : {}),
-      semanticContext: {
-        contextToken: suggestion.contextToken,
-        buildId: suggestion.buildId,
-      },
-    }]);
-    setAdvancedOpen(true);
-    setActionMessage(undefined);
-  }, [
-    onPairedColumnSuggestionHandled,
-    outputId,
-    pairedColumnSuggestion,
-    setSelected,
-    snapshotToken,
-    view,
-  ]);
   const semanticItems = useMemo(
     () => {
       const inventoryItems = semanticCatalogItems(
-      response?.entries ?? [],
+      (response?.entries ?? []).filter((entry) => {
+        if (!structuredOnly) return true;
+        const source = entry.constructionChoice?.source;
+        return entry.occurrences > 0 && source?.kind === 'SEMANTIC' &&
+          (source.ruleHint === 'IDENTIFIER_SYSTEM_VALUE' || source.ruleHint === 'EXTENSION_URL_VALUE');
+      }),
       browseResourceType,
       browseSourceNodeId,
       view === 'coded' ? CODED_SEMANTIC_RULE_HINTS : undefined,
@@ -1405,7 +1355,7 @@ const ConceptCatalogContent = ({
       }
       return [...itemsByIdentity.values()];
     },
-    [browseResourceType, browseSourceNodeId, canAddFromSourceProjection, choiceDetails, contextKey, focusedIdentityKey, view, relatedSourceAvailability, response?.entries, rowRoot, sourceFieldLinksByCandidateId],
+    [browseResourceType, browseSourceNodeId, canAddFromSourceProjection, choiceDetails, contextKey, focusedIdentityKey, view, relatedSourceAvailability, response?.entries, rowRoot, sourceFieldLinksByCandidateId, structuredOnly],
   );
   const otherFieldItems = fieldItems.filter((item) => {
     if (item.kind !== 'FIELD' || !sourceFieldLinksByCandidateId.has(item.candidate.candidateId)) return true;
@@ -1902,6 +1852,22 @@ const ConceptCatalogContent = ({
               ? query ? 'No populated dataset fields match this search.' : 'No populated dataset fields are available for this output.'
               : 'No fields match this search.'}
           </p>
+        ) : (view === 'fields' || view === 'all') && dense ? (
+          <div role="listbox" aria-label="Populated dataset fields" aria-multiselectable="true" className={fieldPickerList}>
+            {otherFieldItems.map((item) => {
+              const checked = selected.has(catalogItemKey(item));
+              const unavailable = !canAddCatalogItem(item) || !catalogItemAvailability(item).selectable;
+              const label = catalogItemLabel(item);
+              return <button key={catalogItemKey(item)} type="button" role="option" aria-selected={checked} aria-pressed={checked}
+                aria-label={item.kind === 'FIELD' ? `Select ${item.constructionChoice.source.resourceType}.${item.candidate.fieldPath.replace(/^root\./, '')}` : `Select ${catalogItemSelectionLabel(item, semanticSelectionMode)}`}
+                disabled={disabled || submitting || unavailable || (selected.size >= MAX_SELECTIONS && !checked)}
+                onClick={() => toggleSelection(item)}
+                className={`${fieldPickerRow} ${checked ? fieldPickerSelected : ''} disabled:cursor-not-allowed disabled:opacity-50`}>
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                {item.kind === 'FIELD' ? <span className={fieldPickerMetadata}>{item.constructionChoice.source.resourceType} · {item.candidate.logicalType}</span> : null}
+              </button>;
+            })}
+          </div>
         ) : fieldGroups.map((group) => (
           <section key={group.nodeId} data-source-node-id={group.nodeId} className="py-2 first:pt-0">
             <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -1986,8 +1952,8 @@ const ConceptCatalogContent = ({
   );
 
   return (
-    <section ref={catalogOwnerRef} className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm">
-      <form className="flex gap-2 border-b border-slate-200 px-3 py-2" onSubmit={submitSearch}>
+    <section ref={catalogOwnerRef} className={dense ? "flex h-full min-h-0 min-w-0 flex-col bg-white" : "min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm"}>
+      <form className={dense ? "flex gap-2 px-3 py-2" : "flex gap-2 border-b border-slate-200 px-3 py-2"} onSubmit={submitSearch}>
           <label className="sr-only" htmlFor="feature-catalog-search">
             {view === 'fields' ? 'Search dataset fields by name or type' : 'Search coded values by code or label'}
           </label>
@@ -1997,7 +1963,7 @@ const ConceptCatalogContent = ({
             aria-label={view === 'fields' ? 'Search dataset fields by name or type' : 'Search coded values by code or label'}
             value={queryInput}
             onChange={(event) => setQueryInput(event.currentTarget.value)}
-            placeholder={view === 'fields' ? 'Search a field name or type' : 'Search a code or label'}
+            placeholder={structuredOnly ? 'Search identifiers or extensions' : view === 'fields' ? 'Search a field name or type' : 'Search a code or label'}
             className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm outline-blue-500 focus:border-blue-500"
           />
           <button
@@ -2117,7 +2083,35 @@ const ConceptCatalogContent = ({
         </div>
       ) : null}
 
-      <div className={`${layout === 'panel' ? 'grid min-h-[14rem]' : 'grid min-h-[24rem]'} ${selected.size > 0 ? 'pb-32 md:pb-0 md:pr-[20rem]' : ''}`}>
+      <div className={dense ? 'flex min-h-0 flex-1 flex-col' : `${layout === 'panel' ? 'grid min-h-[14rem]' : 'grid min-h-[24rem]'} ${selected.size > 0 ? 'pb-32 md:pb-0 md:pr-[20rem]' : ''}`}>
+        {dense ? (() => {
+          const items = [...otherFieldItems, ...semanticItems].filter((item) => {
+            const term = queryInput.trim().toLowerCase();
+            return !term || catalogItemLabel(item).toLowerCase().includes(term) || catalogItemSelectionLabel(item, semanticSelectionMode).toLowerCase().includes(term);
+          });
+          return <div role="listbox" aria-label={structuredOnly ? "Available identifier and extension columns" : "Available columns and coded values"} aria-multiselectable="true" className="min-h-0 flex-1 overflow-y-auto px-2">
+            {items.map((item) => {
+              const checked = selected.has(catalogItemKey(item));
+              const unavailable = !canAddCatalogItem(item) || !catalogItemAvailability(item).selectable;
+              const label = catalogItemLabel(item);
+              const meta = item.kind === 'FIELD'
+                ? `${item.constructionChoice.source.resourceType} · ${item.candidate.logicalType}`
+                : structuredOnly && item.item.constructionChoice?.source.kind === 'SEMANTIC'
+                  ? `${item.item.constructionChoice.source.ruleHint === 'IDENTIFIER_SYSTEM_VALUE' ? 'Identifier' : 'Extension'} · ${item.item.valueType}`
+                  : `${item.item.resourceType} · coded value`;
+              return <button key={catalogItemKey(item)} type="button" role="option" aria-selected={checked} aria-pressed={checked}
+                aria-label={`${checked ? 'Remove' : 'Select'} ${catalogItemSelectionLabel(item, semanticSelectionMode)}`}
+                disabled={disabled || submitting || unavailable || (selected.size >= MAX_SELECTIONS && !checked)}
+                onClick={() => toggleSelection(item)}
+                className={`flex w-full items-center gap-2 border-b border-slate-100 px-2 py-1.5 text-left text-xs last:border-b-0 ${checked ? 'bg-blue-50 font-medium text-blue-950' : 'text-slate-700 hover:bg-slate-50'} disabled:cursor-not-allowed disabled:opacity-50`}>
+                <span aria-hidden="true" className="w-3 shrink-0 text-blue-800">{checked ? '✓' : ''}</span>
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                <span className="shrink-0 text-[10px] text-slate-500">{meta}</span>
+              </button>;
+            })}
+            {items.length === 0 ? <p className="px-2 py-2 text-xs text-slate-500">{structuredOnly ? response?.nextCursor ? 'No addable identifiers or extensions on this page. Use Next to see more.' : 'No populated, addable identifiers or extensions were found.' : 'No columns or coded values match this search.'}</p> : null}
+          </div>;
+        })() : (
         <div className={layout === 'panel'
           ? 'min-w-0 border-b border-slate-200 p-4'
           : 'min-w-0 border-b border-slate-200 p-4 sm:p-5'}>
@@ -2250,7 +2244,7 @@ const ConceptCatalogContent = ({
               {fieldSection}
             </div>
           ) : view === 'all' ? (
-            <details className="mt-6 border-t border-slate-200 pt-5" data-testid="feature-catalog-raw-fields" open={layout !== 'panel' ? true : undefined}
+            <details className="mt-6 border-t border-slate-200 pt-5" data-testid="feature-catalog-raw-fields" open={layout !== 'panel' || rawFieldsExpanded}
               onToggle={(event) => { if (layout === 'panel') setRawFieldsExpanded(event.currentTarget.open); }}>
               <summary className="cursor-pointer text-sm font-semibold text-slate-700">Fields</summary>
               <p className="mt-2 text-xs text-slate-600">Choose a dataset field such as a row ID, date, grouping field, or value without a coded pairing.</p>
@@ -2258,9 +2252,10 @@ const ConceptCatalogContent = ({
             </details>
           ) : null}
         </div>
+        )}
 
         {selected.size > 0 ? (
-          <aside aria-label="Selected feature action" className="fixed inset-x-4 bottom-4 z-30 grid w-auto gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-lg md:inset-x-auto md:right-4 md:top-1/2 md:bottom-auto md:w-[min(18rem,calc(100vw-2rem))] md:-translate-y-1/2 lg:translate-x-0">
+          <aside aria-label="Selected feature action" className={dense ? "grid shrink-0 gap-2 border-t border-slate-200 p-2" : "fixed inset-x-4 bottom-4 z-30 grid w-auto gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-lg md:inset-x-auto md:right-4 md:top-1/2 md:bottom-auto md:w-[min(18rem,calc(100vw-2rem))] md:-translate-y-1/2 lg:translate-x-0"}>
             <p className="m-0 text-sm font-medium text-slate-700" role="status">
               {selected.size} {selected.size === 1 ? 'feature' : 'features'} selected
             </p>

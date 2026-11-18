@@ -2,6 +2,8 @@ package artifactfs
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,8 +24,7 @@ type Store struct {
 	root string
 	now  func() time.Time
 	mu   sync.Mutex
-	// ctxCheck mirrors context cancellation for one Reconcile pass; tests
-	// inject a deterministic countdown there. Nil means ctx.Err() directly.
+
 	ctxCheck func(context.Context) error
 }
 
@@ -68,12 +69,7 @@ func (s *Store) Begin(ctx context.Context, record explorer.ArtifactRecord) (expl
 	stagingPath := s.path(record.ID, ".staging")
 	file, err := os.OpenFile(stagingPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if errors.Is(err, os.ErrExist) {
-		// Under this same mutex, in this process, a live prepare always
-		// carries a readable record before Begin returns, so a staging file
-		// with no readable record is crash debris from an earlier attempt at
-		// this id. Reclaim it once and retry; anything else keeps the
-		// original failure. Cross-process sharing of the root is unsupported
-		// (see Reconcile).
+
 		if _, readErr := s.read(record.ID); errors.Is(readErr, os.ErrNotExist) {
 			if removeErr := os.Remove(stagingPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 				return nil, nil, fmt.Errorf("reclaim stale artifact staging: %w", removeErr)
@@ -125,6 +121,47 @@ func (s *Store) Open(ctx context.Context, id string) (io.ReadCloser, *explorer.A
 	if err != nil {
 		return nil, record, err
 	}
+	closeOnError := func(err error) (io.ReadCloser, *explorer.ArtifactRecord, error) {
+		_ = file.Close()
+		return nil, record, err
+	}
+
+	digest := sha256.New()
+	buffer := make([]byte, 32*1024)
+	var size int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return closeOnError(err)
+		}
+		read, readErr := file.Read(buffer)
+		if read > 0 {
+			if _, err := digest.Write(buffer[:read]); err != nil {
+				return closeOnError(fmt.Errorf("hash artifact archive: %w", err))
+			}
+			size += int64(read)
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return closeOnError(fmt.Errorf("read artifact archive for integrity verification: %w", readErr))
+		}
+		if read == 0 {
+			return closeOnError(io.ErrNoProgress)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return closeOnError(err)
+	}
+	if !record.ExpiresAt.After(s.now()) {
+		return closeOnError(ErrArtifactUnavailable)
+	}
+	if size != record.Bytes || hex.EncodeToString(digest.Sum(nil)) != record.ArchiveSHA256 {
+		return closeOnError(fmt.Errorf("artifact archive integrity verification failed"))
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return closeOnError(fmt.Errorf("rewind verified artifact archive: %w", err))
+	}
 	return file, record, nil
 }
 
@@ -135,25 +172,6 @@ func (s *Store) canceled(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// Reconcile enforces the expiry promise the store already applies at read
-// time: sets whose readable record has expired leave the store, so retention
-// of record-proven artifacts is bounded by the product's TTL. Sets without a
-// readable record are never removed — identity (and therefore harmlessness)
-// cannot be proven, and unclaimable residue surfaces to operators for a
-// deliberate purge instead of a silent guess. Every mutation path holds the
-// same mutex, so the under-lock re-read excludes any race with an active
-// Begin on a recycled id, and any read failure at re-read time leaves the set
-// for a later pass. The record (.json) is removed only after archive and
-// staging are gone, keeping the queueing proof alive for the next sweep.
-// limit bounds one pass, matching the sibling ClickHouse artifact reconciler.
-// A set is claimed for removal only when its record re-read under the mutex
-// has expired; s.read already refuses metadata whose ID disowns the filename
-// (identity mismatch), and queueing additionally requires the filename id to
-// pass safeID, so neither a disowned record nor a foreign-named file can be
-// removed. The
-// mutex is per process: this store assumes it owns its directory (a single
-// API process on local disk, as deployed); sharing a root across processes
-// is unsupported for the same reason Begin's O_EXCL staging contract is.
 func (s *Store) Reconcile(ctx context.Context, now time.Time, limit int) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err

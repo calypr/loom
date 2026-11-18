@@ -1,4 +1,6 @@
-import React, { useEffect, useId, useState } from 'react';
+import { createOpaqueId, normalizedLogicalType, isNumericColumn, normalizedName, uniqueName as uniqueFilterSourceName, sourceLabel as filterSourceLabel, editorContextKey, stageWithSourceInputs, constructionWithStep } from './editorShared';
+import React, { useId, useState } from 'react';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -99,23 +101,16 @@ export interface ConstructionOperationEditorProps {
   readonly family: 'KEEP_ROWS' | 'CALCULATE';
   readonly construction: Construction;
   readonly capabilities: ConstructionCapabilitiesResponse;
-  /** The step being changed. When absent, the editor appends one step. */
+
   readonly editingStep?: ConstructionStep;
   readonly selectedColumns?: ReadonlyArray<string>;
   readonly disabled: boolean;
-  /** Undefined clears any prior preview while the visible form is incomplete. */
+
   readonly onCandidateChange: (candidate: CandidateIntent | undefined) => void;
-  /** The host loads the predecessor-stage capabilities and reopens this step. */
+
   readonly onEditStep: (stepId: string) => void;
+  readonly onCancel?: () => void;
 }
-
-const createOpaqueId = (prefix: string): string => {
-  const randomPart = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
-  return `${prefix}_${randomPart}`;
-};
-
-const normalizedLogicalType = (type: string | undefined): string =>
-  (type ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
 
 const filterValueKindFor = (type: string | undefined): FilterValueKind | undefined => {
   switch (normalizedLogicalType(type)) {
@@ -141,47 +136,6 @@ const filterValueKindFor = (type: string | undefined): FilterValueKind | undefin
   }
 };
 
-const isNumericColumn = (column: ConstructionStageDescriptor['columns'][number]): boolean => {
-  const type = normalizedLogicalType(column.type);
-  return type === 'integer' || type === 'decimal' || type === 'number';
-};
-
-const normalizedName = (value: string): string => {
-  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'column';
-  return /^[0-9]/.test(normalized) ? `column_${normalized}` : normalized;
-};
-
-const uniqueFilterSourceName = (base: string, used: ReadonlySet<string>): string => {
-  const normalized = normalizedName(base);
-  if (!used.has(normalized)) return normalized;
-  let suffix = 2;
-  while (used.has(`${normalized}_${suffix}`)) suffix += 1;
-  return `${normalized}_${suffix}`;
-};
-
-const filterSourceFieldPathLabel = (path: string): string => {
-  const words: string[] = [];
-  for (const segment of path.replace(/^root\./, '').split('.')) {
-    const readable = segment.replace(/\[\]/g, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim();
-    if (!readable) continue;
-    words.push(readable.toLowerCase() === 'id' ? 'ID' : readable[0].toUpperCase() + readable.slice(1));
-  }
-  return words.join(' ');
-};
-
-const filterSourceLabel = (choice: SourceChoiceLike): string => {
-  const rawPath = choice.fieldPath.replace(/^root\./, '');
-  const label = choice.label.trim().replace(/^root\./, '');
-  const prefixedPath = label.endsWith(`.${rawPath}`) ? label.slice(0, -rawPath.length - 1) : undefined;
-  const rawSegments = rawPath.split('.');
-  const rawPathResource = rawSegments.length > 1 && /^[A-Z]/.test(rawSegments[0] ?? '') ? rawSegments[0] : undefined;
-  const context = prefixedPath ?? (label === rawPath ? rawPathResource : undefined);
-  const fieldPath = rawPathResource && context === rawPathResource ? rawSegments.slice(1).join('.') : rawPath;
-  const labelIsPath = label === rawPath || Boolean(prefixedPath) || label === choice.fieldPath;
-  const field = labelIsPath ? filterSourceFieldPathLabel(fieldPath) : label;
-  return context ? `${context} · ${field}` : field;
-};
-
 const filterSourceColumn = (
   choice: SourceChoiceLike,
   columnId: string,
@@ -202,8 +156,6 @@ const liveFilterSources = (form: FilterForm): ReadonlyArray<FilterSourceSelectio
     ? []
     : form.filterSources.filter((binding) => binding.columnId === form.columnId);
 
-// A DERIVE step consumes its two operands as a list, so a live binding is one
-// whose column is actually referenced by either arithmetic operand.
 const liveDeriveSources = (form: CalculationForm): ReadonlyArray<DeriveSourceSelection> => {
   if (!form.deriveSources?.length) return [];
   const draft = expressionDraftFor(form.expression);
@@ -219,16 +171,9 @@ const deriveSourceStage = (
   stage: ConstructionStageDescriptor,
   sourceInput: DeriveSourceInput | undefined,
   deriveSources: ReadonlyArray<DeriveSourceSelection>,
-): ConstructionStageDescriptor => {
-  const choices = sourceInput?.choices ?? [];
-  const inputs = deriveSources.flatMap((selection) => {
-    if (selection.columnId.trim() === '') return [];
-    if (stage.columns.some((column) => column.id === selection.columnId)) return [];
-    const choice = choices.find((candidate) => candidate.choiceId === selection.choiceId);
-    return choice ? [filterSourceColumn(choice, selection.columnId, stage)] : [];
-  });
-  return inputs.length ? { ...stage, columns: [...stage.columns, ...inputs] } : stage;
-};
+): ConstructionStageDescriptor => stageWithSourceInputs({
+  stage, choices: sourceInput?.choices ?? [], selections: deriveSources, kind: 'DERIVE',
+});
 
 const deriveSourceChoiceForColumn = (
   choices: ReadonlyArray<DeriveSourceChoice>,
@@ -238,22 +183,13 @@ const deriveSourceChoiceForColumn = (
   return choices.find((choice) => materializedChoiceColumnId(choice) === columnId);
 };
 
-// A signed dataset-field source is not a stage column, so the same derived column
-// Loom will materialize for it has to be visible in step outputs and lookups.
 const filterInputStage = (
   stage: ConstructionStageDescriptor,
   sourceInput: FilterSourceInput,
   filterSources: ReadonlyArray<FilterSourceSelection>,
-): ConstructionStageDescriptor => {
-  const choices = sourceInput?.choices ?? [];
-  const inputs = filterSources.flatMap((selection) => {
-    if (selection.columnId.trim() === '') return [];
-    if (stage.columns.some((column) => column.id === selection.columnId)) return [];
-    const choice = choices.find((candidate) => candidate.choiceId === selection.choiceId);
-    return choice ? [filterSourceColumn(choice, selection.columnId, stage)] : [];
-  });
-  return inputs.length ? { ...stage, columns: [...stage.columns, ...inputs] } : stage;
-};
+): ConstructionStageDescriptor => stageWithSourceInputs({
+  stage, choices: sourceInput?.choices ?? [], selections: filterSources, kind: 'FILTER',
+});
 
 const materializedChoiceColumnId = (choice: SourceChoiceLike): string | undefined => {
   const columnId = choice.columnId ?? '';
@@ -279,18 +215,6 @@ const operationSupport = (
     : { supported: false, reason: choice.reason ?? 'This operation is not supported at the selected stage.' };
 };
 
-const editorContextKey = (
-  capabilities: ConstructionCapabilitiesResponse,
-  editingStep: ConstructionStep | undefined,
-): string => [
-  capabilities.snapshotToken,
-  capabilities.draftVersion,
-  capabilities.draftDigest,
-  capabilities.outputId,
-  capabilities.stageId,
-  editingStep?.id ?? 'new',
-].join(':');
-
 const constructionOutputsForStage = (
   stage: ConstructionStageDescriptor,
 ): ConstructionStep['outputs'] => stage.columns.map((column) => ({
@@ -306,12 +230,7 @@ const replaceOrAppendStep = (
   step: ConstructionStep,
 ): Construction | undefined => {
   if (editingStep && !construction.steps.some((candidate) => candidate.id === editingStep.id)) return undefined;
-  return {
-    ...construction,
-    steps: editingStep
-      ? construction.steps.map((candidate) => candidate.id === editingStep.id ? step : candidate)
-      : [...construction.steps, step],
-  };
+  return constructionWithStep({ construction, editingStep, step });
 };
 
 const filterValueText = (value: FilterValue): string => {
@@ -806,14 +725,16 @@ const buildDeriveCandidate = (args: {
 }): CandidateIntent | undefined => {
   const { construction, stage, deriveSourceInput, editingStep, stepId, outputColumnId, form, expression } = args;
   if (editingStep && editingStep.operation.kind !== 'DERIVE') return undefined;
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(form.outputName) || !form.outputLabel.trim()) return undefined;
+  if (!form.outputLabel.trim()) return undefined;
   const deriveSources = liveDeriveSources(form);
   const inputStage = deriveSourceStage(stage, deriveSourceInput, deriveSources);
   const replacedOutputID = editingStep?.operation.kind === 'DERIVE'
     ? editingStep.operation.derive.outputColumnId
     : undefined;
+  const outputName = editingStep ? form.outputName : calculationOutputName(inputStage.columns);
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(outputName)) return undefined;
   const nameConflict = inputStage.columns.some((column) =>
-    column.name === form.outputName && column.id !== replacedOutputID,
+    column.name === outputName && column.id !== replacedOutputID,
   );
   if (nameConflict) return undefined;
 
@@ -843,7 +764,7 @@ const buildDeriveCandidate = (args: {
       };
   const output: DerivedOutput = {
     id: outputID,
-    name: form.outputName,
+    name: outputName,
     label: form.outputLabel.trim(),
   };
   const step = {
@@ -943,13 +864,6 @@ const FilterValueInput = (props: {
   }
 };
 
-// An ordinary PUBLIC column carries its field as authored authoringv2
-// Column.Source.Field identity, compiled separately from construction.sourceProjections,
-// so the projection list alone cannot see it. Capabilities sign that same
-// identity into the scalar field choices: canonicalPath plus inputColumnId is
-// the server's own "this live stage column already carries this root field"
-// proof. Root-role scalar entries only, so a nested occurrence can never
-// impersonate a root dataset field.
 const publicFieldCarriersForStage = (
   capabilities: ConstructionCapabilitiesResponse,
 ): PublicFieldCarrier[] => {
@@ -973,12 +887,6 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
   const publicCarriers = publicFieldCarriersForStage(capabilities);
   const [stepId, setStepId] = useState(() => createOpaqueId('filter'));
   const [form, setForm] = useState(() => filterFormFromStep(editingStep, stage, selectedColumns, sourceChoices));
-  const contextKey = editorContextKey(capabilities, editingStep);
-  useEffect(() => {
-    setStepId(createOpaqueId('filter'));
-    setForm(filterFormFromStep(editingStep, stage, selectedColumns, sourceChoices));
-    props.onCandidateChange(undefined);
-  }, [contextKey]);
 
   const support = operationSupport(stage, 'FILTER');
   const supportedSavedSteps = filterSteps(construction);
@@ -1002,10 +910,7 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
     : [];
   const columnOptionsAvailable = stage.columns.length > 0 || boundSourceVisible || sourceOptions.length > 0;
   const sourceUnavailableReason = sourceInput && !sourceInput.supported
-    ? [sourceInput.reasonCode, sourceInput.reason]
-      .map((part) => part?.trim() ?? '')
-      .filter((part) => part !== '')
-      .join(' · ')
+    ? sourceInput.reason?.trim() || sourceInput.reasonCode?.trim() || undefined
     : undefined;
   const valueKind = form.kind === 'comparison' || form.kind === 'membership'
     ? filterValueKindFor(inputStage.columns.find((column) => column.id === form.columnId)?.type)
@@ -1062,13 +967,13 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
   return (
     <section aria-label="Filter output rows by condition" data-testid="construction-filter-editor" className="grid gap-3">
       <header>
-        <h3 className="font-semibold text-slate-900">Filter output rows</h3>
+        <h3 className="m-0 text-sm font-semibold text-slate-900">Filter output rows</h3>
         <p className="mt-1 text-xs text-slate-600">Rows must match every condition. Contributor rules still choose which records supply their values.</p>
       </header>
 
       {supportedSavedSteps.length > 0 ? (
-        <fieldset data-testid="construction-filter-condition-tree" className="rounded-lg border border-slate-200 p-3">
-          <legend className="px-1 text-sm font-semibold text-slate-800">Saved conditions</legend>
+        <fieldset data-testid="construction-filter-condition-tree" className="border-0 p-0">
+          <legend className="m-0 px-1 text-xs font-semibold text-slate-700">Saved conditions</legend>
           <ol className="grid gap-2">
             {supportedSavedSteps.map((step, index) => (
               <li key={step.id} className="flex items-center justify-between gap-3 rounded bg-slate-50 px-3 py-2 text-sm">
@@ -1091,8 +996,8 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
       {form.kind === 'unsupported' ? (
         <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{form.message}</p>
       ) : (
-        <div className="grid gap-3 rounded-lg border border-slate-200 p-3">
-          <p className="text-sm font-medium text-slate-800">{editingStep ? 'Edit this saved condition' : 'New condition'}</p>
+        <div className="grid gap-3">
+          <p className="m-0 text-xs font-semibold text-slate-700">{editingStep ? 'Edit this saved condition' : 'New condition'}</p>
           {!columnOptionsAvailable ? (
             <>
               <p role="status" className="text-sm text-slate-600">Loom returned no columns for this stage.</p>
@@ -1108,14 +1013,14 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
             </>
           ) : (
             <>
-              <label className="grid gap-1 text-sm font-medium text-slate-700">
+              <label className="grid gap-1 text-xs font-medium text-slate-700">
                 Column
                 <select
                   aria-label="Column"
                   value={form.columnId}
                   disabled={disabled}
                   onChange={(event) => chooseColumn(event.currentTarget.value)}
-                  className="rounded border border-slate-300 bg-white px-2 py-1.5"
+                  className="rounded border border-slate-300 bg-white px-2 py-1 text-xs"
                 >
                   {stage.columns.map((column) => <option key={column.id} value={column.id}>{column.label} ({column.type ?? 'unknown type'})</option>)}
                   {boundSourceVisible && boundBinding && boundChoice
@@ -1128,7 +1033,7 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
               </label>
 
               {sourceInput && !sourceInput.supported ? (
-                <p role="status" data-testid="construction-filter-source-unavailable" className="text-sm text-amber-900">
+                <p role="status" data-testid="construction-filter-source-unavailable" className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-900">
                   {sourceUnavailableReason && sourceUnavailableReason !== ''
                     ? sourceUnavailableReason
                     : 'Loom did not report why filtering on dataset fields is unavailable at this stage.'}
@@ -1145,7 +1050,7 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
                 />
               ) : null}
 
-              <label className="grid gap-1 text-sm font-medium text-slate-700">
+              <label className="grid gap-1 text-xs font-medium text-slate-700">
                 Condition
                 <select
                   aria-label="Condition"
@@ -1167,7 +1072,7 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
               </label>
 
               {form.kind === 'comparison' && valueKind ? (
-                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                <label className="grid gap-1 text-xs font-medium text-slate-700">
                   Value
                   <FilterValueInput
                     kind={valueKind}
@@ -1261,16 +1166,12 @@ const FormulaOperand = (props: {
       }) === undefined)
     : [];
   const sourceUnavailableReason = props.sourceInput && !props.sourceInput.supported
-    ? [props.sourceInput.reasonCode, props.sourceInput.reason]
-      .map((part) => part?.trim() ?? '')
-      .filter((part) => part !== '')
-      .join(' · ')
+    ? props.sourceInput.reason?.trim() || props.sourceInput.reasonCode?.trim() || undefined
     : undefined;
   return (
-    <fieldset className="grid gap-2 rounded-lg border border-slate-200 p-3">
-      <legend className="px-1 text-sm font-semibold text-slate-800">{props.label}</legend>
-      <label className="grid gap-1 text-sm font-medium text-slate-700">
-        Use
+    <fieldset className="grid gap-2 rounded border border-slate-200 p-2">
+      <legend className="px-1 text-xs font-semibold text-slate-700">{props.label}</legend>
+      <label className="grid gap-1 text-xs font-medium text-slate-700">
         <select
           aria-label={`${props.label} kind`}
           value={props.value.kind}
@@ -1296,7 +1197,7 @@ const FormulaOperand = (props: {
                 props.onChange({ kind: 'unset' });
             }
           }}
-          className="rounded border border-slate-300 bg-white px-2 py-1.5"
+          className="rounded border border-slate-300 bg-white px-2 py-1 text-xs"
         >
           <option value="unset">Choose a value</option>
           <option value="column" disabled={!firstNumeric && sourceOptions.length === 0}>Numeric column</option>
@@ -1305,8 +1206,8 @@ const FormulaOperand = (props: {
       </label>
 
       {props.value.kind === 'column' ? (
-        <label className="grid gap-1 text-sm font-medium text-slate-700">
-          Column
+        <label className="grid gap-1 text-xs font-medium text-slate-700">
+          Numeric field
           <select
             aria-label={`${props.label} column`}
             value={props.value.columnId}
@@ -1324,7 +1225,7 @@ const FormulaOperand = (props: {
               const columnId = materializedChoiceColumnId(choice) ?? existing?.columnId ?? createOpaqueId('derive-input');
               props.onSourceSelected(choice, columnId);
             }}
-            className="rounded border border-slate-300 bg-white px-2 py-1.5"
+            className="rounded border border-slate-300 bg-white px-2 py-1 text-xs"
           >
             {props.columns.filter(isNumericColumn).map((column) => <option key={column.id} value={column.id}>{column.label} ({column.type})</option>)}
             {sourceOptions.length > 0 ? <optgroup label="Dataset fields (not in output)">
@@ -1339,7 +1240,7 @@ const FormulaOperand = (props: {
       ) : null}
 
       {sourceUnavailableReason && sourceUnavailableReason !== '' ? (
-        <p role="status" data-testid={`construction-calculate-${props.slot}-source-unavailable`} className="text-xs text-amber-900">{sourceUnavailableReason}</p>
+        <p role="status" data-testid={`construction-calculate-${props.slot}-source-unavailable`} className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-900">{sourceUnavailableReason}</p>
       ) : null}
 
       {props.value.kind === 'literal' ? (
@@ -1393,24 +1294,20 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
   const deriveSourceChoices = deriveSourceInput?.choices ?? [];
   const [stepId, setStepId] = useState(() => createOpaqueId('derive'));
   const [outputColumnId, setOutputColumnId] = useState(() => createOpaqueId('column'));
-  const [form, setForm] = useState(() => calculationFormFromStep(editingStep, stage, deriveSourceChoices));
-  const contextKey = editorContextKey(capabilities, editingStep);
-  useEffect(() => {
-    const numericSelected = stage.columns.find((column) => selectedColumns.includes(column.id) && isNumericColumn(column));
+  const [form, setForm] = useState(() => {
     const initial = calculationFormFromStep(editingStep, stage, deriveSourceChoices);
-    setForm(numericSelected && !editingStep
+    const numericSelected = stage.columns.find((column) =>
+      selectedColumns.includes(column.id) && isNumericColumn(column));
+    return numericSelected && !editingStep
       ? {
           ...initial,
           expression: {
-            kind: 'guided',
-            draft: { ...expressionDraftFor(initial.expression), left: { kind: 'column', columnId: numericSelected.id } },
+            kind: 'guided' as const,
+            draft: { ...expressionDraftFor(initial.expression), left: { kind: 'column' as const, columnId: numericSelected.id } },
           },
         }
-      : initial);
-    setStepId(createOpaqueId('derive'));
-    setOutputColumnId(createOpaqueId('column'));
-    props.onCandidateChange(undefined);
-  }, [contextKey]);
+      : initial;
+  });
 
   const support = operationSupport(stage, 'DERIVE');
   const expressionStep = editingStep?.operation.kind === 'DERIVE' ? editingStep : undefined;
@@ -1431,10 +1328,6 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
   const expressionDraft = expressionDraftFor(form.expression);
   const inputStage = deriveSourceStage(stage, deriveSourceInput, liveDeriveSources(form));
 
-  // One explanation per operand pair: the first operand that renders a
-  // column-kind source picker and classifies as empty hosts it. A literal
-  // operand has no source section, so a zero-field bound operand still gets
-  // its explanation instead of silently rendering an empty picker.
   const pickerEmptinessHost = (() => {
     if (!deriveSourceInput?.supported) return undefined;
     const choices = deriveSourceInput.choices ?? [];
@@ -1458,9 +1351,7 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
         bindings: list,
         isOwn: (binding) => choices.some((choice) => choice.choiceId === binding.choiceId && choice.columnId === ownColumnId),
         ownVisible: ownBinding !== undefined
-          // Provenance: only deriveSourceStage's virtual materialization (never
-          // present on the raw stage) is own's own column; a foreign server
-          // column reusing the id must not silence the explanation.
+
           && !stage.columns.some((column) => column.id === ownColumnId)
           && inputStage.columns.some((column) => column.id === ownColumnId && isNumericColumn(column)),
       }));
@@ -1485,9 +1376,7 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
     const previousId = expressionDraft[slot].kind === 'column' ? expressionDraft[slot].columnId : undefined;
     const otherSlot = slot === 'left' ? 'right' : 'left';
     const otherColumnId = expressionDraft[otherSlot].kind === 'column' ? expressionDraft[otherSlot].columnId : undefined;
-    // The kind shortcut can make both operands share one materialized column;
-    // prune only bindings this operand actually releases, never the other
-    // operand's live binding (liveDeriveSources prunes what truly goes unused).
+
     const kept = (form.deriveSources ?? []).filter((binding) =>
       ((binding.columnId !== previousId && binding.columnId !== columnId) || binding.columnId === otherColumnId) || binding.columnId === otherColumnId);
     updateForm({
@@ -1540,18 +1429,14 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
     <section aria-label="Calculate a value" data-testid="construction-calculate-editor" className="grid gap-4">
       <header>
         <h3 className="font-semibold text-slate-900">Calculate a value</h3>
-        <p className="mt-1 text-sm text-slate-600">Build one arithmetic expression from numeric columns and numbers. Loom checks this candidate and returns the preview that determines whether it can be applied.</p>
+        <p className="mt-1 text-sm text-slate-600">Combine two numbers or numeric fields.</p>
       </header>
 
       {editingStep && output ? (
         <p role="status" data-testid="construction-calculate-replacement" className="rounded bg-blue-50 px-3 py-2 text-sm text-blue-950">
-          Editing saved calculation “{output.label}”. Applying this proposal replaces that calculation while keeping its column identity.
+          Editing “{output.label}”. Applying updates the existing column.
         </p>
-      ) : (
-        <p role="status" data-testid="construction-calculate-new-output" className="rounded bg-slate-50 px-3 py-2 text-sm text-slate-700">
-          This creates a new column by default.
-        </p>
-      )}
+      ) : null}
 
       <div role="group" aria-label="Expression editor" className="flex gap-2">
         <button
@@ -1650,7 +1535,7 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
 
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1 text-sm font-medium text-slate-700">
-          Missing input
+          If either value is missing
           <select
             aria-label="Missing input policy"
             value={form.missingInputPolicy}
@@ -1661,8 +1546,8 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
             }}
             className="rounded border border-slate-300 bg-white px-2 py-1.5"
           >
-            <option value="PROPAGATE_NULL">Leave the result missing</option>
-            <option value="ERROR">Treat missing input as an error</option>
+            <option value="PROPAGATE_NULL">Leave the result blank</option>
+            <option value="ERROR">Stop with an error</option>
           </select>
         </label>
         {expressionDraft.operation === 'DIVIDE' ? (
@@ -1678,34 +1563,23 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
               }}
               className="rounded border border-slate-300 bg-white px-2 py-1.5"
             >
-              <option value="NULL">Leave the result missing</option>
+              <option value="NULL">Leave the result blank</option>
               <option value="ERROR">Treat it as an error</option>
             </select>
           </label>
         ) : null}
       </div>
 
-      <div className="grid gap-3 rounded-lg border border-slate-200 p-3 sm:grid-cols-2">
-        <label className="grid gap-1 text-sm font-medium text-slate-700">
-          {editingStep ? 'Column name' : 'New column name'}
-          <input aria-label="Output column name" value={form.outputName} disabled={disabled} onChange={(event) => updateForm({ ...form, outputName: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
-        </label>
-        <label className="grid gap-1 text-sm font-medium text-slate-700">
-          Column label
-          <input aria-label="Output column label" value={form.outputLabel} disabled={disabled} onChange={(event) => updateForm({ ...form, outputLabel: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
-        </label>
-      </div>
-      {!isPhysicalColumnName(form.outputName) ? (
-        <p role="status" className="text-sm text-amber-900">Use a name that starts with a letter or underscore and contains only letters, numbers, and underscores.</p>
-      ) : null}
-      {output ? <p className="text-xs text-slate-500">The saved column keeps its stable ID: {output.id}</p> : null}
+      <label className="grid gap-1 text-sm font-medium text-slate-700">
+        Column label
+        <input aria-label="Output column label" value={form.outputLabel} disabled={disabled} onChange={(event) => updateForm({ ...form, outputLabel: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
+      </label>
     </section>
   );
 };
 
-const isPhysicalColumnName = (value: string): boolean => /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
-
 export const ConstructionOperationEditor = (props: ConstructionOperationEditorProps) => {
+  useEscapeToClose(Boolean(props.onCancel), props.onCancel ?? (() => {}));
   const id = useId();
   return props.family === 'KEEP_ROWS'
     ? <KeepRowsEditor key={`${id}:filter:${editorContextKey(props.capabilities, props.editingStep)}`} {...props} />

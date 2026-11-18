@@ -273,6 +273,17 @@ func TestCompilationReceiptRejectsInvalidConstructionProposalBinding(t *testing.
 	}
 }
 
+func TestConstructionProposalValidationPreservesErrorOrder(t *testing.T) {
+	binding := ConstructionProposalBinding{
+		DraftVersion: 1, DraftDigest: "draft", OutputID: "out", BaseDocumentDigest: "base",
+		CandidateWorkspaceDigest: "stale", SnapshotToken: "snapshot", PreviewLimit: 10,
+	}
+	err := binding.Validate("intent", "snapshot")
+	if err == nil || err.Error() != "construction proposal requires changedStepId or removeStepIds" {
+		t.Fatalf("Validate() error = %v, want missing changed step before stale digest", err)
+	}
+}
+
 func TestCompilationReceiptIdentityIncludesConstructionStageDescriptors(t *testing.T) {
 	base := testReceipt()
 	base.ConstructionStages = map[string][]ReceiptConstructionStage{"out": {
@@ -548,10 +559,52 @@ func TestCompilationReceiptPreservesHistoricalContractReaders(t *testing.T) {
 	}
 }
 
-func TestReceiptContractSupportedForExecutionOnlyCurrentAndPrevious(t *testing.T) {
+func TestReceiptContractSupportedForExecutionOnlyCurrent(t *testing.T) {
 	r := testReceipt()
 	if !ReceiptContractSupportedForExecution(r) {
 		t.Fatal("current receipt was not executable")
+	}
+	currentKey, err := CompilationKey(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v20 := r
+	v20.CompilerContractVersion = legacyCompilationReceiptV20CompilerContractVersion
+	v20.CompilationKey, _ = CompilationKey(v20)
+	v20.ID, _ = ReceiptID(v20)
+	if err := v20.Validate(); err != nil {
+		t.Fatalf("v20 generic receipt must remain readable: %v", err)
+	}
+	if ReceiptContractSupportedForExecution(v20) {
+		t.Fatal("v20 execution must require recompilation")
+	}
+	if v20.CompilationKey == currentKey {
+		t.Fatal("v21 must invalidate v20 compilation cache")
+	}
+	v19 := r
+	v19.CompilerContractVersion = legacyCompilationReceiptV19CompilerContractVersion
+	v19.CompilationKey, _ = CompilationKey(v19)
+	v19.ID, _ = ReceiptID(v19)
+	if err := v19.Validate(); err != nil {
+		t.Fatalf("v19 must remain readable: %v", err)
+	}
+	if ReceiptContractSupportedForExecution(v19) {
+		t.Fatal("v19 execution must require recompilation")
+	}
+	if v19.CompilationKey == currentKey {
+		t.Fatal("v20 must invalidate v19 compilation cache")
+	}
+	r.CompilerContractVersion = legacyCompilationReceiptV18CompilerContractVersion
+	r.CompilationKey, _ = CompilationKey(r)
+	r.ID, _ = ReceiptID(r)
+	if err := r.Validate(); err != nil {
+		t.Fatalf("v18 receipt must remain readable for recompile: %v", err)
+	}
+	if ReceiptContractSupportedForExecution(r) {
+		t.Fatal("v18 receipt without source cardinality authentication was executable")
+	}
+	if r.CompilationKey == currentKey {
+		t.Fatal("recompile reused the old fingerprint contract cache key")
 	}
 	r.CompilerContractVersion = legacyCompilationReceiptV17CompilerContractVersion
 	r.CompilationKey, _ = CompilationKey(r)
@@ -573,8 +626,8 @@ func TestReceiptContractSupportedForExecutionOnlyCurrentAndPrevious(t *testing.T
 	}
 	r.ReceiptFormatVersion = previousCompilationReceiptFormatVersion
 	r.CompilerContractVersion = previousCompilationReceiptCompilerContractVersion
-	if !ReceiptContractSupportedForExecution(r) {
-		t.Fatal("immediately previous receipt was not executable")
+	if ReceiptContractSupportedForExecution(r) {
+		t.Fatal("previous receipt without current fingerprints was executable")
 	}
 	r.ReceiptFormatVersion = legacyCompilationReceiptFormatVersion
 	r.CompilerContractVersion = "loom.explorer.compiler/v12"
@@ -753,5 +806,18 @@ func TestPopulationMemberRemovalBindingIsContentAddressedAndScopeBound(t *testin
 				t.Fatal("invalid binding passed validation")
 			}
 		})
+	}
+}
+
+func TestPopulationMemberProposalValidationPreservesErrorOrder(t *testing.T) {
+	binding := PopulationMemberRemovalProposalBinding{
+		DraftVersion: 1, DraftDigest: "draft", OutputID: "out", BaseDocumentDigest: "base",
+		BaseSelectionRevisionID: "same", BaseMembershipDigest: "base-members", BaseMemberCount: 2,
+		CandidateSelectionRevisionID: "same", CandidateMembershipDigest: "candidate-members", CandidateMemberCount: 1,
+		RouteChoiceID: "route", CandidateWorkspaceDigest: "stale", SnapshotToken: "snapshot", PreviewLimit: 10,
+	}
+	err := binding.Validate("intent", "snapshot", "project", "generation")
+	if err == nil || err.Error() != "population member proposal must bind distinct immutable selections" {
+		t.Fatalf("Validate() error = %v, want duplicate selection before stale digest", err)
 	}
 }

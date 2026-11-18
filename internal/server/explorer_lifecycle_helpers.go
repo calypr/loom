@@ -37,14 +37,15 @@ func resolvedOutputArtifacts(resolved dataframeexecution.Resolved) (map[string]s
 		}
 		dynamic := make([]struct {
 			Name, SemanticPath, DynamicName, SourceKey, ValueType string
-			AllowUnknownKeys                                      bool
+			AllowUnknownKeys, Many                                bool
 		}, 0, len(output.DynamicColumns))
 		for _, column := range output.DynamicColumns {
 			dynamic = append(dynamic, struct {
 				Name, SemanticPath, DynamicName, SourceKey, ValueType string
-				AllowUnknownKeys                                      bool
-			}{column.Name, column.SemanticPath, column.DynamicName, column.SourceKey, column.ValueType, column.AllowUnknownKeys})
+				AllowUnknownKeys, Many                                bool
+			}{column.Name, column.SemanticPath, column.DynamicName, column.SourceKey, column.ValueType, column.AllowUnknownKeys, column.Many})
 		}
+
 		payload, err := json.Marshal(struct {
 			Version, CompilerVersion         int
 			Name, RootResourceType, RowGrain string
@@ -54,7 +55,7 @@ func resolvedOutputArtifacts(resolved dataframeexecution.Resolved) (map[string]s
 			RowIdentity                      any
 			DynamicColumns                   any
 			Plan                             ir.PhysicalPlan
-		}{2, resolved.Compiled.Version, output.Name, output.RootResourceType, string(output.RowGrain), resolved.Semantic.ScopeDigest, resolved.Compiled.SourceGeneration, append([]string(nil), output.Columns...), columns, output.RowIdentity, dynamic, ir.CanonicalExecutionPhysicalPlan(output.Plan)})
+		}{3, resolved.Compiled.Version, output.Name, output.RootResourceType, string(output.RowGrain), resolved.Semantic.ScopeDigest, resolved.Compiled.SourceGeneration, append([]string(nil), output.Columns...), columns, output.RowIdentity, dynamic, ir.CanonicalExecutionPhysicalPlan(output.Plan)})
 		if err != nil {
 			return nil, nil, fmt.Errorf("fingerprint output %q: %w", output.Name, err)
 		}
@@ -78,7 +79,8 @@ func applyReceiptColumnProvenance(output *lower.CompiledRecipeOutput, values map
 	for index := range output.DynamicColumns {
 		value, ok := values[output.DynamicColumns[index].Name]
 		if !ok {
-			return fmt.Errorf("dynamic column provenance missing for %q", output.DynamicColumns[index].Name)
+
+			continue
 		}
 		output.DynamicColumns[index].Discovered = value == "DISCOVERED"
 	}

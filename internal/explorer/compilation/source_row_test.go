@@ -27,7 +27,7 @@ func TestResolveAddressableSourceRowUsesValidatedPhysicalProvenance(t *testing.T
 	if descriptor.ResourceType != "Observation" || descriptor.PhysicalColumn != "subject_id" {
 		t.Fatalf("descriptor = %#v", descriptor)
 	}
-	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Explorer"}, Documents: []authoringv2.Document{document}, Tabs: []authoringv2.Tab{{ID: "tab", Title: "Tab", OutputID: "out", Order: 0}}}
+	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Explorer"}, Documents: []authoringv2.Document{document}, Tabs: []authoringv2.Tab{{ID: "tab", Title: "Tab", OutputID: "out", Order: 0}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion}
 	if got, err := ResolveAddressableSourceRow(workspace, contract, emitted); err != nil || got != descriptor {
 		t.Fatalf("workspace source row = %#v, err=%v", got, err)
 	}

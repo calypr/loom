@@ -1,0 +1,2 @@
+{"resourceType":"Observation","id":"rule-observation-1","status":"final","subject":{"reference":"Patient/rule-patient-1"},"identifier":[{"system":"urn:rule:observation:primary","value":"OBS-1-A"},{"system":"urn:rule:observation:secondary","value":"OBS-1-B"}],"code":{"text":"Related identifier example"}}
+{"resourceType":"Observation","id":"rule-observation-2","status":"final","subject":{"reference":"Patient/rule-patient-2"},"identifier":[{"system":"urn:rule:observation:primary","value":"OBS-2-A"}],"code":{"text":"Related identifier example"}}

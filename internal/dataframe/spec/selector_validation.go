@@ -7,9 +7,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// selectorCardinality is schema validation shared by typed filters and
-// semantic selection normalization. It reports repeated paths without making
-// a physical projection or AQL decision.
 func selectorCardinality(resourceType string, selector Selector) (bool, []string, error) {
 	if len(selector.Steps) == 0 {
 		return false, nil, fmt.Errorf("selector is required")
@@ -39,8 +36,6 @@ func selectorCardinality(resourceType string, selector Selector) (bool, []string
 	return len(repeatedPaths) > 0, repeatedPaths, nil
 }
 
-// SelectorCardinality exposes schema-only cardinality to the semantic layer.
-// It deliberately does not expose any physical lowering decision.
 func SelectorCardinality(resourceType string, selector Selector) (bool, []string, error) {
 	return selectorCardinality(resourceType, selector)
 }

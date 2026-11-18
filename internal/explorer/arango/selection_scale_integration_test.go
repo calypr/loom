@@ -12,10 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestSelectionStorageScaleAgainstArango measures the production selection
-// path at the plan's probe sizes. It deliberately uses the same Begin,
-// Append, Digest, and Complete methods as lifecycle requests; no fake store
-// or in-memory digest substitute is involved.
 func TestSelectionStorageScaleAgainstArango(t *testing.T) {
 	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
 	if url == "" || database == "" {

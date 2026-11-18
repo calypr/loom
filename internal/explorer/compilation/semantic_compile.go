@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -127,11 +128,11 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				return Result{}, fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.field.path", index), "field is not present on the resolved capability node", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": sourcePath}, nil)
 			}
 			capabilityMode, supported := capabilityProjectionMode(projectionMode)
-			advertised := supported && containsProjectionMode(candidate.ProjectionModes, capabilityMode)
+			advertised := supported && slices.Contains(candidate.ProjectionModes, capabilityMode)
 			relatedScalarAll := projectionMode == string(capability.ConstructionChoiceAll) &&
 				column.OccurrenceID != authoringv2.RootOccurrenceID &&
 				!capability.IsRepeatedCardinality(candidate.Cardinality) &&
-				containsProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar)
+				slices.Contains(candidate.ProjectionModes, capability.ProjectionScalar)
 			if !advertised && !relatedScalarAll {
 				return Result{}, fail("capability", "UNSUPPORTED_PROJECTION_MODE", fmt.Sprintf("$.columns[%d].source.projectionMode", index), "projection mode is not advertised by the resolved capability candidate", map[string]any{"candidateId": candidate.ID, "projectionMode": projectionMode, "advertisedModes": candidate.ProjectionModes}, nil)
 			}
@@ -241,8 +242,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			choiceArm = choiceArmForPath(ownerRecords.Binding.ValuePath)
 		case authoringv2.SourceExtensionByURL:
 			if column.Source.Lookup == nil || column.Source.Lookup.Extension == nil {
-				// Legacy extension lookups remain readable for immutable recipes;
-				// writable authoring commands reject this shape before compilation.
+
 				dynamic, dynamicErr := semanticFixedLookup(column, occurrence.graph.ResourceType, alias, leaf, logicalType)
 				if dynamicErr != nil {
 					return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), dynamicErr.Error(), nil, dynamicErr)
@@ -281,7 +281,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			}
 			var contributorWhere *recipe.Filter
 			if column.Contributor != nil {
-				catalog := catalogFromCapability(snapshot, explorerID)
+				catalog := authoringv2.CatalogFromCapability(snapshot, explorerID)
 				if err := authoringv2.ValidateContributorForCatalog(document, catalog, column.OccurrenceID, column.Source, *column.Contributor); err != nil {
 					return Result{}, fail("intent", "INVALID_CONTRIBUTOR_PREDICATE", fmt.Sprintf("$.columns[%d].contributor", index), err.Error(), map[string]any{"candidateId": column.Contributor.CandidateID}, err)
 				}
@@ -515,18 +515,14 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				return Result{}, fail("capability", "STALE_CONSTRUCTION_SOURCE_FIELD", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "source projection no longer matches an authorized field on the root resource", map[string]any{"fieldPath": path}, nil)
 			}
 			if expanded != nil {
-				// Signed EXPAND inputs are backed by the direct-root repeated
-				// array itself: many cardinality, the ARRAY projection the
-				// builder mints for repeated fields, and only self-describing
-				// boundaries. The scalar VALUE backing rule below rejects this
-				// shape by design, so the lanes keep distinct checks.
+
 				if !capability.IsRepeatedCardinality(candidate.Cardinality) ||
-					!containsProjectionMode(candidate.ProjectionModes, capability.ProjectionArray) ||
+					!slices.Contains(candidate.ProjectionModes, capability.ProjectionArray) ||
 					!semanticSelfRepeated(candidate, path) {
 					return Result{}, fail("capability", "STALE_CONSTRUCTION_SOURCE_FIELD", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "signed expanded field no longer matches a direct-root repeated array candidate on the root resource", map[string]any{"fieldPath": path}, nil)
 				}
 			} else if len(candidate.RepeatedBoundaries) != 0 ||
-				!containsProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) {
+				!slices.Contains(candidate.ProjectionModes, capability.ProjectionScalar) {
 				return Result{}, fail("capability", "STALE_CONSTRUCTION_SOURCE_FIELD", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "source projection no longer matches an authorized scalar VALUE field or authorized direct root array on the root resource", map[string]any{"fieldPath": path}, nil)
 			}
 			schemaIndex, err := fhirschema.GeneratedIndex()
@@ -539,11 +535,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			}
 			repeated := capability.IsRepeatedCardinality(candidate.Cardinality)
 			if expanded != nil {
-				// Signed EXPAND input: the owning step's server-derived payload
-				// authorizes a direct-root many-cardinality array. The schema
-				// facts, not the payload, decide the compiled cardinality: the
-				// semantic selector resolver derives Many from the generated
-				// schema when this root Field projects the array path.
+
 				if !repeated || facts.Shape != fhirschema.RowPathArray || facts.Cardinality != fhirschema.RowCardinalityMany ||
 					expanded.Path != path || expanded.Cardinality != authoringv2.ConstructionExpandedFieldCardinalityMany ||
 					expanded.LogicalType != projection.LogicalType || expanded.FHIRType != projection.FHIRType {
@@ -561,29 +553,18 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				Expr: recipe.Expression{Select: semanticAlias(authoringv2.RootOccurrenceID) + "." + path},
 			}
 			if expanded != nil {
-				// The item column carries one array element per row; the
-				// compiled column must stay the many-valued array itself. An
-				// auto/FIRST value mode would collapse it to optional_one and
-				// the physical EXPAND gate would refuse its own input column.
+
 				laneField.ValueMode = recipe.ValueModeAll
 			}
 			nodes[authoringv2.RootOccurrenceID].fields = append(nodes[authoringv2.RootOccurrenceID].fields, laneField)
 		}
 	}
 
-	derivedColumns, err := recipeDerivedColumns(document.TableShape)
-	if err != nil {
-		return Result{}, fail("intent", "INVALID_DERIVED_COLUMN", "$.tableShape.derived", err.Error(), nil, err)
-	}
-	tableReshape, err := recipeTableReshape(document.TableShape)
-	if err != nil {
-		return Result{}, fail("intent", "INVALID_TABLE_RESHAPE", "$.tableShape.reshape", err.Error(), nil, err)
-	}
 	construction, err := recipeConstruction(document.Construction, document.Columns, emitted)
 	if err != nil {
 		return Result{}, fail("capability", "UNSUPPORTED_CONSTRUCTION_SOURCE_SHAPE", "$.construction.sourceColumns", err.Error(), nil, err)
 	}
-	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RootOccurrenceID: authoringv2.RootOccurrenceID, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, OwnerRecords: nodes[authoringv2.RootOccurrenceID].ownerRecords, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, ColumnTransformations: columnTransformations, DerivedColumns: derivedColumns, TableReshape: tableReshape, Construction: construction, Expand: expansion, GroupRows: groupRows, CollisionPolicy: "error"}
+	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RootOccurrenceID: authoringv2.RootOccurrenceID, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, OwnerRecords: nodes[authoringv2.RootOccurrenceID].ownerRecords, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, ColumnTransformations: columnTransformations, Construction: construction, Expand: expansion, GroupRows: groupRows, CollisionPolicy: "error"}
 	if expansion != nil {
 		output.Identity = &recipe.Identity{Name: "__loom_row_id", Expansion: &recipe.ExpansionIdentity{}}
 	}
@@ -818,10 +799,7 @@ func semanticAlias(occurrenceID string) string {
 	if occurrenceID == authoringv2.RootOccurrenceID {
 		return "root"
 	}
-	// Semantic Builder occurrence IDs are globally unique output namespaces.
-	// Keep the complete identifier so ALIAS traversal naming reproduces the
-	// authored public-column prefix even when an older client encoded route
-	// ancestry into the occurrence ID itself.
+
 	return safeName(occurrenceID)
 }
 
@@ -860,15 +838,6 @@ func capabilityProjectionMode(mode string) (capability.ProjectionMode, bool) {
 	default:
 		return "", false
 	}
-}
-
-func containsProjectionMode(values []capability.ProjectionMode, want capability.ProjectionMode) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 func semanticFixedLookup(column authoringv2.Column, resourceType, alias, leaf, logicalType string) (recipe.DynamicColumn, error) {
@@ -1069,9 +1038,7 @@ func semanticCodedValuePivot(column authoringv2.Column, leaf string) (recipe.Piv
 	columns := []string{lookup.Key.Code}
 	columnAliases := map[string]string{lookup.Key.Code: leaf}
 	if lookup.Binding.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion {
-		// SYSTEM_VERSION selects a typed category family with no exact code. Use
-		// the authored output leaf as its one pivot alias so lowering never
-		// creates an empty output-column name or a synthetic code predicate.
+
 		pivotName = "correlated_category_" + shortHash(column.Column+"\x00"+lookup.Key.System+"\x00"+lookup.Key.Version+"\x00"+lookup.Binding.KeyPath)
 		columns = []string{leaf}
 		columnAliases = map[string]string{leaf: leaf}
@@ -1102,14 +1069,6 @@ func coalesceString(paths ...string) recipe.Expression {
 	return recipe.Expression{Call: "coalesce_string", Args: args}
 }
 
-// constructionExpandedFieldOwner returns the server-derived expanded-field
-// facts that authorize this projection as a signed EXPAND input, or nil when
-// the projection is an ordinary scalar source. Authorization requires ALL of:
-// the projection names an existing EXPAND step's input column, that step
-// carries an ExpandedField payload for exactly this path, the payload is
-// shape-valid, and the projection is owned by the step. The caller still
-// re-proves the array facts against the generated schema; the payload never
-// supplies cardinality directly.
 func constructionExpandedFieldOwner(construction *authoringv2.Construction, projection authoringv2.ConstructionSourceProjection, path string) *authoringv2.ConstructionExpandedFieldSource {
 	if projection.OwnerStepID == "" {
 		return nil

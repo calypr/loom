@@ -247,9 +247,8 @@ func TestCorrelatedPhysicalProjectionReadsValueFromMatchedCoding(t *testing.T) {
 	}
 	valueExpression := query[values : values+valueEnd]
 	for _, fragment := range []string{
-		"FOR __root IN [__loom_physical_correlation_pivot_coding]",
-		"LET __value = __root.display",
-		"LET __value = __root.code",
+		"(__loom_physical_correlation_pivot_coding.display == null ? [] : [__loom_physical_correlation_pivot_coding.display])",
+		"(__loom_physical_correlation_pivot_coding.code == null ? [] : [__loom_physical_correlation_pivot_coding.code])",
 		"TRIM(__loom_physical_correlation_nonblank_value) != ''",
 	} {
 		if !strings.Contains(valueExpression, fragment) {
@@ -322,17 +321,21 @@ func TestCorrelatedPhysicalTaskSingletonCodingPivotAndFilter(t *testing.T) {
 			t.Fatalf("query has no singleton Coding loop %q:\n%s", loop, rendered.Query)
 		}
 		collectionStart := start + len(loop)
-		if !strings.HasPrefix(rendered.Query[collectionStart:], "(\n") {
+		owner := "__loom_physical_correlation_owner"
+		if strings.Contains(codingVariable, "pivot") {
+			owner = "__loom_physical_correlation_pivot_owner"
+		}
+		want := "(" + owner + ".valueCoding == null ? [] : [" + owner + ".valueCoding])"
+		if !strings.HasPrefix(rendered.Query[collectionStart:], want) {
 			t.Fatalf("singular valueCoding must be iterated as the singleton result list, without array flattening:\n%s", rendered.Query)
 		}
 	}
 	for _, fragment := range []string{
-		"LET __value = __root.valueCoding",
-		"FILTER __value != null",
+		"(__loom_physical_correlation_pivot_owner.valueCoding == null ? [] : [__loom_physical_correlation_pivot_owner.valueCoding])",
 		"FILTER __correlation_version == @pivot_root_task_code_columns_version",
 		"FILTER __correlation_version == @correlated_version_root_filter_1",
-		"LET __value = __root.display",
-		"LET __value = __root.code",
+		"(__loom_physical_correlation_pivot_coding.display == null ? [] : [__loom_physical_correlation_pivot_coding.display])",
+		"(__loom_physical_correlation_pivot_coding.code == null ? [] : [__loom_physical_correlation_pivot_coding.code])",
 	} {
 		if !strings.Contains(rendered.Query, fragment) {
 			t.Fatalf("singleton Coding correlation is missing %q:\n%s", fragment, rendered.Query)
@@ -372,7 +375,7 @@ func TestCorrelatedPhysicalFilterReadsValueFromMatchedCoding(t *testing.T) {
 		t.Fatalf("query has no end for correlated value expression:\n%s", query)
 	}
 	valueExpression := query[values : values+valueEnd]
-	for _, fragment := range []string{"FOR __root IN [__loom_physical_correlation_coding]", "LET __value = __root.display", "LET __value = __root.code"} {
+	for _, fragment := range []string{"(__loom_physical_correlation_coding.display == null ? [] : [__loom_physical_correlation_coding.display])", "(__loom_physical_correlation_coding.code == null ? [] : [__loom_physical_correlation_coding.code])"} {
 		if !strings.Contains(valueExpression, fragment) {
 			t.Fatalf("same-Coding display/code fallback is missing %q:\n%s", fragment, valueExpression)
 		}

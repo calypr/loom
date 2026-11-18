@@ -17,9 +17,6 @@ const (
 	postQueryTargetKey    = "__loom_postquery_target"
 )
 
-// DynamicDriftError means a runtime key was not part of the dynamic-column
-// schema frozen from the field catalog. It carries schema metadata only, so
-// transport adapters can report the mismatch without exposing row values.
 type DynamicDriftError struct {
 	DynamicName    string
 	Key            string
@@ -53,20 +50,31 @@ func validateDynamicDrift(row map[string]any, checks map[string]map[string]Dynam
 	if len(checks) == 0 {
 		return nil
 	}
-	// Frozen column types are compiled guarantees, so every present value is
-	// checked whether or not the runtime key metadata enumerates its key: the
-	// metadata may cover only another family.
+
 	for dynamicName, columns := range checks {
 		for _, column := range columns {
+			if column.ColumnName == "" {
+				continue
+			}
 			if actual, exists := row[column.ColumnName]; exists && !dynamicColumnValueMatches(actual, column) {
 				return fmt.Errorf("dynamic map %q column %q has incompatible value type %q", dynamicName, column.ColumnName, column.ValueType)
 			}
 		}
 	}
-	observed, ok := row["__loom_dynamic_runtime_keys"].(map[string]any)
+	return validateDynamicRuntimeInventories(row["__loom_dynamic_runtime_keys"], checks)
+}
+
+func validateDynamicRuntimeInventories(value any, checks map[string]map[string]DynamicColumnCheck) error {
+	if inventories, ok := value.([]any); ok {
+		for _, inventory := range inventories {
+			if err := validateDynamicRuntimeInventories(inventory, checks); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	observed, ok := value.(map[string]any)
 	if !ok {
-		// Construction stages may drop the metadata only for families that
-		// explicitly allow unknown keys.
 		for dynamicName, columns := range checks {
 			for _, column := range columns {
 				if !column.AllowUnknownKeys {

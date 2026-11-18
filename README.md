@@ -29,12 +29,9 @@ flowchart LR
     AQL --> Publish["Atomic publication catalog commit"]
     Publish --> ClickHouse["Versioned flat tables"]
     Publish --> Catalog["Arango publication catalog"]
-    Catalog["Arango publication catalog"] --> Graph["POST /graphql/graph"]
-    ClickHouse --> Graph
-    Arango --> Graph["POST /graphql/graph"]
-    Arango --> Dataframe["POST /graphql/dataframe"]
-    Compile --> Graph
-    Compile --> Dataframe
+    Catalog --> Reads["REST published rows and aggregations"]
+    ClickHouse --> Reads
+    Compile --> Dataframe["REST FHIR dataframe query"]
 ```
 
 ## What Loom owns
@@ -58,18 +55,15 @@ recipe, translation-version, and output selector.
 | --- | --- |
 | `arango-fhir-proto` | Operator CLI for loading data, loading immutable generations, catalog discovery, and local dataframe materialization. |
 | `arango-fhir-server` | HTTP server for graph compilation/control and flat dataframe reads. |
-| `POST /graphql/graph` | Arango graph and recipe control plane: explicit graph traversal, typed FHIR reads, recipe validation, preview, execution, publication reads, and recipe control. |
-| `POST /graphql/dataframe` | Arango-backed FHIR dataframe compiler and executor (`runFhirDataframe`). |
+| `POST /api/v1/projects/{project}/dataframes/rows` | Page through a published dataframe. |
+| `POST /api/v1/projects/{project}/dataframes/aggregations` | Run named aggregations on a published dataframe. |
+| `POST /api/v1/projects/{project}/dataframes/run` | Compile and run a FHIR dataframe query against ArangoDB. |
 | `POST /api/v1/projects/:project/explorers/...` | REST Explorer lifecycle and V2 intent authoring used by the Builder. |
 | `POST /api/v1/datasets/:project/generations/:generation` | Multipart immutable-generation loader used by ETL. |
 
-`GET /graphql/graph` serves GraphQL Playground for the graph API. `GET /apollo`
-opens Apollo Sandbox pointed at `/graphql/graph`. There is intentionally no
-`/graphql` compatibility route.
-
 The canonical contract for every server route is
 [`openapi/openapi.yaml`](openapi/openapi.yaml). It includes health, generation
-ingestion/activation, recipe execution, GraphQL transport, Explorer lifecycle,
+ingestion/activation, recipe execution, dataframe queries, Explorer lifecycle,
 and Explorer authoring operations. The `:project` path parameter is the tenancy
 identity used for authorization and becomes the published row `project_id`
 (for example, `HTAN_INT-BForePC`).
@@ -87,7 +81,7 @@ identity used for authorization and becomes the published row `project_id`
    reserved `project_id` and `auth_resource_path` columns, records
    schema/provenance in Arango, and atomically advances the logical publication
    pointer only once every output is READY.
-6. Query the logical dataframe through `/graphql/graph`. The reader resolves
+6. Query the logical dataframe through the project-scoped rows endpoint. The reader resolves
    authorized current outputs from the catalog; it never accepts a physical
    ClickHouse table name.
 
@@ -124,7 +118,6 @@ For backend-only development, the lightweight Compose stack starts ArangoDB and 
 ```bash
 rtk docker compose -f experimental/docker-compose.yml up -d
 make generate-fhir
-make generate-graphql
 make build
 ```
 
@@ -170,10 +163,6 @@ mode disables the legacy one-file import endpoint.
 
 Useful local URLs:
 
-- [Graph Playground](http://127.0.0.1:8080/graphql/graph)
-- [Apollo Sandbox](http://127.0.0.1:8080/apollo)
-- FHIR dataframe: `http://127.0.0.1:8080/graphql/dataframe`
-- Published dataframe reader: `http://127.0.0.1:8080/graphql/graph`
 - [Health summary](http://127.0.0.1:8080/health)
 - [Process liveness](http://127.0.0.1:8080/livez)
 - [Dependency readiness](http://127.0.0.1:8080/readyz)
@@ -189,83 +178,17 @@ See [the documentation index](docs/README.md) for the complete guide map,
 [the Explorer authoring guide](docs/EXPLORER_AUTHORING.md) for the current
 Builder contract.
 
-## Graph and flat GraphQL contracts
+## Dataframe queries
 
-The complete request, filter, pagination, authorization, and limitation
-reference is maintained in [docs/GRAPHQL_API.md](docs/GRAPHQL_API.md). The
-short sections below explain where each surface fits in the system.
+The Viewer reads the current published table through the rows and aggregations
+endpoints. Both require an authorized project and the exact selector
+`(recipe, translationVersion, output)`. Rows support field selection, filters,
+sorting, and cursor pagination. Aggregations evaluate named specifications
+against the same selected table. See [the dataframe API guide](docs/DATAFRAME_API.md).
 
-### Graph: compile, inspect, and publish
-
-`/graphql/graph` is where a caller asks Loom about the Arango graph or drives
-recipe work. `/graphql/dataframe` is the dedicated Arango-backed FHIR
-dataframe compiler endpoint. Both use the same authorized Arango backend and
-compiler; the separate routes keep client defaults aligned with query intent.
-
-Publication is intentionally a recipe-level operation: Loom must read the
-authorized Arango graph, resolve the recipe against the selected generation,
-and then write its output to ClickHouse. It is not a raw “insert rows” API.
-
-### Typed FHIR reads
-
-The same `/graphql/graph` endpoint also exposes generated, typed FHIR reads.
-The 23 root fields are exactly `BodyStructure`, `Condition`,
-`DiagnosticReport`, `DocumentReference`, `FamilyMemberHistory`, `Group`,
-`ImagingStudy`, `Medication`, `MedicationAdministration`, `MedicationRequest`,
-`MedicationStatement`, `Observation`, `Organization`, `Patient`,
-`Practitioner`, `PractitionerRole`, `Procedure`, `ResearchStudy`,
-`ResearchSubject`, `Specimen`, `Substance`, `SubstanceDefinition`, and `Task`.
-Each field returns a list and accepts `project`, `filters: [FhirFilterInput!]`,
-and a `limit` (default 25). Read-only callers are capped at 10,000 rows;
-callers with write access to the selected project are uncapped. ID lookup is
-an ordinary `id` filter; filters are ANDed using the existing Loom selector
-semantics.
-
-Every selectable property in the generated FHIR schema is available, including
-primitive-extension fields such as `_birthDate`. `Reference.resource` performs
-an authorized outbound lookup for relative, absolute, and versioned references;
-reverse relationships are not exposed. Cursor pagination, arbitrary sorting,
-recursive filter trees, and same-element sibling correlation are not supported
-in this checkpoint. The endpoint is FHIR-shaped, but is not advertised as a
-fully HL7-conformant GraphQL implementation.
-
-### Flat: discover and read published dataframes
-
-Published dataframe reads are available through `/graphql/graph`. The schema is intentionally
-small and data-driven:
-
-```graphql
-query ExplorerRows($input: DataframeRowsInput!) {
-  dataframeRows(input: $input) {
-    materialization { name revision rowCount columns { name logicalType } }
-    columns
-    rows
-    totalCount
-    pageInfo { hasNextPage endCursor }
-  }
-}
-```
-
-```json
-{
-  "input": {
-    "selector": {
-      "recipe": "documents",
-      "translationVersion": "v2",
-      "output": "DocumentReference"
-    },
-    "first": 100,
-    "sort": { "column": "case_id" }
-  }
-}
-```
-
-The reader requires an explicit `projectId` and exact selector
-`(recipe, translationVersion, output)`. There is no server-side default recipe,
-`dataType` alias, or cross-project federation. Loom authorizes the requested
-project, resolves its active pointer-backed publication, and reads that one
-physical dataframe. Columns and capabilities remain runtime-discovered, so a
-new publication does not require GraphQL regeneration or a server restart.
+The run endpoint compiles a FHIR-shaped request against the project's active
+generation and executes the resulting scoped AQL. Explorer V2 authoring uses
+the same recipe compiler and owns publication.
 
 ## Authorization and tenancy
 
@@ -315,6 +238,14 @@ they are not supplied in the config file.
 reads and validates that recipe during startup; deployments can update it
 without rebuilding the server image.
 
+Project views are saved in Loom for each project. A view chooses published
+output tables, tabs, columns, filters, and charts; it contains no recipe or
+loading instructions. Several views can use the same published tables.
+The first publication creates a simple table view from that project's actual
+schema. Later publications keep the project's saved views and default choices.
+
+Project-owned views and their published revisions continue to be refreshed transactionally when repository source updates are published. Their saved definitions remain part of project configuration; the standalone View Builder HTTP API has been removed.
+
 ## Repository guide
 
 | Path | Responsibility |
@@ -322,12 +253,9 @@ without rebuilding the server image.
 | [`cmd/`](cmd) | Operator CLI, server executable, and developer tools. |
 | [`openapi/`](openapi) | Canonical Loom HTTP specification and generator configuration. |
 | [`schemas/`](schemas) | Source FHIR graph schema. |
-| [`gqlgen.yml`](gqlgen.yml) | gqlgen source configuration. |
 | [`generated/`](generated) | Checked-in generator-managed artifacts; see the code-generation guide before editing. |
 | [`generated/fhir`](generated/fhir) | Public generated FHIR resource structs and validation helpers. |
 | [`generated/fhirschema`](generated/fhirschema) | Generated raw FHIR schema metadata. |
-| [`generated/graphql/graph`](generated/graphql/graph) | gqlgen models, executors, and schemas. |
-| [`internal/api/graphql/graph/resolver`](internal/api/graphql/graph/resolver) | GraphQL resolver bindings and transport adapters. |
 | [`internal/fhir/schema`](internal/fhir/schema) | Server-only FHIR schema metadata and selector semantics. |
 | [`internal/ingest`](internal/ingest) | NDJSON loading, validation, graph extraction, and ingest lifecycle. |
 | [`internal/dataset`](internal/dataset) | Immutable generation and active-manifest contracts. |
@@ -339,25 +267,21 @@ without rebuilding the server image.
 | [`internal/dataframe/published`](internal/dataframe/published) | Safe single-project published-data reads and aggregates. |
 | [`internal/store/arango`](internal/store/arango) | ArangoDB boundary. |
 | [`internal/store/clickhouse`](internal/store/clickhouse) | Typed ClickHouse driver boundary and DDL/DML. |
-| [`internal/api/graphql/graph`](internal/api/graphql/graph) | GraphQL HTTP transport and error presentation. |
-| [`internal/api/graphql/graph/query`](internal/api/graphql/graph/query) | Arango graph and FHIR dataframe API services. |
-| [`internal/api/graphql/graph/dataframe`](internal/api/graphql/graph/dataframe) | Published-dataframe reads, aggregates, export, and GraphQL model mapping. |
+| [`internal/api/dataframe/query`](internal/api/dataframe/query) | Arango graph and FHIR dataframe API services. |
+| [`internal/api/dataframe/dataframe`](internal/api/dataframe/dataframe) | Published-dataframe reads, aggregates, export, and response mapping. |
 
 ## Build, generation, and tests
 
 ```bash
 make build                 # server and CLI binaries
 make generate-fhir         # generated FHIR structs and schema metadata
-make generate-graphql      # gqlgen bindings
 make generate-openapi      # Loom HTTP models and strict Fiber server
-make graphql-check         # GraphQL and dataframe checks
 make test                  # full Go test suite
 make conformance           # compiler conformance corpus
 ```
 
-The generated FHIR metadata and GraphQL bindings are checked in. Regenerate
-them when their inputs change; resolver adapter bodies are the documented
-gqlgen-managed exception.
+The generated FHIR metadata and OpenAPI bindings are checked in. Regenerate
+them when their inputs change.
 [`docs/CODE_GENERATION.md`](docs/CODE_GENERATION.md) explains every generated
 directory, its source of truth, and the required regeneration order.
 
@@ -378,7 +302,7 @@ go test ./...
 - [Fast local Explorer development](docs/LOCAL_DEVELOPMENT.md)
 - [Explorer dataframe backlog](docs/EXPLORER_BACKLOG.md)
 - [Dataframer recipe reference and operating manual](docs/DATAFRAMER_RECIPE_REFERENCE.md)
-- [GraphQL API guide](docs/GRAPHQL_API.md)
+- [Dataframe API guide](docs/DATAFRAME_API.md)
 - [Developer architecture](docs/DEVELOPER_ARCHITECTURE.md)
 - [Experimental local stack](experimental/README.md)
 

@@ -25,6 +25,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	arangostore "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
 func TestAcceptanceObservationContributorAQLAndBinds(t *testing.T) {
@@ -33,7 +34,7 @@ func TestAcceptanceObservationContributorAQLAndBinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, err := authoringv2.DecodeWorkspace(raw)
+	workspace, err := authoringv2.DecodeStoredWorkspaceForMigration(raw)
 	if err != nil {
 		t.Fatalf("decode locked acceptance workspace: %v", err)
 	}
@@ -53,7 +54,7 @@ func TestAcceptanceObservationContributorAQLAndBinds(t *testing.T) {
 	}
 
 	snapshot := acceptanceObservationSnapshot()
-	catalog := catalogFromCapability(snapshot, "acceptance")
+	catalog := authoringv2.CatalogFromCapability(snapshot, "acceptance")
 	workspace.Documents = []authoringv2.Document{document}
 	migrated, err := authoringv2.MigrateLegacyContributors(workspace, catalog)
 	if err != nil {
@@ -114,14 +115,15 @@ func TestAcceptanceObservationContributorAQLAndBinds(t *testing.T) {
 	}
 
 	arangoURL := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
-	arangoDatabase := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_DB"))
+	arangoDatabase := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_DATABASE"))
 	if arangoURL == "" && arangoDatabase == "" {
 		return
 	}
 	if arangoURL == "" || arangoDatabase == "" {
-		t.Fatal("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DB must be set together")
+		t.Fatal("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must be set together")
 	}
-	executeAcceptanceObservationAQL(t, arangoURL, arangoDatabase, physical.Outputs[0], runtimeBindings, rendered.Query, rendered.BindVars)
+	database := arangotest.Shared(t)
+	executeAcceptanceObservationAQL(t, database.URL, database.Name, physical.Outputs[0], runtimeBindings, rendered.Query, rendered.BindVars)
 }
 
 func executeAcceptanceObservationAQL(
@@ -242,8 +244,7 @@ func executeAcceptanceObservationAQL(
 	edges := []json.RawMessage{
 		acceptanceRawDocument(t, acceptanceEdge("patient_condition", conditionCollection+"/c1", patientCollection+"/p1", "Condition", "Patient", "subject_Patient", project, generation)),
 		acceptanceRawDocument(t, acceptanceEdge("patient_specimen", specimenCollection+"/s1", patientCollection+"/p1", "Specimen", "Patient", "subject_Patient", project, generation)),
-		// This deliberately inconsistent stored edge models the case scalar traversal rejects:
-		// its endpoint is a Specimen, but its discriminator claims Condition.
+
 		acceptanceRawDocument(t, acceptanceEdge("patient_specimen_wrong_edge_type", specimenCollection+"/s_wrong_edge_type", patientCollection+"/p1", "Condition", "Patient", "subject_Patient", project, generation)),
 		acceptanceRawDocument(t, acceptanceEdge("patient_age", observationCollection+"/o_age", patientCollection+"/p1", "Observation", "Patient", "subject_Patient", project, generation)),
 		acceptanceRawDocument(t, acceptanceEdge("patient_method", observationCollection+"/o_method", patientCollection+"/p1", "Observation", "Patient", "subject_Patient", project, generation)),
@@ -304,8 +305,6 @@ func executeAcceptanceObservationAQL(
 		}
 	}
 
-	// Compare the direct renderer output with the canonical execution compiler
-	// and the selected-root page template used by production preview streams.
 	rawRows := execute("direct-render", query, cloneBinds(bindVars))
 	expectValues("direct-render", rawRows[0])
 	previewBindings := bindings.Clone()

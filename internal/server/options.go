@@ -33,6 +33,7 @@ type ServerConfig struct {
 	RecipeQueryPageRows           int                         `yaml:"recipe_query_page_rows"`
 	RecipeQualityMaxRows          int64                       `yaml:"recipe_quality_max_rows"`
 	RecipeQualityMaxDistinctKeys  int64                       `yaml:"recipe_quality_max_distinct_keys"`
+	SourceLoadMaxFileBytes        int64                       `yaml:"source_load_max_file_bytes"`
 	ArtifactDirectory             string                      `yaml:"artifact_directory"`
 	ArtifactTTL                   time.Duration               `yaml:"artifact_ttl"`
 	ArtifactMaxRows               int64                       `yaml:"artifact_max_rows"`
@@ -42,15 +43,9 @@ type ServerConfig struct {
 	RequiredDataframeSelectors    []dataset.DataframeSelector `yaml:"required_dataframe_selectors"`
 	LocalWorkspaceWriteback       string                      `yaml:"local_workspace_writeback"`
 	LocalWorkspaceProject         string                      `yaml:"local_workspace_project"`
-	// DevActivationConflictOnce is intentionally not configurable through YAML.
-	// It is a one-shot fault injector for the isolated, --no-auth development
-	// stack and is ignored unless both server and auth are unauthenticated.
+
 	DevActivationConflictOnce bool `yaml:"-"`
-	// DevRepositoryActivationConflictOnce is the repository-publish sibling of
-	// DevActivationConflictOnce. It is intentionally not configurable through
-	// YAML, arms the one-shot corrupted-compare fault on the repository
-	// activation leg, and is honored only under the same local no-auth mode
-	// gate as the other dev fault switches.
+
 	DevRepositoryActivationConflictOnce bool          `yaml:"-"`
 	DevArtifactRowDelay                 time.Duration `yaml:"-"`
 }
@@ -94,7 +89,8 @@ func DefaultConfig() Config {
 			Schema: "schemas/graph-fhir.json", ClickHouse: ClickHouseConfig{Enabled: true, URL: "clickhouse://127.0.0.1:9000", Database: "loom", Username: "default"},
 			RecipeBatchRows: 1000, RecipeBatchBytes: 4 << 20, RecipeQueryPageRows: defaultRecipeQueryPageRows,
 			RecipeQualityMaxRows: 1_000_000, RecipeQualityMaxDistinctKeys: 1_000_000,
-			ArtifactDirectory: "/tmp/loom-artifacts", ArtifactTTL: 24 * time.Hour,
+			SourceLoadMaxFileBytes: 1 << 30,
+			ArtifactDirectory:      "/tmp/loom-artifacts", ArtifactTTL: 24 * time.Hour,
 			ArtifactMaxRows: 10_000_000, ArtifactMaxBytes: 2 << 30,
 		},
 		Auth: AuthConfig{Mode: "basic", Calypr: CalyprAuthConfig{RequestTimeout: 5 * time.Second, CacheTTL: 30 * time.Second}},
@@ -150,10 +146,7 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 		if err != nil {
 			return Config{}, err
 		}
-		// --no-auth is an explicit local-development override. Keep the
-		// configuration file authoritative for normal server settings, but honor
-		// this flag even when the server is started with --config (as the Helm
-		// local-development path does).
+
 		if noAuth {
 			cfg.Server.AllowUnauthenticated = true
 			cfg.Auth.AllowUnauthenticated = true
@@ -245,9 +238,6 @@ func applyEnvironment(cfg Config) (Config, error) {
 	return cfg, nil
 }
 
-// applyDevFaultOverrides is deliberately gated by the local no-auth mode.
-// These switches provide deterministic fault scenarios for the isolated dev
-// Compose stack without creating a production request or OpenAPI surface.
 func applyDevFaultOverrides(cfg *Config) error {
 	if cfg == nil || !cfg.Server.AllowUnauthenticated || !cfg.Auth.AllowUnauthenticated {
 		return nil
@@ -304,6 +294,9 @@ func (c Config) Validate() error {
 	}
 	if cfg.Server.RecipeQualityMaxRows <= 0 || cfg.Server.RecipeQualityMaxDistinctKeys <= 0 {
 		return errors.New("server recipe quality limits must be positive")
+	}
+	if cfg.Server.SourceLoadMaxFileBytes <= 0 {
+		return errors.New("server source publish per-file request limit must be positive")
 	}
 	if strings.TrimSpace(cfg.Server.ArtifactDirectory) == "" || cfg.Server.ArtifactTTL <= 0 || cfg.Server.ArtifactMaxRows <= 0 || cfg.Server.ArtifactMaxBytes <= 0 {
 		return errors.New("server artifact directory, TTL, row limit, and byte limit must be configured")

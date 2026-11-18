@@ -322,7 +322,7 @@ func TestCapabilityConceptCandidatesReachAuthoringCatalog(t *testing.T) {
 		ValueSelector: "valueQuantity.value", ChoiceArm: "valueQuantity", LogicalType: "decimal", ObservedUnits: []string{"cm"},
 		Completeness: "COMPLETE", Status: "SUPPORTED", Population: 2, Examples: []string{"111"}, ExamplesTruncated: true, RuleHint: "paired", RuleVersion: "v1",
 	}}
-	catalog := catalogFromCapability(snapshot, "explorer")
+	catalog := authoringv2.CatalogFromCapability(snapshot, "explorer")
 	if len(catalog.Candidates) == 0 || len(catalog.Candidates[0].ConceptCandidates) != 1 {
 		t.Fatalf("catalog candidates = %#v", catalog.Candidates)
 	}

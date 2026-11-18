@@ -37,8 +37,6 @@ type rowChangeCandidateRoute struct {
 	AnchorDepth      int
 }
 
-// RowChangeRequest identifies a candidate row root and any deliberate choices
-// needed to make the route rebase unambiguous.
 type RowChangeRequest struct {
 	Mode             string              `json:"mode,omitempty"`
 	OutputID         string              `json:"outputId"`
@@ -47,9 +45,6 @@ type RowChangeRequest struct {
 	RouteRebase      []RouteRebaseChoice `json:"routeRebase,omitempty"`
 }
 
-// RouteRebaseChoice selects the catalog edge used when an existing route edge
-// must be inverted. OccurrenceID names the original parent that becomes a
-// child after rerooting.
 type RouteRebaseChoice struct {
 	OccurrenceID string `json:"occurrenceId"`
 	EdgeID       string `json:"edgeId"`
@@ -105,9 +100,6 @@ type RowChangeAssessment struct {
 	Unresolved                []RowChangeUnresolvedReference `json:"unresolved"`
 }
 
-// AssessRowChange is read-only. It promotes an authored descendant occurrence
-// or derives a preserving catalog route to an eligible root absent from the
-// authored route, provided each relationship can be inverted.
 func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowChangeRequest) (RowChangeAssessment, error) {
 	if request.Mode == RowChangeModeReplace {
 		return AssessRowReplacement(workspace, catalog, request)
@@ -140,10 +132,19 @@ func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowCh
 		})
 		return assessment, nil
 	}
-	if document.RootResourceType == node.ResourceType && rootNodeID == request.RootNodeID {
+	if document.RootResourceType == node.ResourceType && rootNodeID == request.RootNodeID &&
+		(request.RootOccurrenceID == "" || request.RootOccurrenceID == document.Route.OccurrenceID) {
 		assessment.Status = RowChangeNoChange
 		return assessment, nil
 	}
+	if document.ImportedRecipe != nil {
+		assessment.Unresolved = append(assessment.Unresolved, RowChangeUnresolvedReference{
+			Kind: RowReferenceRoute, ID: document.Route.OccurrenceID, Code: "IMPORTED_SOURCE_ROOT_OVERLAY_REQUIRED",
+			Message: "preserving imported source rows requires a typed source-root overlay; use explicit source replacement to detach the pin and reset the table",
+		})
+		return assessment, nil
+	}
+
 	sourceDocument, err := cloneDocument(document)
 	if err != nil {
 		return RowChangeAssessment{}, err
@@ -272,8 +273,6 @@ func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowCh
 	return assessment, nil
 }
 
-// AssessRowReplacement creates a destructive, same-output replacement proposal
-// independently of preserve-route reachability.
 func AssessRowReplacement(workspace Workspace, catalog CatalogSnapshot, request RowChangeRequest) (RowChangeAssessment, error) {
 	index := documentIndex(&workspace, request.OutputID)
 	node, found := catalogNode(catalog, request.RootNodeID)
@@ -321,8 +320,6 @@ func AssessRowReplacement(workspace Workspace, catalog CatalogSnapshot, request 
 		Mode: RowChangeModeReplace, PreservedFeatureKeys: []string{}, RemovedFeatureKeys: removed, WorkspaceOutputConsumers: consumers, SharedFilterBindings: bindings, Unresolved: []RowChangeUnresolvedReference{}}, nil
 }
 
-// ApplyRowReplacement re-derives the proposal against the current workspace and
-// exact authorized catalog snapshot before returning an immutable candidate.
 func ApplyRowReplacement(workspace Workspace, catalog CatalogSnapshot, proposal RowChangeProposal) (Workspace, error) {
 	if proposal.Mode != RowChangeModeReplace {
 		return Workspace{}, fmt.Errorf("row replacement proposal has unsupported mode %q", proposal.Mode)
@@ -434,14 +431,14 @@ func replacementRemovedFeatureKeys(document Document) []string {
 	for _, frame := range document.Frames {
 		keys = append(keys, "frame:"+frame.ID)
 	}
-	if document.TableShape != nil {
-		if document.TableShape.Reshape != nil {
-			keys = append(keys, "tableShape:reshape:"+document.TableShape.Reshape.Kind)
+	if document.ArchiveRetiredShape != nil {
+		if document.ArchiveRetiredShape.Reshape != nil {
+			keys = append(keys, "tableShape:reshape:"+document.ArchiveRetiredShape.Reshape.Kind)
 		}
-		for _, derived := range document.TableShape.Derived {
+		for _, derived := range document.ArchiveRetiredShape.Derived {
 			keys = append(keys, "tableShape:derived:"+string(derived.ConstructionID))
 		}
-		if document.TableShape.Reshape == nil && len(document.TableShape.Derived) == 0 {
+		if document.ArchiveRetiredShape.Reshape == nil && len(document.ArchiveRetiredShape.Derived) == 0 {
 			keys = append(keys, "tableShape")
 		}
 	}
@@ -789,10 +786,7 @@ func rebaseRelatedSourceRoute(
 	if related.SourceOccurrenceID != related.Source.NodeID {
 		return nil, fmt.Errorf("saved source occurrence %q does not match its source node %q", related.SourceOccurrenceID, related.Source.NodeID)
 	}
-	// Keep the original source anchor: reach the prior row root through the
-	// inverse selected path, then replay the saved related-source route from
-	// that root. A shared prefix does not make the source equivalent when the
-	// new root is itself related to the old root through another record.
+
 	prefix, err := reverseConstructionRoutePath(path, pathNodeIDs, inverseChoices, catalog, 0)
 	if err != nil {
 		return nil, err
@@ -854,11 +848,6 @@ func rebasePopulationRoute(prefix, existing []PopulationRouteStep, newRootNodeID
 		return combined
 	}
 
-	// Only remove a newly added rebase prefix against the old route at their
-	// seam. Exact catalog endpoints, relationship labels, and storage directions
-	// prove that each removed pair returns to the same node; resource-type
-	// equality alone is not sufficient because catalogs can contain distinct
-	// nodes with the same FHIR resource type.
 	prefixEnd, existingStart := len(prefix), 0
 	for prefixEnd > 0 && existingStart < len(existing) && populationRouteStepsAreExactInverses(prefix[prefixEnd-1], existing[existingStart], catalog) {
 		prefixEnd--
@@ -1078,8 +1067,7 @@ func deriveRowChangeCandidateRoutes(document Document, catalog CatalogSnapshot, 
 			}
 		}
 		if maxPrefix > 0 {
-			// A catalog path is attached to the deepest already-authored prefix,
-			// keeping authored occurrences and their match modes in place.
+
 			for _, anchor := range anchors {
 				if routeNodeIDs[anchor] == targetNodeID {
 					continue

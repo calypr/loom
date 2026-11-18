@@ -1,11 +1,5 @@
 package dataset
 
-// Durable controls (F-B14 revision, round 41): a genuine publication-verification
-// store fault (transport failure) must never fold into *ReleaseRequirementsError,
-// so clients keep retrying faults, while a deterministic record miss stays a
-// non-retryable contract verdict. The store maps its not-found sentinel to
-// ErrPublicationRecordMissing; every other verifier error is a fault.
-
 import (
 	"context"
 	"errors"

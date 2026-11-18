@@ -6,15 +6,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// withCategoryScanSourceFilterPushdown duplicates leading construction
-// equality filters onto direct root projections. The stage filters remain in
-// place as the semantic checks; this copy lets Arango reject nonmatching root
-// documents before materializing the full source projection.
-//
-// Pushdown stops at the first non-filter stage or any filter shape that is not
-// a bound scalar equality over a direct pass-through projection. This keeps
-// filters from crossing derived expressions, row reshapes, or other work that
-// can change evaluation behavior.
 func withCategoryScanSourceFilterPushdown(plan ir.PhysicalPlan) ir.PhysicalPlan {
 	sequence := plan.StageSequence
 	if sequence == nil || len(sequence.Stages) == 0 || len(plan.Operations) < 2 ||
@@ -108,39 +99,12 @@ func categoryScanSourceProjectionLineage(plan ir.PhysicalPlan, columns []ir.Phys
 		if !found || projectionCounts[column.Name] != 1 {
 			continue
 		}
-		value, direct := categoryScanDirectRootProjectionValue(projection, rootVariable)
+		value, direct := ir.DirectScalarRootProjectionValue(projection, rootVariable)
 		if direct {
 			lineage[column.ID] = value
 		}
 	}
 	return lineage, len(lineage) > 0
-}
-
-func categoryScanDirectRootProjectionValue(projection ir.PhysicalProjection, rootVariable string) (ir.PhysicalValue, bool) {
-	if projection.Expression == nil {
-		value := projection.Value
-		return value, value.Variable == rootVariable && value.BindKey == "" && len(value.Path) > 0
-	}
-	expression := projection.Expression
-	if expression.Kind != ir.PhysicalExtractExpression || expression.Cardinality != ir.PhysicalScalarCardinality ||
-		expression.Extract == nil {
-		return ir.PhysicalValue{}, false
-	}
-	extract := expression.Extract
-	if extract.ExecutionMode != ir.PhysicalSelectorDirectScalar || extract.Source.Variable != rootVariable ||
-		extract.Source.BindKey != "" || len(extract.Source.Path) == 0 || len(extract.Fallbacks) != 0 ||
-		extract.Prepared != nil || extract.Distinct || extract.UnitNormalization != nil || extract.Selector.Filter != nil ||
-		len(extract.Selector.Steps) == 0 {
-		return ir.PhysicalValue{}, false
-	}
-	path := append([]string(nil), extract.Source.Path...)
-	for _, step := range extract.Selector.Steps {
-		if step.Field == "" || step.Iterate || step.Index != nil {
-			return ir.PhysicalValue{}, false
-		}
-		path = append(path, step.Field)
-	}
-	return ir.PhysicalValue{Variable: rootVariable, Path: path}, true
 }
 
 func categoryScanPassThroughFilterLineage(stage ir.PhysicalConstructionStage, input map[string]ir.PhysicalValue) (map[string]ir.PhysicalValue, bool) {

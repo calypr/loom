@@ -1,6 +1,3 @@
-// Package recipe defines the persistence-neutral recipe document used by the
-// dataframe compiler. A recipe describes semantic row shaping only; it never
-// carries database collection, table, AQL, or SQL details.
 package recipe
 
 import (
@@ -12,13 +9,9 @@ import (
 )
 
 func (b Bundle) Validate() error {
-	return b.validate(nil)
+	return b.validate(nil, currentRecipeValidation)
 }
 
-// ValidateWithWorkspaceOutputs validates a one-output compiler fragment while
-// allowing WORKSPACE_OUTPUT references to sibling outputs supplied by the
-// enclosing authoring workspace. The completed workspace bundle must still
-// pass Validate, which resolves every edge and rejects cycles.
 func (b Bundle) ValidateWithWorkspaceOutputs(allowed []string) error {
 	external := make(map[string]struct{}, len(allowed))
 	for _, outputID := range allowed {
@@ -26,10 +19,17 @@ func (b Bundle) ValidateWithWorkspaceOutputs(allowed []string) error {
 			external[outputID] = struct{}{}
 		}
 	}
-	return b.validate(external)
+	return b.validate(external, currentRecipeValidation)
 }
 
-func (b Bundle) validate(allowedWorkspaceOutputs map[string]struct{}) error {
+type recipeValidationMode bool
+
+const (
+	currentRecipeValidation recipeValidationMode = false
+	archiveRecipeValidation recipeValidationMode = true
+)
+
+func (b Bundle) validate(allowedWorkspaceOutputs map[string]struct{}, mode recipeValidationMode) error {
 	if b.RecipeSchemaVersion != CurrentSchemaVersion {
 		return validationError("unsupported_schema_version", "$.recipeSchemaVersion", fmt.Sprintf("must be %d", CurrentSchemaVersion))
 	}
@@ -110,7 +110,7 @@ func (b Bundle) validate(allowedWorkspaceOutputs map[string]struct{}) error {
 			return err
 		}
 		if output.Construction != nil {
-			if output.TableReshape != nil || len(output.DerivedColumns) > 0 {
+			if output.ArchiveRetiredReshape != nil || len(output.DerivedColumns) > 0 {
 				return validationError("ambiguous_construction", path+".construction", "construction cannot be combined with legacy tableReshape or derivedColumns")
 			}
 			if err := output.Construction.ValidateWithGroupRows(output.Fields, output.GroupRows); err != nil {
@@ -122,14 +122,17 @@ func (b Bundle) validate(allowedWorkspaceOutputs map[string]struct{}) error {
 				}
 			}
 		}
-		if output.TableReshape != nil {
-			if err := output.TableReshape.Validate(); err != nil {
+		if output.ArchiveRetiredReshape != nil {
+			if mode != archiveRecipeValidation {
+				return validationError("retired_recipe_shape", path+".tableReshape", "archived tableReshape requires recompilation and is not executable")
+			}
+			if err := output.ArchiveRetiredReshape.Validate(); err != nil {
 				return validationError("invalid_table_reshape", path+".tableReshape", err.Error())
 			}
-			if output.TableReshape.Kind == TableReshapeUnpivot && len(output.DerivedColumns) != 0 {
+			if output.ArchiveRetiredReshape.Kind == archivedReshapeUnpivot && len(output.DerivedColumns) != 0 {
 				return validationError("invalid_table_reshape", path+".tableReshape", "unpivot cannot be combined with derived columns")
 			}
-			reshapeID := output.TableReshape.GroupedPivot
+			reshapeID := output.ArchiveRetiredReshape.GroupedPivot
 			if reshapeID != nil {
 				for _, derived := range output.DerivedColumns {
 					if derived.ConstructionID == reshapeID.ConstructionID {
@@ -137,7 +140,7 @@ func (b Bundle) validate(allowedWorkspaceOutputs map[string]struct{}) error {
 					}
 				}
 			}
-			unpivotID := output.TableReshape.Unpivot
+			unpivotID := output.ArchiveRetiredReshape.Unpivot
 			if unpivotID != nil {
 				for _, derived := range output.DerivedColumns {
 					if derived.ConstructionID == unpivotID.ConstructionID {
@@ -287,11 +290,7 @@ func validateTraversals(items []Traversal, path string, depth int) error {
 		if err := validateOccurrenceID(t.OccurrenceID, p+".occurrenceId"); err != nil {
 			return err
 		}
-		// The relationship label is not an output namespace: two routes may
-		// legitimately use the same edge label while targeting different FHIR
-		// resources (for example Patient -> Condition and Patient -> Specimen).
-		// Alias is the lexical identity when supplied; otherwise the edge name
-		// remains the backwards-compatible uniqueness key.
+
 		traversalKey := t.Alias
 		if traversalKey == "" {
 			traversalKey = t.Name
@@ -466,5 +465,3 @@ func validateLiteral(raw json.RawMessage, path string) error {
 		return validationError("invalid_literal", path, "literal must be a scalar or bounded scalar array")
 	}
 }
-
-// CanonicalJSON returns stable compact JSON for a validated document.

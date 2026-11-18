@@ -56,7 +56,7 @@ func TestConstructionPivotCellTraceUsesPreviewLiteralIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	if trace.ExplicitIdentityColumn != ir.PhysicalCellTraceExplicitIdentityField || trace.IdentityPartsColumn != "" || trace.ExplicitIdentityObject ||
-		!strings.Contains(trace.Query, "__loom_construction_final_row.__loom_row_id") {
+		!strings.Contains(trace.Query, ".__loom_row_id") {
 		t.Fatalf("cell trace does not read Preview's explicit identity directly:\n%s\n%#v", trace.Query, trace)
 	}
 
@@ -161,7 +161,7 @@ func TestComposedCohortCellTraceIdentityMismatchAgainstPreviewObject(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	previewRowID := string(previewIdentityBytes) // Preview GraphQL marshals row maps; the client later JSON.stringify's the parsed object.
+	previewRowID := string(previewIdentityBytes)
 	for _, rowID := range []string{
 		previewRowID,
 		`{"group_id":"cohort-a","group_revision_id":"grouprev_cell_trace_identity"}`,

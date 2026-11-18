@@ -2,6 +2,8 @@ package arango
 
 import (
 	"context"
+	"net/http"
+	neturl "net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -9,26 +11,8 @@ import (
 	"time"
 )
 
-// TestProfileCorpusAgainstArango is opt-in because it reads a provisioned
-// Arango/META database. The queries are deliberately generic physical shapes,
-// not compiler or GDC fixtures: each protects a class of AQL operation that a
-// FHIR dataframe compiler must be able to emit for any schema route.
 func TestProfileCorpusAgainstArango(t *testing.T) {
-	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
-		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run Arango profile corpus")
-	}
-	url := os.Getenv("LOOM_ARANGO_URL")
-	if url == "" {
-		url = "http://127.0.0.1:8529"
-	}
-	database := os.Getenv("LOOM_ARANGO_DATABASE")
-	if database == "" {
-		database = "fhir_proto"
-	}
-	project := os.Getenv("LOOM_ARANGO_PROJECT")
-	if project == "" {
-		project = "ARANGODB_PROTO"
-	}
+	url, database, project := profileArangoSettings(t)
 
 	client, err := Open(context.Background(), url, database)
 	if err != nil {
@@ -77,27 +61,9 @@ func TestProfileCorpusAgainstArango(t *testing.T) {
 	}
 }
 
-// TestCompoundEdgeIndexExplainAgainstArango audits the endpoint-first
-// persistent indexes without mutating the database. Equality filters should
-// select the complete inbound/outbound compound index. Multi-type filters are
-// recorded as an observation because Arango may choose the edge index for one
-// direction when the IN predicate is less selective.
 func TestCompoundEdgeIndexExplainAgainstArango(t *testing.T) {
-	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
-		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run Arango index audit")
-	}
-	url := os.Getenv("LOOM_ARANGO_URL")
-	if url == "" {
-		url = "http://127.0.0.1:8529"
-	}
-	database := os.Getenv("LOOM_ARANGO_DATABASE")
-	if database == "" {
-		database = "fhir_proto"
-	}
-	project := os.Getenv("LOOM_ARANGO_PROJECT")
-	if project == "" {
-		project = "ARANGODB_PROTO"
-	}
+	url, database, project := profileArangoSettings(t)
+
 	client, err := Open(context.Background(), url, database)
 	if err != nil {
 		t.Fatalf("open Arango: %v", err)
@@ -180,27 +146,9 @@ func TestCompoundEdgeIndexExplainAgainstArango(t *testing.T) {
 	}
 }
 
-// TestReceiptPreviewExplainAgainstArango is an opt-in contract smoke test for
-// the canonical query shapes emitted from immutable compilation receipts. It
-// deliberately asserts only that Arango can produce a plan (and records index
-// observations); physical index choice can vary with the provisioned corpus
-// and optimizer version.
 func TestReceiptPreviewExplainAgainstArango(t *testing.T) {
-	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
-		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run receipt preview EXPLAIN fixtures")
-	}
-	url := os.Getenv("LOOM_ARANGO_URL")
-	if url == "" {
-		url = "http://127.0.0.1:8529"
-	}
-	database := os.Getenv("LOOM_ARANGO_DATABASE")
-	if database == "" {
-		database = "fhir_proto"
-	}
-	project := os.Getenv("LOOM_ARANGO_PROJECT")
-	if project == "" {
-		project = "ARANGODB_PROTO"
-	}
+	url, database, project := profileArangoSettings(t)
+
 	client, err := Open(context.Background(), url, database)
 	if err != nil {
 		t.Fatalf("open Arango: %v", err)
@@ -398,4 +346,41 @@ func profileTopNode(summary ProfileSummary) string {
 	}
 	node := summary.Nodes[0]
 	return strings.Join([]string{node.Type, "id=" + strconv.FormatInt(node.ID, 10), "runtime=" + strconv.FormatFloat(node.Runtime, 'f', 6, 64)}, " ")
+}
+
+func profileArangoSettings(t *testing.T) (url, database, project string) {
+	t.Helper()
+	url = strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
+	database = strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_DATABASE"))
+	if url == "" && database == "" {
+		if strings.TrimSpace(os.Getenv("LOOM_TEST_REQUIRED")) == "1" {
+			t.Fatalf("required integration service configuration is missing: LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE")
+		}
+		t.Skip("set LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE to run against the provisioned Arango corpus")
+	}
+	if url == "" || database == "" {
+		t.Fatalf("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must be set together")
+	}
+	endpoint, err := neturl.Parse(url)
+	if err != nil || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Host == "" {
+		t.Fatalf("invalid LOOM_TEST_ARANGO_URL %q", url)
+	}
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/_db/" + neturl.PathEscape(database) + "/_api/database/current"
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := (&http.Client{Timeout: 10 * time.Second}).Do(request)
+	if err != nil {
+		t.Fatalf("check provisioned Arango database %q: %v", database, err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("provisioned Arango database %q does not exist: HTTP %d", database, response.StatusCode)
+	}
+	project = os.Getenv("LOOM_ARANGO_PROJECT")
+	if project == "" {
+		project = "ARANGODB_PROTO"
+	}
+	return url, database, project
 }

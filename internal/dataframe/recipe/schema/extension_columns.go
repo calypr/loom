@@ -10,10 +10,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// resolveExtensionColumns freezes URL-to-value mappings from the same scoped
-// catalog snapshot used by the other recipe discovery features. Catalog paths
-// below nested Extension arrays are deliberately retained; the semantic layer
-// lowers each frozen mapping as a bounded dynamic family.
 func resolveExtensionColumns(ctx context.Context, scope Scope, discovery Discovery, resourceType, alias string, items []recipe.ExtensionColumn) error {
 	for index := range items {
 		item := &items[index]
@@ -46,13 +42,11 @@ func resolveExtensionColumns(ctx context.Context, scope Scope, discovery Discove
 					continue
 				}
 				urlPath := append([]string(nil), observation.URLPath...)
-				identity := strings.Join(append(append([]string(nil), urlPath...), observation.URL), "\x00")
+				identity := recipe.ExtensionColumnOutputKey(recipe.ExtensionColumnMapping{SourcePath: observation.SourcePath, URLPath: urlPath, URL: observation.URL})
 				byURL[identity] = append(byURL[identity], extensionValueCandidate{url: observation.URL, path: observation.SourcePath, valuePath: observation.ValuePath, valueType: observation.ValueType, urlPath: urlPath, fields: candidates})
 			}
 			if len(candidate.ExtensionValues) > 0 {
-				// Correlated observations supersede the legacy flattened
-				// distinct-value fallback for this URL field. Mixing both would
-				// incorrectly assign every observed value[x] kind to every URL.
+
 				continue
 			}
 			if !strings.HasPrefix(candidate.Path, selector+".") || !strings.HasSuffix(candidate.Path, ".url") {
@@ -88,7 +82,11 @@ func resolveExtensionColumns(ctx context.Context, scope Scope, discovery Discove
 				parts = append(parts, name)
 				name = strings.Join(parts, "__")
 			}
-			mappings = append(mappings, recipe.ExtensionColumnMapping{Name: name, URL: url, SourcePath: sourcePath, ValuePath: valuePath, ValueType: valueType})
+			var urlPath []string
+			if len(values) > 0 {
+				urlPath = append([]string(nil), values[0].urlPath...)
+			}
+			mappings = append(mappings, recipe.ExtensionColumnMapping{Name: name, URL: url, URLPath: urlPath, SourcePath: sourcePath, ValuePath: valuePath, ValueType: valueType})
 		}
 		sort.Slice(mappings, func(i, j int) bool {
 			if mappings[i].Name == mappings[j].Name {
@@ -98,6 +96,14 @@ func resolveExtensionColumns(ctx context.Context, scope Scope, discovery Discove
 		})
 		if len(mappings) > item.MaxColumns {
 			return fmt.Errorf("extension column %q discovery found %d columns, exceeding maxColumns %d", item.Name, len(mappings), item.MaxColumns)
+		}
+		seenOutputKeys := make(map[string]struct{}, len(mappings))
+		for _, mapping := range mappings {
+			key := recipe.ExtensionColumnOutputKey(mapping)
+			if _, exists := seenOutputKeys[key]; exists {
+				return fmt.Errorf("extension column %q has ambiguous output mapping identity %q", item.Name, key)
+			}
+			seenOutputKeys[key] = struct{}{}
 		}
 		item.Columns = mappings
 	}
@@ -149,8 +155,7 @@ func extensionValueMapping(resourceType string, candidates []extensionValueCandi
 		}
 	}
 	if len(values) != 1 {
-		// Complex and mixed value[x] representations are preserved as a JSON
-		// string by the semantic/physical extension mapper.
+
 		return "", "string", sourcePath
 	}
 	for _, value := range values {

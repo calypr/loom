@@ -224,7 +224,7 @@ func TestExpandedNestedSiblingProjectionUsesItsRepeatedAncestor(t *testing.T) {
 		"FOR __loom_physical_unnest_lineage_step_0 IN",
 		"ancestor_0: __loom_physical_unnest_lineage_step_0",
 		"LET __loom_expansion_ancestor_0 = __loom_physical_unnest_lineage_item_0 == null ? null : __loom_physical_unnest_lineage_item_0.ancestor_0",
-		"FOR __root IN [__loom_expansion_ancestor_0]",
+		"__loom_expansion_ancestor_0.valueString",
 	} {
 		if !strings.Contains(rendered.Query, want) {
 			t.Fatalf("nested expansion query missing %q:\n%s", want, rendered.Query)
@@ -299,9 +299,9 @@ func TestExpandedSiblingProjectionKeepsUnrelatedFallbackAtRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rendered.Query, "FOR __root IN [__loom_expansion_ancestor_0]") || !strings.Contains(rendered.Query, "__root.valueString") ||
-		!strings.Contains(rendered.Query, "FOR __root IN [root.payload]") || !strings.Contains(rendered.Query, "__root.identifier") ||
-		!strings.Contains(rendered.Query, "FOR __root IN [item]") || !strings.Contains(rendered.Query, "__root.code") ||
+	if !strings.Contains(rendered.Query, "__loom_expansion_ancestor_0.valueString") ||
+		!strings.Contains(rendered.Query, "LET __root = root.payload") || !strings.Contains(rendered.Query, "__root.identifier") ||
+		!strings.Contains(rendered.Query, "item.code") ||
 		!strings.Contains(rendered.Query, "SORTED_UNIQUE(FLATTEN([") || !strings.Contains(rendered.Query, "FIRST(FLATTEN([") {
 		t.Fatalf("mixed source alternatives were not rendered from their owning scopes:\n%s", rendered.Query)
 	}
@@ -351,7 +351,7 @@ func TestExpandedDeepSiblingProjectionUsesTheNearestRepeatedAncestor(t *testing.
 		"ancestor_0: __loom_physical_unnest_lineage_step_0",
 		"ancestor_1: __loom_physical_unnest_lineage_step_1",
 		"LET __loom_expansion_ancestor_1 = __loom_physical_unnest_lineage_item_0 == null ? null : __loom_physical_unnest_lineage_item_0.ancestor_1",
-		"FOR __root IN [__loom_expansion_ancestor_1]",
+		"__loom_expansion_ancestor_1.url",
 	} {
 		if !strings.Contains(rendered.Query, want) {
 			t.Fatalf("deep expansion query missing %q:\n%s", want, rendered.Query)

@@ -1,5 +1,3 @@
-export { ConstructionOperationsPanel } from './ConstructionOperationsPanel';
-export type { ConstructionOperationsPanelProps } from './ConstructionOperationsPanel';
 export {
   CONSTRUCTION_OPERATION_FAMILIES,
   familyPresentation,

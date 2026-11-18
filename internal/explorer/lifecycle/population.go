@@ -11,9 +11,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// resolveWorkspacePopulations verifies every durable population against the
-// exact capability snapshot and returns the bounded identity needed by the
-// receipt compiler. Selection member rows are intentionally not loaded here.
 func (s *Service) resolveWorkspacePopulations(ctx context.Context, project string, workspace authoringv2.Workspace, snapshot capability.Snapshot, scopeDigest string) (explorercompilation.ResolvedInputs, error) {
 	project = projectid.Canonical(project)
 	inputs := explorercompilation.ResolvedInputs{}
@@ -24,7 +21,7 @@ func (s *Service) resolveWorkspacePopulations(ctx context.Context, project strin
 		}
 		selection, err := s.store.GetSelection(ctx, project, population.SelectionRevisionID)
 		if err != nil {
-			return inputs, fmt.Errorf("population at documents[%d]: selection %q could not be resolved: %w", index, population.SelectionRevisionID, err)
+			return inputs, unavailable("population", "POPULATION_SELECTION_UNAVAILABLE", fmt.Sprintf("population at documents[%d]: selection %q could not be resolved", index, population.SelectionRevisionID), err)
 		}
 		if selection == nil {
 			return inputs, fmt.Errorf("population at documents[%d]: selection %q was not found", index, population.SelectionRevisionID)
@@ -104,14 +101,7 @@ func validatePopulationRoute(document authoringv2.Document, population authoring
 
 func resolvePopulationRouteEdge(snapshot capability.Snapshot, currentID, currentType string, step authoringv2.PopulationRouteStep) (capability.Edge, capability.Node, error) {
 	valid := func(edge capability.Edge) (capability.Node, bool) {
-		from, fromOK := snapshot.Node(edge.FromNodeID)
-		to, toOK := snapshot.Node(edge.ToNodeID)
-		direction := strings.ToUpper(strings.TrimSpace(edge.StorageDirection))
-		directionMatches := step.StorageDirection == "" || direction == step.StorageDirection
-		return to, edge.ID != "" && edge.BlockedReason == "" && edge.FromNodeID == currentID &&
-			fromOK && toOK && from.ResourceType == currentType && (edge.SourceResourceType == "" || edge.SourceResourceType == currentType) &&
-			to.ResourceType == step.ResourceType && (edge.TargetResourceType == "" || edge.TargetResourceType == step.ResourceType) && edge.Label == step.Relationship &&
-			(direction == "" || direction == "INBOUND" || direction == "OUTBOUND") && directionMatches
+		return snapshot.MatchPopulationRouteEdge(edge, currentID, currentType, step.ResourceType, step.Relationship, step.StorageDirection)
 	}
 	if step.CatalogEdgeID != "" {
 		edge, found := snapshot.Edge(step.CatalogEdgeID)

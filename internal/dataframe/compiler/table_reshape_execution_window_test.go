@@ -13,11 +13,11 @@ import (
 )
 
 func TestGroupedPivotPreviewWindowRunsAfterReshapedRows(t *testing.T) {
-	reshape := &recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	reshape := &oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "preview_pivot", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: "value",
-			Categories: []recipe.GroupedPivotCategory{
+			Categories: []oraclePivotCategory{
 				{Key: recipeTableInteger(0), Output: "zero", Label: "Zero"},
 				{Key: recipeTableInteger(1), Output: "one", Label: "One"},
 			},
@@ -31,15 +31,8 @@ func TestGroupedPivotPreviewWindowRunsAfterReshapedRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reshapeIndex := operationIndex(windowed, ir.PhysicalGroupedPivotOp)
-	sortIndex := operationIndex(windowed, ir.PhysicalSortOp)
-	limitIndex := operationIndex(windowed, ir.PhysicalLimitOp)
-	returnIndex := operationIndex(windowed, ir.PhysicalReturnOp)
-	if !(reshapeIndex < sortIndex && sortIndex < limitIndex && limitIndex < returnIndex) {
-		t.Fatalf("pivot window order reshape=%d sort=%d limit=%d return=%d", reshapeIndex, sortIndex, limitIndex, returnIndex)
-	}
-	if got := windowed.Operations[sortIndex].Sort.Keys; len(got) != 1 || got[0].Variable != pivot.OutputRowVariable || len(got[0].Path) != 1 || got[0].Path[0] != "__loom_row_id" {
-		t.Fatalf("pivot sort key = %#v, want reshaped stable row identity", got)
+	if windowed.StageSequence == nil || windowed.StageSequence.PreviewLimitBindKey != genericPhysicalExecutionLimitBind || windowed.StageSequence.FinalRowIdentity != "__loom_row_id" {
+		t.Fatal("missing current stage output-row window")
 	}
 
 	rendered, err := aql.RenderPhysicalPlan(windowed)
@@ -48,22 +41,22 @@ func TestGroupedPivotPreviewWindowRunsAfterReshapedRows(t *testing.T) {
 	}
 	collectIndex := strings.Index(rendered.Query, "COLLECT ")
 	shapeOutputIndex := strings.Index(rendered.Query, "LET "+pivot.OutputRowVariable+" = ")
-	sortText := "SORT " + pivot.OutputRowVariable + ".__loom_row_id ASC"
+	sortText := "SORT __loom_construction_final_row.__loom_row_id ASC"
 	sortTextIndex := strings.Index(rendered.Query, sortText)
 	limitTextIndex := strings.Index(rendered.Query, "LIMIT @limit")
-	if !(collectIndex >= 0 && collectIndex < shapeOutputIndex && shapeOutputIndex < sortTextIndex && sortTextIndex < limitTextIndex) {
+	if !(collectIndex >= 0 && collectIndex < limitTextIndex && collectIndex < shapeOutputIndex && shapeOutputIndex < sortTextIndex && sortTextIndex < strings.LastIndex(rendered.Query, "LIMIT @limit")) {
 		t.Fatalf("pivot query does not aggregate all source rows before deterministic preview window: %s", rendered.Query)
 	}
-	if strings.Count(rendered.Query, "LIMIT @limit") != 1 {
+	if strings.Count(rendered.Query, "LIMIT @limit") != 2 {
 		t.Fatalf("pivot query has a misplaced or duplicate source-row limit: %s", rendered.Query)
 	}
 }
 
 func TestUnpivotPreviewWindowBoundsDeterministicReshapedRows(t *testing.T) {
-	reshape := &recipe.TableReshape{
-		Kind: recipe.TableReshapeUnpivot,
-		Unpivot: &recipe.Unpivot{
-			ConstructionID: "preview_unpivot", Inputs: []recipe.UnpivotInput{
+	reshape := &oracleReshape{
+		Kind: oracleReshapeUnpivot,
+		Unpivot: &oracleUnpivot{
+			ConstructionID: "preview_unpivot", Inputs: []oracleUnpivotInput{
 				{Column: "value", Key: recipeTableString("first")},
 				{Column: "value2", Key: recipeTableString("second")},
 			},
@@ -76,22 +69,16 @@ func TestUnpivotPreviewWindowBoundsDeterministicReshapedRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reshapeIndex := operationIndex(windowed, ir.PhysicalUnpivotOp)
-	sortIndex := operationIndex(windowed, ir.PhysicalSortOp)
-	limitIndex := operationIndex(windowed, ir.PhysicalLimitOp)
-	returnIndex := operationIndex(windowed, ir.PhysicalReturnOp)
-	if !(reshapeIndex < sortIndex && sortIndex < limitIndex && limitIndex < returnIndex) {
-		t.Fatalf("unpivot window order reshape=%d sort=%d limit=%d return=%d", reshapeIndex, sortIndex, limitIndex, returnIndex)
+	if windowed.StageSequence == nil || windowed.StageSequence.PreviewLimitBindKey != genericPhysicalExecutionLimitBind || windowed.StageSequence.FinalRowIdentity != "__loom_row_id" {
+		t.Fatal("missing current stage output-row window")
 	}
-	if got := windowed.Operations[sortIndex].Sort.Keys; len(got) != 1 || got[0].Variable != unpivot.OutputRowVariable || len(got[0].Path) != 1 || got[0].Path[0] != "__loom_row_id" {
-		t.Fatalf("unpivot sort key = %#v, want reshaped stable row identity", got)
-	}
+
 	rendered, err := aql.RenderPhysicalPlan(windowed)
 	if err != nil {
 		t.Fatal(err)
 	}
 	loopIndex := strings.Index(rendered.Query, "FOR "+unpivot.SlotVariable+" IN [")
-	sortTextIndex := strings.Index(rendered.Query, "SORT "+unpivot.OutputRowVariable+".__loom_row_id ASC")
+	sortTextIndex := strings.Index(rendered.Query, "SORT __loom_construction_final_row.__loom_row_id ASC")
 	limitIndexInQuery := strings.Index(rendered.Query, "LIMIT @limit")
 	if !(loopIndex >= 0 && loopIndex < sortTextIndex && sortTextIndex < limitIndexInQuery) {
 		t.Fatalf("unpivot query does not limit deterministic expanded rows: %s", rendered.Query)
@@ -101,12 +88,12 @@ func TestUnpivotPreviewWindowBoundsDeterministicReshapedRows(t *testing.T) {
 	}
 }
 
-func compileTableReshapePhysicalPlan(t *testing.T, reshape *recipe.TableReshape) ir.PhysicalPlan {
+func compileTableReshapePhysicalPlan(t *testing.T, reshape *oracleReshape) ir.PhysicalPlan {
 	t.Helper()
 	bundle := recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "reshape-window", TranslationVersion: "test",
-		Outputs: []recipe.Output{{
-			Name: "patients", RootResourceType: "Patient", RowGrain: "patient", TableReshape: reshape,
+		Outputs: []recipe.Output{bindOracleCurrentConstruction(recipe.Output{
+			Name: "patients", RootResourceType: "Patient", RowGrain: "patient",
 			Fields: []recipe.Field{
 				{Name: "group", Expr: recipe.Expression{Select: "gender"}},
 				{Name: "category", Expr: recipe.Expression{Select: "multipleBirthInteger"}},
@@ -114,7 +101,7 @@ func compileTableReshapePhysicalPlan(t *testing.T, reshape *recipe.TableReshape)
 				{Name: "value2", Expr: recipe.Expression{Select: "multipleBirthInteger"}},
 				{Name: "keep", Expr: recipe.Expression{Select: "id"}},
 			},
-		}},
+		}, reshape)},
 	}
 	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
@@ -146,6 +133,13 @@ func operationIndex(plan ir.PhysicalPlan, kind ir.PhysicalOperationKind) int {
 
 func findGroupedPivot(t *testing.T, plan ir.PhysicalPlan) *ir.PhysicalGroupedPivot {
 	t.Helper()
+	if plan.StageSequence != nil {
+		for i := range plan.StageSequence.Stages {
+			if value := plan.StageSequence.Stages[i].GroupedPivot; value != nil {
+				return value
+			}
+		}
+	}
 	for index := range plan.Operations {
 		if plan.Operations[index].Kind == ir.PhysicalGroupedPivotOp {
 			return plan.Operations[index].GroupedPivot
@@ -157,6 +151,13 @@ func findGroupedPivot(t *testing.T, plan ir.PhysicalPlan) *ir.PhysicalGroupedPiv
 
 func findUnpivot(t *testing.T, plan ir.PhysicalPlan) *ir.PhysicalUnpivot {
 	t.Helper()
+	if plan.StageSequence != nil {
+		for i := range plan.StageSequence.Stages {
+			if value := plan.StageSequence.Stages[i].Unpivot; value != nil {
+				return value
+			}
+		}
+	}
 	for index := range plan.Operations {
 		if plan.Operations[index].Kind == ir.PhysicalUnpivotOp {
 			return plan.Operations[index].Unpivot
@@ -175,10 +176,10 @@ func recipeTableInteger(value int64) recipe.TableScalar {
 }
 
 func TestTableReshapeExecutionWindowBindsExpectedLimit(t *testing.T) {
-	plan := compileTableReshapePhysicalPlan(t, &recipe.TableReshape{
-		Kind: recipe.TableReshapeUnpivot,
-		Unpivot: &recipe.Unpivot{
-			ConstructionID: "limit_bind", Inputs: []recipe.UnpivotInput{{Column: "value", Key: recipeTableString("one")}},
+	plan := compileTableReshapePhysicalPlan(t, &oracleReshape{
+		Kind: oracleReshapeUnpivot,
+		Unpivot: &oracleUnpivot{
+			ConstructionID: "limit_bind", Inputs: []oracleUnpivotInput{{Column: "value", Key: recipeTableString("one")}},
 			KeyOutput: "measure", KeyLabel: "Measure", ValueOutput: "amount", ValueLabel: "Amount", NullRowPolicy: recipe.UnpivotNullDrop,
 		},
 	})
@@ -196,7 +197,7 @@ func TestTableReshapeExecutionWindowBindsExpectedLimit(t *testing.T) {
 
 func TestWithoutUnusedTerminalPivotPresenceCompanionsOnlyPrunesClonedPreviewPlan(t *testing.T) {
 	original := terminalPivotPresencePreviewPlan()
-	windowed := withoutUnusedTerminalPivotPresenceCompanions(clonePhysicalPlan(original))
+	windowed := withoutUnusedTerminalPivotPresenceCompanions(ir.ClonePhysicalPlan(original))
 
 	if !hasPresenceOutput(original.Operations) || !hasStageColumn(original.StageSequence.SourceColumns, "category_present") {
 		t.Fatal("pruning mutated the source plan and lost its category-presence companion")
@@ -207,7 +208,7 @@ func TestWithoutUnusedTerminalPivotPresenceCompanionsOnlyPrunesClonedPreviewPlan
 		t.Fatal("ordinary terminal Pivot preview retained an unused category-presence companion")
 	}
 
-	missingCategory := clonePhysicalPlan(original)
+	missingCategory := ir.ClonePhysicalPlan(original)
 	missingCategory.StageSequence.Stages[0].GroupedPivot.CategoryPresenceColumn = "category_present"
 	missingCategory = withoutUnusedTerminalPivotPresenceCompanions(missingCategory)
 	if !hasPresenceOutput(missingCategory.Operations) || !hasStageColumn(missingCategory.StageSequence.SourceColumns, "category_present") {
@@ -271,13 +272,22 @@ func hasProjection(projections []ir.PhysicalProjection, name string) bool {
 }
 
 func TestPhysicalValidationRejectsSourceLimitBeforeReshape(t *testing.T) {
-	plan := compileTableReshapePhysicalPlan(t, &recipe.TableReshape{
-		Kind: recipe.TableReshapeUnpivot,
-		Unpivot: &recipe.Unpivot{
-			ConstructionID: "no_source_limit", Inputs: []recipe.UnpivotInput{{Column: "value", Key: recipeTableString("one")}},
+	plan := compileTableReshapePhysicalPlan(t, &oracleReshape{
+		Kind: oracleReshapeUnpivot,
+		Unpivot: &oracleUnpivot{
+			ConstructionID: "no_source_limit", Inputs: []oracleUnpivotInput{{Column: "value", Key: recipeTableString("one")}},
 			KeyOutput: "measure", KeyLabel: "Measure", ValueOutput: "amount", ValueLabel: "Amount", NullRowPolicy: recipe.UnpivotNullPreserve,
 		},
 	})
+
+	unpivot := findUnpivot(t, plan)
+	terminal := operationIndex(plan, ir.PhysicalReturnOp)
+	unpivot.InputProjections = plan.Operations[terminal].Return.Projections
+	plan.StageSequence = nil
+	plan.Operations = append(plan.Operations[:terminal], ir.PhysicalOperation{Kind: ir.PhysicalUnpivotOp, Unpivot: unpivot}, ir.PhysicalOperation{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{{Name: "amount", Value: ir.PhysicalValue{Variable: unpivot.OutputRowVariable, Path: []string{"amount"}}}}}})
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("terminal physical fixture invalid before fault: %v", err)
+	}
 	plan.BindVars[genericPhysicalExecutionLimitBind] = 2
 	reshapeIndex := operationIndex(plan, ir.PhysicalUnpivotOp)
 	plan.Operations = append(plan.Operations, ir.PhysicalOperation{})

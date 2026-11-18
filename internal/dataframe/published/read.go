@@ -22,9 +22,14 @@ type ClickHouseQueryer interface {
 	QueryRowsArgsVisit(context.Context, string, []string, func(map[string]any) error, ...any) error
 }
 
+type ReaderCatalog interface {
+	bundlepublication.BundleCatalog
+	bundlepublication.ExactExecutionCatalog
+}
+
 type Reader struct {
 	ClickHouse             ClickHouseQueryer
-	Catalog                bundlepublication.BundleCatalog
+	Catalog                ReaderCatalog
 	Logger                 *slog.Logger
 	MaxPage                int
 	ActiveManifestResolver publication.ActiveResolver
@@ -149,15 +154,8 @@ type pageCursor struct {
 	Binding   string `json:"binding,omitempty"`
 	RowID     string `json:"rowId"`
 	SortValue any    `json:"sortValue,omitempty"`
-	// SortValueNull marks a cursor parked inside the NULL bucket of a sorted
-	// page (F-B24): SortValue is then meaningless and ordering continues by
-	// row identity. Version 2 cursors carry this flag; Version 1 could never
-	// encode a NULL sort value.
-	SortValueNull bool `json:"sortValueNull,omitempty"`
-}
 
-func encodeCursor(rowID string, sortValue any) string {
-	return encodeBoundCursor(rowID, sortValue, false, "")
+	SortValueNull bool `json:"sortValueNull,omitempty"`
 }
 
 func encodeBoundCursor(rowID string, sortValue any, sortValueNull bool, binding string) string {

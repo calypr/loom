@@ -64,8 +64,7 @@ func TestTransitionAndResolveManifest(t *testing.T) {
 
 func TestActivateOnlyRevisionChecksActivePointer(t *testing.T) {
 	ready := fixtureManifest(t, "project-a", "generation-a", publication.StateReady)
-	// The first query is the idempotency read. An empty result means there is
-	// no active manifest, so activation proceeds to the compare-and-swap query.
+
 	fake := &fakeQueryClient{responses: [][]map[string]any{{}, {{"dataset": jsonObject(t, ready.Dataset)}}}}
 	store := mustStore(t, fake)
 	if err := store.Activate(context.Background(), ready); err != nil {
@@ -148,6 +147,21 @@ func TestNewAndMissingActive(t *testing.T) {
 	store := mustStore(t, &fakeQueryClient{})
 	if _, err := store.ResolveActiveManifest(context.Background(), "project-a"); !errors.Is(err, publication.ErrNoActiveGeneration) {
 		t.Fatalf("missing active = %v", err)
+	}
+}
+
+func TestManifestAndReferenceDecodersPreserveEncodeAndDecodeErrorLabels(t *testing.T) {
+	if _, err := manifestFromValue(map[string]any{"unsupported": make(chan int)}); err == nil || !strings.Contains(err.Error(), "encode manifest row") {
+		t.Fatalf("manifest encode error = %v, want encode label", err)
+	}
+	if _, err := manifestFromValue(map[string]any{"state": 42}); err == nil || !strings.Contains(err.Error(), "decode manifest row") {
+		t.Fatalf("manifest decode error = %v, want decode label", err)
+	}
+	if _, err := refFromValue(map[string]any{"project": make(chan int)}); err == nil || !strings.Contains(err.Error(), "encode generation reference row") {
+		t.Fatalf("reference encode error = %v, want encode label", err)
+	}
+	if _, err := refFromValue(map[string]any{"project": 42}); err == nil || !strings.Contains(err.Error(), "decode generation reference row") {
+		t.Fatalf("reference decode error = %v, want decode label", err)
 	}
 }
 

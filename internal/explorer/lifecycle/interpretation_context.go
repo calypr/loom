@@ -117,7 +117,7 @@ func (s *Service) ConfiguredColumnContext(ctx context.Context, request Configure
 	if err != nil {
 		return result, malformed("interpretation-context", err.Error(), err)
 	}
-	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
+	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return result, err
 	}
@@ -130,7 +130,11 @@ func (s *Service) ConfiguredColumnContext(ctx context.Context, request Configure
 	}
 	columnCount := 0
 	for _, document := range workspace.Documents {
-		columnCount += len(document.Columns)
+		for _, column := range document.Columns {
+			if column.Source.Kind != authoringv2.SourceImported {
+				columnCount++
+			}
+		}
 	}
 	if columnCount > maxInterpretationContextColumns {
 		return result, unprocessable("interpretation-context", "INTERPRETATION_CONTEXT_LIMIT", fmt.Sprintf("the Explorer has %d configured columns; the limit is %d", columnCount, maxInterpretationContextColumns), nil)
@@ -145,7 +149,7 @@ func (s *Service) ConfiguredColumnContext(ctx context.Context, request Configure
 
 	libraries, err := repository.ListInterpretationLibraries(ctx, project)
 	if err != nil {
-		return result, internal("interpretation-context", "INTERPRETATION_LIBRARY_READ_FAILED", err.Error(), err)
+		return result, persistenceFailure("interpretation-context", "interpretation libraries could not be loaded", err)
 	}
 	if len(libraries) > maxInterpretationContextLibraries {
 		return result, unprocessable("interpretation-context", "INTERPRETATION_CONTEXT_LIMIT", fmt.Sprintf("the project has %d interpretation libraries; the limit is %d", len(libraries), maxInterpretationContextLibraries), nil)
@@ -182,6 +186,9 @@ func (s *Service) ConfiguredColumnContext(ctx context.Context, request Configure
 	headRevisions := interpretationHeadRevisions(libraries, revisions)
 	for _, document := range workspace.Documents {
 		for _, column := range document.Columns {
+			if column.Source.Kind == authoringv2.SourceImported {
+				continue
+			}
 			resolution, resolveErr := explorercompilation.ResolveInterpretationCandidate(document, column, authorized.Snapshot)
 			if resolveErr != nil {
 				return result, conflict("interpretation-context", "STALE_COLUMN_ROUTE", "a configured column route no longer resolves in this authorized snapshot", nil, resolveErr)
@@ -252,7 +259,7 @@ func loadInterpretationContextRevisions(ctx context.Context, repository explorer
 			return nil, conflict("interpretation-context", "INTERPRETATION_REVISION_MISSING", "a referenced interpretation revision is no longer available", nil, err)
 		}
 		if err != nil {
-			return nil, internal("interpretation-context", "INTERPRETATION_REVISION_READ_FAILED", err.Error(), err)
+			return nil, persistenceFailure("interpretation-context", "an interpretation revision could not be loaded", err)
 		}
 		if revision == nil || revision.ID != id || revision.Project != project {
 			return nil, internal("interpretation-context", "INTERPRETATION_REVISION_INTEGRITY", "interpretation revision crossed project scope", nil)

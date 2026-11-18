@@ -1,6 +1,3 @@
-// Package arango stores private ClickHouse artifact manifests and leases in a
-// dedicated Arango collection. It does not register artifacts as published
-// outputs or update any publication pointer.
 package arango
 
 import (
@@ -22,8 +19,6 @@ const (
 	manifestTimeLayout         = "2006-01-02T15:04:05.000000000Z"
 )
 
-// Catalog implements chartifact.Catalog using single-document conditional
-// AQL writes. The Arango document key is the immutable ArtifactID.
 type Catalog struct {
 	client arangostore.RowQueryer
 }
@@ -44,9 +39,6 @@ func BootstrapSpec() arangostore.BootstrapSpec {
 	}}}
 }
 
-// Create inserts an immutable manifest only when its ArtifactID is unused.
-// Concurrent duplicate creates can produce an Arango write-conflict error;
-// neither path replaces an existing manifest.
 func (c *Catalog) Create(ctx context.Context, manifest chartifact.Manifest) error {
 	if err := requireContext(ctx); err != nil {
 		return err
@@ -58,17 +50,13 @@ func (c *Catalog) Create(ctx context.Context, manifest chartifact.Manifest) erro
 	if err != nil {
 		return fmt.Errorf("encode private artifact manifest: %w", err)
 	}
-	created := false
-	err = c.client.QueryRows(ctx, `LET existing = DOCUMENT(@@collection, @key)
+	created, err := arangostore.QueryHasRow(ctx, c.client, `LET existing = DOCUMENT(@@collection, @key)
 FILTER existing == null
 INSERT @document IN @@collection
 RETURN {created: true}`, queryBatchSize, map[string]any{
 		"@collection": PrivateArtifactsCollection,
 		"key":         manifest.ArtifactID,
 		"document":    document,
-	}, func(row map[string]any) error {
-		created = true
-		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("insert private artifact manifest %q: %w", manifest.ArtifactID, err)
@@ -79,9 +67,6 @@ RETURN {created: true}`, queryBatchSize, map[string]any{
 	return nil
 }
 
-// Update changes only progress fields. Active states cannot shorten a lease;
-// cleanup-pending is allowed to make a table immediately reclaimable after the
-// owner has stopped using it. An expired or stolen lease cannot be updated.
 func (c *Catalog) Update(ctx context.Context, artifactID, owner string, progress chartifact.Progress) error {
 	if err := requireContext(ctx); err != nil {
 		return err
@@ -89,8 +74,7 @@ func (c *Catalog) Update(ctx context.Context, artifactID, owner string, progress
 	if err := validateUpdate(artifactID, owner, progress); err != nil {
 		return err
 	}
-	updated := false
-	err := c.client.QueryRows(ctx, `LET existing = DOCUMENT(@@collection, @key)
+	updated, err := arangostore.QueryHasRow(ctx, c.client, `LET existing = DOCUMENT(@@collection, @key)
 FILTER existing != null
   AND existing.leaseOwner == @owner
   AND existing.leaseUntil >= @now
@@ -114,9 +98,6 @@ RETURN {updated: true}`, queryBatchSize, map[string]any{
 		"cleanupPending":      progress.State == chartifact.StateCleanupPending,
 		"cleanupPendingState": chartifact.StateCleanupPending,
 		"updatedAt":           formatManifestTime(progress.UpdatedAt),
-	}, func(map[string]any) error {
-		updated = true
-		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("update private artifact manifest %q: %w", artifactID, err)
@@ -127,8 +108,6 @@ RETURN {updated: true}`, queryBatchSize, map[string]any{
 	return nil
 }
 
-// Renew extends an active, unexpired lease owned by owner. It never shortens
-// an existing lease and never resurrects an expired one.
 func (c *Catalog) Renew(ctx context.Context, artifactID, owner string, until time.Time) (bool, error) {
 	if err := requireContext(ctx); err != nil {
 		return false, err
@@ -136,8 +115,7 @@ func (c *Catalog) Renew(ctx context.Context, artifactID, owner string, until tim
 	if strings.TrimSpace(artifactID) == "" || strings.TrimSpace(owner) == "" || until.IsZero() {
 		return false, fmt.Errorf("private artifact renewal requires artifact ID, owner, and lease time")
 	}
-	renewed := false
-	err := c.client.QueryRows(ctx, `LET existing = DOCUMENT(@@collection, @key)
+	renewed, err := arangostore.QueryHasRow(ctx, c.client, `LET existing = DOCUMENT(@@collection, @key)
 FILTER existing != null
   AND existing.leaseOwner == @owner
   AND existing.state IN @renewableStates
@@ -150,9 +128,6 @@ RETURN {renewed: true}`, queryBatchSize, map[string]any{
 		"renewableStates": []chartifact.State{chartifact.StateCreating, chartifact.StateWriting, chartifact.StateReady},
 		"now":             formatManifestTime(time.Now()),
 		"leaseUntil":      formatManifestTime(until),
-	}, func(map[string]any) error {
-		renewed = true
-		return nil
 	})
 	if err != nil {
 		return false, fmt.Errorf("renew private artifact lease %q: %w", artifactID, err)
@@ -160,8 +135,6 @@ RETURN {renewed: true}`, queryBatchSize, map[string]any{
 	return renewed, nil
 }
 
-// ListExpired returns a bounded, stable-order page of manifests whose lease is
-// expired at or before expiredBefore. Cleanup claims recheck this condition.
 func (c *Catalog) ListExpired(ctx context.Context, expiredBefore time.Time, limit int) ([]chartifact.Manifest, error) {
 	if err := requireContext(ctx); err != nil {
 		return nil, err
@@ -198,9 +171,6 @@ RETURN manifest`, queryBatchSize, map[string]any{
 	return manifests, nil
 }
 
-// ClaimCleanup atomically changes an expired manifest's owner and state. The
-// old lease timestamp is rechecked in the write query so a concurrent renewer
-// wins cleanly; only one cleanup owner can claim a given expired manifest.
 func (c *Catalog) ClaimCleanup(ctx context.Context, artifactID, owner string, expiredBefore, until time.Time) (chartifact.Manifest, bool, error) {
 	if err := requireContext(ctx); err != nil {
 		return chartifact.Manifest{}, false, err
@@ -246,7 +216,6 @@ RETURN {manifest: NEW}`, queryBatchSize, map[string]any{
 	return *claimed, true, nil
 }
 
-// Delete removes a cleanup-pending manifest only for its current owner.
 func (c *Catalog) Delete(ctx context.Context, artifactID, owner string) error {
 	if err := requireContext(ctx); err != nil {
 		return err
@@ -254,8 +223,7 @@ func (c *Catalog) Delete(ctx context.Context, artifactID, owner string) error {
 	if strings.TrimSpace(artifactID) == "" || strings.TrimSpace(owner) == "" {
 		return fmt.Errorf("private artifact deletion requires artifact ID and owner")
 	}
-	deleted := false
-	err := c.client.QueryRows(ctx, `LET existing = DOCUMENT(@@collection, @key)
+	deleted, err := arangostore.QueryHasRow(ctx, c.client, `LET existing = DOCUMENT(@@collection, @key)
 FILTER existing != null
   AND existing.leaseOwner == @owner
   AND existing.state == @cleanupPending
@@ -265,9 +233,6 @@ RETURN {deleted: true}`, queryBatchSize, map[string]any{
 		"key":            artifactID,
 		"owner":          owner,
 		"cleanupPending": chartifact.StateCleanupPending,
-	}, func(map[string]any) error {
-		deleted = true
-		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("delete private artifact manifest %q: %w", artifactID, err)
@@ -278,8 +243,6 @@ RETURN {deleted: true}`, queryBatchSize, map[string]any{
 	return nil
 }
 
-// ReleaseCleanup makes a failed cleanup immediately reclaimable, but only
-// while the caller still owns the cleanup lease.
 func (c *Catalog) ReleaseCleanup(ctx context.Context, artifactID, owner string, until time.Time) error {
 	if err := requireContext(ctx); err != nil {
 		return err
@@ -287,8 +250,7 @@ func (c *Catalog) ReleaseCleanup(ctx context.Context, artifactID, owner string, 
 	if strings.TrimSpace(artifactID) == "" || strings.TrimSpace(owner) == "" || until.IsZero() {
 		return fmt.Errorf("private artifact cleanup release requires artifact ID, owner, and lease time")
 	}
-	released := false
-	err := c.client.QueryRows(ctx, `LET existing = DOCUMENT(@@collection, @key)
+	released, err := arangostore.QueryHasRow(ctx, c.client, `LET existing = DOCUMENT(@@collection, @key)
 FILTER existing != null
   AND existing.leaseOwner == @owner
   AND existing.state == @cleanupPending
@@ -300,9 +262,6 @@ RETURN {released: true}`, queryBatchSize, map[string]any{
 		"cleanupPending": chartifact.StateCleanupPending,
 		"leaseUntil":     formatManifestTime(until),
 		"updatedAt":      formatManifestTime(time.Now()),
-	}, func(map[string]any) error {
-		released = true
-		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("release private artifact cleanup lease %q: %w", artifactID, err)
@@ -338,9 +297,7 @@ func manifestDocument(manifest chartifact.Manifest) (map[string]any, error) {
 		return nil, err
 	}
 	document["_key"] = manifest.ArtifactID
-	// time.Time's default JSON encoding omits trailing fractional zeros. These
-	// fields are compared and sorted lexicographically by AQL, so persist a
-	// fixed-width UTC representation to keep string order chronological.
+
 	document["leaseUntil"] = formatManifestTime(manifest.LeaseUntil)
 	document["createdAt"] = formatManifestTime(manifest.CreatedAt)
 	document["updatedAt"] = formatManifestTime(manifest.UpdatedAt)

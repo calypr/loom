@@ -27,6 +27,20 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 			return fmt.Errorf("private prefix authorization path bind %q is missing or empty", sequence.OutputAuthResourcePathBindKey)
 		}
 	}
+	if sequence.OutputAuthResourcePathColumn != "" {
+		if sequence.OutputAuthResourcePathBindKey != "" {
+			return fmt.Errorf("authorization path cannot have both row and bind sources")
+		}
+		found := false
+		for _, column := range sequence.FinalColumns {
+			if column.Name == sequence.OutputAuthResourcePathColumn && column.Internal && column.Kind == "string" {
+				found = true
+			}
+		}
+		if !found {
+			return fmt.Errorf("authorization path column is not an internal final string column")
+		}
+	}
 	projectionNames := map[string]bool{}
 	for _, operation := range sourceOperations {
 		if operation.Kind == PhysicalGroupedPivotOp || operation.Kind == PhysicalUnpivotOp {
@@ -398,7 +412,7 @@ func validateCodedPivotSourceRoot(sourceOperations []PhysicalOperation, bindVars
 			}
 		case PhysicalFilterOp, PhysicalDerivedLetOp, PhysicalExpressionLetOp,
 			PhysicalSetOp, PhysicalSortOp, PhysicalLimitOp:
-			// These source operations preserve root row grain.
+
 		case PhysicalReturnOp:
 			returns++
 			if operation.Return == nil || index != len(sourceOperations)-1 {
@@ -835,41 +849,29 @@ func validatePhysicalGroupFilterLineage(stages []PhysicalConstructionStage) erro
 }
 
 func physicalFilterReferencesColumn(filter PhysicalFilter, variable, column string) bool {
-	return physicalValueReferencesColumn(reflect.ValueOf(filter), variable, column)
+	operation := PhysicalOperation{Kind: PhysicalFilterOp, Filter: &filter}
+	return physicalValueReferencesColumn(&operation, variable, column)
 }
 
-func physicalValueReferencesColumn(value reflect.Value, variable, column string) bool {
-	if !value.IsValid() {
+func physicalValueReferencesColumn(node Node, variable, column string) bool {
+	visited := make(map[Node]bool)
+	var references func(Node) bool
+	references = func(node Node) bool {
+		if visited[node] {
+			return false
+		}
+		visited[node] = true
+		if value, ok := node.(*PhysicalValue); ok {
+			return value.Variable == variable && len(value.Path) != 0 && value.Path[0] == column
+		}
+		for _, child := range Children(node) {
+			if references(child) {
+				return true
+			}
+		}
 		return false
 	}
-	if value.Type() == reflect.TypeOf(PhysicalValue{}) {
-		physicalValue := value.Interface().(PhysicalValue)
-		return physicalValue.Variable == variable && len(physicalValue.Path) != 0 && physicalValue.Path[0] == column
-	}
-	switch value.Kind() {
-	case reflect.Interface, reflect.Pointer:
-		return !value.IsNil() && physicalValueReferencesColumn(value.Elem(), variable, column)
-	case reflect.Struct:
-		for index := 0; index < value.NumField(); index++ {
-			if physicalValueReferencesColumn(value.Field(index), variable, column) {
-				return true
-			}
-		}
-	case reflect.Slice, reflect.Array:
-		for index := 0; index < value.Len(); index++ {
-			if physicalValueReferencesColumn(value.Index(index), variable, column) {
-				return true
-			}
-		}
-	case reflect.Map:
-		iterator := value.MapRange()
-		for iterator.Next() {
-			if physicalValueReferencesColumn(iterator.Value(), variable, column) {
-				return true
-			}
-		}
-	}
-	return false
+	return references(node)
 }
 
 func validatePhysicalStageRelatedField(stage PhysicalConstructionStage, related PhysicalStageRelatedField, bindVars map[string]any) error {
@@ -1543,6 +1545,25 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 	); err != nil {
 		return err
 	}
+	if group.DynamicRuntimeKeysVariable != "" {
+		input, inOK := inputByName["__loom_dynamic_runtime_keys"]
+		output, outOK := outputByName["__loom_dynamic_runtime_keys"]
+		if !inOK || !outOK || !input.Internal || !output.Internal || input.Kind != "object" || output.Kind != "object" || output.Identity || output.Cardinality != "many" {
+			return fmt.Errorf("dynamic runtime inventories require hidden input and repeated hidden output")
+		}
+		found := false
+		for _, projection := range stage.OutputProjections {
+			if projection.Name == "__loom_dynamic_runtime_keys" {
+				found = projection.Hidden && projection.Expression == nil && projection.Value.Variable == group.DynamicRuntimeKeysVariable && projection.Value.BindKey == "" && len(projection.Value.Path) == 0
+			}
+		}
+		if !found {
+			return fmt.Errorf("dynamic runtime inventories require the exact hidden Group projection")
+		}
+		if err := definePhysicalVariable(defined, group.DynamicRuntimeKeysVariable); err != nil {
+			return fmt.Errorf("dynamic runtime inventories: %w", err)
+		}
+	}
 	for index, key := range group.Keys {
 		input, ok := inputByName[key.InputColumn]
 		if !ok || input.Cardinality == "many" {
@@ -1804,8 +1825,6 @@ func validatePhysicalStageRelatedCodingKey(
 	return nil
 }
 
-// PhysicalUnnestExactGroupShapeEqual compares compiler-owned shape facts while
-// allowing cloned runtime bindings and operation-local references to differ.
 func PhysicalUnnestExactGroupShapeEqual(left, right PhysicalUnnest) bool {
 	if left.Owner.OccurrenceID != right.Owner.OccurrenceID || left.Owner.ResourceType != right.Owner.ResourceType ||
 		left.Owner.RootVariable != right.Owner.RootVariable || left.Owner.OwnerVariable != right.Owner.OwnerVariable ||

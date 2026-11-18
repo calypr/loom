@@ -98,8 +98,7 @@ function references(source) {
   return result;
 }
 
-const RETIRED_BROWSER_ROOT = 'scripts/maintenance/playwright/';
-const INTENTIONAL_EXCLUSIONS = new Set(['browser-package-import', 'retired-browser-directory']);
+const INTENTIONAL_EXCLUSIONS = new Set(['browser-package-import']);
 
 function formatNodeTestProblems(problems) {
   const shown = problems.slice(0, 20);
@@ -110,7 +109,7 @@ function formatNodeTestProblems(problems) {
   return `Retained Node test dependency closure is broken (${problems.length} problem${problems.length === 1 ? '' : 's'}):\n${lines.join('\n')}`;
 }
 
-const POLICY = 'Relative static and literal dynamic import/require closure plus literal test-owned URL fixture existence; executable Playwright package imports and the retired browser directory are explicit nonfatal exclusions, incidental strings retained. A missing or unreadable retained dependency or test-owned fixture fails the inventory. Computed imports and external package availability are not proven.';
+const POLICY = 'Relative static and literal dynamic import/require closure plus literal test-owned URL fixture existence; executable Playwright package imports are explicit nonfatal exclusions, incidental strings retained. A missing or unreadable retained dependency or test-owned fixture fails the inventory. Computed imports and external package availability are not proven.';
 
 /** A retained Node test can no longer execute because its source closure is broken. */
 export class NodeTestInventoryError extends Error {
@@ -172,10 +171,6 @@ async function nodeTestClassification(projectRoot) {
   }
   const included = [], excluded = [], problems = [];
   for (const candidate of await scanRoots(projectRoot)) {
-    if (relative(candidate).startsWith(RETIRED_BROWSER_ROOT)) {
-      excluded.push({ file: relative(candidate), reason: 'retired-browser-directory', chain: [relative(candidate)] });
-      continue;
-    }
     await load(candidate);
     // Inspect the complete retained closure: an intentional browser exclusion
     // in one branch must not hide a missing dependency in another branch,
@@ -205,8 +200,7 @@ async function nodeTestClassification(projectRoot) {
 /**
  * List the retained Node tests for the CI shards. A missing or unreadable
  * retained dependency or test-owned URL fixture rejects instead of returning a
- * silently shrunken selection; explicit Playwright and retired-browser
- * exclusions stay ordinary results.
+ * silently shrunken selection; explicit Playwright exclusions stay ordinary results.
  */
 export async function nodeTestInventory(projectRoot = process.cwd()) {
   const { included, excluded, problems } = await nodeTestClassification(projectRoot);

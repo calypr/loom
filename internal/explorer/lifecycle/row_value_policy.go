@@ -39,7 +39,7 @@ func (s *Service) validateRowValuePolicyCandidate(
 	if err := verifyPreviewReceiptIntent(receipt, workspace); err != nil {
 		return conflict("commands", "INVALID_COMPILATION_RECEIPT", "the row-value policy receipt does not represent the candidate workspace", nil, err)
 	}
-	if err := s.validateReceiptRoute(receipt, project, explorerID); err != nil {
+	if err := s.validateExecutableReceiptRoute(receipt, project, explorerID); err != nil {
 		return err
 	}
 	if !receiptHasOutput(receipt.Bundle, command.OutputID) || validateReceiptOutputContract(receipt, command.OutputID) != nil {
@@ -50,8 +50,11 @@ func (s *Service) validateRowValuePolicyCandidate(
 	}
 
 	executionAuth, err := s.config.Capability.ForExecution(ctx, receipt.Project, receipt.SnapshotToken)
-	if err != nil || executionAuth.Snapshot.ValidateToken(receipt.SnapshotToken) != nil {
-		return conflict("commands", "RECEIPT_STALE", "the row-value policy candidate is no longer authorized for execution", nil, err)
+	if err != nil {
+		return receiptCapabilityFailure("commands", "the row-value policy candidate is no longer authorized for execution", err)
+	}
+	if executionAuth.Snapshot.ValidateToken(receipt.SnapshotToken) != nil {
+		return conflict("commands", "RECEIPT_STALE", "the row-value policy candidate is no longer authorized for execution", nil, nil)
 	}
 	if err := validateAuthorizedReceiptExecution(receipt, executionAuth); err != nil {
 		return conflict("commands", "RECEIPT_STALE", "the row-value policy candidate is no longer authorized for execution", nil, err)

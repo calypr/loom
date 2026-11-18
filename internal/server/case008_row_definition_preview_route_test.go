@@ -75,6 +75,12 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 		[]capability.Candidate{{ID: "c_13314d7bfa5241c3464b0dbd", NodeID: "n_88fd86589e77093ea1cd19a7", ResourceType: "Patient", FieldPath: "id", Label: "id", LogicalType: "string", Cardinality: "OPTIONAL_ONE", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar, capability.ProjectionFirst}, SupportedOperations: []capability.Operation{capability.OperationSelect}, Observed: true, Populated: true}},
 		nil,
 	)
+
+	migration, err := authoringv2.MigrateStoredWorkspace(draft, authoringV2Catalog(snapshot, case008ExplorerID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft, digest = migration.CanonicalJSON, migration.MigratedCanonicalDigest
 	store := newTestExplorerStore()
 	service, err := explorer.NewService(store)
 	if err != nil {

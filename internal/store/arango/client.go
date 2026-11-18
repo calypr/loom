@@ -30,47 +30,38 @@ type Client struct {
 const previewCursorCleanupTimeout = time.Second
 
 type queryMemoryLimitContextKey struct{}
+type queryMaxNumberOfPlansContextKey struct{}
 
-// WithQueryMemoryLimit adds a per-query ArangoDB memory cap. Callers that do
-// not set this option keep the server's configured query behavior.
 func WithQueryMemoryLimit(ctx context.Context, bytes int64) context.Context {
 	return context.WithValue(ctx, queryMemoryLimitContextKey{}, bytes)
 }
 
-// RowQueryer is the narrow row-query surface shared by Arango adapters. It is
-// also the only capability exposed to transaction callbacks.
+func WithQueryMaxNumberOfPlans(ctx context.Context, maxPlans int) context.Context {
+	return context.WithValue(ctx, queryMaxNumberOfPlansContextKey{}, maxPlans)
+}
+
 type RowQueryer interface {
 	QueryRows(context.Context, string, int, map[string]interface{}, RowVisitor) error
 }
 
-// BatchInserter is the narrow raw-document write surface shared by Arango
-// adapters.
 type BatchInserter interface {
 	InsertBatchRaw(context.Context, string, []json.RawMessage, bool, string) error
 }
 
-// AQLExecutor is the narrow surface used for non-row AQL statements.
 type AQLExecutor interface {
 	ExecuteAQL(context.Context, string, map[string]interface{}) error
 }
 
-// RowBatchClient is the narrow composite used by registries that only need
-// query and raw-document batch-write capabilities.
 type RowBatchClient interface {
 	RowQueryer
 	BatchInserter
 }
 
-// TransactionalRowClient is the composite used by registry writes that must
-// commit several documents atomically (e.g. the bundle publish CAS). Requiring
-// it at the call site makes a silently non-transactional publish impossible.
 type TransactionalRowClient interface {
 	RowBatchClient
 	WithTransaction(context.Context, TransactionCollections, TransactionFunc) error
 }
 
-// IsQueryMemoryLimitExceeded reports whether ArangoDB rejected a query because
-// it exceeded the configured query memory limit.
 func IsQueryMemoryLimitExceeded(err error) bool {
 	if !IsQueryResourceLimitExceeded(err) {
 		return false
@@ -79,22 +70,14 @@ func IsQueryMemoryLimitExceeded(err error) bool {
 	return ok && strings.Contains(strings.ToLower(arangoErr.ErrorMessage), "memory")
 }
 
-// IsQueryResourceLimitExceeded reports whether ArangoDB rejected a query at a
-// configured resource limit. Callers can use IsQueryMemoryLimitExceeded first
-// when they need the narrower diagnosis.
 func IsQueryResourceLimitExceeded(err error) bool {
 	return shared.IsArangoErrorWithErrorNum(err, shared.ErrResourceLimit)
 }
 
-// IsQueryOutOfMemory reports whether ArangoDB ran out of memory while
-// executing a query. This is distinct from rejecting a query at a configured
-// memory limit.
 func IsQueryOutOfMemory(err error) bool {
 	return shared.IsArangoErrorWithErrorNum(err, shared.ErrOutOfMemory)
 }
 
-// IsQueryUserAssertion reports whether AQL aborted through ASSERT with the
-// exact stable code emitted by Loom's typed physical plan.
 func IsQueryUserAssertion(err error, code string) bool {
 	if strings.TrimSpace(code) == "" {
 		return false
@@ -117,6 +100,14 @@ var bufferPool = sync.Pool{
 }
 
 func Open(ctx context.Context, url, database string) (*Client, error) {
+	return openDatabase(ctx, url, database, true)
+}
+
+func OpenExisting(ctx context.Context, url, database string) (*Client, error) {
+	return openDatabase(ctx, url, database, false)
+}
+
+func openDatabase(ctx context.Context, url, database string, createIfMissing bool) (*Client, error) {
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
@@ -143,6 +134,9 @@ func Open(ctx context.Context, url, database string) (*Client, error) {
 	if exists {
 		db, err = client.GetDatabase(ctx, database, nil)
 	} else {
+		if !createIfMissing {
+			return nil, fmt.Errorf("refusing to create missing database %q", database)
+		}
 		db, err = client.CreateDatabase(ctx, database, nil)
 	}
 	if err != nil {
@@ -234,15 +228,10 @@ func (c *Client) QueryRows(ctx context.Context, query string, batchSize int, bin
 	return queryRows(ctx, c.db, query, batchSize, bindVars, visit)
 }
 
-// QueryRowsWithMaxRuntime executes a row query with an ArangoDB server-side
-// runtime limit. It is intended for bounded previews whose client request may
-// be canceled while the server is still evaluating the query.
 func (c *Client) QueryRowsWithMaxRuntime(ctx context.Context, query string, batchSize int, bindVars map[string]interface{}, maxRuntime time.Duration, visit RowVisitor) error {
 	return queryRowsWithMaxRuntime(ctx, c.db, query, batchSize, bindVars, maxRuntime, visit)
 }
 
-// CollectionRevision returns ArangoDB's collection data revision. Callers can
-// use it to validate cached read results against intervening document writes.
 func (c *Client) CollectionRevision(ctx context.Context, name string) (string, error) {
 	if c == nil || c.db == nil || strings.TrimSpace(name) == "" {
 		return "", fmt.Errorf("Arango collection revision requires a client and collection")
@@ -261,8 +250,6 @@ func (c *Client) CollectionRevision(ctx context.Context, name string) (string, e
 	return properties.Revision, nil
 }
 
-// CollectionCount returns Arango's collection cardinality metadata without
-// scanning its documents.
 func (c *Client) CollectionCount(ctx context.Context, name string) (int64, error) {
 	if c == nil || c.db == nil || strings.TrimSpace(name) == "" {
 		return 0, fmt.Errorf("Arango collection count requires a client and collection")
@@ -285,10 +272,15 @@ func queryRowsWithMaxRuntime(ctx context.Context, queryer driver.DatabaseQuery, 
 	if maxRuntime <= 0 {
 		return fmt.Errorf("arango query max runtime must be positive")
 	}
+
+	maxPlans := 1
 	options := &driver.QueryOptions{
 		BatchSize: batchSize,
 		BindVars:  bindVars,
-		Options:   driver.QuerySubOptions{MaxRuntime: maxRuntime.Seconds()},
+		Options: driver.QuerySubOptions{
+			MaxRuntime:       maxRuntime.Seconds(),
+			MaxNumberOfPlans: &maxPlans,
+		},
 	}
 	if memoryLimit, ok := ctx.Value(queryMemoryLimitContextKey{}).(int64); ok {
 		if memoryLimit <= 0 {
@@ -394,9 +386,6 @@ func (c *Client) CollectionExists(ctx context.Context, name string) (bool, error
 	return c.db.CollectionExists(ctx, name)
 }
 
-// ExecuteAQL runs a write/query statement and drains its cursor. It is kept
-// deliberately small so durable registries can perform compare-and-swap
-// updates without exposing the Arango driver through their public APIs.
 func (c *Client) ExecuteAQL(ctx context.Context, query string, bindVars map[string]interface{}) error {
 	cursor, err := c.db.Query(ctx, query, &driver.QueryOptions{BatchSize: 32, BindVars: bindVars})
 	if err != nil {

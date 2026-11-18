@@ -29,9 +29,6 @@ type TableShapeExclusionRefusal struct {
 
 func (e *TableShapeExclusionRefusal) Error() string { return string(e.Code) }
 
-// CompiledTableShapeExclusionQuery is an exact, bounded diagnostic query
-// derived from one finalized output plan. It has no caller-supplied paths or
-// query fragments.
 type CompiledTableShapeExclusionQuery struct {
 	Query                string
 	BindVars             map[string]any
@@ -60,10 +57,14 @@ func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, of
 		return CompiledTableShapeExclusionQuery{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionInvalidLimit}
 	}
 
-	_ = policy // Diagnostics execute against the exact canonical plan, before publication optimizations.
+	_ = policy
 	physical, err := withGenericPhysicalExecutionWindow(ir.ClonePhysicalPlan(output.Plan), 0)
 	if err != nil {
 		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("prepare table-shape exclusion plan: %w", err)
+	}
+	physical, err = sourceStagePivotForExclusions(physical)
+	if err != nil {
+		return CompiledTableShapeExclusionQuery{}, err
 	}
 	pivotIndex := -1
 	var pivot *ir.PhysicalGroupedPivot
@@ -86,9 +87,6 @@ func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, of
 		return CompiledTableShapeExclusionQuery{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionNoPolicy}
 	}
 
-	// Ordinary Pivot previews omit presence metadata to retain bounded execution.
-	// Diagnostics must recover missing versus explicit null from the exact direct
-	// root projection, rather than HAS on its always-populated projected column.
 	if pivot.CategoryPresence == nil && !pivot.CategoryPresenceFromInput && physical.StageSequence == nil &&
 		len(physical.Operations) > 0 && physical.Operations[0].RootScan != nil {
 		root := physical.Operations[0].RootScan.Variable
@@ -96,7 +94,7 @@ func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, of
 			if projection.Name != pivot.CategoryColumn {
 				continue
 			}
-			value, direct := categoryScanDirectRootProjectionValue(projection, root)
+			value, direct := ir.DirectScalarRootProjectionValue(projection, root)
 			if direct && len(value.Path) > 1 && value.Path[0] == "payload" {
 				pivot.CategoryPresence = &ir.PhysicalProjectionPresence{
 					Source: ir.PhysicalValue{Variable: root, Path: []string{"payload"}},
@@ -151,4 +149,35 @@ func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, of
 		OmissionField:        ir.PhysicalTableShapeExclusionOmissionField,
 		Offset:               offset, Limit: limit, Diagnostics: physicalPlanDiagnostics(physical),
 	}, nil
+}
+
+func sourceStagePivotForExclusions(plan ir.PhysicalPlan) (ir.PhysicalPlan, error) {
+	sequence := plan.StageSequence
+	if sequence == nil {
+		return plan, nil
+	}
+	if len(sequence.Stages) == 0 || sequence.Stages[0].Kind != ir.PhysicalStagePivotOp || sequence.Stages[0].GroupedPivot == nil || sequence.Stages[0].InputStageID != sequence.SourceStageID {
+		return ir.PhysicalPlan{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionUnsupported}
+	}
+	for _, stage := range sequence.Stages[1:] {
+		if stage.Kind != ir.PhysicalStageDeriveOp {
+			return ir.PhysicalPlan{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionUnsupported}
+		}
+	}
+	last := len(plan.Operations) - 1
+	if last < 0 || plan.Operations[last].Kind != ir.PhysicalReturnOp || plan.Operations[last].Return == nil {
+		return ir.PhysicalPlan{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionUnsupported}
+	}
+	pivot := *sequence.Stages[0].GroupedPivot
+	pivot.InputProjections = append([]ir.PhysicalProjection(nil), plan.Operations[last].Return.Projections...)
+	if pivot.CategoryPresenceFromInput {
+		for index := range pivot.InputProjections {
+			if pivot.InputProjections[index].Name == pivot.CategoryColumn {
+				pivot.InputProjections[index].Presence = nil
+			}
+		}
+	}
+	plan.Operations = append(plan.Operations[:last], ir.PhysicalOperation{Kind: ir.PhysicalGroupedPivotOp, GroupedPivot: &pivot}, ir.PhysicalOperation{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: sequence.Stages[0].OutputProjections}})
+	plan.StageSequence = nil
+	return plan, nil
 }

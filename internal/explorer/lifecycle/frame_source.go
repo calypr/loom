@@ -102,7 +102,7 @@ func (s *Service) BrowseFrameSourceOptions(ctx context.Context, request BrowseFr
 		return result, conflict("frame-source-options", "STALE_CATALOG_SNAPSHOT", "reload the catalog before choosing a frame source", nil, err)
 	}
 	if err != nil {
-		return result, err
+		return result, capabilityResolutionFailure("frame-source-options", "reload the catalog before choosing a frame source", err)
 	}
 	snapshot := authorized.Snapshot.Clone()
 	if snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(request.Project) || snapshot.Identity.Generation == "" {
@@ -151,7 +151,7 @@ func (s *Service) BrowseFrameSourceOptions(ctx context.Context, request BrowseFr
 			return BrowseFrameSourceOptionsResponse{}, conflict("frame-source-options", "STALE_FRAME_SOURCE_CURSOR", "restart frame source search with an empty cursor", nil, pageErr)
 		}
 		if pageErr != nil {
-			return BrowseFrameSourceOptionsResponse{}, pageErr
+			return BrowseFrameSourceOptionsResponse{}, persistenceFailure("frame-source-options", "frame source options could not be read", pageErr)
 		}
 		contextToken, tokenErr := semanticInventoryContextToken(snapshot, request.ExplorerID, document.RootResourceType, page.Build.BuildID)
 		if tokenErr != nil {
@@ -290,13 +290,9 @@ func (s *Service) frameSourceOptionForRoute(
 		BindingID: family.Family.BindingID, OwningScope: family.Family.OwningScope,
 		KeyPath: family.Family.KeyPath, ValuePath: family.Family.ValuePath,
 		LogicalType: family.Family.LogicalType, ExampleConcept: example,
-		ObservedOccurrences: family.Entry.Observation.Population, Route: cloneConstructionRoute(resolvedRoute),
+		ObservedOccurrences: family.Entry.Observation.Population, Route: capability.CloneConstructionRoute(resolvedRoute),
 		Forms: forms, DefaultForm: defaultForm,
 	}, true
-}
-
-func frameSourceCommand(commands []authoringv2.Command) bool {
-	return len(commands) == 1 && (commands[0].Type == authoringv2.CommandSetFrameSource || commands[0].Type == authoringv2.CommandReplaceFrameSource)
 }
 
 func (s *Service) prepareFrameSourceCommand(
@@ -492,9 +488,7 @@ func frameSourceFamilies(snapshot capability.Snapshot, entries []catalog.Semanti
 	for _, entry := range entries {
 		observation := entry.Observation
 		if observation.RuleHint != catalog.SemanticRuleHintCodedValueV1 {
-			// Frames represent an existing paired code/value binding. A standalone
-			// Coding's value lives on the matched Coding item, so it cannot be
-			// represented by the owner-scoped frame family contract.
+
 			continue
 		}
 		plan := authoringv2.ResolveSemanticSelectionPlan(observation)

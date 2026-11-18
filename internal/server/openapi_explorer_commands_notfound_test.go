@@ -19,11 +19,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// countingExplorerStore wraps testExplorerStore and instruments the single
-// Get method the Explorer Service reaches through for owner reads. faultGetOn
-// (1-based within the current apply request) returns an identity-mismatched
-// owner that loadConstructionBase classifies as typed notFound
-// EXPLORER_NOT_FOUND (internal/explorer/lifecycle/construction_proposal.go:1451-1453).
 type countingExplorerStore struct {
 	*testExplorerStore
 	getCalls   int
@@ -51,12 +46,6 @@ type groupFieldSourceProposalFixture struct {
 	store    *countingExplorerStore
 }
 
-// newGroupFieldSourceProposalFixture builds, through the real routes, a saved
-// GROUP construction proposal whose candidate receipt carries compiled Group
-// field sources (BINDING keys). That is the precondition for
-// prepareConstructionProposal's group-field-source branch
-// (internal/explorer/lifecycle/construction_proposal.go:1637-1638), which is
-// the only apply-path branch that reaches loadConstructionBase.
 func newGroupFieldSourceProposalFixture(t *testing.T) *groupFieldSourceProposalFixture {
 	t.Helper()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
@@ -108,7 +97,7 @@ func newGroupFieldSourceProposalFixture(t *testing.T) *groupFieldSourceProposalF
 	}}
 	document.Columns = []authoringv2.Column{}
 	document.Output = authoringv2.Output{ID: "observations", Title: "Observations", RowLabel: "Observations"}
-	document, err = authoringv2.UpgradeDocumentToConstruction(document)
+	document, err = authoringv2.StartDocumentConstruction(document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +175,7 @@ func newGroupFieldSourceProposalFixture(t *testing.T) *groupFieldSourceProposalF
 	basePath := "/api/v1/projects/project-a/explorers/observation-explorer/authoring/v2"
 
 	capabilitiesResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
-		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"observations","stageId":"source_projection"}`,
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"observations","stageId":"source_projection","includeGroupChoices":true}`,
 		snapshot.Token, digest,
 	))
 	if capabilitiesResponse.StatusCode != http.StatusOK {
@@ -283,19 +272,6 @@ func (f *groupFieldSourceProposalFixture) apply(t *testing.T, commandID string) 
 	))
 }
 
-// TestApplyConstructionProposalOwnerVanishReturnsTypedNotFound is a RED
-// reproduction: applying an APPLY_CONSTRUCTION_PROPOSAL command whose saved
-// candidate carries a compiled Group field source, while the owner read in
-// loadConstructionBase (internal/explorer/lifecycle/construction_proposal.go:1447-1453)
-// returns an identity-mismatched Explorer, must surface the typed lifecycle
-// notFound EXPLORER_NOT_FOUND as HTTP 404 via the route's 404 arm
-// (internal/server/openapi_explorer_routes.go). Before the AuthoringNotFound
-// response was declared on this operation, the same fault produced
-// HTTP 500 "applyExplorerBuilderCommands returned undocumented HTTP status 404".
-// The control subtest proves the fixture reaches the group-field-source prepare
-// path (200 with >=2 store.Get calls during apply: the applyWorkspaceCommands
-// owner read plus the loadConstructionBase read); removing the 404 arm turns
-// this test back red with that 500 signature.
 func TestApplyConstructionProposalOwnerVanishReturnsTypedNotFound(t *testing.T) {
 	controlApplyGetCalls := 0
 

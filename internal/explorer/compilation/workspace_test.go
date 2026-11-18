@@ -9,7 +9,7 @@ import (
 )
 
 func TestCompileWorkspaceProducesOneArtifactWithFiveOutputs(t *testing.T) {
-	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Five outputs"}, Documents: []authoringv2.Document{}, Tabs: []authoringv2.Tab{}}
+	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Five outputs"}, Documents: []authoringv2.Document{}, Tabs: []authoringv2.Tab{}, SemanticsVersion: authoringv2.CurrentSemanticsVersion}
 	visible := true
 	for i := 0; i < 5; i++ {
 		id := fmt.Sprintf("output_%d", i)
@@ -66,7 +66,7 @@ func TestCompileWorkspacePreservesForwardWorkspaceOutputReference(t *testing.T) 
 	workspace := authoringv2.Workspace{
 		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
 		Explorer: authoringv2.ExplorerMetadata{Title: "Sibling output"}, Documents: []authoringv2.Document{combined, base},
-		Tabs: []authoringv2.Tab{{ID: "combined", Title: "Combined", OutputID: "combined", Order: 0, Visible: true}, {ID: "base", Title: "Base", OutputID: "base", Order: 1, Visible: true}},
+		Tabs: []authoringv2.Tab{{ID: "combined", Title: "Combined", OutputID: "combined", Order: 0, Visible: true}, {ID: "base", Title: "Base", OutputID: "base", Order: 1, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 	result, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, fixtureSnapshot(), ResolvedInputs{})
 	if err != nil {
@@ -99,7 +99,7 @@ func TestCompileWorkspaceCanonicalizesEquivalentProjectIdentities(t *testing.T) 
 				Table:  &authoringv2.TablePresentation{Visible: &visible},
 			}},
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patient_output", Visible: true}},
+		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patient_output", Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 	snapshot := fixtureSnapshotForProject("HTAN_INT/BForePC")
 
@@ -136,7 +136,7 @@ func TestCompileWorkspaceAllowsEmptyConstructionTargetBesideSiblingSources(t *te
 		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
 		Explorer:  authoringv2.ExplorerMetadata{Title: "Sparse target with sibling inputs"},
 		Documents: []authoringv2.Document{emptyTarget},
-		Tabs:      []authoringv2.Tab{{ID: "tab_empty_target", Title: "Empty target", OutputID: "empty_target", Order: 0, Visible: true}},
+		Tabs:      []authoringv2.Tab{{ID: "tab_empty_target", Title: "Empty target", OutputID: "empty_target", Order: 0, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 	for index := 1; index <= 3; index++ {
 		outputID := fmt.Sprintf("source_%d", index)

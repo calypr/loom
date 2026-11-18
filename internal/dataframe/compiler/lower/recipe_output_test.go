@@ -119,9 +119,7 @@ func TestCompileResolvedRecipePlanTypesOutputSelectionAsInvalidRequest(t *testin
 			if err == nil {
 				t.Fatal("expected rejection")
 			}
-			// The transport bulk wrappers (Engine.Materialize's ResolutionError,
-			// recipeGraphQLError) must keep the request defect classified after
-			// they add their own framing; assert traversal survives wrapping.
+
 			userErr, ok := dataframeerrors.AsUserError(fmt.Errorf("compile resolved bundle: %w", err))
 			if !ok {
 				t.Fatalf("selection fault escaped as untyped; transports publish retryable-free INTERNAL_ERROR 500 for a typo: %v", err)
@@ -460,6 +458,42 @@ func TestCompileResolvedRecipePlanUsesCanonicalUnnest(t *testing.T) {
 	}
 }
 
+func TestCompileGroupMemberKeepsRequiredRowIdentityNonNullable(t *testing.T) {
+	bundle := compilerFixtureBundle(t)
+	bundle.Outputs[1].Fields = append(bundle.Outputs[1].Fields, recipe.Field{
+		Name: "inactive", Expr: recipe.Expression{Select: "member.inactive"},
+	})
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.Outputs = []semantic.OutputPlan{plan.Outputs[len(plan.Outputs)-1]}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	columns := make(map[string]CompiledOutputColumn, len(compiled.Outputs[0].OutputSchema))
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		columns[column.Name] = column
+	}
+	identity, ok := columns["__loom_row_id"]
+	if !ok {
+		t.Fatal("GroupMember output schema omitted its hidden row identity")
+	}
+	if identity.Kind != string(expression.KindString) || identity.Cardinality != string(expression.RequiredOne) || identity.Nullable || !identity.Internal || !identity.Identity {
+		t.Fatalf("GroupMember row identity schema = %#v, want required non-nullable internal string identity", identity)
+	}
+	inactive, ok := columns["inactive"]
+	if !ok || inactive.Kind != string(expression.KindBoolean) || inactive.Cardinality != string(expression.OptionalOne) || !inactive.Nullable {
+		t.Fatalf("optional GroupMember.inactive schema = %#v, present=%t; want nullable optional boolean", inactive, ok)
+	}
+}
+
 func compilerFixtureBundle(t *testing.T) recipe.Bundle {
 	t.Helper()
 	bundle, err := recipe.Parse([]byte(`{
@@ -562,7 +596,7 @@ func TestCompileExtensionColumnsPreservesAttachmentValuesAndNestedJSON(t *testin
 			Source: recipe.Expression{Select: "root.content[].attachment.extension[]"},
 			Columns: []recipe.ExtensionColumnMapping{
 				{Name: "source_path", URL: "http://example.org/source_path", SourcePath: "content[].attachment.extension[]", ValuePath: "valueUrl", ValueType: "string"},
-				{Name: "source_path__sha256", URL: "http://example.org/sha256", SourcePath: "content[].attachment.extension[].extension[]", ValuePath: "valueString", ValueType: "string"},
+				{Name: "source_path__sha256", URL: "http://example.org/sha256", URLPath: []string{"http://example.org/source_path"}, SourcePath: "content[].attachment.extension[].extension[]", ValuePath: "valueString", ValueType: "string"},
 				{Name: "complex", URL: "http://example.org/complex", SourcePath: "content[].attachment.extension[]", ValueType: "string"},
 			},
 		}},
@@ -583,41 +617,44 @@ func TestCompileExtensionColumnsPreservesAttachmentValuesAndNestedJSON(t *testin
 		t.Fatalf("compiled outputs = %d", len(compiled.Outputs))
 	}
 	output := compiled.Outputs[0]
-	if len(output.DynamicColumns) != 3 {
-		t.Fatalf("dynamic metadata = %#v", output.DynamicColumns)
+	if len(output.DynamicColumns) != 0 {
+		t.Fatalf("extension mappings were still lowered as flattened dynamic columns: %#v", output.DynamicColumns)
 	}
-	metadata := map[string]DynamicColumnMetadata{}
-	for _, column := range output.DynamicColumns {
-		metadata[column.Name] = column
-	}
-	if metadata["source_path"].DynamicName != "attachment__source_path" || metadata["source_path__sha256"].DynamicName != "attachment__source_path__sha256" || metadata["source_path__sha256"].SourceKey != "sha256" || !metadata["source_path"].AllowUnknownKeys || !metadata["source_path__sha256"].AllowUnknownKeys {
-		t.Fatalf("nested extension metadata = %#v", metadata)
-	}
-	var maps []ir.PhysicalKeyedMap
-	for _, operation := range output.Plan.Operations {
-		if operation.Kind == ir.PhysicalExpressionLetOp && operation.ExpressionLet != nil && operation.ExpressionLet.Expression.KeyedMap != nil {
-			maps = append(maps, *operation.ExpressionLet.Expression.KeyedMap)
+	provenance := map[string]string{}
+	for _, column := range output.OutputSchema {
+		if column.SourceOrigin != nil && column.SourceOrigin.SourceKind == "EXTENSION_COLUMN" {
+			provenance[column.Name] = column.SourceOrigin.OutputKey
 		}
 	}
-	if len(maps) != 3 {
-		t.Fatalf("keyed maps = %d", len(maps))
+	if provenance["source_path"] != recipe.ExtensionColumnOutputKey(recipe.ExtensionColumnMapping{Name: "source_path", URL: "http://example.org/source_path", SourcePath: "content[].attachment.extension[]", ValuePath: "valueUrl", ValueType: "string"}) {
+		t.Fatalf("top-level extension provenance = %#v", provenance)
+	}
+	if provenance["source_path__sha256"] != recipe.ExtensionColumnOutputKey(recipe.ExtensionColumnMapping{Name: "source_path__sha256", URL: "http://example.org/sha256", URLPath: []string{"http://example.org/source_path"}, SourcePath: "content[].attachment.extension[].extension[]", ValuePath: "valueString", ValueType: "string"}) {
+		t.Fatalf("nested extension provenance = %#v", provenance)
+	}
+	var correlations []ir.PhysicalCorrelation
+	for _, operation := range output.Plan.Operations {
+		if operation.Kind == ir.PhysicalExpressionLetOp && operation.ExpressionLet != nil && operation.ExpressionLet.Expression.Pivot != nil && operation.ExpressionLet.Expression.Pivot.Correlation != nil {
+			correlations = append(correlations, *operation.ExpressionLet.Expression.Pivot.Correlation)
+		}
+	}
+	if len(correlations) != 3 {
+		t.Fatalf("extension correlations = %d", len(correlations))
 	}
 	seenScalar, seenNested, seenJSON := false, false, false
-	for _, keyed := range maps {
-		if keyed.ItemValue.Value != nil && len(keyed.ItemValue.Value.Path) == 1 {
-			switch keyed.ItemValue.Value.Path[0] {
-			case "valueUrl":
-				seenScalar = true
-			case "valueString":
-				seenNested = true
-			}
+	for _, correlation := range correlations {
+		if len(correlation.ExtensionURLBindKeys) == 2 {
+			seenNested = true
 		}
-		if keyed.ItemValue.Call != nil && keyed.ItemValue.Call.Name == "canonical_json" {
+		if len(correlation.ExtensionURLBindKeys) == 1 && correlation.CanonicalJSONValue {
 			seenJSON = true
+		}
+		if len(correlation.ExtensionURLBindKeys) == 1 && correlation.ValueSelector.CanonicalPath() == "valueUrl" {
+			seenScalar = true
 		}
 	}
 	if !seenScalar || !seenNested || !seenJSON {
-		t.Fatalf("extension values were not lowered independently: scalar=%v nested=%v json=%v", seenScalar, seenNested, seenJSON)
+		t.Fatalf("extension values were not lowered with exact ancestry: scalar=%v nested=%v json=%v", seenScalar, seenNested, seenJSON)
 	}
 	if err := output.Plan.Validate(); err != nil {
 		t.Fatalf("extension plan validation: %v", err)
@@ -629,6 +666,111 @@ func TestCompileExtensionColumnsPreservesAttachmentValuesAndNestedJSON(t *testin
 	if !strings.Contains(rendered.Query, "__loom_postquery_call") || strings.Contains(rendered.Query, "JSON_STRINGIFY") {
 		t.Fatalf("complex extension was not deferred to canonical post-query JSON: %s", rendered.Query)
 	}
+	var exactNestedChain bool
+	for _, correlation := range correlations {
+		if len(correlation.ExtensionURLBindKeys) != 2 {
+			continue
+		}
+		parentKey, leafKey := correlation.ExtensionURLBindKeys[0], correlation.ExtensionURLBindKeys[1]
+		if rendered.BindVars[parentKey] != "http://example.org/source_path" || rendered.BindVars[leafKey] != "http://example.org/sha256" {
+			continue
+		}
+		parentFilter := strings.Index(rendered.Query, "@"+parentKey)
+		leafLoop := strings.Index(rendered.Query, "FOR __correlation_extension_1")
+		leafFilter := strings.Index(rendered.Query, "@"+leafKey)
+		exactNestedChain = parentFilter >= 0 && leafLoop > parentFilter && leafFilter > leafLoop
+	}
+	if !exactNestedChain {
+		t.Fatalf("AQL does not filter the owning parent before descending to the leaf:\n%s\n%#v", rendered.Query, rendered.BindVars)
+	}
+}
+
+func TestExtensionColumnOverwriteCollisionPreservesPinnedBehavior(t *testing.T) {
+	empty := ""
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "extension-overwrite", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "Patient", RootResourceType: "Patient", RowGrain: "patient", CollisionPolicy: "overwrite",
+		Fields:           []recipe.Field{{Name: "status", Expr: recipe.Expression{Select: "root.id"}}},
+		ExtensionColumns: []recipe.ExtensionColumn{{Name: "extensions", ColumnPrefix: &empty, Source: recipe.Expression{Select: "root.extension[]"}, MaxColumns: 2, Columns: []recipe.ExtensionColumnMapping{{Name: "status", URL: "https://example.org/status", SourcePath: "extension[]", ValuePath: "valueString", ValueType: "string"}}}},
+	}}}
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("overwrite collision regressed: %v", err)
+	}
+	var winning *CompiledOutputColumn
+	for index := range compiled.Outputs[0].OutputSchema {
+		column := &compiled.Outputs[0].OutputSchema[index]
+		if column.Name == "status" {
+			if winning != nil {
+				t.Fatalf("duplicate status schema columns: %#v", compiled.Outputs[0].OutputSchema)
+			}
+			winning = column
+		}
+	}
+	if winning == nil || winning.SourceOrigin == nil || winning.SourceOrigin.SourceKind != "EXTENSION_COLUMN" {
+		t.Fatalf("winning extension output = %#v", compiled.Outputs[0].OutputSchema)
+	}
+	extensionProjection := false
+	for _, operation := range compiled.Outputs[0].Plan.Operations {
+		if operation.Kind == ir.PhysicalExpressionLetOp && operation.ExpressionLet != nil && operation.ExpressionLet.Expression.Pivot != nil && operation.ExpressionLet.Expression.Pivot.Correlation != nil && len(operation.ExpressionLet.Expression.Pivot.Correlation.ExtensionURLBindKeys) == 1 {
+			extensionProjection = true
+		}
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		count := 0
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == "status" {
+				count++
+				if projection.Expression == nil || projection.Expression.Kind != ir.PhysicalObjectLookupExpression {
+					t.Fatalf("winning status expression = %#v, want lookup from correlated extension output", projection.Expression)
+				}
+			}
+		}
+		if count != 1 {
+			t.Fatalf("RETURN contains %d status projections", count)
+		}
+	}
+	if !extensionProjection {
+		t.Fatal("physical plan omitted the correlated extension projection")
+	}
+}
+
+func TestNestedExtensionColumnKeepsLegacyScopeAliasName(t *testing.T) {
+	empty := ""
+	extension := recipe.ExtensionColumn{Name: "extensions", ColumnPrefix: &empty, Source: recipe.Expression{Select: "occ_child.extension[]"}, MaxColumns: 2, Columns: []recipe.ExtensionColumnMapping{{Name: "status", URL: "https://example.org/status", SourcePath: "extension[]", ValuePath: "valueString", ValueType: "string"}}}
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "nested-extension-name", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "ResearchSubject", RootResourceType: "ResearchSubject", RowGrain: "study_enrollment",
+		Traversals: []recipe.Traversal{{Name: "subject_Patient", Alias: "occ_parent", ToResourceType: "Patient", MatchMode: recipe.MatchOptional, Traversals: []recipe.Traversal{{Name: "subject_Patient", Alias: "occ_child", ToResourceType: "Condition", MatchMode: recipe.MatchOptional, ExtensionColumns: []recipe.ExtensionColumn{extension}}}}},
+	}}}
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if column.SourceOrigin != nil && column.SourceOrigin.SourceKind == "EXTENSION_COLUMN" {
+			if column.Name != "occ_child__status" {
+				t.Fatalf("extension output name = %q, want occ_child__status", column.Name)
+			}
+			return
+		}
+	}
+	t.Fatal("nested extension output missing")
 }
 
 func TestCompileResolvedRecipePlanOverwritesCollidingCompatibilityDynamicColumns(t *testing.T) {
@@ -1199,5 +1341,16 @@ func TestCompileResolvedRecipePlanLowersRequiredTraversalFilter(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("required traversal filter did not reach physical plan")
+	}
+}
+
+func TestPruneUnmaterializedDynamicColumnsRequiresRuntimeInventory(t *testing.T) {
+	metadata := []DynamicColumnMetadata{{Name: "researchstudy__identifier_by_system", DynamicName: "researchstudy__identifier", ValueType: "STRING"}}
+	if got := pruneUnmaterializedDynamicColumns(metadata, []CompiledOutputColumn{{Name: "researchstudy__identifier_by_system"}}); len(got) != 0 {
+		t.Fatalf("derived output without runtime inventory kept checks: %#v", got)
+	}
+	schema := []CompiledOutputColumn{{Name: "researchstudy__identifier_by_system"}, {Name: "__loom_dynamic_runtime_keys"}}
+	if got := pruneUnmaterializedDynamicColumns(metadata, schema); len(got) != 1 {
+		t.Fatalf("output with runtime inventory dropped checks: %#v", got)
 	}
 }

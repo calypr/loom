@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strconv"
 	"testing"
 
@@ -236,7 +237,7 @@ func TestSemanticCandidateWithFallbackPreservesRepeatedCardinalityAndAuthorizati
 	combined, ok := semanticCandidateWithFallback(snapshot, observation, primary)
 	if !ok || combined.Cardinality != "many" || !capability.IsRepeatedCardinality(combined.Cardinality) ||
 		!reflect.DeepEqual(combined.RepeatedBoundaries, fallback.RepeatedBoundaries) ||
-		!containsProjectionMode(combined.ProjectionModes, capability.ProjectionScalar) || !containsProjectionMode(combined.ProjectionModes, capability.ProjectionArray) {
+		!slices.Contains(combined.ProjectionModes, capability.ProjectionScalar) || !slices.Contains(combined.ProjectionModes, capability.ProjectionArray) {
 		t.Fatalf("combined primary/fallback candidate = %#v, ok=%v", combined, ok)
 	}
 	fallback.Cardinality = "unknown_observed_many"
@@ -338,7 +339,7 @@ func TestBrowseSemanticInventoryUsesOutputToResolveDuplicateFrameIDs(t *testing.
 	workspace := authoringv2.Workspace{
 		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"},
 		Documents: []authoringv2.Document{document("out_a"), document("out_b")},
-		Tabs:      []authoringv2.Tab{{ID: "tab_a", Title: "out_a", OutputID: "out_a", Visible: true}, {ID: "tab_b", Title: "out_b", OutputID: "out_b", Order: 1, Visible: true}},
+		Tabs:      []authoringv2.Tab{{ID: "tab_a", Title: "out_a", OutputID: "out_a", Visible: true}, {ID: "tab_b", Title: "out_b", OutputID: "out_b", Order: 1, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 	config, err := workspace.CanonicalJSON()
 	if err != nil {

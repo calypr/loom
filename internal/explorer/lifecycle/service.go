@@ -7,12 +7,12 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-// Service is the Explorer application layer. It coordinates persistence and
-// deployment adapters while leaving all wire representation to transports.
 type Service struct {
-	store  *explorer.Service
-	config Config
-	now    func() time.Time
+	store                 *explorer.Service
+	config                Config
+	now                   func() time.Time
+	constructionBaseCache *constructionBaseCache
+	columnPopulationCache *columnPopulationCache
 }
 
 func New(store *explorer.Service, config Config) (*Service, error) {
@@ -24,5 +24,11 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 		now = func() time.Time { return time.Now().UTC() }
 	}
 	config.Now = now
-	return &Service{store: store, config: config, now: now}, nil
+	return &Service{
+		store:                 store,
+		config:                config,
+		now:                   now,
+		constructionBaseCache: newConstructionBaseCache(config.ConstructionBaseCacheTTL, config.ConstructionBaseCacheEntries, now),
+		columnPopulationCache: newColumnPopulationCache(columnPopulationCacheTTL, columnPopulationCacheMaxEntries, now),
+	}, nil
 }

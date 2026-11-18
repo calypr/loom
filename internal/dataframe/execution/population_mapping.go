@@ -17,8 +17,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// PopulationMappingStatus is deliberately closed. Exact counts are only
-// meaningful for COMPLETE results.
 type PopulationMappingStatus string
 
 const (
@@ -26,24 +24,16 @@ const (
 	PopulationMappingIncomplete PopulationMappingStatus = "INCOMPLETE"
 )
 
-// PopulationMemberReader is the smallest reader needed by the mapping
-// operation. Lifecycle owns paging and authorization; execution only needs
-// the immutable member IDs to compare with witness rows.
 type PopulationMemberReader interface {
 	VisitMembers(context.Context, func(string) error) error
 }
 
-// PopulationMemberReaderFunc adapts a lifecycle-owned member stream without
-// exposing its persistence details to execution.
 type PopulationMemberReaderFunc func(context.Context, func(string) error) error
 
 func (f PopulationMemberReaderFunc) VisitMembers(ctx context.Context, visit func(string) error) error {
 	return f(ctx, visit)
 }
 
-// PopulationMappingRequest bounds one request-scoped mapping computation.
-// AfterMemberID is an opaque lifecycle cursor position; it is never sent to
-// the compiler or backend.
 type PopulationMappingRequest struct {
 	Output             string
 	AfterMemberID      string
@@ -52,15 +42,11 @@ type PopulationMappingRequest struct {
 	MaxWitnessRows     int64
 }
 
-// PopulationMappingDiagnostic contains only safe, transport-neutral
-// diagnostics. It deliberately excludes query text and storage details.
 type PopulationMappingDiagnostic struct {
 	Code    string
 	Message string
 }
 
-// PopulationMappingResult is the concrete execution result. Lifecycle turns
-// its bounded IDs into authorized ResourceRefs and adds the receipt binding.
 type PopulationMappingResult struct {
 	Status            PopulationMappingStatus
 	SelectedCount     int64
@@ -81,10 +67,6 @@ const (
 	defaultPopulationMappingWitness  = 1_000_000
 )
 
-// PopulationMapping compiles the dedicated witness terminal from the same
-// resolved output used by ordinary dataframe execution, then streams its
-// rows through the existing query executor. It never exposes compiler fields
-// or adds provenance to ordinary dataframe rows.
 func (e *Engine) PopulationMapping(ctx context.Context, resolved Resolved, request PopulationMappingRequest, reader PopulationMemberReader) (PopulationMappingResult, error) {
 	if strings.TrimSpace(request.Output) == "" {
 		return PopulationMappingResult{}, fmt.Errorf("population mapping output is required")
@@ -96,10 +78,6 @@ func (e *Engine) PopulationMapping(ctx context.Context, resolved Resolved, reque
 	return e.populationMappingCompiled(ctx, compiled, request, reader)
 }
 
-// PopulationMappingCompiled is the execution seam for callers that already
-// hold the dedicated compiler result. The resolved-output method above is the
-// normal lifecycle entry point; this method keeps tests and specialized
-// execution adapters from rebuilding compiler state.
 func (e *Engine) PopulationMappingCompiled(ctx context.Context, compiled compiler.CompiledPopulationMappingQuery, request PopulationMappingRequest, reader PopulationMemberReader) (PopulationMappingResult, error) {
 	return e.populationMappingCompiled(ctx, compiled, request, reader)
 }

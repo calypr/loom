@@ -33,7 +33,7 @@ func observationFrameWorkspace(frame FrameDefinition) Workspace {
 		Frames: []FrameDefinition{frame}, Columns: []Column{tagged, ordinary},
 	}
 	return Workspace{
-		APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Builder"},
+		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion, Explorer: ExplorerMetadata{Title: "Builder"},
 		Documents: []Document{document}, Tabs: []Tab{{ID: "tab-out", Title: "Observations", OutputID: "out", Visible: true}},
 	}
 }
@@ -185,7 +185,7 @@ func TestLegacyFrameWithNullRouteKeepsItsPersistedIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	decoded, err := DecodeWorkspace(legacyWire)
+	decoded, err := DecodeStoredWorkspaceForMigration(legacyWire)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestLegacyFrameWithNullRouteKeepsItsPersistedIdentity(t *testing.T) {
 		wire.Documents[0].Frames[0].ID != legacyID || string(wire.Documents[0].Frames[0].Route) != "null" {
 		t.Fatalf("legacy frame was silently migrated or rekeyed: %s", canonical)
 	}
-	reloaded, err := DecodeWorkspace(canonical)
+	reloaded, err := DecodeStoredWorkspaceForMigration(canonical)
 	if err != nil {
 		t.Fatal(err)
 	}

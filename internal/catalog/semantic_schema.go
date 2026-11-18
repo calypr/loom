@@ -45,9 +45,6 @@ var semanticDatatypeAssociations = map[schema.DefinitionName]semanticDatatypeAss
 	},
 }
 
-// These datatype projections are versioned semantic metadata, not resource or
-// JSON-member dispatch. The containing resource may use any valid choice-arm
-// name; its resolved FHIR datatype determines the scalar preview projection.
 var semanticValueProjectionAssociations = map[schema.DefinitionName]semanticValueProjectionAssociation{
 	"Quantity": {selector: "value", logicalType: "decimal"},
 	"CodeableConcept": {

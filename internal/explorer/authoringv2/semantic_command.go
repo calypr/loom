@@ -28,9 +28,6 @@ func (r SemanticSelectionReadiness) Addable() bool {
 	return r.Status == SemanticReadinessReady || r.Status == SemanticReadinessReadyWithWarning
 }
 
-// SemanticSelectionPlan is the shared result used by inventory browsing and
-// command application. Source is absent when the observation cannot yet be
-// represented as one complete compiler input.
 type SemanticSelectionPlan struct {
 	Source      *ColumnSource
 	LogicalType string
@@ -79,7 +76,7 @@ func applySemanticSelections(workspace *Workspace, catalogSnapshot CatalogSnapsh
 		if err := source.validate("semantic selection source"); err != nil {
 			return CommandResult{}, err
 		}
-		if err := validateEditableSource(*document, catalogSnapshot, occurrenceID, source); err != nil {
+		if err := validateEditableSourcePolicy(*document, catalogSnapshot, occurrenceID, source, true); err != nil {
 			return CommandResult{}, err
 		}
 		columnID := commandGeneratedID("col_", "semantic-selection/v1", command.OutputID, selection.ConceptID, selection.BindingID, strings.Join(selection.RouteEdgeIDs, "\x00"), source.Lookup.ProjectionMode)
@@ -161,8 +158,6 @@ func semanticCategoryDefaultTitle(resourceType, sourcePath, system string) strin
 	return strings.TrimSpace(resourceType + " " + field)
 }
 
-// ResolveSemanticSelectionPlan validates the observed FHIR structure and
-// produces the one source form used by both browsing and command application.
 func ResolveSemanticSelectionPlan(observation catalog.SemanticObservation) SemanticSelectionPlan {
 	if observation.SchemaVersion != catalog.SemanticObservationSchemaVersion || observation.RuleVersion != strconv.Itoa(catalog.SemanticObservationRuleVersion) {
 		return semanticUnsupported("SEMANTIC_OBSERVATION_VERSION_UNSUPPORTED", "This catalog observation uses an unsupported schema or rule version.")

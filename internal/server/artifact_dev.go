@@ -8,9 +8,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
-// artifactDelayReader makes export/publication races deterministic in the
-// isolated no-auth development stack. Production configuration cannot enable
-// it because the delay is populated only by applyDevFaultOverrides.
 type artifactDelayReader struct {
 	next  lifecycle.ArtifactPublishedReader
 	delay time.Duration

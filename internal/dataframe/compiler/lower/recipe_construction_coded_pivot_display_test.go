@@ -32,7 +32,7 @@ func TestConstructionCodedPivotRepeatedCodeableConceptDisplayHonorsErrorCardinal
 		t.Fatal(err)
 	}
 	query := rendered.Query
-	if !strings.Contains(query, "LET __value = __s0.text") ||
+	if !strings.Contains(query, "valueCodeableConcept.text == null ? []") ||
 		!strings.Contains(query, "FOR __s1 IN (__s0.coding ? __s0.coding : [])") ||
 		!strings.Contains(query, "LET __value = __s1.display") || !strings.Contains(query, "RETURN __value") ||
 		!strings.Contains(query, "TRIM(") {
@@ -64,7 +64,7 @@ func TestConstructionCodedPivotGenericStringKeepsDefaultEmptyPrimaryBehavior(t *
 	}
 	query := rendered.Query
 	if !strings.Contains(query, "FILTER LENGTH(__correlation_candidate) > 0") ||
-		!strings.Contains(query, "LET __value = __s0.text") || !strings.Contains(query, "FILTER __value != null") {
+		!strings.Contains(query, "valueCodeableConcept.text == null ? []") || !strings.Contains(query, "FILTER __value != null") {
 		t.Fatalf("generic string fallback must keep the existing array-presence check, where empty primary text remains present:\n%s", query)
 	}
 	if strings.Contains(query, "TRIM(") || strings.Contains(query, "__value != \"\"") {

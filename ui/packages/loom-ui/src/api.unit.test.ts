@@ -22,6 +22,7 @@ const constructionCapabilitiesResponse = {
   draftDigest: 'draft-7',
   outputId: 'patients',
   stageId: 'source_projection',
+  sourceInput: { supported: false, stageId: 'source_projection', reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
   baseConstruction: { version: 1, steps: [] },
   stages: [{
     id: 'source_projection',
@@ -264,6 +265,7 @@ describe('Loom project paths', () => {
       draftDigest: 'draft-7',
       outputId: 'patients',
       stageId: 'source_projection',
+      sourceInput: { supported: false, stageId: 'source_projection', reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
       baseConstruction: construction,
       stages: [selectedStage],
       selectedStage,
@@ -675,6 +677,9 @@ describe('Loom project paths', () => {
       explicitGroups: [],
     } as const;
     const proposal = {
+      candidateDocument: { kind: 'ExplorerBuilderDocument', output: { id: 'output', title: 'Output' }, rootResourceType: 'Patient', route: { occurrenceId: 'base', resourceType: 'Patient' }, rows: { kind: 'RECORDS', records: {} }, columns: [] },
+      candidateNetwork: { owner: 'DOCUMENT', outputId: 'output', sourceRows: { kind: 'RECORDS', records: {} }, projectedFields: [], occurrences: [], bindings: [], operations: [] },
+      candidateRowIdentity: { outputId: 'output', sourceDefinition: { kind: 'RECORDS', records: {} }, stages: [], relationships: [] },
       proposalId: 'proposal-receipt',
       baseReceiptId: 'base-receipt',
       outputId: 'output',
@@ -1930,6 +1935,49 @@ describe('Loom project paths', () => {
     });
   });
 
+  it('parses the common Explorer error envelope for list/get/create calls', async () => {
+    const calls: ReadonlyArray<{
+      name: string;
+      status: number;
+      error: { code: string; message: string; requestId: string; details: { retryable: boolean } };
+      invoke: (client: ReturnType<typeof createLoomClient>) => Promise<unknown>;
+    }> = [
+      {
+        name: 'list', status: 503,
+        error: { code: 'EXPLORER_STORAGE_UNAVAILABLE', message: 'Explorer storage is unavailable', requestId: 'body-1', details: { retryable: false } },
+        invoke: (client) => client.listExplorers({ project: 'NCPI_ACCEPTANCE' }),
+      },
+      {
+        name: 'get', status: 403,
+        error: { code: 'FORBIDDEN', message: 'forbidden', requestId: 'body-2', details: { retryable: false } },
+        invoke: (client) => client.getExplorer({ project: 'NCPI_ACCEPTANCE', explorerId: 'default' }),
+      },
+      {
+        name: 'create', status: 503,
+        error: { code: 'EXPLORER_STORAGE_UNAVAILABLE', message: 'Explorer storage is unavailable', requestId: 'body-3', details: { retryable: false } },
+        invoke: (client) => client.createExplorer({ project: 'NCPI_ACCEPTANCE', name: 'default' }),
+      },
+    ];
+
+    for (const call of calls) {
+      for (const useHeader of [false, true]) {
+        const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({ error: call.error }), {
+          status: call.status,
+          headers: { 'content-type': 'application/json', ...(useHeader ? { 'x-request-id': 'request-header-1' } : {}) },
+        }));
+        const client = createLoomClient({ fetch });
+        await expect(call.invoke(client)).rejects.toMatchObject({
+          status: call.status,
+          code: call.error.code,
+          message: call.error.message,
+          requestId: useHeader ? 'request-header-1' : call.error.requestId,
+          details: call.error.details,
+          retryable: false,
+        });
+      }
+    }
+  });
+
   it('preserves standalone project identifiers', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } }),
@@ -1982,7 +2030,7 @@ describe('Loom project paths', () => {
   it('scopes dataframe row queries to the selected project', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response(
-        JSON.stringify({ data: { dataframeRows: { columns: ['patient_id'], rows: [], totalCount: 0, pageInfo: { hasNextPage: false } } } }),
+        JSON.stringify({ columns: ['patient_id'], rows: [], totalCount: 0, pageInfo: { hasNextPage: false } }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       ),
     );
@@ -1994,9 +2042,7 @@ describe('Loom project paths', () => {
       { project: 'NCPI_ACCEPTANCE' },
     );
 
-    const request = fetch.mock.calls[0]?.[1];
-    const body = JSON.parse(String(request?.body)) as { variables: { input: { projectId?: string } } };
-    expect(body.variables.input.projectId).toBe('NCPI_ACCEPTANCE');
+    expect(fetch.mock.calls[0]?.[0]).toBe('/api/v1/projects/NCPI_ACCEPTANCE/dataframes/rows');
   });
 
   it('exposes structured HTTP error fields to Builder recovery code', async () => {
@@ -2252,16 +2298,19 @@ describe('Loom project paths', () => {
   });
 
   it('serializes server-side filters, sort, cursors, and requested facets', async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({
-      data: {
-        dataframeRows: {
-          materialization: { id: 'mat-1', state: 'READY' },
-          columns: ['status'], rows: [['active']], totalCount: 1,
-          pageInfo: { hasNextPage: false, endCursor: null },
-        },
-        dataframeAggregations: { aggregations: [{ name: 'status', kind: 'TERMS', columns: ['key', 'doc_count'], rows: [{ key: 'active', doc_count: 1 }] }] },
-      },
-    }), { status: 200 }));
+    const materialization = {
+      id: 'mat-1', revision: 'revision-1', projectId: 'NCPI_ACCEPTANCE', datasetGeneration: 'generation-1', state: 'READY',
+      selector: { recipe: 'cohort', translationVersion: 'v1', output: 'patients' },
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        materialization, columns: ['status'], rows: [['active']], totalCount: 1,
+        pageInfo: { hasNextPage: false, endCursor: null },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        materialization,
+        aggregations: [{ name: 'status', kind: 'TERMS', columns: ['key', 'doc_count'], rows: [{ key: 'active', doc_count: 1 }] }],
+      }), { status: 200 }));
     const client = createLoomClient({ fetch });
     const result = await client.queryOutput({
       project: 'NCPI_ACCEPTANCE',
@@ -2271,16 +2320,24 @@ describe('Loom project paths', () => {
       sort: { column: 'status', desc: true }, first: 20, after: 'cursor-1',
       facets: [{ name: 'status', kind: 'TERMS', column: 'status', size: 10 }],
     });
-    const payload = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { query: string; variables: { input: Record<string, unknown>; facetInput: Record<string, unknown> } };
-    expect(payload.query).toBe('query LoomOutput($input: DataframeRowsInput!, $facetInput: DataframeAggregationsInput!) { dataframeRows(input: $input) { materialization { id name revision projectId datasetGeneration state rowCount selector { recipe translationVersion output } } columns rows rowIds totalCount pageInfo { hasNextPage endCursor } } dataframeAggregations(input: $facetInput) { aggregations } }');
-    expect(payload.variables.input).toMatchObject({ projectId: 'NCPI_ACCEPTANCE', first: 20, after: 'cursor-1', sort: { column: 'status', desc: true } });
-    expect(payload.variables.input.filters).toEqual([{ column: 'status', op: 'IN', value: ['active', 'pending'] }]);
-    expect(payload.variables.facetInput.specs).toEqual([{ name: 'status', kind: 'TERMS', column: 'status', size: 10 }]);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      '/api/v1/projects/NCPI_ACCEPTANCE/dataframes/rows',
+      '/api/v1/projects/NCPI_ACCEPTANCE/dataframes/aggregations',
+    ]);
+    const inputs = fetch.mock.calls.map(([, init]) => JSON.parse(String(init?.body)));
+    expect(inputs[0]).toMatchObject({
+      first: 20, after: 'cursor-1', sort: { column: 'status', desc: true },
+      filters: [{ column: 'status', op: 'IN', value: ['active', 'pending'] }],
+    });
+    expect(inputs[1]).toMatchObject({
+      specs: [{ name: 'status', kind: 'TERMS', column: 'status', size: 10 }],
+      filters: inputs[0].filters,
+    });
     expect(result.rows).toEqual([{ status: 'active' }]);
     expect(result.facets[0]?.rows[0]).toEqual({ key: 'active', doc_count: 1 });
   });
 
-  it('rejects malformed GraphQL output connections instead of defaulting fields', async () => {
+  it('rejects malformed REST output connections instead of defaulting fields', async () => {
     const validConnection = {
       columns: ['status'],
       rows: [['active']],
@@ -2295,7 +2352,7 @@ describe('Loom project paths', () => {
     ];
     for (const connection of malformed) {
       const client = createLoomClient({
-        fetch: vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({ data: { dataframeRows: connection } }), { status: 200 })),
+        fetch: vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(connection), { status: 200 })),
       });
       await expect(client.queryOutput({
         project: 'NCPI_ACCEPTANCE',
@@ -2304,15 +2361,13 @@ describe('Loom project paths', () => {
     }
   });
 
-  it('normalizes array and object GraphQL row forms without changing values', async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({ data: {
-      dataframeRows: {
+  it('normalizes array and object dataframe row forms without changing values', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({
         columns: ['status', 'nested.value'],
         rows: [['active', 1], { status: 'pending', 'nested.value': 2 }],
         totalCount: 2,
         pageInfo: { hasNextPage: false },
-      },
-    } }), { status: 200 }));
+    }), { status: 200 }));
     const client = createLoomClient({ fetch });
 
     await expect(client.queryOutput({
@@ -2322,7 +2377,7 @@ describe('Loom project paths', () => {
   });
 
   it('exports all cursor pages as an escaped CSV Blob', async () => {
-    const page = (rows: unknown[][], hasNextPage: boolean, endCursor?: string) => new Response(JSON.stringify({ data: { dataframeRows: { columns: ['id', 'label'], rows, totalCount: 2, pageInfo: { hasNextPage, endCursor } } } }), { status: 200 });
+    const page = (rows: unknown[][], hasNextPage: boolean, endCursor?: string) => new Response(JSON.stringify({ columns: ['id', 'label'], rows, totalCount: 2, pageInfo: { hasNextPage, endCursor } }), { status: 200 });
     const fetch = vi.fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(page([['one', 'a,b']], true, 'next'))
       .mockResolvedValueOnce(page([['two', 'say "hi"']], false));
@@ -2330,11 +2385,11 @@ describe('Loom project paths', () => {
     const blob = await client.exportOutput({ project: 'NCPI_ACCEPTANCE', selector: { recipe: 'r', translationVersion: 'v1', output: 'o' }, columns: ['id', 'label'], first: 1, after: 'current-page', exportHeaders: { id: 'Record ID' } });
     expect(await blob.text()).toBe('Record ID,label\none,"a,b"\ntwo,"say ""hi"""\n');
     expect(fetch).toHaveBeenCalledTimes(2);
-    const secondBody = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body)) as { variables: { input: { after?: string } } };
-    const firstBody = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { variables: { input: { after?: string; first?: number } } };
-    expect(firstBody.variables.input.after).toBeUndefined();
-    expect(firstBody.variables.input.first).toBe(1000);
-    expect(secondBody.variables.input.after).toBe('next');
+    const secondBody = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body)) as { after?: string };
+    const firstBody = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { after?: string; first?: number };
+    expect(firstBody.after).toBeUndefined();
+    expect(firstBody.first).toBe(1000);
+    expect(secondBody.after).toBe('next');
   });
 
   it('validates artifact preparation and exposes a native download URL', async () => {
@@ -2352,10 +2407,10 @@ describe('Loom project paths', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('preserves a typed stale-cursor conflict from GraphQL', async () => {
+  it('preserves a typed stale-cursor conflict from REST', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({
-      errors: [{ message: 'The page cursor is stale.', extensions: { code: 'STALE_CURSOR', retryable: false } }],
-    }), { status: 200 }));
+      error: { message: 'The page cursor is stale.', code: 'STALE_CURSOR', retryable: false },
+    }), { status: 409 }));
     const client = createLoomClient({ fetch });
 
     await expect(client.queryOutput({
@@ -2372,15 +2427,13 @@ describe('Loom project paths', () => {
       datasetGeneration: 'generation-1',
       selector: { recipe: 'r', translationVersion: 'v1', output: 'o' },
     });
-    const page = (revision: string, rows: unknown[][], hasNextPage: boolean, endCursor?: string) => new Response(JSON.stringify({ data: {
-      dataframeRows: {
+    const page = (revision: string, rows: unknown[][], hasNextPage: boolean, endCursor?: string) => new Response(JSON.stringify({
         materialization: materialization(revision),
         columns: ['id'],
         rows,
         totalCount: 2,
         pageInfo: { hasNextPage, endCursor },
-      },
-    } }), { status: 200 });
+    }), { status: 200 });
     const fetch = vi.fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(page('revision-a', [['one']], true, 'next'))
       .mockResolvedValueOnce(page('revision-b', [['two']], false));
@@ -2403,8 +2456,7 @@ describe('prepared dataset artifact identity', () => {
     state: 'COMPLETE', format: 'CSV', filename: 'complete-patients.zip', mediaType: 'application/zip', archiveSha256: 'b'.repeat(64),
     bytes: 1024, rows: 2, features: 2, createdAt: '2026-10-31T00:00:00Z', completedAt: '2026-10-31T00:00:01Z', expiresAt: '2026-11-01T00:00:00Z',
   });
-  // Four independent Boolean dimensions, enumerating all 16 matching/foreign
-  // responses. Only the all-matching input is authorized for this request.
+
   it.each(Array.from({ length: 16 }, (_, mask) => mask))('rejects every foreign identity combination: mask %i', async mask => {
     const response = {
       ...validArtifact(),
@@ -2580,86 +2632,4 @@ describe('configured-column interpretation APIs', () => {
     })).rejects.toThrow('different saved draft');
   });
 
-  it('posts table-shape capabilities, discovery, resolution, and proposal through strict authoring endpoints', async () => {
-    const empty: never[] = [];
-    const choiceAvailability = { kind: 'supported' };
-    const capabilities = {
-      catalogId: 'catalog-1', outputId: 'table-1', reshapeModes: [], groupColumns: [], categoryColumns: [],
-      valueColumns: [], pivotCategoryDiscovery: { kind: 'not-requested' }, duplicatePolicies: [],
-      missingCellPolicies: [], unlistedCategoryPolicies: [], unpivotColumns: [],
-      unpivotKeyOutput: { kind: 'unsupported', reason: 'No key output is available.' },
-      unpivotValueOutput: { kind: 'unsupported', reason: 'No value output is available.' },
-      unpivotNullRowPolicies: [], derivedAvailability: choiceAvailability,
-      unpivotWithDerivedAvailability: { kind: 'unsupported', reason: 'Not supported after unpivot.' },
-      derivedOutputSuggestions: [], binaryOperators: [], operands: [], missingInputPolicies: [],
-      divisionByZeroPolicies: [], savedProposalIntent: {
-        kind: 'NONE', reshapeMode: { kind: 'reshapeMode', choiceId: 'mode-none' }, derivedColumns: [],
-      }, savedProposalAvailability: choiceAvailability,
-    };
-    const discovery = {
-      catalogId: 'catalog-1', kind: 'complete', discoveryIdentity: 'discovery-1',
-      pair: { categoryColumn: { kind: 'column', choiceId: 'category' }, valueColumn: { kind: 'column', choiceId: 'value' } },
-      categories: [],
-    };
-    const resolution = {
-      catalogId: 'catalog-1', resolutionId: 'resolution-1', kind: 'PIVOT', outputDescriptors: [
-        { kind: 'group', groupColumn: { kind: 'column', choiceId: 'group' }, operandChoiceId: 'operand-group', outputColumn: 'group', outputLabel: 'Group', type: { logicalType: 'string', nullable: false } },
-        { kind: 'category', category: { kind: 'pivotCategory', choiceId: 'category-a' }, operandChoiceId: 'operand-category', outputColumn: 'a', outputLabel: 'A', type: { logicalType: 'number', nullable: true } },
-      ],
-      postPivotOperands: [],
-    };
-    const proposal = {
-      proposalId: 'proposal-1', baseReceiptId: 'receipt-1', baseDocumentDigest: 'document-1',
-      candidateWorkspaceDigest: 'candidate-1', draftDigest: 'digest-1', draftVersion: 1,
-      mode: 'ADD', outputId: 'table-1', snapshotToken: 'snapshot-1',
-      comparison: {
-        status: 'UNAVAILABLE', reasonCode: 'COMPARE_UNAVAILABLE', reason: 'No bounded comparison is available.',
-        changedColumns: empty, changedRowCount: 0, changedRowsSampled: false, changedRows: [],
-        contributors: [], contributorsSampled: false,
-        exclusions: { status: 'UNAVAILABLE', records: [], complete: false, sampled: false, failureCode: 'COMPARE_UNAVAILABLE' },
-        declaredInformationLoss: { status: 'UNAVAILABLE', items: [], failureCode: 'COMPARE_UNAVAILABLE' },
-        evidenceLimitations: [{ code: 'PREVIEW_SAMPLE_UNAVAILABLE', message: 'No preview sample was returned.' }], notices: [],
-      },
-    };
-    const fetch = vi.fn<typeof globalThis.fetch>()
-      .mockResolvedValueOnce(new Response(JSON.stringify(capabilities), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(discovery), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(resolution), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(proposal), { status: 200 }));
-    const client = createLoomClient({ fetch });
-    const scope = {
-      project: 'project-a', explorerId: 'explorer-a', authResourcePath: '/programs/org-a/projects/project-a',
-      snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'digest-1', outputId: 'table-1',
-    };
-
-    await expect(client.getTableShapeCapabilities(scope)).resolves.toEqual(capabilities);
-    await expect(client.discoverTableShapeCategories({
-      ...scope, catalogId: 'catalog-1', categoryColumnChoiceId: 'category', valueColumnChoiceId: 'value',
-    })).resolves.toEqual(discovery);
-    await expect(client.resolveTableShape({
-      ...scope, catalogId: 'catalog-1', kind: 'PIVOT', pivot: {
-        categoryDiscoveryId: 'discovery-1', groupColumnChoiceIds: ['group'], categoryColumnChoiceId: 'category',
-        valueColumnChoiceId: 'value', categories: [{ choiceId: 'category-a', outputColumn: 'a', outputLabel: 'A' }],
-        duplicatePolicyChoiceId: 'duplicate-error', missingPolicyChoiceId: 'missing-null', unlistedPolicyChoiceId: 'unlisted-error',
-      },
-    })).resolves.toEqual(resolution);
-    await expect(client.proposeTableShape({
-      ...scope, catalogId: 'catalog-1', mode: 'ADD', reshapeResolutionId: 'resolution-1', derivedResolutionIds: [],
-    })).resolves.toEqual(proposal);
-
-    const path = '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2';
-    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
-      `${path}/table-shape-capabilities?auth_resource_path=%2Fprograms%2Forg-a%2Fprojects%2Fproject-a`,
-      `${path}/table-shape-category-discoveries?auth_resource_path=%2Fprograms%2Forg-a%2Fprojects%2Fproject-a`,
-      `${path}/table-shape-resolutions?auth_resource_path=%2Fprograms%2Forg-a%2Fprojects%2Fproject-a`,
-      `${path}/table-shape-proposals?auth_resource_path=%2Fprograms%2Forg-a%2Fprojects%2Fproject-a`,
-    ]);
-    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
-      snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'digest-1', outputId: 'table-1',
-    });
-    expect(JSON.parse(String(fetch.mock.calls[3]?.[1]?.body))).toEqual({
-      snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'digest-1', outputId: 'table-1',
-      catalogId: 'catalog-1', mode: 'ADD', reshapeResolutionId: 'resolution-1', derivedResolutionIds: [],
-    });
-  });
 });

@@ -133,7 +133,7 @@ func rowValuePolicyApplyFixture(t *testing.T) (*Service, *fakeStore, capability.
 	config := testConfig(snapshot)
 	var receipt *explorer.CompilationReceipt
 	config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		receipt = lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		receipt = lifecycleConstructionReceipt(snapshot, request.Workspace)
 		return receipt, nil
 	}
 	config.ReceiptLookup = func(context.Context, string, string, string) (*explorer.CompilationReceipt, error) {

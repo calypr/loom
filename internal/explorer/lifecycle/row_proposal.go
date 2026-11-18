@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -26,9 +27,6 @@ const (
 	RowDefinitionSelectionExpanded      RowDefinitionSelectionKind = "EXPANDED"
 )
 
-// RowDefinitionSelection is the closed browser-intent union. It contains only
-// opaque identities and user-selected policies; schema paths are resolved by
-// RowChoiceResolver after the snapshot and output have been checked.
 type RowDefinitionSelection struct {
 	Kind          RowDefinitionSelectionKind `json:"kind"`
 	FieldGroup    *FieldGroupSelection       `json:"fieldGroup,omitempty"`
@@ -182,16 +180,19 @@ type RowDefinitionComparison struct {
 }
 
 type RowDefinitionProposal struct {
-	ProposalID               string                     `json:"proposalId,omitempty"`
-	BaseReceiptID            string                     `json:"baseReceiptId"`
-	OutputID                 string                     `json:"outputId"`
-	SnapshotToken            string                     `json:"snapshotToken"`
-	DraftVersion             int64                      `json:"draftVersion"`
-	DraftDigest              string                     `json:"draftDigest"`
-	BaseDocumentDigest       string                     `json:"baseDocumentDigest"`
-	CandidateWorkspaceDigest string                     `json:"candidateWorkspaceDigest"`
-	Mode                     RowDefinitionSelectionKind `json:"mode"`
-	Comparison               RowDefinitionComparison    `json:"comparison"`
+	CandidateDocument        authoringv2.Document         `json:"candidateDocument"`
+	CandidateNetwork         authoringv2.AuthoringNetwork `json:"candidateNetwork"`
+	CandidateRowIdentity     authoringv2.RowIdentityPlan  `json:"candidateRowIdentity"`
+	ProposalID               string                       `json:"proposalId,omitempty"`
+	BaseReceiptID            string                       `json:"baseReceiptId"`
+	OutputID                 string                       `json:"outputId"`
+	SnapshotToken            string                       `json:"snapshotToken"`
+	DraftVersion             int64                        `json:"draftVersion"`
+	DraftDigest              string                       `json:"draftDigest"`
+	BaseDocumentDigest       string                       `json:"baseDocumentDigest"`
+	CandidateWorkspaceDigest string                       `json:"candidateWorkspaceDigest"`
+	Mode                     RowDefinitionSelectionKind   `json:"mode"`
+	Comparison               RowDefinitionComparison      `json:"comparison"`
 }
 
 type RowChoiceKind string
@@ -201,8 +202,6 @@ const (
 	RowChoiceExpanded   RowChoiceKind = "EXPANDED"
 )
 
-// RowChoiceResolveRequest is the server-side identity used to verify a choice
-// against one output and one immutable capability snapshot.
 type RowChoiceResolveRequest struct {
 	Project      string
 	ExplorerID   string
@@ -253,8 +252,6 @@ type ExplicitGroupRevisionChoice struct {
 	UnassignedMemberPolicies  []authoringv2.UnassignedMemberPolicy `json:"unassignedMemberPolicies"`
 }
 
-// ExplicitGroupRevisionProof contains the immutable identities a group
-// adapter validates before a proposal can use a revision.
 type ExplicitGroupRevisionProof struct {
 	RevisionID                string
 	Project                   string
@@ -274,9 +271,6 @@ type ExplicitGroupRevisionResolver interface {
 	ValidateCompilationReceipt(context.Context, ExplicitGroupRevisionProof, *explorer.CompilationReceipt) error
 }
 
-// ProposeRowDefinition compiles a complete candidate workspace without saving
-// the draft. The candidate receipt ID is the proposal ID; no mutable proposal
-// store is involved.
 func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitionProposalRequest) (RowDefinitionProposal, error) {
 	if err := request.Validate(); err != nil {
 		return RowDefinitionProposal{}, malformed("row-definition-proposal", err.Error(), err)
@@ -295,7 +289,7 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return RowDefinitionProposal{}, conflict("row-definition-proposal", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 	}
-	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
+	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return RowDefinitionProposal{}, err
 	}
@@ -313,6 +307,9 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	baseDocument := proposalDocument(workspace, request.OutputID)
 	if baseDocument == nil {
 		return RowDefinitionProposal{}, unprocessable("row-definition-proposal", "OUTPUT_NOT_FOUND", "outputId does not identify a saved table", nil)
+	}
+	if baseDocument.ImportedRecipe != nil {
+		return RowDefinitionProposal{}, unprocessable("row-definition-proposal", "IMPORTED_SOURCE_ROW_OVERLAY_REQUIRED", "imported source rows are defined by the immutable recipe pin and source overlay; use a construction Group or related-record expansion, or explicitly replace the source to detach the pin", nil)
 	}
 	baseDocumentDigest, err := documentDigest(*baseDocument)
 	if err != nil {
@@ -376,17 +373,29 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	if err != nil {
 		return RowDefinitionProposal{}, err
 	}
-	if _, err := s.verifyRowDefinitionReceipt(ctx, candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, snapshot, &candidateWorkspace); err != nil {
+	verifiedCandidate, err := s.verifyRowDefinitionReceipt(ctx, candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, snapshot, &candidateWorkspace)
+	if err != nil {
 		return RowDefinitionProposal{}, err
 	}
 	if err := s.validateExplicitGroupReceipt(ctx, candidateGroupProof, candidateReceipt); err != nil {
 		return RowDefinitionProposal{}, err
 	}
+
+	candidateDocument := proposalDocument(verifiedCandidate, request.OutputID)
+	if candidateDocument == nil {
+		return RowDefinitionProposal{}, conflict("row-definition-proposal", "INVALID_ROW_DEFINITION_PROPOSAL", "candidate output missing", nil, nil)
+	}
+	candidateNetwork, err := authoringv2.NetworkForDocument(*candidateDocument, catalog)
+	if err != nil {
+		return RowDefinitionProposal{}, unprocessable("row-definition-proposal", "INVALID_AUTHORING_NETWORK", err.Error(), err)
+	}
+	candidateRowIdentity := rowIdentityForNetwork(*candidateDocument, candidateNetwork)
 	comparison, err := s.compareRowDefinitionReceipts(ctx, request, snapshot, baseReceipt, candidateReceipt, limit)
 	if err != nil {
 		return RowDefinitionProposal{}, err
 	}
 	return RowDefinitionProposal{
+		CandidateDocument: *candidateDocument, CandidateNetwork: candidateNetwork, CandidateRowIdentity: candidateRowIdentity,
 		ProposalID: candidateReceipt.ID, BaseReceiptID: baseReceipt.ID, OutputID: request.OutputID,
 		SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest,
 		BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest, Mode: request.Selection.Kind,
@@ -415,8 +424,7 @@ func (s *Service) resolveRowDefinitionSelection(ctx context.Context, request Row
 			}},
 		}
 		if existing := document.Rows.Groups; existing != nil && document.Rows.Kind == authoringv2.RowDefinitionGroups && existing.Source.Kind == authoringv2.GroupSourceExplicit {
-			// A policy or revision edit changes the pinned row source, not the
-			// stage boundary or the member fields already chosen for cohort rows.
+
 			groups.AfterStepID = existing.AfterStepID
 			groups.RowValues = append([]authoringv2.ExplicitGroupRowValue(nil), existing.RowValues...)
 		} else if document.Construction != nil && len(document.Construction.Steps) > 0 {
@@ -495,7 +503,11 @@ func (s *Service) resolveExplicitGroupRevision(ctx context.Context, request Expl
 	}
 	proof, err := s.config.ExplicitGroupResolver.ResolveExplicitGroupRevision(ctx, request)
 	if err != nil {
-		return ExplicitGroupRevisionProof{}, conflict("row-definition-proposal", "STALE_EXPLICIT_GROUP_REVISION", "the explicit group revision is stale or unavailable", nil, err)
+		var typed *Error
+		if errors.As(err, &typed) {
+			return ExplicitGroupRevisionProof{}, typed
+		}
+		return ExplicitGroupRevisionProof{}, persistenceFailure("row-definition-proposal", "the explicit group revision could not be loaded", err)
 	}
 	if err := validateExplicitGroupRevisionProof(proof, request); err != nil {
 		return ExplicitGroupRevisionProof{}, conflict("row-definition-proposal", "STALE_EXPLICIT_GROUP_REVISION", "the explicit group revision does not match the current project, snapshot, or table", nil, err)

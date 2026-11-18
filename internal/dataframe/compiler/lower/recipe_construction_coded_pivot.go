@@ -38,11 +38,15 @@ func lowerConstructionCodedPivot(
 		return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("CODED_PIVOT requires 1..50 categories")
 	}
 
-	valueType, ok := TableReshapeScalarKind(pivot.Source.LogicalType)
+	logicalType, ok := recipe.CanonicalConstructionScalarLogicalType(pivot.Source.LogicalType)
 	if !ok {
 		return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("CODED_PIVOT source logical type %q is not a supported scalar", pivot.Source.LogicalType)
 	}
-	if pivot.DuplicatePolicy != recipe.PivotDuplicateError && valueType != "INTEGER" && valueType != "DECIMAL" {
+	valueType, ok := TableReshapeScalarKind(logicalType)
+	if !ok {
+		return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("CODED_PIVOT source logical type %q is not a supported scalar", pivot.Source.LogicalType)
+	}
+	if pivot.DuplicatePolicy == recipe.PivotDuplicateSum && valueType != "INTEGER" && valueType != "DECIMAL" {
 		return ir.PhysicalGroupedPivot{}, nil, nil, &PivotReducerTypeError{Policy: pivot.DuplicatePolicy, ValueColumn: pivot.Source.FieldPath}
 	}
 
@@ -57,7 +61,7 @@ func lowerConstructionCodedPivot(
 		OwnerPath: pivot.Source.OwningScope, KeyPath: pivot.Source.KeyPath,
 		SystemPath: "system", CodePath: "code", ValuePath: pivot.Source.ValuePath,
 		ValueFallback: append([]string(nil), pivot.Source.ValueFallbacks...), FallbackOnBlankString: pivot.Source.FallbackOnBlankString,
-		ChoiceArms: append([]string(nil), pivot.Source.ChoiceArms...), LogicalType: pivot.Source.LogicalType,
+		ChoiceArms: append([]string(nil), pivot.Source.ChoiceArms...), LogicalType: logicalType,
 	}
 	physical := ir.PhysicalGroupedPivot{
 		ConstructionID:      pivot.ConstructionID,
@@ -125,7 +129,7 @@ func lowerConstructionCodedPivot(
 		compiled = append(compiled, CompiledOutputColumn{
 			ID: declaration.ID, Name: declaration.Name, Label: constructionFirstNonEmpty(declaration.Label, declaration.Name),
 			SemanticPath: "construction_coded_pivot:" + pivot.ConstructionID + ":" + pivot.Source.BindingID + ":" + category.System + ":" + category.Code,
-			Kind:         pivot.Source.LogicalType, Cardinality: cardinality, Nullable: nullable,
+			Kind:         logicalType, Cardinality: cardinality, Nullable: nullable,
 		})
 		projections = append(projections, ir.PhysicalProjection{
 			Name: declaration.Name, Value: ir.PhysicalValue{Variable: physical.OutputRowVariable, Path: []string{declaration.Name}},
@@ -155,9 +159,17 @@ func reconcileConstructionCodedPivotSchema(declarations []recipe.StageColumn, co
 		if !ok {
 			return nil, fmt.Errorf("CODED_PIVOT output ID %q name %q has no physical category", declaration.ID, declaration.Name)
 		}
-		if declaration.Type != "" && declaration.Type != "INFER" && declaration.Type != column.Kind &&
-			!(declaration.Type == "array" && column.Cardinality == string(expression.Many)) {
-			return nil, fmt.Errorf("CODED_PIVOT output %q type %q does not match source type %q", declaration.ID, declaration.Type, column.Kind)
+		if declaration.Type != "" && !strings.EqualFold(declaration.Type, "INFER") {
+			if strings.EqualFold(declaration.Type, "array") {
+				if column.Cardinality != string(expression.Many) {
+					return nil, fmt.Errorf("CODED_PIVOT output %q type %q does not match source cardinality", declaration.ID, declaration.Type)
+				}
+			} else {
+				declaredKind, ok := recipe.CanonicalConstructionScalarLogicalType(declaration.Type)
+				if !ok || declaredKind != column.Kind {
+					return nil, fmt.Errorf("CODED_PIVOT output %q type %q does not match source type %q", declaration.ID, declaration.Type, column.Kind)
+				}
+			}
 		}
 		if _, exists := input[declaration.ID]; exists {
 			return nil, fmt.Errorf("CODED_PIVOT output ID %q collides with its input", declaration.ID)
@@ -182,7 +194,7 @@ func constructionDirectRootRowsUnique(plan *ir.PhysicalPlan, operation string) e
 			}
 		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp,
 			ir.PhysicalSetOp, ir.PhysicalSortOp, ir.PhysicalLimitOp:
-			// These operations can remove or annotate rows but cannot add roots.
+
 		case ir.PhysicalReturnOp:
 			returns++
 			if item.Return == nil || index != len(plan.Operations)-1 {

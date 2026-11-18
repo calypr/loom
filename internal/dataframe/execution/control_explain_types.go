@@ -5,10 +5,6 @@ import (
 	"github.com/calypr/loom/internal/store/arango"
 )
 
-// PhysicalExplanation is the output-scoped physical half of recipe Explain.
-// It contains compiler structure and an optional live Arango assessment; it
-// never contains AQL text, bind values, auth paths, credentials, or connection
-// information.
 type PhysicalExplanation struct {
 	Outputs []PhysicalOutputExplanation
 }
@@ -21,9 +17,6 @@ type PhysicalOutputExplanation struct {
 	Live            *ExplainAssessment
 }
 
-// ExplainAssessment is a transport-neutral, sanitized copy of Arango's
-// ExplainAssessment. Keeping this DTO here lets GraphQL and HTTP adapters use
-// one assessment shape without parsing Explain responses themselves.
 type ExplainAssessment struct {
 	Plans                 []ExplainPlanEstimate
 	FullCollectionScans   []ExplainCollectionScan
@@ -63,9 +56,6 @@ type ExplainWarning struct {
 	Message string
 }
 
-// AssessmentFromArango converts the common store assessment to the sanitized
-// control-plane DTO. It copies every slice so callers cannot mutate shared
-// assessment state.
 func AssessmentFromArango(input arango.ExplainAssessment) ExplainAssessment {
 	out := ExplainAssessment{
 		Plans:                 make([]ExplainPlanEstimate, 0, len(input.Plans)),
@@ -92,7 +82,3 @@ func AssessmentFromArango(input arango.ExplainAssessment) ExplainAssessment {
 	}
 	return out
 }
-
-// ClonePhysicalExplanation returns an ownership-safe copy suitable for a
-// transport adapter. Compiler diagnostics are structural and contain no bind
-// values; clone their nested slices before returning them to callers.

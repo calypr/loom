@@ -20,6 +20,8 @@ const initialFeatureFocus = params.get('focusOutput') && params.get('focusColumn
   ? { outputId: params.get('focusOutput')!, column: params.get('focusColumn')!, label: params.get('focusLabel') ?? undefined }
   : undefined;
 const baseUrl = import.meta.env.VITE_LOOM_BASE_URL ?? '/';
+const workspaceComposition = import.meta.env.VITE_LOOM_WORKSPACE_COMPOSITION === 'inspector-below'
+  ? 'inspector-below' : 'inspector-right';
 
 const LoomExplorerBuilder = React.lazy(() =>
   import('@calypr/loom-ui/builder').then(({ LoomExplorerBuilder: Builder, createLoomClient }) => ({
@@ -78,7 +80,7 @@ const App = () => {
       <div className="demo-content">
         <React.Suspense fallback={<div className="p-6 text-sm text-slate-500">Loading Explorer…</div>}>
           {currentMode === 'builder'
-            ? <LoomExplorerBuilder organization={organization} project={project} explorerId={selectedExplorerId} selectionRevisionId={selectionRevisionId} onExplorerChange={onExplorerChange} featureFocus={featureFocus} />
+            ? <LoomExplorerBuilder organization={organization} project={project} explorerId={selectedExplorerId} selectionRevisionId={selectionRevisionId} onExplorerChange={onExplorerChange} featureFocus={featureFocus} workspaceComposition={workspaceComposition} />
             : <LoomExplorerViewer project={viewerProjectID(organization, project)} explorerId={selectedExplorerId} onRepairFeature={repairFeature} />}
         </React.Suspense>
       </div>

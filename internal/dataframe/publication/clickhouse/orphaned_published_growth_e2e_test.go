@@ -1,35 +1,7 @@
 package clickhouse
 
-// F-B19 durable regression control (Repair-4 shipped). A recipe edit mints a
-// new bundle Key (the Key folds RecipeDigest/SchemaDigest/ReceiptID —
-// internal/dataframe/publication/bundle.go:99-115) under the SAME PointerName
-// (bundle.go:88-97). Pre-repair the superseded PUBLISHED execution was
-// immortal (sweep visited only {RUNNING, VALIDATING, FAILED}), producing one
-// permanently retained bundle+table per recipe edit and a monotonically
-// widening name-latest mis-bind surface (F-B6 amplifier) — archived
-// FAILED-ON-PURPOSE witnesses: parent runs e00a7032/e3712285, Round 15.
-//
-// Post-REPAIR natural-PASS (this artifact's shipped expectation): the
-// binding-aware recurring janitor arm enumerates PUBLISHED (only while an
-// ActiveReleaseReader is wired, the server.go production shape) and RETIRES a
-// superseded orphan: FAILED with the "superseded execution reconciled"
-// marker and its ClickHouse table dropped, while the pointer-named live
-// execution and its table stay untouched. The REGRESSION direction keeps the
-// archived CONFIRMED red text verbatim in structure: an immortal PUBLISHED
-// orphan surviving a full sweep fails the test again.
-//
-// Safety sibling (TestPointerOrphanedPublishedJanitorRespectsActiveRelease-
-// BindingsAgainstArango): a binding of the ACTIVE release to the orphan
-// vetoes retirement (no claim, no drop); removing the binding and re-sweeping
-// converges — the m-po-fixed shape on real stores. Formal companion:
-// PointerOrphanLifecycle.tla m-po-bug arm (permanent-orphan temporal
-// violation) + m-po-fixed arm (binding-aware janitor converges clean).
-
 import (
 	"context"
-	"net/http"
-	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -40,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/dataset"
 	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/store/clickhouse"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
 )
 
@@ -65,23 +38,10 @@ func (h *orphHarness) trackTable(table string) {
 
 func orphOpen(t *testing.T) *orphHarness {
 	t.Helper()
-	endpoint := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
-	chURL := strings.TrimSpace(os.Getenv("LOOM_CLICKHOUSE_URL"))
-	if endpoint == "" || chURL == "" {
-		t.Skip("set LOOM_TEST_ARANGO_URL and LOOM_CLICKHOUSE_URL to run the F-B19 orphan-growth reproduction")
-	}
-	database := orphDatabasePrefix + strings.ReplaceAll(uuid.NewString(), "-", "")
+	database := arangotest.Owned(t, orphDatabasePrefix)
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	t.Cleanup(cancel)
-	client, err := storearango.Open(ctx, endpoint, database)
-	if err != nil {
-		t.Fatalf("open %s: %v", database, err)
-	}
-	t.Logf("ORPH_DATABASE=%s (via production store.Open)", database)
-	t.Cleanup(func() {
-		_ = client.Close(context.Background())
-		orphDropDatabase(t, endpoint, database)
-	})
+	client := database.Client
 	registry, err := pubarango.New(client)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
@@ -89,51 +49,10 @@ func orphOpen(t *testing.T) *orphHarness {
 	if err := client.Bootstrap(ctx, pubarango.BootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap bundle collections: %v", err)
 	}
-	ch, err := clickhouse.New(clickhouse.Options{
-		URL:      chURL,
-		Database: os.Getenv("LOOM_CLICKHOUSE_DATABASE"),
-		Username: os.Getenv("LOOM_CLICKHOUSE_USERNAME"),
-		Password: os.Getenv("LOOM_CLICKHOUSE_PASSWORD"),
-		Timeout:  20 * time.Second,
-	})
-	if err != nil {
-		t.Fatalf("clickhouse client: %v", err)
-	}
-	if err := ch.Ping(ctx); err != nil {
-		t.Fatalf("ping clickhouse: %v", err)
-	}
-	harness := &orphHarness{ctx: ctx, client: client, registry: registry, ch: ch, database: database, suffix: database[len(orphDatabasePrefix):]}
+	ch := arangotest.ClickHouse(t)
+	harness := &orphHarness{ctx: ctx, client: client, registry: registry, ch: ch, database: database.Name, suffix: database.Name[len(orphDatabasePrefix):]}
 	t.Cleanup(func() { orphDropTables(t, harness) })
 	return harness
-}
-
-func orphDropDatabase(t *testing.T, endpoint, database string) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	client, err := storearango.Open(ctx, endpoint, "_system")
-	if err != nil {
-		t.Logf("ORPH_CLEANUP_WARN: open _system for drop: %v", err)
-		return
-	}
-	defer func() { _ = client.Close(context.Background()) }()
-	request, err := http.NewRequestWithContext(ctx, http.MethodDelete,
-		strings.TrimRight(endpoint, "/")+"/_api/database/"+url.PathEscape(database), nil)
-	if err != nil {
-		t.Logf("ORPH_CLEANUP_WARN: build drop request for %s: %v", database, err)
-		return
-	}
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		t.Logf("ORPH_CLEANUP_WARN: drop %s: %v", database, err)
-		return
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusForbidden {
-		t.Logf("ORPH_CLEANUP_WARN: drop %s status %d", database, response.StatusCode)
-		return
-	}
-	t.Logf("ORPH_DATABASE_REMOVED=%s", database)
 }
 
 func orphDropTables(t *testing.T, h *orphHarness) {
@@ -156,11 +75,6 @@ type orphPublication struct {
 	rows     int
 }
 
-// orphNewPublication builds a publication whose PointerName is fixed by
-// (project, generation, recipe, version, output) while recipeDigest/
-// schemaDigest/receiptId vary per edit — the shipped two identities then map
-// to the same pointer but different Keys exactly as a real recipe edit does
-// (bundle.go:88-115).
 func orphNewPublication(recipeDigest, schemaDigest, receiptID string) orphPublication {
 	identity := pubpublication.PublicationIdentity{
 		Name: "orph-recipe", TranslationVersion: "v1", OutputName: "orph_out",
@@ -186,9 +100,6 @@ func orphNewPublication(recipeDigest, schemaDigest, receiptID string) orphPublic
 	return orphPublication{identity: identity, outputs: outputs, rows: 3}
 }
 
-// orphBundleIdentity mirrors the production identity->bundle mapping used by
-// the publication runner (same field set as publish_partial_pointer's
-// factory) so Key/PointerName derive from shipped code.
 func orphBundleIdentity(id pubpublication.PublicationIdentity) pubpublication.BundleIdentity {
 	return pubpublication.BundleIdentity{
 		Name: id.Name, TranslationVersion: id.TranslationVersion, OutputName: id.OutputName,
@@ -221,31 +132,10 @@ func orphTablePresent(t *testing.T, h *orphHarness, ctx context.Context, table s
 	}
 }
 
-func orphReadFile(t *testing.T, repoRel string) string {
-	t.Helper()
-	root, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	const marker = "/internal/"
-	i := strings.LastIndex(root, marker)
-	if i < 0 {
-		t.Fatalf("cannot locate repo root from %s", root)
-	}
-	data, err := os.ReadFile(root[:i] + "/" + repoRel)
-	if err != nil {
-		t.Fatalf("read %s: %v", repoRel, err)
-	}
-	return string(data)
-}
-
 func orphProductionPublish(ctx context.Context, store *ClickHouseBundleStore, p orphPublication) (pubpublication.Result, error) {
 	return pubpublication.Publish(ctx, store, p.identity, p.outputs, pubpublication.Limits{})
 }
 
-// orphReleaseReader mirrors the production wiring (server.go calls
-// bundleStore.SetActiveReleaseReader(lifecycleStore)); the harness controls
-// what the janitor sees as the ACTIVE release.
 type orphReleaseReader struct {
 	active dataset.ActiveRelease
 	err    error
@@ -257,9 +147,6 @@ func (r *orphReleaseReader) ReadActiveRelease(context.Context, string) (dataset.
 	return r.active, r.err
 }
 
-// orphPublishRecipeEdit drives two production publications that share one
-// PointerName: edit 1 then the recipe edit (new Key). Returns the observed
-// executions, tables and identity strings for assertions.
 func orphPublishRecipeEdit(t *testing.T, h *orphHarness, store *ClickHouseBundleStore) (firstExec, secondExec pubpublication.BundleExecution, firstTable, secondTable, firstKey, secondKey, firstPointer string) {
 	t.Helper()
 	first := orphNewPublication("sha256:orph-recipe-v1", "sha256:orph-schema-v1", "orph-receipt-1")
@@ -316,28 +203,6 @@ func orphPublishRecipeEdit(t *testing.T, h *orphHarness, store *ClickHouseBundle
 }
 
 func TestPointerOrphanedPublishedNeverReclaimedAgainstArango(t *testing.T) {
-	// Drift gates (quote-first). The legacy three-state declaration must
-	// survive (stale arm); the Repair-4 janitor arm, pre-claim live filter and
-	// superseded marker must be PRESENT — removal re-opens F-B19 and the
-	// REGRESSION direction below must then fire.
-	sweepSrc := orphReadFile(t, "internal/dataframe/publication/clickhouse/bundle_store.go")
-	if !strings.Contains(sweepSrc, "states := []publication.BundleState{publication.BundleRunning, publication.BundleValidating, publication.BundleFailed}") {
-		t.Fatalf("drift gate: stale-arm sweep state list changed — reassess the {RUNNING,VALIDATING,FAILED} baseline before ruling")
-	}
-	for _, needle := range []string{
-		"states = append(states, publication.BundlePublished)",
-		"superseded := execution.State.Canonical() == publication.BundlePublished",
-		`"superseded execution reconciled (no pointer or active-release reference)"`,
-	} {
-		if !strings.Contains(sweepSrc, needle) {
-			t.Fatalf("REGRESSION drift: Repair-4 janitor text %q no longer present in bundle_store.go — F-B19 growth returns; the REGRESSION arm below must fire against product behavior too", needle)
-		}
-	}
-	registrySrc := orphReadFile(t, "internal/dataframe/publication/arango/bundle_registry.go")
-	if !strings.Contains(registrySrc, "SORT doc.publishedAt DESC") {
-		t.Fatalf("drift gate: name-latest selector shape changed; reassess F-B19 name-latest eligibility claim")
-	}
-
 	h := orphOpen(t)
 	ctx := h.ctx
 
@@ -345,8 +210,7 @@ func TestPointerOrphanedPublishedNeverReclaimedAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewBundleStore: %v", err)
 	}
-	// Production wiring mirror: server.go wires the lifecycle store; here no
-	// release is active, so the janitor must retire the superseded orphan.
+
 	store.SetActiveReleaseReader(&orphReleaseReader{err: dataset.ErrNoActiveRelease})
 
 	_, secondExec, firstTable, secondTable, firstKey, secondKey, _ := orphPublishRecipeEdit(t, h, store)
@@ -378,8 +242,6 @@ func TestPointerOrphanedPublishedNeverReclaimedAgainstArango(t *testing.T) {
 		t.Fatalf("unexpected: orphan marker %q lacks the superseded janitor marker", orphanExec.Error)
 	}
 
-	// The live (pointer-named) execution and its table must be untouched by
-	// the janitor arm, and name-latest must resolve to it.
 	live, err := h.registry.FindExecutionByKey(ctx, secondKey)
 	if err != nil || live.State.Canonical() != pubpublication.BundlePublished {
 		t.Fatalf("janitor arm harmed the live execution %s: state=%+v err=%v", secondKey, live, err)
@@ -397,10 +259,6 @@ func TestPointerOrphanedPublishedNeverReclaimedAgainstArango(t *testing.T) {
 	t.Logf("VERDICT PREVENTED (Repair-4): pointer-orphaned PUBLISHED execution %q retired by the binding-aware janitor arm (FAILED, marker %q, table dropped) while the pointer-named live execution %s (rows=%d) and its table survived; name-latest resolves to the live execution.", firstKey, orphanExec.Error, secondKey, selOutput2.RowCount)
 }
 
-// TestPointerOrphanedPublishedJanitorRespectsActiveReleaseBindingsAgainstArango
-// is the e2e safety sibling: an ACTIVE-release binding on the orphan vetoes
-// retirement; after removing the binding, the next sweep converges — the
-// m-po-fixed shape on real stores.
 func TestPointerOrphanedPublishedJanitorRespectsActiveReleaseBindingsAgainstArango(t *testing.T) {
 	h := orphOpen(t)
 	ctx := h.ctx
@@ -413,8 +271,6 @@ func TestPointerOrphanedPublishedJanitorRespectsActiveReleaseBindingsAgainstAran
 
 	firstExec, _, firstTable, _, firstKey, _, _ := orphPublishRecipeEdit(t, h, store)
 
-	// Bind the ACTIVE release to the orphan: the janitor must not claim or
-	// drop it (m-po-janitor-blind would).
 	reader.active = dataset.ActiveRelease{
 		Release: dataset.ProjectRelease{
 			Project:      "orph-project",
@@ -435,7 +291,6 @@ func TestPointerOrphanedPublishedJanitorRespectsActiveReleaseBindingsAgainstAran
 	}
 	t.Logf("ORPH_OBSERVED bound sweep: orphan %s untouched (binding veto, pre-claim filter), reader calls=%d", firstKey, reader.calls)
 
-	// Remove the binding: the next sweep must converge (recurring janitor).
 	reader.active = dataset.ActiveRelease{}
 	reader.err = dataset.ErrNoActiveRelease
 	if err := store.Reconcile(ctx, time.Now().Add(24*time.Hour)); err != nil {

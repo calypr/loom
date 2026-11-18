@@ -159,8 +159,7 @@ FOR d IN Patient
 	})
 	principal, err := (authscope.StaticAuthenticator{Principal: authscope.Principal{
 		Subject: "restricted-starting-collection-test",
-		// The project grant authorizes Explorer metadata; only this resource
-		// path is granted for the active generation.
+
 		AuthResourcePaths: []string{project, allowedPath},
 	}}).Authenticate(ctx, nil)
 	if err != nil {

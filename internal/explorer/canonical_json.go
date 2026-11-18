@@ -7,10 +7,6 @@ import (
 	"io"
 )
 
-// canonicalJSONBytes returns compact JSON with deterministic object-key
-// ordering. It normalizes raw JSON fields before they participate in a
-// content address, so persistence stores that materialize objects and then
-// reconstruct them cannot change the digest merely by changing key order.
 func canonicalJSONBytes(raw []byte) ([]byte, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()

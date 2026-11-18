@@ -73,8 +73,6 @@ func (e *Engine) TableShapeExclusions(ctx context.Context, resolved Resolved, re
 	return TableShapeExclusionResult{}, fmt.Errorf("table-shape exclusion output %q was not found", request.Output)
 }
 
-// TableShapeExclusionsCompiled is the narrow execution seam for callers and
-// tests holding the compiler-produced canonical diagnostic query.
 func (e *Engine) TableShapeExclusionsCompiled(ctx context.Context, compiled compiler.CompiledTableShapeExclusionQuery) (TableShapeExclusionResult, error) {
 	if e == nil || e.queryRows == nil {
 		return TableShapeExclusionResult{}, fmt.Errorf("table-shape exclusion query executor is required")

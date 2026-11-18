@@ -1,9 +1,5 @@
 package lower
 
-// This file contains the canonical recipe lowering boundary. Persisted
-// recipes are a frontend: after resolution each output is lowered to the same
-// ir.PhysicalPlan used by the GraphQL dataframe compiler.
-
 import (
 	"fmt"
 	"strings"
@@ -15,10 +11,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// CompiledRecipe is orchestration metadata around one canonical physical plan
-// per output.  It deliberately contains no recipe-specific traversal,
-// projection, or renderer structures.  Output order is the persisted recipe
-// order and therefore part of the stable materialization contract.
 func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPlan, resolvedColumns map[string][]semantic.ResolvedColumn) ([]DynamicColumnMetadata, error) {
 	dynamics := flattenRecipeDynamicMaps(output.Root)
 	if len(dynamics) == 0 {
@@ -43,10 +35,11 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 	setVariables := recipeSetVariables(*plan)
 	for _, dynamic := range dynamics {
 		columns := resolvedColumns[recipeDynamicMapKey(output.Name, dynamic)]
+		excludedSourceKeys := lowerDynamicExcludedSourceKeys(dynamic)
 		if dynamic.MaxColumns > 0 && len(columns) > dynamic.MaxColumns {
 			return nil, fmt.Errorf("dynamic map %q resolved %d columns, exceeding max %d", dynamic.Name, len(columns), dynamic.MaxColumns)
 		}
-		if len(columns) == 0 {
+		if len(columns) == 0 && len(excludedSourceKeys) == 0 {
 			continue
 		}
 		resourceType := output.RootResourceType
@@ -91,6 +84,9 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 		if dynamic.ScopeAlias != "" && dynamic.ScopeAlias != "root" {
 			runtimeName = dynamic.ScopeAlias + "__" + dynamic.Name
 		}
+		for _, sourceKey := range excludedSourceKeys {
+			metadata = append(metadata, DynamicColumnMetadata{DynamicName: runtimeName, SourceKey: sourceKey, AllowUnknownKeys: dynamic.AllowUnknownKeys, Discovered: dynamic.Discovered})
+		}
 		familyVariable := dynamicFamilyVariable(*plan, runtimeName)
 		reduction := ir.PhysicalMapFirstSorted
 		many := dynamic.ValueMode == recipe.ValueModeAll || dynamic.ValueMode == recipe.ValueModeDistinct
@@ -131,19 +127,35 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 			if column.Column.SourceKey != "" {
 				semanticPath += "[" + column.Column.SourceKey + "]"
 			}
-			entry := DynamicColumnMetadata{Name: outputName, SemanticPath: semanticPath, DynamicName: runtimeName, SourceKey: column.Column.SourceKey, ValueType: column.Column.ValueType, Many: many, AllowUnknownKeys: dynamic.AllowUnknownKeys, Discovered: dynamic.Discovered}
+			kind := "DYNAMIC_COLUMN"
+			if strings.Contains(dynamic.Source.SourcePath, "extensionColumns[") {
+				kind = "EXTENSION_COLUMN"
+			}
+			outputKey := dynamic.OutputKey
+			if outputKey == "" {
+				outputKey = column.Column.SourceKey
+			}
+			origin := &CompiledSourceOrigin{SourceKey: dynamic.SourceFamilyKey, OutputKey: outputKey, SourceKind: kind, SourcePath: strings.TrimSuffix(dynamic.Source.SourcePath, ".source"), ValueMode: string(dynamic.ValueMode.Normalized())}
+			var findOrigin func(semantic.SemanticNode)
+			findOrigin = func(node semantic.SemanticNode) {
+				for _, owned := range node.DynamicMaps {
+					if owned.Name == dynamic.Name && owned.Source.SourcePath == dynamic.Source.SourcePath && owned.ScopeAlias == dynamic.ScopeAlias {
+						origin.OccurrenceID = node.OccurrenceID
+					}
+				}
+				for _, child := range node.Children {
+					findOrigin(child)
+				}
+			}
+			findOrigin(output.Root)
+			entry := DynamicColumnMetadata{SourceOrigin: origin, Name: outputName, SemanticPath: semanticPath, DynamicName: runtimeName, SourceKey: column.Column.SourceKey, ValueType: column.Column.ValueType, Many: many, AllowUnknownKeys: dynamic.AllowUnknownKeys, Discovered: dynamic.Discovered}
 			if projectionIndex, exists := projectionIndexes[outputName]; exists {
 				if output.Collision != "overwrite" {
 					return nil, fmt.Errorf("dynamic column %q collides with another output column", outputName)
 				}
-				// The legacy dataframe flatteners update one row map in declaration
-				// order. Preserve that contract for an explicit overwrite policy
-				// instead of rejecting a category/identifier or extension collision.
+
 				plan.Operations[returnOp].Return.Projections[projectionIndex] = ir.PhysicalProjection{Name: outputName, Expression: &lookup}
-				// Keep validation metadata for every family sharing this public
-				// compatibility column. The physical projection is intentionally
-				// overwritten in declaration order, but runtime-key validation must
-				// still accept keys frozen for the earlier family.
+
 				metadata = append(metadata, entry)
 				continue
 			}
@@ -157,6 +169,24 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 		plan.Operations[returnOp].Return.Projections = append(plan.Operations[returnOp].Return.Projections, ir.PhysicalProjection{Name: "__loom_dynamic_runtime_keys", Hidden: true, Expression: &runtime})
 	}
 	return metadata, nil
+}
+
+func lowerDynamicExcludedSourceKeys(dynamic semantic.SemanticDynamicMap) []string {
+	disabled := make(map[string]bool, len(dynamic.OutputOverrides))
+	for _, override := range dynamic.OutputOverrides {
+		disabled[override.Key] = !override.Enabled
+	}
+	excluded := make([]string, 0)
+	for _, key := range dynamic.Columns {
+		if disabled[key] {
+			runtimeKey := dynamic.ColumnSourceKeys[key]
+			if runtimeKey == "" {
+				runtimeKey = key
+			}
+			excluded = append(excluded, runtimeKey)
+		}
+	}
+	return excluded
 }
 
 func flattenRecipeDynamicMaps(root semantic.SemanticNode) []semantic.SemanticDynamicMap {
@@ -222,12 +252,6 @@ func lowerDynamicItemExpression(input semantic.SemanticExpression, bindVars map[
 	return lowerDynamicItemAST(input.Expression, bindVars, resourceType)
 }
 
-// lowerDynamicItemAST lowers a dynamic value/key expression after semantic
-// checking has already proven every selector. It intentionally handles item
-// selectors as raw payload paths: the item resource type is a nested FHIR
-// datatype (Extension, Identifier, ObservationComponent, ...), not the parent
-// resource type carried by the dynamic map. Re-validating it against the
-// parent schema would reject valid generic choice fields.
 func lowerDynamicItemAST(input expression.Expression, bindVars map[string]any, resourceType string) (ir.PhysicalExpression, error) {
 	if input.Document != nil && strings.EqualFold(strings.TrimSpace(input.Document.Context), "item") {
 		return ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: "dynamic_item"}}, nil

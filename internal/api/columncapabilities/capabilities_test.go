@@ -21,3 +21,11 @@ func TestFromClickHouseClassifiesPublishedColumnCapabilities(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveRecomputesCapabilitiesFromStoredOverrides(t *testing.T) {
+	got := Resolve("Array(String)", "json", true, false)
+	want := Tuple{Logical: "json", Nullable: true, Repeated: true, Filterable: true}
+	if got != want {
+		t.Fatalf("Resolve() = %#v, want %#v", got, want)
+	}
+}

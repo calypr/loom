@@ -415,21 +415,6 @@ func uniqueCapabilityCandidate(snapshot capability.Snapshot, candidateID string)
 	return resolveSchemaFieldCandidate(snapshot, candidateID)
 }
 
-func capabilityCandidateBelongsToRoot(snapshot capability.Snapshot, candidate capability.Candidate, rootResourceType string) bool {
-	var match capability.Node
-	found := false
-	for _, node := range snapshot.Nodes {
-		if node.ID != candidate.NodeID {
-			continue
-		}
-		if found {
-			return false
-		}
-		match, found = node, true
-	}
-	return found && match.RowRootEligible && match.ResourceType == rootResourceType && candidate.ResourceType == rootResourceType
-}
-
 func uniqueCatalogCandidate(snapshot authoringv2.CatalogSnapshot, candidateID string) (authoringv2.CatalogCandidate, bool) {
 	var match authoringv2.CatalogCandidate
 	found := false

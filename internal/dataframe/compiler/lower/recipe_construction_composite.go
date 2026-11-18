@@ -10,10 +10,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// ComposeClickHouseCombine adds a terminal typed Combine to an already lowered
-// AQL construction prefix. Recipe authoring still decides which mixed plans
-// are reachable; this internal compiler seam accepts only an exact typed stage
-// reference and one supported authorization scope.
 func ComposeClickHouseCombine(prefix ir.PhysicalPlan, combine ir.PhysicalClickHouseCombine, bindings recipe.RuntimeBindings) (ir.PhysicalPlan, error) {
 	if prefix.Engine == ir.PhysicalEngineClickHouse || prefix.ClickHouseCombine != nil || prefix.ClickHousePrefix != nil {
 		return ir.PhysicalPlan{}, fmt.Errorf("ClickHouse prefix must be a standalone AQL physical plan")

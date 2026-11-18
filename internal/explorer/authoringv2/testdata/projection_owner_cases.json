@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {"id":"projection-pivot-accept","branch":"pivot-accept","accept":true},
+    {"id":"projection-pivot-not-consumed","branch":"pivot-not-consumed","accept":false,"error_contains":"source projection must be consumed by its owner PIVOT step"},
+    {"id":"projection-group-accept","branch":"group-accept","accept":true},
+    {"id":"projection-filter-accept","branch":"filter-accept","accept":true},
+    {"id":"projection-filter-wrong-column","branch":"filter-wrong-column","accept":false,"error_contains":"is not the column filtered by its owner FILTER step"},
+    {"id":"projection-filter-nil-payload","branch":"filter-nil-payload","accept":false,"error_contains":"is not the column filtered by its owner FILTER step"},
+    {"id":"projection-derive-accept","branch":"derive-accept","accept":true},
+    {"id":"projection-derive-not-operand","branch":"derive-not-operand","accept":false,"error_contains":"is not a COLUMN operand of its owner DERIVE step"},
+    {"id":"projection-unpivot-accept","branch":"unpivot-accept","accept":true},
+    {"id":"projection-unpivot-non-melt","branch":"unpivot-non-melt","accept":false,"error_contains":"is not a melt input of its owner UNPIVOT step"},
+    {"id":"projection-unpivot-nil-payload","branch":"unpivot-nil-payload","accept":false,"error_contains":"has no unpivot payload"},
+    {"id":"projection-owner-missing","branch":"owner-missing","accept":false,"error_contains":"does not exist"},
+    {"id":"projection-owner-stepid-empty","branch":"owner-stepid-empty","accept":false,"error_contains":"ownerStepId must be an exact step id"},
+    {"id":"projection-default-combine-owner","branch":"default-combine-owner","accept":false,"error_contains":"source projection must be consumed by its owner PIVOT step"},
+    {"id":"projection-carry-cross-noncarrier","branch":"carry-cross-noncarrier","accept":false,"error_contains":"cannot cross GROUP before its owner PIVOT"},
+    {"id":"projection-carry-missing-typed-output","branch":"carry-missing-typed-output","accept":false,"error_contains":"does not carry source projection"}
+  ]
+}

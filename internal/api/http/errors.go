@@ -13,8 +13,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// ErrorResponse is the transport-neutral JSON payload the HTTP adapter can
-// write before a streaming response has begun.
 type ErrorResponse struct {
 	Error HTTPErrorBody `json:"error"`
 }
@@ -28,18 +26,12 @@ type HTTPErrorBody struct {
 	RequestID string         `json:"requestId,omitempty"`
 }
 
-// MappedError is the status and safe body chosen for a semantic error. It is
-// intentionally independent of Fiber so the same mapping can be tested and
-// reused by the export route and future HTTP adapters.
 type MappedError struct {
 	Status int
 	Body   ErrorResponse
 	Cause  error
 }
 
-// MapDataframeError maps a service error without inspecting its text. Unknown
-// errors are always redacted to INTERNAL_ERROR. The original cause is kept
-// only for operator logging.
 func MapDataframeError(err error, requestID string) MappedError {
 	if err == nil {
 		return MappedError{}
@@ -108,8 +100,6 @@ func MapDataframeError(err error, requestID string) MappedError {
 	}
 }
 
-// StatusForErrorCode exposes the same semantic HTTP classification used by
-// REST handlers to transports that already have a stable Loom error code.
 func StatusForErrorCode(code string) int {
 	return statusForCode(normalizeHTTPCode(code), 0)
 }
@@ -137,9 +127,6 @@ type httpCodePolicy struct {
 	Status int
 }
 
-// httpCodePolicies is the transport registry. Domain ErrorCode declarations
-// are checked against this table by TestHTTPCodePolicyCoversEveryPublicError.
-// Entries with no special transport status intentionally use HTTP 400.
 var httpCodePolicies = map[string]httpCodePolicy{
 	"PROJECT_REQUIRED": {http.StatusBadRequest}, "ROOT_RESOURCE_TYPE_REQUIRED": {http.StatusBadRequest}, "UNAUTHORIZED_PROJECT": {http.StatusForbidden},
 	"UNKNOWN_FIELD": {http.StatusBadRequest}, "FIELD_NOT_POPULATED": {http.StatusBadRequest}, "INVALID_TRAVERSAL": {http.StatusBadRequest}, "UNSAFE_TRAVERSAL_ROUTE": {http.StatusBadRequest},
@@ -154,7 +141,7 @@ var httpCodePolicies = map[string]httpCodePolicy{
 	"DYNAMIC_SCHEMA_DRIFT": {http.StatusConflict}, "RECIPE_CONTRACT_VIOLATION": {http.StatusConflict}, "INVALID_SELECTOR": {http.StatusBadRequest}, "RECEIPT_STORE_UNAVAILABLE": {http.StatusServiceUnavailable}, "PREVIEW_TIMEOUT": {http.StatusGatewayTimeout},
 	"PREVIEW_RESPONSE_TOO_LARGE": {http.StatusRequestEntityTooLarge}, "QUERY_MEMORY_LIMIT_EXCEEDED": {http.StatusServiceUnavailable}, "QUERY_RESOURCE_LIMIT_EXCEEDED": {http.StatusServiceUnavailable}, "QUERY_BACKEND_OUT_OF_MEMORY": {http.StatusServiceUnavailable},
 	"RELATIONSHIP_CARDINALITY_VIOLATION": {http.StatusUnprocessableEntity}, "CONSTRUCTION_RECEIPT_INPUT_MISSING": {http.StatusInternalServerError}, "CATEGORY_DISCOVERY_FAILED": {http.StatusInternalServerError}, "CONSTRUCTION_RECEIPT_CONTRACT_INVALID": {http.StatusInternalServerError}, "CONSTRUCTION_EXPANSION_EMPTY": {http.StatusUnprocessableEntity}, "EXPLICIT_GROUP_UNASSIGNED_MEMBER": {http.StatusUnprocessableEntity}, "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES": {http.StatusUnprocessableEntity}, "TABLE_PIVOT_CELL_CARDINALITY": {http.StatusUnprocessableEntity}, "TABLE_PIVOT_UNLISTED_CATEGORY": {http.StatusUnprocessableEntity}, "TEMPORAL_ANCHOR_INVALID": {http.StatusUnprocessableEntity}, "TEMPORAL_PRECISION_UNSUPPORTED": {http.StatusUnprocessableEntity}, "TEMPORAL_TIE_AMBIGUOUS": {http.StatusUnprocessableEntity}, "UNIT_IDENTITY_UNKNOWN": {http.StatusUnprocessableEntity}, "UNIT_DIMENSION_INCOMPATIBLE": {http.StatusUnprocessableEntity},
-	"NOT_FOUND": {http.StatusNotFound}, "METHOD_NOT_ALLOWED": {http.StatusMethodNotAllowed}, "PAYLOAD_TOO_LARGE": {http.StatusRequestEntityTooLarge}, "UNSUPPORTED_MEDIA_TYPE": {http.StatusUnsupportedMediaType}, "GRAPHQL_VALIDATION_FAILED": {http.StatusBadRequest},
+	"NOT_FOUND": {http.StatusNotFound}, "METHOD_NOT_ALLOWED": {http.StatusMethodNotAllowed}, "PAYLOAD_TOO_LARGE": {http.StatusRequestEntityTooLarge}, "UNSUPPORTED_MEDIA_TYPE": {http.StatusUnsupportedMediaType},
 }
 
 func messageForCode(code string) string {

@@ -20,9 +20,6 @@ type ExplorerMetadata struct {
 	Description string `json:"description,omitempty"`
 }
 
-// RouteNode is one semantic occurrence in a document route tree. Relationship
-// is empty only for the root; every child names the relationship from its
-// parent. Resource identities are stable FHIR resource types, not catalog IDs.
 type RouteNode struct {
 	OccurrenceID  string         `json:"occurrenceId"`
 	ResourceType  string         `json:"resourceType"`
@@ -32,8 +29,6 @@ type RouteNode struct {
 	Children      []RouteNode    `json:"children,omitempty"`
 }
 
-// RouteMatchMode distinguishes row-defining relationships from feature-only
-// relationships. Empty is the legacy OPTIONAL default.
 type RouteMatchMode string
 
 const (
@@ -58,19 +53,18 @@ type ColumnSource struct {
 	Aggregate    *AggregateSource    `json:"aggregate,omitempty"`
 	Lookup       *LookupSource       `json:"lookup,omitempty"`
 	OwnerRecords *OwnerRecordsSource `json:"ownerRecords,omitempty"`
+	Imported     *ImportedSource     `json:"imported,omitempty"`
 }
 
-// OwnerRecordsSource preserves one repeated FHIR owner as one structured
-// record in a list-valued cell. Binding and Key are server-resolved semantic
-// identity; clients never supply arbitrary selectors for this source.
+type ImportedSource struct {
+	OutputColumn string `json:"outputColumn"`
+}
+
 type OwnerRecordsSource struct {
 	Binding fhirschema.CorrelatedBinding `json:"binding"`
 	Key     fhirschema.CorrelatedKey     `json:"key"`
 }
 
-// UnitNormalizationPolicy is intentionally a nontechnical preset reference.
-// The compiler owns target identity, dimensions, conversion rules, and FHIR
-// Quantity sibling selectors.
 type UnitNormalizationPolicy struct {
 	PolicyID string `json:"policyId"`
 	Version  string `json:"version"`
@@ -117,9 +111,6 @@ func (p UnitNormalizationPolicy) Validate() error {
 	return unit.ValidateUnitPolicyReference(p.PolicyID, p.Version)
 }
 
-// FieldSource is the closed payload for a direct field projection. The
-// related-selection annotation is intentionally nested in the field variant.
-// It cannot accidentally be attached to a project, lookup, or aggregate.
 type FieldSource struct {
 	Path             string            `json:"path"`
 	ProjectionMode   string            `json:"projectionMode,omitempty"`
@@ -130,9 +121,7 @@ type AggregateSource struct {
 	Operation         string                   `json:"operation"`
 	Path              string                   `json:"path,omitempty"`
 	UnitNormalization *UnitNormalizationPolicy `json:"unitNormalization,omitempty"`
-	// Where is retained only for decoding immutable/pre-v3 in-memory recipes.
-	// It is deliberately omitted from the current authoring JSON contract;
-	// writable contributor intent lives on Column.Contributor instead.
+
 	Where             *SourceWhere             `json:"-"`
 	RequiredValues    []string                 `json:"requiredValues,omitempty"`
 	ContributorWindow *ContributorWindowSource `json:"contributorWindow,omitempty"`
@@ -160,10 +149,6 @@ type SourceWhere struct {
 	Equals string `json:"equals"`
 }
 
-// UnmarshalJSON keeps the current aggregate source shape closed. Persisted
-// legacy sources are decoded by decodePersistedSource, which is the only
-// compatibility boundary allowed to interpret wherePath/whereEquals or a
-// nested where object.
 func (s *AggregateSource) UnmarshalJSON(raw []byte) error {
 	type wire struct {
 		Operation         string                   `json:"operation"`
@@ -189,19 +174,13 @@ type LookupSource struct {
 	Match          string `json:"match,omitempty"`
 	Path           string `json:"path,omitempty"`
 	ProjectionMode string `json:"projectionMode,omitempty"`
-	// Identifier is the checked namespace/value alternative for
-	// identifierBySystem. It is mutually exclusive with legacy Match/Path and
-	// the coding or extension binding alternatives.
+
 	Identifier *fhirschema.IdentifierBinding `json:"identifier,omitempty"`
-	// Binding is the validated correlated FHIR shape used by codedValue.
-	// It is a closed alternative to legacy Match/Path, never a precedence rule
-	// between two writable lookup meanings.
+
 	Binding *fhirschema.CorrelatedBinding `json:"binding,omitempty"`
-	// Key is required with Binding and carries the selected system/code
-	// identity.
+
 	Key *fhirschema.CorrelatedKey `json:"key,omitempty"`
-	// Extension is the ancestor-aware closed alternative for extensionByUrl.
-	// It cannot coexist with legacy Match/Path or the terminology Binding/Key.
+
 	Extension *fhirschema.ExtensionBinding `json:"extension,omitempty"`
 }
 
@@ -210,8 +189,6 @@ type RelatedSelection struct {
 	Acknowledged bool   `json:"acknowledged"`
 }
 
-// UnmarshalJSON keeps the writable source contract closed. Legacy flat source
-// payloads are decoded only by DecodeWorkspace's persisted-draft migration.
 func (s *ColumnSource) UnmarshalJSON(raw []byte) error {
 	var wire struct {
 		Kind         string              `json:"kind"`
@@ -219,31 +196,36 @@ func (s *ColumnSource) UnmarshalJSON(raw []byte) error {
 		Aggregate    *AggregateSource    `json:"aggregate,omitempty"`
 		Lookup       *LookupSource       `json:"lookup,omitempty"`
 		OwnerRecords *OwnerRecordsSource `json:"ownerRecords,omitempty"`
+		Imported     *ImportedSource     `json:"imported,omitempty"`
 	}
 	if err := strictDecode(raw, &wire); err != nil {
 		return err
 	}
-	value := ColumnSource{Kind: wire.Kind, Field: wire.Field, Aggregate: wire.Aggregate, Lookup: wire.Lookup, OwnerRecords: wire.OwnerRecords}
+	value := ColumnSource{Kind: wire.Kind, Field: wire.Field, Aggregate: wire.Aggregate, Lookup: wire.Lookup, OwnerRecords: wire.OwnerRecords, Imported: wire.Imported}
 	switch wire.Kind {
 	case SourceField:
-		if wire.Field == nil || wire.Aggregate != nil || wire.Lookup != nil || wire.OwnerRecords != nil {
+		if wire.Field == nil || wire.Aggregate != nil || wire.Lookup != nil || wire.OwnerRecords != nil || wire.Imported != nil {
 			return fmt.Errorf("field source requires exactly the field payload")
 		}
 	case SourceAggregate:
-		if wire.Aggregate == nil || wire.Field != nil || wire.Lookup != nil || wire.OwnerRecords != nil {
+		if wire.Aggregate == nil || wire.Field != nil || wire.Lookup != nil || wire.OwnerRecords != nil || wire.Imported != nil {
 			return fmt.Errorf("aggregate source requires exactly the aggregate payload")
 		}
 	case SourceIdentifierBySystem, SourceExtensionByURL, SourceCodedValue:
-		if wire.Lookup == nil || wire.Field != nil || wire.Aggregate != nil || wire.OwnerRecords != nil {
+		if wire.Lookup == nil || wire.Field != nil || wire.Aggregate != nil || wire.OwnerRecords != nil || wire.Imported != nil {
 			return fmt.Errorf("%s source requires exactly the lookup payload", wire.Kind)
 		}
 	case SourceOwnerRecords:
-		if wire.OwnerRecords == nil || wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil {
+		if wire.OwnerRecords == nil || wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil || wire.Imported != nil {
 			return fmt.Errorf("ownerRecords source requires exactly the ownerRecords payload")
 		}
 	case SourceProjectID:
-		if wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil || wire.OwnerRecords != nil {
+		if wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil || wire.OwnerRecords != nil || wire.Imported != nil {
 			return fmt.Errorf("projectId source does not accept a payload")
+		}
+	case SourceImported:
+		if wire.Imported == nil || wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil || wire.OwnerRecords != nil {
+			return fmt.Errorf("imported source requires exactly the imported payload")
 		}
 	default:
 		return fmt.Errorf("unsupported source kind %q", wire.Kind)
@@ -394,11 +376,10 @@ const (
 	SourceOwnerRecords       = "ownerRecords"
 	SourceProjectID          = "projectId"
 	SourceAggregate          = "aggregate"
+	SourceImported           = "imported"
 )
 
 type Column struct {
-	// ColumnID is the stable identity used by staged construction steps. Column
-	// remains the public physical name and Label remains presentation text.
 	ColumnID            string                               `json:"columnId,omitempty"`
 	FrameID             string                               `json:"frameId,omitempty"`
 	Column              string                               `json:"column"`
@@ -408,17 +389,13 @@ type Column struct {
 	Source              ColumnSource                         `json:"source"`
 	ValueTransformation *columntransform.ValueTransformation `json:"valueTransformation,omitempty"`
 	Contributor         *ContributorPredicate                `json:"contributor,omitempty"`
-	// Interpretation is nil for the existing inline meaning. A non-nil value
-	// is a closed authoring reference: PINNED names one immutable revision and
-	// never follows a mutable library head.
+
 	Interpretation *FeatureInterpretation `json:"interpretation,omitempty"`
 	Table          *TablePresentation     `json:"table,omitempty"`
 	Filter         *FilterPresentation    `json:"filter,omitempty"`
 	Chart          *ChartPresentation     `json:"chart,omitempty"`
 }
 
-// FeatureInterpretationKind is deliberately closed so a pinned column cannot
-// smuggle a second interpretation language into the workspace.
 type FeatureInterpretationKind string
 
 const (
@@ -446,9 +423,6 @@ func (i FeatureInterpretation) Validate() error {
 	return nil
 }
 
-// ContributorPredicate is catalog intent scoped to one aggregate feature.
-// CandidateID is resolved against the occurrence's pinned catalog at compile
-// time; callers never provide a selector or AQL expression.
 type ContributorPredicate struct {
 	CandidateID string                `json:"candidateId"`
 	Operator    ContributorOperator   `json:"operator"`
@@ -645,9 +619,18 @@ func (s ColumnSource) validate(path string) error {
 	if s.OwnerRecords != nil {
 		variants++
 	}
+	if s.Imported != nil {
+		variants++
+	}
 	if s.Kind == SourceProjectID {
 		if variants != 0 {
 			return fmt.Errorf("%s projectId source does not accept a payload", path)
+		}
+		return nil
+	}
+	if s.Kind == SourceImported {
+		if variants != 1 || s.Imported == nil || strings.TrimSpace(s.Imported.OutputColumn) == "" || s.Imported.OutputColumn != strings.TrimSpace(s.Imported.OutputColumn) {
+			return fmt.Errorf("%s imported source requires imported.outputColumn", path)
 		}
 		return nil
 	}
@@ -846,6 +829,19 @@ func (d Document) validateSemantic() error {
 		}
 	}
 	seen := map[string]bool{}
+	if d.ImportedRecipe != nil {
+		if err := d.ImportedRecipe.Validate(); err != nil {
+			return fmt.Errorf("importedRecipe: %w", err)
+		}
+	}
+	if d.ImportedSource != nil {
+		if d.ImportedRecipe == nil {
+			return fmt.Errorf("importedSource requires an importedRecipe reference")
+		}
+		if err := d.ImportedSource.Validate(); err != nil {
+			return fmt.Errorf("importedSource: %w", err)
+		}
+	}
 	for i, column := range d.Columns {
 		path := fmt.Sprintf("columns[%d]", i)
 		if !physicalColumnPattern.MatchString(column.Column) {
@@ -863,6 +859,9 @@ func (d Document) validateSemantic() error {
 		}
 		if err := column.Source.validate(path + ".source"); err != nil {
 			return err
+		}
+		if column.Source.Kind == SourceImported && d.ImportedRecipe == nil {
+			return fmt.Errorf("%s imported source requires a matching importedRecipe reference", path)
 		}
 		if column.Source.Aggregate != nil && column.Source.Aggregate.ContributorWindow != nil && column.OccurrenceID == RootOccurrenceID {
 			return fmt.Errorf("%s.source.aggregate.contributorWindow requires a related resource occurrence", path)

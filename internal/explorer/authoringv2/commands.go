@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -15,57 +16,57 @@ import (
 )
 
 const (
-	CommandCreateTable                   = "CREATE_TABLE"
-	CommandDuplicateTable                = "DUPLICATE_TABLE"
-	CommandDeleteTable                   = "DELETE_TABLE"
-	CommandRenameTable                   = "RENAME_TABLE"
-	CommandReorderTables                 = "REORDER_TABLES"
-	CommandSetTableRoot                  = "SET_TABLE_ROOT"
-	CommandApplyTableRootRebase          = "APPLY_TABLE_ROOT_REBASE"
-	CommandSetTablePopulation            = "SET_TABLE_POPULATION"
-	CommandClearTablePopulation          = "CLEAR_TABLE_POPULATION"
-	CommandAddRoute                      = "ADD_ROUTE"
-	CommandUpdateRouteEdge               = "UPDATE_ROUTE_EDGE"
-	CommandSetRouteMatchMode             = "SET_ROUTE_MATCH_MODE"
-	CommandRemoveRoute                   = "REMOVE_ROUTE"
-	CommandAddColumn                     = "ADD_COLUMN"
-	CommandAddColumnSource               = "ADD_COLUMN_SOURCE"
-	CommandUpdateColumn                  = "UPDATE_COLUMN"
-	CommandUpdateColumnRowValuePolicy    = "UPDATE_COLUMN_ROW_VALUE_POLICY"
-	CommandUpdateConstructionOutput      = "UPDATE_CONSTRUCTION_OUTPUT"
-	CommandUpdateColumnTransformation    = "UPDATE_COLUMN_TRANSFORMATION"
-	CommandSetColumnContributor          = "SET_COLUMN_CONTRIBUTOR"
-	CommandClearColumnContributor        = "CLEAR_COLUMN_CONTRIBUTOR"
-	CommandApplyInterpretationCandidate  = "APPLY_INTERPRETATION_CANDIDATE"
-	CommandApplyRowDefinitionProposal    = "APPLY_ROW_DEFINITION_PROPOSAL"
-	CommandApplyTableShapeProposal       = "APPLY_TABLE_SHAPE_PROPOSAL"
-	CommandApplyConstructionProposal     = "APPLY_CONSTRUCTION_PROPOSAL"
-	CommandApplyPopulationMemberProposal = "APPLY_POPULATION_MEMBER_PROPOSAL"
-	CommandRestoreDraftRevision          = "RESTORE_DRAFT_REVISION"
-	CommandUpdateColumnSource            = "UPDATE_COLUMN_SOURCE"
-	CommandRemoveColumn                  = "REMOVE_COLUMN"
-	CommandAddSemanticSelections         = "ADD_SEMANTIC_SELECTIONS"
-	CommandApplyConstructionChoice       = "APPLY_CONSTRUCTION_CHOICE"
-	CommandSetFrameSource                = "SET_FRAME_SOURCE"
-	CommandReplaceFrameSource            = "REPLACE_FRAME_SOURCE"
-	CommandRemoveFrameSource             = "REMOVE_FRAME_SOURCE"
-	CommandResultTableCreated            = "TABLE_CREATED"
-	CommandResultTableChanged            = "TABLE_CHANGED"
-	CommandResultRouteAdded              = "ROUTE_ADDED"
-	CommandResultColumnAdded             = "COLUMN_ADDED"
-	CommandResultSemanticSelectionsAdded = "SEMANTIC_SELECTIONS_ADDED"
-	CommandResultDraftRestored           = "DRAFT_RESTORED"
-	SemanticSelectionAdded               = "ADDED"
-	SemanticSelectionAlreadyPresent      = "ALREADY_PRESENT"
-	InitialPresentationTable             = "TABLE"
-	InitialPresentationFilter            = "FILTER"
-	InitialPresentationChart             = "CHART"
+	CommandCreateTable                       = "CREATE_TABLE"
+	CommandDuplicateTable                    = "DUPLICATE_TABLE"
+	CommandDeleteTable                       = "DELETE_TABLE"
+	CommandRenameTable                       = "RENAME_TABLE"
+	CommandReorderTables                     = "REORDER_TABLES"
+	CommandSetTableRoot                      = "SET_TABLE_ROOT"
+	CommandApplyTableRootRebase              = "APPLY_TABLE_ROOT_REBASE"
+	CommandSetTablePopulation                = "SET_TABLE_POPULATION"
+	CommandClearTablePopulation              = "CLEAR_TABLE_POPULATION"
+	CommandAddRoute                          = "ADD_ROUTE"
+	CommandUpdateRouteEdge                   = "UPDATE_ROUTE_EDGE"
+	CommandSetRouteMatchMode                 = "SET_ROUTE_MATCH_MODE"
+	CommandRemoveRoute                       = "REMOVE_ROUTE"
+	CommandAddColumn                         = "ADD_COLUMN"
+	CommandAddColumnSource                   = "ADD_COLUMN_SOURCE"
+	CommandUpdateColumn                      = "UPDATE_COLUMN"
+	CommandUpdateColumnRowValuePolicy        = "UPDATE_COLUMN_ROW_VALUE_POLICY"
+	CommandUpdateConstructionOutput          = "UPDATE_CONSTRUCTION_OUTPUT"
+	CommandUpdateColumnTransformation        = "UPDATE_COLUMN_TRANSFORMATION"
+	CommandSetColumnContributor              = "SET_COLUMN_CONTRIBUTOR"
+	CommandClearColumnContributor            = "CLEAR_COLUMN_CONTRIBUTOR"
+	CommandApplyInterpretationCandidate      = "APPLY_INTERPRETATION_CANDIDATE"
+	CommandApplyRowDefinitionProposal        = "APPLY_ROW_DEFINITION_PROPOSAL"
+	CommandApplyConstructionProposal         = "APPLY_CONSTRUCTION_PROPOSAL"
+	CommandApplyPopulationMemberProposal     = "APPLY_POPULATION_MEMBER_PROPOSAL"
+	CommandRestoreDraftRevision              = "RESTORE_DRAFT_REVISION"
+	CommandUpdateImportedSourceStep          = "UPDATE_IMPORTED_SOURCE_STEP"
+	CommandRefreshImportedSource             = "REFRESH_IMPORTED_SOURCE"
+	CommandApplyImportedRelationshipProposal = "APPLY_IMPORTED_RELATIONSHIP_PROPOSAL"
+	CommandApplyColumnPolicyProposal         = "APPLY_COLUMN_POLICY_PROPOSAL"
+	CommandUpdateColumnSource                = "UPDATE_COLUMN_SOURCE"
+	CommandRemoveColumn                      = "REMOVE_COLUMN"
+	CommandRemoveProjectedField              = "REMOVE_PROJECTED_FIELD"
+	CommandAddSemanticSelections             = "ADD_SEMANTIC_SELECTIONS"
+	CommandApplyConstructionChoice           = "APPLY_CONSTRUCTION_CHOICE"
+	CommandSetFrameSource                    = "SET_FRAME_SOURCE"
+	CommandReplaceFrameSource                = "REPLACE_FRAME_SOURCE"
+	CommandRemoveFrameSource                 = "REMOVE_FRAME_SOURCE"
+	CommandResultTableCreated                = "TABLE_CREATED"
+	CommandResultTableChanged                = "TABLE_CHANGED"
+	CommandResultRouteAdded                  = "ROUTE_ADDED"
+	CommandResultColumnAdded                 = "COLUMN_ADDED"
+	CommandResultSemanticSelectionsAdded     = "SEMANTIC_SELECTIONS_ADDED"
+	CommandResultDraftRestored               = "DRAFT_RESTORED"
+	SemanticSelectionAdded                   = "ADDED"
+	SemanticSelectionAlreadyPresent          = "ALREADY_PRESENT"
+	InitialPresentationTable                 = "TABLE"
+	InitialPresentationFilter                = "FILTER"
+	InitialPresentationChart                 = "CHART"
 )
 
-// ApplyCommandsRequest is the browser's mutation envelope. CommandID is an
-// idempotency token retained only for the last successfully applied command,
-// never a durable authoring identity; retrying an older command is a draft
-// conflict after a later command advances the draft.
 type ApplyCommandsRequest struct {
 	CommandID            string    `json:"commandId"`
 	SemanticsVersion     int       `json:"semanticsVersion"`
@@ -76,8 +77,6 @@ type ApplyCommandsRequest struct {
 	draftSourceContext   *DraftSourceContext
 }
 
-// DraftSourceContext is attached by lifecycle after resolving the request's
-// authorized snapshot. It is never accepted from the browser.
 type DraftSourceContext struct {
 	SnapshotToken            string
 	SourceGeneration         string
@@ -129,6 +128,7 @@ type Command struct {
 	ProjectionMode           string                            `json:"projectionMode,omitempty"`
 	InitialPresentation      string                            `json:"initialPresentation,omitempty"`
 	Column                   string                            `json:"column,omitempty"`
+	ColumnID                 string                            `json:"columnId,omitempty"`
 	RowValuePolicy           ConstructionRowValuePolicy        `json:"rowValuePolicy,omitempty"`
 	ColumnValue              *Column                           `json:"columnValue,omitempty"`
 	ConstructionOutput       *ConstructionOutputPresentation   `json:"constructionOutput,omitempty"`
@@ -147,11 +147,12 @@ type Command struct {
 	FrameForm                capability.ConstructionChoiceForm `json:"form,omitempty"`
 	ResolvedChoice           *ResolvedConstructionChoice       `json:"-"`
 	resolvedFrame            *FrameDefinition
-	ResolvedPopulationRoute  []PopulationRouteStep `json:"-"`
-	OutputIDs                []string              `json:"outputIds,omitempty"`
+	ResolvedPopulationRoute  []PopulationRouteStep     `json:"-"`
+	OutputIDs                []string                  `json:"outputIds,omitempty"`
+	SourceStep               *ImportedSourceStepChange `json:"sourceStep,omitempty"`
+	resolvedColumnPolicy     *resolvedColumnPolicy
+	resolvedImportedDocument *Document
 	resolvedRowDefinition    *RowDefinition
-	resolvedTableShape       *TableShape
-	resolvedTableShapeSet    bool
 	resolvedConstruction     *Construction
 	resolvedConstructionSet  bool
 	resolvedConstructionRows *RowDefinition
@@ -160,8 +161,6 @@ type Command struct {
 	resolvedDraftRevision    *Workspace
 }
 
-// ConstructionOutputPresentation updates user-facing metadata for a stable
-// construction output. Name and Type remain compiler-owned identities.
 type ConstructionOutputPresentation struct {
 	StepID   string             `json:"stepId"`
 	ColumnID string             `json:"columnId"`
@@ -186,8 +185,6 @@ func (p ConstructionOutputPresentation) Validate() error {
 	return nil
 }
 
-// ResolveDraftRevision binds a restore command to a workspace resolved by the
-// lifecycle service from the owner's exact previous-draft pointer.
 func (c *Command) ResolveDraftRevision(workspace Workspace) error {
 	if c == nil || c.Type != CommandRestoreDraftRevision || strings.TrimSpace(c.DraftRevisionID) == "" || c.DraftRevisionID != strings.TrimSpace(c.DraftRevisionID) {
 		return fmt.Errorf("RESTORE_DRAFT_REVISION requires an exact server-resolved draft revision")
@@ -200,8 +197,6 @@ func (c *Command) ResolveDraftRevision(workspace Workspace) error {
 	return nil
 }
 
-// ColumnTransformationChange replaces or removes the one typed value
-// transformation attached to an authored column.
 type ColumnTransformationChange struct {
 	Kind           string                               `json:"kind"`
 	Transformation *columntransform.ValueTransformation `json:"transformation,omitempty"`
@@ -224,8 +219,6 @@ func (c ColumnTransformationChange) Validate() error {
 	}
 }
 
-// ConstructionChoiceSelection carries only the server-issued source identity
-// and the form the author chose from its current supported options.
 type ConstructionChoiceSelection struct {
 	RowValuePolicy ConstructionRowValuePolicy        `json:"rowValuePolicy,omitempty"`
 	ChoiceID       string                            `json:"choiceId"`
@@ -271,8 +264,6 @@ func (s ConstructionChoiceSelection) validate() error {
 	}
 }
 
-// ResolvedConstructionChoice is populated by lifecycle after it re-authorizes
-// and reconstructs the choice against the current compiler snapshot.
 type ResolvedConstructionChoice struct {
 	CandidateID string
 	Source      ColumnSource
@@ -281,8 +272,6 @@ type ResolvedConstructionChoice struct {
 	FrameID     string
 }
 
-// SemanticSelection is client intent plus an internal-only resolution filled
-// by lifecycle after authorization and context checks.
 type SemanticSelection struct {
 	ConceptID           string                          `json:"conceptId"`
 	BindingID           string                          `json:"bindingId"`
@@ -302,10 +291,6 @@ func (s *SemanticSelection) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// ApplyInterpretationCandidate is the closed, receipt-backed payload for an
-// interpretation repair. The receipt ID and revision ID are both required:
-// the former proves the preview that was shown to the user, while the latter
-// prevents replaying that preview with a different immutable revision.
 type ApplyInterpretationCandidate struct {
 	CandidateReceiptID string `json:"candidateReceiptId"`
 	RevisionID         string `json:"revisionId"`
@@ -317,6 +302,17 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 	if err := strictDecode(raw, &decoded); err != nil {
 		return err
 	}
+	if IsImportedSourceCommand(decoded.Type) {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return err
+		}
+		for name := range fields {
+			if name != "type" && name != "outputId" && !(decoded.Type == CommandUpdateImportedSourceStep && name == "sourceStep") && !(decoded.Type == CommandApplyImportedRelationshipProposal && name == "proposalId") {
+				return fmt.Errorf("%s does not accept field %q", decoded.Type, name)
+			}
+		}
+	}
 	if decoded.Type == CommandApplyConstructionChoice {
 		var fields map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &fields); err != nil {
@@ -326,6 +322,17 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 		for name := range fields {
 			if !allowed[name] {
 				return fmt.Errorf("APPLY_CONSTRUCTION_CHOICE does not accept field %q", name)
+			}
+		}
+	}
+	if decoded.Type == CommandRemoveProjectedField {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return err
+		}
+		for name := range fields {
+			if name != "type" && name != "outputId" && name != "columnId" {
+				return fmt.Errorf("%s does not accept field %q", decoded.Type, name)
 			}
 		}
 	}
@@ -358,7 +365,7 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 			}
 		}
 	}
-	if decoded.Type == CommandApplyRowDefinitionProposal || decoded.Type == CommandApplyTableShapeProposal || decoded.Type == CommandApplyConstructionProposal || decoded.Type == CommandApplyPopulationMemberProposal {
+	if decoded.Type == CommandApplyColumnPolicyProposal || decoded.Type == CommandApplyRowDefinitionProposal || decoded.Type == CommandApplyConstructionProposal || decoded.Type == CommandApplyPopulationMemberProposal {
 		if err := rejectUnknownProposalCommandFields(raw, decoded.Type); err != nil {
 			return err
 		}
@@ -403,9 +410,6 @@ func rejectUnknownProposalCommandFields(raw []byte, commandType string) error {
 	return nil
 }
 
-// ResolveRowDefinitionProposal attaches the lifecycle-validated row definition
-// to an apply command. The resolved value is deliberately not part of the
-// browser command or its serialized payload.
 func (c *Command) ResolveRowDefinitionProposal(rows RowDefinition) error {
 	if c == nil || c.Type != CommandApplyRowDefinitionProposal {
 		return fmt.Errorf("row definition can only be resolved for APPLY_ROW_DEFINITION_PROPOSAL")
@@ -425,28 +429,6 @@ func (c *Command) ResolveRowDefinitionProposal(rows RowDefinition) error {
 	return nil
 }
 
-// ResolveTableShapeProposal attaches the lifecycle-validated table shape to an
-// apply command. A nil shape is a resolved removal, not an unresolved command.
-func (c *Command) ResolveTableShapeProposal(shape *TableShape) error {
-	if c == nil || c.Type != CommandApplyTableShapeProposal {
-		return fmt.Errorf("table shape can only be resolved for APPLY_TABLE_SHAPE_PROPOSAL")
-	}
-	if strings.TrimSpace(c.OutputID) == "" || c.OutputID != strings.TrimSpace(c.OutputID) ||
-		strings.TrimSpace(c.ProposalID) == "" || c.ProposalID != strings.TrimSpace(c.ProposalID) {
-		return fmt.Errorf("APPLY_TABLE_SHAPE_PROPOSAL requires outputId and proposalId")
-	}
-	cloned, err := cloneTableShape(shape)
-	if err != nil {
-		return err
-	}
-	c.resolvedTableShape = cloned
-	c.resolvedTableShapeSet = true
-	return nil
-}
-
-// ResolveConstructionProposal attaches the lifecycle-validated candidate
-// document's construction and row intent to an apply command. Both values are
-// server-resolved state and never appear in the browser command payload.
 func (c *Command) ResolveConstructionProposal(candidate *Document) error {
 	if c == nil || c.Type != CommandApplyConstructionProposal {
 		return fmt.Errorf("construction can only be resolved for APPLY_CONSTRUCTION_PROPOSAL")
@@ -475,9 +457,6 @@ func (c *Command) ResolveConstructionProposal(candidate *Document) error {
 	return nil
 }
 
-// ResolvePopulationMemberProposal attaches the server-revalidated candidate
-// population to a closed proposal apply command. The browser can submit only
-// outputId and proposalId; selection and route data are never caller supplied.
 func (c *Command) ResolvePopulationMemberProposal(selectionRevisionID string, route []PopulationRouteStep) error {
 	if c == nil || c.Type != CommandApplyPopulationMemberProposal {
 		return fmt.Errorf("population can only be resolved for APPLY_POPULATION_MEMBER_PROPOSAL")
@@ -541,6 +520,14 @@ func (r ApplyCommandsRequest) Validate() error {
 	proposalCommandCount := 0
 	restoreCommandCount := 0
 	for i, command := range r.Commands {
+		if IsImportedSourceCommand(command.Type) {
+			if len(r.Commands) != 1 || r.ExpectedDraftVersion < 1 || strings.TrimSpace(r.ExpectedDraftDigest) == "" {
+				return fmt.Errorf("source changes require one command and an exact expected draft version and digest")
+			}
+		}
+		if command.Type == CommandRemoveProjectedField && (len(r.Commands) != 1 || r.ExpectedDraftVersion < 1 || strings.TrimSpace(r.ExpectedDraftDigest) == "" || r.ExpectedDraftDigest != strings.TrimSpace(r.ExpectedDraftDigest)) {
+			return fmt.Errorf("REMOVE_PROJECTED_FIELD requires one command and an exact expected draft version and digest")
+		}
 		if command.Type == CommandAddSemanticSelections {
 			semanticCommandCount++
 		}
@@ -550,7 +537,7 @@ func (r ApplyCommandsRequest) Validate() error {
 		if command.Type == CommandSetFrameSource || command.Type == CommandReplaceFrameSource || command.Type == CommandRemoveFrameSource {
 			frameSourceCommandCount++
 		}
-		if command.Type == CommandApplyRowDefinitionProposal || command.Type == CommandApplyTableShapeProposal || command.Type == CommandApplyConstructionProposal || command.Type == CommandApplyPopulationMemberProposal || command.Type == CommandApplyTableRootRebase && command.RowChange != nil && command.RowChange.Mode == RowChangeModeReplace {
+		if command.Type == CommandApplyColumnPolicyProposal || command.Type == CommandApplyRowDefinitionProposal || command.Type == CommandApplyConstructionProposal || command.Type == CommandApplyPopulationMemberProposal || command.Type == CommandApplyTableRootRebase && command.RowChange != nil && command.RowChange.Mode == RowChangeModeReplace {
 			proposalCommandCount++
 		}
 		if command.Type == CommandRestoreDraftRevision {
@@ -613,7 +600,32 @@ func (c Command) validate() error {
 	if c.Type != CommandUpdateColumnRowValuePolicy && c.RowValuePolicy != "" {
 		return fmt.Errorf("rowValuePolicy is only accepted by UPDATE_COLUMN_ROW_VALUE_POLICY")
 	}
+	if c.Type != CommandRemoveProjectedField && c.ColumnID != "" {
+		return fmt.Errorf("columnId is only accepted by REMOVE_PROJECTED_FIELD")
+	}
+	if c.Type != CommandUpdateImportedSourceStep && c.SourceStep != nil {
+		return fmt.Errorf("sourceStep is only accepted by UPDATE_IMPORTED_SOURCE_STEP")
+	}
 	switch c.Type {
+	case CommandUpdateImportedSourceStep, CommandRefreshImportedSource, CommandApplyImportedRelationshipProposal:
+		if !required(c.OutputID) || c.OutputID != strings.TrimSpace(c.OutputID) {
+			return fmt.Errorf("%s requires an exact outputId", c.Type)
+		}
+		if c.Type == CommandApplyImportedRelationshipProposal {
+			if !required(c.ProposalID) {
+				return fmt.Errorf("proposalId is required")
+			}
+			return nil
+		}
+		if c.Type == CommandUpdateImportedSourceStep {
+			if c.SourceStep == nil {
+				return fmt.Errorf("sourceStep is required")
+			}
+			return c.SourceStep.Validate()
+		}
+		if c.SourceStep != nil {
+			return fmt.Errorf("REFRESH_IMPORTED_SOURCE accepts only outputId")
+		}
 	case CommandCreateTable:
 		if !required(c.Title, c.RootNodeID) {
 			return fmt.Errorf("CREATE_TABLE requires title and rootNodeId")
@@ -737,7 +749,7 @@ func (c Command) validate() error {
 			c.InterpretationCandidate.RevisionID != strings.TrimSpace(c.InterpretationCandidate.RevisionID) {
 			return fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE requires exact candidateReceiptId and revisionId")
 		}
-	case CommandApplyRowDefinitionProposal, CommandApplyTableShapeProposal, CommandApplyConstructionProposal, CommandApplyPopulationMemberProposal:
+	case CommandApplyColumnPolicyProposal, CommandApplyRowDefinitionProposal, CommandApplyConstructionProposal, CommandApplyPopulationMemberProposal:
 		if !required(c.OutputID, c.ProposalID) || c.OutputID != strings.TrimSpace(c.OutputID) || c.ProposalID != strings.TrimSpace(c.ProposalID) {
 			return fmt.Errorf("%s requires exact outputId and proposalId", c.Type)
 		}
@@ -781,6 +793,13 @@ func (c Command) validate() error {
 	case CommandRemoveColumn:
 		if !required(c.OutputID, c.Column) {
 			return fmt.Errorf("REMOVE_COLUMN requires outputId and column")
+		}
+	case CommandRemoveProjectedField:
+		if !required(c.OutputID, c.ColumnID) || c.OutputID != strings.TrimSpace(c.OutputID) || c.ColumnID != strings.TrimSpace(c.ColumnID) {
+			return fmt.Errorf("REMOVE_PROJECTED_FIELD requires exact outputId and columnId")
+		}
+		if !reflect.DeepEqual(c, Command{Type: c.Type, OutputID: c.OutputID, ColumnID: c.ColumnID}) {
+			return fmt.Errorf("REMOVE_PROJECTED_FIELD accepts only outputId and columnId")
 		}
 	case CommandAddSemanticSelections:
 		if !required(c.OutputID, c.ContextToken) || len(c.SemanticSelections) == 0 || len(c.SemanticSelections) > 100 {
@@ -835,18 +854,11 @@ func (c Command) validate() error {
 	return nil
 }
 
-// ApplyCommands is a pure reducer over canonical authoring state. It clones
-// the input and either returns one fully valid workspace or no mutation.
 func ApplyCommands(workspace Workspace, catalog CatalogSnapshot, commandID string, commands []Command) (Workspace, []CommandResult, error) {
-	working, err := cloneWorkspace(workspace)
+	working, err := CloneCurrentWorkspace(workspace)
 	if err != nil {
 		return Workspace{}, nil, err
 	}
-	working, err = MigrateLegacyContributors(working, catalog)
-	if err != nil {
-		return Workspace{}, nil, err
-	}
-	working = MigrateLosslessDefaults(working, catalog)
 	results := make([]CommandResult, 0, len(commands))
 	for index, command := range commands {
 		result, applyErr := applyCommand(&working, catalog, commandID, index, command)
@@ -871,6 +883,30 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		return result, fmt.Errorf("rowValuePolicy is only accepted by UPDATE_COLUMN_ROW_VALUE_POLICY")
 	}
 	switch command.Type {
+	case CommandAddRoute, CommandUpdateRouteEdge, CommandSetRouteMatchMode, CommandRemoveRoute:
+		position := documentIndex(workspace, command.OutputID)
+		if position >= 0 && workspace.Documents[position].ImportedRecipe != nil {
+			return result, fmt.Errorf("IMPORTED_SOURCE_REQUIRED: edit imported relationships through a native source proposal")
+		}
+	}
+	switch command.Type {
+	case CommandApplyColumnPolicyProposal:
+		return applyColumnPolicyProposal(workspace, catalog, commandID, index, command)
+	case CommandUpdateImportedSourceStep, CommandRefreshImportedSource, CommandApplyImportedRelationshipProposal:
+		position := documentIndex(workspace, command.OutputID)
+		if position < 0 || command.resolvedImportedDocument == nil {
+			return result, fmt.Errorf("source change requires a lifecycle-resolved imported document")
+		}
+		current := workspace.Documents[position]
+		resolved := *command.resolvedImportedDocument
+		if current.ImportedRecipe == nil || resolved.ImportedRecipe == nil || *current.ImportedRecipe != *resolved.ImportedRecipe || resolved.Output.ID != current.Output.ID {
+			return result, fmt.Errorf("source change does not match its pinned output")
+		}
+		if current.RootResourceType != resolved.RootResourceType || !reflect.DeepEqual(current.Output, resolved.Output) || !reflect.DeepEqual(current.Population, resolved.Population) || !reflect.DeepEqual(current.Frames, resolved.Frames) || !reflect.DeepEqual(current.Construction, resolved.Construction) || !reflect.DeepEqual(current.ArchiveRetiredShape, resolved.ArchiveRetiredShape) || !reflect.DeepEqual(current.FixedFilters, resolved.FixedFilters) || !reflect.DeepEqual(current.Actions, resolved.Actions) {
+			return result, fmt.Errorf("source edits must preserve the row root, presentation, population, and all downstream authored work")
+		}
+		workspace.Documents[position] = resolved
+		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
 	case CommandSetFrameSource, CommandReplaceFrameSource, CommandRemoveFrameSource:
 		return applyFrameSourceCommand(workspace, command)
 	case CommandCreateTable:
@@ -1379,8 +1415,7 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 				Kind:   FeatureInterpretationPinned,
 				Pinned: &PinnedInterpretation{RevisionID: revisionID},
 			}
-			// A pinned human interpretation owns the feature meaning. Any inline
-			// contributor is stale for this exact candidate and must not survive.
+
 			current.Contributor = nil
 			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
 		}
@@ -1397,22 +1432,11 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		if document < 0 {
 			return result, fmt.Errorf("output %q was not found", command.OutputID)
 		}
+		if workspace.Documents[document].ImportedRecipe != nil {
+			return result, fmt.Errorf("IMPORTED_SOURCE_ROWS_REQUIRED: imported source rows are derived from the immutable pin and source overlay; choose a construction row operation")
+		}
 		workspace.Documents[document].Rows = rows
 		return result, nil
-	case CommandApplyTableShapeProposal:
-		if !command.resolvedTableShapeSet {
-			return result, fmt.Errorf("APPLY_TABLE_SHAPE_PROPOSAL has no lifecycle-resolved table shape")
-		}
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		shape, err := cloneTableShape(command.resolvedTableShape)
-		if err != nil {
-			return result, err
-		}
-		workspace.Documents[document].TableShape = shape
-		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
 	case CommandApplyPopulationMemberProposal:
 		if !command.resolvedPopulationSet || command.resolvedPopulation == nil {
 			return result, fmt.Errorf("APPLY_POPULATION_MEMBER_PROPOSAL has no lifecycle-resolved population")
@@ -1436,7 +1460,7 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		if documentIndexValue < 0 {
 			return result, fmt.Errorf("output %q was not found", command.OutputID)
 		}
-		document, err := UpgradeDocumentToConstruction(workspace.Documents[documentIndexValue])
+		document, err := StartDocumentConstruction(workspace.Documents[documentIndexValue])
 		if err != nil {
 			return result, fmt.Errorf("prepare staged construction: %w", err)
 		}
@@ -1450,7 +1474,7 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 			return result, err
 		}
 		document.Rows = rows
-		document.TableShape = nil
+		document.ArchiveRetiredShape = nil
 		if err := document.Validate(); err != nil {
 			return result, fmt.Errorf("resolved construction is invalid: %w", err)
 		}
@@ -1558,8 +1582,116 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		cleanupDocumentReferences(&workspace.Documents[document])
 		cleanupWorkspaceBindings(workspace)
 		return result, nil
+	case CommandRemoveProjectedField:
+		documentPos := documentIndex(workspace, command.OutputID)
+		if documentPos < 0 {
+			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		current := workspace.Documents[documentPos]
+		targetIndex := -1
+		for index := range current.Columns {
+			if current.Columns[index].ColumnID != command.ColumnID {
+				continue
+			}
+			if targetIndex >= 0 {
+				return result, fmt.Errorf("columnId %q is ambiguous", command.ColumnID)
+			}
+			targetIndex = index
+		}
+		if targetIndex < 0 {
+			return result, fmt.Errorf("columnId %q was not found", command.ColumnID)
+		}
+		if current.Columns[targetIndex].Source.Kind != SourceImported {
+			if command.resolvedImportedDocument != nil {
+				return result, fmt.Errorf("authored projected field removal cannot replace the document")
+			}
+			if err := removeDocumentColumnByID(workspace, documentPos, command.ColumnID); err != nil {
+				return result, err
+			}
+			return result, nil
+		}
+		if current.ImportedRecipe == nil {
+			return result, fmt.Errorf("pinned projected field removal requires an imported recipe")
+		}
+		if command.resolvedImportedDocument == nil {
+			return result, fmt.Errorf("pinned projected field removal requires a lifecycle-resolved source edit")
+		}
+		resolved := *command.resolvedImportedDocument
+		if current.ImportedRecipe == nil || resolved.ImportedRecipe == nil || *current.ImportedRecipe != *resolved.ImportedRecipe || resolved.Output.ID != current.Output.ID {
+			return result, fmt.Errorf("projected field removal does not match its pinned output")
+		}
+		if current.RootResourceType != resolved.RootResourceType || !reflect.DeepEqual(current.Output, resolved.Output) ||
+			!reflect.DeepEqual(current.Route, resolved.Route) || !reflect.DeepEqual(current.Rows, resolved.Rows) ||
+			!reflect.DeepEqual(current.Population, resolved.Population) || !reflect.DeepEqual(current.Frames, resolved.Frames) ||
+			!reflect.DeepEqual(current.Construction, resolved.Construction) ||
+			!reflect.DeepEqual(current.FixedFilters, resolved.FixedFilters) || !reflect.DeepEqual(current.Actions, resolved.Actions) {
+			return result, fmt.Errorf("projected field removal must preserve row identity and all downstream authored work")
+		}
+		if !reflect.DeepEqual(authoredColumns(current.Columns), authoredColumns(resolved.Columns)) {
+			return result, fmt.Errorf("projected field removal must preserve authored columns")
+		}
+		foundTarget := false
+		for _, column := range current.Columns {
+			if column.ColumnID == command.ColumnID && column.Source.Kind == SourceImported {
+				if foundTarget {
+					return result, fmt.Errorf("projected columnId %q is ambiguous", command.ColumnID)
+				}
+				foundTarget = true
+			}
+		}
+		if !foundTarget {
+			return result, fmt.Errorf("pinned projected field %q was not found", command.ColumnID)
+		}
+		for _, column := range resolved.Columns {
+			if column.ColumnID == command.ColumnID {
+				return result, fmt.Errorf("pinned projected field %q remains in the resolved source edit", command.ColumnID)
+			}
+		}
+		workspace.Documents[documentPos] = resolved
+		cleanupWorkspaceBindings(workspace)
+		return result, nil
 	}
 	return result, fmt.Errorf("unsupported command type %q", command.Type)
+}
+
+func authoredColumns(columns []Column) []Column {
+	result := make([]Column, 0, len(columns))
+	for _, column := range columns {
+		if column.Source.Kind != SourceImported {
+			result = append(result, column)
+		}
+	}
+	return result
+}
+
+func removeDocumentColumnByID(workspace *Workspace, documentPos int, columnID string) error {
+	if columnID == "" {
+		return fmt.Errorf("columnId is required")
+	}
+	document := &workspace.Documents[documentPos]
+	columnIndex := -1
+	for index := range document.Columns {
+		if document.Columns[index].ColumnID != columnID {
+			continue
+		}
+		if columnIndex >= 0 {
+			return fmt.Errorf("columnId %q is ambiguous", columnID)
+		}
+		columnIndex = index
+	}
+	if columnIndex < 0 {
+		return fmt.Errorf("columnId %q was not found", columnID)
+	}
+	column := document.Columns[columnIndex]
+	if column.Source.Kind == SourceImported {
+		return fmt.Errorf("pinned imported fields require a lifecycle-resolved source edit")
+	}
+	document.Columns = append(document.Columns[:columnIndex], document.Columns[columnIndex+1:]...)
+	removeConstructionColumnValues(document, column.ColumnID)
+	removeExplicitGroupRowValue(document, column.ColumnID)
+	cleanupDocumentReferences(document)
+	cleanupWorkspaceBindings(workspace)
+	return nil
 }
 
 func initializeEmptyConstructionBeforeSourceAdd(workspace *Workspace, outputID string) error {
@@ -1568,10 +1700,10 @@ func initializeEmptyConstructionBeforeSourceAdd(workspace *Workspace, outputID s
 		return nil
 	}
 	document := workspace.Documents[documentPos]
-	if len(document.Columns) != 0 || document.Construction != nil || document.TableShape != nil {
+	if len(document.Columns) != 0 || document.Construction != nil || document.ArchiveRetiredShape != nil {
 		return nil
 	}
-	upgraded, err := UpgradeDocumentToConstruction(document)
+	upgraded, err := StartDocumentConstruction(document)
 	if err != nil {
 		return fmt.Errorf("initialize empty source construction: %w", err)
 	}
@@ -1594,10 +1726,6 @@ func setPopulationRoute(document *Document, selectionRevisionID string, route []
 	document.Population = &Population{SelectionRevisionID: strings.TrimSpace(selectionRevisionID), Route: steps}
 }
 
-// editableSource adds the explicit related-resource policy to new child
-// selections. A child column is rendered through a first matching resource
-// even when its projection mode is VALUE or INDEXED, so publication must not
-// silently present that reduction as lossless.
 func editableSource(occurrenceID string, source ColumnSource) ColumnSource {
 	source = source.Normalized()
 	mode := strings.ToUpper(strings.TrimSpace(source.ProjectionMode()))
@@ -1673,25 +1801,6 @@ func cloneWorkspace(value Workspace) (Workspace, error) {
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return Workspace{}, err
 	}
-	// SourceWhere is a private persisted-draft compatibility payload and is
-	// intentionally omitted from current JSON. Preserve it for transactional
-	// legacy migration and frozen in-memory callers while keeping it unwritable.
-	for documentIndex := range value.Documents {
-		if documentIndex >= len(result.Documents) {
-			break
-		}
-		for columnIndex := range value.Documents[documentIndex].Columns {
-			if columnIndex >= len(result.Documents[documentIndex].Columns) {
-				break
-			}
-			where := value.Documents[documentIndex].Columns[columnIndex].Source.Aggregate
-			if where == nil || where.Where == nil || result.Documents[documentIndex].Columns[columnIndex].Source.Aggregate == nil {
-				continue
-			}
-			legacyWhere := *where.Where
-			result.Documents[documentIndex].Columns[columnIndex].Source.Aggregate.Where = &legacyWhere
-		}
-	}
 	return result, nil
 }
 
@@ -1756,10 +1865,6 @@ func validateWorkspaceContributors(workspace Workspace, catalog CatalogSnapshot)
 	return nil
 }
 
-// ValidateContributorForCatalog proves one authored contributor against the
-// pinned occurrence and catalog. It is shared by command application and the
-// compilation boundary so a stale/foreign candidate cannot become a recipe
-// selector.
 func ValidateContributorForCatalog(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource, predicate ContributorPredicate) error {
 	if source.Kind != SourceAggregate || source.Aggregate == nil {
 		return fmt.Errorf("contributor is only supported for aggregate sources")
@@ -1811,6 +1916,13 @@ func ValidateContributorForCatalog(document Document, catalog CatalogSnapshot, o
 }
 
 func validateEditableSource(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource) error {
+	return validateEditableSourcePolicy(document, catalog, occurrenceID, source, false)
+}
+
+func validateEditableSourcePolicy(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource, allowImportedRecipe bool) error {
+	if source.Kind == SourceImported || (!allowImportedRecipe && document.ImportedRecipe != nil) {
+		return fmt.Errorf("imported recipe source columns are immutable")
+	}
 	occurrence := findRoute(&document.Route, occurrenceID)
 	if occurrence == nil {
 		return fmt.Errorf("occurrence %q was not found", occurrenceID)
@@ -1835,8 +1947,7 @@ func validateEditableSource(document Document, catalog CatalogSnapshot, occurren
 		if _, err := fhirschema.ValidateCorrelatedBinding(occurrence.ResourceType, *source.Lookup.Binding); err != nil {
 			return fmt.Errorf("source binding: %w", err)
 		}
-		// Correlated lookups carry their structural source in Binding. They do
-		// not have a legacy field path to resolve against a catalog candidate.
+
 		return nil
 	}
 	if source.OwnerRecords != nil && source.Kind == SourceOwnerRecords {
@@ -2160,7 +2271,7 @@ func applyInitialPresentation(column *Column, presentation string, tableOrder in
 func nextTableOrder(document Document) int {
 	result := 0
 	if document.Rows.Kind == RowDefinitionGroups && document.Rows.Groups != nil && document.Rows.Groups.Source.Kind == GroupSourceExplicit {
-		// Cohort label, ordinal and members precede the contributed fields.
+
 		result = 3 + len(document.Rows.Groups.RowValues)
 	}
 	for _, column := range document.Columns {

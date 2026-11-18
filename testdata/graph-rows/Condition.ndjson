@@ -1,0 +1,3 @@
+{"resourceType":"Condition","id":"condition-A","subject":{"reference":"Patient/p-many"},"language":"en","clinicalStatus":{"text":"active"}}
+{"resourceType":"Condition","id":"condition-B","subject":{"reference":"Patient/p-many"},"language":"fr","clinicalStatus":{"text":"active"}}
+{"resourceType":"Condition","id":"condition-C","subject":{"reference":"Patient/p-many"},"language":"es","clinicalStatus":{"text":"active"}}

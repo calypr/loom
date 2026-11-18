@@ -2,7 +2,10 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { builderWorkspaceNullMocks } from '../../../testSupport/builderWorkspaceMocks';
 import type { ExplorerBuilderCandidate, ExplorerBuilderState } from '../../types';
+import type { LoomClient } from '../../api';
+import { createLoomClientMock } from '../../../testSupport/loomClientMock';
 import BuilderWorkspace from './BuilderWorkspace';
 
 const hooks = vi.hoisted(() => {
@@ -10,7 +13,7 @@ const hooks = vi.hoisted(() => {
   return {
     getSuggestions: vi.fn(),
     browseSemanticInventory,
-    client: { browseSemanticInventory },
+    client: null as unknown as LoomClient,
   };
 });
 
@@ -82,23 +85,15 @@ vi.mock('./constructionWorkspace/useConstructionLifecycle', () => ({
 vi.mock('./components/BuilderToolbar', () => ({ BuilderToolbar: () => null }));
 vi.mock('./components/DatasetReviewPanel', () => ({ DatasetReviewPanel: () => null }));
 vi.mock('./components/GuidedGraphWorkspace', () => ({ GuidedGraphWorkspace: () => null }));
-vi.mock('./components/ColumnSelector', () => ({ ColumnSelector: () => null }));
 vi.mock('./components/RowRootPicker', () => ({ RowRootPicker: () => null }));
 vi.mock('./components/PreviewTable', () => ({ PreviewTable: () => null }));
-vi.mock('./components/DataframeContractPanel', () => ({ DataframeContractPanel: () => null }));
-vi.mock('./components/PopulationPanel', () => ({ PopulationPanel: () => null }));
+vi.mock('./components/DataframeContractPanel', () => builderWorkspaceNullMocks.DataframeContractPanel);
+vi.mock('./components/PopulationPanel', () => builderWorkspaceNullMocks.PopulationPanel);
 vi.mock('./components/RowChangePreviewPanel', () => ({ RowChangePreviewPanel: () => null }));
 vi.mock('./components/RowDefinitionPanel', () => ({ RowDefinitionPanel: () => null }));
 vi.mock('./components/RowDefinitionSettingsPanel', () => ({ RowDefinitionSettingsPanel: () => null }));
-vi.mock('./components/TableShapeSettingsPanel', () => ({ TableShapeSettingsPanel: () => null }));
-vi.mock('./components/InterpretationPanel', () => ({ InterpretationPanel: () => null }));
-vi.mock('./constructionWorkspace/ConstructionWorkspace', () => ({
-  ConstructionWorkspace: () => null,
-  ConstructionUndoButton: () => null,
-  constructionOperationFamilies: [],
-}));
+vi.mock('./components/InterpretationPanel', () => builderWorkspaceNullMocks.InterpretationPanel);
 vi.mock('./constructionWorkspace/ConstructionColumnSelection', () => ({ ConstructionColumnSelection: () => null }));
-vi.mock('./constructionWorkspace/PairedColumnSuggestions', () => ({ PairedColumnSuggestions: () => null }));
 vi.mock('./constructionWorkspace/FrameSourcePanel', () => ({ FrameSourcePanel: () => null }));
 vi.mock('./constructionWorkspace/ConstructionProposalPanel', () => ({ ConstructionProposalPanel: () => null }));
 vi.mock('./constructionWorkspace/ConstructionProposalPreview', () => ({ ConstructionProposalPreview: () => null }));
@@ -113,6 +108,8 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', () => ({
 vi.mock('./constructionOperations/RelatedSourceStepEditor', () => ({ RelatedSourceStepEditor: () => null }));
 vi.mock('./constructionOperations/RelatedFieldEditor', () => ({ RelatedFieldEditor: () => null }));
 vi.mock('./constructionOperations/ConstructionCombineEditor', () => ({ ConstructionCombineEditor: () => null }));
+
+hooks.client = createLoomClientMock({ browseSemanticInventory: hooks.browseSemanticInventory });
 
 const apiVersion = 'loom.calypr.org/explorer-authoring/v2' as const;
 const builderState: ExplorerBuilderState = {
@@ -239,38 +236,30 @@ describe('BuilderWorkspace suggestion transport recovery', () => {
       }) });
 
     const { container, rerender } = render(<BuilderWorkspace project="test-project" explorerId="test" />);
-    const advancedSourceSetup = container.querySelector<HTMLDetailsElement>(
-      '[data-testid="construction-source-setup"]',
-    );
-    expect(advancedSourceSetup?.open).toBe(false);
+    fireEvent.click(await screen.findByRole('button', { name: /^Add columns:/ }));
 
     const failure = await screen.findByTestId('builder-suggestions-error');
     expect(screen.getByRole('alert')).toBe(failure);
-    expect(failure.closest('details[data-testid="construction-source-setup"]')).toBeNull();
+    expect(failure.closest('details')).toBeNull();
     expect(failure.closest('[hidden], [aria-hidden="true"]')).toBeNull();
-    expect(advancedSourceSetup?.open).toBe(false);
     const retry = screen.getByRole('button', { name: 'Retry finding columns' });
-    expect(retry.closest('details[data-testid="construction-source-setup"]')).toBeNull();
+    expect(retry.closest('details')).toBeNull();
     expect(retry.closest('[hidden], [aria-hidden="true"]')).toBeNull();
     expect(failure.textContent).toContain('Available columns could not be loaded: temporarily unavailable (SERVICE_UNAVAILABLE)');
     expect((retry as HTMLButtonElement).disabled).toBe(false);
-    expect(screen.queryByRole('button', { name: 'Select Patient.name[0].text' })).toBeNull();
+    expect(screen.queryByRole('option', { name: 'Select Patient name' })).toBeNull();
     fireEvent.click(retry);
 
     await waitFor(() => expect(hooks.getSuggestions).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(container.querySelector('[data-testid="builder-suggestions-error"]')).toBeNull());
-    expect(advancedSourceSetup?.open).toBe(false);
 
-    fireEvent.click(screen.getByText('Advanced source setup'));
-    await waitFor(() => expect(advancedSourceSetup?.open).toBe(true));
-    const recoveredOption = await screen.findByRole('button', {
-      name: 'Select Patient.name[0].text',
+    const recoveredOption = await screen.findByRole('option', {
+      name: 'Select Patient name',
     });
     expect(recoveredOption).toBeEnabled();
     expect(recoveredOption).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(recoveredOption);
     expect(recoveredOption).toHaveAttribute('aria-pressed', 'true');
-    expect(advancedSourceSetup?.open).toBe(true);
 
     expect(hooks.getSuggestions.mock.calls.map(([input]) => input)).toEqual([
       expect.objectContaining({ project: 'test-project', explorerId: 'test', snapshotToken: 'snapshot-1', nodeId: 'patient-node' }),

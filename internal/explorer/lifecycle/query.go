@@ -15,7 +15,7 @@ func (s *Service) List(ctx context.Context, project string) (ListResult, error) 
 	project = projectid.Canonical(project)
 	values, err := s.store.List(ctx, project)
 	if err != nil {
-		return ListResult{}, internal("list", "EXPLORER_READ_FAILED", err.Error(), err)
+		return ListResult{}, persistenceFailure("list", "Explorer list could not be loaded", err)
 	}
 	result := ListResult{Project: project, Summaries: make([]explorer.ExplorerSummaryV1, 0, len(values))}
 	for _, value := range values {
@@ -33,7 +33,7 @@ func (s *Service) Get(ctx context.Context, project, id string) (explorer.Explore
 		return explorer.ExplorerStateV1{}, internal("get", "EXPLORER_INTEGRITY_FAILURE", "active Explorer revision contains an invalid immutable projection", err)
 	}
 	if err != nil {
-		return explorer.ExplorerStateV1{}, internal("get", "EXPLORER_READ_FAILED", err.Error(), err)
+		return explorer.ExplorerStateV1{}, persistenceFailure("get", "Explorer state could not be loaded", err)
 	}
 	return state, nil
 }
@@ -45,19 +45,34 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (explorer.E
 		return explorer.ExplorerSummaryV1{}, malformed("create", "name is required", nil)
 	}
 	id := explorer.StableExplorerID(name)
-	if id == "default" {
+	if id == "default" || id == DefaultDataframeID {
 		return explorer.ExplorerSummaryV1{}, conflict("create", "EXPLORER_EXISTS", "the repository default already exists", nil, nil)
 	}
 	title := strings.TrimSpace(request.Title)
 	if title == "" {
 		title = name
 	}
-	value, err := s.store.CreateInteractiveFrom(ctx, project, id, title, strings.TrimSpace(request.SourceExplorerID), request.Actor)
+	var value *explorer.Explorer
+	var err error
+	if strings.TrimSpace(request.SourceExplorerID) == DefaultDataframeID {
+		source, sourceErr := s.getOwner(ctx, project, DefaultDataframeID)
+		if sourceErr != nil {
+			return explorer.ExplorerSummaryV1{}, sourceErr
+		}
+		workspace, decodeErr := authoringv2.DecodeWorkspace(source.DraftConfig)
+		if decodeErr != nil {
+			return explorer.ExplorerSummaryV1{}, conflict("create", "DRAFT_STATE_INVALID", "the source dataframe draft is invalid", nil, decodeErr)
+		}
+		workspace.Explorer.Title = title
+		value, err = s.store.CreateSeededDataframe(ctx, project, id, title, workspace, request.Actor, authoringv2.DraftSourceContext{SnapshotToken: source.DraftSnapshotToken, SourceGeneration: source.DraftSourceGeneration, AuthorizationScopeDigest: source.DraftAuthorizationScopeDigest})
+	} else {
+		value, err = s.store.CreateInteractiveFrom(ctx, project, id, title, strings.TrimSpace(request.SourceExplorerID), request.Actor)
+	}
 	if errors.Is(err, explorer.ErrDraftConflict) {
 		return explorer.ExplorerSummaryV1{}, conflict("create", "EXPLORER_EXISTS", "an Explorer with this name already exists", nil, err)
 	}
 	if err != nil {
-		return explorer.ExplorerSummaryV1{}, unprocessable("create", "INVALID_EXPLORER", err.Error(), err)
+		return explorer.ExplorerSummaryV1{}, persistenceFailure("create", "the Explorer could not be created", err)
 	}
 	return explorer.ExplorerSummaryV1{Project: project, ExplorerID: value.ExplorerID, Title: value.Title, Management: value.ManagementMode, UpdatedAt: value.UpdatedAt}, nil
 }
@@ -99,11 +114,11 @@ func (s *Service) Suggestions(ctx context.Context, request SuggestionsRequest) (
 }
 
 func (s *Service) Builder(ctx context.Context, request BuilderRequest) (authoringv2.BuilderState, error) {
-	_, catalog, err := s.Capability(ctx, request.Project, request.ExplorerID, "")
+	snapshot, catalog, err := s.Capability(ctx, request.Project, request.ExplorerID, "")
 	if err != nil {
 		return authoringv2.BuilderState{}, err
 	}
-	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
+	owner, err := s.getOwnerWithSnapshot(ctx, request.Project, request.ExplorerID, snapshot, catalog)
 	if err != nil {
 		if errors.Is(err, explorer.ErrNotFound) {
 			return authoringv2.BuilderState{}, notFound("builder", "EXPLORER_NOT_FOUND", "Explorer not found", err)
@@ -111,75 +126,38 @@ func (s *Service) Builder(ctx context.Context, request BuilderRequest) (authorin
 		return authoringv2.BuilderState{}, err
 	}
 	state := authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, LifecycleState: authoringv2.LifecycleNew, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, PreviousDraftRevisionID: owner.PreviousDraftRevisionID, Catalog: catalog}
-	var activeWorkspace *authoringv2.Workspace
-	if owner.ActiveRevisionID != "" {
+	if request.ExplorerID != DefaultDataframeID && owner.ActiveRevisionID != "" && len(owner.DraftConfig) != 0 {
 		active, activeErr := s.store.ActiveRevision(ctx, request.Project, request.ExplorerID)
 		if activeErr != nil {
-			return authoringv2.BuilderState{}, conflict("builder", "AUTHORING_STATE_MISSING", "the active Explorer revision cannot be loaded as V2 authoring state", map[string]any{"revisionId": owner.ActiveRevisionID}, activeErr)
+			return authoringv2.BuilderState{}, persistenceFailure("builder", "the active Explorer revision could not be loaded as V2 authoring state", activeErr)
 		}
-		workspace, decodeErr := authoringv2.DecodeWorkspace(active.AuthoringBundle)
-		if decodeErr != nil {
-			return authoringv2.BuilderState{}, conflict("builder", "AUTHORING_STATE_MISSING", "the active Explorer revision has no valid V2 workspace", map[string]any{"revisionId": active.ID}, decodeErr)
+		if _, decodeErr := s.store.RevisionWorkspace(ctx, *active); decodeErr != nil {
+			return authoringv2.BuilderState{}, conflict("builder", "AUTHORING_STATE_MISSING", "the active Explorer revision has no valid V2 workspace", nil, decodeErr)
 		}
-		activeWorkspace = &workspace
 	}
 	if len(owner.DraftConfig) != 0 {
 		workspace, decodeErr := authoringv2.DecodeWorkspace(owner.DraftConfig)
 		if decodeErr != nil {
 			return authoringv2.BuilderState{}, conflict("builder", "DRAFT_STATE_INVALID", "the saved Explorer draft is not a valid V2 workspace", map[string]any{"draftVersion": owner.DraftVersion}, decodeErr)
 		}
-		if err := s.migrateLegacyConstructionSteps(ctx, owner, workspace); err != nil {
-			return authoringv2.BuilderState{}, err
-		}
+
 		state.DraftVersion = owner.DraftVersion
 		state.DraftDigest = owner.DraftDigest
 		state.PreviousDraftRevisionID = owner.PreviousDraftRevisionID
 		state.Workspace, state.LifecycleState = &workspace, authoringv2.LifecycleReady
-	} else if activeWorkspace != nil {
-		state.Workspace, state.LifecycleState = activeWorkspace, authoringv2.LifecycleReady
+	} else if owner.ActiveRevisionID != "" {
+		active, activeErr := s.store.ActiveRevision(ctx, request.Project, request.ExplorerID)
+		if activeErr != nil {
+			return authoringv2.BuilderState{}, persistenceFailure("builder", "the active Explorer revision could not be loaded as V2 authoring state", activeErr)
+		}
+		workspace, decodeErr := s.store.RevisionWorkspace(ctx, *active)
+		if decodeErr != nil {
+			return authoringv2.BuilderState{}, conflict("builder", "AUTHORING_STATE_MISSING", "the active Explorer revision has no valid V2 workspace", map[string]any{"revisionId": active.ID}, decodeErr)
+		}
+		state.Workspace, state.LifecycleState = &workspace, authoringv2.LifecycleReady
 	}
 	if err := state.Validate(); err != nil {
 		return authoringv2.BuilderState{}, unavailable("capability", "CAPABILITY_UNAVAILABLE", err.Error(), err)
 	}
 	return state, nil
-}
-
-func (s *Service) migrateLegacyConstructionSteps(ctx context.Context, owner *explorer.Explorer, workspace authoringv2.Workspace) error {
-	if owner == nil || owner.DraftDigest == "" {
-		return nil
-	}
-	hasNilConstructionSteps := false
-	for _, document := range workspace.Documents {
-		if document.Construction != nil && document.Construction.Steps == nil {
-			hasNilConstructionSteps = true
-			break
-		}
-	}
-	if !hasNilConstructionSteps {
-		return nil
-	}
-	currentDigest, err := workspace.Digest()
-	if err != nil {
-		return internal("builder", "DRAFT_DIGEST_FAILED", "the saved Explorer draft could not be digested", err)
-	}
-	if currentDigest == owner.DraftDigest {
-		return nil
-	}
-	legacyDigest, err := workspace.LegacyNilConstructionStepsDigest()
-	if err != nil {
-		return internal("builder", "DRAFT_DIGEST_FAILED", "the saved Explorer draft could not be checked for legacy construction encoding", err)
-	}
-	if legacyDigest == "" || legacyDigest != owner.DraftDigest {
-		return nil
-	}
-	previousDigest := owner.DraftDigest
-	updated, err := s.store.MigrateLegacyConstructionSteps(ctx, owner.Project, owner.ExplorerID, owner.DraftVersion, previousDigest)
-	if errors.Is(err, explorer.ErrDraftConflict) {
-		return conflict("builder", "DRAFT_CONFLICT", "the Explorer draft changed while its construction encoding was being migrated; reload and retry", nil, err)
-	}
-	if err != nil {
-		return internal("builder", "DRAFT_MIGRATION_FAILED", "the saved Explorer draft could not be migrated", err)
-	}
-	*owner = *updated
-	return nil
 }

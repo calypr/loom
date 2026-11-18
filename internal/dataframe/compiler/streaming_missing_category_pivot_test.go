@@ -59,14 +59,11 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 		t.Fatal(err)
 	}
 	index := query.PreviewCoveringIndex
-	wantLegacyFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"}
-	wantFields := append(append([]string(nil), wantLegacyFields...), "resourceType")
+	wantFields := previewQuantityCategoryFields()
 	wantStoredValues := []string{"payload.valueQuantity"}
 	if index == nil || index.Name != previewCoveringIndexNameWithStoredValues("Observation", wantFields, wantStoredValues) ||
-		!reflect.DeepEqual(index.Fields, wantFields) || !reflect.DeepEqual(index.StoredValues, wantStoredValues) ||
-		index.Supersedes == nil || index.Supersedes.Name != previewCoveringIndexNameWithStoredValues("Observation", wantLegacyFields, wantStoredValues) ||
-		!reflect.DeepEqual(index.Supersedes.Fields, wantLegacyFields) || !reflect.DeepEqual(index.Supersedes.StoredValues, wantStoredValues) {
-		t.Fatalf("streaming missing-category Pivot did not augment its exact stored-parent index: index=%+v supersedes=%+v wantFields=%v wantLegacy=%v", index, index.Supersedes, wantFields, wantLegacyFields)
+		!reflect.DeepEqual(index.Fields, wantFields) || !reflect.DeepEqual(index.StoredValues, wantStoredValues) {
+		t.Fatalf("streaming missing-category Pivot index = %+v, want fields=%v storedValues=%v", index, wantFields, wantStoredValues)
 	}
 	if !strings.Contains(query.Query, "COLLECT ") || !strings.Contains(query.Query, " AGGREGATE ") {
 		t.Fatalf("query does not stream grouped values through COLLECT AGGREGATE:\n%s", query.Query)
@@ -110,17 +107,12 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 		t.Fatalf("direct scalar Pivot retained its temporary input row object or field reads:\n%s", query.Query)
 	}
 
-	// The renderer must not rewrite the validated canonical stage while it
-	// rebinds the clone to direct root projections for this preview query.
 	canonicalPivot := compiled.Outputs[0].Plan.StageSequence.Stages[0].GroupedPivot
 	if canonicalPivot == nil || len(canonicalPivot.InputProjections) == 0 ||
 		canonicalPivot.InputProjections[0].Value.Variable != compiled.Outputs[0].Plan.StageSequence.Stages[0].InputRowVariable {
 		t.Fatal("streaming render mutated the canonical Pivot input projections")
 	}
 
-	// Construction previews always request source identity. A Pivot has
-	// composite source metadata and must not gain a single root ID, so this
-	// production-shaped ERROR case remains eligible for streaming.
 	identityOutput := streamingMissingCategoryPivotTestOutput()
 	id := recipe.StageColumn{ID: "id_id", Name: "id", Type: "string", Nullable: true}
 	identityOutput.Fields = append([]recipe.Field{{Name: "id", ColumnID: id.ID, Expr: recipe.Expression{Select: "root.id"}}}, identityOutput.Fields...)

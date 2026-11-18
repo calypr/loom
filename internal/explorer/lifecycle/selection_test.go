@@ -383,6 +383,23 @@ func TestCreateSelectionAbortsInterruptedPublishedStreamWithoutCompletion(t *tes
 	}
 }
 
+func TestCreateSelectionReportsUnavailablePublishedResolver(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	store := &selectionLifecycleStore{}
+	persistence, _ := explorer.NewService(store)
+	service, _ := New(persistence, Config{Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
+		return AuthorizedCapability{Snapshot: capabilitySnapshot("token", "generation-a", scopeDigest(scope)), Scope: scope}, nil
+	}}})
+	_, err := service.CreateSelection(context.Background(), SelectionIntentCreateRequest{
+		Project: "project", ExplorerID: "explorer", SnapshotToken: "token", IdempotencyKey: "published-unavailable",
+		Source: SelectionSourceIntent{Kind: SelectionSourcePublishedOutput, PublishedOutput: &PublishedOutputIntent{RevisionID: "revision", OutputID: "files"}},
+	})
+	var lifecycleErr *Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "PUBLISHED_SELECTION_UNAVAILABLE" {
+		t.Fatalf("published selection without resolver error = %#v, want unavailable PUBLISHED_SELECTION_UNAVAILABLE", err)
+	}
+}
+
 func TestCreateSelectionRejectsRowsAboveLimitWithoutCompletion(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	store := &selectionLifecycleStore{}

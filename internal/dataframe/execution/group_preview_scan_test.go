@@ -283,10 +283,6 @@ func compiledGroupPreviewScanFixture(t *testing.T, bindings recipe.RuntimeBindin
 	return engine, query, stream
 }
 
-func coveringGroupExplain(collection string) arango.ExplainResult {
-	return groupExplainWithCoverage(true, true, collection)
-}
-
 func coveringGroupExplainWithIndex(collection, indexName string) arango.ExplainResult {
 	result := groupExplainWithCoverage(true, true, collection)
 	result.Plan.Nodes[0].Indexes = arango.ExplainIndexes{{Name: indexName, Collection: collection}}
@@ -780,9 +776,7 @@ func TestChooseGroupProjectionFactorizationKeepsPrefixEstimateAdvisory(t *testin
 		case query.PreviewGroupProjection.ScopeCountQuery:
 			return visit(map[string]any{"count": int64(1024)})
 		case assessmentQuery:
-			// The first 512 rows are low diversity. A later tail can contain a
-			// unique Coding projection for every row; the sample is cost advice,
-			// never the source of the factored query's output values.
+
 			return visit(map[string]any{"sampleRows": int64(512), "distinctProjections": int64(2), "serializedCharacters": int64(40)})
 		default:
 			t.Fatalf("unexpected query %q", queryText)

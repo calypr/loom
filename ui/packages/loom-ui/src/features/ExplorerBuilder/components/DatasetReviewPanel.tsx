@@ -211,6 +211,7 @@ const authoredReductions = (
       case 'ownerRecords':
       case 'aggregate':
       case 'projectId':
+      case 'imported':
         return undefined;
       default: {
         const exhaustive: never = source;
@@ -274,6 +275,8 @@ const sourcePaths = (column: DraftTable['document']['columns'][number]): Readonl
       return [source.ownerRecords.binding.ownerPath ?? '', source.ownerRecords.binding.valuePath];
     case 'projectId':
       return [];
+    case 'imported':
+      return [source.imported.outputColumn];
     default: {
       const exhaustive: never = source;
       return exhaustive;

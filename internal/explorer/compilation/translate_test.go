@@ -240,11 +240,21 @@ func contributorSnapshot() capability.Snapshot {
 func stringPtr(value string) *string { return &value }
 
 func TestProjectionWireModesPreserveDistinctArray(t *testing.T) {
-	if got := wireProjectionMode(capability.ProjectionArray); got != "ALL" {
-		t.Fatalf("array wire mode = %q, want ALL", got)
+	snapshot := fixtureSnapshot()
+	snapshot.Candidates = []capability.Candidate{
+		{ID: "array", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name", Label: "Patient name", LogicalType: "string", Cardinality: "many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}},
+		{ID: "distinct", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "identifier", Label: "Identifier", LogicalType: "string", Cardinality: "many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionDistinctArray}},
 	}
-	if got := wireProjectionMode(capability.ProjectionDistinctArray); got != "DISTINCT" {
-		t.Fatalf("distinct array wire mode = %q, want DISTINCT", got)
+	catalog := authoringv2.CatalogFromCapability(snapshot, "explorer-a")
+	got := map[string][]string{}
+	for _, candidate := range catalog.Candidates {
+		got[candidate.ID] = candidate.ProjectionModes
+	}
+	if !reflect.DeepEqual(got["array"], []string{"ALL"}) {
+		t.Fatalf("array projection modes = %#v, want [ALL]", got["array"])
+	}
+	if !reflect.DeepEqual(got["distinct"], []string{"DISTINCT"}) {
+		t.Fatalf("distinct projection modes = %#v, want [DISTINCT]", got["distinct"])
 	}
 }
 
@@ -256,7 +266,7 @@ func TestCatalogCandidateRepeatedUsesCompilerCardinality(t *testing.T) {
 		{ID: "many", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name[].family", LogicalType: "string", Cardinality: "many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}},
 		{ID: "observed-many", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "identifier[].value", LogicalType: "string", Cardinality: "unknown_observed_many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}},
 	}
-	catalog := catalogFromCapability(snapshot, "explorer-a")
+	catalog := authoringv2.CatalogFromCapability(snapshot, "explorer-a")
 	got := map[string]bool{}
 	for _, candidate := range catalog.Candidates {
 		got[candidate.ID] = candidate.Repeated
@@ -275,9 +285,9 @@ func TestCatalogCandidateRepeatedUsesCompilerCardinality(t *testing.T) {
 func TestRouteDepthUsesStableErrorAtCommandAndCompileBoundaries(t *testing.T) {
 	snapshot := fixtureSnapshot()
 	snapshot.Policy.Route.MaxHops = 1
-	catalog := catalogFromCapability(snapshot, "explorer-a")
+	catalog := authoringv2.CatalogFromCapability(snapshot, "explorer-a")
 	workspace, created, err := authoringv2.ApplyCommands(
-		authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}},
+		authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}, SemanticsVersion: authoringv2.CurrentSemanticsVersion},
 		catalog,
 		"create",
 		[]authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", RootNodeID: "n_patient"}},
@@ -342,8 +352,8 @@ func TestCompileRejectsCapabilityMismatchedLogicalTypeAndProjection(t *testing.T
 
 func TestCompileWorkspaceAcceptsCommandGeneratedCandidateSelection(t *testing.T) {
 	snapshot := fixtureSnapshot()
-	catalog := catalogFromCapability(snapshot, "explorer-a")
-	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}}
+	catalog := authoringv2.CatalogFromCapability(snapshot, "explorer-a")
+	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}, SemanticsVersion: authoringv2.CurrentSemanticsVersion}
 	var created []authoringv2.CommandResult
 	var err error
 	workspace, created, err = authoringv2.ApplyCommands(workspace, catalog, "create", []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", RootNodeID: "n_patient"}})
@@ -370,7 +380,7 @@ func TestCompileWorkspaceSetsCanonicalResolvedInputsIdentity(t *testing.T) {
 			Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
 			Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 	first, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, ResolvedInputs{})
 	if err != nil {
@@ -405,7 +415,7 @@ func TestCompileWorkspaceCarriesPopulationIntoRecipeAndReceiptIdentity(t *testin
 			Population: &authoringv2.Population{SelectionRevisionID: "selection-1", Route: []authoringv2.PopulationRouteStep{}},
 			Columns:    []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 	resolved := ResolvedInputs{Populations: []ResolvedPopulation{{
 		OutputID: "patients", SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 3,
@@ -449,7 +459,7 @@ func TestCompileWorkspaceAcceptsOnlyCapabilityProvenLegacyRouteDirection(t *test
 			Population: &authoringv2.Population{SelectionRevisionID: "selection-1", Route: []authoringv2.PopulationRouteStep{{ResourceType: "Patient", Relationship: "parent", CatalogEdgeID: "e_patient_parent"}}},
 			Columns:    []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
 		}},
-		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 	resolved := ResolvedInputs{Populations: []ResolvedPopulation{{
 		OutputID: "patients", SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 3,

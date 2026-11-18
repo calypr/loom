@@ -7,14 +7,15 @@ import (
 
 func TestCollectionSpecsArePersistentAndIndexed(t *testing.T) {
 	s := CollectionSpecs()
-	if len(s) != 14 {
+	if len(s) != 15 {
 		t.Fatalf("specs=%#v", s)
 	}
 	for _, spec := range s {
 		if spec.Truncate {
 			t.Fatalf("%s truncates persisted Explorer state", spec.Name)
 		}
-		if len(spec.Indexes) == 0 {
+
+		if len(spec.Indexes) == 0 && spec.Name != workspaceProjectionCollection {
 			t.Fatalf("%s has no indexes", spec.Name)
 		}
 	}
@@ -24,7 +25,7 @@ func TestCollectionSpecsArePersistentAndIndexed(t *testing.T) {
 	}
 	for collection, required := range map[string][][]string{
 		DraftRevisionsCollection:           {{"project", "explorerId", "draftVersion"}},
-		TableShapeCapabilitiesCollection:   {{"binding.project", "binding.explorerId", "binding.outputId", "kind", "id"}, {"binding.project", "binding.explorerId", "binding.outputId", "parentCatalogId", "kind"}},
+		ViewBuilderSettingsCollection:      {{"project"}},
 		ExplicitGroupRevisionsCollection:   {{"project", "id"}, {"project", "idempotencyKey"}, {"project", "generation", "resourceType", "createdAt"}, {"state", "createdAt"}},
 		ExplicitGroupDefinitionsCollection: {{"revisionId", "ordinal"}, {"revisionId", "groupId"}},
 		ExplicitGroupMembershipsCollection: {{"revisionId", "groupId", "id"}, {"revisionId", "project", "generation", "resourceType", "id"}},

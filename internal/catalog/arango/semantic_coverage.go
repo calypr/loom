@@ -116,8 +116,6 @@ type SemanticCoverageSourcePartitionExpectation struct {
 	SourceSetDigest  string
 }
 
-// SemanticCoverageSourceSetAccumulator keeps fixed-size count and digest
-// state per authorization partition; it never retains source identifiers.
 type SemanticCoverageSourceSetAccumulator struct {
 	mu           sync.Mutex
 	resourceType string
@@ -235,8 +233,7 @@ func semanticCoverageResourceDigest(resourceType string, partitions []SemanticCo
 type SemanticCoverageWriteStats struct {
 	Rows               int64
 	SourceSetsReplaced int64
-	// SerializedBytes counts encoded JSON document bytes acknowledged by the
-	// writer; it does not estimate Arango storage or index overhead.
+
 	SerializedBytes int64
 }
 
@@ -349,8 +346,6 @@ type semanticCoverageStoredDiagnostic struct {
 	Explanation   string `json:"explanation,omitempty"`
 }
 
-// SemanticCoverageCollectionSpec describes the persistent indexes shared by
-// generation ingestion and retained-source backfill.
 func SemanticCoverageCollectionSpec() store.CollectionSpec {
 	return store.CollectionSpec{
 		Name: SemanticCoverageCollection,
@@ -361,10 +356,6 @@ func SemanticCoverageCollectionSpec() store.CollectionSpec {
 			{"project", "dataset_generation", "build_id", "source_kind", "schema_identity", "record_kind", "_key"},
 		},
 	}
-}
-
-func semanticCoveragePathAggregateKey(path catalog.SemanticCoveragePathAggregate) string {
-	return semanticCoverageDocumentKey(path.CanonicalPath, path.ResourceBoundarySignature, string(path.Kind), string(path.Disposition), string(path.Reason))
 }
 
 func semanticCoverageStoredReferences(references []catalog.SemanticCoverageReference) []semanticCoverageStoredReference {
@@ -634,8 +625,6 @@ func semanticCoverageStringCounts(counts map[catalog.SemanticCoveragePresence]in
 	return result
 }
 
-// writeSemanticCoverageDocuments replaces deterministic rows in bounded
-// batches, so replaying a source before its checkpoint advances is idempotent.
 func (s *Store) writeSemanticCoverageDocuments(ctx context.Context, documents []json.RawMessage, batchSize int) (SemanticCoverageWriteStats, error) {
 	if len(documents) == 0 {
 		return SemanticCoverageWriteStats{}, nil
@@ -692,8 +681,6 @@ func semanticCoverageBatchSize(requested int) int {
 	return min(requested, semanticCoverageMaximumBatchSize)
 }
 
-// BeginSemanticCoverageBuild publishes BUILDING before any source-set replay
-// can invalidate previously completed proof for this exact build.
 func (s *Store) BeginSemanticCoverageBuild(ctx context.Context, identity SemanticCoverageBuildIdentity) error {
 	if err := validateSemanticCoverageBuildIdentity(identity); err != nil {
 		return err
@@ -701,9 +688,6 @@ func (s *Store) BeginSemanticCoverageBuild(ctx context.Context, identity Semanti
 	return s.writeSemanticCoverageBuildMarker(ctx, identity, SemanticCoverageBuildBuilding, "", 0, 0, 0)
 }
 
-// BeginSemanticCoverageResource invalidates one resource publication before
-// its sources or summaries change. Other resource certificates remain stored,
-// but the enclosing global BUILDING marker keeps all lookups fail-closed.
 func (s *Store) BeginSemanticCoverageResource(ctx context.Context, identity SemanticCoverageBuildIdentity, resourceType string) error {
 	if err := validateSemanticCoverageBuildIdentity(identity); err != nil {
 		return err
@@ -731,8 +715,6 @@ func (s *Store) MarkSemanticCoverageResourceMissing(ctx context.Context, identit
 	return s.writeSemanticCoverageResourceMarker(ctx, identity, resourceType, SemanticCoverageBuildMissing, "SOURCE_COLLECTION_MISSING", SemanticCoverageResourceExpectation{ResourceType: resourceType}, 0, 0)
 }
 
-// FailSemanticCoverageBuild keeps execution failures distinct from missing
-// source proof so readers can report the real failed state.
 func (s *Store) FailSemanticCoverageBuild(ctx context.Context, identity SemanticCoverageBuildIdentity, reason string) error {
 	if err := validateSemanticCoverageBuildIdentity(identity); err != nil {
 		return err
@@ -740,10 +722,6 @@ func (s *Store) FailSemanticCoverageBuild(ctx context.Context, identity Semantic
 	return s.writeSemanticCoverageBuildMarker(ctx, identity, SemanticCoverageBuildFailed, boundedSemanticCoverageReason(reason), 0, 0, 0)
 }
 
-// FinalizeSemanticCoverageBuild publishes the global build marker only after
-// every expected resource certificate is present and valid. Resource
-// summaries and authorization partitions are written by
-// CompleteSemanticCoverageResource before their COMPLETE markers.
 func (s *Store) FinalizeSemanticCoverageBuild(
 	ctx context.Context,
 	identity SemanticCoverageBuildIdentity,
@@ -871,11 +849,6 @@ func normalizeSemanticCoverageResourceTypes(resourceTypes []string) ([]string, e
 		}
 	}
 	return result, nil
-}
-
-func containsSemanticCoverageResource(resources []string, candidate string) (int, bool) {
-	index := sort.SearchStrings(resources, candidate)
-	return index, index < len(resources) && resources[index] == candidate
 }
 
 func (s *Store) CompleteSemanticCoverageResource(
@@ -1122,14 +1095,6 @@ func validateSemanticCoverageBuildIdentity(identity SemanticCoverageBuildIdentit
 	return nil
 }
 
-func semanticCoverageBuildBindVars(identity SemanticCoverageBuildIdentity) map[string]interface{} {
-	return map[string]interface{}{
-		"project": identity.Project, "dataset_generation": identity.DatasetGeneration,
-		"build_id": identity.BuildID, "schema_identity": identity.SchemaIdentity,
-		"source_kind": identity.SourceKind,
-	}
-}
-
 func (s *Store) writeSemanticCoverageBuildMarker(
 	ctx context.Context,
 	identity SemanticCoverageBuildIdentity,
@@ -1343,9 +1308,6 @@ func newSemanticCoverageMaterializer(identity SemanticCoverageBuildIdentity) *se
 	}
 }
 
-// addEnvelope folds all rows for a path and all facets for an exact leaf path
-// within one source before updating build summaries. This keeps source counts
-// from multiplying when one source contributes several occurrence kinds.
 func (m *semanticCoverageMaterializer) addEnvelope(source semanticCoverageStoredDocument) error {
 	if err := m.addSource(source); err != nil {
 		return err
@@ -1941,17 +1903,6 @@ func semanticCoverageCatalogReference(reference semanticCoverageStoredReference)
 	}
 }
 
-func semanticCoverageCatalogReferenceFromCatalog(reference catalog.SemanticCoverageReference) (catalog.SemanticCoverageReference, bool) {
-	switch reference.Kind {
-	case catalog.SemanticCoverageExactReference:
-		return reference, reference.ConceptID != "" && reference.BindingID != ""
-	case catalog.SemanticCoverageFamilyReference:
-		return reference, reference.Family.FamilyID != "" && reference.Family.BindingID != "" && reference.Family.System != ""
-	default:
-		return catalog.SemanticCoverageReference{}, false
-	}
-}
-
 func semanticCoverageReferenceKey(reference catalog.SemanticCoverageReference) string {
 	if reference.Kind == catalog.SemanticCoverageFamilyReference {
 		return strings.Join([]string{string(reference.Kind), reference.Family.FamilyID, reference.Family.BindingID, reference.Family.SourceKind, reference.Family.ResourceType, reference.Family.SourcePath, reference.Family.System, reference.Family.Version}, "\x00")
@@ -1978,9 +1929,6 @@ func validateSemanticCoverageDocument(document json.RawMessage) error {
 	return nil
 }
 
-// semanticCoverageDocumentKey hashes length-delimited identity parts. This
-// keeps source/path keys deterministic without collisions from delimiters in
-// FHIR paths or source locators.
 func semanticCoverageDocumentKey(parts ...string) string {
 	hash := sha256.New()
 	var length [4]byte
@@ -1992,9 +1940,6 @@ func semanticCoverageDocumentKey(parts ...string) string {
 	return "scv1_" + hex.EncodeToString(hash.Sum(nil))
 }
 
-// readSemanticCoveragePage reads one exact build and authorization scope in
-// stable key order. The caller controls whether its authorized path set is
-// unrestricted; this method never falls back to another build.
 func (s *Store) readSemanticCoveragePage(
 	ctx context.Context,
 	project string,
@@ -2204,9 +2149,6 @@ type semanticCoverageSourcePresence struct {
 	SourceExists     bool   `json:"source_exists"`
 }
 
-// LookupSemanticCoverage reads build, resource, partition, source-presence and
-// exact facet proof in one bounded AQL snapshot. The caller's auth scope is
-// already resolved; no cross-build or cross-scope fallback is performed.
 func (s *Store) LookupSemanticCoverage(ctx context.Context, options SemanticCoverageLookupOptions) (SemanticCoverageLookupResult, error) {
 	result := SemanticCoverageLookupResult{State: SemanticCoverageBuildUnavailable, Candidates: unavailableSemanticCoverageCandidates(options.Candidates, catalog.SemanticCoverageReasonIncompleteSource)}
 	if err := validateSemanticCoverageLookupOptions(options); err != nil {

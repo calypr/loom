@@ -14,7 +14,7 @@ export interface DraftTable {
   readonly tabId: string;
   readonly title: string;
   readonly visible?: boolean;
-  /** The V2 authoring document is the editable source of truth. */
+
   readonly document: ExplorerBuilderDocument;
 }
 
@@ -34,7 +34,7 @@ export interface BuilderAuthoringState {
   readonly project: string;
   readonly explorerId: string;
   readonly catalog: ExplorerBuilderCatalog;
-  /** Canonical server workspace; typed source bindings are intentionally read-only. */
+
   readonly workspace: ExplorerBuilderWorkspace | null;
   readonly draftVersion: number;
   readonly draftDigest: string;
@@ -187,6 +187,25 @@ export const nextRouteOccurrenceId = (
   return value;
 };
 
+const humanizeSystemKey = (value: string): string => {
+  const words = value.split(/[_.-]+/).filter(Boolean).map((word) => word.toLowerCase());
+  if (!words.length) return '';
+  words[0] = words[0]!.slice(0, 1).toUpperCase() + words[0]!.slice(1);
+  return words.join(' ');
+};
+
+const displayColumnLabel = (column: ExplorerBuilderDocument['columns'][number]): string => {
+  const parts = column.label.trim().split(/\s+/);
+  if (parts.length < 4 || parts.some((part) => part.length !== 1)) return column.label;
+  if (column.source.kind === 'codedValue') {
+    const system = column.source.lookup.key.system.trim().replace(/\/+$/, '');
+    const tail = system.slice(system.lastIndexOf('/') + 1);
+    if (tail) return humanizeSystemKey(tail) || column.label;
+  }
+  if (column.column.toLowerCase().replace(/[^a-z0-9]/g, '') !== parts.join('').toLowerCase()) return column.label;
+  return humanizeSystemKey(column.column) || column.label;
+};
+
 const tableFromDocument = (
   document: ExplorerBuilderDocument,
   tab: ExplorerBuilderWorkspace['tabs'][number] | undefined,
@@ -195,7 +214,10 @@ const tableFromDocument = (
   tabId: tab?.id ?? document.output.id,
   title: tab?.title ?? document.output.title ?? document.output.id,
   visible: tab?.visible,
-  document,
+  document: {
+    ...document,
+    columns: document.columns.map((column) => ({ ...column, label: displayColumnLabel(column) })),
+  },
 });
 
 const tablesFromWorkspace = (

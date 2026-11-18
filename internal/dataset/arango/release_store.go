@@ -64,15 +64,10 @@ func (s *Store) CompareAndSwapActivateRelease(ctx context.Context, release datas
 	return CompareAndSwapActivateRelease(ctx, s.client, release, expectedRevision)
 }
 
-// CompareAndSwapActivateRelease commits the active Explorer revision and
-// matching dataset release in one Arango transaction.
 func CompareAndSwapActivateRelease(ctx context.Context, client arangostore.RowQueryer, release dataset.ProjectRelease, expectedRevision int64) (dataset.ActiveRelease, error) {
 	return compareAndSwapActivateRelease(ctx, client, release, expectedRevision, false)
 }
 
-// CompareAndSwapPublishRelease activates a release produced by an Explorer
-// publication. The publication is only current when the active generation
-// pointer still identifies its source manifest.
 func CompareAndSwapPublishRelease(ctx context.Context, client arangostore.RowQueryer, release dataset.ProjectRelease, expectedRevision int64) (dataset.ActiveRelease, error) {
 	return compareAndSwapActivateRelease(ctx, client, release, expectedRevision, true)
 }
@@ -107,10 +102,7 @@ func compareAndSwapActivateRelease(ctx context.Context, client arangostore.RowQu
 		return nil
 	})
 	if err != nil {
-		// Concurrent release CAS operations can both observe the same revision
-		// before Arango serializes their pointer writes. Arango reports the loser
-		// as error 1200 (write-write conflict), so preserve the repository's
-		// typed CAS contract for callers instead of leaking a backend failure.
+
 		if shared.IsArangoErrorWithErrorNum(err, shared.ErrArangoConflict) {
 			return dataset.ActiveRelease{}, fmt.Errorf("%w: concurrent active-pointer update", dataset.ErrReleaseActivationConflict)
 		}
@@ -135,15 +127,7 @@ func lifecycleDocument(value any) (map[string]any, error) {
 }
 
 func decodeValue[T any](value any) (T, error) {
-	var decoded T
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return decoded, err
-	}
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
-		return decoded, err
-	}
-	return decoded, nil
+	return arangostore.DecodeValue[T](value)
 }
 
 func releaseDocumentKey(id string) string            { return documentKey("release", id) }
@@ -187,6 +171,7 @@ FILTER manifest != null AND manifest.recordType == "manifest"
 FILTER manifest.dataset.project == @project AND manifest.dataset.generation == @generation
 FILTER manifest.state IN [@staged_state, @ready_state]
 FILTER generationPointer != null AND generationPointer.recordType == "active_generation"
+FILTER generationPointer.sourceTracked != true
 FILTER NOT @require_current_generation OR (
   generationPointer.dataset.project == @project
   AND generationPointer.dataset.generation == @generation

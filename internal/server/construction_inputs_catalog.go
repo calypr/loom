@@ -585,19 +585,15 @@ func constructionInputColumns(columns []published.Column, labels map[string]stri
 		if strings.TrimSpace(column.ID) == "" {
 			continue
 		}
-		capabilities := columncapabilities.FromClickHouse(column.ClickHouse)
-		logicalType := column.LogicalType
-		if logicalType == "" {
-			logicalType = capabilities.Logical
-		}
+		capabilities := columncapabilities.Resolve(column.ClickHouse, column.LogicalType, column.Nullable, column.Repeated)
 		label := column.Name
 		if pinnedLabel := labels[column.Name]; strings.TrimSpace(pinnedLabel) != "" {
 			label = pinnedLabel
 		}
 		result = append(result, constructionInputColumn{
-			ID: column.ID, Name: column.Name, Label: label, Type: logicalType,
-			ClickHouseType: column.ClickHouse, Nullable: column.Nullable || capabilities.Nullable,
-			Repeated: column.Repeated || capabilities.Repeated, SemanticPath: column.SemanticPath,
+			ID: column.ID, Name: column.Name, Label: label, Type: capabilities.Logical,
+			ClickHouseType: column.ClickHouse, Nullable: capabilities.Nullable,
+			Repeated: capabilities.Repeated, SemanticPath: column.SemanticPath,
 		})
 	}
 	return result

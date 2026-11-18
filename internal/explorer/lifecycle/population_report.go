@@ -17,9 +17,6 @@ const (
 	MaxPopulationMappingLimit     = 1000
 )
 
-// PopulationMapping performs one synchronous, receipt-bound coverage check.
-// It reruns the request-scoped mapping query for later pages; no report state
-// is persisted on a receipt, selection, or workspace.
 func (s *Service) PopulationMapping(ctx context.Context, request PopulationMappingRequest) (PopulationMappingResult, error) {
 	if strings.TrimSpace(request.ReceiptID) == "" || strings.TrimSpace(request.OutputID) == "" {
 		return PopulationMappingResult{}, malformed("populationMapping", "receiptId and outputId are required", nil)
@@ -40,6 +37,9 @@ func (s *Service) PopulationMapping(ctx context.Context, request PopulationMappi
 			return PopulationMappingResult{}, unavailable("populationMapping", "POPULATION_MAPPING_UNAVAILABLE", "population mapping cursor signing is not configured", nil)
 		}
 		decoded, err := s.config.PopulationMappingCursorCodec.Decode(request.Cursor)
+		if errors.Is(err, ErrPopulationMappingCursorUnavailable) {
+			return PopulationMappingResult{}, unavailable("populationMapping", "POPULATION_MAPPING_UNAVAILABLE", "population mapping cursor signing is not configured", err)
+		}
 		if err != nil {
 			return PopulationMappingResult{}, malformed("populationMapping", "cursor is invalid", err)
 		}
@@ -53,12 +53,15 @@ func (s *Service) PopulationMapping(ctx context.Context, request PopulationMappi
 	if err != nil {
 		return PopulationMappingResult{}, err
 	}
-	if err := s.validateReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
+	if err := s.validateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
 		return PopulationMappingResult{}, err
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, receipt.Project, receipt.SnapshotToken)
-	if err != nil || authorized.Snapshot.ValidateToken(receipt.SnapshotToken) != nil || strings.TrimSpace(authorized.Snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {
-		return PopulationMappingResult{}, conflict("populationMapping", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, err)
+	if err != nil {
+		return PopulationMappingResult{}, receiptCapabilityFailure("populationMapping", "the receipt's capability snapshot is no longer authorized or retained", err)
+	}
+	if authorized.Snapshot.ValidateToken(receipt.SnapshotToken) != nil || strings.TrimSpace(authorized.Snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {
+		return PopulationMappingResult{}, conflict("populationMapping", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, nil)
 	}
 	if err := validateAuthorizedReceiptExecution(receipt, authorized); err != nil {
 		return PopulationMappingResult{}, conflict("populationMapping", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, err)
@@ -73,7 +76,7 @@ func (s *Service) PopulationMapping(ctx context.Context, request PopulationMappi
 	population := output.Population
 	selection, err := s.store.GetSelection(ctx, projectid.Canonical(receipt.Project), population.SelectionRevisionID)
 	if err != nil {
-		return PopulationMappingResult{}, err
+		return PopulationMappingResult{}, unavailable("populationMapping", "POPULATION_MAPPING_UNAVAILABLE", "the selected-resource membership could not be loaded", err)
 	}
 	if selection == nil || !selection.Complete {
 		return PopulationMappingResult{}, conflict("populationMapping", "SELECTION_NOT_COMPLETE", "the selected-resource membership is not complete", nil, explorer.ErrSelectionIncomplete)
@@ -90,7 +93,11 @@ func (s *Service) PopulationMapping(ctx context.Context, request PopulationMappi
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return PopulationMappingResult{Report: incompletePopulationReport(receipt, request.OutputID, selection)}, nil
 		}
-		return PopulationMappingResult{}, err
+		var typed *Error
+		if errors.As(err, &typed) {
+			return PopulationMappingResult{}, typed
+		}
+		return PopulationMappingResult{}, unavailable("populationMapping", "POPULATION_MAPPING_UNAVAILABLE", "selection members could not be read", err)
 	}
 	bindings := recipe.RuntimeBindings{
 		Project: projectid.Legacy(receipt.Project), SelectionProject: projectid.Canonical(receipt.Project),
@@ -103,7 +110,10 @@ func (s *Service) PopulationMapping(ctx context.Context, request PopulationMappi
 	}
 	executed, err := s.config.PopulationMapping(ctx, receipt, bindings, request.OutputID, ids, after, limit)
 	if err != nil {
-		return PopulationMappingResult{}, err
+		if classified := classifyMaterializationError("populationMapping", err); classified != nil {
+			return PopulationMappingResult{}, classified
+		}
+		return PopulationMappingResult{}, unavailable("populationMapping", "POPULATION_MAPPING_UNAVAILABLE", "population mapping execution is unavailable", err)
 	}
 	if executed.Status != dataframeexecution.PopulationMappingComplete {
 		return PopulationMappingResult{Report: incompletePopulationReport(receipt, request.OutputID, selection)}, nil
@@ -125,6 +135,9 @@ func (s *Service) PopulationMapping(ctx context.Context, request PopulationMappi
 		last := result.Unmapped[len(result.Unmapped)-1].ID
 		next, encodeErr := s.config.PopulationMappingCursorCodec.Encode(PopulationMappingCursor{Version: 1, ReceiptID: receipt.ID, OutputID: request.OutputID, Project: projectid.Canonical(receipt.Project), ExplorerID: receipt.ExplorerID, Generation: selection.Generation, ScopeDigest: selection.ScopeDigest, SelectionRevisionID: selection.ID, MembershipDigest: selection.MembershipDigest, ResourceType: selection.ResourceType, MemberKey: last})
 		if encodeErr != nil {
+			if errors.Is(encodeErr, ErrPopulationMappingCursorUnavailable) {
+				return PopulationMappingResult{}, unavailable("populationMapping", "POPULATION_MAPPING_UNAVAILABLE", "population mapping cursor signing is not configured", encodeErr)
+			}
 			return PopulationMappingResult{}, internal("populationMapping", "POPULATION_MAPPING_CURSOR", "population mapping cursor could not be created", encodeErr)
 		}
 		result.NextCursor = next

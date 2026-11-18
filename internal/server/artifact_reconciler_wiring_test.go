@@ -59,9 +59,6 @@ func TestStartArtifactFSReconcilerSweepsImmediatelyAndStopsOnCancel(t *testing.T
 	}
 }
 
-// Drives runReconcilerLoop synchronously (manual ticks, no goroutine) so the
-// logger buffer is only ever touched by this goroutine: the fs sweep must be
-// labeled distinctly from the ClickHouse private artifact sweep.
 func TestFilesystemReconcilerLoopUsesFilesystemArtifactLabel(t *testing.T) {
 	buffer := &bytes.Buffer{}
 	sweeps := 0

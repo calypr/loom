@@ -13,26 +13,18 @@ type PhysicalStageSequence struct {
 	FinalRowIdentity    string
 	FinalColumns        []PhysicalStageColumn
 	PreviewLimitBindKey string
-	// PreviewSourceWindowByRootID is set only when lowering proves the terminal
-	// Pivot group key is the direct scalar root FHIR id and the source has root
-	// row identity. Preview compilation may then bound the root scan before the
-	// source projection is materialized. Full execution ignores this hint.
+
 	PreviewSourceWindowByRootID bool
-	// PreviewTerminalPivotWindow is set only when a preview ends at a
-	// nonunique Pivot. Rendering may select complete groups by their final
-	// grouped-row identity after COLLECT and before computing Pivot cells.
+
 	PreviewTerminalPivotWindow bool
-	// OutputAuthResourcePathBindKey adds the exact bound authorization path to
-	// the private prefix result as hidden row metadata. It is populated only by
-	// the typed composite Combine boundary.
+
+	OutputAuthResourcePathColumn  string `json:",omitempty"`
 	OutputAuthResourcePathBindKey string
 	CellTraceReturn               *PhysicalCellTraceReturn
 	RowLineageReturn              *PhysicalRowLineageReturn
 	PopulationMappingReturn       *PhysicalStagePopulationMappingReturn
 }
 
-// PhysicalStagePopulationMappingReturn maps the final root-contributor keys
-// back to the exact selected member IDs captured in the original source rows.
 type PhysicalStagePopulationMappingReturn struct {
 	SourceRootKeyColumn        string
 	SourceMemberIDsColumn      string
@@ -41,10 +33,6 @@ type PhysicalStagePopulationMappingReturn struct {
 	RowIdentityColumn          string
 }
 
-// PhysicalRowLineageReturn selects source records for one final construction
-// row. Trace carries exact owner identities for authored RELATED_EXPAND stages;
-// Group terminals retain their existing typed path. It is diagnostic metadata
-// and never attaches contributors to ordinary preview rows.
 type PhysicalRowLineageReturn struct {
 	RowIDBindKey        string
 	OffsetBindKey       string
@@ -56,9 +44,6 @@ type PhysicalRowLineageReturn struct {
 	Trace               *PhysicalRowLineageTrace
 }
 
-// PhysicalRowLineageTrace carries exact compiler-decoded identities for the
-// row-changing construction stages that own authored contributor occurrences.
-// Stages are ordered from the source toward the final output row.
 type PhysicalRowLineageTrace struct {
 	RootKeyBindKey string
 	Stages         []PhysicalRowLineageStageMatch
@@ -70,8 +55,7 @@ type PhysicalRowLineageStageMatch struct {
 	StageRowIDBindKey        string
 	RelatedTerminalIDBindKey string
 	RelatedRowKind           string
-	// IdentityKeyBindKeys carries decoded keys for a GROUP or PIVOT preimage
-	// owner, in the order of that owner's typed key list.
+
 	IdentityKeyBindKeys []string
 }
 
@@ -85,8 +69,7 @@ type PhysicalStageColumn struct {
 	Internal            bool
 	Identity            bool
 	RelatedRecordAnchor *PhysicalStageRelatedRecordAnchor
-	// RootContributorResourceType marks a compiler-owned root identity or
-	// deduplicated set of root identities retained through a reshape.
+
 	RootContributorResourceType string
 	NormalizedUnit              *unit.UnitIdentity
 	PresenceCompanionName       string
@@ -139,6 +122,7 @@ const (
 )
 
 type PhysicalStageGroup struct {
+	DynamicRuntimeKeysVariable  string
 	GroupRowsVariable           string
 	IdentityVariable            string
 	ConstructionIDBindKey       string
@@ -155,9 +139,6 @@ type PhysicalStageGroup struct {
 	RowValues                   []PhysicalStageRowValue
 }
 
-// PhysicalStageCohortGroup inserts a pinned explicit-cohort boundary into an
-// ordinary construction sequence. Contributor columns are compiler-proven
-// root storage identities retained by the preceding stage.
 type PhysicalStageCohortGroup struct {
 	Rows                        PhysicalGroupRows
 	ContributorInputColumn      string
@@ -167,22 +148,17 @@ type PhysicalStageCohortGroup struct {
 	PreserveMissingMembers      bool
 }
 
-// PhysicalStageRowValue reduces values from contributors retained by a shape
-// operation's existing COLLECT.
 type PhysicalStageRowValue struct {
 	InputColumn string
 	InputKind   string
 	InputMany   bool
-	// FieldSource authorizes a hidden scalar input projection from one exact
-	// source context. Ordinary row values still require a public input column.
+
 	FieldSource *PhysicalStageGroupFieldSource
 	Output      string
 	Policy      string
 	Variable    string
 }
 
-// PhysicalStageCodedGroup groups root records by the tuple from one generated
-// repeated Coding path. It retains no coding ordinal or display value.
 type PhysicalStageCodedGroup struct {
 	RootCollectionBindKey string
 	ConstructionIDBindKey string
@@ -191,9 +167,7 @@ type PhysicalStageCodedGroup struct {
 	ResourceType          string
 	SourceIdentityColumn  string
 	GroupRowsVariable     string
-	// SourceRowsUnique is set only after lowering proves that the direct source
-	// scan yields at most one row per root _key. CODED_GROUP uses it to count
-	// locally deduplicated tuples with SUM(1), without retaining contributor IDs.
+
 	SourceRowsUnique    bool
 	CodingPath          string
 	PathSegments        []PhysicalCodedGroupPathSegment
@@ -233,8 +207,6 @@ type PhysicalStageGroupKey struct {
 	FieldSource   *PhysicalStageGroupFieldSource
 }
 
-// PhysicalStageGroupFieldSource is a tagged sum for local/current source
-// selectors and an exact related occurrence expansion.
 type PhysicalStageGroupFieldSource struct {
 	Kind PhysicalStageGroupFieldSourceKind
 	PhysicalStageGroupCurrentStageFieldSource
@@ -284,9 +256,6 @@ type PhysicalStageGroupRelatedOccurrenceFieldSource struct {
 	MembershipColumn   string
 }
 
-// PhysicalStageGroupRelatedOccurrenceAdapter is the one Group-owned route
-// expansion shared by every key and RowValue bound to the same related route.
-// Its target projection contains only selected scalars or one Coding array.
 type PhysicalStageGroupRelatedOccurrenceAdapter struct {
 	RouteID                string
 	RelatedRecords         PhysicalStageRelatedExpand
@@ -324,8 +293,6 @@ type PhysicalStageGroupRelatedRouteStep struct {
 	ToResourceType   string
 }
 
-// PhysicalStageGroupCodingKey groups one compiler-proven Coding item by its
-// exact system/version/code tuple while keeping display as a separate label.
 type PhysicalStageGroupCodingKey struct {
 	OutputColumn              string
 	InputTupleVariable        string
@@ -342,8 +309,6 @@ type PhysicalStageGroupCodingKey struct {
 	RelatedSource             *PhysicalStageGroupRelatedOccurrenceFieldSource
 }
 
-// PhysicalStageGroupSemanticKey expands one exact semantic coding family per
-// input row. Tuple identity is separate from the public display label.
 type PhysicalStageGroupSemanticKey struct {
 	OutputColumn          string
 	TupleVariable         string
@@ -385,8 +350,7 @@ type PhysicalStageExpand struct {
 
 type PhysicalStageRelatedSource struct {
 	AnchorColumnID string
-	// RootContributorColumn identifies compiler-proven root records when the
-	// signed row anchor is a shaped identity rather than the root document key.
+
 	RootContributorColumn string
 	RootResourceType      string
 	OutputColumnID        string
@@ -400,9 +364,6 @@ type PhysicalStageRelatedSource struct {
 	ContributorPolicy     string
 }
 
-// PhysicalStageRelatedExpand emits one row for each distinct terminal
-// resource reached from a retained root key. The terminal _id and parent row
-// identity are retained as hidden columns for downstream related-field stages.
 type PhysicalStageRelatedExpand struct {
 	RouteID                string
 	Multiplicity           string

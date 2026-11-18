@@ -14,9 +14,6 @@ const (
 	groupPreviewCacheRowOverhead   = 24
 )
 
-// groupPreviewRowsKey identifies raw rows for one exact preview query and
-// source collection version. It deliberately retains the full query and
-// canonical bind JSON so a cache hit cannot depend on a digest collision.
 type groupPreviewRowsKey struct {
 	query         string
 	bindVars      string
@@ -84,9 +81,6 @@ type groupPreviewRowsEntry struct {
 	weight   int
 }
 
-// groupPreviewRowsCache is a zero-value-usable LRU. Entries contain immutable
-// JSON-encoded raw query rows; consumers decode fresh maps before applying the
-// normal post-query checks and visitor.
 type groupPreviewRowsCache struct {
 	mu      sync.Mutex
 	entries map[groupPreviewRowsKey]*list.Element

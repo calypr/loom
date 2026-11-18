@@ -110,7 +110,7 @@ func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing
 			},
 		}
 	}
-	compileScan := func(output recipe.Output, stageID string) CompiledCategoryScanQuery {
+	compileScan := func(output recipe.Output, stageID string, requireValue bool) CompiledCategoryScanQuery {
 		t.Helper()
 		bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
 		bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
@@ -126,7 +126,12 @@ func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing
 		if err != nil {
 			t.Fatal(err)
 		}
-		categoryScan, err := CompileCategoryScanStageWithPolicy(compiled.Outputs[0], stageID, "birth_date_id", "patient_id", 10, ir.DefaultPhysicalOptimizationPolicy())
+		var categoryScan CompiledCategoryScanQuery
+		if requireValue {
+			categoryScan, err = CompileCategoryScanStageRequiringValue(compiled.Outputs[0], stageID, "birth_date_id", "patient_id", 10, ir.DefaultPhysicalOptimizationPolicy())
+		} else {
+			categoryScan, err = CompileCategoryScanStageWithPolicy(compiled.Outputs[0], stageID, "birth_date_id", "patient_id", 10, ir.DefaultPhysicalOptimizationPolicy())
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -155,7 +160,7 @@ func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing
 		}
 	}
 
-	equalityScan := compileScan(makeOutput("construction_category_presence_equality", "keep_active_equality", recipe.FilterEquals), "keep_active_equality")
+	equalityScan := compileScan(makeOutput("construction_category_presence_equality", "keep_active_equality", recipe.FilterEquals), "keep_active_equality", false)
 	rootFilter := "FILTER root.payload.active == @construction_filter_value"
 	stageFilter := "FILTER __loom_construction_input_1.active == @construction_filter_value"
 	if !strings.Contains(equalityScan.Query, rootFilter) || !strings.Contains(equalityScan.Query, stageFilter) {
@@ -166,7 +171,17 @@ func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing
 	}
 	assertMissingAndNull(equalityScan)
 
-	existsScan := compileScan(makeOutput("construction_category_presence_exists", "keep_active_exists", recipe.FilterExists), "keep_active_exists")
+	valueScan := compileScan(makeOutput("construction_category_presence_value", "keep_active_value", recipe.FilterEquals), "keep_active_value", true)
+	if !valueScan.Proof.PresenceTracked || !valueScan.Proof.ValuePresenceRequired {
+		t.Fatalf("value-aware category scan proof = %+v, want tracked presence and required value policy", valueScan.Proof)
+	}
+	if !strings.Contains(valueScan.Query, "HAS(") || !strings.Contains(valueScan.Query, "@__loom_category_value_column") {
+		t.Fatalf("value-aware category scan did not carry source presence and filter the selected value:\n%s", valueScan.Query)
+	}
+
+	assertMissingAndNull(valueScan)
+
+	existsScan := compileScan(makeOutput("construction_category_presence_exists", "keep_active_exists", recipe.FilterExists), "keep_active_exists", false)
 	if strings.Contains(existsScan.Query, "FILTER root.payload.active") || !strings.Contains(existsScan.Query, "FILTER __loom_construction_input_1.active != null") {
 		t.Fatalf("ineligible EXISTS scan must keep its original staged filter without source pushdown:\n%s", existsScan.Query)
 	}
@@ -216,8 +231,7 @@ func TestRootQuantityCategoryScanAugmentsStoredParentIndexAgainstArango(t *testi
 		{id: "other-project", resourceType: "Observation", authPath: allowedPath, project: project + "_foreign", generation: generation, includeQuantity: true, quantity: map[string]any{"code": "foreign-project"}},
 		{id: "other-generation", resourceType: "Observation", authPath: allowedPath, project: project, generation: generation + "_foreign", includeQuantity: true, quantity: map[string]any{"code": "foreign-generation"}},
 		{id: "denied-scope", resourceType: "Observation", authPath: "/category/denied", project: project, generation: generation, includeQuantity: true, quantity: map[string]any{"code": "denied"}},
-		// ResourceType mismatches cannot be produced by the supported FHIR
-		// ingest path; this guard makes the shared type-ordered index explicit.
+
 		{id: "wrong-type", resourceType: "Patient", authPath: allowedPath, project: project, generation: generation, includeQuantity: true, quantity: map[string]any{"code": "wrong-type"}},
 	}
 	documents := make([]json.RawMessage, 0, len(fixtures))
@@ -278,12 +292,9 @@ func TestRootQuantityCategoryScanAugmentsStoredParentIndexAgainstArango(t *testi
 	}
 	wantIndexFields := previewQuantityCategoryFields()
 	wantStoredValues := previewQuantityCategoryStoredValues()
-	wantLegacyFields := previewQuantityCategoryLegacyFields()
 	if scan.CategoryIndex == nil || scan.CategoryIndex.Name != previewCoveringIndexNameWithStoredValues("Observation", wantIndexFields, wantStoredValues) ||
-		!sameCategoryIndexFields(scan.CategoryIndex.Fields, wantIndexFields) || !reflect.DeepEqual(scan.CategoryIndex.StoredValues, wantStoredValues) ||
-		scan.CategoryIndex.Supersedes == nil || scan.CategoryIndex.Supersedes.Name != previewCoveringIndexNameWithStoredValues("Observation", wantLegacyFields, wantStoredValues) ||
-		!reflect.DeepEqual(scan.CategoryIndex.Supersedes.Fields, wantLegacyFields) || !reflect.DeepEqual(scan.CategoryIndex.Supersedes.StoredValues, wantStoredValues) {
-		t.Fatalf("root quantity category index does not exactly augment its stored-parent Pivot index: %+v", scan.CategoryIndex)
+		!sameCategoryIndexFields(scan.CategoryIndex.Fields, wantIndexFields) || !reflect.DeepEqual(scan.CategoryIndex.StoredValues, wantStoredValues) {
+		t.Fatalf("root quantity category index definition: %+v", scan.CategoryIndex)
 	}
 	if !strings.Contains(scan.Query, "root.resourceType == @__loom_category_resource_type") ||
 		scan.BindVars["__loom_category_resource_type"] != "Observation" {

@@ -63,7 +63,7 @@ func constructionRouteTestReceipt(service *Service, snapshot capability.Snapshot
 	if err != nil {
 		return nil, err
 	}
-	return lifecycleTableShapeReceipt(snapshot, prepared), nil
+	return lifecycleConstructionReceipt(snapshot, prepared), nil
 }
 
 func TestConstructionChoiceSearchAndApplyUseCompilerProvedInboundRoute(t *testing.T) {
@@ -217,6 +217,54 @@ func TestRelatedExpandChoiceSearchPinsRouteToCompilerSupportedStage(t *testing.T
 		identity.SnapshotToken != snapshot.Token || len(identity.Route) != 1 || identity.Route[0].EdgeID != "subject-patient" {
 		t.Fatalf("route choice did not bind the selected stage and exact route: source=%#v route=%#v", identity.Source, identity.Route)
 	}
+
+	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.Documents[0].Route.Children = append(workspace.Documents[0].Route.Children, authoringv2.RouteNode{
+		OccurrenceID: "saved-for-expansion", ResourceType: "Observation",
+		Relationship: "subject_Patient", CatalogEdgeID: "subject-patient", MatchMode: authoringv2.RouteMatchRequired,
+	})
+	store.created.DraftConfig, err = workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.created.DraftDigest, err = workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := service.SearchRelatedExpandChoices(context.Background(), RelatedExpandChoiceSearchRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+		OutputID: "patients", StageID: "keep_patients", AnchorColumnID: "_key", TargetResourceType: "Observation",
+		SavedGraphOnly: true,
+	})
+	if err != nil || !saved.Complete || saved.NextCursor != "" || len(saved.Choices) != 1 {
+		t.Fatalf("saved graph route choices = %#v, %v", saved, err)
+	}
+	savedRoute := saved.Choices[0].Route
+	if len(savedRoute) != 1 || savedRoute[0].EdgeID != "subject-patient" || savedRoute[0].MatchMode != "REQUIRED" {
+		t.Fatalf("saved graph choice changed its exact edge or match policy: %#v", savedRoute)
+	}
+
+}
+
+func TestSavedRelatedExpandPagesRespectLimitAndScope(t *testing.T) {
+	routes := [][]capability.ConstructionRouteStep{{{EdgeID: "first"}}, {{EdgeID: "second"}}}
+	scope := savedRelatedExpandCursor{Snapshot: "snapshot", Draft: "draft", Output: "patients", Stage: "source", Anchor: "_key", Target: "Observation"}
+	first, cursor, err := pageSavedRelatedExpandRoutes(routes, scope, "", 1)
+	if err != nil || len(first) != 1 || first[0][0].EdgeID != "first" || cursor == "" {
+		t.Fatalf("first saved page = %#v, %q, %v", first, cursor, err)
+	}
+	second, cursorAfter, err := pageSavedRelatedExpandRoutes(routes, scope, cursor, 1)
+	if err != nil || len(second) != 1 || second[0][0].EdgeID != "second" || cursorAfter != "" {
+		t.Fatalf("second saved page = %#v, %q, %v", second, cursorAfter, err)
+	}
+	scope.Draft = "new-draft"
+	if _, _, err := pageSavedRelatedExpandRoutes(routes, scope, cursor, 1); err == nil {
+		t.Fatal("saved graph cursor admitted a different draft")
+	}
 }
 
 func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *testing.T) {
@@ -280,7 +328,7 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 		if prepareErr != nil {
 			return nil, prepareErr
 		}
-		receipt := lifecycleTableShapeReceipt(snapshot, prepared)
+		receipt := lifecycleConstructionReceipt(snapshot, prepared)
 		root := explorer.ReceiptConstructionRelatedExpandAnchor{AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient"}
 		active := explorer.ReceiptConstructionRelatedExpandAnchor{
 			AnchorColumnID: "__terminal_observation_id", Kind: "activeRelatedRecord", NodeID: "observation",
@@ -935,7 +983,7 @@ func TestConstructionChoiceSearchRejectsOccurrenceOutsideOutputOrWrongTerminal(t
 				workspace.Documents = append(workspace.Documents, authoringv2.Document{
 					Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "other", Title: "Other"}, RootResourceType: "Patient",
 					Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "outside-output", ResourceType: "Observation", Relationship: "subject_Patient"}}},
-					Columns: []authoringv2.Column{},
+					Columns: []authoringv2.Column{}, Rows: authoringv2.RecordsRowDefinition(),
 				})
 				workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: "other-tab", Title: "Other", OutputID: "other", Order: len(workspace.Tabs), Visible: true})
 				persistTestWorkspace(t, store, workspace)

@@ -19,12 +19,6 @@ export interface ViewerSort {
   readonly desc: boolean;
 }
 
-/**
- * One per-field selection. Populated values and the missing bucket cannot share a
- * representation: a literal data value spelled exactly like the missing label must
- * still serialize as EQ/IN, while only the tagged bucket emits IS_NULL. An empty
- * `values` array means cleared, never a filter that matches nothing.
- */
 export type ViewerFieldSelection =
   | { readonly kind: 'values'; readonly values: ReadonlyArray<string> }
   | { readonly kind: 'missing' };

@@ -131,16 +131,6 @@ func (r *physicalPlanRenderer) renderUnnestSource(unnest ir.PhysicalUnnest) (str
 	return "(\n    " + strings.Join(lines, "\n    ") + "\n  )", nil
 }
 
-// renderUnnest lowers the canonical cardinality-changing operation into
-// correlated AQL loops. The physical IR deliberately does not contain AQL;
-// this is the sole renderer implementation for both recipe-originated and
-// generic plans.
-//
-// A source is evaluated once per parent row and normalized to [] on null. An
-// INNER unnest emits no rows for an empty source. OUTER uses a nullable index
-// sentinel so it emits exactly one parent row with a null item. Indexed loops
-// are used whenever ordinality or OUTER semantics are requested, preserving
-// duplicate values and a stable zero-based position.
 func (r *physicalPlanRenderer) renderUnnest(unnest ir.PhysicalUnnest, indent string, ordinal, depth int) ([]string, error) {
 	source, err := r.renderUnnestSource(unnest)
 	if err != nil {
@@ -171,10 +161,7 @@ func (r *physicalPlanRenderer) renderUnnest(unnest ir.PhysicalUnnest, indent str
 	}
 	rawSourceVariable := r.newInternalVariable(fmt.Sprintf("unnest_raw_source_%d", ordinal))
 	sourceVariable := r.newInternalVariable(fmt.Sprintf("unnest_source_%d", ordinal))
-	// Selector extraction preserves one array layer per repeated path. UNNEST
-	// consumes the resulting collection, so flatten exactly one layer here;
-	// otherwise a source such as root.member[] becomes [member[]] and emits one
-	// row per parent rather than one row per member.
+
 	lines = append(lines,
 		fmt.Sprintf("%sLET %s = %s", baseIndent, rawSourceVariable, source),
 		fmt.Sprintf("%sLET %s = (%s == null ? [] : FLATTEN(%s))", baseIndent, sourceVariable, rawSourceVariable, rawSourceVariable),
@@ -239,9 +226,7 @@ func (r *physicalPlanRenderer) renderSet(set ir.PhysicalSet, index int) ([]strin
 		strategy = ir.PhysicalTraversalNative
 	}
 	if strategy == ir.PhysicalTraversalEndpointLookup {
-		// The endpoint equality is the first edge predicate so Arango can use
-		// the route's compound endpoint index. The node is materialized only
-		// after edge scope/type predicates have narrowed the candidate set.
+
 		lines = append(lines,
 			fmt.Sprintf("%sFOR %s IN @@%s", indent, t.EdgeVariable, t.EdgeCollectionBindKey),
 			fmt.Sprintf("%s  FILTER %s.%s == %s._id", indent, t.EdgeVariable, t.EndpointField, parentVariable),
@@ -305,7 +290,7 @@ func (r *physicalPlanRenderer) renderSet(set ir.PhysicalSet, index int) ([]strin
 		return nil, err
 	}
 	if set.SortByKey {
-		lines = append(lines, indent+"  SORT "+t.TargetVariable+"._key")
+		lines = append(lines, indent+"  SORT NOT_NULL("+t.TargetVariable+".logical_key, "+t.TargetVariable+"._key), "+t.TargetVariable+"._key")
 	}
 	lines = append(lines, indent+"  RETURN "+value, "  )")
 	if set.Unique {
@@ -339,7 +324,7 @@ func renderPhysicalSetOutput(value string, output *ir.PhysicalSetOutput) (string
 	for _, field := range output.Fields {
 		name := string(field)
 		switch field {
-		case ir.PhysicalSetGraphIDField, ir.PhysicalSetKeyField, ir.PhysicalSetIDField, ir.PhysicalSetResourceTypeField, ir.PhysicalSetPayloadField:
+		case ir.PhysicalSetGraphIDField, ir.PhysicalSetKeyField, ir.PhysicalSetLogicalKeyField, ir.PhysicalSetIDField, ir.PhysicalSetResourceTypeField, ir.PhysicalSetPayloadField:
 			fields = append(fields, fmt.Sprintf("%s: %s.%s", name, value, name))
 		default:
 			return "", fmt.Errorf("unsupported compact set output field %q", field)
@@ -355,6 +340,7 @@ func (r *physicalPlanRenderer) renderPhysicalSetProjection(item string, projecti
 	fields := []string{
 		"_id: " + item + "._id",
 		"_key: " + item + "._key",
+		"logical_key: " + item + ".logical_key",
 		"id: " + item + ".id",
 		"resourceType: " + item + ".resourceType",
 	}
@@ -397,13 +383,10 @@ func (r *physicalPlanRenderer) renderPreparedSet(prepared ir.PhysicalPreparedSet
 	}
 	item := r.newInternalVariable("prepared_item")
 	lines := []string{fmt.Sprintf("  LET %s = (", prepared.Variable), fmt.Sprintf("    FOR %s IN %s", item, prepared.SourceSetVariable)}
-	// Rich consumers may combine a prepared selector with a direct payload
-	// fallback (slice identity, an unprepared pivot value, or a nested object
-	// field). Preserve the node-facing fields those consumers already read while
-	// adding prepared projections; the optimizer can remove this retention only
-	// after a separate compact-set contract proves it safe.
+
 	fields := []string{
 		fmt.Sprintf("_key: %s._key", item),
+		fmt.Sprintf("logical_key: %s.logical_key", item),
 		fmt.Sprintf("id: %s.id", item),
 		fmt.Sprintf("resourceType: %s.resourceType", item),
 		fmt.Sprintf("payload: %s.payload", item),
@@ -470,7 +453,7 @@ func (r *physicalPlanRenderer) renderSharedSubset(set ir.PhysicalSet) ([]string,
 		return nil, err
 	}
 	if set.SortByKey {
-		lines = append(lines, "      SORT "+set.ItemVariable+"._key")
+		lines = append(lines, "      SORT NOT_NULL("+set.ItemVariable+".logical_key, "+set.ItemVariable+"._key), "+set.ItemVariable+"._key")
 	}
 	lines = append(lines, "      RETURN "+value, "    )")
 	if set.Unique {

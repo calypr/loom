@@ -1,5 +1,8 @@
 import { z } from 'zod';
-/** Selector identity for published dataframe reads. */
+import { importedSourceParametersSchema, validateEditableSourceParameters } from './sourceRecipeParameters';
+export { importedSourceParametersSchema, sourceRecipeExpressionSchema, sourceRecipeEditFunctions } from './sourceRecipeParameters';
+export type { ImportedSourceParameters, SourceRecipeExpression } from './sourceRecipeParameters';
+
 export interface DataframeSelector {
   readonly recipe: string;
   readonly translationVersion: string;
@@ -11,6 +14,7 @@ export const EXPLORER_AUTHORING_API_VERSION =
 export { EXPLORER_AUTHORING_SEMANTICS_VERSION } from './authoringSemanticsVersion.mjs';
 
 const opaqueIdSchema = z.string().trim().min(1);
+const exactOpaqueIdSchema = z.string().min(1).refine((value) => value === value.trim(), 'ID must not have surrounding whitespace.');
 const projectionModeSchema = z.enum([
   'VALUE',
   'INDEXED',
@@ -536,6 +540,10 @@ export const contributorPredicateSchema = z
   .strict();
 export type ContributorPredicate = z.infer<typeof contributorPredicateSchema>;
 export const explorerColumnSourceSchema = z.union([
+  z.object({
+    kind: z.literal('imported'),
+    imported: z.object({ outputColumn: opaqueIdSchema }).strict(),
+  }).strict(),
   fieldColumnSourceSchema,
   lookupColumnSourceSchema,
   ownerRecordsColumnSourceSchema,
@@ -773,6 +781,9 @@ export const rowDefinitionComparisonSchema = z.discriminatedUnion('status', [
 ]);
 export type RowDefinitionComparison = z.infer<typeof rowDefinitionComparisonSchema>;
 export const rowDefinitionProposalSchema = z.object({
+  candidateDocument: z.lazy(() => explorerBuilderDocumentSchema),
+  candidateNetwork: z.lazy(() => authoringNetworkSchema),
+  candidateRowIdentity: z.lazy(() => rowIdentityPlanSchema),
   proposalId: opaqueIdSchema.optional(),
   baseReceiptId: opaqueIdSchema,
   outputId: opaqueIdSchema,
@@ -785,480 +796,6 @@ export const rowDefinitionProposalSchema = z.object({
   comparison: rowDefinitionComparisonSchema,
 }).strict();
 export type RowDefinitionProposal = z.infer<typeof rowDefinitionProposalSchema>;
-
-const tableShapeChoiceAvailabilitySchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('supported') }).strict(),
-  z.object({ kind: z.literal('unsupported'), reason: z.string().min(1) }).strict(),
-]);
-export type TableShapeChoiceAvailability = z.infer<typeof tableShapeChoiceAvailabilitySchema>;
-
-export type TableShapeJSONValue =
-  | null
-  | boolean
-  | number
-  | string
-  | ReadonlyArray<TableShapeJSONValue>
-  | { readonly [key: string]: TableShapeJSONValue };
-
-const tableShapeJSONValueSchema: z.ZodType<TableShapeJSONValue> = z.lazy(() => z.union([
-  z.null(),
-  z.boolean(),
-  z.number(),
-  z.string(),
-  z.array(tableShapeJSONValueSchema),
-  z.record(z.string(), tableShapeJSONValueSchema),
-]));
-const persistedTableShapeSchema = z.record(z.string(), tableShapeJSONValueSchema);
-
-export const tableShapeTaggedScalarSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('BOOLEAN'), boolean: z.boolean() }).strict(),
-  z.object({ kind: z.literal('DECIMAL'), decimal: z.number() }).strict(),
-  z.object({ kind: z.literal('INTEGER'), integer: z.number().int() }).strict(),
-  z.object({ kind: z.literal('STRING'), string: z.string() }).strict(),
-]);
-export type TableShapeTaggedScalar = z.infer<typeof tableShapeTaggedScalarSchema>;
-
-const tableShapeOutputNameSchema = z.object({ column: z.string().min(1), label: z.string().min(1) }).strict();
-const tableShapeColumnReferenceSchema = z.object({ kind: z.literal('column'), choiceId: opaqueIdSchema }).strict();
-const tableShapeOperandReferenceSchema = z.object({ kind: z.literal('operand'), choiceId: opaqueIdSchema }).strict();
-const tableShapePivotCategoryReferenceSchema = z.object({ kind: z.literal('pivotCategory'), choiceId: opaqueIdSchema }).strict();
-const tableShapeReshapeModeReferenceSchema = z.object({ kind: z.literal('reshapeMode'), choiceId: opaqueIdSchema }).strict();
-const tableShapeBinaryOperatorReferenceSchema = z.object({ kind: z.literal('binaryOperator'), choiceId: opaqueIdSchema }).strict();
-const tableShapeDuplicatePolicyReferenceSchema = z.object({ kind: z.literal('duplicatePolicy'), choiceId: opaqueIdSchema }).strict();
-const tableShapeMissingCellPolicyReferenceSchema = z.object({ kind: z.literal('missingCellPolicy'), choiceId: opaqueIdSchema }).strict();
-const tableShapeUnlistedPolicyReferenceSchema = z.object({ kind: z.literal('unlistedCategoryPolicy'), choiceId: opaqueIdSchema }).strict();
-const tableShapeUnpivotPolicyReferenceSchema = z.object({ kind: z.literal('unpivotNullRowPolicy'), choiceId: opaqueIdSchema }).strict();
-const tableShapeMissingInputPolicyReferenceSchema = z.object({ kind: z.literal('missingInputPolicy'), choiceId: opaqueIdSchema }).strict();
-const tableShapeDivisionByZeroPolicyReferenceSchema = z.object({ kind: z.literal('divisionByZeroPolicy'), choiceId: opaqueIdSchema }).strict();
-
-const tableShapePivotOutputReferenceSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('group'), column: tableShapeColumnReferenceSchema }).strict(),
-  z.object({ kind: z.literal('category'), category: tableShapePivotCategoryReferenceSchema }).strict(),
-]);
-
-const tableShapeDerivedOperandIntentSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('base'), reference: tableShapeOperandReferenceSchema }).strict(),
-  z.object({ kind: z.literal('derived'), localId: opaqueIdSchema }).strict(),
-  z.object({ kind: z.literal('pivotOutput'), reference: tableShapePivotOutputReferenceSchema }).strict(),
-  z.object({ kind: z.literal('literal'), representation: z.enum(['integer', 'decimal']), text: z.string() }).strict(),
-]);
-
-const tableShapeDerivedColumnIntentSchema = z.object({
-  divisionByZeroPolicy: tableShapeDivisionByZeroPolicyReferenceSchema.optional(),
-  leftOperand: tableShapeDerivedOperandIntentSchema,
-  localId: opaqueIdSchema,
-  missingInputPolicy: tableShapeMissingInputPolicyReferenceSchema,
-  operator: tableShapeBinaryOperatorReferenceSchema,
-  output: tableShapeOutputNameSchema,
-  rightOperand: tableShapeDerivedOperandIntentSchema,
-}).strict();
-
-const tableShapePivotProposalIntentSchema = z.object({
-  categoryColumn: tableShapeColumnReferenceSchema,
-  categoryDiscoveryIdentity: opaqueIdSchema,
-  duplicatePolicy: tableShapeDuplicatePolicyReferenceSchema,
-  groupColumns: z.array(tableShapeColumnReferenceSchema).min(1),
-  includedCategories: z.array(z.object({
-    category: tableShapePivotCategoryReferenceSchema,
-    output: tableShapeOutputNameSchema,
-  }).strict()).min(1),
-  missingCellPolicy: tableShapeMissingCellPolicyReferenceSchema,
-  unlistedCategoryPolicy: tableShapeUnlistedPolicyReferenceSchema,
-  valueColumn: tableShapeColumnReferenceSchema,
-}).strict();
-
-const tableShapeUnpivotProposalIntentSchema = z.object({
-  inputColumns: z.array(tableShapeColumnReferenceSchema).min(1),
-  keyOutput: tableShapeOutputNameSchema,
-  nullRowPolicy: tableShapeUnpivotPolicyReferenceSchema,
-  valueOutput: tableShapeOutputNameSchema,
-}).strict();
-
-export const tableShapeProposalIntentSchema = z.discriminatedUnion('kind', [
-  z.object({
-    derivedColumns: z.array(tableShapeDerivedColumnIntentSchema),
-    kind: z.literal('NONE'),
-    reshapeMode: tableShapeReshapeModeReferenceSchema,
-  }).strict(),
-  z.object({
-    derivedColumns: z.array(tableShapeDerivedColumnIntentSchema),
-    kind: z.literal('GROUPED_PIVOT'),
-    pivot: tableShapePivotProposalIntentSchema,
-    reshapeMode: tableShapeReshapeModeReferenceSchema,
-  }).strict(),
-  z.object({
-    derivedColumns: z.array(tableShapeDerivedColumnIntentSchema),
-    kind: z.literal('UNPIVOT'),
-    reshapeMode: tableShapeReshapeModeReferenceSchema,
-    unpivot: tableShapeUnpivotProposalIntentSchema,
-  }).strict(),
-]);
-export type TableShapeProposalIntent = z.infer<typeof tableShapeProposalIntentSchema>;
-
-const tableShapeEditorChoiceSchema = z.object({
-  availability: tableShapeChoiceAvailabilitySchema,
-  choiceId: opaqueIdSchema,
-  choiceKind: z.string().min(1),
-  label: z.string().min(1),
-}).strict();
-
-const tableShapeColumnChoiceSchema = tableShapeEditorChoiceSchema.extend({ choiceKind: z.literal('column') }).strict();
-const tableShapeOperandChoiceSchema = tableShapeEditorChoiceSchema.extend({ choiceKind: z.literal('operand') }).strict();
-const tableShapePolicyChoiceSchema = <Kind extends string>(choiceKind: Kind) => tableShapeEditorChoiceSchema.extend({ choiceKind: z.literal(choiceKind) }).strict();
-const tableShapeOutputSuggestionSchema = z.object({
-  availability: tableShapeChoiceAvailabilitySchema,
-  choiceId: opaqueIdSchema,
-  choiceKind: z.enum(['derivedOutput', 'unpivotKeyOutput', 'unpivotValueOutput']),
-  label: z.string().min(1),
-  resultTypeLabel: z.string().min(1),
-  suggestedOutput: tableShapeOutputNameSchema,
-}).strict();
-const tableShapeOutputSupportSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('supported'),
-    resultTypeLabel: z.string().min(1),
-    suggestions: z.array(tableShapeOutputSuggestionSchema),
-  }).strict(),
-  z.object({ kind: z.literal('unsupported'), reason: z.string().min(1) }).strict(),
-]);
-const tableShapeBinaryOperatorChoiceSchema = tableShapeEditorChoiceSchema.extend({
-  choiceKind: z.literal('binaryOperator'),
-  requiresDivisionByZeroPolicy: z.boolean(),
-}).strict();
-const tableShapeReshapeModeChoiceSchema = tableShapeEditorChoiceSchema.extend({
-  choiceKind: z.literal('reshapeMode'),
-  mode: z.enum(['NONE', 'GROUPED_PIVOT', 'UNPIVOT']),
-}).strict();
-const tableShapePivotCategoryChoiceSchema = tableShapeEditorChoiceSchema.extend({
-  choiceKind: z.literal('pivotCategory'),
-  suggestedOutput: tableShapeOutputNameSchema,
-  value: tableShapeTaggedScalarSchema,
-}).strict();
-const tableShapePivotCategoryPairSchema = z.object({
-  categoryColumn: tableShapeColumnReferenceSchema,
-  valueColumn: tableShapeColumnReferenceSchema,
-}).strict();
-
-const tableShapePivotCategoryDiscoveryStateSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('not-requested') }).strict(),
-  z.object({
-    categories: z.array(tableShapePivotCategoryChoiceSchema),
-    discoveryIdentity: opaqueIdSchema,
-    kind: z.literal('complete'),
-    pair: tableShapePivotCategoryPairSchema,
-  }).strict(),
-]);
-
-export const tableShapeCapabilitiesSchema = z.object({
-  binaryOperators: z.array(tableShapeBinaryOperatorChoiceSchema),
-  catalogId: opaqueIdSchema,
-  categoryColumns: z.array(tableShapeColumnChoiceSchema),
-  derivedAvailability: tableShapeChoiceAvailabilitySchema,
-  derivedOutputSuggestions: z.array(tableShapeOutputSuggestionSchema.extend({ choiceKind: z.literal('derivedOutput') }).strict()),
-  divisionByZeroPolicies: z.array(tableShapePolicyChoiceSchema('divisionByZeroPolicy')),
-  duplicatePolicies: z.array(tableShapePolicyChoiceSchema('duplicatePolicy')),
-  groupColumns: z.array(tableShapeColumnChoiceSchema),
-  missingCellPolicies: z.array(tableShapePolicyChoiceSchema('missingCellPolicy')),
-  missingInputPolicies: z.array(tableShapePolicyChoiceSchema('missingInputPolicy')),
-  operands: z.array(tableShapeOperandChoiceSchema),
-  outputId: opaqueIdSchema,
-  pivotCategoryDiscovery: tableShapePivotCategoryDiscoveryStateSchema,
-  reshapeModes: z.array(tableShapeReshapeModeChoiceSchema),
-  savedProposalAvailability: tableShapeChoiceAvailabilitySchema,
-  savedProposalIntent: tableShapeProposalIntentSchema,
-  unlistedCategoryPolicies: z.array(tableShapePolicyChoiceSchema('unlistedCategoryPolicy')),
-  unpivotColumns: z.array(tableShapeColumnChoiceSchema),
-  unpivotKeyOutput: tableShapeOutputSupportSchema,
-  unpivotNullRowPolicies: z.array(tableShapePolicyChoiceSchema('unpivotNullRowPolicy')),
-  unpivotValueOutput: tableShapeOutputSupportSchema,
-  unpivotWithDerivedAvailability: tableShapeChoiceAvailabilitySchema,
-  valueColumns: z.array(tableShapeColumnChoiceSchema),
-}).strict();
-export type TableShapeCapabilities = z.infer<typeof tableShapeCapabilitiesSchema>;
-
-export const tableShapeCapabilitiesRequestSchema = z.object({
-  expectedDraftDigest: opaqueIdSchema,
-  expectedDraftVersion: z.number().int().positive(),
-  outputId: opaqueIdSchema,
-  snapshotToken: opaqueIdSchema,
-}).strict();
-export type TableShapeCapabilitiesRequest = z.infer<typeof tableShapeCapabilitiesRequestSchema>;
-
-export const tableShapeCategoryDiscoverySchema = z.object({
-  catalogId: opaqueIdSchema,
-  categories: z.array(tableShapePivotCategoryChoiceSchema),
-  discoveryIdentity: opaqueIdSchema,
-  kind: z.literal('complete'),
-  pair: tableShapePivotCategoryPairSchema,
-}).strict();
-export type TableShapeCategoryDiscovery = z.infer<typeof tableShapeCategoryDiscoverySchema>;
-
-export const tableShapeCategoryDiscoveryRequestSchema = z.object({
-  catalogId: opaqueIdSchema,
-  categoryColumnChoiceId: opaqueIdSchema,
-  expectedDraftDigest: opaqueIdSchema,
-  expectedDraftVersion: z.number().int().positive(),
-  outputId: opaqueIdSchema,
-  snapshotToken: opaqueIdSchema,
-  valueColumnChoiceId: opaqueIdSchema,
-}).strict();
-export type TableShapeCategoryDiscoveryRequest = z.infer<typeof tableShapeCategoryDiscoveryRequestSchema>;
-
-export const tableShapeResolutionRequestSchema = z.discriminatedUnion('kind', [
-  z.object({
-    catalogId: opaqueIdSchema,
-    expectedDraftDigest: opaqueIdSchema,
-    expectedDraftVersion: z.number().int().positive(),
-    kind: z.literal('PIVOT'),
-    outputId: opaqueIdSchema,
-    pivot: z.object({
-      categories: z.array(z.object({ choiceId: opaqueIdSchema, outputColumn: z.string().min(1), outputLabel: z.string().min(1) }).strict()).min(1),
-      categoryColumnChoiceId: opaqueIdSchema,
-      categoryDiscoveryId: opaqueIdSchema,
-      duplicatePolicyChoiceId: opaqueIdSchema,
-      groupColumnChoiceIds: z.array(opaqueIdSchema).min(1),
-      missingPolicyChoiceId: opaqueIdSchema,
-      unlistedPolicyChoiceId: opaqueIdSchema,
-      valueColumnChoiceId: opaqueIdSchema,
-    }).strict(),
-    snapshotToken: opaqueIdSchema,
-  }).strict(),
-  z.object({
-    catalogId: opaqueIdSchema,
-    expectedDraftDigest: opaqueIdSchema,
-    expectedDraftVersion: z.number().int().positive(),
-    kind: z.literal('UNPIVOT'),
-    outputId: opaqueIdSchema,
-    snapshotToken: opaqueIdSchema,
-    unpivot: z.object({
-      inputColumnChoiceIds: z.array(opaqueIdSchema).min(1),
-      keyOutputColumn: z.string().min(1),
-      keyOutputLabel: z.string().min(1),
-      nullPolicyChoiceId: opaqueIdSchema,
-      valueOutputColumn: z.string().min(1),
-      valueOutputLabel: z.string().min(1),
-    }).strict(),
-  }).strict(),
-  z.object({
-    catalogId: opaqueIdSchema,
-    derived: z.object({
-      divisionByZeroPolicyChoiceId: opaqueIdSchema.optional(),
-      left: z.discriminatedUnion('kind', [
-        z.object({ kind: z.literal('CATALOG_CHOICE'), choiceId: opaqueIdSchema }).strict(),
-        z.object({ kind: z.literal('RESOLUTION_OUTPUT'), resolutionId: opaqueIdSchema }).strict(),
-        z.object({ kind: z.literal('LITERAL'), literal: tableShapeTaggedScalarSchema }).strict(),
-      ]),
-      missingPolicyChoiceId: opaqueIdSchema,
-      operatorChoiceId: opaqueIdSchema,
-      outputColumn: z.string().min(1),
-      outputLabel: z.string().min(1),
-      pivotResolutionId: opaqueIdSchema.optional(),
-      right: z.discriminatedUnion('kind', [
-        z.object({ kind: z.literal('CATALOG_CHOICE'), choiceId: opaqueIdSchema }).strict(),
-        z.object({ kind: z.literal('RESOLUTION_OUTPUT'), resolutionId: opaqueIdSchema }).strict(),
-        z.object({ kind: z.literal('LITERAL'), literal: tableShapeTaggedScalarSchema }).strict(),
-      ]),
-    }).strict(),
-    expectedDraftDigest: opaqueIdSchema,
-    expectedDraftVersion: z.number().int().positive(),
-    kind: z.literal('DERIVED'),
-    outputId: opaqueIdSchema,
-    snapshotToken: opaqueIdSchema,
-  }).strict(),
-]);
-export type TableShapeResolutionRequest = z.infer<typeof tableShapeResolutionRequestSchema>;
-
-const tableShapeTypeFactSchema = z.object({
-  logicalType: z.string().min(1),
-  nullable: z.boolean(),
-  unitIdentity: z.string().optional(),
-}).strict();
-const tableShapeResolvedCategorySchema = z.object({
-  id: opaqueIdSchema,
-  outputColumn: z.string().min(1),
-  outputLabel: z.string().min(1),
-  type: tableShapeTypeFactSchema,
-  value: tableShapeTaggedScalarSchema,
-}).strict();
-const tableShapeResolvedOutputDescriptorSchema = z.discriminatedUnion('kind', [
-  z.object({
-    groupColumn: tableShapeColumnReferenceSchema,
-    kind: z.literal('group'),
-    operandChoiceId: opaqueIdSchema.optional(),
-    outputColumn: z.string().min(1),
-    outputLabel: z.string().min(1),
-    type: tableShapeTypeFactSchema,
-  }).strict(),
-  z.object({
-    category: tableShapePivotCategoryReferenceSchema,
-    kind: z.literal('category'),
-    operandChoiceId: opaqueIdSchema.optional(),
-    outputColumn: z.string().min(1),
-    outputLabel: z.string().min(1),
-    type: tableShapeTypeFactSchema,
-  }).strict(),
-  z.object({
-    kind: z.literal('unpivotKey'),
-    outputColumn: z.string().min(1),
-    outputLabel: z.string().min(1),
-    type: tableShapeTypeFactSchema,
-  }).strict(),
-  z.object({
-    kind: z.literal('unpivotValue'),
-    outputColumn: z.string().min(1),
-    outputLabel: z.string().min(1),
-    type: tableShapeTypeFactSchema,
-  }).strict(),
-  z.object({
-    kind: z.literal('derived'),
-    outputColumn: z.string().min(1),
-    outputLabel: z.string().min(1),
-    type: tableShapeTypeFactSchema,
-  }).strict(),
-]);
-
-export const tableShapeResolutionSchema = z.object({
-  catalogId: opaqueIdSchema,
-  categories: z.array(tableShapeResolvedCategorySchema).optional(),
-  categoryDiscoveryId: opaqueIdSchema.optional(),
-  keyResult: tableShapeTypeFactSchema.optional(),
-  kind: z.enum(['PIVOT', 'UNPIVOT', 'DERIVED']),
-  outputDescriptors: z.array(tableShapeResolvedOutputDescriptorSchema),
-  postPivotOperands: z.array(tableShapeOperandChoiceSchema),
-  resolutionId: opaqueIdSchema,
-  result: tableShapeTypeFactSchema.optional(),
-  valueResult: tableShapeTypeFactSchema.optional(),
-}).strict();
-export type TableShapeResolution = z.infer<typeof tableShapeResolutionSchema>;
-
-const tableShapeCellContributorSchema = z.object({
-  resourceId: opaqueIdSchema,
-  resourceType: z.string().min(1),
-  value: tableShapeJSONValueSchema,
-}).strict();
-const tableShapeContributorSchema = z.object({
-  resourceId: opaqueIdSchema,
-  resourceType: z.string().min(1),
-}).strict();
-const tableShapeTraceSchema = z.object({
-  cellStatus: z.string().optional(),
-  complete: z.boolean(),
-  contributors: z.array(tableShapeCellContributorSchema),
-  failureCode: z.string().optional(),
-  omissionCode: z.string().optional(),
-  sampled: z.boolean(),
-  state: z.enum(['NOT_APPLICABLE', 'NOT_REQUESTED', 'UNAVAILABLE', 'FAILED', 'AVAILABLE']),
-}).strict();
-const tableShapeCellValueSchema = z.object({
-  present: z.boolean(),
-  value: tableShapeJSONValueSchema,
-}).strict();
-const tableShapeChangedCellSchema = z.object({
-  after: tableShapeCellValueSchema,
-  before: tableShapeCellValueSchema,
-  column: opaqueIdSchema,
-  trace: tableShapeTraceSchema,
-}).strict();
-const tableShapeChangedRowSchema = z.object({
-  basePresent: z.boolean(),
-  candidatePresent: z.boolean(),
-  changedCells: z.array(tableShapeChangedCellSchema),
-  changedColumns: z.array(opaqueIdSchema),
-  rowIdentity: opaqueIdSchema,
-}).strict();
-const tableShapePreviewSummarySchema = z.object({
-  rowCount: z.number().int().nonnegative(),
-  sampled: z.boolean(),
-}).strict();
-const tableShapeExcludedRecordSchema = z.object({
-  sourceIdentity: z.object({
-    resourceId: z.string(),
-    resourceType: z.string(),
-  }).strict().optional(),
-  category: z.object({
-    present: z.boolean(),
-    value: tableShapeJSONValueSchema,
-  }).strict(),
-  categoryType: z.string(),
-  outputRowId: z.string(),
-  reason: z.string(),
-  omissionCode: z.string().optional(),
-}).strict();
-const tableShapeExclusionsSchema = z.object({
-  status: z.enum(['COMPLETE', 'INCOMPLETE', 'UNAVAILABLE']),
-  records: z.array(tableShapeExcludedRecordSchema),
-  complete: z.boolean(),
-  sampled: z.boolean(),
-  failureCode: z.string().optional(),
-}).strict();
-const tableShapeDeclaredInformationLossSchema = z.object({
-  status: z.enum(['COMPLETE', 'UNAVAILABLE']),
-  items: z.array(z.object({
-    code: z.string(),
-    label: z.string(),
-    detail: z.string(),
-    affectedColumns: z.array(z.string()).optional(),
-  }).strict()),
-  failureCode: z.string().optional(),
-}).strict();
-const tableShapeEvidenceLimitationSchema = z.object({
-  code: z.string(),
-  message: z.string(),
-}).strict();
-const tableShapeComparisonCommonSchema = z.object({
-  changedColumns: z.array(opaqueIdSchema),
-  changedRowCount: z.number().int().nonnegative(),
-  changedRows: z.array(tableShapeChangedRowSchema),
-  changedRowsSampled: z.boolean(),
-  contributors: z.array(tableShapeContributorSchema),
-  contributorsSampled: z.boolean(),
-  exclusions: tableShapeExclusionsSchema,
-  declaredInformationLoss: tableShapeDeclaredInformationLossSchema,
-  evidenceLimitations: z.array(tableShapeEvidenceLimitationSchema),
-  notices: z.array(z.string()),
-});
-export const tableShapeComparisonSchema = z.discriminatedUnion('status', [
-  tableShapeComparisonCommonSchema.extend({
-    base: tableShapePreviewSummarySchema,
-    candidate: tableShapePreviewSummarySchema,
-    status: z.literal('AVAILABLE'),
-  }).strict(),
-  tableShapeComparisonCommonSchema.extend({
-    base: tableShapePreviewSummarySchema.optional(),
-    candidate: tableShapePreviewSummarySchema.optional(),
-    reason: z.string().min(1),
-    reasonCode: opaqueIdSchema,
-    status: z.literal('UNAVAILABLE'),
-  }).strict(),
-]);
-export type TableShapeComparison = z.infer<typeof tableShapeComparisonSchema>;
-
-export const tableShapeProposalSchema = z.object({
-  baseDocumentDigest: opaqueIdSchema,
-  baseReceiptId: opaqueIdSchema,
-  candidateWorkspaceDigest: opaqueIdSchema,
-  comparison: tableShapeComparisonSchema,
-  draftDigest: opaqueIdSchema,
-  draftVersion: z.number().int().positive(),
-  mode: z.enum(['ADD', 'REPLACE', 'REMOVE']),
-  outputId: opaqueIdSchema,
-  proposalId: opaqueIdSchema.optional(),
-  snapshotToken: opaqueIdSchema,
-}).strict();
-export type TableShapeProposal = z.infer<typeof tableShapeProposalSchema>;
-
-export const tableShapeProposalRequestSchema = z.object({
-  catalogId: opaqueIdSchema,
-  derivedResolutionIds: z.array(opaqueIdSchema),
-  expectedDraftDigest: opaqueIdSchema,
-  expectedDraftVersion: z.number().int().positive(),
-  limit: z.number().int().nonnegative().optional(),
-  mode: z.enum(['ADD', 'REPLACE', 'REMOVE']),
-  outputId: opaqueIdSchema,
-  reshapeResolutionId: opaqueIdSchema.optional(),
-  snapshotToken: opaqueIdSchema,
-}).strict();
-export type TableShapeProposalRequest = z.infer<typeof tableShapeProposalRequestSchema>;
 
 const exactCategoryMappingSchema = z
   .object({ from: z.string(), to: z.string() })
@@ -1424,6 +961,7 @@ export type ConstructionStageColumn = z.infer<typeof constructionStageColumnSche
 
 const constructionStageColumnDescriptorSchema = constructionStageColumnBaseSchema.extend({
   cardinality: z.enum(['required_one', 'optional_one', 'many']).optional(),
+  sourceKey: z.string().optional(),
 }).strict();
 export type ConstructionStageColumnDescriptor = z.infer<typeof constructionStageColumnDescriptorSchema>;
 
@@ -1622,6 +1160,9 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
         key: constructionTableScalarSchema,
         outputColumnId: opaqueIdSchema,
       }).strict()),
+      discovery: z.object({
+        maxCategories: z.number().int().min(1).max(256),
+      }).strict().optional(),
       duplicatePolicy: z.enum(['ERROR', 'SUM', 'MIN', 'MAX']),
       missingCellPolicy: z.enum(['NULL', 'ERROR']),
       unlistedCategoryPolicy: z.enum(['ERROR', 'EXCLUDE_WITH_EVIDENCE']),
@@ -1751,9 +1292,7 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
       outputColumnId: opaqueIdSchema,
       ordinalColumnId: opaqueIdSchema.optional(),
       emptyPolicy: z.enum(['ERROR', 'EXCLUDE', 'PRESERVE_PARENT']).optional(),
-      // Server-signed root array facts for a signed expand input. The client
-      // never authors it (the lane strips client values server-side); it must
-      // parses so saved drafts survive reload.
+
       expandedField: z.object({
         path: z.string().min(1),
         cardinality: z.literal('many'),
@@ -1950,6 +1489,7 @@ export const constructionCapabilitiesRequestSchema = z.object({
   outputId: opaqueIdSchema,
   stageId: opaqueIdSchema,
   groupStepId: opaqueIdSchema.optional(),
+  includeGroupChoices: z.boolean().optional(),
 }).strict();
 export type ConstructionCapabilitiesRequest = z.infer<typeof constructionCapabilitiesRequestSchema>;
 
@@ -1992,9 +1532,9 @@ const constructionScalarSourceInputSchema = z.object({
   }).strict()),
 }).strict();
 
-const constructionFilterSourceChoiceSchema = z.object({
+const constructionSourceChoiceSchema = z.object({
   choiceId: z.string().min(1),
-  // '' means no live server materialization for this choice (deliberate, not missing); the client normalizes it away. Request-side selection keeps a required non-empty columnId.
+
   columnId: z.string().optional(),
   fieldPath: z.string().min(1),
   label: z.string().min(1),
@@ -2002,31 +1542,23 @@ const constructionFilterSourceChoiceSchema = z.object({
   isPopulated: z.boolean(),
 }).strict();
 
-const constructionFilterSourceInputSchema = z.object({
+const constructionFilterSourceChoiceSchema = constructionSourceChoiceSchema;
+const constructionDeriveSourceChoiceSchema = constructionSourceChoiceSchema;
+const constructionUnpivotSourceChoiceSchema = constructionSourceChoiceSchema;
+const constructionExpandSourceChoiceSchema = constructionSourceChoiceSchema;
+
+const constructionSourceInputSchema = z.object({
   supported: z.boolean(),
   stageId: opaqueIdSchema,
   reasonCode: z.string().optional(),
   reason: z.string().optional(),
-  choices: z.array(constructionFilterSourceChoiceSchema),
+  choices: z.array(constructionSourceChoiceSchema),
 }).strict();
 
-const constructionDeriveSourceChoiceSchema = z.object({
-  choiceId: z.string().min(1),
-  // '' means no live server materialization for this choice (deliberate, not missing); the client normalizes it away. Request-side selection keeps a required non-empty columnId.
-  columnId: z.string().optional(),
-  fieldPath: z.string().min(1),
-  label: z.string().min(1),
-  logicalType: z.string().min(1),
-  isPopulated: z.boolean(),
-}).strict();
-
-const constructionDeriveSourceInputSchema = z.object({
-  supported: z.boolean(),
-  stageId: opaqueIdSchema,
-  reasonCode: z.string().optional(),
-  reason: z.string().optional(),
-  choices: z.array(constructionDeriveSourceChoiceSchema),
-}).strict();
+const constructionFilterSourceInputSchema = constructionSourceInputSchema;
+const constructionDeriveSourceInputSchema = constructionSourceInputSchema;
+const constructionUnpivotSourceInputSchema = constructionSourceInputSchema;
+const constructionExpandSourceInputSchema = constructionSourceInputSchema;
 
 export const constructionSourceProjectionAvailabilitySchema = z.object({
   stageId: opaqueIdSchema,
@@ -2035,73 +1567,23 @@ export const constructionSourceProjectionAvailabilitySchema = z.object({
   reason: z.string().optional(),
 }).strict();
 
-export const constructionPivotSourceSelectionSchema = z.object({
+const constructionSourceSelectionSchema = z.object({
   choiceId: opaqueIdSchema,
   columnId: opaqueIdSchema,
 }).strict();
+export const constructionPivotSourceSelectionSchema = constructionSourceSelectionSchema;
 export type ConstructionPivotSourceSelection = z.infer<typeof constructionPivotSourceSelectionSchema>;
 
-export const constructionFilterSourceSelectionSchema = z.object({
-  choiceId: opaqueIdSchema,
-  columnId: opaqueIdSchema,
-}).strict();
+export const constructionFilterSourceSelectionSchema = constructionSourceSelectionSchema;
 export type ConstructionFilterSourceSelection = z.infer<typeof constructionFilterSourceSelectionSchema>;
 
-export const constructionDeriveSourceSelectionSchema = z.object({
-  choiceId: opaqueIdSchema,
-  columnId: opaqueIdSchema,
-}).strict();
+export const constructionDeriveSourceSelectionSchema = constructionSourceSelectionSchema;
 export type ConstructionDeriveSourceSelection = z.infer<typeof constructionDeriveSourceSelectionSchema>;
 
-const constructionUnpivotSourceChoiceSchema = z.object({
-  choiceId: z.string().min(1),
-  // '' means no live server materialization for this choice (deliberate, not missing); the client normalizes it away. Request-side selection keeps a required non-empty columnId.
-  columnId: z.string().optional(),
-  fieldPath: z.string().min(1),
-  label: z.string().min(1),
-  logicalType: z.string().min(1),
-  isPopulated: z.boolean(),
-}).strict();
-
-const constructionUnpivotSourceInputSchema = z.object({
-  supported: z.boolean(),
-  stageId: opaqueIdSchema,
-  reasonCode: z.string().optional(),
-  reason: z.string().optional(),
-  choices: z.array(constructionUnpivotSourceChoiceSchema),
-}).strict();
-
-export const constructionUnpivotSourceSelectionSchema = z.object({
-  choiceId: opaqueIdSchema,
-  columnId: opaqueIdSchema,
-}).strict();
+export const constructionUnpivotSourceSelectionSchema = constructionSourceSelectionSchema;
 export type ConstructionUnpivotSourceSelection = z.infer<typeof constructionUnpivotSourceSelectionSchema>;
 
-// Signed EXPAND source choices advertise populated direct-root primitive
-// arrays. logicalType is the ELEMENT type (e.g. string), and columnId '' (no
-// live materialization) is normalized away client-side, same as unpivot.
-const constructionExpandSourceChoiceSchema = z.object({
-  choiceId: z.string().min(1),
-  // '' means no live server materialization for this choice (deliberate, not missing); the client normalizes it away. Request-side selection keeps a required non-empty columnId.
-  columnId: z.string().optional(),
-  fieldPath: z.string().min(1),
-  label: z.string().min(1),
-  logicalType: z.string().min(1),
-  isPopulated: z.boolean(),
-}).strict();
-
-const constructionExpandSourceInputSchema = z.object({
-  supported: z.boolean(),
-  stageId: opaqueIdSchema,
-  reasonCode: z.string().optional(),
-  reason: z.string().optional(),
-  choices: z.array(constructionExpandSourceChoiceSchema),
-}).strict();
-
-export const constructionExpandSourceSelectionSchema = z.object({
-  choiceId: opaqueIdSchema,
-  columnId: opaqueIdSchema,
-}).strict();
+export const constructionExpandSourceSelectionSchema = constructionSourceSelectionSchema;
 export type ConstructionExpandSourceSelection = z.infer<typeof constructionExpandSourceSelectionSchema>;
 
 export const constructionCapabilitiesResponseSchema = z.object({
@@ -2119,7 +1601,8 @@ export const constructionCapabilitiesResponseSchema = z.object({
   groupRowValueChoices: z.array(constructionGroupFieldScalarChoiceSchema),
   groupFieldChoicesIncomplete: z.boolean().optional(),
   sourceProjectionAvailability: constructionSourceProjectionAvailabilitySchema.optional(),
-  sourceInput: constructionScalarSourceInputSchema.optional(),
+  nodeOccurrences: z.record(z.string(), z.string()).optional(),
+  sourceInput: constructionScalarSourceInputSchema,
   pivotSourceInput: constructionScalarSourceInputSchema.optional(),
   filterSourceInput: constructionFilterSourceInputSchema.optional(),
   deriveSourceInput: constructionDeriveSourceInputSchema.optional(),
@@ -2128,6 +1611,33 @@ export const constructionCapabilitiesResponseSchema = z.object({
   workspaceInputs: z.array(constructionWorkspaceInputSchema),
 }).strict();
 export type ConstructionCapabilitiesResponse = z.infer<typeof constructionCapabilitiesResponseSchema>;
+
+export const constructionColumnPopulationRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  columnIds: z.array(opaqueIdSchema).min(1).max(16),
+}).strict().superRefine((request, context) => {
+  if (new Set(request.columnIds).size !== request.columnIds.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Column IDs must be unique.', path: ['columnIds'] });
+  }
+});
+export type ConstructionColumnPopulationRequest = z.infer<typeof constructionColumnPopulationRequestSchema>;
+
+export const constructionColumnPopulationResponseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  columns: z.array(z.object({
+    columnId: opaqueIdSchema,
+    status: z.enum(['POPULATED', 'EMPTY', 'UNKNOWN']),
+  }).strict()),
+}).strict();
+export type ConstructionColumnPopulationResponse = z.infer<typeof constructionColumnPopulationResponseSchema>;
 
 export const constructionCategoryDiscoveryRequestSchema = z.object({
   groupKeyIds: z.array(opaqueIdSchema).optional(),
@@ -2179,6 +1689,12 @@ export const constructionCategoryDiscoveryResponseSchema = z.discriminatedUnion(
     categories: z.array(constructionDiscoveredCategorySchema).length(0),
     message: z.string().min(1),
   }).strict(),
+  constructionCategoryDiscoveryIdentitySchema.extend({
+    outcome: z.literal('NO_VALUES'),
+    complete: z.literal(false),
+    categories: z.array(constructionDiscoveredCategorySchema).length(0),
+    message: z.string().min(1),
+  }).strict(),
 ]);
 export type ConstructionCategoryDiscoveryResponse = z.infer<typeof constructionCategoryDiscoveryResponseSchema>;
 
@@ -2204,6 +1720,14 @@ export const constructionProposalRequestSchema = z.object({
 }).strict();
 export type ConstructionProposalRequest = z.infer<typeof constructionProposalRequestSchema>;
 
+export const constructionProposalDiagnosticSchema = z.object({
+  code: z.string().min(1),
+  message: z.string().min(1),
+  stepId: z.string().min(1).optional(),
+  outcome: z.string().min(1).optional(),
+}).strict();
+export type ConstructionProposalDiagnostic = z.infer<typeof constructionProposalDiagnosticSchema>;
+
 export const constructionProposalResponseSchema = z.object({
   proposalId: opaqueIdSchema.optional(),
   baseReceiptId: opaqueIdSchema.optional(),
@@ -2220,8 +1744,70 @@ export const constructionProposalResponseSchema = z.object({
   previewStatus: z.enum(['READY', 'NEEDS_REPAIR']),
   previewDurationMs: z.number().int().nonnegative(),
   preview: z.lazy(() => explorerBuilderPreviewResultSchema).optional(),
+  diagnostics: z.array(constructionProposalDiagnosticSchema).optional(),
 }).strict();
 export type ConstructionProposalResponse = z.infer<typeof constructionProposalResponseSchema>;
+
+const importedRelationshipFieldSchema = z.object({
+  candidateId: opaqueIdSchema, columnId: opaqueIdSchema, column: opaqueIdSchema,
+  fieldPath: z.string().min(1), label: z.string().min(1), valueMode: z.enum(['ALL', 'FIRST', 'DISTINCT']),
+}).strict();
+const importedRelationshipOverlaySchema = z.object({
+  additions: z.array(z.object({
+    occurrenceId: opaqueIdSchema.regex(/^project_[A-Za-z0-9_]+$/), parentOccurrenceId: opaqueIdSchema,
+    catalogEdgeId: opaqueIdSchema, relationship: z.string().min(1), resourceType: opaqueIdSchema,
+    storageDirection: z.enum(['INBOUND', 'OUTBOUND']).optional(), matchMode: z.enum(['OPTIONAL', 'REQUIRED']),
+    fields: z.array(importedRelationshipFieldSchema).optional(),
+  }).strict()).optional(),
+  removals: z.array(opaqueIdSchema).optional(),
+  matchOverrides: z.array(z.object({ occurrenceId: opaqueIdSchema, matchMode: z.enum(['OPTIONAL', 'REQUIRED']) }).strict()).optional(),
+}).strict();
+export const projectedFieldSchema = z.object({
+  columnId: exactOpaqueIdSchema.optional(), column: z.string().min(1), label: z.string().min(1), occurrenceId: exactOpaqueIdSchema.optional(),
+  owner: z.enum(['PINNED_SOURCE', 'AUTHORED', 'UNKNOWN']),
+  removal: z.enum(['DISABLE_PINNED_FIELD', 'DISABLE_PINNED_OUTPUT', 'REMOVE_COLUMN', 'UNAVAILABLE']),
+  status: z.enum(['EXACT', 'UNKNOWN']), sourceStepId: exactOpaqueIdSchema.optional(), sourceFieldId: exactOpaqueIdSchema.optional(), sourceOutputKey: z.string().min(1).optional(),
+}).strict().superRefine((field, context) => {
+  if (field.removal === 'DISABLE_PINNED_FIELD' && (field.owner !== 'PINNED_SOURCE' || field.status !== 'EXACT' ||
+      !field.columnId || !field.sourceStepId || !field.sourceFieldId)) {
+    context.addIssue({ code: 'custom', message: 'Disabling a projected field requires an exact pinned source slot.' });
+  }
+  if (field.removal === 'DISABLE_PINNED_OUTPUT' && (field.owner !== 'PINNED_SOURCE' || field.status !== 'EXACT' ||
+      !field.columnId || !field.sourceStepId || !field.sourceOutputKey)) {
+    context.addIssue({ code: 'custom', message: 'Disabling a projected output requires an exact pinned source key.' });
+  }
+  if (field.removal === 'REMOVE_COLUMN' && (field.owner !== 'AUTHORED' || field.status !== 'EXACT' || !field.columnId)) {
+    context.addIssue({ code: 'custom', message: 'Removing a projected column requires an exact authored column ID.' });
+  }
+});
+export type ProjectedField = z.infer<typeof projectedFieldSchema>;
+
+export const authoringNetworkSchema = z.object({
+  owner: z.enum(['DOCUMENT', 'IMPORTED_SOURCE']), outputId: opaqueIdSchema, sourceRows: explorerRowDefinitionSchema,
+  occurrences: z.array(z.object({
+    occurrenceId: opaqueIdSchema, parentOccurrenceId: opaqueIdSchema.optional(), sourceStepId: opaqueIdSchema.optional(),
+    resourceType: opaqueIdSchema, label: z.string().optional(), labelMissing: z.boolean(), catalogEdgeId: opaqueIdSchema.optional(),
+    relationship: z.string().optional(), storageDirection: z.enum(['INBOUND', 'OUTBOUND']).optional(),
+    matchMode: z.enum(['OPTIONAL', 'REQUIRED']).optional(), enabled: z.boolean(), preservesRowIdentity: z.boolean(), canExcludeRows: z.boolean(),
+  }).strict()),
+  projectedFields: z.array(projectedFieldSchema).optional(),
+  bindings: z.array(z.object({ columnId: opaqueIdSchema, occurrenceId: opaqueIdSchema.optional(), sourceStepId: opaqueIdSchema.optional(), outputKey: z.string().min(1).max(2048).optional(), valueMode: z.string().optional(), status: z.enum(['EXACT', 'UNKNOWN']) }).strict()),
+  operations: z.array(z.object({ operationId: opaqueIdSchema, kind: z.string().min(1), inputStepIds: z.array(opaqueIdSchema), anchorColumnId: opaqueIdSchema.optional() }).strict()),
+}).strict();
+export const rowIdentityPlanSchema = z.object({
+  outputId: opaqueIdSchema, sourceDefinition: explorerRowDefinitionSchema,
+  stages: z.array(z.object({
+    stageId: opaqueIdSchema, operationId: opaqueIdSchema.optional(),
+    identity: z.object({ kind: z.string().min(1), occurrenceId: opaqueIdSchema.optional(), resourceType: opaqueIdSchema.optional(), inputStageId: opaqueIdSchema.optional(), anchorColumnId: opaqueIdSchema.optional(), relatedRecordColumnId: opaqueIdSchema.optional(), scopePath: z.string().optional(), keyColumnIds: z.array(opaqueIdSchema).optional(), groupRevisionId: opaqueIdSchema.optional(), missingPolicy: z.string().optional(), scope: z.string().min(1) }).strict(),
+    meaning: z.string(), effect: z.string(), mayExcludeRows: z.boolean(), multiplicity: z.literal('UNKNOWN'),
+    count: z.object({ kind: z.literal('UNKNOWN'), value: z.number().int().nonnegative().optional() }).strict(), unsupportedReason: z.string().optional(),
+  }).strict()),
+  relationships: z.array(z.object({ occurrenceId: opaqueIdSchema, catalogEdgeId: opaqueIdSchema.optional(), matchMode: z.enum(['OPTIONAL', 'REQUIRED']), preservesIdentity: z.boolean(), mayExcludeRows: z.boolean(), multiplicity: z.literal('UNKNOWN') }).strict()),
+}).strict();
+export const authoringNetworkRequestSchema = z.object({ snapshotToken: opaqueIdSchema, expectedDraftVersion: z.number().int().positive(), expectedDraftDigest: z.string().min(1), outputId: opaqueIdSchema }).strict();
+export type AuthoringNetworkRequest = z.infer<typeof authoringNetworkRequestSchema>;
+export const authoringNetworkResponseSchema = z.object({ snapshotToken: opaqueIdSchema, draftVersion: z.number().int().positive(), draftDigest: z.string().min(1), network: authoringNetworkSchema, rowIdentity: rowIdentityPlanSchema }).strict();
+export type AuthoringNetworkResponse = z.infer<typeof authoringNetworkResponseSchema>;
 
 export const explorerBuilderDocumentSchema = z
   .object({
@@ -2234,12 +1820,44 @@ export const explorerBuilderDocumentSchema = z
       })
       .strict(),
     rootResourceType: opaqueIdSchema,
+    importedRecipe: z.object({
+      name: z.string().min(1),
+      translationVersion: z.string().min(1),
+      digest: z.string().regex(/^[a-f0-9]{64}$/),
+      output: z.string().min(1),
+    }).strict().optional(),
+    importedSource: z.object({
+      fieldBindings: z.array(z.object({ fieldId: opaqueIdSchema, columnId: opaqueIdSchema }).strict()).optional(),
+      relationships: importedRelationshipOverlaySchema.optional(),
+      ruleAdditions: z.array(z.object({
+        kind: z.enum(["DYNAMIC_COLUMN", "EXTENSION_COLUMN", "CATALOG_PROJECTION"]),
+        occurrenceId: opaqueIdSchema.optional(),
+        maxColumns: z.number().int().min(1).max(128).optional(),
+        stepId: opaqueIdSchema,
+        enabled: z.boolean(),
+        parameters: importedSourceParametersSchema,
+      }).strict()).optional(),
+      steps: z.array(z.object({
+        id: opaqueIdSchema,
+        parentId: opaqueIdSchema.optional(),
+        sourceKey: z.string().min(1).optional(),
+        occurrenceId: opaqueIdSchema.optional(),
+        matchMode: z.enum(['OPTIONAL', 'REQUIRED']).optional(),
+        kind: z.string().min(1),
+        title: z.string().min(1),
+        summary: z.string().min(1),
+        enabled: z.boolean(),
+        editable: z.boolean(),
+        maxColumns: z.number().int().positive().optional(),
+        valueMode: z.string().min(1).optional(),
+        parameters: importedSourceParametersSchema.optional(),
+      }).strict()),
+    }).strict().optional(),
     population: explorerPopulationSchema.optional(),
     route: explorerBuilderRouteNodeSchema,
     rows: explorerRowDefinitionSchema,
     frames: z.array(frameDefinitionSchema).optional(),
     columns: z.array(explorerBuilderColumnSchema),
-    tableShape: persistedTableShapeSchema.optional(),
     construction: constructionSchema.optional(),
     fixedFilters: z
       .array(
@@ -2275,11 +1893,12 @@ export const explorerBuilderDocumentSchema = z
   })
   .strict()
   .superRefine((document, context) => {
-    if (document.construction && document.tableShape) {
+    const importedColumns = document.columns.filter((column) => column.source.kind === 'imported');
+    if (importedColumns.length > 0 && !document.importedRecipe) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Construction documents cannot also carry legacy tableShape.',
-        path: ['tableShape'],
+        message: 'Imported source columns require an imported recipe reference.',
+        path: ['importedRecipe'],
       });
     }
     if (document.construction) {
@@ -3071,6 +2690,9 @@ export type RowChangeUnresolvedReference = z.infer<
 export const rowChangeAssessmentSchema = z.discriminatedUnion('status', [
   rowChangeAssessmentBaseSchema.extend({
     status: z.literal('READY'),
+    candidateDocument: explorerBuilderDocumentSchema.optional(),
+    candidateNetwork: authoringNetworkSchema.optional(),
+    candidateRowIdentity: rowIdentityPlanSchema.optional(),
     proposal: rowChangeProposalSchema,
     candidateReceiptId: opaqueIdSchema.optional(),
     unresolved: z.array(rowChangeUnresolvedReferenceSchema).length(0),
@@ -3122,6 +2744,102 @@ export const semanticSelectionResultSchema = z
   .strict();
 export type SemanticSelectionResult = z.infer<typeof semanticSelectionResultSchema>;
 
+const importedSourceStepChangeSchema = z.object({
+  stepId: opaqueIdSchema,
+  enabled: z.boolean(),
+  maxColumns: z.number().int().positive().optional(),
+  valueMode: z.string().min(1).optional(),
+  parameters: importedSourceParametersSchema.optional(),
+}).strict().superRefine((value, context) => {
+  if (value.parameters) validateEditableSourceParameters(value.parameters, context);
+});
+
+export const sourceRelationshipChangeSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('ADD'), parentOccurrenceId: opaqueIdSchema, edgeId: opaqueIdSchema, matchMode: z.enum(['OPTIONAL', 'REQUIRED']) }).strict(),
+  z.object({ action: z.literal('MATCH'), occurrenceId: opaqueIdSchema, matchMode: z.enum(['OPTIONAL', 'REQUIRED']) }).strict(),
+  z.object({ action: z.literal('REMOVE'), occurrenceId: opaqueIdSchema }).strict(),
+]);
+export type SourceRelationshipChange = z.infer<typeof sourceRelationshipChangeSchema>;
+const sourceRuleCreateSchema = z.object({
+  kind: z.enum(['DYNAMIC_COLUMN', 'EXTENSION_COLUMN', 'CATALOG_PROJECTION']),
+  occurrenceId: opaqueIdSchema.optional(),
+  maxColumns: z.number().int().min(1).max(128).optional(),
+  parameters: importedSourceParametersSchema,
+}).strict().superRefine((rule, context) => {
+  validateEditableSourceParameters(rule.parameters, context);
+  const arm = { DYNAMIC_COLUMN: 'dynamic', EXTENSION_COLUMN: 'extension', CATALOG_PROJECTION: 'catalog' } as const;
+  if (!rule.parameters[arm[rule.kind]]) {
+    context.addIssue({ code: 'custom', path: ['parameters'], message: 'Source rule parameters must match the rule kind.' });
+  }
+});
+export type SourceRuleCreate = z.infer<typeof sourceRuleCreateSchema>;
+
+export const sourceRelationshipProposalRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  includePreview: z.boolean().optional(),
+  change: sourceRelationshipChangeSchema.optional(),
+  sourceStep: importedSourceStepChangeSchema.optional(),
+  sourceRule: sourceRuleCreateSchema.optional(),
+  sourceSteps: z.array(importedSourceStepChangeSchema).min(1).max(128).optional(),
+  limit: z.number().int().min(1).max(1000).optional(),
+}).strict().superRefine((request, context) => {
+  if (Number(request.change !== undefined) + Number(request.sourceStep !== undefined) + Number(request.sourceSteps !== undefined) + Number(request.sourceRule !== undefined) !== 1) context.addIssue({ code: 'custom', message: 'Choose one relationship change, source-step change, atomic source-step batch, or column rule.' });
+  if (request.sourceSteps && new Set(request.sourceSteps.map((step) => step.stepId)).size !== request.sourceSteps.length) context.addIssue({ code: 'custom', path: ['sourceSteps'], message: 'Choose each source operation only once.' });
+});
+export type SourceRelationshipProposalRequest = z.infer<typeof sourceRelationshipProposalRequestSchema>;
+export const sourceRelationshipProposalSchema = z.object({
+  candidateDocument: explorerBuilderDocumentSchema,
+  candidateNetwork: authoringNetworkSchema,
+  candidateRowIdentity: rowIdentityPlanSchema,
+  proposalId: opaqueIdSchema, candidateReceiptId: opaqueIdSchema,
+  outputId: opaqueIdSchema, snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(), draftDigest: z.string().min(1),
+  baseDocumentDigest: z.string().min(1), candidateWorkspaceDigest: z.string().min(1),
+  previewStatus: z.literal('READY'), sampledRows: z.number().int().nonnegative(), sampled: z.boolean(),
+  affectedColumns: z.array(z.string()), notices: z.array(z.string()),
+  preview: z.lazy(() => explorerBuilderPreviewResultSchema).optional(),
+}).strict();
+export type SourceRelationshipProposal = z.infer<typeof sourceRelationshipProposalSchema>;
+export const sourceRelationshipProposalWithPreviewSchema = sourceRelationshipProposalSchema
+  .extend({ preview: z.lazy(() => explorerBuilderPreviewResultSchema) })
+  .strict()
+  .superRefine((proposal, context) => {
+    if (proposal.preview.receiptId !== proposal.candidateReceiptId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['preview', 'receiptId'],
+        message: 'The embedded preview must belong to the candidate receipt.',
+      });
+    }
+    if (proposal.preview.outputId !== proposal.outputId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['preview', 'outputId'],
+        message: 'The embedded preview must belong to the proposed output.',
+      });
+    }
+    if (proposal.preview.rows === null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['preview', 'rows'],
+        message: 'The embedded preview must include rows before the candidate can be applied.',
+      });
+    }
+  });
+export type SourceRelationshipProposalWithPreview = z.infer<typeof sourceRelationshipProposalWithPreviewSchema>;
+
+export const columnPolicyProposalRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema, expectedDraftVersion: z.number().int().positive(), expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema, columnId: opaqueIdSchema, projectionMode: projectionModeSchema,
+  limit: z.number().int().min(1).max(1000).optional(),
+}).strict();
+export type ColumnPolicyProposalRequest = z.infer<typeof columnPolicyProposalRequestSchema>;
+export const columnPolicyProposalSchema = sourceRelationshipProposalSchema;
+export type ColumnPolicyProposal = z.infer<typeof columnPolicyProposalSchema>;
+
 export const explorerBuilderCommandSchema = z
   .object({
     type: z.enum([
@@ -3157,10 +2875,15 @@ export const explorerBuilderCommandSchema = z
       'REMOVE_FRAME_SOURCE',
       'APPLY_ROW_DEFINITION_PROPOSAL',
       'APPLY_CONSTRUCTION_PROPOSAL',
-      'APPLY_TABLE_SHAPE_PROPOSAL',
+      'UPDATE_IMPORTED_SOURCE_STEP',
+      'REMOVE_PROJECTED_FIELD',
+      'REFRESH_IMPORTED_SOURCE',
+      'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL',
+      'APPLY_COLUMN_POLICY_PROPOSAL',
       'RESTORE_DRAFT_REVISION',
     ]),
-    outputId: opaqueIdSchema.optional(),
+    outputId: exactOpaqueIdSchema.optional(),
+    columnId: exactOpaqueIdSchema.optional(),
     frameId: opaqueIdSchema.optional(),
     frameChoiceId: z.string().optional(),
     form: frameFormSchema.optional(),
@@ -3203,9 +2926,56 @@ export const explorerBuilderCommandSchema = z
     semanticSelections: z.array(semanticSelectionIntentSchema).min(1).max(100).optional(),
     constructionChoice: constructionChoiceSelectionSchema.optional(),
     outputIds: z.array(opaqueIdSchema).optional(),
+    sourceStep: importedSourceStepChangeSchema.optional(),
   })
   .strict()
   .superRefine((command, context) => {
+    if (command.type === 'REMOVE_PROJECTED_FIELD') {
+      if (!command.outputId || !command.columnId) {
+        context.addIssue({ code: 'custom', message: 'Projected field removal requires outputId and columnId.' });
+      }
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId', 'columnId'].includes(key) && value !== undefined) {
+          context.addIssue({ code: 'custom', path: [key], message: 'Projected field removal accepts only outputId and columnId.' });
+        }
+      }
+      return;
+    }
+    if (command.columnId !== undefined) {
+      context.addIssue({ code: 'custom', path: ['columnId'], message: 'columnId is only accepted by REMOVE_PROJECTED_FIELD.' });
+    }
+    if (command.type === 'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL' || command.type === 'APPLY_COLUMN_POLICY_PROPOSAL') {
+      if (!command.outputId || !command.proposalId) context.addIssue({ code: 'custom', message: 'Relationship Apply requires outputId and proposalId.' });
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId', 'proposalId'].includes(key) && value !== undefined) context.addIssue({ code: 'custom', path: [key], message: 'Relationship Apply accepts only outputId and proposalId.' });
+      }
+      return;
+    }
+    if (command.type === 'UPDATE_IMPORTED_SOURCE_STEP') {
+      if (!command.outputId) {
+        context.addIssue({ code: 'custom', path: ['outputId'], message: 'UPDATE_IMPORTED_SOURCE_STEP requires an output ID.' });
+      }
+      if (!command.sourceStep) {
+        context.addIssue({ code: 'custom', path: ['sourceStep'], message: 'UPDATE_IMPORTED_SOURCE_STEP requires a source step change.' });
+      }
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId', 'sourceStep'].includes(key) && value !== undefined) {
+          context.addIssue({ code: 'custom', path: [key], message: 'UPDATE_IMPORTED_SOURCE_STEP accepts only outputId and sourceStep.' });
+        }
+      }
+      return;
+    }
+    if (command.type === 'REFRESH_IMPORTED_SOURCE') {
+      if (!command.outputId) {
+        context.addIssue({ code: 'custom', path: ['outputId'], message: 'REFRESH_IMPORTED_SOURCE requires an output ID.' });
+      }
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId'].includes(key) && value !== undefined) {
+          context.addIssue({ code: 'custom', path: [key], message: 'REFRESH_IMPORTED_SOURCE accepts only an output ID.' });
+        }
+      }
+      return;
+    }
     if (command.type === 'APPLY_POPULATION_MEMBER_PROPOSAL') {
       if (!command.outputId) {
         context.addIssue({ code: 'custom', path: ['outputId'], message: 'APPLY_POPULATION_MEMBER_PROPOSAL requires an output ID.' });
@@ -3345,7 +3115,7 @@ export const explorerBuilderContractColumnSchema = z
 export type ExplorerBuilderContractColumn = z.infer<
   typeof explorerBuilderContractColumnSchema
 >;
-// Local Builder view-model identities are not part of Loom's wire contract.
+
 export interface ExplorerBuilderSelection {
   readonly candidateId: string;
   readonly occurrenceId: string;
@@ -3583,7 +3353,7 @@ const semanticInventoryItemFields = {
   valueSelector: z.string(),
   valueType: z.string(),
   owningScope: z.string(),
-  // Counts observed source occurrences/events; one source record may contribute more than once.
+
   occurrences: z.number().int().nonnegative(),
   examples: z.array(z.string()).max(32).optional(),
   examplesTruncated: z.boolean(),
@@ -3831,6 +3601,28 @@ export type ExplorerAuthoringError = z.infer<
   typeof explorerAuthoringErrorSchema
 >;
 
+const explorerErrorDiagnosticWireSchema = z.object({
+  severity: z.string().min(1),
+  stage: z.string().min(1),
+  code: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
+  jsonPath: z.string().optional(),
+  message: z.string().min(1),
+  details: unknownRecordSchema.optional(),
+  requestId: z.string().optional(),
+}).strict();
+
+export const explorerErrorResponseSchema = z.object({
+  error: z.object({
+    code: z.string().min(1),
+    message: z.string().min(1),
+    requestId: z.string().optional(),
+    diagnostic: explorerErrorDiagnosticWireSchema.optional(),
+    details: unknownRecordSchema.optional(),
+  }).passthrough(),
+  diagnostics: z.array(explorerErrorDiagnosticWireSchema).optional(),
+}).strict();
+export type ExplorerErrorResponse = z.infer<typeof explorerErrorResponseSchema>;
+
 export const assertExplorerBuilderState = (value: unknown) =>
   explorerBuilderStateSchema.parse(value);
 export const assertExplorerBuilderCompileResult = (value: unknown) =>
@@ -3840,7 +3632,6 @@ export const assertExplorerBuilderPreviewResult = (value: unknown) =>
 export const assertExplorerBuilderPublishResult = (value: unknown) =>
   explorerBuilderPublishResultSchema.parse(value);
 
-/** Server-owned runtime projection retained for viewer/ETL consumers. */
 export interface PublicationMetadata {
   readonly state: string;
   readonly generation?: string;
@@ -3899,7 +3690,7 @@ export interface ExplorerRuntimeOutputV1 {
   readonly materialization?: Readonly<Record<string, unknown>>;
 }
 export interface ExplorerRuntimeV1 {
-  /** Client-side identity derived from the enclosing response for legacy runtimes. */
+
   readonly responseIdentity?: string;
   readonly status?: string;
   readonly generation?: string;
@@ -3977,7 +3768,6 @@ export interface ExplorerQualityReportV1 {
   readonly omissions?: ReadonlyArray<{ readonly code: string; readonly detail: string }>;
 }
 
-/** Opaque generated metadata retained only for the runtime compatibility adapter. */
 export type ExplorerStateAuthoringBundleV1 = Readonly<Record<string, unknown>>;
 export interface ExplorerStateEmittedColumnV1 {
   readonly emissionId: string;
@@ -4018,7 +3808,6 @@ export interface ExplorerStateMaterializationV1 {
   readonly columns: ReadonlyArray<ExplorerStatePhysicalColumnV1>;
 }
 
-/** Runtime-only selected Explorer response. Editable state is never read here. */
 export interface ExplorerStateV1 {
   readonly apiVersion: 'loom.calypr.org/explorer-state/v1';
   readonly kind: 'ExplorerState';
@@ -4059,7 +3848,7 @@ export interface ExplorerStateV1 {
   readonly activeUrl: string;
   readonly updatedBy?: string;
   readonly updatedAt?: string;
-  /** Runtime is null when Loom has no valid published runtime to serve. */
+
   readonly runtime?: ExplorerRuntimeV1 | null;
 }
 
@@ -4317,8 +4106,6 @@ const normalizeExplorerStateV1 = (value: unknown): unknown => {
   if (!isRecord(value) || !isRecord(value.runtime)) return value;
   if (value.runtime.diagnostics !== null) return value;
 
-  // Go encodes a nil diagnostics slice as null. Treat that wire-level empty
-  // value as the empty collection promised by ExplorerRuntimeV1.
   return {
     ...value,
     runtime: {

@@ -17,11 +17,11 @@ import (
 )
 
 func TestCompileGroupedTablePivotUsesFrozenTypedCategoriesAndOrderedOutputs(t *testing.T) {
-	output := tableReshapeTestOutput(&recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	output := tableReshapeTestOutput(&oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "shape_pivot", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: "value",
-			Categories: []recipe.GroupedPivotCategory{
+			Categories: []oraclePivotCategory{
 				{Key: tableScalarInteger(0), Output: "birth_zero", Label: "Zero"},
 				{Key: tableScalarInteger(1), Output: "birth_one", Label: "One"},
 			},
@@ -43,15 +43,9 @@ func TestCompileGroupedTablePivotUsesFrozenTypedCategoriesAndOrderedOutputs(t *t
 		t.Fatalf("pivot category schema = %#v, found=%t", column, ok)
 	}
 
-	var pivot *ir.PhysicalGroupedPivot
-	for index := range compiled.Plan.Operations {
-		operation := &compiled.Plan.Operations[index]
-		if operation.Kind == ir.PhysicalGroupedPivotOp {
-			pivot = operation.GroupedPivot
-			if index+1 >= len(compiled.Plan.Operations) || compiled.Plan.Operations[index+1].Kind != ir.PhysicalReturnOp {
-				t.Fatalf("grouped pivot is not terminal before RETURN: %#v", compiled.Plan.Operations)
-			}
-		}
+	pivot := compiledGroupedPivot(t, compiled.Plan)
+	if compiled.Plan.StageSequence == nil || len(compiled.Plan.StageSequence.Stages) != 1 {
+		t.Fatal("pivot must be the single terminal stage")
 	}
 	if pivot == nil || pivot.ConstructionID != "shape_pivot" || pivot.GroupKeys[0].Column != "group" || pivot.CategoryColumn != "category" || pivot.ValueColumn != "value" {
 		t.Fatalf("grouped pivot lost direct construction/input identity: %#v", pivot)
@@ -79,41 +73,34 @@ func TestCompileGroupedTablePivotUsesFrozenTypedCategoriesAndOrderedOutputs(t *t
 }
 
 func TestCompileGroupedTablePivotDoesNotDuplicateSourceColumnIDAcrossCategories(t *testing.T) {
-	// Authoring-compiled outputs carry stable source column IDs on recipe
-	// fields. Two categories materialized from one shared value input must
-	// not each claim the value's source producer identity: the receipt
-	// compiled output schema rejects duplicate column IDs, which surfaced as
-	// an HTTP 500 on every multi-category table-shape pivot proposal. The
-	// defect is type-agnostic; only the reducer policies require numerics.
+
 	for _, test := range []struct {
 		name          string
 		valueColumn   string
 		valueID       string
 		policy        recipe.PivotDuplicatePolicy
-		categories    []recipe.GroupedPivotCategory
+		categories    []oraclePivotCategory
 		categoryKinds []string
 	}{
 		{
 			name: "numeric sum", valueColumn: "value", valueID: "source_shared_value", policy: recipe.PivotDuplicateSum,
-			categories: []recipe.GroupedPivotCategory{
+			categories: []oraclePivotCategory{
 				{Key: tableScalarInteger(0), Output: "birth_zero", Label: "Zero"},
 				{Key: tableScalarInteger(1), Output: "birth_one", Label: "One"},
 			},
 			categoryKinds: []string{string(expression.KindInteger), string(expression.KindInteger)},
 		},
 		{
-			// Saved receipts from single-category pivots were compiled with
-			// the clone identity and are revalidated at publication; that
-			// historical byte identity must not drift.
+
 			name: "single category keeps saved identity", valueColumn: "value", valueID: "source_shared_value", policy: recipe.PivotDuplicateSum,
-			categories: []recipe.GroupedPivotCategory{
+			categories: []oraclePivotCategory{
 				{Key: tableScalarInteger(0), Output: "birth_zero", Label: "Zero"},
 			},
 			categoryKinds: []string{string(expression.KindInteger)},
 		},
 		{
 			name: "string error reducer", valueColumn: "keep", valueID: "source_shared_string", policy: recipe.PivotDuplicateError,
-			categories: []recipe.GroupedPivotCategory{
+			categories: []oraclePivotCategory{
 				{Key: tableScalarInteger(0), Output: "keep_zero", Label: "Zero"},
 				{Key: tableScalarInteger(1), Output: "keep_one", Label: "One"},
 			},
@@ -121,9 +108,9 @@ func TestCompileGroupedTablePivotDoesNotDuplicateSourceColumnIDAcrossCategories(
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			output := tableReshapeTestOutput(&recipe.TableReshape{
-				Kind: recipe.TableReshapeGroupedPivot,
-				GroupedPivot: &recipe.GroupedPivot{
+			output := tableReshapeTestOutput(&oracleReshape{
+				Kind: oracleReshapePivot,
+				GroupedPivot: &oraclePivot{
 					ConstructionID: "shape_pivot_shared_source", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: test.valueColumn,
 					Categories:             test.categories,
 					DuplicatePolicy:        test.policy,
@@ -150,15 +137,8 @@ func TestCompileGroupedTablePivotDoesNotDuplicateSourceColumnIDAcrossCategories(
 				if !ok {
 					t.Fatalf("category output %q missing from schema %#v", category.Output, compiledSchemaNames(compiled.OutputSchema))
 				}
-				if index == 0 {
-					// The first category preserves the historical clone
-					// identity so already-saved single-category pivot
-					// receipts keep recompiling byte-for-byte.
-					if column.ID != test.valueID {
-						t.Fatalf("first pivot category lost its historical clone identity: got %q want %q: %#v", column.ID, test.valueID, column)
-					}
-				} else if column.ID != "" {
-					t.Fatalf("pivot category output %q claims source producer identity %q: %#v", category.Output, column.ID, column)
+				if column.ID != category.Output {
+					t.Fatalf("pivot category output %q ID = %q, want its explicit Construction output ID", category.Output, column.ID)
 				}
 				if column.Kind != test.categoryKinds[index] {
 					t.Fatalf("pivot category output %q lost the resolved value type: %#v", category.Output, column)
@@ -186,20 +166,16 @@ func assertUniquePivotOutputSchemaIDs(t *testing.T, schema []CompiledOutputColum
 		}
 		seen[column.ID] = column.Name
 	}
-	if seen["source_group_col"] != "group" {
+	if seen["group"] != "group" {
 		t.Fatalf("group key lost its source column identity: %#v", seen)
 	}
-	if rowID, exists := outputSchemaColumn(schema, "__loom_row_id"); !exists || rowID.ID != "" {
-		t.Fatalf("reshaped row identity must stay compiler-owned without a source ID: %#v", rowID)
+	if rowID, exists := outputSchemaColumn(schema, "__loom_row_id"); !exists || rowID.ID != "__loom_row_id" {
+		t.Fatalf("reshaped row identity must retain its compiler-owned current output ID: %#v", rowID)
 	}
 }
 
 func TestLowerRecipeGroupedPivotLaterCategoriesDropSourceIdentityFields(t *testing.T) {
-	// Construction-lane value columns (recipe_construction.go source-projection
-	// stage columns) can carry source identity: a producer column ID plus
-	// lineage fields the root-lane fixtures cannot produce. Later categories
-	// materialized from the same shared value input must drop every identity
-	// field; the first category keeps them for saved-receipt byte compatibility.
+
 	child := &lineage.SourceChild{
 		Kind: lineage.IndexedValueChild, ParentColumnIDs: []string{"source_root"},
 		OccurrenceID: "base", SourcePath: "valueQuantity.value",
@@ -263,29 +239,29 @@ func TestLowerRecipeGroupedPivotLaterCategoriesDropSourceIdentityFields(t *testi
 }
 
 func TestGroupedPivotNonnumericReducerHasTypedError(t *testing.T) {
-	reshape := &recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	reshape := &oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "pivot_reducer_type", GroupKeys: []string{"group"},
 			CategoryColumn: "category", ValueColumn: "keep",
-			Categories:      []recipe.GroupedPivotCategory{{Key: tableScalarInteger(0), Output: "out", Label: "Output"}},
-			DuplicatePolicy: recipe.PivotDuplicateMin, MissingCellPolicy: recipe.PivotMissingCellNull,
+			Categories:      []oraclePivotCategory{{Key: tableScalarInteger(0), Output: "out", Label: "Output"}},
+			DuplicatePolicy: recipe.PivotDuplicateSum, MissingCellPolicy: recipe.PivotMissingCellNull,
 			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
 		},
 	}
 	_, err := compileDerivedTestBundle(t, tableReshapeTestOutput(reshape))
 	var reducerType *PivotReducerTypeError
-	if !errors.As(err, &reducerType) || reducerType.Policy != recipe.PivotDuplicateMin || reducerType.ValueColumn != "keep" {
+	if !errors.As(err, &reducerType) || reducerType.Policy != recipe.PivotDuplicateSum || reducerType.ValueColumn != "keep" {
 		t.Fatalf("compile error = %v, want typed Pivot reducer error", err)
 	}
 }
 
 func TestCompileGroupedTablePivotRendersDuplicateAndMissingErrors(t *testing.T) {
-	output := tableReshapeTestOutput(&recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	output := tableReshapeTestOutput(&oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "shape_pivot_error", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: "value",
-			Categories:      []recipe.GroupedPivotCategory{{Key: tableScalarInteger(0), Output: "zero", Label: "Zero"}},
+			Categories:      []oraclePivotCategory{{Key: tableScalarInteger(0), Output: "zero", Label: "Zero"}},
 			DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellError,
 			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
 		},
@@ -303,11 +279,11 @@ func TestCompileGroupedTablePivotRendersDuplicateAndMissingErrors(t *testing.T) 
 }
 
 func TestCompileGroupedTablePivotPreservesNullAndMissingCategoryIdentity(t *testing.T) {
-	output := tableReshapeTestOutput(&recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	output := tableReshapeTestOutput(&oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "shape_pivot_sentinels", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: "value",
-			Categories: []recipe.GroupedPivotCategory{
+			Categories: []oraclePivotCategory{
 				{Key: tableScalarInteger(0), Output: "zero", Label: "Zero"},
 				{Key: recipe.TableScalar{Kind: recipe.TableScalarNull}, Output: "null_category", Label: "Recorded null"},
 				{Key: recipe.TableScalar{Kind: recipe.TableScalarMissing}, Output: "missing_category", Label: "Missing"},
@@ -318,7 +294,7 @@ func TestCompileGroupedTablePivotPreservesNullAndMissingCategoryIdentity(t *test
 	})
 	compiled := compileDerivedTestOutput(t, output)
 	pivot := compiledGroupedPivot(t, compiled.Plan)
-	if pivot.CategoryPresence == nil || pivot.CategoryPresenceColumn == "" {
+	if !pivot.CategoryPresenceFromInput || pivot.CategoryPresenceColumn == "" {
 		t.Fatalf("pivot lost its source-property presence contract: %#v", pivot)
 	}
 	for _, name := range compiledSchemaNames(compiled.OutputSchema) {
@@ -326,8 +302,18 @@ func TestCompileGroupedTablePivotPreservesNullAndMissingCategoryIdentity(t *test
 			t.Fatalf("internal presence sidecar %q leaked into output schema %#v", name, compiledSchemaNames(compiled.OutputSchema))
 		}
 	}
-	if !reflect.DeepEqual(pivot.CategoryPresence.Paths, [][]string{{"multipleBirthInteger"}}) {
-		t.Fatalf("category presence paths = %#v", pivot.CategoryPresence.Paths)
+	var sourcePresence *ir.PhysicalProjectionPresence
+	for _, op := range compiled.Plan.Operations {
+		if op.Return != nil {
+			for _, projection := range op.Return.Projections {
+				if projection.Name == pivot.CategoryPresenceColumn {
+					sourcePresence = projection.Presence
+				}
+			}
+		}
+	}
+	if sourcePresence == nil || !reflect.DeepEqual(sourcePresence.Paths, [][]string{{"multipleBirthInteger"}}) {
+		t.Fatalf("source category presence = %#v", sourcePresence)
 	}
 	if pivot.Categories[0].MatchKind != ir.PhysicalPivotCategoryValueMatch || pivot.Categories[0].ValueBindKey == "" {
 		t.Fatalf("ordinary category did not lower to a typed value match: %#v", pivot.Categories[0])
@@ -384,7 +370,7 @@ func TestCompileGroupedTablePivotPreservesNullAndMissingCategoryIdentity(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"IS_OBJECT(root.payload)", "HAS(root.payload, @", "MERGE({", "== null)", "NOT (", "TYPENAME("} {
+	for _, expected := range []string{"IS_OBJECT(root.payload)", "HAS(root.payload, @", "LET __loom_construction_source_projection = (", "== null)", "NOT (", "TYPENAME("} {
 		if !strings.Contains(rendered.Query, expected) {
 			t.Fatalf("sentinel pivot query missing presence/match expression %q: %s", expected, rendered.Query)
 		}
@@ -428,12 +414,12 @@ func TestCompileGroupedTablePivotPreservesNullAndMissingCategoryIdentity(t *test
 }
 
 func TestCompileDirectIDGroupedPivotPreservesNullAndMissingCategoryIdentity(t *testing.T) {
-	output := tableReshapeTestOutput(&recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	output := tableReshapeTestOutput(&oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "shape_pivot_direct_sentinels", GroupKeys: []string{"resource_id"},
 			CategoryColumn: "category", ValueColumn: "value",
-			Categories: []recipe.GroupedPivotCategory{
+			Categories: []oraclePivotCategory{
 				{Key: recipe.TableScalar{Kind: recipe.TableScalarMissing}, Output: "missing_category", Label: "Missing"},
 				{Key: recipe.TableScalar{Kind: recipe.TableScalarNull}, Output: "null_category", Label: "Null"},
 			},
@@ -441,13 +427,14 @@ func TestCompileDirectIDGroupedPivotPreservesNullAndMissingCategoryIdentity(t *t
 			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryExcludeWithEvidence,
 		},
 	})
-	output.Fields = append(output.Fields, recipe.Field{Name: "resource_id", Expr: recipe.Expression{Select: "id"}})
+	output.Fields = append(output.Fields, recipe.Field{Name: "resource_id", ColumnID: "resource_id", Expr: recipe.Expression{Select: "id"}})
+	output.Construction.SourceColumns = append(output.Construction.SourceColumns, recipe.StageColumn{ID: "resource_id", Name: "resource_id"})
 	compiled := compileDerivedTestOutput(t, output)
 	pivot := compiledGroupedPivot(t, compiled.Plan)
 	if !pivot.OneInputRowPerGroup {
 		t.Fatal("direct root-ID group key did not prove one source input per group")
 	}
-	if pivot.CategoryPresence == nil || pivot.CategoryPresenceColumn == "" {
+	if !pivot.CategoryPresenceFromInput || pivot.CategoryPresenceColumn == "" {
 		t.Fatalf("direct root-ID pivot lost its category presence contract: %#v", pivot)
 	}
 	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
@@ -478,12 +465,12 @@ func TestCompileGroupedPivotOrdinaryFalseZeroAndEmptyStringUseTypedBinds(t *test
 		{name: "empty string", column: "gender", key: recipe.TableScalar{Kind: recipe.TableScalarString, String: stringPointer("")}, wantBind: ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			output := tableReshapeTestOutput(&recipe.TableReshape{
-				Kind: recipe.TableReshapeGroupedPivot,
-				GroupedPivot: &recipe.GroupedPivot{
+			output := tableReshapeTestOutput(&oracleReshape{
+				Kind: oracleReshapePivot,
+				GroupedPivot: &oraclePivot{
 					ConstructionID: "shape_ordinary_" + strings.ReplaceAll(test.name, " ", "_"),
 					GroupKeys:      []string{"group"}, CategoryColumn: "category", ValueColumn: "value",
-					Categories:      []recipe.GroupedPivotCategory{{Key: test.key, Output: "out", Label: "Output"}},
+					Categories:      []oraclePivotCategory{{Key: test.key, Output: "out", Label: "Output"}},
 					DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
 					UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
 				},
@@ -523,10 +510,10 @@ func TestCompileUnpivotPreservesColumnOrderNullPolicyAndIdentity(t *testing.T) {
 		{name: "drop null", policy: recipe.UnpivotNullDrop, wantFilter: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			output := tableReshapeTestOutput(&recipe.TableReshape{
-				Kind: recipe.TableReshapeUnpivot,
-				Unpivot: &recipe.Unpivot{
-					ConstructionID: "shape_unpivot", Inputs: []recipe.UnpivotInput{
+			output := tableReshapeTestOutput(&oracleReshape{
+				Kind: oracleReshapeUnpivot,
+				Unpivot: &oracleUnpivot{
+					ConstructionID: "shape_unpivot", Inputs: []oracleUnpivotInput{
 						{Column: "value2", Key: tableScalarString("secondary")},
 						{Column: "value", Key: tableScalarString("primary")},
 					},
@@ -538,7 +525,7 @@ func TestCompileUnpivotPreservesColumnOrderNullPolicyAndIdentity(t *testing.T) {
 			if got := compiledPublicSchemaNames(compiled.OutputSchema); !reflect.DeepEqual(got, wantColumns) {
 				t.Fatalf("public columns = %#v, want %#v", got, wantColumns)
 			}
-			wantSchema := []string{"_key", "group", "category", "keep", "measure", "amount", "__loom_row_id"}
+			wantSchema := []string{"group", "category", "keep", "measure", "amount", "_key", "__loom_row_id"}
 			if got := compiledSchemaNames(compiled.OutputSchema); !reflect.DeepEqual(got, wantSchema) {
 				t.Fatalf("output schema order = %#v", got)
 			}
@@ -549,7 +536,7 @@ func TestCompileUnpivotPreservesColumnOrderNullPolicyAndIdentity(t *testing.T) {
 			if unpivot.ConstructionID != "shape_unpivot" || len(unpivot.Inputs) != 2 || unpivot.Inputs[0].Column != "value2" || unpivot.Inputs[1].Column != "value" {
 				t.Fatalf("unpivot lost authored construction/input order: %#v", unpivot)
 			}
-			if len(unpivot.IdentityParts) < 2 {
+			if len(unpivot.IdentityParts) != 1 || unpivot.IdentityParts[0].Name != "_key" || unpivot.IdentityParts[0].Value.Variable != unpivot.InputRowVariable || !reflect.DeepEqual(unpivot.IdentityParts[0].Value.Path, []string{"_key"}) {
 				t.Fatalf("unpivot has no stable input identity parts: %#v", unpivot.IdentityParts)
 			}
 			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
@@ -569,21 +556,21 @@ func TestCompileUnpivotPreservesColumnOrderNullPolicyAndIdentity(t *testing.T) {
 }
 
 func TestCompileTableReshapeRejectsInvalidCombinationsAndTypes(t *testing.T) {
-	pivot := func(category, value string, duplicate recipe.PivotDuplicatePolicy, key recipe.TableScalar) *recipe.TableReshape {
-		return &recipe.TableReshape{
-			Kind: recipe.TableReshapeGroupedPivot,
-			GroupedPivot: &recipe.GroupedPivot{
+	pivot := func(category, value string, duplicate recipe.PivotDuplicatePolicy, key recipe.TableScalar) *oracleReshape {
+		return &oracleReshape{
+			Kind: oracleReshapePivot,
+			GroupedPivot: &oraclePivot{
 				ConstructionID: "shape_invalid", GroupKeys: []string{"group"}, CategoryColumn: category, ValueColumn: value,
-				Categories:      []recipe.GroupedPivotCategory{{Key: key, Output: "out", Label: "Output"}},
+				Categories:      []oraclePivotCategory{{Key: key, Output: "out", Label: "Output"}},
 				DuplicatePolicy: duplicate, MissingCellPolicy: recipe.PivotMissingCellNull,
 				UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
 			},
 		}
 	}
-	unpivot := &recipe.TableReshape{
-		Kind: recipe.TableReshapeUnpivot,
-		Unpivot: &recipe.Unpivot{
-			ConstructionID: "shape_invalid", Inputs: []recipe.UnpivotInput{{Column: "value", Key: tableScalarString("value")}},
+	unpivot := &oracleReshape{
+		Kind: oracleReshapeUnpivot,
+		Unpivot: &oracleUnpivot{
+			ConstructionID: "shape_invalid", Inputs: []oracleUnpivotInput{{Column: "value", Key: tableScalarString("value")}},
 			KeyOutput: "measure", KeyLabel: "Measure", ValueOutput: "amount", ValueLabel: "Amount", NullRowPolicy: recipe.UnpivotNullPreserve,
 		},
 	}
@@ -599,9 +586,9 @@ func TestCompileTableReshapeRejectsInvalidCombinationsAndTypes(t *testing.T) {
 			result.Fields[1].Expr = recipe.Expression{Call: "concat", Args: []recipe.Expression{{Select: "gender"}}}
 			return result
 		}(), want: "MISSING requires a simple scalar selector with preserved property presence"},
-		{name: "incompatible unpivot inputs", output: tableReshapeTestOutput(&recipe.TableReshape{
-			Kind: recipe.TableReshapeUnpivot,
-			Unpivot: &recipe.Unpivot{ConstructionID: "shape_invalid", Inputs: []recipe.UnpivotInput{
+		{name: "incompatible unpivot inputs", output: tableReshapeTestOutput(&oracleReshape{
+			Kind: oracleReshapeUnpivot,
+			Unpivot: &oracleUnpivot{ConstructionID: "shape_invalid", Inputs: []oracleUnpivotInput{
 				{Column: "value", Key: tableScalarString("number")}, {Column: "group", Key: tableScalarString("text")},
 			}, KeyOutput: "measure", KeyLabel: "Measure", ValueOutput: "amount", ValueLabel: "Amount", NullRowPolicy: recipe.UnpivotNullPreserve},
 		}), want: "incompatible with previous inputs"},
@@ -614,7 +601,7 @@ func TestCompileTableReshapeRejectsInvalidCombinationsAndTypes(t *testing.T) {
 				MissingInputPolicy: recipe.MissingInputError,
 			}}
 			return result
-		}(), want: "unpivot cannot be combined with derived columns"},
+		}(), want: "construction cannot be combined"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := compileDerivedTestBundle(t, test.output)
@@ -625,9 +612,9 @@ func TestCompileTableReshapeRejectsInvalidCombinationsAndTypes(t *testing.T) {
 	}
 }
 
-func tableReshapeTestOutput(reshape *recipe.TableReshape) recipe.Output {
-	return recipe.Output{
-		Name: "patients", RootResourceType: "Patient", RowGrain: "patient", TableReshape: reshape,
+func tableReshapeTestOutput(reshape *oracleReshape) recipe.Output {
+	return bindOracleCurrentConstruction(recipe.Output{
+		Name: "patients", RootResourceType: "Patient", RowGrain: "patient",
 		Fields: []recipe.Field{
 			{Name: "group", Expr: recipe.Expression{Select: "gender"}},
 			{Name: "category", Expr: recipe.Expression{Select: "multipleBirthInteger"}},
@@ -635,7 +622,7 @@ func tableReshapeTestOutput(reshape *recipe.TableReshape) recipe.Output {
 			{Name: "value2", Expr: recipe.Expression{Select: "multipleBirthInteger"}},
 			{Name: "keep", Expr: recipe.Expression{Select: "id"}},
 		},
-	}
+	}, reshape)
 }
 
 func tableScalarString(value string) recipe.TableScalar {
@@ -671,6 +658,13 @@ func compiledPublicSchemaNames(schema []CompiledOutputColumn) []string {
 }
 
 func compiledProjectionNames(plan ir.PhysicalPlan) []string {
+	if plan.StageSequence != nil {
+		var names []string
+		for _, col := range plan.StageSequence.FinalColumns {
+			names = append(names, col.Name)
+		}
+		return names
+	}
 	for _, operation := range plan.Operations {
 		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
 			continue
@@ -686,6 +680,13 @@ func compiledProjectionNames(plan ir.PhysicalPlan) []string {
 
 func compiledUnpivot(t *testing.T, plan ir.PhysicalPlan) *ir.PhysicalUnpivot {
 	t.Helper()
+	if plan.StageSequence != nil {
+		for i := range plan.StageSequence.Stages {
+			if value := plan.StageSequence.Stages[i].Unpivot; value != nil {
+				return value
+			}
+		}
+	}
 	for index := range plan.Operations {
 		if plan.Operations[index].Kind == ir.PhysicalUnpivotOp {
 			return plan.Operations[index].Unpivot
@@ -697,6 +698,13 @@ func compiledUnpivot(t *testing.T, plan ir.PhysicalPlan) *ir.PhysicalUnpivot {
 
 func compiledGroupedPivot(t *testing.T, plan ir.PhysicalPlan) *ir.PhysicalGroupedPivot {
 	t.Helper()
+	if plan.StageSequence != nil {
+		for i := range plan.StageSequence.Stages {
+			if value := plan.StageSequence.Stages[i].GroupedPivot; value != nil {
+				return value
+			}
+		}
+	}
 	for index := range plan.Operations {
 		operation := &plan.Operations[index]
 		if operation.Kind == ir.PhysicalGroupedPivotOp && operation.GroupedPivot != nil {

@@ -3,21 +3,22 @@ package ir
 import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
+	"slices"
 )
 
-func cloneStrings(in []string) []string {
-	if in == nil {
+func CloneStrings(values []string) []string {
+	if len(values) == 0 {
 		return nil
 	}
-	return append([]string(nil), in...)
+	return slices.Clone(values)
 }
 
-func clonePhysicalBindValue(value any) any {
+func ClonePhysicalBindValue(value any) any {
 	switch value := value.(type) {
 	case []any:
 		out := make([]any, len(value))
 		for i, item := range value {
-			out[i] = clonePhysicalBindValue(item)
+			out[i] = ClonePhysicalBindValue(item)
 		}
 		return out
 	case []string:
@@ -25,7 +26,7 @@ func clonePhysicalBindValue(value any) any {
 	case map[string]any:
 		out := make(map[string]any, len(value))
 		for key, item := range value {
-			out[key] = clonePhysicalBindValue(item)
+			out[key] = ClonePhysicalBindValue(item)
 		}
 		return out
 	default:
@@ -64,7 +65,7 @@ func clonePhysicalClickHousePrefix(prefix *PhysicalClickHousePrefix) *PhysicalCl
 		return nil
 	}
 	copy := *prefix
-	copy.AuthResourcePaths = cloneStrings(prefix.AuthResourcePaths)
+	copy.AuthResourcePaths = CloneStrings(prefix.AuthResourcePaths)
 	return &copy
 }
 
@@ -181,7 +182,7 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 		}
 		if stage.RelatedField != nil {
 			relatedFieldCopy := *stage.RelatedField
-			relatedFieldCopy.Path = cloneStrings(stage.RelatedField.Path)
+			relatedFieldCopy.Path = CloneStrings(stage.RelatedField.Path)
 			cloned.RelatedField = &relatedFieldCopy
 		}
 		if stage.GroupedPivot != nil {
@@ -244,9 +245,6 @@ func ClonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 func ClonePhysicalOperations(operations []PhysicalOperation) []PhysicalOperation {
 	return clonePhysicalOperations(operations)
 }
-func ClonePhysicalPredicateExpression(predicate PhysicalPredicateExpression) PhysicalPredicateExpression {
-	return clonePhysicalPredicateExpression(predicate)
-}
 func ClonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 	return clonePhysicalExpression(expression)
 }
@@ -254,9 +252,6 @@ func ClonePhysicalSubplan(subplan PhysicalSubplan) PhysicalSubplan {
 	return clonePhysicalSubplan(subplan)
 }
 
-// CanonicalExecutionPhysicalPlan returns the renderer-relevant plan contract.
-// Compiler diagnostics and semantic source locations are deliberately removed:
-// they explain a plan but do not change what the backend executes.
 func CanonicalExecutionPhysicalPlan(plan PhysicalPlan) PhysicalPlan {
 	out := clonePhysicalPlan(plan)
 	out.Source = PhysicalSource{}
@@ -392,64 +387,27 @@ func canonicalizePhysicalSubplan(subplan *PhysicalSubplan) {
 }
 
 func canonicalizePhysicalPredicateExpression(predicate *PhysicalPredicateExpression) {
-	if predicate == nil {
-		return
-	}
-	if predicate.Comparison != nil {
-		canonicalizePhysicalExpression(predicate.Comparison.LeftExpression)
-	}
-	canonicalizePhysicalSubplan(predicate.Exists)
-	for index := range predicate.Children {
-		canonicalizePhysicalPredicateExpression(&predicate.Children[index])
+	if predicate != nil {
+		canonicalizePhysicalExpressionChildren(predicate)
 	}
 }
 
 func canonicalizePhysicalExpression(expression *PhysicalExpression) {
-	if expression == nil {
-		return
+	if expression != nil {
+		canonicalizePhysicalExpressionChildren(expression)
 	}
-	if expression.Aggregate != nil {
-		canonicalizePhysicalExpression(expression.Aggregate.Value)
-		if expression.Aggregate.ContributorWindow != nil {
-			canonicalizePhysicalExpression(&expression.Aggregate.ContributorWindow.Timestamp)
-			canonicalizePhysicalExpression(&expression.Aggregate.ContributorWindow.Anchor)
+}
+
+func canonicalizePhysicalExpressionChildren(node Node) {
+	for _, child := range Children(node) {
+		switch child := child.(type) {
+		case *PhysicalSubplan:
+			canonicalizePhysicalSubplan(child)
+		case *PhysicalExpression, *PhysicalPredicateExpression, *PhysicalValue:
+			canonicalizePhysicalExpressionChildren(child)
+		default:
+			panic("unexpected physical expression child")
 		}
-		if expression.Aggregate.Ordering != nil {
-			canonicalizePhysicalExpression(&expression.Aggregate.Ordering.Timestamp)
-		}
-		canonicalizePhysicalPredicateExpression(expression.Aggregate.Predicate)
-	}
-	if expression.Slice != nil {
-		canonicalizePhysicalPredicateExpression(expression.Slice.Predicate)
-		canonicalizePhysicalExpression(expression.Slice.Sort)
-		for index := range expression.Slice.Projections {
-			canonicalizePhysicalExpression(&expression.Slice.Projections[index].Expression)
-		}
-	}
-	if expression.KeyedMap != nil {
-		canonicalizePhysicalExpression(&expression.KeyedMap.Source)
-		canonicalizePhysicalExpression(&expression.KeyedMap.ItemKey)
-		canonicalizePhysicalExpression(&expression.KeyedMap.ItemValue)
-		for index := range expression.KeyedMap.ValueFallbacks {
-			canonicalizePhysicalExpression(&expression.KeyedMap.ValueFallbacks[index])
-		}
-	}
-	if expression.KeySet != nil {
-		canonicalizePhysicalExpression(&expression.KeySet.Source)
-		canonicalizePhysicalExpression(&expression.KeySet.ItemKey)
-	}
-	if expression.Object != nil {
-		for index := range expression.Object.Fields {
-			canonicalizePhysicalExpression(&expression.Object.Fields[index].Expression)
-		}
-	}
-	if expression.Call != nil {
-		for index := range expression.Call.Args {
-			canonicalizePhysicalExpression(&expression.Call.Args[index])
-		}
-	}
-	if expression.Subplan != nil {
-		canonicalizePhysicalSubplan(expression.Subplan)
 	}
 }
 
@@ -459,7 +417,7 @@ func clonePhysicalBindVars(bindVars map[string]any) map[string]any {
 	}
 	copy := make(map[string]any, len(bindVars))
 	for key, value := range bindVars {
-		copy[key] = clonePhysicalBindValue(value)
+		copy[key] = ClonePhysicalBindValue(value)
 	}
 	return copy
 }
@@ -497,7 +455,7 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 	}
 	if operation.Traversal != nil {
 		traversalCopy := *operation.Traversal
-		traversalCopy.EndpointIndexFields = cloneStrings(operation.Traversal.EndpointIndexFields)
+		traversalCopy.EndpointIndexFields = CloneStrings(operation.Traversal.EndpointIndexFields)
 		copy.Traversal = &traversalCopy
 	}
 	if operation.Filter != nil {
@@ -541,7 +499,7 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		unnestCopy.Owner.Route = append([]PhysicalUnnestRouteStep(nil), operation.Unnest.Owner.Route...)
 		for routeIndex := range unnestCopy.Owner.Route {
 			step := &unnestCopy.Owner.Route[routeIndex]
-			step.Traversal.EndpointIndexFields = cloneStrings(step.Traversal.EndpointIndexFields)
+			step.Traversal.EndpointIndexFields = CloneStrings(step.Traversal.EndpointIndexFields)
 			step.Scope = clonePhysicalOperations(operation.Unnest.Owner.Route[routeIndex].Scope)
 		}
 		copy.Unnest = &unnestCopy
@@ -592,15 +550,15 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 	}
 	if operation.PathExtend != nil {
 		extendCopy := *operation.PathExtend
-		extendCopy.SourcePath = cloneStrings(operation.PathExtend.SourcePath)
-		extendCopy.Traversal.EndpointIndexFields = cloneStrings(operation.PathExtend.Traversal.EndpointIndexFields)
+		extendCopy.SourcePath = CloneStrings(operation.PathExtend.SourcePath)
+		extendCopy.Traversal.EndpointIndexFields = CloneStrings(operation.PathExtend.Traversal.EndpointIndexFields)
 		extendCopy.Node.Value = clonePhysicalValue(operation.PathExtend.Node.Value)
 		extendCopy.Scope = clonePhysicalOperations(operation.PathExtend.Scope)
 		copy.PathExtend = &extendCopy
 	}
 	if operation.GraphReturn != nil {
 		graphCopy := *operation.GraphReturn
-		graphCopy.PathSets = cloneStrings(operation.GraphReturn.PathSets)
+		graphCopy.PathSets = CloneStrings(operation.GraphReturn.PathSets)
 		copy.GraphReturn = &graphCopy
 	}
 	if operation.CollectionScan != nil {
@@ -930,7 +888,7 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 	if expression.RelatedField != nil {
 		relatedField := *expression.RelatedField
 		relatedField.DocumentID = clonePhysicalValue(expression.RelatedField.DocumentID)
-		relatedField.Path = cloneStrings(expression.RelatedField.Path)
+		relatedField.Path = CloneStrings(expression.RelatedField.Path)
 		copy.RelatedField = &relatedField
 	}
 	if expression.KeyedMap != nil {
@@ -981,7 +939,7 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 
 func clonePhysicalSubplan(subplan PhysicalSubplan) PhysicalSubplan {
 	copy := subplan
-	copy.Captures = cloneStrings(subplan.Captures)
+	copy.Captures = CloneStrings(subplan.Captures)
 	copy.Operations = make([]PhysicalOperation, len(subplan.Operations))
 	for i, op := range subplan.Operations {
 		copy.Operations[i] = clonePhysicalOperation(op)
@@ -1000,7 +958,7 @@ func clonePhysicalSubplan(subplan PhysicalSubplan) PhysicalSubplan {
 
 func clonePhysicalValue(value PhysicalValue) PhysicalValue {
 	copy := value
-	copy.Path = cloneStrings(value.Path)
+	copy.Path = CloneStrings(value.Path)
 	return copy
 }
 

@@ -8,10 +8,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// lowerTypedPredicate is the one semantic-to-physical lowering boundary for a
-// typed filter. It owns selector extraction and literal binding while callers
-// supply a scope-specific prefix, ensuring sibling rich consumers cannot
-// overwrite one another's bind variables.
 func lowerTypedPredicate(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, filter spec.TypedFilter, bindPrefix string) (*ir.PhysicalPredicateExpression, error) {
 	if physical == nil {
 		return nil, fmt.Errorf("physical plan is required")

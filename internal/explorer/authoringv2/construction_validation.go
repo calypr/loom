@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -13,6 +14,9 @@ const maxCodedPivotCategories = 50
 func (c *Construction) Validate(sourceColumns []Column) error {
 	if c == nil {
 		return nil
+	}
+	if err := validateIndependentRelatedExpansions(c.Steps); err != nil {
+		return err
 	}
 	if c.Version != ConstructionVersion {
 		return fmt.Errorf("unsupported construction version %d", c.Version)
@@ -63,10 +67,6 @@ func (c *Construction) Validate(sourceColumns []Column) error {
 	return validateConstructionStepOwnership(c)
 }
 
-// ValidateWithExplicitGroups checks authored operations against the effective
-// sequence formed by inserting the compiler-owned cohort stage at its saved
-// boundary. References remain immediate: only the first operation after the
-// cohort may consume the virtual group_rows stage.
 func (c *Construction) ValidateWithExplicitGroups(sourceColumns []Column, groups *GroupedRows) error {
 	if groups == nil {
 		return c.Validate(sourceColumns)
@@ -76,6 +76,9 @@ func (c *Construction) ValidateWithExplicitGroups(sourceColumns []Column, groups
 			return fmt.Errorf("group rows afterStepId %q does not name a construction step", groups.AfterStepID)
 		}
 		return nil
+	}
+	if err := validateIndependentRelatedExpansions(c.Steps); err != nil {
+		return err
 	}
 	if c.Version != ConstructionVersion {
 		return fmt.Errorf("unsupported construction version %d", c.Version)
@@ -398,8 +401,6 @@ func validatePivotSourceProjection(construction *Construction, projection Constr
 	return nil
 }
 
-// ConstructionCanCarrySourceProjection reports whether an operation preserves
-// a root scalar source field in its output schema.
 func ConstructionCanCarrySourceProjection(kind ConstructionOperationKind) bool {
 	switch kind {
 	case ConstructionOperationDerive, ConstructionOperationFilter, ConstructionOperationExpand,
@@ -1162,6 +1163,37 @@ func stageColumnIndex(columns []StageColumn) (map[string]StageColumn, error) {
 	return index, nil
 }
 
+func constructionPivotScalarKind(typeName string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(typeName)) {
+	case "string", "code", "uuid", "date", "date_time", "date-time", "datetime":
+		return "STRING", true
+	case "integer":
+		return "INTEGER", true
+	case "decimal":
+		return "DECIMAL", true
+	case "boolean":
+		return "BOOLEAN", true
+	default:
+		return "", false
+	}
+}
+
+func constructionPivotTypeIsScalar(typeName string) (scalar, known bool) {
+	normalized := strings.ToLower(strings.TrimSpace(typeName))
+	if normalized == "" || normalized == "infer" {
+		return true, false
+	}
+	if _, ok := constructionPivotScalarKind(normalized); ok {
+		return true, true
+	}
+	switch normalized {
+	case "array", "object", "record", "json", "list", "map":
+		return false, true
+	default:
+		return true, false
+	}
+}
+
 func validateConstructionPivot(step ConstructionStep, input map[string]StageColumn) error {
 	pivot := step.Operation.Pivot
 	if !sameOperationID(step.ID, pivot.ConstructionID) {
@@ -1178,8 +1210,12 @@ func validateConstructionPivot(step ConstructionStep, input map[string]StageColu
 		if groupIDs[id] {
 			return fmt.Errorf("pivot groupKeyIds contain duplicate id %q", id)
 		}
-		if _, exists := input[id]; !exists {
+		column, exists := input[id]
+		if !exists {
 			return missingConstructionColumn("groupKeyIds", id)
+		}
+		if scalar, known := constructionPivotTypeIsScalar(column.Type); known && !scalar {
+			return fmt.Errorf("pivot group key %q type %q is not a scalar", id, column.Type)
 		}
 		groupIDs[id] = true
 	}
@@ -1191,27 +1227,62 @@ func validateConstructionPivot(step ConstructionStep, input map[string]StageColu
 		if !requiredID(id) {
 			return fmt.Errorf("pivot %s is required", field)
 		}
-		if _, exists := input[id]; !exists {
+		column, exists := input[id]
+		if !exists {
 			return missingConstructionColumn(field, id)
 		}
 		if groupIDs[id] {
 			return fmt.Errorf("pivot %s cannot also be a group key", field)
 		}
+		if scalar, known := constructionPivotTypeIsScalar(column.Type); known && !scalar {
+			return fmt.Errorf("pivot %s column %q type %q is not a scalar", field, id, column.Type)
+		}
 	}
 	if pivot.CategoryColumnID == pivot.ValueColumnID {
 		return fmt.Errorf("pivot category and value columns must differ")
 	}
-	if len(pivot.Categories) == 0 {
+	if pivot.Discovery != nil && len(pivot.Categories) != 0 {
+		return fmt.Errorf("pivot cannot combine explicit categories with discovery")
+	}
+	if pivot.Discovery == nil && len(pivot.Categories) == 0 {
 		return fmt.Errorf("pivot categories must be non-empty")
 	}
 	if !oneOf(string(pivot.DuplicatePolicy), "ERROR", "SUM", "MIN", "MAX") {
 		return fmt.Errorf("pivot duplicatePolicy must be ERROR, SUM, MIN, or MAX")
 	}
+	if categoryKind, known := constructionPivotScalarKind(input[pivot.CategoryColumnID].Type); known {
+		for index, category := range pivot.Categories {
+			if category.Key.Kind == TableScalarNull || category.Key.Kind == TableScalarMissing {
+				continue
+			}
+			if string(category.Key.Kind) != categoryKind {
+				return fmt.Errorf("pivot categories[%d].key type %q does not match category column type %q", index, category.Key.Kind, input[pivot.CategoryColumnID].Type)
+			}
+		}
+	}
+	if pivot.DuplicatePolicy == ConstructionPivotDuplicateSum {
+		valueColumn := input[pivot.ValueColumnID]
+		if valueKind, known := constructionPivotScalarKind(valueColumn.Type); known && valueKind != "INTEGER" && valueKind != "DECIMAL" {
+			return fmt.Errorf("pivot duplicatePolicy SUM requires an INTEGER or DECIMAL value column, got %q", valueColumn.Type)
+		}
+	}
 	if !oneOf(string(pivot.MissingCellPolicy), "NULL", "ERROR") {
 		return fmt.Errorf("pivot missingCellPolicy must be NULL or ERROR")
 	}
-	if !oneOf(string(pivot.UnlistedCategoryPolicy), "ERROR", "EXCLUDE_WITH_EVIDENCE") {
-		return fmt.Errorf("pivot unlistedCategoryPolicy must be ERROR or EXCLUDE_WITH_EVIDENCE")
+	if !oneOf(string(pivot.UnlistedCategoryPolicy), "ERROR") {
+		return fmt.Errorf("pivot unlistedCategoryPolicy must be ERROR; EXCLUDE_WITH_EVIDENCE is not available inside a construction sequence")
+	}
+	if pivot.Discovery != nil {
+		if pivot.Discovery.MaxCategories <= 0 || pivot.Discovery.MaxCategories > maxPivotCategories {
+			return fmt.Errorf("pivot discovery maxCategories must be 1..%d", maxPivotCategories)
+		}
+		if _, known := constructionPivotScalarKind(input[pivot.CategoryColumnID].Type); !known {
+			return fmt.Errorf("pivot discovery category column %q type %q is not a supported scalar pair", pivot.CategoryColumnID, input[pivot.CategoryColumnID].Type)
+		}
+		if _, known := constructionPivotScalarKind(input[pivot.ValueColumnID].Type); !known {
+			return fmt.Errorf("pivot discovery value column %q type %q is not a supported scalar pair", pivot.ValueColumnID, input[pivot.ValueColumnID].Type)
+		}
+		return validateDeclaredOutputIDs(step.Outputs, pivot.GroupKeyIDs)
 	}
 	seenKeys, outputIDs := map[string]bool{}, map[string]bool{}
 	for i, category := range pivot.Categories {
@@ -1283,6 +1354,22 @@ func validateConstructionCodedPivot(step ConstructionStep, input map[string]Stag
 	for _, column := range inputColumns {
 		inputIDs[column.ID] = true
 	}
+	declarations := make(map[string]StageColumn, len(step.Outputs))
+	for _, output := range step.Outputs {
+		declarations[output.ID] = output
+	}
+	sourceLogicalType := ""
+	if pivot.Source != nil {
+		canonical, ok := recipe.CanonicalConstructionScalarLogicalType(pivot.Source.Family.LogicalType)
+		if !ok {
+			return fmt.Errorf("coded pivot source logical type %q is not a supported table scalar", pivot.Source.Family.LogicalType)
+		}
+		sourceLogicalType = canonical
+	}
+	if pivot.DuplicatePolicy == ConstructionPivotDuplicateSum && sourceLogicalType != "" &&
+		sourceLogicalType != "integer" && sourceLogicalType != "decimal" {
+		return fmt.Errorf("coded pivot duplicatePolicy SUM requires an INTEGER or DECIMAL source logical type, got %q", pivot.Source.Family.LogicalType)
+	}
 	seenCodes, outputIDs := map[string]bool{}, map[string]bool{}
 	want := make([]string, 0, len(pivot.Categories))
 	for index, category := range pivot.Categories {
@@ -1300,6 +1387,13 @@ func validateConstructionCodedPivot(step ConstructionStep, input map[string]Stag
 				return fmt.Errorf("coded pivot categories duplicate system/code at index %d", index)
 			}
 			seenCodes[key] = true
+		}
+		if declaration, ok := declarations[category.OutputColumnID]; ok && sourceLogicalType != "" &&
+			declaration.Type != "" && !strings.EqualFold(declaration.Type, "INFER") {
+			declaredType, ok := recipe.CanonicalConstructionScalarLogicalType(declaration.Type)
+			if !ok || declaredType != sourceLogicalType {
+				return fmt.Errorf("CODED_PIVOT output %q type %q does not match source type %q", declaration.ID, declaration.Type, pivot.Source.Family.LogicalType)
+			}
 		}
 		outputIDs[category.OutputColumnID] = true
 		want = append(want, category.OutputColumnID)
@@ -1467,6 +1561,25 @@ func (v FilterValue) Validate() error {
 	return nil
 }
 
+func constructionUnpivotValueKind(logicalType string) (string, bool) {
+	canonical, ok := recipe.CanonicalConstructionScalarLogicalType(logicalType)
+	if !ok {
+		return "", false
+	}
+	switch canonical {
+	case "string", "date", "date_time", "code", "uuid":
+		return "STRING", true
+	case "integer":
+		return "INTEGER", true
+	case "decimal":
+		return "DECIMAL", true
+	case "boolean":
+		return "BOOLEAN", true
+	default:
+		return "", false
+	}
+}
+
 func validateConstructionUnpivot(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
 	unpivot := step.Operation.Unpivot
 	if !sameOperationID(step.ID, unpivot.ConstructionID) {
@@ -1480,11 +1593,13 @@ func validateConstructionUnpivot(step ConstructionStep, input map[string]StageCo
 	}
 	inputIDs := make(map[string]bool, len(unpivot.Inputs))
 	keys := make(map[string]bool, len(unpivot.Inputs))
+	keyKind, valueKind := "", ""
 	for i, item := range unpivot.Inputs {
 		if !requiredID(item.ColumnID) {
 			return fmt.Errorf("inputs[%d].columnId is required", i)
 		}
-		if _, exists := input[item.ColumnID]; !exists {
+		column, exists := input[item.ColumnID]
+		if !exists {
 			return missingConstructionColumn(fmt.Sprintf("inputs[%d].columnId", i), item.ColumnID)
 		}
 		if inputIDs[item.ColumnID] {
@@ -1494,11 +1609,28 @@ func validateConstructionUnpivot(step ConstructionStep, input map[string]StageCo
 		if err := item.Key.ValidateConcreteValue(); err != nil {
 			return fmt.Errorf("inputs[%d].key: %w", i, err)
 		}
+		currentKeyKind := string(item.Key.Kind)
+		if keyKind == "" {
+			keyKind = currentKeyKind
+		} else if currentKeyKind != keyKind {
+			return fmt.Errorf("unpivot input keys must have one canonical scalar type")
+		}
 		key := item.Key.identity()
 		if keys[key] {
 			return fmt.Errorf("unpivot inputs contain duplicate key at index %d", i)
 		}
 		keys[key] = true
+		if kind, ok := constructionUnpivotValueKind(column.Type); ok {
+			if valueKind == "" {
+				valueKind = kind
+			} else if valueKind != kind {
+				if valueKind == "INTEGER" && kind == "DECIMAL" {
+					valueKind = "DECIMAL"
+				} else if valueKind != "DECIMAL" || kind != "INTEGER" {
+					return fmt.Errorf("unpivot input %q type %q is incompatible with previous inputs", item.ColumnID, column.Type)
+				}
+			}
+		}
 	}
 	if !requiredID(unpivot.KeyOutputColumnID) || !requiredID(unpivot.ValueOutputColumnID) || unpivot.KeyOutputColumnID == unpivot.ValueOutputColumnID {
 		return fmt.Errorf("unpivot requires distinct key and value output column ids")
@@ -1626,15 +1758,6 @@ func validateConstructionGroupFieldSource(source ConstructionGroupFieldSource) e
 		return fmt.Errorf("kind must be CHOICE or BINDING")
 	}
 	return nil
-}
-
-func validConstructionGroupSourceRole(role string) bool {
-	switch role {
-	case "ROOT", "OWNER", "ANCESTOR", "CURRENT_ITEM":
-		return true
-	default:
-		return false
-	}
 }
 
 func validateConstructionGroupSemanticCategory(category ConstructionGroupSemanticCategory) error {

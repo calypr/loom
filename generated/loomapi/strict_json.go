@@ -7,11 +7,6 @@ import (
 	"io"
 )
 
-// strictDecodeGenerated keeps documented request bodies closed at the generated
-// HTTP boundary (mutation requests plus read/search POST bodies whose schemas
-// declare additionalProperties:false). The generated Fiber binder otherwise
-// silently drops unknown JSON members before the authoring domain can enforce
-// its semantics-version guard.
 func strictDecodeGenerated(raw []byte, target any) error {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -118,15 +113,6 @@ func (value *ContributorPredicate) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// LookupSource enforces the single-meaning pairing of authoringv2
-// (semantic_types.go) before a payload crosses into the domain. The typed
-// identifier binding mirrors the domain's writable shape: accepted alone (the
-// kind gate and ValidateIdentifierBinding stay the authority there) and
-// rejected in any mix, so a payload can never reach the decoder in a form
-// that one arm would silently drop or that a later revalidation would reject.
-// The arm is kept a notch narrower than the domain on pointer presence: an
-// explicit blank match/path alongside identifier is rejected here even though
-// the domain would TrimSpace it away.
 func (value *LookupSource) UnmarshalJSON(raw []byte) error {
 	type wire LookupSource
 	var decoded wire
@@ -188,104 +174,6 @@ func (value *SelectionCreateRequest) UnmarshalJSON(raw []byte) error {
 		return errors.New("unsupported selection source kind")
 	}
 	*value = SelectionCreateRequest(decoded)
-	return nil
-}
-
-func (value *TableShapeCapabilitiesRequest) UnmarshalJSON(raw []byte) error {
-	type wire TableShapeCapabilitiesRequest
-	var decoded wire
-	if err := strictDecodeGenerated(raw, &decoded); err != nil {
-		return err
-	}
-	*value = TableShapeCapabilitiesRequest(decoded)
-	return nil
-}
-
-func (value *TableShapeCategoryDiscoveryRequest) UnmarshalJSON(raw []byte) error {
-	type wire TableShapeCategoryDiscoveryRequest
-	var decoded wire
-	if err := strictDecodeGenerated(raw, &decoded); err != nil {
-		return err
-	}
-	*value = TableShapeCategoryDiscoveryRequest(decoded)
-	return nil
-}
-
-func (value *TableShapeResolutionRequest) UnmarshalJSON(raw []byte) error {
-	type wire TableShapeResolutionRequest
-	var decoded wire
-	if err := strictDecodeGenerated(raw, &decoded); err != nil {
-		return err
-	}
-	payloads := 0
-	if decoded.Pivot != nil {
-		payloads++
-	}
-	if decoded.Unpivot != nil {
-		payloads++
-	}
-	if decoded.Derived != nil {
-		payloads++
-	}
-	if payloads != 1 {
-		return errors.New("table-shape resolution requires exactly one selection payload")
-	}
-	switch decoded.Kind {
-	case TableShapeResolutionRequestKindPIVOT:
-		if decoded.Pivot == nil || decoded.Unpivot != nil || decoded.Derived != nil {
-			return errors.New("PIVOT resolution requires only the pivot payload")
-		}
-	case TableShapeResolutionRequestKindUNPIVOT:
-		if decoded.Unpivot == nil || decoded.Pivot != nil || decoded.Derived != nil {
-			return errors.New("UNPIVOT resolution requires only the unpivot payload")
-		}
-	case TableShapeResolutionRequestKindDERIVED:
-		if decoded.Derived == nil || decoded.Pivot != nil || decoded.Unpivot != nil {
-			return errors.New("DERIVED resolution requires only the derived payload")
-		}
-	default:
-		return errors.New("unsupported table-shape resolution kind")
-	}
-	*value = TableShapeResolutionRequest(decoded)
-	return nil
-}
-
-func (value *TableShapeProposalRequest) UnmarshalJSON(raw []byte) error {
-	type wire TableShapeProposalRequest
-	var decoded wire
-	if err := strictDecodeGenerated(raw, &decoded); err != nil {
-		return err
-	}
-	*value = TableShapeProposalRequest(decoded)
-	return nil
-}
-
-func (value *TableShapeOperandSelection) UnmarshalJSON(raw []byte) error {
-	type wire TableShapeOperandSelection
-	var decoded wire
-	if err := strictDecodeGenerated(raw, &decoded); err != nil {
-		return err
-	}
-	choice := decoded.ChoiceId != nil
-	resolution := decoded.ResolutionId != nil
-	literal := decoded.Literal != nil
-	switch decoded.Kind {
-	case TableShapeOperandSelectionKindCATALOGCHOICE:
-		if !choice || resolution || literal {
-			return errors.New("CATALOG_CHOICE operand requires only choiceId")
-		}
-	case TableShapeOperandSelectionKindRESOLUTIONOUTPUT:
-		if !resolution || choice || literal {
-			return errors.New("RESOLUTION_OUTPUT operand requires only resolutionId")
-		}
-	case TableShapeOperandSelectionKindLITERAL:
-		if !literal || choice || resolution {
-			return errors.New("LITERAL operand requires only literal")
-		}
-	default:
-		return errors.New("unsupported table-shape operand kind")
-	}
-	*value = TableShapeOperandSelection(decoded)
 	return nil
 }
 
@@ -499,15 +387,6 @@ func (value *SemanticInventoryBrowseRequest) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// Review follow-up (round 83 adversarial review F1): the remaining plain
-// request-body schemas bound by the generated strict adapter. The 9th gap
-// reported there, the update-explorer-config body, is an x-go-type alias of
-// authoringv2.Workspace whose strictness would also affect persisted-draft
-// decoding; closing that boundary needs a type-level decision and is waived
-// here with a backlog entry (docs/EXPLORER_BACKLOG.md).
-
-// AssessRowChangeRequest keeps the documented additionalProperties:false contract at the
-// generated HTTP boundary; required-field validation stays in the handlers.
 func (value *AssessRowChangeRequest) UnmarshalJSON(raw []byte) error {
 	type wire AssessRowChangeRequest
 	var decoded wire
@@ -518,8 +397,6 @@ func (value *AssessRowChangeRequest) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// CandidateSearchRequest keeps the documented additionalProperties:false contract at the
-// generated HTTP boundary; required-field validation stays in the handlers.
 func (value *CandidateSearchRequest) UnmarshalJSON(raw []byte) error {
 	type wire CandidateSearchRequest
 	var decoded wire
@@ -530,8 +407,6 @@ func (value *CandidateSearchRequest) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// CellTraceRequest keeps the documented additionalProperties:false contract at the
-// generated HTTP boundary; required-field validation stays in the handlers.
 func (value *CellTraceRequest) UnmarshalJSON(raw []byte) error {
 	type wire CellTraceRequest
 	var decoded wire
@@ -542,8 +417,6 @@ func (value *CellTraceRequest) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// PopulationMappingRequest keeps the documented additionalProperties:false contract at the
-// generated HTTP boundary; required-field validation stays in the handlers.
 func (value *PopulationMappingRequest) UnmarshalJSON(raw []byte) error {
 	type wire PopulationMappingRequest
 	var decoded wire
@@ -554,8 +427,6 @@ func (value *PopulationMappingRequest) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// PreviewRequest keeps the documented additionalProperties:false contract at the
-// generated HTTP boundary; required-field validation stays in the handlers.
 func (value *PreviewRequest) UnmarshalJSON(raw []byte) error {
 	type wire PreviewRequest
 	var decoded wire
@@ -566,8 +437,6 @@ func (value *PreviewRequest) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// PublishRequest keeps the documented additionalProperties:false contract at the
-// generated HTTP boundary; required-field validation stays in the handlers.
 func (value *PublishRequest) UnmarshalJSON(raw []byte) error {
 	type wire PublishRequest
 	var decoded wire
@@ -578,8 +447,6 @@ func (value *PublishRequest) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// ReconcileRequest keeps the documented additionalProperties:false contract at the
-// generated HTTP boundary; required-field validation stays in the handlers.
 func (value *ReconcileRequest) UnmarshalJSON(raw []byte) error {
 	type wire ReconcileRequest
 	var decoded wire
@@ -590,8 +457,6 @@ func (value *ReconcileRequest) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// RowLineageRequest keeps the documented additionalProperties:false contract at the
-// generated HTTP boundary; required-field validation stays in the handlers.
 func (value *RowLineageRequest) UnmarshalJSON(raw []byte) error {
 	type wire RowLineageRequest
 	var decoded wire

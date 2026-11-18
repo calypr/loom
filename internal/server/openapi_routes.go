@@ -5,19 +5,18 @@ import (
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
-	graphapi "github.com/calypr/loom/internal/api/graphql/graph"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
 
 type HTTPRoutes struct {
-	server   *httpapi.HTTPServer
-	load     *loadapi.Handler
-	releases publication.BundleCatalog
-	scopes   *authscope.ScopeResolver
-	graphql  graphapi.RouteConfig
-	explorer *explorerHTTPHandlers
+	server     *httpapi.HTTPServer
+	load       *loadapi.Handler
+	releases   publication.BundleCatalog
+	scopes     *authscope.ScopeResolver
+	explorer   *explorerHTTPHandlers
+	dataframes dataframeReadRoutes
 }
 
 var _ loomapi.StrictServerInterface = (*HTTPRoutes)(nil)
@@ -41,18 +40,6 @@ func serviceErrorResponse(body httpapi.ErrorResponse) loomapi.ServiceErrorRespon
 		fieldPathPtr = &fieldPath
 	}
 	return loomapi.ServiceErrorResponse{Error: loomapi.ServiceErrorBody{Code: body.Error.Code, Message: body.Error.Message, FieldPath: fieldPathPtr, Details: detailsPtr, RequestId: requestIDPtr, Retryable: &retryable}}
-}
-
-func legacyErrorFromMap(body loomapi.RawJSON) (loomapi.LegacyErrorResponse, error) {
-	value, ok := body["error"].(string)
-	if !ok {
-		return loomapi.LegacyErrorResponse{}, fmt.Errorf("legacy error response is missing a string error")
-	}
-	var result loomapi.LegacyErrorResponse
-	if err := result.Error.FromLegacyErrorResponseError0(value); err != nil {
-		return loomapi.LegacyErrorResponse{}, err
-	}
-	return result, nil
 }
 
 func unexpectedResponseStatus(operation string, status int) error {

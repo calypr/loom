@@ -1,5 +1,3 @@
-// Package lineage defines stable identities and provenance for columns that a
-// single authored source slot expands into at compile time.
 package lineage
 
 import (
@@ -21,16 +19,11 @@ const (
 	RepeatedCountChild SourceChildKind = "REPEATED_COUNT"
 )
 
-// Coordinate identifies one concrete item at a repeated boundary. Width is
-// intentionally absent: discovering more items must not change old IDs.
 type Coordinate struct {
 	BoundaryPath string `json:"boundaryPath"`
 	Index        int    `json:"index"`
 }
 
-// SourceChild records the source slot and structural evidence that produced
-// one public child column. ParentColumnIDs is sorted and may contain several
-// owners when indexed projections share a repeated-count emission.
 type SourceChild struct {
 	Kind            SourceChildKind `json:"kind"`
 	ParentColumnIDs []string        `json:"parentColumnIds"`
@@ -40,9 +33,6 @@ type SourceChild struct {
 	Coordinates     []Coordinate    `json:"coordinates,omitempty"`
 }
 
-// StableSourceChildID returns the deterministic public identity for a source
-// child. Names, labels, and observed widths are presentation or catalog facts
-// and are deliberately excluded.
 func StableSourceChildID(child SourceChild) (string, SourceChild, error) {
 	child = cloneSourceChild(child)
 	if child.Kind != IndexedValueChild && child.Kind != RepeatedCountChild {
@@ -99,8 +89,6 @@ func StableSourceChildID(child SourceChild) (string, SourceChild, error) {
 	return childID, child, nil
 }
 
-// ParseSourceChildID verifies the canonical wire form and returns the
-// structural lineage encoded in a generated child ID.
 func ParseSourceChildID(value string) (SourceChild, bool) {
 	if !strings.HasPrefix(value, sourceChildPrefix) {
 		return SourceChild{}, false
@@ -131,14 +119,10 @@ func ParseSourceChildID(value string) (SourceChild, bool) {
 	return child, true
 }
 
-// IsSourceChildID reports whether value uses the reserved generated-child ID
-// namespace, including malformed values that ParseSourceChildID rejects.
 func IsSourceChildID(value string) bool {
 	return strings.HasPrefix(value, sourceChildPrefix)
 }
 
-// CloneSourceChild returns a deep copy suitable for retaining in compiler
-// schemas that are copied between construction stages.
 func CloneSourceChild(child *SourceChild) *SourceChild {
 	if child == nil {
 		return nil

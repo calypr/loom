@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import {useState} from 'react';
+import { useCommitLifecycle } from './useBrowserSubscription';
 
-/** Resolves a host owned by the surrounding page and tracks its DOM lifetime. */
 export const usePortalHost = (id: string): HTMLElement | null => {
   const [host, setHost] = useState<HTMLElement | null>(null);
 
-  useEffect(() => {
+  useCommitLifecycle(() => {
     if (typeof document === 'undefined') return undefined;
     const findHost = () => {
       const next = document.getElementById(id);

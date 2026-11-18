@@ -1,0 +1,11 @@
+{
+  "Condition.ndjson": "03527a918a2ee637aaf061c004485235e19af820aa42ccf11fa7738b1a884d49",
+  "DocumentReference.ndjson": "2fb9268a5092aed02f8dd39421d17342a0a9505edf00965ec172b6e8175465d2",
+  "Group.ndjson": "b409d2a2fdc7ed1ac48a8ad07bd405b70bfb092e26e1c200bdf9149bd5a9e46e",
+  "MedicationAdministration.ndjson": "5b50a090394fbe62ebd33735ba86e48a7fd21b3c14b90f972a41e899143df50c",
+  "Observation.ndjson": "548f0d71c8ffce3b168863f7286d3e3493867144b234d0726e7d5ee614a91c8b",
+  "Patient.ndjson": "e5526bc382d5952a44fb9390cdbc6e9558a4cb28929c4d35c032738e9a71cdc4",
+  "ResearchStudy.ndjson": "fd8e0b858574f842ec3c2cbdf9af1e872b07f0b63268eb3f42d5cc7eb705a1b6",
+  "ResearchSubject.ndjson": "7fd6fb52b434943fcfd0168007f3e6ff97ae1a42266b191ce5422112a9c156a7",
+  "Specimen.ndjson": "56221f51824ab27b161c803308960d140a9c2f89b7c7cc6cd3073d6dc4d2fc46"
+}

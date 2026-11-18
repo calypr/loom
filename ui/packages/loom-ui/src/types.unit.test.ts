@@ -1,18 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import {
-  EXPLORER_AUTHORING_SEMANTICS_VERSION,
   assertExplorerBuilderPreviewResult,
   assertExplorerStateV1,
   aggregateTransformationCapabilitySchema,
   aggregateOperationCapabilitySchema,
+  authoringNetworkSchema,
   columnTransformationChangeSchema,
   columnValueTransformationCapabilitiesSchema,
   columnValueTransformationSchema,
   constructionCapabilitiesResponseSchema,
+  constructionCategoryDiscoveryResponseSchema,
+  constructionDeriveSourceSelectionSchema,
+  constructionExpandSourceSelectionSchema,
+  constructionFilterSourceSelectionSchema,
   constructionInputsRequestSchema,
   constructionInputsResponseSchema,
   constructionProposalResponseSchema,
+  constructionPivotSourceSelectionSchema,
   constructionSchema,
+  constructionUnpivotSourceSelectionSchema,
   explorerBuilderCandidateSchema,
   explorerBuilderCatalogEdgeSchema,
   constructionChoiceSchema,
@@ -26,18 +32,11 @@ import {
   relatedExpandContributorSearchResponseSchema,
   rowDefinitionChoicesResponseSchema,
   rowDefinitionProposalSchema,
+  importedSourceParametersSchema,
+  sourceRelationshipProposalRequestSchema,
   explicitGroupCreateRequestSchema,
   explicitGroupRevisionSummarySchema,
-  tableShapeComparisonSchema,
-  tableShapeProposalRequestSchema,
-  tableShapeTaggedScalarSchema,
 } from './types';
-
-describe('Explorer authoring contract version', () => {
-  it('bumps for the contributor-window aggregate wire contract', () => {
-    expect(EXPLORER_AUTHORING_SEMANTICS_VERSION).toBe(10);
-  });
-});
 
 describe('explorerBuilderDocumentSchema', () => {
   const document = {
@@ -167,43 +166,215 @@ describe('explorerBuilderDocumentSchema', () => {
     }).success).toBe(false);
   });
 
-  it('preserves a persisted server table shape as opaque JSON during Builder reload parsing', () => {
-    const tableShape = {
-      reshape: {
-        kind: 'GROUPED_PIVOT',
-        pivot: {
-          groupKeys: ['subject-column', 'status-column'],
-          categories: [{ key: { kind: 'STRING', value: 'alpha' }, output: { column: 'alpha', label: 'Alpha' } }],
-          duplicatePolicy: 'SUM',
-          missingCellPolicy: 'NULL',
-          unlistedCategoryPolicy: 'EXCLUDE',
-        },
-      },
-      derived: [{ output: { column: 'alpha_total', label: 'Alpha total' }, operation: 'ADD' }],
-      serverOwnedMetadata: { version: 1, durable: true },
-    };
-    const parsed = explorerBuilderDocumentSchema.parse({
+  it('rejects legacy TableShape on the current Builder document contract', () => {
+    const currentDocument = {
       ...document,
       rows: { kind: 'RECORDS', records: {} },
-      tableShape,
+      construction: { version: 1, steps: [] },
+    };
+    expect(explorerBuilderDocumentSchema.parse(currentDocument)).toEqual(currentDocument);
+    expect(explorerBuilderDocumentSchema.safeParse({
+      ...currentDocument,
+      tableShape: { reshape: { kind: 'GROUPED_PIVOT' } },
+    }).success).toBe(false);
+  });
+
+  it('preserves strict imported source-step metadata and validates advertised bounds', () => {
+    const importedDocument = {
+      ...document,
+      rows: { kind: 'RECORDS', records: {} },
+      importedRecipe: {
+        name: 'research_subject',
+        translationVersion: '1',
+        digest: 'a'.repeat(64),
+        output: 'ResearchSubject',
+      },
+      importedSource: {
+        steps: [{
+          id: 'traversals[0].pivots[0]',
+          parentId: 'traversals[0]',
+          kind: 'PIVOT',
+          title: 'Observation values',
+          summary: 'Discover columns for Observation values',
+          enabled: true,
+          editable: true,
+          maxColumns: 128,
+          valueMode: 'FIRST',
+        }],
+      },
+    };
+
+    expect(explorerBuilderDocumentSchema.parse(importedDocument).importedSource)
+      .toEqual(importedDocument.importedSource);
+    expect(explorerBuilderDocumentSchema.safeParse({
+      ...importedDocument,
+      importedSource: { steps: [{ ...importedDocument.importedSource.steps[0], maxColumns: 0 }] },
+    }).success).toBe(false);
+    expect(explorerBuilderDocumentSchema.safeParse({
+      ...importedDocument,
+      importedSource: { steps: [{ ...importedDocument.importedSource.steps[0], unknown: true }] },
+    }).success).toBe(false);
+  });
+});
+
+describe('construction source selection schemas', () => {
+  it('keeps filter, derive, unpivot, and expand capability source inputs behaviorally identical', () => {
+    const stage = {
+      id: 'source_projection',
+      inputStageId: '',
+      columns: [],
+      capabilities: [],
+    };
+    const base = {
+      snapshotToken: 'snapshot',
+      draftVersion: 1,
+      draftDigest: 'sha256:draft',
+      outputId: 'patients',
+      stageId: 'source_projection',
+      baseConstruction: { version: 1, steps: [] },
+      stages: [stage],
+      selectedStage: stage,
+      groupFieldChoices: [],
+      groupRowValueChoices: [],
+      sourceInput: { supported: false, stageId: 'source_projection', choices: [] },
+      workspaceInputs: [],
+    };
+    const input = {
+      supported: true,
+      stageId: 'source_projection',
+      reason: 'available',
+      choices: [{
+        choiceId: 'gender-choice',
+        columnId: '',
+        fieldPath: 'gender',
+        label: 'Gender',
+        logicalType: 'string',
+        isPopulated: true,
+      }],
+    };
+    const capabilityInputs = ['filterSourceInput', 'deriveSourceInput', 'unpivotSourceInput', 'expandSourceInput'] as const;
+    const parsedInputs = constructionCapabilitiesResponseSchema.parse({
+      ...base,
+      ...Object.fromEntries(capabilityInputs.map((key) => [key, input])),
     });
 
-    expect(parsed.tableShape).toEqual(tableShape);
-    expect(JSON.parse(JSON.stringify(parsed)).tableShape).toEqual(tableShape);
-    expect(explorerBuilderDocumentSchema.safeParse({
-      ...document,
-      rows: { kind: 'RECORDS', records: {} },
-      tableShape,
-      unexpectedDocumentField: true,
-    }).success).toBe(false);
-
-    for (const invalidTableShape of ['GROUPED_PIVOT', []]) {
-      expect(explorerBuilderDocumentSchema.safeParse({
-        ...document,
-        rows: { kind: 'RECORDS', records: {} },
-        tableShape: invalidTableShape,
+    for (const key of capabilityInputs) expect(parsedInputs[key]).toEqual(input);
+    for (const key of capabilityInputs) {
+      expect(constructionCapabilitiesResponseSchema.safeParse({
+        ...base,
+        [key]: { ...input, choices: [{ ...input.choices[0], unexpected: true }] },
       }).success).toBe(false);
     }
+    expect(constructionCapabilitiesResponseSchema.safeParse({
+      ...base,
+      filterSourceInput: { ...input, choices: [{ ...input.choices[0], isPopulated: undefined }] },
+    }).success).toBe(false);
+  });
+
+  it('keeps all source selection aliases strict and equally required', () => {
+    const selection = { choiceId: 'choice-1', columnId: 'column-1' };
+    const schemas = [
+      constructionPivotSourceSelectionSchema,
+      constructionFilterSourceSelectionSchema,
+      constructionDeriveSourceSelectionSchema,
+      constructionUnpivotSourceSelectionSchema,
+      constructionExpandSourceSelectionSchema,
+    ];
+
+    for (const schema of schemas) {
+      expect(schema.parse(selection)).toEqual(selection);
+      expect(schema.safeParse({ ...selection, unexpected: true }).success).toBe(false);
+      expect(schema.safeParse({ choiceId: selection.choiceId }).success).toBe(false);
+    }
+  });
+});
+
+describe('imported source step authoring commands', () => {
+  it('accepts only scoped refresh and source-step update payloads', () => {
+    expect(explorerBuilderCommandSchema.parse({
+      type: 'REFRESH_IMPORTED_SOURCE',
+      outputId: 'patients',
+    })).toEqual({ type: 'REFRESH_IMPORTED_SOURCE', outputId: 'patients' });
+    expect(explorerBuilderCommandSchema.parse({
+      type: 'UPDATE_IMPORTED_SOURCE_STEP',
+      outputId: 'patients',
+      sourceStep: { stepId: 'traversals[0].pivots[0]', enabled: true, maxColumns: 64, valueMode: 'ALL' },
+    })).toMatchObject({ type: 'UPDATE_IMPORTED_SOURCE_STEP', outputId: 'patients' });
+
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'UPDATE_IMPORTED_SOURCE_STEP',
+      outputId: 'patients',
+      sourceStep: { stepId: 'pivot', enabled: true, maxColumns: 0 },
+    }).success).toBe(false);
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'REFRESH_IMPORTED_SOURCE',
+      outputId: 'patients',
+      sourceStep: { stepId: 'pivot', enabled: true },
+    }).success).toBe(false);
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'UPDATE_IMPORTED_SOURCE_STEP',
+      sourceStep: { stepId: 'pivot', enabled: true },
+    }).success).toBe(false);
+  });
+
+  it('accepts only output and stable field identity for unified projected-field removal', () => {
+    expect(explorerBuilderCommandSchema.parse({
+      type: 'REMOVE_PROJECTED_FIELD', outputId: 'patients', columnId: 'patient-id-column',
+    })).toEqual({ type: 'REMOVE_PROJECTED_FIELD', outputId: 'patients', columnId: 'patient-id-column' });
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'REMOVE_PROJECTED_FIELD', outputId: 'patients', columnId: 'patient-id-column', sourceStep: { stepId: 'fields', enabled: false },
+    }).success).toBe(false);
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'REMOVE_PROJECTED_FIELD', outputId: 'patients',
+    }).success).toBe(false);
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'REMOVE_COLUMN', outputId: 'patients', column: 'patient_id', columnId: 'unrelated-column',
+    }).success).toBe(false);
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'REMOVE_PROJECTED_FIELD', outputId: ' patients ', columnId: 'patient-id-column',
+    }).success).toBe(false);
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'REMOVE_PROJECTED_FIELD', outputId: 'patients', columnId: ' patient-id-column ',
+    }).success).toBe(false);
+  });
+});
+
+describe('unified projected field inventory', () => {
+  it('parses exact owner, removal, and stable source slot metadata from the network read', () => {
+    const value = authoringNetworkSchema.parse({
+      owner: 'IMPORTED_SOURCE', outputId: 'patients', sourceRows: { kind: 'RECORDS', records: {} },
+      projectedFields: [
+        { columnId: 'patient-id-column', column: 'patient_id', label: 'Patient ID', owner: 'PINNED_SOURCE',
+          removal: 'DISABLE_PINNED_FIELD', status: 'EXACT', sourceStepId: 'fields', sourceFieldId: 'fields[0]' },
+        { columnId: 'authored-status-column', column: 'status', label: 'Status', occurrenceId: 'base', owner: 'AUTHORED',
+          removal: 'REMOVE_COLUMN', status: 'EXACT' },
+        { columnId: 'generated-column', column: 'generated', label: 'Generated', owner: 'PINNED_SOURCE',
+          removal: 'DISABLE_PINNED_OUTPUT', status: 'EXACT', sourceStepId: 'dynamic[0]', sourceOutputKey: 'key with spaces' },
+        { column: 'legacy_value', label: 'Legacy value', owner: 'UNKNOWN', removal: 'UNAVAILABLE', status: 'UNKNOWN' },
+      ],
+      occurrences: [], bindings: [], operations: [],
+    });
+    expect(value.projectedFields?.map((field) => field.owner)).toEqual(['PINNED_SOURCE', 'AUTHORED', 'PINNED_SOURCE', 'UNKNOWN']);
+    expect(value.projectedFields?.[0]).toMatchObject({ sourceStepId: 'fields', sourceFieldId: 'fields[0]', removal: 'DISABLE_PINNED_FIELD' });
+    expect(value.projectedFields?.[2]).toMatchObject({ sourceOutputKey: 'key with spaces', removal: 'DISABLE_PINNED_OUTPUT' });
+    expect(value.projectedFields?.[3]).not.toHaveProperty('columnId');
+    expect(authoringNetworkSchema.safeParse({
+      owner: 'IMPORTED_SOURCE', outputId: 'patients', sourceRows: { kind: 'RECORDS', records: {} },
+      projectedFields: [{ columnId: 'generated-column', column: 'generated', label: 'Generated', owner: 'PINNED_SOURCE',
+        removal: 'DISABLE_PINNED_OUTPUT', status: 'EXACT', sourceStepId: 'dynamic[0]' }],
+      occurrences: [], bindings: [], operations: [],
+    }).success).toBe(false);
+    expect(authoringNetworkSchema.safeParse({
+      owner: 'IMPORTED_SOURCE', outputId: 'patients', sourceRows: { kind: 'RECORDS', records: {} },
+      projectedFields: [{ column: 'legacy_value', label: 'Legacy value', owner: 'UNKNOWN', removal: 'REMOVE_COLUMN', status: 'UNKNOWN' }],
+      occurrences: [], bindings: [], operations: [],
+    }).success).toBe(false);
+    expect(authoringNetworkSchema.safeParse({
+      owner: 'IMPORTED_SOURCE', outputId: 'patients', sourceRows: { kind: 'RECORDS', records: {} },
+      projectedFields: [{ columnId: ' patient-id-column ', column: 'patient_id', label: 'Patient ID', owner: 'PINNED_SOURCE',
+        removal: 'DISABLE_PINNED_FIELD', status: 'EXACT', sourceStepId: 'fields', sourceFieldId: 'fields[0]' }],
+      occurrences: [], bindings: [], operations: [],
+    }).success).toBe(false);
   });
 });
 
@@ -896,6 +1067,7 @@ describe('staged construction contract', () => {
       selectedStage: stage,
       groupFieldChoices: [],
       groupRowValueChoices: [],
+      sourceInput: { supported: false, stageId: 'source_projection', choices: [] },
       workspaceInputs: [],
     };
 
@@ -963,6 +1135,7 @@ describe('staged construction contract', () => {
       outputId: 'patients', stageId: stage.id,
       baseConstruction: { version: 1, steps: [] }, stages: [stage], selectedStage: stage,
       groupFieldChoices: [], groupRowValueChoices: [],
+      sourceInput: { supported: false, stageId: stage.id, choices: [] },
       workspaceInputs: [],
     };
 
@@ -1030,6 +1203,9 @@ describe('row-definition contract schemas', () => {
     expect(rowDefinitionChoicesResponseSchema.parse(choices)).toEqual(choices);
 
     const proposal = {
+      candidateDocument: { kind: 'ExplorerBuilderDocument', output: { id: 'output', title: 'Output' }, rootResourceType: 'Patient', route: { occurrenceId: 'base', resourceType: 'Patient' }, rows: { kind: 'RECORDS', records: {} }, columns: [] },
+      candidateNetwork: { owner: 'DOCUMENT', outputId: 'output', sourceRows: { kind: 'RECORDS', records: {} }, projectedFields: [], occurrences: [], bindings: [], operations: [] },
+      candidateRowIdentity: { outputId: 'output', sourceDefinition: { kind: 'RECORDS', records: {} }, stages: [], relationships: [] },
       proposalId: 'proposal-receipt',
       baseReceiptId: 'base-receipt',
       outputId: 'output',
@@ -1948,122 +2124,33 @@ describe('explorerBuilderCommandSchema', () => {
     expect(explicitGroupRevisionSummarySchema.safeParse({ ...summary, debugSeed: true }).success).toBe(false);
   });
 
-  it('keeps table-shape scalars and comparison presence/value evidence lossless and strict', () => {
-    const scalars = [
-      { kind: 'INTEGER', integer: 0 },
-      { kind: 'DECIMAL', decimal: 0 },
-      { kind: 'BOOLEAN', boolean: false },
-      { kind: 'STRING', string: '' },
-    ] as const;
-    scalars.forEach((value) => expect(tableShapeTaggedScalarSchema.parse(value)).toEqual(value));
-    expect(tableShapeTaggedScalarSchema.safeParse({ kind: 'INTEGER', integer: 0, resourceType: 'Patient' }).success).toBe(false);
-
-    const comparison = {
-      status: 'AVAILABLE',
-      base: { rowCount: 1, sampled: false },
-      candidate: { rowCount: 1, sampled: false },
-      changedColumns: ['measurement'],
-      changedRowCount: 1,
-      changedRowsSampled: false,
-      changedRows: [{
-        rowIdentity: 'row-1', basePresent: true, candidatePresent: true,
-        changedColumns: ['measurement'],
-        changedCells: [{
-          column: 'measurement', before: { present: false, value: null }, after: { present: true, value: false },
-          trace: { state: 'AVAILABLE', contributors: [{ resourceType: 'Observation', resourceId: 'obs-1', value: '' }], complete: true, sampled: false },
-        }],
-      }],
-      contributors: [{ resourceType: 'Observation', resourceId: 'obs-1' }],
-      contributorsSampled: false,
-      exclusions: {
-        status: 'INCOMPLETE',
-        records: [
-          {
-            sourceIdentity: { resourceType: 'Patient', resourceId: 'patient-1' },
-            category: { present: false, value: null }, categoryType: 'string',
-            outputRowId: 'row-missing', reason: 'The category value was missing.', omissionCode: 'MISSING_CATEGORY',
-          },
-          {
-            category: { present: true, value: null }, categoryType: 'null', outputRowId: 'row-null', reason: 'Null category.',
-          },
-          {
-            category: { present: true, value: false }, categoryType: 'boolean', outputRowId: 'row-false', reason: 'False category.',
-          },
-          {
-            category: { present: true, value: 0 }, categoryType: 'number', outputRowId: 'row-zero', reason: 'Zero category.',
-          },
-          {
-            category: { present: true, value: '' }, categoryType: 'string', outputRowId: 'row-empty', reason: 'Empty category.',
-          },
-        ],
-        complete: false,
-        sampled: true,
-      },
-      declaredInformationLoss: {
-        status: 'COMPLETE',
-        items: [{
-          code: 'DROPPED_COLUMNS', label: 'Dropped columns', detail: 'Columns were removed by the transformation.',
-          affectedColumns: ['legacy_measure', 'old_status'],
-        }],
-      },
-      evidenceLimitations: [{ code: 'SAMPLED_ROWS', message: 'Only sampled rows were compared.' }],
-      notices: [],
+  it('accepts the NO_VALUES construction category discovery outcome', () => {
+    const response = {
+      snapshotToken: 'snapshot-1',
+      draftVersion: 1,
+      draftDigest: 'draft-digest-1',
+      outputId: 'output-1',
+      stageId: 'stage-1',
+      categoryColumnId: 'category-column-1',
+      valueColumnId: 'value-column-1',
+      outcome: 'NO_VALUES' as const,
+      complete: false,
+      categories: [],
+      message: 'No selected value is populated.',
     };
-    expect(tableShapeComparisonSchema.parse(comparison)).toEqual(comparison);
-    expect(tableShapeComparisonSchema.safeParse({ ...comparison, debug: true }).success).toBe(false);
-    expect(tableShapeComparisonSchema.safeParse({
-      ...comparison, evidenceLimitations: ['Only sampled rows were compared.'],
-    }).success).toBe(false);
-    expect(tableShapeComparisonSchema.safeParse({
-      ...comparison,
-      exclusions: { ...comparison.exclusions, records: [{ ...comparison.exclusions.records[0], debug: true }] },
-    }).success).toBe(false);
-    expect(tableShapeComparisonSchema.safeParse({
-      ...comparison,
-      declaredInformationLoss: {
-        ...comparison.declaredInformationLoss,
-        items: [{ ...comparison.declaredInformationLoss.items[0], affectedColumns: ['legacy_measure'], debug: true }],
-      },
-    }).success).toBe(false);
-    expect(tableShapeComparisonSchema.safeParse({
-      ...comparison,
-      changedRows: [{ ...comparison.changedRows[0], changedCells: [{
-        ...comparison.changedRows[0].changedCells[0], after: { present: true },
-      }] }],
-    }).success).toBe(false);
 
-    const unavailable = {
-      status: 'UNAVAILABLE',
-      reason: 'The comparison could not be produced.',
-      reasonCode: 'COMPARE_UNAVAILABLE',
-      changedColumns: [], changedRowCount: 0, changedRowsSampled: false, changedRows: [],
-      contributors: [], contributorsSampled: false,
-      exclusions: { status: 'UNAVAILABLE', records: [], complete: false, sampled: false },
-      declaredInformationLoss: { status: 'UNAVAILABLE', items: [] },
-      evidenceLimitations: [{ code: 'NO_COMPARISON', message: 'No preview was returned.' }],
-      notices: [],
-    };
-    expect(tableShapeComparisonSchema.parse(unavailable)).toEqual(unavailable);
-    expect(tableShapeComparisonSchema.safeParse({ ...unavailable, exclusions: undefined }).success).toBe(false);
-  });
-
-  it('accepts only the opaque proposal receipt in the atomic Builder apply command', () => {
-    expect(explorerBuilderCommandSchema.parse({
-      type: 'APPLY_TABLE_SHAPE_PROPOSAL', outputId: 'table-1', proposalId: 'proposal-1',
-    })).toEqual({ type: 'APPLY_TABLE_SHAPE_PROPOSAL', outputId: 'table-1', proposalId: 'proposal-1' });
-    expect(explorerBuilderCommandSchema.safeParse({
-      type: 'APPLY_TABLE_SHAPE_PROPOSAL', outputId: 'table-1', proposalId: 'proposal-1', tableShape: { columns: [] },
+    expect(constructionCategoryDiscoveryResponseSchema.parse(response)).toEqual(response);
+    expect(constructionCategoryDiscoveryResponseSchema.safeParse({
+      ...response,
+      outcome: 'NO_VALUES',
+      categories: [{ key: { kind: 'STRING', string: 'alpha' }, label: 'Alpha' }],
     }).success).toBe(false);
   });
 
-  it('requires the exact catalog and ordered resolution receipt IDs for proposals', () => {
-    const request = {
-      snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'digest-1',
-      outputId: 'table-1', mode: 'ADD', catalogId: 'catalog-1',
-      reshapeResolutionId: 'pivot-resolution', derivedResolutionIds: ['derived-1', 'derived-2'],
-    };
-    expect(tableShapeProposalRequestSchema.parse(request)).toEqual(request);
-    expect(tableShapeProposalRequestSchema.safeParse({ ...request, tableShape: {} }).success).toBe(false);
+  it('accepts only the Construction proposal receipt in the atomic Builder apply command', () => {
+    const command = { type: 'APPLY_CONSTRUCTION_PROPOSAL', outputId: 'table-1', proposalId: 'proposal-1' };
+    expect(explorerBuilderCommandSchema.parse(command)).toEqual(command);
+    expect(explorerBuilderCommandSchema.safeParse({ ...command, tableShape: { columns: [] } }).success).toBe(false);
   });
 
   it('parses compiler-owned result units on Preview columns and preserves omission', () => {
@@ -2142,4 +2229,44 @@ describe('explorerBuilderCommandSchema', () => {
       },
     })).toThrow();
   });
+});
+
+
+describe('typed imported source parameter editing', () => {
+  const owner = { snapshotToken: 'snapshot', expectedDraftVersion: 4, expectedDraftDigest: 'draft', outputId: 'subjects' };
+  it('preserves explicit empty prefix and null literals through proposal serialization', () => {
+    const sourceStep = { stepId: 'dynamic-identifiers', enabled: true, parameters: { dynamic: {
+      name: 'identifiers', columnPrefix: '', source: { select: 'root.identifier[]' }, value: { literal: null },
+    } } };
+    expect(sourceRelationshipProposalRequestSchema.parse({ ...owner, sourceStep }).sourceStep).toEqual(sourceStep);
+    const withoutPrefix = { dynamic: { name: 'identifiers', source: { select: 'root.identifier[]' } } };
+    expect(importedSourceParametersSchema.parse(withoutPrefix)).toEqual(withoutPrefix);
+  });
+  it('reads legacy pinned expressions while rejecting their introduction by an edit', () => {
+    for (const expr of [{ call: 'legacy_function', args: [{ select: 'root.id' }] }, { document: { context: 'prior' } }, { literal: { original: true } }]) {
+      const parameters = { identity: { name: 'identity', expr } };
+      expect(importedSourceParametersSchema.parse(parameters)).toEqual(parameters);
+      expect(sourceRelationshipProposalRequestSchema.safeParse({ ...owner, sourceStep: { stepId: 'identity', enabled: true, parameters } }).success).toBe(false);
+    }
+  });
+  it('keeps an explicit coupled alias edit atomic and rejects duplicate or mixed requests', () => {
+    const sourceSteps = [
+      { stepId: 'expansion', enabled: true, parameters: { expansion: { from: { select: 'root.member[]' }, as: 'member' } } },
+      { stepId: 'identity', enabled: true, parameters: { identity: { name: 'member_id', expr: { select: 'member.reference' } } } },
+    ];
+    expect(sourceRelationshipProposalRequestSchema.parse({ ...owner, sourceSteps }).sourceSteps).toEqual(sourceSteps);
+    expect(sourceRelationshipProposalRequestSchema.safeParse({ ...owner, sourceSteps: [sourceSteps[0], sourceSteps[0]] }).success).toBe(false);
+    expect(sourceRelationshipProposalRequestSchema.safeParse({ ...owner, sourceSteps, sourceStep: sourceSteps[0] }).success).toBe(false);
+    expect(importedSourceParametersSchema.safeParse({ output: { rowGrain: 'one' }, identity: { name: 'id', expr: { select: 'root.id' } } }).success).toBe(false);
+    expect(sourceRelationshipProposalRequestSchema.safeParse({ ...owner, sourceStep: { stepId: 'identity', enabled: true, columnId: 'client-owned', parameters: sourceSteps[1].parameters } }).success).toBe(false);
+  });
+});
+
+
+it('treats arbitrary pivot alias names as strings while checking only actual expression slots', () => {
+  const owner = { snapshotToken: 's', expectedDraftVersion: 4, expectedDraftDigest: 'd', outputId: 'Observation' };
+  const parameters = { pivot: { name: 'codes', columns: ['call', 'document', 'literal'], columnAliases: { call: 'renamed_call', document: 'renamed_document', literal: 'renamed_literal' }, columnExpr: { select: 'root.code' }, valueExpr: { select: 'root.valueInteger' } } };
+  expect(sourceRelationshipProposalRequestSchema.parse({ ...owner, sourceStep: { stepId: 'pivots[0]', enabled: true, parameters } }).sourceStep?.parameters).toEqual(parameters);
+  const unsupported = { ...parameters, pivot: { ...parameters.pivot, valueFallbacks: [{ call: 'unsupported', args: [{ select: 'root.id' }] }] } };
+  expect(sourceRelationshipProposalRequestSchema.safeParse({ ...owner, sourceStep: { stepId: 'pivots[0]', enabled: true, parameters: unsupported } }).success).toBe(false);
 });

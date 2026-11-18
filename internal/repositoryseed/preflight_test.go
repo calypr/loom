@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-const workspace = `{"apiVersion":"loom.calypr.org/explorer-authoring/v2","kind":"ExplorerBuilderWorkspace","explorer":{"title":"Patients"},"documents":[{"kind":"ExplorerBuilderDocument","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"columns":[{"column":"patient_id","label":"Patient ID","logicalType":"string","occurrenceId":"base","source":{"kind":"field","fieldPath":"id","projectionMode":"VALUE"},"table":{"visible":true,"order":0}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
+const workspace = `{"apiVersion":"loom.calypr.org/explorer-authoring/v2","kind":"ExplorerBuilderWorkspace","explorer":{"title":"Patients"},"documents":[{"kind":"ExplorerBuilderDocument","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"columns":[{"column":"patient_id","label":"Patient ID","logicalType":"string","occurrenceId":"base","source":{"kind":"field","field":{"path":"id","projectionMode":"VALUE"}},"table":{"visible":true,"order":0}}],"rows":{"kind":"RECORDS","records":{}}}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}],"semanticsVersion":12}`
 
 func TestPrepareReportsEveryPointerBeforeParsing(t *testing.T) {
 	root := t.TempDir()

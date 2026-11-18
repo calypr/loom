@@ -4,15 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
 	arangostore "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
 )
 
@@ -22,8 +20,6 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 		t.Fatalf("begin resource coverage build failed (%v)", err)
 	}
 
-	// These physical source locators represent retained records with the same
-	// logical FHIR id. The source envelope key must keep both physical records.
 	specimenA := semanticCoverageResourceContribution(identity, "Specimen", "Patient/scope-a", "retained:Specimen/physical-a/logical-shared", "type", "type.coding[].code", true)
 	specimenB := semanticCoverageResourceContribution(identity, "Specimen", "Patient/scope-b", "retained:Specimen/physical-b/logical-shared", "type", "type.coding[].code", false)
 	specimenContributions := []catalog.SemanticCoverageSourceContribution{specimenA, specimenB}
@@ -250,24 +246,10 @@ FOR d IN fhir_semantic_coverage
 
 func openSemanticCoverageResourceIntegration(t *testing.T) (context.Context, *arangostore.Client, *Store, SemanticCoverageBuildIdentity) {
 	t.Helper()
-	if os.Getenv("LOOM_SC02_COVERAGE_ARANGO_INTEGRATION") != "1" {
-		t.Skip("set LOOM_SC02_COVERAGE_ARANGO_INTEGRATION=1 for isolated real-Arango resource-certificate verification")
-	}
-	endpoint := strings.TrimSpace(os.Getenv("LOOM_SC02_COVERAGE_ARANGO_URL"))
-	database := strings.TrimSpace(os.Getenv("LOOM_SC02_COVERAGE_ARANGO_DATABASE"))
-	if endpoint == "" || database != "loom_qa_semantic_cov_resource_20261016" || strings.ContainsAny(database, "/?#%") {
-		t.Fatal("the exact pre-created loom_qa_semantic_cov_resource_20261016 isolated database is required")
-	}
+	owned := arangotest.Owned(t, "loom_test_semantic_coverage_")
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	t.Cleanup(cancel)
-	if !semanticCoverageResourceIntegrationDatabaseExists(ctx, endpoint, database) {
-		t.Fatal("isolated SC02 database is unavailable; refusing Open because it may create a database")
-	}
-	client, err := arangostore.Open(ctx, endpoint, database)
-	if err != nil {
-		t.Fatalf("open isolated SC02 database failed (%v)", err)
-	}
-	t.Cleanup(func() { _ = client.Close(context.Background()) })
+	client := owned.Client
 	if err := client.Bootstrap(ctx, arangostore.BootstrapSpec{Collections: []arangostore.CollectionSpec{SemanticCoverageCollectionSpec()}}); err != nil {
 		t.Fatalf("bootstrap coverage collection failed (%v)", err)
 	}
@@ -305,24 +287,6 @@ func openSemanticCoverageResourceIntegration(t *testing.T) (context.Context, *ar
 		}
 	})
 	return ctx, client, adapter, identity
-}
-
-func semanticCoverageResourceIntegrationDatabaseExists(ctx context.Context, endpoint, database string) bool {
-	parsed, err := url.Parse(endpoint)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return false
-	}
-	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/_db/" + database + "/_api/version"
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
-	if err != nil {
-		return false
-	}
-	response, err := (&http.Client{Timeout: 5 * time.Second}).Do(request)
-	if err != nil {
-		return false
-	}
-	defer response.Body.Close()
-	return response.StatusCode == http.StatusOK
 }
 
 func semanticCoverageResourceExpectation(

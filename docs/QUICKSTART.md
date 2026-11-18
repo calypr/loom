@@ -4,8 +4,7 @@ This guide gets a fresh local checkout to:
 
 1. ArangoDB running in Docker
 2. sample FHIR data loaded
-3. the GraphQL server running at `http://127.0.0.1:8080`
-4. Apollo Sandbox working at `http://127.0.0.1:8080/apollo`
+3. the Loom HTTP server running at `http://127.0.0.1:8080`
 5. a real dataframe query returning rows
 
 ## 1. Start ArangoDB
@@ -77,19 +76,9 @@ For local work, run with `--no-auth`:
 
 Useful endpoints:
 
-- Apollo Sandbox: [http://127.0.0.1:8080/apollo](http://127.0.0.1:8080/apollo)
-- GraphQL endpoint: [http://127.0.0.1:8080/graphql/graph](http://127.0.0.1:8080/graphql/graph)
-- FHIR dataframe endpoint: [http://127.0.0.1:8080/graphql/dataframe](http://127.0.0.1:8080/graphql/dataframe)
-- Published dataframe fields: [http://127.0.0.1:8080/graphql/graph](http://127.0.0.1:8080/graphql/graph)
 - Health summary: [http://127.0.0.1:8080/health](http://127.0.0.1:8080/health)
 - Process liveness: [http://127.0.0.1:8080/livez](http://127.0.0.1:8080/livez)
 - Dependency readiness: [http://127.0.0.1:8080/readyz](http://127.0.0.1:8080/readyz)
-
-On macOS you can jump straight to Apollo with:
-
-```bash
-open http://127.0.0.1:8080/apollo
-```
 
 ## 5. Inspect and author an Explorer
 
@@ -105,227 +94,21 @@ Read [the Explorer authoring guide](EXPLORER_AUTHORING.md) for the current
 request/response behavior and the canonical
 [OpenAPI contract](../openapi/openapi.yaml) for exact wire schemas.
 
-The workflow is deliberately not a GraphQL introspection query: Loom validates
-catalog selections, dataset generation, recipe compilation, preview, and
-publication through the same server-owned REST capability path.
-
 ## 6. Run a sample dataframe query
 
-This is the current mutation shape:
-
-```graphql
-mutation RunDataframe($input: FhirDataframeInput!, $limit: Int) {
-  runFhirDataframe(input: $input, limit: $limit) {
-    columns
-    rowCount
-    rows
-  }
-}
-```
-
-Use these variables for a meaningful patient-first dataframe:
-
-```json
-{
-  "limit": 100,
-  "input": {
-    "project": "ARANGODB_PROTO",
-    "rootResourceType": "Patient",
-    "rootFields": [
-      {
-        "name": "case_id",
-        "fieldRef": "Patient.case_id",
-        "fallbackFieldRefs": [
-          "Patient.case_submitter_id"
-        ],
-        "valueMode": "AUTO"
-      },
-      {
-        "name": "case_submitter_id",
-        "fieldRef": "Patient.case_submitter_id",
-        "valueMode": "AUTO"
-      },
-      {
-        "name": "gender",
-        "fieldRef": "Patient.gender",
-        "valueMode": "AUTO"
-      },
-      {
-        "name": "birth_sex",
-        "fieldRef": "Patient.birth_sex",
-        "valueMode": "AUTO"
-      }
-    ],
-    "traverse": [
-      {
-        "edgeLabel": "subject_Patient",
-        "toResourceType": "Condition",
-        "alias": "condition",
-        "aggregates": [
-          {
-            "name": "condition_count",
-            "operation": "COUNT"
-          },
-          {
-            "name": "diagnosis_values",
-            "operation": "DISTINCT_VALUES",
-            "fhirPath": "code.coding[].display",
-            "valueMode": "AUTO"
-          }
-        ],
-        "slices": [
-          {
-            "name": "representative_conditions",
-            "limit": 2,
-            "fields": [
-              {
-                "name": "condition_id",
-                "selector": {
-                  "valuePath": "id"
-                },
-                "valueMode": "AUTO"
-              },
-              {
-                "name": "diagnosis",
-                "selector": {
-                  "sourcePath": "code.coding[]",
-                  "valuePath": "display"
-                },
-                "valueMode": "AUTO"
-              }
-            ]
-          }
-        ]
-      },
-      {
-        "edgeLabel": "subject_Patient",
-        "toResourceType": "Specimen",
-        "alias": "specimen",
-        "aggregates": [
-          {
-            "name": "specimen_count",
-            "operation": "COUNT"
-          },
-          {
-            "name": "specimen_types",
-            "operation": "DISTINCT_VALUES",
-            "fhirPath": "type.coding[].display",
-            "valueMode": "AUTO"
-          }
-        ],
-        "slices": [
-          {
-            "name": "representative_specimens",
-            "limit": 3,
-            "fields": [
-              {
-                "name": "specimen_id",
-                "selector": {
-                  "valuePath": "id"
-                },
-                "valueMode": "AUTO"
-              },
-              {
-                "name": "specimen_type",
-                "selector": {
-                  "sourcePath": "type.coding[]",
-                  "valuePath": "display"
-                },
-                "valueMode": "AUTO"
-              }
-            ]
-          }
-        ]
-      },
-      {
-        "edgeLabel": "subject_Patient",
-        "toResourceType": "ResearchSubject",
-        "alias": "research_subject",
-        "aggregates": [
-          {
-            "name": "research_subject_count",
-            "operation": "COUNT"
-          }
-        ],
-        "slices": [
-          {
-            "name": "representative_research_subjects",
-            "limit": 2,
-            "fields": [
-              {
-                "name": "research_subject_id",
-                "selector": {
-                  "valuePath": "id"
-                },
-                "valueMode": "AUTO"
-              },
-              {
-                "name": "status",
-                "selector": {
-                  "valuePath": "status"
-                },
-                "valueMode": "AUTO"
-              },
-              {
-                "name": "study_ref",
-                "fieldRef": "ResearchSubject.study_ref",
-                "valueMode": "AUTO"
-              }
-            ]
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Notes:
-
-- `rows` is returned as JSON, not as statically typed GraphQL row objects
-- the server validates selectors/traversals against populated-field and populated-reference discovery
-- `fieldRef` is the preferred frontend-friendly path when available
-
-### Run it and see the timing
-
-The checked-in operation and variables above are also runnable without copying
-JSON from this document. With the local server running in `--no-auth` mode:
+With the local server listening on port 8080, run the compact Patient example.
 
 ```bash
-make dataframe-demo
+go run ./cmd/dataframe-query -request examples/meta_patient_dataframe.json
 ```
 
-This prints the actual GraphQL response plus wall-clock time. To issue the
-same request repeatedly and see min/average/max timing:
+The example selects Patient fields and traverses related resources. Set
+`input.project` in the example if the loaded project uses a different name.
 
-```bash
-make dataframe-demo DATAFRAME_REPEAT=10
-```
-
-The command labels the first request as `cold` and the final request as
-`warm`, then reports total HTTP/server time, returned rows, response bytes, and
-rows/second. It also reports server-side field-reference resolution, request
-preparation, physical compilation, Arango cursor time, per-row materialization,
-and result assembly. The remaining wall-clock time is GraphQL serialization and
-HTTP overhead.
-
-The compact example files are
-[`examples/meta_patient_dataframe.graphql`](../examples/meta_patient_dataframe.graphql)
-and
-[`examples/meta_patient_dataframe.variables.json`](../examples/meta_patient_dataframe.variables.json).
-`make dataframe-demo` runs the richer GDC-style case matrix in
-[`examples/meta_gdc_case_matrix.graphql`](../examples/meta_gdc_case_matrix.graphql)
-with [`examples/meta_gdc_case_matrix.variables.json`](../examples/meta_gdc_case_matrix.variables.json):
-diagnoses, specimens, nested files and sample groups, Observation code/value
-pivots, and representative related records.
-For an explicit named GDC operation, run:
-
-```bash
-rtk go run ./cmd/dataframe-query \
-  -query examples/meta_gdc_case_matrix.graphql \
-  -variables examples/meta_gdc_case_matrix.variables.json \
-  -repeat 1
-```
+Use `make dataframe-demo` for the larger GDC case matrix. Add
+`DATAFRAME_REPEAT=10` to repeat the same request. The command prints server
+timing, returned row count, and response bytes. See
+[the dataframe API guide](DATAFRAME_API.md) for request and response details.
 
 ## 7. Shut down local Arango
 

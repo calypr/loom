@@ -139,6 +139,12 @@ func (p PhysicalPlan) Validate() error {
 		}
 		switch operation.Kind {
 		case PhysicalRootScanOp:
+			if hint := operation.RootScan.IndexHint; hint != "" && (!physicalPathPartPattern.MatchString(hint) || hint[0] == '_') {
+				return fmt.Errorf("operation %d: unsafe root index hint %q", i, hint)
+			}
+			if operation.RootScan.IndexHint != "" && (operation.RootScan.Population != nil || operation.RootScan.CohortSource != nil || operation.RootScan.PageCandidateSeed != nil) {
+				return fmt.Errorf("operation %d: root index hint requires a direct scan", i)
+			}
 			rootScans++
 			if rootScans > 1 {
 				return fmt.Errorf("operation %d: physical plan has multiple root scans", i)
@@ -371,10 +377,6 @@ func (p PhysicalPlan) Validate() error {
 	return nil
 }
 
-// ValidateForWorkspaceCompilation validates the closed typed shape of a
-// terminal workspace-output Combine. It is a resolver-only boundary: normal
-// physical validation and all execution/render entry points still reject the
-// unresolved sibling references until server-owned capture is implemented.
 func (p PhysicalPlan) ValidateForWorkspaceCompilation() error {
 	if p.Engine != PhysicalEngineClickHouse || p.ClickHouseCombine == nil || p.ClickHousePrefix != nil {
 		return p.Validate()
@@ -896,7 +898,7 @@ func validatePhysicalSet(set PhysicalSet, parent map[string]bool, bindVars map[s
 		seenOutputFields := map[PhysicalSetOutputField]bool{}
 		for _, field := range set.Output.Fields {
 			switch field {
-			case PhysicalSetGraphIDField, PhysicalSetKeyField, PhysicalSetIDField, PhysicalSetResourceTypeField, PhysicalSetPayloadField:
+			case PhysicalSetGraphIDField, PhysicalSetKeyField, PhysicalSetLogicalKeyField, PhysicalSetIDField, PhysicalSetResourceTypeField, PhysicalSetPayloadField:
 			default:
 				return fmt.Errorf("set %q compact output field %q is unsupported", set.Variable, field)
 			}

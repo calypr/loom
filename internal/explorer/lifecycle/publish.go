@@ -26,12 +26,15 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 	if err != nil {
 		return PublishResult{}, err
 	}
-	if err := s.validateReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
+	if err := s.validateExecutableReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
 		return PublishResult{}, err
 	}
 	authorized, snapshot, err := s.resolveExecutionCapability(ctx, receipt.Project, receipt.SnapshotToken)
-	if err != nil || strings.TrimSpace(snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {
-		return PublishResult{}, conflict("publish", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, err)
+	if err != nil {
+		return PublishResult{}, capabilityResolutionFailure("publish", "the receipt's capability snapshot is no longer authorized or retained", err)
+	}
+	if strings.TrimSpace(snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {
+		return PublishResult{}, conflict("publish", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, nil)
 	}
 	if s.config.CompileReceipt != nil {
 		if err := validateReceiptCapability(receipt, snapshot); err != nil {
@@ -56,12 +59,19 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 		}
 	}
 	if err := s.config.ValidateReleaseGeneration(ctx, projectid.Legacy(receipt.Project), receipt.SourceGeneration); err != nil {
-		return PublishResult{}, conflict("publish", "RECEIPT_STALE", "the receipt generation is no longer active", map[string]any{"generation": receipt.SourceGeneration}, err)
+		if errors.Is(err, dataset.ErrReleaseRequirementsUnmet) {
+			return PublishResult{}, conflict("publish", "RECEIPT_STALE", "the receipt generation is no longer active", map[string]any{"generation": receipt.SourceGeneration}, err)
+		}
+		return PublishResult{}, unavailable("publish", "RELEASE_GENERATION_UNAVAILABLE", "the receipt generation could not be verified", err)
 	}
 	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(receipt.Project), SelectionProject: projectid.Canonical(receipt.Project), DatasetGeneration: receipt.SourceGeneration, SelectionMembersCollection: s.config.SelectionMembersCollection}
 	applyAuthorizedScope(&bindings, authorized, true)
 	execution, err := s.config.MaterializeReceipt(ctx, receipt, bindings)
 	if err != nil {
+		var typed *Error
+		if errors.As(err, &typed) {
+			return PublishResult{}, typed
+		}
 		if classifiedErr := classifyMaterializationError("materialize", err); classifiedErr != nil {
 			return PublishResult{}, classifiedErr
 		}
@@ -100,7 +110,7 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 		if errors.Is(err, dataset.ErrReleaseActivationConflict) {
 			return PublishResult{}, conflict("activation", "PUBLICATION_ACTIVATION_CONFLICT", "another publication won activation; the prior Explorer revision was retained", nil, err)
 		}
-		return PublishResult{}, err
+		return PublishResult{}, unavailable("publish", "PERSISTENCE_UNAVAILABLE", "the published Explorer revision could not be saved", err)
 	}
 	if s.config.PersistPublishedWorkspace != nil {
 		if err := s.config.PersistPublishedWorkspace(ctx, receipt.Project, receipt.ExplorerID, receipt.NormalizedBundle); err != nil {

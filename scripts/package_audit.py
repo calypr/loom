@@ -30,117 +30,258 @@ EXCLUDED_PARTS = {
 
 # These sentences are deliberately curated. The generator refuses to emit a row
 # without one so a directory listing cannot masquerade as a semantic inventory.
-RESPONSIBILITIES = {
-    ".": "Start the default Loom server process through the internal server composition root.",
-    "cmd/arango-fhir-proto": "Provide operator commands for FHIR loading, catalog diagnostics, generation repair, and activation.",
-    "cmd/arango-fhir-server": "Start the explicit Loom HTTP server binary.",
-    "cmd/dataframe-profile": "Run and compare developer-facing dataframe profiling workloads.",
-    "cmd/dataframe-query": "Execute a checked-in GraphQL dataframe request and report response timing and diagnostics.",
-    "cmd/explorer-config-v2-convert": "Convert legacy Explorer configuration input into the V2 authoring representation offline.",
-    "cmd/generate": "Generate FHIR models, schema metadata, validation, extraction, and GraphQL artifacts from source schemas.",
-    "cmd/gqlgenfix": "Post-process gqlgen output to enforce Loom-specific generated-code invariants.",
-    "cmd/loom-acceptance": "Run the locked real-data acceptance scenario and emit machine-readable verification artifacts.",
-    "cmd/loom-repository": "Preflight a repository checkout and launch Loom against its META and CONFIG data with an owned Compose project.",
-    "cmd/preview-covering-index-artifact": "Recreate a captured Builder proposal offline and emit the exact compiler artifact for index-coverage analysis.",
-    "conformance/compiler": "Load and exercise the canonical dataframe compiler oracle corpus for conformance and performance checks.",
-    "generated/fhir": "Expose generated FHIR resource models and their extraction, validation, and GraphQL helpers.",
-    "generated/fhirschema": "Expose generated raw FHIR schema metadata tables.",
-    "generated/graphql/graph/executor": "Provide gqlgen-generated GraphQL executable schema and execution plumbing.",
-    "generated/graphql/graph/model": "Provide gqlgen-generated GraphQL transport model types.",
-    "generated/loomapi": "Provide OpenAPI-generated HTTP request, response, and strict-server contracts.",
-    "internal/api/bulk/load": "Adapt multipart HTTP generation uploads and activation requests to ingest and dataset services.",
-    "internal/api/graphql/graph": "Own GraphQL HTTP handler construction, error presentation, and generated executor binding.",
-    "internal/api/graphql/graph/dataframe": "Adapt published ClickHouse dataframe discovery, row, aggregate, and export operations to GraphQL.",
-    "internal/api/graphql/graph/query": "Resolve and authorize Arango-backed FHIR dataframe and graph query requests for GraphQL.",
-    "internal/api/graphql/graph/resolver": "Implement gqlgen field resolvers and map GraphQL values to query and lifecycle services.",
-    "internal/api/http": "Own shared Fiber server setup, middleware, request IDs, errors, health, and readiness behavior.",
-    "internal/api/authpolicy": "Centralize authorization-sentinel classification for transport operations while preserving operation-specific concealment.",
-    "internal/api/columncapabilities": "Derive transport-neutral filter, sort, and aggregate capabilities from published ClickHouse column types.",
-    "internal/api/recipe": "Adapt scoped catalog field discovery to recipe schema resolution for one-shot and stored recipes.",
-    "internal/acceptance": "Fetch and cache the locked FHIR fixture, drive the real-data acceptance scenario, and verify its outputs and performance evidence.",
-    "internal/authscope": "Represent request principals and resolve authorized project, generation, and resource scopes.",
-    "internal/catalog": "Own persistence-neutral observed FHIR field, pivot, relationship, and capability facts.",
-    "internal/catalog/arango": "Persist and retrieve catalog facts in ArangoDB.",
-    "internal/ci": "Exercise repository-wide Go formatting and vet gates, including injected fault detection.",
-    "internal/dataframe/columntransform": "Define closed, backend-neutral transformations over one selected output column value.",
-    "internal/dataframe/compiler": "Orchestrate semantic planning, physical lowering, optimization, rendering, and compiled-query assembly.",
-    "internal/dataframe/compiler/capability": "Probe which dataframe language capabilities the compiler can prove and support.",
-    "internal/dataframe/compiler/ir": "Define typed physical operations, values, scope proofs, policies, and validation.",
-    "internal/dataframe/compiler/lower": "Lower logical FHIR dataframe plans into storage-aware physical IR.",
-    "internal/dataframe/compiler/optimize": "Apply explainable semantics-preserving rewrites to validated physical IR.",
-    "internal/dataframe/compiler/render/aql": "Render validated physical IR as deterministic parameterized AQL.",
-    "internal/dataframe/compiler/render/clickhouse": "Render typed Combine plans and resolved published or private table inputs as deterministic ClickHouse SQL.",
-    "internal/dataframe/errors": "Define and normalize stable structured dataframe errors for transport presentation.",
-    "internal/dataframe/execution": "Prepare, authorize, execute, explain, and post-process compiled dataframe requests.",
-    "internal/dataframe/execution/chartifact": "Manage private ClickHouse staging tables and leases used to cross execution boundaries without publishing outputs.",
-    "internal/dataframe/execution/chartifact/arango": "Persist private ClickHouse artifact manifests and leases in a dedicated Arango collection.",
-    "internal/dataframe/lineage": "Define stable identities and provenance for columns expanded from one authored source slot.",
-    "internal/dataframe/expression": "Define and validate the typed backend-neutral expression AST used by recipes.",
-    "internal/dataframe/publication": "Own backend-neutral dataframe publication contracts, bundles, and publication orchestration.",
-    "internal/dataframe/publication/arango": "Persist dataframe publication registry and bundle metadata in ArangoDB.",
-    "internal/dataframe/publication/clickhouse": "Materialize and inspect published dataframe bundles in ClickHouse.",
-    "internal/dataframe/published": "Read, page, aggregate, and export authorized published ClickHouse dataframes.",
-    "internal/dataframe/recipe": "Define, canonicalize, expand, encode, and validate persistence-neutral recipe documents.",
-    "internal/dataframe/recipe/exec": "Define durable recipe-version storage contracts and immutable registration behavior.",
-    "internal/dataframe/recipe/exec/arango": "Persist recipe versions and execution-use records in ArangoDB.",
-    "internal/dataframe/recipe/schema": "Resolve catalog-backed recipe declarations into concrete validated schemas.",
-    "internal/dataframe/semantic": "Convert validated dataframe requests and recipes into backend-neutral logical FHIR plans.",
-    "internal/dataframe/spec": "Define the backend-independent dataframe request, filter, grain, relationship, and selector language.",
-    "internal/dataframe/unit": "Define unit identity, dimensional compatibility, and approved conversion rules for quantity values.",
-    "internal/dataset": "Define immutable dataset generation manifests, releases, active pointers, and lifecycle validation.",
-    "internal/dataset/arango": "Persist immutable dataset generation lifecycle state in ArangoDB.",
-    "internal/explorer": "Define Explorer aggregate identities, configs, revisions, receipts, output contracts, stores, and core service operations.",
-    "internal/explorer/arango": "Persist Explorer drafts, revisions, receipts, publications, capabilities, and repository state in ArangoDB.",
-    "internal/explorer/artifactfs": "Persist and serve immutable Explorer training artifacts from a dedicated filesystem root.",
-    "internal/explorer/authoringv2": "Define, validate, canonicalize, and mutate the V2 Explorer Builder authoring workspace.",
-    "internal/explorer/capability": "Build the immutable compiler-backed capability contract exposed to Explorer Builder.",
-    "internal/explorer/compilation": "Translate validated Explorer authoring intent into native recipe and compilation artifacts.",
-    "internal/explorer/lifecycle": "Coordinate transport-neutral Explorer authoring, preview, publication, query, and policy operations.",
-    "internal/explorer/tableshapecap": "Define immutable table-shape capability and resolution artifacts plus their create-once repository contract.",
-    "internal/fhir/schema": "Add handwritten selector, traversal, pivot, and compiler semantics to generated FHIR metadata.",
-    "internal/fhir/semantic": "Walk generated FHIR definition indexes to enumerate typed referenced datatype occurrences.",
-    "internal/ingest": "Preflight and load FHIR NDJSON into generation-scoped Arango vertices, edges, and catalog facts.",
-    "internal/projectid": "Define canonical and legacy-compatible public project identity normalization.",
-    "internal/repositoryseed": "Validate repository metadata and configuration, produce a source manifest, and refuse unmaterialized inputs before launch.",
-    "internal/server": "Compose storage, domain services, generated OpenAPI handlers, GraphQL adapters, and HTTP routes.",
-    "internal/store/arango": "Provide the low-level typed ArangoDB client, query streaming, profiling, and Explain assessment boundary.",
-    "internal/store/clickhouse": "Provide the low-level typed ClickHouse connection and database-management boundary.",
-    "scripts": "Hold repository developer, verification, migration, and release utilities that are not part of the Go module runtime packages.",
-}
+RESPONSIBILITIES = {'internal/testkit/arangotest': 'Provide isolated Arango and ClickHouse service clients, database ownership, and '
+                                'cleanup for integration tests.',
+ '.': 'Start the default Loom server process through the internal server composition root.',
+ 'client/ingest': 'Upload versioned source files and publish durable Loom source loads through the HTTP client '
+                  'library.',
+ 'cmd/check-go-comments': 'Enforce the Go source comment policy locally and in CI.',
+ 'cmd/arango-fhir-proto': 'Provide operator commands for FHIR loading, catalog diagnostics, generation repair, and '
+                          'activation.',
+ 'cmd/arango-fhir-server': 'Start the explicit Loom HTTP server binary.',
+ 'cmd/dataframe-profile': 'Run and compare developer-facing dataframe profiling workloads.',
+ 'cmd/dataframe-query': 'Execute a checked-in REST dataframe request and report response timing and diagnostics.',
+ 'cmd/generate': 'Generate FHIR models, schema metadata, validation, and edge extraction from source '
+                 'schemas.',
+ 'cmd/loom-acceptance': 'Run the locked real-data acceptance scenario and emit machine-readable verification '
+                        'artifacts.',
+ 'cmd/loom-repository': 'Preflight a repository checkout and launch Loom against its META and CONFIG data with an '
+                        'owned Compose project.',
+ 'conformance/compiler': 'Load and exercise the canonical dataframe compiler oracle corpus for conformance and '
+                         'performance checks.',
+ 'generated/fhir': 'Expose generated FHIR resource models and their validation and edge extraction helpers.',
+ 'generated/fhirschema': 'Expose generated raw FHIR schema metadata tables.',
+ 'generated/loomapi': 'Provide OpenAPI-generated HTTP request, response, and strict-server contracts.',
+ 'internal/api/bulk/load': 'Adapt multipart HTTP generation uploads and activation requests to ingest and dataset '
+                           'services.',
+ 'internal/api/dataframe': 'Own typed dataframe request and publication representations.',
+ 'internal/api/dataframe/dataframe': 'Resolve and authorize published dataframe rows, aggregates, and export.',
+ 'internal/api/dataframe/query': 'Resolve and authorize Arango-backed FHIR dataframe and graph requests.',
+ 'internal/api/http': 'Own shared Fiber server setup, middleware, request IDs, errors, health, and readiness behavior.',
+ 'internal/api/authpolicy': 'Centralize authorization-sentinel classification for transport operations while '
+                            'preserving operation-specific concealment.',
+ 'internal/api/columncapabilities': 'Derive transport-neutral filter, sort, and aggregate capabilities from published '
+                                    'ClickHouse column types.',
+ 'internal/api/recipe': 'Adapt scoped catalog field discovery to recipe schema resolution for one-shot and stored '
+                        'recipes.',
+ 'internal/acceptance': 'Fetch and cache the locked FHIR fixture, drive the real-data acceptance scenario, and verify '
+                        'its outputs and performance evidence.',
+ 'internal/authscope': 'Represent request principals and resolve authorized project, generation, and resource scopes.',
+ 'internal/catalog': 'Own persistence-neutral observed FHIR field, pivot, relationship, and capability facts.',
+ 'internal/catalog/arango': 'Persist and retrieve catalog facts in ArangoDB.',
+ 'internal/ci': 'Exercise repository-wide Go formatting and vet gates, including injected fault detection.',
+ 'internal/dataframe/columntransform': 'Define closed, backend-neutral transformations over one selected output column '
+                                       'value.',
+ 'internal/dataframe/compiler': 'Orchestrate semantic planning, physical lowering, optimization, rendering, compiled '
+                                'queries, and typed category-scan eligibility/proofs.',
+ 'internal/dataframe/compiler/capability': 'Probe which dataframe language capabilities the compiler can prove and '
+                                           'support.',
+ 'internal/dataframe/compiler/ir': 'Define typed physical operations, category-scan terminals/source hints, values, '
+                                   'scope proofs, policies, and validation.',
+ 'internal/dataframe/compiler/lower': 'Lower logical FHIR dataframe plans into storage-aware physical IR.',
+ 'internal/dataframe/compiler/optimize': 'Apply explainable semantics-preserving rewrites to validated physical IR.',
+ 'internal/dataframe/compiler/render/aql': 'Render validated physical IR and category-scan terminals as deterministic '
+                                           'parameterized AQL.',
+ 'internal/dataframe/compiler/render/clickhouse': 'Render typed Combine plans and resolved published or private table '
+                                                  'inputs as deterministic ClickHouse SQL.',
+ 'internal/dataframe/errors': 'Define and normalize stable structured dataframe errors for transport presentation.',
+ 'internal/dataframe/execution': 'Prepare, authorize, execute, explain, and post-process compiled dataframe requests.',
+ 'internal/dataframe/execution/chartifact': 'Manage private ClickHouse staging tables and leases used to cross '
+                                            'execution boundaries without publishing outputs.',
+ 'internal/dataframe/execution/chartifact/arango': 'Persist private ClickHouse artifact manifests and leases in a '
+                                                   'dedicated Arango collection.',
+ 'internal/dataframe/lineage': 'Define stable identities and provenance for columns expanded from one authored source '
+                               'slot.',
+ 'internal/dataframe/expression': 'Define and validate the typed backend-neutral expression AST used by recipes.',
+ 'internal/dataframe/publication': 'Own backend-neutral dataframe publication contracts, bundles, and publication '
+                                   'orchestration.',
+ 'internal/dataframe/publication/arango': 'Persist dataframe publication registry and bundle metadata in ArangoDB.',
+ 'internal/dataframe/publication/clickhouse': 'Materialize and inspect published dataframe bundles in ClickHouse.',
+ 'internal/dataframe/published': 'Read, page, aggregate, and export authorized published ClickHouse dataframes.',
+ 'internal/dataframe/recipe': 'Define, canonicalize, expand, encode, and validate persistence-neutral recipe '
+                              'documents.',
+ 'internal/dataframe/recipe/exec': 'Define durable recipe-version storage contracts and immutable registration '
+                                   'behavior.',
+ 'internal/dataframe/recipe/exec/arango': 'Persist recipe versions and execution-use records in ArangoDB.',
+ 'internal/dataframe/recipe/schema': 'Resolve catalog-backed recipe declarations into concrete validated schemas.',
+ 'internal/dataframe/semantic': 'Convert validated dataframe requests and recipes into backend-neutral logical FHIR '
+                                'plans.',
+ 'internal/dataframe/spec': 'Define the backend-independent dataframe request, filter, grain, relationship, and '
+                            'selector language.',
+ 'internal/dataframe/unit': 'Define unit identity, dimensional compatibility, and approved conversion rules for '
+                            'quantity values.',
+ 'internal/dataset': 'Define immutable dataset generation manifests, releases, active pointers, and lifecycle '
+                     'validation.',
+ 'internal/dataset/arango': 'Persist immutable dataset generation lifecycle state in ArangoDB.',
+ 'internal/explorer': 'Define Explorer aggregate identities, configs, revisions, receipts, output contracts, stores, '
+                      'core service operations, and immutable project-publication catalogs.',
+ 'internal/explorer/arango': 'Persist Explorer drafts, revisions, receipts, publications, capabilities, repository '
+                             'state, and atomic project catalog anchors in ArangoDB.',
+ 'internal/explorer/artifactfs': 'Persist and serve immutable Explorer training artifacts from a dedicated filesystem '
+                                 'root.',
+ 'internal/explorer/authoringv2': 'Define, validate, canonicalize, and mutate the V2 Explorer Builder authoring '
+                                  'workspace.',
+ 'internal/explorer/capability': 'Build the immutable compiler-backed capability contract exposed to Explorer Builder.',
+ 'internal/explorer/compilation': 'Translate validated Explorer authoring intent into native recipe and compilation '
+                                  'artifacts.',
+ 'internal/explorer/lifecycle': 'Coordinate transport-neutral Explorer authoring, preview, publication, query, and '
+                                'policy operations.',
+ 'internal/explorer/recipeimport': 'Translate imported recipe documents into authorized Explorer source plans and '
+                                   'exact capability choices.',
+ 'internal/fhir/schema': 'Add handwritten selector, traversal, pivot, and compiler semantics to generated FHIR '
+                         'metadata.',
+ 'internal/fhir/semantic': 'Walk generated FHIR definition indexes to enumerate typed referenced datatype occurrences.',
+ 'internal/ingest': 'Preflight and load FHIR NDJSON into generation-scoped Arango vertices, edges, and catalog facts.',
+ 'internal/projectid': 'Define canonical and legacy-compatible public project identity normalization.',
+ 'internal/repositoryseed': 'Validate repository metadata and configuration, produce a source manifest, and refuse '
+                            'unmaterialized inputs before launch.',
+ 'internal/server': 'Compose storage, domain services, generated OpenAPI handlers and HTTP routes.',
+ 'internal/store/arango': 'Provide the low-level typed ArangoDB client, query streaming, profiling, and Explain '
+                          'assessment boundary.',
+ 'internal/store/clickhouse': 'Provide the low-level typed ClickHouse connection and database-management boundary.',
+ 'scripts': 'Hold repository developer, verification, migration, and release utilities that are not part of the Go '
+            'module runtime packages.',
+ 'cmd/arango-preview-index-audit': 'Inventory exact superseded compiler-owned preview indexes without mutating Arango.',
+ 'cmd/arango-preview-index-migration': 'Run the versioned local preview-index migration with dry-run and idempotent '
+                                       'recovery.',
+ 'cmd/arango-workspace-migration': 'Run the explicit local workspace migration with dry-run, draft CAS, immutable '
+                                   'projections, and receipt retirement.'}
 
 # Completed decisions are deliberately curated rather than inferred from the
 # current source tree. Removed-package records preserve the evidence needed to
 # understand why a source disappeared; keep records pin the reviewed boundary
 # to a live package.
-COMPLETED_DECISIONS = (
-    {
-        "source": "internal/api/graphql",
-        "disposition": "merged",
-        "destination": "internal/api/graphql/graph",
-        "rationale": "one production importer and error presentation is transport policy owned by graph",
-        "contracts": "public error codes/messages/redaction/request IDs/cause/path/location",
-        "verification": "focused graph+server tests; full repository verification; extension-map isolation regression",
-        "status": "complete",
-    },
-    {
-        "source": "internal/api/bulk/load",
-        "disposition": "keep",
-        "destination": "internal/api/bulk/load",
-        "rationale": "owns multipart staging, authorization, ingest error translation, generation reuse, and release activation apart from generated OpenAPI response mapping",
-        "contracts": "multipart fields; JSON result fields; auth scope; stable error codes; activation safety",
-        "verification": "focused load+server tests; full repository verification",
-        "status": "complete",
-    },
-    {
-        "source": "internal/api/graphql/graph",
-        "disposition": "keep",
-        "destination": "internal/api/graphql/graph",
-        "rationale": "owns gqlgen handler construction, GraphQL error presentation, and response-status adaptation apart from server composition and generated execution",
-        "contracts": "GraphQL error shape; request IDs; partial-data HTTP 200; failure status lifting; playground and sandbox handlers",
-        "verification": "focused graph+server tests; full repository verification; extension-map isolation regression",
-        "status": "complete",
-    },
-)
+COMPLETED_DECISIONS = ({'source': 'internal/api/graphql/graph/dataframe',
+  'disposition': 'moved',
+  'destination': 'internal/api/dataframe/dataframe',
+  'rationale': 'Own dataframe services and their request types independently of the GraphQL adapter',
+  'contracts': 'existing GraphQL contract and Go callers',
+  'verification': 'pre/post package and importer audits; full package audit',
+  'status': 'complete'},
+ {'source': 'internal/api/graphql/graph/query',
+  'disposition': 'moved',
+  'destination': 'internal/api/dataframe/query',
+  'rationale': 'Own dataframe services and their request types independently of the GraphQL adapter',
+  'contracts': 'existing GraphQL contract and Go callers',
+  'verification': 'pre/post package and importer audits; full package audit',
+  'status': 'complete'},
+ {'source': 'internal/dataframe/compiler',
+  'disposition': 'keep',
+  'destination': 'internal/dataframe/compiler',
+  'rationale': 'WP-22 keeps category scan eligibility and semantic proof orchestration in compiler while moving query '
+               'emission to typed renderer inputs',
+  'contracts': 'source scope; category/presence/value proof identity; conservative unsupported-shape fallback',
+  'verification': 'pre/post compiler/importer audits; real compiler Arango matrix and EXPLAIN; typed IR/render tests; '
+                  'source fault controls; full package audit',
+  'status': 'complete'},
+ {'source': 'internal/dataframe/compiler/ir',
+  'disposition': 'keep',
+  'destination': 'internal/dataframe/compiler/ir',
+  'rationale': 'WP-22 owns backend-neutral validated category terminals and non-forcing direct-source hints',
+  'contracts': 'unchanged semantic plans; omitted hint preserves JSON fingerprints; exhaustive Children generation '
+               'remains unchanged',
+  'verification': 'pre/post compiler/importer audits; real compiler Arango matrix and EXPLAIN; typed IR/render tests; '
+                  'source fault controls; full package audit',
+  'status': 'complete'},
+ {'source': 'internal/dataframe/compiler/render/aql',
+  'disposition': 'keep',
+  'destination': 'internal/dataframe/compiler/render/aql',
+  'rationale': 'WP-22 owns category query emission instead of compiler post-render string edits',
+  'contracts': 'post-distinct limits; NULL/MISSING and value-bearing semantics; parameter namespaces; exact '
+               'auth/resource guards; non-forcing index coverage',
+  'verification': 'pre/post compiler/importer audits; real compiler Arango matrix and EXPLAIN; typed IR/render tests; '
+                  'source fault controls; full package audit',
+  'status': 'complete'},
+ {'source': 'internal/explorer',
+  'disposition': 'keep',
+  'destination': 'internal/explorer',
+  'rationale': 'Restore saved-view and project-default services after the deployed IDP frontend disproved WP-21 consumer absence',
+  'contracts': 'saved-view CRUD; project defaults; exact source-publication catalog identities; authorization and revision conflicts',
+  'verification': 'pre/post package audits; historical full-JSON parity; publication tests; native Builder lifecycle; '
+                  'full package audit',
+  'status': 'complete'},
+ {'source': 'internal/explorer/arango',
+  'disposition': 'keep',
+  'destination': 'internal/explorer/arango',
+  'rationale': 'Retain saved-view mutations and defaults with the existing publication settings transaction and collection',
+  'contracts': 'persisted settings JSON and keys unchanged; release/config/catalog atomicity; CAS; exact retry; stored '
+               'defaults preserved',
+  'verification': 'pre/post package audits; real Arango publication retry/rebind/collision/CAS tests; native Builder '
+                  'lifecycle; full package audit',
+  'status': 'complete'},
+ {'source': 'internal/explorer/tableshapecap',
+  'disposition': 'deleted',
+  'destination': 'internal/explorer/capability',
+  'rationale': 'WP-17 removes the retired TableShape endpoints and their unreferenced immutable capability/resolution '
+               'repository; current Construction discovery remains in capability',
+  'contracts': 'retired promises recorded in DELETED_GUARANTEES; existing stored capability documents and historical '
+               'compilation receipt identities remain untouched',
+  'verification': 'pre/post package audits; Go deadcode -test and caller tracing; current Construction and real Arango '
+                  'migration/row/evidence checks; full package audit',
+  'status': 'complete'},
+ {'source': 'cmd/arango-workspace-migration',
+  'disposition': 'keep',
+  'destination': 'cmd/arango-workspace-migration',
+  'rationale': 'owns explicit versioned workspace migration orchestration and local target validation',
+  'contracts': 'read-only dry-run; versioned idempotence; atomic owner/history/projection CAS; immutable '
+               'receipt/revision identity; strict runtime cutover',
+  'verification': 'CLI guards; real Arango legacy/current/mixed/rerun and rollback; current Builder and receipt '
+                  'execution checks; full package audit',
+  'status': 'complete'},
+ {'source': 'internal/api/graphql',
+  'disposition': 'removed',
+  'destination': '—',
+  'rationale': 'Retired the GraphQL transport after porting live dataframe callers to OpenAPI',
+  'contracts': 'published paging, aggregation, authorization, and error classification',
+  'verification': 'GraphQL and REST parity before transport deletion; retained REST regression tests; full package audit',
+  'status': 'complete'},
+ {'source': 'internal/api/bulk/load',
+  'disposition': 'keep',
+  'destination': 'internal/api/bulk/load',
+  'rationale': 'owns multipart staging, authorization, ingest error translation, generation reuse, and release '
+               'activation apart from generated OpenAPI response mapping',
+  'contracts': 'multipart fields; JSON result fields; auth scope; stable error codes; activation safety',
+  'verification': 'focused load+server tests; full repository verification',
+  'status': 'complete'},
+ {'source': 'internal/api/graphql/graph',
+  'disposition': 'removed',
+  'destination': '—',
+  'rationale': 'Retired the GraphQL transport after porting live dataframe callers to OpenAPI',
+  'contracts': 'published paging, aggregation, authorization, and error classification',
+  'verification': 'GraphQL and REST parity before transport deletion; retained REST regression tests; full package audit',
+  'status': 'complete'},
+ {'source': 'cmd/arango-preview-index-audit',
+  'disposition': 'keep',
+  'destination': 'cmd/arango-preview-index-audit',
+  'rationale': 'owns read-only index inventory and local target validation at the executable boundary',
+  'contracts': 'read-only audit; exact index ownership; existing database only; JSON report',
+  'verification': 'focused CLI/store tests; real Arango before/after inventory; full package audit',
+  'status': 'complete'},
+ {'source': 'cmd/arango-preview-index-migration',
+  'disposition': 'keep',
+  'destination': 'cmd/arango-preview-index-migration',
+  'rationale': 'owns explicit versioned dry-run/apply orchestration and local target validation',
+  'contracts': 'idempotent migration; replacement before deletion; preserved unrelated indexes/documents; stable '
+               'version marker',
+  'verification': 'focused CLI/store tests; real Arango legacy/current/mixed/rerun and failure recovery; full package '
+                  'audit',
+  'status': 'complete'},
+ {'source': 'cmd/explorer-config-v2-convert',
+  'disposition': 'removed',
+  'destination': '—',
+  'rationale': 'Plan2 R-D4: orphaned offline command; no production, build, CI, skill or operational documentation '
+               'caller; retire the closed preview wrapper with its command',
+  'contracts': 'no served API or persisted format; historical command recoverable from45879f3b2',
+  'verification': 'focused package audit before removal; full package audit after removal',
+  'status': 'complete'},
+ {'source': 'cmd/preview-covering-index-artifact',
+  'disposition': 'removed',
+  'destination': '—',
+  'rationale': 'Plan2 R-D4: orphaned offline command; no production, build, CI, skill or operational documentation '
+               'caller; retire the closed preview wrapper with its command',
+  'contracts': 'no served API or persisted format; historical command recoverable from45879f3b2',
+  'verification': 'focused package audit before removal; full package audit after removal',
+  'status': 'complete'})
 
 DECISION_FIELDS = [
     "source",
@@ -267,6 +408,10 @@ def validate_completed_decisions(known_locations: set[str]) -> None:
             continue
         if source in known_locations:
             raise SystemExit(f"completed decision source still exists: {source}")
+        if disposition == "removed":
+            if destination != "—":
+                raise SystemExit(f"removed decision has a destination: {destination}")
+            continue
         if destination not in known_locations:
             raise SystemExit(f"completed decision destination missing: {destination}")
 

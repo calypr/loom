@@ -14,17 +14,21 @@ const renderedPopulationStates = vi.hoisted(
     readonly error?: string;
   }> => [],
 );
+const renderedExplorerIds = vi.hoisted((): Array<string | undefined> => []);
 
 vi.mock('./features/ExplorerBuilder/BuilderWorkspace', () => ({
   default: ({
     populationSelection,
     populationSelectionLoading,
     populationSelectionError,
+    explorerId,
   }: {
     readonly populationSelection?: SelectionRevision;
     readonly populationSelectionLoading?: boolean;
     readonly populationSelectionError?: string;
+    readonly explorerId?: string;
   }) => {
+    renderedExplorerIds.push(explorerId);
     renderedPopulationStates.push({
       selectionId: populationSelection?.id,
       loading: populationSelectionLoading ?? false,
@@ -61,6 +65,16 @@ const deferred = <T,>() => {
 
 beforeEach(() => {
   renderedPopulationStates.length = 0;
+  renderedExplorerIds.length = 0;
+});
+
+it('uses the reserved dataframe owner for absent and legacy default IDs', () => {
+  const view = render(<LoomExplorerBuilder project="project" />);
+  expect(renderedExplorerIds.at(-1)).toBe('dataframe-default');
+  view.rerender(<LoomExplorerBuilder project="project" explorerId="default" />);
+  expect(renderedExplorerIds.at(-1)).toBe('dataframe-default');
+  view.rerender(<LoomExplorerBuilder project="project" explorerId="custom-owner" />);
+  expect(renderedExplorerIds.at(-1)).toBe('custom-owner');
 });
 
 it('never hands an earlier selection to the workspace after the requested revision changes', async () => {

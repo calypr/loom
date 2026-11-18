@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
+import { useBrowserSubscription } from './useBrowserSubscription';
 
 export const useDismissibleLayer = <T extends HTMLElement>(
   open: boolean,
@@ -6,8 +7,8 @@ export const useDismissibleLayer = <T extends HTMLElement>(
 ) => {
   const ref = useRef<T>(null);
 
-  useEffect(() => {
-    if (!open) return undefined;
+  useBrowserSubscription((_onStoreChange) => {
+    if (!open) return () => {};
     const dismissOnPointerDown = (event: PointerEvent) => {
       if (!ref.current?.contains(event.target as Node)) setOpen(false);
     };
@@ -20,7 +21,7 @@ export const useDismissibleLayer = <T extends HTMLElement>(
       document.removeEventListener('pointerdown', dismissOnPointerDown);
       document.removeEventListener('keydown', dismissOnEscape);
     };
-  }, [open, setOpen]);
+  }, [open, setOpen], open);
 
   return ref;
 };

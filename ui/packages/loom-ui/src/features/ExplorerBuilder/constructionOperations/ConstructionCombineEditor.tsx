@@ -1,3 +1,4 @@
+import { createOpaqueId } from './editorShared';
 import React, { useMemo, useState } from 'react';
 import type {
   ConstructionCombineCatalog,
@@ -51,11 +52,6 @@ export interface ConstructionCombineEditorProps {
   readonly onRetryCatalog?: () => void;
   readonly onCandidateChange: (intent: ConstructionCombineCandidateIntent | undefined) => void;
 }
-
-const createOpaqueId = (prefix: string): string => {
-  const randomPart = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
-  return `${prefix}_${randomPart}`;
-};
 
 const revisionKey = (revision: Pick<ConstructionCombinePublishedRevision, 'tableId' | 'revisionId' | 'outputId'>): string =>
   JSON.stringify([revision.tableId, revision.revisionId, revision.outputId]);

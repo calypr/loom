@@ -142,7 +142,7 @@ describe('FrameSourcePanel query ownership', () => {
       expect.objectContaining({ outputId: 'output-b', cursor: undefined }), expect.any(AbortSignal));
   });
 
-  it('opens values for a newly saved frame from the event-owned source identity', async () => {
+  it.each([false, true])('opens values for a newly saved frame (add-only: %s)', async (addOnly) => {
     const selectedSource = source('new-frame-source', 'New frame source');
     mockClient.browseFrameSourceOptions.mockResolvedValueOnce(page('output-a', [selectedSource]));
     mockClient.browseSemanticInventory.mockResolvedValueOnce({
@@ -164,14 +164,19 @@ describe('FrameSourcePanel query ownership', () => {
       const [frames, setFrames] = React.useState<ReadonlyArray<FrameDefinition>>([]);
       return <FrameSourcePanel project="project-a" explorerId="explorer-a" snapshotToken="snapshot-a" outputId="output-a"
         rowRoot="Patient" frames={frames} columns={[]} disabled={false}
+        addSourceRoute={addOnly ? { resourceType: 'Observation', edgeIds: [] } : undefined}
         onSet={async (choice) => { setFrames([frame(choice)]); return true; }}
         onReplace={vi.fn(async () => true)} onRemove={vi.fn(async () => true)}
         onAddSelected={vi.fn(async () => undefined)} onRemoveColumn={vi.fn(async () => true)} />;
     };
     render(<DynamicFramePanel />);
-    fireEvent.click(screen.getByRole('button', { name: 'Browse sources' }));
+    if (!addOnly) fireEvent.click(screen.getByRole('button', { name: 'Browse sources' }));
     fireEvent.click(await screen.findByTestId('frame-source-choice-new-frame-source'));
     expect(await screen.findByTestId('frame-categories-frame-new')).toBeInTheDocument();
+    if (addOnly) {
+      expect(screen.queryByRole('button', { name: 'Change source' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument();
+    }
     await waitFor(() => {
       expect(mockClient.browseSemanticInventory).toHaveBeenCalledWith(
         expect.objectContaining({ frameId: 'frame-new', outputId: 'output-a' }), expect.any(AbortSignal));

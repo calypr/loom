@@ -390,12 +390,26 @@ func (r *physicalPlanRenderer) renderCodedPivotCategoryValues(correlation ir.Phy
 
 func groupedPivotListedPredicate(pivot ir.PhysicalGroupedPivot, itemVariable, categoryColumnBind, categoryPresenceBind, categoryTypeBind string) (string, error) {
 	matches := make([]string, 0, len(pivot.Categories))
+	values := make([]string, 0, len(pivot.Categories))
 	for _, category := range pivot.Categories {
 		match, err := groupedPivotCategoryMatchPredicate(category, itemVariable, categoryColumnBind, categoryPresenceBind, categoryTypeBind)
 		if err != nil {
 			return "", fmt.Errorf("category %q: %w", category.Output, err)
 		}
-		matches = append(matches, match)
+		if category.MatchKind == ir.PhysicalPivotCategoryValueMatch {
+			values = append(values, "@"+category.ValueBindKey)
+		} else {
+			matches = append(matches, match)
+		}
+	}
+	if len(values) > 0 {
+		column := fmt.Sprintf("%s[@%s]", itemVariable, categoryColumnBind)
+		present := fmt.Sprintf("HAS(%s, @%s)", itemVariable, categoryColumnBind)
+		if categoryPresenceBind != "" {
+			present = fmt.Sprintf("%s[@%s] == true", itemVariable, categoryPresenceBind)
+		}
+
+		matches = append(matches, fmt.Sprintf("(%s AND TYPENAME(%s) == @%s AND %s IN [%s])", present, column, categoryTypeBind, column, strings.Join(values, ", ")))
 	}
 	return "(" + strings.Join(matches, " OR ") + ")", nil
 }

@@ -175,3 +175,14 @@ func TestCurrentProjectDatasetsFailsClosedForBrokenRequiredOrTransientBinding(t 
 		})
 	}
 }
+
+func findTestExecutionBySelector(execution publication.BundleExecution, project, generation string, selector publication.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
+	if execution.Project == project && execution.DatasetGeneration == generation && execution.State.Successful() {
+		for _, output := range execution.Outputs {
+			if output.Queryable() && outputSelector(execution, output.Name, output.Selector) == selector {
+				return execution, output, nil
+			}
+		}
+	}
+	return publication.BundleExecution{}, publication.BundleOutputRecord{}, publication.ErrBundleNotFound
+}

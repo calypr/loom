@@ -5,10 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
 	"strings"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -30,6 +33,7 @@ type ConstructionCapabilitiesRequest struct {
 	OutputID             string
 	StageID              string
 	GroupStepID          string
+	IncludeGroupChoices  bool
 }
 
 type ConstructionCapabilitiesResponse struct {
@@ -53,6 +57,7 @@ type ConstructionCapabilitiesResponse struct {
 	SemanticGroupChoices           []ConstructionSemanticGroupChoice         `json:"semanticGroupChoices,omitempty"`
 	SemanticGroupChoicesIncomplete bool                                      `json:"semanticGroupChoicesIncomplete,omitempty"`
 	SourceProjectionAvailability   *ConstructionSourceProjectionAvailability `json:"sourceProjectionAvailability,omitempty"`
+	NodeOccurrences                map[string]string                         `json:"nodeOccurrences,omitempty"`
 	WorkspaceInputs                []ConstructionWorkspaceInput              `json:"workspaceInputs"`
 }
 
@@ -79,18 +84,11 @@ type ConstructionGroupFieldChoice struct {
 	MatchedOutputKeyID string                                         `json:"matchedOutputKeyId,omitempty"`
 }
 
-// ConstructionGroupRelatedOccurrenceChoice is display/filter metadata for a
-// server-issued related occurrence CHOICE. RouteID is an opaque equality key
-// for one Group editor and carries no proposal authority.
 type ConstructionGroupRelatedOccurrenceChoice struct {
 	RouteID    string `json:"routeId"`
 	RouteLabel string `json:"routeLabel,omitempty"`
 }
 
-// ConstructionSourceProjectionAvailability indicates whether root scalar
-// source fields can be carried into this exact stage. It does not certify an
-// individual field; the existing construction-choice proposal validates and
-// compiles each selected field before it can be applied.
 type ConstructionSourceProjectionAvailability struct {
 	Supported  bool   `json:"supported"`
 	StageID    string `json:"stageId"`
@@ -98,9 +96,6 @@ type ConstructionSourceProjectionAvailability struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
-// ConstructionWorkspaceInput is a current sibling output eligible to be
-// consumed by a same-workspace Combine. Its columns come from the finalized
-// lower.OutputSchema frozen into the exact workspace compilation receipt.
 type ConstructionWorkspaceInput struct {
 	OutputID string                             `json:"outputId"`
 	Title    string                             `json:"title"`
@@ -137,6 +132,23 @@ type ConstructionGroupSourceChoice struct {
 	IsIdentifier bool   `json:"isIdentifier"`
 	IsReference  bool   `json:"isReference"`
 	IsPopulated  bool   `json:"isPopulated"`
+}
+
+func importedSourceChoiceUnavailable(document authoringv2.Document) bool {
+
+	return document.ImportedRecipe != nil
+}
+
+func importedSourceRootChoiceInventoryMissing(base constructionBase) bool {
+	if base.document.ImportedRecipe == nil {
+		return false
+	}
+	for _, node := range base.snapshot.Nodes {
+		if node.RowRootEligible && node.ResourceType == base.document.RootResourceType {
+			return false
+		}
+	}
+	return true
 }
 
 type ConstructionPivotSourceCapability struct {
@@ -301,6 +313,13 @@ func (r ConstructionProposalRequest) Validate() error {
 type ConstructionDependencyIssue = authoringv2.ConstructionDependencyIssue
 type ConstructionDependencyImpact = authoringv2.ConstructionImpact
 
+type ConstructionProposalDiagnostic struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	StepID  string `json:"stepId,omitempty"`
+	Outcome string `json:"outcome,omitempty"`
+}
+
 type ConstructionProposalResponse struct {
 	ProposalID               string                              `json:"proposalId,omitempty"`
 	BaseReceiptID            string                              `json:"baseReceiptId,omitempty"`
@@ -317,6 +336,7 @@ type ConstructionProposalResponse struct {
 	PreviewStatus            string                              `json:"previewStatus"`
 	PreviewDurationMS        int64                               `json:"previewDurationMs"`
 	Preview                  any                                 `json:"preview,omitempty"`
+	Diagnostics              []ConstructionProposalDiagnostic    `json:"diagnostics,omitempty"`
 }
 
 type constructionBase struct {
@@ -341,9 +361,7 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 	if err != nil {
 		return ConstructionCapabilitiesResponse{}, err
 	}
-	// Choice IDs are ephemeral response authority, not receipt state. Copy the
-	// stage slice before decorating the selected descriptor so a later request
-	// still validates the original signed compilation receipt.
+
 	stages := append([]explorer.ReceiptConstructionStage(nil), base.stages...)
 	if authoringv2.CanPopulateConstructionRows(&base.construction) && len(stages) > 0 {
 		last := len(stages) - 1
@@ -368,43 +386,94 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile coded-group choices: %w", err)
 	}
 	selected.CodedGroupChoices = choices
-	semanticGroupChoices, semanticGroupChoicesIncomplete, err := s.constructionSemanticGroupChoices(ctx, base, request.OutputID, *selected)
-	if err != nil {
-		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile semantic group choices: %w", err)
+	includeGroupChoices := request.IncludeGroupChoices || request.GroupStepID != ""
+	semanticGroupChoices := []ConstructionSemanticGroupChoice{}
+	groupFieldChoices := []ConstructionGroupFieldChoice{}
+	groupFieldChoicesIncomplete := false
+	semanticGroupChoicesIncomplete := false
+	if includeGroupChoices {
+		semanticGroupChoices, semanticGroupChoicesIncomplete, err = s.constructionSemanticGroupChoices(ctx, base, request.OutputID, *selected)
+		if err != nil {
+			return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile semantic group choices: %w", err)
+		}
+		groupFieldChoices, groupFieldChoicesIncomplete, err = s.constructionGroupFieldChoices(
+			ctx, base, request.OutputID, *selected, semanticGroupChoices, semanticGroupChoicesIncomplete, "", request.GroupStepID,
+		)
+		if err != nil {
+			return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile Group field choices: %w", err)
+		}
 	}
-	groupFieldChoices, groupFieldChoicesIncomplete, err := s.constructionGroupFieldChoices(
-		ctx, base, request.OutputID, *selected, semanticGroupChoices, semanticGroupChoicesIncomplete, "", request.GroupStepID,
+	var (
+		groupRowValueChoices []ConstructionGroupFieldChoice
+		sourceInput          ConstructionGroupSourceCapability
+		pivotSourceInput     ConstructionPivotSourceCapability
+		filterSourceInput    ConstructionFilterSourceCapability
+		deriveSourceInput    ConstructionDeriveSourceCapability
+		unpivotSourceInput   ConstructionUnpivotSourceCapability
+		expandSourceInput    ConstructionExpandSourceCapability
 	)
-	if err != nil {
-		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile Group field choices: %w", err)
+	builders := []func(context.Context) error{
+		func(ctx context.Context) error {
+			var err error
+			groupRowValueChoices, err = s.constructionGroupRowValueChoices(ctx, base, request.OutputID, *selected, request.GroupStepID)
+			if err != nil {
+				return fmt.Errorf("compile Group row-value choices: %w", err)
+			}
+			return nil
+		},
+		func(ctx context.Context) error {
+			var err error
+			sourceInput, err = s.constructionGroupSourceCapability(ctx, base, request.OutputID, selected.ID)
+			if err != nil {
+				return fmt.Errorf("compile scalar group source choices: %w", err)
+			}
+			return nil
+		},
+		func(ctx context.Context) error {
+			var err error
+			pivotSourceInput, err = s.constructionPivotSourceCapability(ctx, base, request.OutputID, selected.ID)
+			if err != nil {
+				return fmt.Errorf("compile pivot source choices: %w", err)
+			}
+			return nil
+		},
+		func(ctx context.Context) error {
+			var err error
+			filterSourceInput, err = s.constructionFilterSourceCapability(ctx, base, request.OutputID, selected.ID)
+			if err != nil {
+				return fmt.Errorf("compile filter source choices: %w", err)
+			}
+			return nil
+		},
+		func(ctx context.Context) error {
+			var err error
+			deriveSourceInput, err = s.constructionDeriveSourceCapability(ctx, base, request.OutputID, selected.ID)
+			if err != nil {
+				return fmt.Errorf("compile derive source choices: %w", err)
+			}
+			return nil
+		},
+		func(ctx context.Context) error {
+			var err error
+			unpivotSourceInput, err = s.constructionUnpivotSourceCapability(ctx, base, request.OutputID, selected.ID)
+			if err != nil {
+				return fmt.Errorf("compile unpivot source choices: %w", err)
+			}
+			return nil
+		},
+		func(ctx context.Context) error {
+			var err error
+			expandSourceInput, err = s.constructionExpandSourceCapability(ctx, base, request.OutputID, selected.ID)
+			if err != nil {
+				return fmt.Errorf("compile expand source choices: %w", err)
+			}
+			return nil
+		},
 	}
-	groupRowValueChoices, err := s.constructionGroupRowValueChoices(ctx, base, request.OutputID, *selected, request.GroupStepID)
-	if err != nil {
-		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile Group row-value choices: %w", err)
-	}
-	sourceInput, err := s.constructionGroupSourceCapability(ctx, base, request.OutputID, selected.ID)
-	if err != nil {
-		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile scalar group source choices: %w", err)
-	}
-	pivotSourceInput, err := s.constructionPivotSourceCapability(ctx, base, request.OutputID, selected.ID)
-	if err != nil {
-		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile pivot source choices: %w", err)
-	}
-	filterSourceInput, err := s.constructionFilterSourceCapability(ctx, base, request.OutputID, selected.ID)
-	if err != nil {
-		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile filter source choices: %w", err)
-	}
-	deriveSourceInput, err := s.constructionDeriveSourceCapability(ctx, base, request.OutputID, selected.ID)
-	if err != nil {
-		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile derive source choices: %w", err)
-	}
-	unpivotSourceInput, err := s.constructionUnpivotSourceCapability(ctx, base, request.OutputID, selected.ID)
-	if err != nil {
-		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile unpivot source choices: %w", err)
-	}
-	expandSourceInput, err := s.constructionExpandSourceCapability(ctx, base, request.OutputID, selected.ID)
-	if err != nil {
-		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile expand source choices: %w", err)
+	for _, buildErr := range runConstructionCapabilityBuilders(ctx, 4, builders) {
+		if buildErr != nil {
+			return ConstructionCapabilitiesResponse{}, buildErr
+		}
 	}
 	sourceProjectionAvailability := constructionSourceProjectionAvailability(base.construction, selected.ID)
 	workspaceInputs, err := constructionWorkspaceInputs(base, request.OutputID)
@@ -424,8 +493,97 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		GroupRowValueChoices:           groupRowValueChoices,
 		SemanticGroupChoices:           semanticGroupChoices,
 		SemanticGroupChoicesIncomplete: semanticGroupChoicesIncomplete,
-		SourceProjectionAvailability:   &sourceProjectionAvailability, WorkspaceInputs: workspaceInputs,
+		SourceProjectionAvailability:   &sourceProjectionAvailability,
+		NodeOccurrences:                constructionNodeOccurrences(base.document.Route, base.snapshot),
+		WorkspaceInputs:                workspaceInputs,
 	}, nil
+}
+
+func constructionNodeOccurrences(route authoringv2.RouteNode, snapshot capability.Snapshot) map[string]string {
+	result := map[string]string{}
+	var root capability.Node
+	found := false
+	for _, node := range snapshot.Nodes {
+		if node.ResourceType == route.ResourceType && node.RowRootEligible {
+			root, found = node, true
+			break
+		}
+	}
+	if !found {
+		for _, node := range snapshot.Nodes {
+			if node.ResourceType == route.ResourceType {
+				root, found = node, true
+				break
+			}
+		}
+	}
+	if !found {
+		return result
+	}
+
+	result[root.ID] = route.OccurrenceID
+	ambiguous := map[string]struct{}{}
+	var walk func(parent capability.Node, node authoringv2.RouteNode)
+	walk = func(parent capability.Node, node authoringv2.RouteNode) {
+		for _, child := range node.Children {
+			var target capability.Node
+			ok := false
+			if child.CatalogEdgeID != "" {
+				if edge, found := snapshot.Edge(child.CatalogEdgeID); found {
+					target, ok = snapshot.Node(edge.ToNodeID)
+				}
+			}
+			if !ok {
+				matches := 0
+				for _, edge := range snapshot.Edges {
+					if edge.FromNodeID != parent.ID || edge.BlockedReason != "" ||
+						(edge.Label != child.Relationship && edge.Label != child.Relationship+"_"+child.ResourceType) {
+						continue
+					}
+					candidate, candidateOK := snapshot.Node(edge.ToNodeID)
+					if !candidateOK || candidate.ResourceType != child.ResourceType {
+						continue
+					}
+					target, ok = candidate, true
+					matches++
+				}
+				if matches != 1 {
+					continue
+				}
+			}
+			if !ok || target.ResourceType != child.ResourceType {
+				continue
+			}
+			if target.ID != root.ID {
+				if _, isAmbiguous := ambiguous[target.ID]; !isAmbiguous {
+					if _, exists := result[target.ID]; exists {
+						delete(result, target.ID)
+						ambiguous[target.ID] = struct{}{}
+					} else {
+						result[target.ID] = child.OccurrenceID
+					}
+				}
+			}
+			walk(target, child)
+		}
+	}
+	walk(root, route)
+	return result
+}
+
+func runConstructionCapabilityBuilders(ctx context.Context, limit int, builders []func(context.Context) error) []error {
+	errs := make([]error, len(builders))
+	group := new(errgroup.Group)
+	group.SetLimit(limit)
+	for index, build := range builders {
+		index, build := index, build
+		group.Go(func() error {
+			errs[index] = build(ctx)
+			return errs[index]
+		})
+	}
+	_ = group.Wait()
+	return errs
 }
 
 func constructionSourceProjectionAvailability(construction authoringv2.Construction, stageID string) ConstructionSourceProjectionAvailability {
@@ -483,11 +641,6 @@ func constructionWorkspaceInputs(base constructionBase, targetOutputID string) (
 	return inputs, nil
 }
 
-// constructionCapabilitiesWorkspace keeps the selected output, all of its
-// inputs, and independent sibling outputs in the capability receipt. Current
-// draft consumers of the selected output are omitted because their authored
-// projections may be stale after a source replacement; the saved workspace is
-// retained separately for CAS validation and the full-workspace Publish path.
 func constructionCapabilitiesWorkspace(workspace authoringv2.Workspace, targetOutputID string) (authoringv2.Workspace, error) {
 	if constructionDocumentIndex(workspace, targetOutputID) < 0 {
 		return authoringv2.Workspace{}, fmt.Errorf("selected output %q is missing or duplicated", targetOutputID)
@@ -534,8 +687,6 @@ func constructionCapabilitiesWorkspace(workspace authoringv2.Workspace, targetOu
 	return projected, nil
 }
 
-// workspaceOutputConsumerClosure includes the selected output and each
-// transitive current-draft output that consumes it.
 func workspaceOutputConsumerClosure(workspace authoringv2.Workspace, targetOutputID string) (map[string]struct{}, error) {
 	if constructionDocumentIndex(workspace, targetOutputID) < 0 {
 		return nil, fmt.Errorf("selected output %q is missing or duplicated", targetOutputID)
@@ -639,6 +790,15 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	}
 	var authorizedCodedPivotSteps map[string]bool
 	candidateConstruction, authorizedCodedPivotSteps, err = s.resolveConstructionCodedPivotChoices(ctx, base, request.OutputID, candidateConstruction)
+	if err != nil {
+		return ConstructionProposalResponse{}, err
+	}
+	var resolvedDiscoverySteps map[string]bool
+	candidateConstruction, resolvedDiscoverySteps, err = s.resolveConstructionPivotDiscoveries(ctx, base, request, candidateConstruction)
+	if err != nil {
+		return ConstructionProposalResponse{}, err
+	}
+	diagnostics, err := s.verifyConstructionProposalPivotCategoriesExcept(ctx, request, candidateConstruction, &base.construction, resolvedDiscoverySteps)
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
@@ -767,6 +927,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 		ChangedStepID: request.ChangedStepID, CandidateConstruction: *candidateDocument.Construction,
 		DependencyImpact: impact, Stages: base.stages,
 		PreviewStatus: "NEEDS_REPAIR",
+		Diagnostics:   diagnostics,
 	}
 	if impact.HasMissingInputs() {
 		return baseResponse, nil
@@ -1052,6 +1213,9 @@ func constructionCodedGroupChoices(
 	outputID string,
 	stage explorer.ReceiptConstructionStage,
 ) ([]explorer.ReceiptConstructionCodedGroupChoice, error) {
+	if importedSourceRootChoiceInventoryMissing(base) {
+		return []explorer.ReceiptConstructionCodedGroupChoice{}, nil
+	}
 	if stage.ID != recipe.ConstructionSourceProjectionID || stage.RowIdentityColumn != "_key" ||
 		!constructionStageSupportsCodedGroup(stage) {
 		return nil, nil
@@ -1074,6 +1238,13 @@ func constructionCodedGroupChoices(
 	if err != nil {
 		return nil, err
 	}
+	populatedPaths := make(map[string]struct{})
+	for _, candidate := range base.snapshot.Candidates {
+		if candidate.NodeID == occurrence.NodeID && candidate.ResourceType == occurrence.ResourceType &&
+			candidate.Observed && candidate.Populated && candidate.ObservedDocumentCount > 0 {
+			populatedPaths[candidate.FieldPath] = struct{}{}
+		}
+	}
 	choices := make([]explorer.ReceiptConstructionCodedGroupChoice, 0, len(paths))
 	for _, path := range paths {
 		facts, err := index.ResolveRowPath(fhirschema.DefinitionName(base.document.RootResourceType), path)
@@ -1081,7 +1252,7 @@ func constructionCodedGroupChoices(
 			facts.Shape != fhirschema.RowPathArray || facts.Reference {
 			continue
 		}
-		if !constructionCodedGroupPathPopulated(base.snapshot, occurrence, path) {
+		if _, populated := populatedPaths[path+".code"]; !populated {
 			continue
 		}
 		choice, err := capability.NewConstructionCodedGroupChoice(base.snapshot, outputID, stage.ID, occurrence, capability.RowChoiceFacts{
@@ -1098,21 +1269,6 @@ func constructionCodedGroupChoices(
 		})
 	}
 	return choices, nil
-}
-
-func constructionCodedGroupPathPopulated(
-	snapshot capability.Snapshot,
-	occurrence capability.RowChoiceOccurrence,
-	codingPath string,
-) bool {
-	wantPath := codingPath + ".code"
-	for _, candidate := range snapshot.Candidates {
-		if candidate.NodeID == occurrence.NodeID && candidate.ResourceType == occurrence.ResourceType &&
-			candidate.FieldPath == wantPath && candidate.Observed && candidate.Populated && candidate.ObservedDocumentCount > 0 {
-			return true
-		}
-	}
-	return false
 }
 
 func reauthorizeConstructionCodedGroup(
@@ -1286,9 +1442,7 @@ func reauthorizeConstructionRelatedEligibility(
 	step authoringv2.ConstructionStep,
 	related authoringv2.ConstructionRelatedEligibility,
 ) error {
-	// RELATED_ELIGIBILITY shares RELATED_EXPAND's signed route and contributor
-	// choices. Reuse that exact-stage/anchor reauthorization path; its row-grain
-	// policy fields are irrelevant because this operation emits no expanded row.
+
 	return reauthorizeConstructionRelatedExpand(ctx, base, rootResourceType, step, authoringv2.ConstructionRelatedExpand{
 		AnchorColumnID: related.AnchorColumnID, ChoiceID: related.ChoiceID,
 		TargetNodeID: related.TargetNodeID, TargetResourceType: related.TargetResourceType,
@@ -1425,58 +1579,131 @@ func reauthorizeConstructionRelatedSource(ctx context.Context, base construction
 }
 
 func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID, snapshotToken string, draftVersion int64, draftDigest, outputID string) (constructionBase, error) {
-	if s.config.Capability.ForCompilation == nil {
-		return constructionBase{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
-	}
-	if s.config.Capability.Catalog == nil {
-		return constructionBase{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "construction authoring catalog is not configured", nil)
-	}
-	authorized, err := s.config.Capability.ForCompilation(ctx, project, snapshotToken)
-	if err != nil {
-		return constructionBase{}, conflict("construction-capabilities", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
-	}
-	snapshot := authorized.Snapshot.Clone()
-	if snapshot.ValidateToken(snapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(project) {
-		return constructionBase{}, conflict("construction-capabilities", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, nil)
-	}
-	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
-		return constructionBase{}, conflict("construction-capabilities", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
-	}
-	authorized.Snapshot = snapshot.Clone()
-	catalogSnapshot := s.config.Capability.Catalog(snapshot, explorerID)
-	owner, err := s.store.Get(ctx, project, explorerID)
+	validation, err := s.validateConstructionBase(ctx, project, explorerID, snapshotToken, draftVersion, draftDigest, outputID)
 	if err != nil {
 		return constructionBase{}, err
 	}
+	key := constructionBaseCacheKey{
+		Format:                   constructionBaseCacheFormatVersion,
+		Project:                  projectid.Canonical(validation.project),
+		ExplorerID:               validation.explorerID,
+		DraftVersion:             validation.owner.DraftVersion,
+		DraftDigest:              validation.owner.DraftDigest,
+		SnapshotToken:            validation.snapshot.Token,
+		Generation:               validation.snapshot.Identity.Generation,
+		SchemaDigest:             validation.snapshot.Identity.SchemaDigest,
+		ShapeDigest:              validation.snapshot.Identity.ShapeDigest,
+		ResourceInventoryDigest:  validation.snapshot.Identity.ResourceInventoryDigest,
+		RelationshipDigest:       validation.snapshot.Identity.RelationshipDigest,
+		FieldDigest:              validation.snapshot.Identity.FieldDigest,
+		ProtocolVersion:          validation.snapshot.Identity.ProtocolVersion,
+		CompilerVersion:          validation.snapshot.Identity.CompilerVersion,
+		TraversalPolicyVersion:   validation.snapshot.Identity.TraversalPolicyVersion,
+		ProjectionPolicyVersion:  validation.snapshot.Identity.ProjectionPolicyVersion,
+		CacheVersion:             validation.snapshot.Identity.CacheVersion,
+		OutputID:                 validation.outputID,
+		AuthorizationScopeDigest: validation.snapshot.Identity.AuthorizationScopeDigest,
+	}
+	if s.constructionBaseCache != nil {
+		if cached, ok := s.constructionBaseCache.Get(key); ok {
+			return validation.base(cached.receipt, cached.stages), nil
+		}
+	}
+	compiled, err := s.compileConstructionBase(ctx, validation)
+	if err != nil {
+		return constructionBase{}, err
+	}
+	if s.constructionBaseCache != nil {
+		s.constructionBaseCache.Put(key, constructionBaseCacheValue{receipt: compiled.receipt, stages: compiled.stages})
+	}
+	return validation.base(compiled.receipt, compiled.stages), nil
+}
+
+type constructionBaseValidation struct {
+	project         string
+	explorerID      string
+	snapshotToken   string
+	outputID        string
+	authorized      AuthorizedCapability
+	snapshot        capability.Snapshot
+	catalog         authoringv2.CatalogSnapshot
+	owner           *explorer.Explorer
+	workspace       authoringv2.Workspace
+	document        authoringv2.Document
+	upgraded        authoringv2.Document
+	baseDocumentSHA string
+}
+
+type constructionBaseCompilation struct {
+	receipt *explorer.CompilationReceipt
+	stages  []explorer.ReceiptConstructionStage
+}
+
+func (v constructionBaseValidation) base(receipt *explorer.CompilationReceipt, stages []explorer.ReceiptConstructionStage) constructionBase {
+	return constructionBase{
+		owner: v.owner, explorerID: v.explorerID, workspace: v.workspace, document: v.document,
+		construction: *v.upgraded.Construction, snapshot: v.snapshot, authorized: v.authorized.Clone(), catalog: v.catalog,
+		receipt: receipt, stages: stages, baseDocumentSHA: v.baseDocumentSHA,
+	}
+}
+
+func (s *Service) validateConstructionBase(ctx context.Context, project, explorerID, snapshotToken string, draftVersion int64, draftDigest, outputID string) (constructionBaseValidation, error) {
+	if s.config.Capability.ForCompilation == nil {
+		return constructionBaseValidation{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
+	}
+	if s.config.Capability.Catalog == nil {
+		return constructionBaseValidation{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "construction authoring catalog is not configured", nil)
+	}
+	authorized, err := s.config.Capability.ForCompilation(ctx, project, snapshotToken)
+	if err != nil {
+		return constructionBaseValidation{}, conflict("construction-capabilities", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
+	}
+	snapshot := authorized.Snapshot.Clone()
+	if snapshot.ValidateToken(snapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(project) {
+		return constructionBaseValidation{}, conflict("construction-capabilities", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, nil)
+	}
+	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+		return constructionBaseValidation{}, conflict("construction-capabilities", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
+	}
+	authorized.Snapshot = snapshot.Clone()
+	catalogSnapshot := s.config.Capability.Catalog(snapshot, explorerID)
+	owner, err := s.getOwner(ctx, project, explorerID)
+	if err != nil {
+		return constructionBaseValidation{}, err
+	}
 	if owner == nil || owner.ExplorerID != explorerID || projectid.Canonical(owner.Project) != projectid.Canonical(project) {
-		return constructionBase{}, notFound("construction-capabilities", "EXPLORER_NOT_FOUND", "the Explorer was not found", explorer.ErrNotFound)
+		return constructionBaseValidation{}, notFound("construction-capabilities", "EXPLORER_NOT_FOUND", "the Explorer was not found", explorer.ErrNotFound)
 	}
 	if owner.DraftVersion != draftVersion || owner.DraftDigest != draftDigest {
-		return constructionBase{}, conflict("construction-capabilities", "DRAFT_CONFLICT", "the Explorer draft changed; reload before requesting construction capabilities", nil, explorer.ErrDraftConflict)
+		return constructionBaseValidation{}, conflict("construction-capabilities", "DRAFT_CONFLICT", "the Explorer draft changed; reload before requesting construction capabilities", nil, explorer.ErrDraftConflict)
 	}
 	workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
 	if err != nil {
-		return constructionBase{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be compiled", nil, err)
+		return constructionBaseValidation{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be compiled", nil, err)
 	}
 	actualDigest, err := workspace.Digest()
 	if err != nil || actualDigest != owner.DraftDigest {
-		return constructionBase{}, conflict("construction-capabilities", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil, err)
+		return constructionBaseValidation{}, conflict("construction-capabilities", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil, err)
 	}
 	documentIndex := constructionDocumentIndex(workspace, outputID)
 	if documentIndex < 0 {
-		return constructionBase{}, unprocessable("construction-capabilities", "OUTPUT_NOT_FOUND", "outputId does not identify a saved table", nil)
+		return constructionBaseValidation{}, unprocessable("construction-capabilities", "OUTPUT_NOT_FOUND", "outputId does not identify a saved table", nil)
 	}
 	document := workspace.Documents[documentIndex]
 	baseDocumentSHA, err := documentDigest(document)
 	if err != nil {
-		return constructionBase{}, fmt.Errorf("digest construction base document: %w", err)
+		return constructionBaseValidation{}, fmt.Errorf("digest construction base document: %w", err)
 	}
-	upgraded, err := authoringv2.UpgradeDocumentToConstruction(document)
+	upgraded, err := authoringv2.StartDocumentConstruction(document)
 	if err != nil {
-		return constructionBase{}, unprocessable("construction-capabilities", "INVALID_CONSTRUCTION_BASE", err.Error(), err)
+		return constructionBaseValidation{}, unprocessable("construction-capabilities", "INVALID_CONSTRUCTION_BASE", err.Error(), err)
 	}
 	if upgraded.Construction == nil {
-		return constructionBase{}, conflict("construction-capabilities", "INVALID_CONSTRUCTION_BASE", "the source projection has no construction contract", nil, nil)
+		return constructionBaseValidation{}, conflict("construction-capabilities", "INVALID_CONSTRUCTION_BASE", "the source projection has no construction contract", nil, nil)
+	}
+	if stepID := constructionUnresolvedPivotDiscovery(upgraded.Construction); stepID != "" {
+		return constructionBaseValidation{}, unprocessable("construction-capabilities", "PIVOT_DISCOVERY_UNRESOLVED",
+			fmt.Sprintf("Pivot %s declares category discovery but has no resolved categories. Propose the Pivot against the current rows to freeze its observed categories before previewing or loading this output.", stepID), nil)
 	}
 	workspace.Documents[documentIndex] = upgraded
 	workspace = workspace.NormalizePresentationOrders()
@@ -1484,83 +1711,87 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 		APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind,
 		Workspace: &workspace, Catalog: catalogSnapshot,
 	}).Validate(); err != nil {
-		return constructionBase{}, unprocessable("intent", workspaceValidationCode(err), err.Error(), err)
+		return constructionBaseValidation{}, unprocessable("intent", workspaceValidationCode(err), err.Error(), err)
 	}
+	return constructionBaseValidation{
+		project: project, explorerID: explorerID, snapshotToken: snapshotToken, outputID: outputID,
+		authorized: authorized, snapshot: snapshot, catalog: catalogSnapshot, owner: owner,
+		workspace: workspace, document: document, upgraded: upgraded, baseDocumentSHA: baseDocumentSHA,
+	}, nil
+}
+
+func (s *Service) compileConstructionBase(ctx context.Context, validation constructionBaseValidation) (constructionBaseCompilation, error) {
+	project, explorerID, snapshotToken, outputID := validation.project, validation.explorerID, validation.snapshotToken, validation.outputID
+	authorized, snapshot := validation.authorized, validation.snapshot
+	workspace, document, upgraded := validation.workspace, validation.document, validation.upgraded
 	if len(upgraded.Columns) == 0 && len(upgraded.Construction.Steps) == 0 {
 		if s.config.ConstructionSourceStage == nil {
-			return constructionBase{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "compiler-resolved source-stage discovery is not configured", nil)
+			return constructionBaseCompilation{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "compiler-resolved source-stage discovery is not configured", nil)
 		}
 		stage, err := s.config.ConstructionSourceStage(ctx, ConstructionSourceStageRequest{
 			Project: project, ExplorerID: explorerID, OutputID: outputID, Document: document,
 			Authorized: authorized.Clone(), SelectionMembersCollection: s.config.SelectionMembersCollection,
 		})
 		if err != nil {
-			return constructionBase{}, unprocessable("construction-capabilities", "SOURCE_STAGE_DISCOVERY_FAILED", "the compiler could not resolve the empty source projection", err)
+			var typed *Error
+			if errors.As(err, &typed) {
+				return constructionBaseCompilation{}, typed
+			}
+			return constructionBaseCompilation{}, unprocessable("construction-capabilities", "SOURCE_STAGE_DISCOVERY_FAILED", "the compiler could not resolve the empty source projection", err)
 		}
 		if stage.ID != recipe.ConstructionSourceProjectionID || stage.RowIdentityColumn == "" || len(stage.Columns) != 0 {
-			return constructionBase{}, conflict("construction-capabilities", "INVALID_SOURCE_STAGE_DESCRIPTOR", "the compiler returned an invalid zero-column source-stage descriptor", nil, nil)
+			return constructionBaseCompilation{}, conflict("construction-capabilities", "INVALID_SOURCE_STAGE_DESCRIPTOR", "the compiler returned an invalid zero-column source-stage descriptor", nil, nil)
 		}
+		stages := []explorer.ReceiptConstructionStage{stage}
 		if len(workspace.Documents) > 1 {
 			if s.config.CompileReceipt == nil {
-				return constructionBase{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
+				return constructionBaseCompilation{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
 			}
 			compileWorkspace, err := constructionCapabilitiesWorkspace(workspace, outputID)
 			if err != nil {
-				return constructionBase{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be projected for selected-output capabilities", nil, err)
+				return constructionBaseCompilation{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be projected for selected-output capabilities", nil, err)
 			}
 			receipt, err := s.compile(ctx, compileRequest{
 				Project: project, ExplorerID: explorerID, Workspace: compileWorkspace, SnapshotToken: snapshotToken,
 				RequestID: "construction-capabilities",
 			})
 			if err != nil {
-				return constructionBase{}, err
+				return constructionBaseCompilation{}, err
 			}
 			if _, err := s.verifyProposalReceipt(ctx, "construction-capabilities", receipt, project, explorerID, snapshotToken, snapshot, &compileWorkspace); err != nil {
-				return constructionBase{}, err
+				return constructionBaseCompilation{}, err
 			}
 			if err := validateReceiptOutputContract(receipt, outputID); err != nil {
-				return constructionBase{}, unprocessable("construction-capabilities", "OUTPUT_NOT_FOUND", "outputId is not in the compiler output contract", nil)
+				return constructionBaseCompilation{}, unprocessable("construction-capabilities", "OUTPUT_NOT_FOUND", "outputId is not in the compiler output contract", nil)
 			}
-			return constructionBase{
-				owner: owner, explorerID: explorerID, workspace: workspace, document: document,
-				construction: *upgraded.Construction, snapshot: snapshot, authorized: authorized.Clone(), catalog: catalogSnapshot,
-				receipt: receipt, stages: []explorer.ReceiptConstructionStage{stage}, baseDocumentSHA: baseDocumentSHA,
-			}, nil
+			return constructionBaseCompilation{receipt: receipt, stages: stages}, nil
 		}
-		return constructionBase{
-			owner: owner, explorerID: explorerID, workspace: workspace, document: document,
-			construction: *upgraded.Construction, snapshot: snapshot, authorized: authorized.Clone(), catalog: catalogSnapshot,
-			stages: []explorer.ReceiptConstructionStage{stage}, baseDocumentSHA: baseDocumentSHA,
-		}, nil
+		return constructionBaseCompilation{stages: stages}, nil
 	}
 	if s.config.CompileReceipt == nil {
-		return constructionBase{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
+		return constructionBaseCompilation{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
 	}
 	compileWorkspace, err := constructionCapabilitiesWorkspace(workspace, outputID)
 	if err != nil {
-		return constructionBase{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be projected for selected-output capabilities", nil, err)
+		return constructionBaseCompilation{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be projected for selected-output capabilities", nil, err)
 	}
 	receipt, err := s.compile(ctx, compileRequest{
 		Project: project, ExplorerID: explorerID, Workspace: compileWorkspace, SnapshotToken: snapshotToken,
 		RequestID: "construction-capabilities",
 	})
 	if err != nil {
-		return constructionBase{}, err
+		return constructionBaseCompilation{}, err
 	}
 	if _, err := s.verifyProposalReceipt(ctx, "construction-capabilities", receipt, project, explorerID, snapshotToken, snapshot, &compileWorkspace); err != nil {
-		return constructionBase{}, err
+		return constructionBaseCompilation{}, err
 	}
 	if err := validateReceiptOutputContract(receipt, outputID); err != nil {
-		return constructionBase{}, unprocessable("construction-capabilities", "OUTPUT_NOT_FOUND", "outputId is not in the compiler output contract", nil)
+		return constructionBaseCompilation{}, unprocessable("construction-capabilities", "OUTPUT_NOT_FOUND", "outputId is not in the compiler output contract", nil)
 	}
 	if len(receipt.ConstructionStages[outputID]) == 0 {
-		return constructionBase{}, conflict("construction-capabilities", "STAGE_CAPABILITIES_UNAVAILABLE", "the compiler receipt has no stage descriptors for this output", nil, nil)
+		return constructionBaseCompilation{}, conflict("construction-capabilities", "STAGE_CAPABILITIES_UNAVAILABLE", "the compiler receipt has no stage descriptors for this output", nil, nil)
 	}
-	return constructionBase{
-		owner: owner, explorerID: explorerID, workspace: workspace, document: document,
-		construction: *upgraded.Construction, snapshot: snapshot, authorized: authorized.Clone(), catalog: catalogSnapshot,
-		receipt: receipt, stages: receipt.ConstructionStages[outputID], baseDocumentSHA: baseDocumentSHA,
-	}, nil
+	return constructionBaseCompilation{receipt: receipt, stages: receipt.ConstructionStages[outputID]}, nil
 }
 
 func constructionDocumentIndex(workspace authoringv2.Workspace, outputID string) int {
@@ -1747,7 +1978,7 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 
 func sameConstructionDocument(left, right authoringv2.Document) bool {
 	left.Construction, right.Construction = nil, nil
-	left.TableShape, right.TableShape = nil, nil
+	left.ArchiveRetiredShape, right.ArchiveRetiredShape = nil, nil
 	return reflect.DeepEqual(left, right)
 }
 
