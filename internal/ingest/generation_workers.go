@@ -233,7 +233,7 @@ func loadFile(
 
 	var rowBuilder RowBuilder = NewGeneratedRowBuilder(opts.Project, opts.AuthResourcePath)
 	if strings.TrimSpace(datasetGeneration) != "" {
-		rowBuilder, err = newGenerationRowBuilder(rowBuilder, opts.Project, datasetGeneration)
+		rowBuilder, err = newGenerationRowBuilderWithFormat(rowBuilder, opts.Project, datasetGeneration, opts.IdentityFormat)
 		if err != nil {
 			return result, err
 		}

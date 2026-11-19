@@ -17,7 +17,7 @@ import (
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
-func (p *RepositorySourceLoader) copyGenerationForward(ctx context.Context, record sourceLoadRecord) error {
+func (p *RepositorySourceLoader) copyGenerationForward(ctx context.Context, record sourceLoadRecord, identityFormat string) error {
 	identity, err := loadSchemaSnapshot()
 	if err != nil {
 		return err
@@ -59,11 +59,11 @@ func (p *RepositorySourceLoader) copyGenerationForward(ctx context.Context, reco
 		if sourceLoadSelectsType(record.Plan.Files, resourceType) {
 			continue
 		}
-		if err := p.copySourceCollection(ctx, resourceType, record.SourceGeneration, record.Project, record.Generation, copyVertexDocument(resourceType, record.Project, record.Generation)); err != nil {
+		if err := p.copySourceCollection(ctx, resourceType, record.SourceGeneration, record.Project, record.Generation, copyVertexDocument(resourceType, record.Project, record.Generation, identityFormat)); err != nil {
 			return fmt.Errorf("copy source generation resource %s: %w", resourceType, err)
 		}
 	}
-	if err := p.copySourceCollection(ctx, EdgeCollection, record.SourceGeneration, record.Project, record.Generation, copyEdgeDocument(record.Project, record.Generation, record.SourceGeneration, selectedTypes)); err != nil {
+	if err := p.copySourceCollection(ctx, EdgeCollection, record.SourceGeneration, record.Project, record.Generation, copyEdgeDocument(record.Project, record.Generation, record.SourceGeneration, selectedTypes, identityFormat)); err != nil {
 		return fmt.Errorf("copy source generation edges: %w", err)
 	}
 	if err := p.copySourceCollection(ctx, catalog.FieldCatalogCollection, record.SourceGeneration, record.Project, record.Generation, copyCatalogDocument(catalog.FieldCatalogCollection, record.Project, record.Generation, selectedTypes)); err != nil {
@@ -184,7 +184,7 @@ RETURN {
 	}
 }
 
-func copyVertexDocument(resourceType, project, generation string) sourceCopyTransform {
+func copyVertexDocument(resourceType, project, generation, identityFormat string) sourceCopyTransform {
 	return func(row sourceCopyRow) (json.RawMessage, error) {
 		doc := row.Document
 		if sourceLoadString(doc["project"]) != project {
@@ -202,12 +202,12 @@ func copyVertexDocument(resourceType, project, generation string) sourceCopyTran
 		doc[logicalKeyField] = logicalKey
 		doc[generationIdentityField] = generation
 		doc["source_file"] = resourceType
-		doc["_key"] = generationDocumentKey(project, generation, resourceType, logicalKey)
+		doc["_key"] = generationDocumentKeyWithFormat(project, generation, resourceType, logicalKey, identityFormat)
 		return json.Marshal(doc)
 	}
 }
 
-func copyEdgeDocument(project, generation, sourceGeneration string, selectedTypes []string) sourceCopyTransform {
+func copyEdgeDocument(project, generation, sourceGeneration string, selectedTypes []string, identityFormat string) sourceCopyTransform {
 	return func(row sourceCopyRow) (json.RawMessage, error) {
 		doc := row.Document
 		if sourceLoadString(doc["project"]) != project {
@@ -269,7 +269,7 @@ func copyEdgeDocument(project, generation, sourceGeneration string, selectedType
 		doc["_to"] = to
 		delete(doc, "_id")
 		delete(doc, "_rev")
-		namespaced, err := namespaceEdgeDocument(jsonRawDocument(doc), project, generation)
+		namespaced, err := namespaceEdgeDocumentWithFormat(jsonRawDocument(doc), project, generation, identityFormat)
 		if err != nil {
 			return nil, err
 		}

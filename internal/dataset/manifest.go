@@ -2,6 +2,11 @@ package dataset
 
 import "fmt"
 
+const (
+	IdentityFormatLegacy  = "sha256-full-v1"
+	IdentityFormatCompact = "sha256-truncated-128-v2"
+)
+
 type State string
 
 const (
@@ -16,10 +21,11 @@ type Manifest struct {
 	Dataset        Ref            `json:"dataset"`
 	State          State          `json:"state"`
 	SchemaIdentity SchemaSnapshot `json:"schemaIdentity"`
+	IdentityFormat string         `json:"identityFormat,omitempty"`
 }
 
 func NewManifest(ref Ref, schema SchemaSnapshot) (Manifest, error) {
-	manifest := Manifest{Dataset: ref, State: StateLoading, SchemaIdentity: schema}
+	manifest := Manifest{Dataset: ref, State: StateLoading, SchemaIdentity: schema, IdentityFormat: IdentityFormatCompact}
 	if err := manifest.Validate(); err != nil {
 		return Manifest{}, err
 	}
@@ -35,6 +41,9 @@ func (m Manifest) Validate() error {
 	}
 	if err := m.SchemaIdentity.Validate(); err != nil {
 		return fmt.Errorf("%w: schemaIdentity: %w", ErrInvalidManifest, err)
+	}
+	if m.IdentityFormat != "" && m.IdentityFormat != IdentityFormatLegacy && m.IdentityFormat != IdentityFormatCompact {
+		return fmt.Errorf("%w: identity format %q is not recognized", ErrInvalidManifest, m.IdentityFormat)
 	}
 	return nil
 }

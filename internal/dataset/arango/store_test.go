@@ -57,7 +57,9 @@ func TestTransitionAndResolveManifest(t *testing.T) {
 	if got, err := store.ResolveActiveManifest(context.Background(), "project-a"); err != nil || !reflect.DeepEqual(got, ready) {
 		t.Fatalf("ResolveActiveManifest = %#v, %v", got, err)
 	}
-	if strings.Contains(fake.calls[0].query, "analysisVersion") || !strings.Contains(fake.calls[0].query, "schemaIdentity == @schema_identity") {
+	if strings.Contains(fake.calls[0].query, "analysisVersion") ||
+		!strings.Contains(fake.calls[0].query, "schemaIdentity == @schema_identity") ||
+		!strings.Contains(fake.calls[0].query, "NOT_NULL(manifest.identityFormat, \"\") == @identity_format") {
 		t.Fatalf("transition query = %s", fake.calls[0].query)
 	}
 }
@@ -74,7 +76,7 @@ func TestActivateOnlyRevisionChecksActivePointer(t *testing.T) {
 		t.Fatalf("activation calls = %d, want 2", len(fake.calls))
 	}
 	call := fake.calls[1]
-	for _, required := range []string{"manifest.state == @ready_state", "manifest.schemaIdentity == @schema_identity", "UPDATE active WITH", "ignoreRevs: false", "manifestKey: candidate._key"} {
+	for _, required := range []string{"manifest.state == @ready_state", "manifest.schemaIdentity == @schema_identity", "NOT_NULL(manifest.identityFormat, \"\") == @identity_format", "UPDATE active WITH", "ignoreRevs: false", "manifestKey: candidate._key"} {
 		if !strings.Contains(call.query, required) {
 			t.Fatalf("activation query missing %q:\n%s", required, call.query)
 		}
@@ -92,6 +94,7 @@ func TestActivateIsIdempotentWhenCandidateIsAlreadyActive(t *testing.T) {
 		"dataset":        jsonObject(t, ready.Dataset),
 		"state":          string(publication.StateReady),
 		"schemaIdentity": jsonObject(t, ready.SchemaIdentity),
+		"identityFormat": ready.IdentityFormat,
 	}}}}
 	store := mustStore(t, fake)
 	if err := store.Activate(context.Background(), ready); err != nil {

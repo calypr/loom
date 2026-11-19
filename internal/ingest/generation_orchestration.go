@@ -103,6 +103,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		return summary, fmt.Errorf("dataset generation plan is required")
 	}
 	datasetRef := plan.Dataset
+	opts.IdentityFormat = plan.Manifest.IdentityFormat
 	summary.Dataset = &datasetRef
 	if err := ctx.Err(); err != nil {
 		return summary, err

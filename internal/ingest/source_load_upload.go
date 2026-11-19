@@ -15,6 +15,7 @@ import (
 
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	publication "github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -111,6 +112,15 @@ func (p *RepositorySourceLoader) UploadFile(ctx context.Context, project, operat
 		WriterCount: 1, WorkerCount: 1, FailFast: true, SourceFileOwner: resourceType,
 		WriteAPI: p.writeAPI,
 	})
+	manifestRef, err := publication.NewRef(project, record.Generation)
+	if err != nil {
+		return SourceFileReceipt{}, err
+	}
+	manifest, err := p.datasets.ReadManifest(workCtx, manifestRef)
+	if err != nil {
+		return SourceFileReceipt{}, fmt.Errorf("read candidate generation identity format: %w", err)
+	}
+	opts.IdentityFormat = manifest.IdentityFormat
 	loaded, loadErr := loadFile(workCtx, opts, p.client, p.schema, localPath, record.Generation, false, time.Now(), 0, 0, insertRawDocuments)
 	if loadErr != nil {
 		cleanupErr := p.clearCandidateSourceFile(context.WithoutCancel(ctx), record, planned.Path, owner, resourceType)

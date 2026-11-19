@@ -5,9 +5,11 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/catalog"
+	publication "github.com/calypr/loom/internal/dataset"
 )
 
 func TestNamespaceRowBuildResultKeepsLogicalFHIRIdentityAndQualifiesGraphIdentity(t *testing.T) {
@@ -34,7 +36,7 @@ func TestNamespaceRowBuildResultKeepsLogicalFHIRIdentityAndQualifiesGraphIdentit
 		t.Fatalf("vertex dataset generation = %q, want %q", got, want)
 	}
 	vertexKey := documentString(t, vertex, "_key")
-	if vertexKey == "patient-1" || len(vertexKey) != len("g_")+64 {
+	if vertexKey == "patient-1" || len(vertexKey) != 34 || !strings.HasPrefix(vertexKey, "g2") {
 		t.Fatalf("vertex physical key = %q, want generation-qualified hash", vertexKey)
 	}
 	if got, want := string(vertex["payload"]), `{"resourceType":"Patient","id":"patient-1"}`; got != want {
@@ -57,11 +59,80 @@ func TestNamespaceRowBuildResultKeepsLogicalFHIRIdentityAndQualifiesGraphIdentit
 	if got, want := documentString(t, edge, "_to"), "Patient/"+vertexKey; got != want {
 		t.Fatalf("edge _to = %q, want %q", got, want)
 	}
-	if key := documentString(t, edge, "_key"); key == "subject-edge" || len(key) != len("g_")+64 {
+	if key := documentString(t, edge, "_key"); key == "subject-edge" || len(key) != 34 || !strings.HasPrefix(key, "g2") {
 		t.Fatalf("edge physical key = %q, want generation-qualified hash", key)
 	}
 	if !reflect.DeepEqual(namespaced.payload, result.payload) {
 		t.Fatalf("payload map changed\ngot:  %#v\nwant: %#v", namespaced.payload, result.payload)
+	}
+}
+
+func TestGenerationIdentityFormatKeepsLegacyKeysAndUsesCompactKeys(t *testing.T) {
+	const (
+		project    = "project-a"
+		generation = "generation-a"
+		resource   = "Patient"
+		logicalKey = "patient-1"
+	)
+
+	if got, want := generationDocumentKeyWithFormat(project, generation, resource, logicalKey, publication.IdentityFormatLegacy), "g_297a2d590f1d1a2b5f2380ad8e3d8bf21b7aed2e3270e25559ae489097b810a6"; got != want {
+		t.Fatalf("legacy key = %q, want %q", got, want)
+	}
+	if got, want := generationDocumentKeyWithFormat(project, generation, resource, logicalKey, publication.IdentityFormatCompact), "g2297a2d590f1d1a2b5f2380ad8e3d8bf2"; got != want {
+		t.Fatalf("compact key = %q, want %q", got, want)
+	}
+}
+
+func TestSourceCopyPreservesTheIdentityFormatOfAnInProgressManifest(t *testing.T) {
+	for _, format := range []struct {
+		name  string
+		value string
+	}{
+		{name: "legacy omitted manifest field", value: ""},
+		{name: "explicit legacy", value: publication.IdentityFormatLegacy},
+		{name: "compact", value: publication.IdentityFormatCompact},
+	} {
+		t.Run(format.name, func(t *testing.T) {
+			doc := map[string]any{
+				"_key": "old-physical-key", "logical_key": "patient-1", "project": "project-a",
+				"payload": map[string]any{"id": "patient-1"},
+			}
+			copied, err := copyVertexDocument("Patient", "project-a", "generation-a", format.value)(sourceCopyRow{Document: doc})
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded := decodeIdentityDocument(t, copied)
+			wantFormat := format.value
+			if wantFormat == "" {
+				wantFormat = publication.IdentityFormatLegacy
+			}
+			want := generationDocumentKeyWithFormat("project-a", "generation-a", "Patient", "patient-1", wantFormat)
+			if got := documentString(t, decoded, "_key"); got != want {
+				t.Fatalf("copied _key = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestGenerationRowBuilderUsesManifestIdentityFormat(t *testing.T) {
+	const project, generation, resourceType, logicalKey = "project-a", "generation-a", "Patient", "patient-1"
+	line := []byte(`{"resourceType":"Patient","id":"patient-1"}`)
+	for _, format := range []string{publication.IdentityFormatLegacy, publication.IdentityFormatCompact} {
+		t.Run(format, func(t *testing.T) {
+			builder, err := newGenerationRowBuilderWithFormat(NewGeneratedRowBuilder(project, ""), project, generation, format)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, kind, err := builder.Build(resourceType, line, map[string]float64{})
+			if err != nil {
+				t.Fatalf("Build() kind %q: %v", kind, err)
+			}
+			vertex := decodeIdentityDocument(t, result.vertex)
+			want := generationDocumentKeyWithFormat(project, generation, resourceType, logicalKey, format)
+			if got := documentString(t, vertex, "_key"); got != want {
+				t.Fatalf("vertex key = %q, want %q", got, want)
+			}
+		})
 	}
 }
 

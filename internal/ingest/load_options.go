@@ -28,6 +28,7 @@ type LoadOptions struct {
 	Truncate         bool
 	FailFast         bool
 	SourceFileOwner  string
+	IdentityFormat   string
 	WriteAPI         string
 	EventSink        EventSink
 
