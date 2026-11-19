@@ -3,7 +3,7 @@ import type { AuthoringNetworkResponse, ConstructionStep, ConstructionStageDescr
 import { traversalScopeModel, type NavigatorSourceStep } from './traversalScopeModel';
 
 const sourceStep = (id: string, kind: string, parentId?: string, occurrenceId?: string): NavigatorSourceStep => ({
-  id, kind, parentId, occurrenceId, title: id, summary: `${id} source operation`, enabled: true, editable: true,
+  id, kind, parentId, occurrenceId, title: id, summary: `${id} source operation`, editable: true,
 });
 const document = (): ExplorerBuilderDocument => ({
   kind: 'ExplorerBuilderDocument', output: { id: 'subjects', title: 'Subjects' }, rootResourceType: 'ResearchSubject',

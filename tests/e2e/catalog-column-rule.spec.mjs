@@ -25,12 +25,24 @@ test('create a catalog projection rule, review generated fields, and reload it',
 
       await page.click('[data-testid="construction-action-add-columns"]');
       await page.click('[role="tab"][data-column-tab="advanced"]');
-      await page.clickText('Catalog fields');
+      await page.until(() => page.evaluate(`[...document.querySelectorAll('button')].some(button => button.innerText === 'birthDate' && !button.disabled)`), 'the advanced column source is available');
+      await page.clickText('birthDate');
+      assert.equal(await page.evaluate(`[...document.querySelectorAll('button')].find(button => button.innerText === 'birthDate')?.getAttribute('aria-pressed')`), 'true');
+      assert.ok(await page.evaluate(`Boolean(document.querySelector('[aria-label="Available advanced columns"]'))`));
+      assert.equal(await page.evaluate(`Boolean(document.querySelector('input[aria-label="Include gender"]'))`), false);
+      assert.equal(await page.evaluate(`[...document.querySelectorAll('button')].some(button => button.innerText === 'Preview field')`), false);
+      await page.until(() => page.evaluate(`/birth[_ ]?date/i.test(document.querySelector('[aria-label="Generated columns"]')?.innerText ?? '')`),
+        'the selected field can be previewed directly');
+      await page.clickText('gender');
+      await page.until(() => page.evaluate(`/gender/i.test(document.querySelector('[aria-label="Generated columns"]')?.innerText ?? '')`),
+        'choosing another field replaces the active preview');
+      assert.equal(await page.evaluate(`[...document.querySelectorAll('button')].find(button => button.innerText === 'birthDate')?.getAttribute('aria-pressed')`), 'false');
+      assert.equal((await readDraft()).draftDigest, before.draftDigest, 'Switching fields does not change the saved draft');
+      await page.pressEscape();
+      await page.clickText('Build a multi-field rule');
       await page.clickLabel('Include birthDate', 'input');
       await page.clickLabel('Include gender', 'input');
       await page.clickLabel('Exclude gender', 'input');
-      await page.clickText('Review column rule');
-      await page.clickText('Preview column rule');
       await page.until(() => page.evaluate(`Boolean(document.querySelector('[aria-label="Generated columns"]'))`),
         'generated column receipt appears');
 
@@ -70,6 +82,46 @@ test('create a catalog projection rule, review generated fields, and reload it',
         assert(reloaded.some(row => row.includes(patient.id) && row.includes(patient.birthDate)),
           `reloaded projection pairs ${patient.birthDate} with ${patient.id}`);
       }
+      await page.click('[data-testid="construction-action-add-columns"]');
+      await page.click('[role="tab"][data-column-tab="advanced"]');
+      await page.click('[role="tab"][data-column-tab="saved"]');
+      const rules = '[aria-label="Configured column rules"]';
+      await page.until(() => page.evaluate(`/birth[_ ]?date/i.test(document.querySelector(${JSON.stringify(rules)})?.innerText ?? '')`),
+        'saved rule shows the birth date column');
+      assert.equal(await page.evaluate(`Boolean(document.querySelector('[aria-label="Available advanced columns"]'))`), false);
+      await page.click('[role="tab"][data-column-tab="advanced"]');
+      await page.until(() => page.evaluate(`Boolean(document.querySelector('[aria-label="Available advanced columns"]'))`),
+        'available actions return when switching to Add columns');
+      await page.clickText('gender');
+      await page.until(() => page.evaluate(`/gender/i.test(document.querySelector('[aria-label="Generated columns"]')?.innerText ?? '')`),
+        'a second catalog rule previews its own column without ambiguity');
+      await page.clickText('Apply column rule');
+      const secondRules = await page.until(async () => {
+        const draft = await readDraft();
+        const additions = draft.workspace.documents[0].importedSource.ruleAdditions;
+        return additions?.length === 2 ? additions : false;
+      }, 'both catalog rules are saved');
+      assert.equal(secondRules[0].stepId, addition.stepId);
+      assert.deepEqual(secondRules.map(rule => rule.parameters.catalog.name), ['catalog_fields', 'catalog_fields_2']);
+      const removedRule = secondRules[1];
+      const recipeStep = '[data-operation-id="' + removedRule.stepId + '"]';
+      const removeStep = recipeStep + ' button[aria-label^="Remove source operation"]';
+      await page.until(() => page.evaluate('Boolean(document.querySelector(' + JSON.stringify(removeStep) + '))'), 'saved source rule appears in Recipe steps');
+      await page.click(removeStep);
+      const afterRemoval = await page.until(async () => {
+        const draft = await readDraft();
+        const source = draft.workspace.documents[0].importedSource;
+        return source.ruleAdditions.length === 1 && !source.ruleAdditions.some(rule => rule.stepId === removedRule.stepId) &&
+          !source.steps.some(step => step.id === removedRule.stepId) ? { draft, source } : false;
+      }, 'removed rule is deleted from the saved recipe plan');
+      assert.equal(afterRemoval.source.ruleAdditions[0].stepId, secondRules[0].stepId);
+      assert.equal(afterRemoval.source.nextRuleIndex, 2);
+
+      await page.reload();
+      await page.until(() => page.evaluate('Boolean(document.querySelector("[data-testid=traversal-recipe-steps]"))'), 'Recipe steps restored after reload');
+      assert.equal(await page.evaluate('Boolean(document.querySelector(' + JSON.stringify(recipeStep) + '))'), false);
+      const removalReloaded = await readDraft();
+      assert.deepEqual(removalReloaded.workspace.documents[0].importedSource.ruleAdditions.map(rule => rule.stepId), [secondRules[0].stepId]);
     } finally {
       const capability = await api(`${fixture.base}/capability`);
       if (capability.features?.deleteExplorer) {

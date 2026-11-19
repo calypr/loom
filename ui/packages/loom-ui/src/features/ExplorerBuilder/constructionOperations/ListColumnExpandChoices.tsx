@@ -33,7 +33,7 @@ export const ListColumnExpandChoices = (props: {
     );
   }
   return (
-    <details data-testid="construction-reshape-list-column-settings" className="rounded border border-slate-200 px-2 py-1.5">
+    <details open data-testid="construction-reshape-list-column-settings" className="border-t border-slate-200 pt-2">
       <summary className="cursor-pointer text-xs font-medium text-blue-800">List column settings</summary>
       {choices}
     </details>

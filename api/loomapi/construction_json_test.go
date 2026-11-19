@@ -3,6 +3,7 @@ package loomapi
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -123,7 +124,7 @@ func TestConstructionOpenAPISchemaIncludesCombineAndKeepsCardinalityResponseOnly
 		Type       string            `json:"type"`
 		Ref        string            `json:"$ref"`
 		Required   []string          `json:"required"`
-		Enum       []string          `json:"enum"`
+		Enum       []any             `json:"enum"`
 		Minimum    *int              `json:"minimum"`
 		MinItems   *int              `json:"minItems"`
 		Properties map[string]schema `json:"properties"`
@@ -143,7 +144,7 @@ func TestConstructionOpenAPISchemaIncludesCombineAndKeepsCardinalityResponseOnly
 	schemas := document.Components.Schemas
 	operation := schemas["ConstructionOperation"]
 	for _, kind := range []string{"PIVOT", "DERIVE", "FILTER", "UNPIVOT", "GROUP", "EXPAND", "COMBINE"} {
-		if !containsSchemaEnum(operation.Properties["kind"].Enum, kind) {
+		if !slices.Contains(operation.Properties["kind"].Enum, any(kind)) {
 			t.Errorf("ConstructionOperation.kind enum omits %s", kind)
 		}
 	}
@@ -158,7 +159,7 @@ func TestConstructionOpenAPISchemaIncludesCombineAndKeepsCardinalityResponseOnly
 		t.Fatalf("ConstructionCombine required fields = %v", combine.Required)
 	}
 	for _, kind := range []string{"KEY_JOIN", "APPEND", "MEMBERSHIP"} {
-		if !containsSchemaEnum(combine.Properties["kind"].Enum, kind) {
+		if !slices.Contains(combine.Properties["kind"].Enum, any(kind)) {
 			t.Errorf("ConstructionCombine.kind enum omits %s", kind)
 		}
 	}
@@ -168,13 +169,13 @@ func TestConstructionOpenAPISchemaIncludesCombineAndKeepsCardinalityResponseOnly
 	if got := combine.Properties["projections"].MinItems; got == nil || *got != 1 {
 		t.Errorf("ConstructionCombine.projections.minItems = %v, want 1", got)
 	}
-	if got := combine.Properties["joinType"].Enum; !reflect.DeepEqual(got, []string{"INNER", "LEFT"}) {
+	if got := combine.Properties["joinType"].Enum; !reflect.DeepEqual(got, []any{"INNER", "LEFT"}) {
 		t.Errorf("ConstructionCombine.joinType enum = %v", got)
 	}
-	if got := combine.Properties["rightMatchPolicy"].Enum; !reflect.DeepEqual(got, []string{"PRESERVE_ALL"}) {
+	if got := combine.Properties["rightMatchPolicy"].Enum; !reflect.DeepEqual(got, []any{"PRESERVE_ALL"}) {
 		t.Errorf("ConstructionCombine.rightMatchPolicy enum = %v", got)
 	}
-	if got := combine.Properties["membershipMode"].Enum; !reflect.DeepEqual(got, []string{"INCLUDE", "EXCLUDE"}) {
+	if got := combine.Properties["membershipMode"].Enum; !reflect.DeepEqual(got, []any{"INCLUDE", "EXCLUDE"}) {
 		t.Errorf("ConstructionCombine.membershipMode enum = %v", got)
 	}
 	if got := schemas["ConstructionCombineProjection"].Properties["inputIndex"].Minimum; got == nil || *got != 0 {
@@ -183,13 +184,13 @@ func TestConstructionOpenAPISchemaIncludesCombineAndKeepsCardinalityResponseOnly
 	if got := schemas["ConstructionCombineProjection"].Properties["inputIndex"].Type; got != "integer" {
 		t.Errorf("ConstructionCombineProjection.inputIndex.type = %q, want integer", got)
 	}
-	if got := schemas["ConstructionInputRef"].Properties["kind"].Enum; !containsSchemaEnum(got, "TABLE_REVISION") {
+	if got := schemas["ConstructionInputRef"].Properties["kind"].Enum; !slices.Contains(got, any("TABLE_REVISION")) {
 		t.Errorf("ConstructionInputRef.kind enum omits TABLE_REVISION: %v", got)
 	}
 	if got := schemas["ConstructionStageColumn"].Properties["nullable"].Type; got != "boolean" {
 		t.Errorf("ConstructionStageColumn.nullable.type = %q, want boolean", got)
 	}
-	if containsSchemaEnum(schemas["ConstructionStageColumn"].Required, "nullable") {
+	if slices.Contains(schemas["ConstructionStageColumn"].Required, "nullable") {
 		t.Error("ConstructionStageColumn.nullable became required")
 	}
 	if _, exists := schemas["ConstructionStageColumn"].Properties["cardinality"]; exists {
@@ -198,16 +199,7 @@ func TestConstructionOpenAPISchemaIncludesCombineAndKeepsCardinalityResponseOnly
 	if _, exists := schemas["ConstructionStageColumnDescriptor"].Properties["nullable"]; exists {
 		t.Error("ConstructionStageColumnDescriptor exposes authored nullable metadata")
 	}
-	if got := schemas["ConstructionStageColumnDescriptor"].Properties["cardinality"].Enum; !reflect.DeepEqual(got, []string{"required_one", "optional_one", "many"}) {
+	if got := schemas["ConstructionStageColumnDescriptor"].Properties["cardinality"].Enum; !reflect.DeepEqual(got, []any{"required_one", "optional_one", "many"}) {
 		t.Errorf("response cardinality enum changed: %v", got)
 	}
-}
-
-func containsSchemaEnum(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }

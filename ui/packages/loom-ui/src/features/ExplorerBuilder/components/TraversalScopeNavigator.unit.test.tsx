@@ -9,8 +9,8 @@ const table: DraftTable = { outputId: 'subjects', tabId: 'subjects', title: 'Sub
   kind: 'ExplorerBuilderDocument', output: { id: 'subjects', title: 'Subjects' }, rootResourceType: 'ResearchSubject',
   route: { occurrenceId: 'base', resourceType: 'ResearchSubject', children: [{ occurrenceId: 'patient', resourceType: 'Patient', relationship: 'subject' }] },
   rows: { kind: 'RECORDS', records: {} }, columns: [], importedSource: { steps: [
-    { id: 'fields', kind: 'FIELD_GROUP', title: 'Selected source fields', summary: 'Actual selected fields', enabled: true, editable: true },
-    { id: 'patient-step', kind: 'TRAVERSAL', occurrenceId: 'patient', title: 'Related Patient records', summary: 'Optional relationship', enabled: true, editable: true },
+    { id: 'fields', kind: 'FIELD_GROUP', title: 'Selected source fields', summary: 'Actual selected fields', editable: true },
+    { id: 'patient-step', kind: 'TRAVERSAL', occurrenceId: 'patient', title: 'Related Patient records', summary: 'Optional relationship', editable: true },
   ] },
 } };
 const props = (): TraversalScopeNavigatorProps => ({ table, projectionKind: 'saved', selectedOccurrenceId: 'base',
@@ -93,17 +93,22 @@ it('shows source operations individually beside the unified field editor', () =>
   const value = { ...props(), table: { ...table, document: { ...table.document,
     importedRecipe: { name: 'default', translationVersion: '1', digest: 'a'.repeat(64), output: 'subjects' },
     importedSource: { steps: [
-      { id: 'output', kind: 'OUTPUT' as const, title: 'Output settings', summary: '', enabled: true, editable: true },
-      { id: 'fields', kind: 'FIELD_GROUP' as const, title: 'Fields from ResearchSubject', summary: '', enabled: true, editable: true },
-      { id: 'dynamic', kind: 'DYNAMIC_COLUMN' as const, title: 'Keyed columns', summary: '', enabled: true, editable: true },
-      { id: 'extension', kind: 'EXTENSION_COLUMN' as const, title: 'Extension columns', summary: '', enabled: true, editable: true },
-      { id: 'patient-step', kind: 'TRAVERSAL' as const, occurrenceId: 'patient', title: 'Related Patient records', summary: '', enabled: true, editable: true },
-      { id: 'patient-dynamic', parentId: 'patient-step', kind: 'DYNAMIC_COLUMN' as const, title: 'Patient keys', summary: '', enabled: true, editable: true },
+      { id: 'output', kind: 'OUTPUT' as const, title: 'Output settings', summary: '', editable: true },
+      { id: 'fields', kind: 'FIELD_GROUP' as const, title: 'Fields from ResearchSubject', summary: '', editable: true },
+      { id: 'dynamic', kind: 'DYNAMIC_COLUMN' as const, title: 'Keyed columns', summary: '', editable: true },
+      { id: 'extension', kind: 'EXTENSION_COLUMN' as const, title: 'Extension columns', summary: '', editable: true },
+      { id: 'patient-step', kind: 'TRAVERSAL' as const, occurrenceId: 'patient', title: 'Related Patient records', summary: '', editable: true },
+      { id: 'patient-dynamic', parentId: 'patient-step', kind: 'DYNAMIC_COLUMN' as const, title: 'Patient keys', summary: '', editable: true },
     ] },
   } } };
   const { rerender } = render(<TraversalScopeNavigator {...value} />);
   expect(screen.getByRole('button', { name: 'Edit source operation 2: Fields from ResearchSubject' })).toBeEnabled();
   expect(screen.getByText('Keyed columns')).toBeInTheDocument();
+  expect(screen.getByText('Extension columns')).toBeInTheDocument();
+  rerender(<TraversalScopeNavigator {...value} table={{ ...value.table, document: { ...value.table.document,
+    importedSource: { ...value.table.document.importedSource, removedStepIds: ['dynamic'] },
+  } }} />);
+  expect(screen.queryByText(/Keyed columns/)).not.toBeInTheDocument();
   expect(screen.getByText('Extension columns')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Remove source operation 2/ })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Edit source operation 2: Fields from ResearchSubject' }));
@@ -111,6 +116,25 @@ it('shows source operations individually beside the unified field editor', () =>
   rerender(<TraversalScopeNavigator {...value} selectedOccurrenceId="patient" />);
   fireEvent.click(screen.getByRole('button', { name: 'Edit source operation 6: Patient keys' }));
   expect(value.onEditSourceStep).toHaveBeenLastCalledWith('patient-dynamic');
+});
+
+it('removes editable source rules by step identity and leaves the field group actionless', () => {
+  const onRemoveSourceStep = vi.fn();
+  const value = { ...props(), onRemoveSourceStep, table: { ...table, document: { ...table.document,
+    importedRecipe: { name: 'default', translationVersion: '1', digest: 'a'.repeat(64), output: 'subjects' },
+    importedSource: { steps: [
+      { id: 'fields', kind: 'FIELD_GROUP', title: 'Fields from ResearchSubject', summary: '', editable: true },
+      { id: 'keys', kind: 'DYNAMIC_COLUMN', title: 'Keyed columns', summary: '', editable: true },
+    ] },
+  } } };
+  const { rerender } = render(<TraversalScopeNavigator {...value} />);
+  expect(screen.queryByRole('button', { name: /Remove source operation 1/ })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Remove source operation 2: Keyed columns' }));
+  expect(onRemoveSourceStep).toHaveBeenCalledExactlyOnceWith('keys');
+  rerender(<TraversalScopeNavigator {...value} table={{ ...value.table, document: { ...value.table.document,
+    importedSource: { steps: [{ id: 'fields', kind: 'FIELD_GROUP', title: 'Fields from ResearchSubject', summary: '', editable: true }], removedStepIds: ['keys'] },
+  } }} />);
+  expect(screen.queryByRole('button', { name: /Keyed columns/ })).not.toBeInTheDocument();
 });
 
 it('hides duplicated action controls while requested', () => {

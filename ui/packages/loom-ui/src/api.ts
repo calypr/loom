@@ -552,6 +552,7 @@ export const populationMemberRemovalProposalResponseSchema = z.object({
 export type PopulationMemberRemovalProposalResponse = z.infer<typeof populationMemberRemovalProposalResponseSchema>;
 
 export interface LoomClientOptions {
+  readonly publishTransport?: (args: PublishExplorerBuilderArgs, signal?: AbortSignal) => Promise<unknown>;
 
   readonly baseUrl?: string;
 
@@ -1815,11 +1816,16 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     }, signal, args.requestId)).then((value) => interpretationPreviewResponseSchema.parse(value));
   const publish = async (args: PublishExplorerBuilderArgs, signal?: AbortSignal) => {
     const result = assertExplorerBuilderPublishResult(
-      await request(
-        durableAuthoringPath(args, '/publish'),
-        withJson({ receiptId: args.receiptId }, signal, args.requestId),
-      ),
+      options.publishTransport
+        ? await options.publishTransport(args, signal)
+        : await request(
+          durableAuthoringPath(args, '/publish'),
+          withJson({ receiptId: args.receiptId }, signal, args.requestId),
+        ),
     );
+    if (options.publishTransport && result.receiptId !== args.receiptId) {
+      throw new Error('The publication result belongs to a different compilation receipt.');
+    }
     evictCached(`viewer:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}:${args.explorerId}`);
     return result;
   };

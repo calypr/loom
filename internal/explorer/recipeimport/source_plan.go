@@ -22,17 +22,17 @@ const (
 )
 
 func SourcePlan(output recipe.Output) authoringv2.ImportedSourcePlan {
-	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "output", Kind: "OUTPUT", Title: "Output settings", Summary: "Row grain and output column collision policy.", Enabled: true, Editable: true}}}
+	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "output", Kind: "OUTPUT", Title: "Output settings", Summary: "Row grain and output column collision policy.", Editable: true}}}
 	if output.Expand != nil {
 		plan.Steps = append(plan.Steps, authoringv2.ImportedSourceStep{
 			ID: "expand", Kind: SourcePlanExpansion, Title: "Expand source rows",
-			Summary: expansionSummary(*output.Expand), Enabled: true, Editable: true,
+			Summary: expansionSummary(*output.Expand), Editable: true,
 		})
 	}
 	if output.Identity != nil {
 		plan.Steps = append(plan.Steps, authoringv2.ImportedSourceStep{
 			ID: "identity", Kind: SourcePlanIdentity, Title: "Source row identity",
-			Summary: "The pinned recipe defines how source rows receive stable identities.", Enabled: true, Editable: output.Identity.Expansion == nil,
+			Summary: "The pinned recipe defines how source rows receive stable identities.", Editable: output.Identity.Expansion == nil,
 		})
 	}
 	appendSourceScope(&plan.Steps, "", output.RootResourceType, output.Fields, output.CatalogProjections,
@@ -63,9 +63,9 @@ func appendSourceScope(steps *[]authoringv2.ImportedSourceStep, parentID, resour
 		}
 		*steps = append(*steps, authoringv2.ImportedSourceStep{
 			ID: sourcePath(parentID, "fields"), ParentID: parentID, Kind: SourcePlanFieldGroup,
-			Title:   "Fields from " + label,
-			Summary: fieldGroupSummary(fields, label),
-			Enabled: true, Editable: true,
+			Title:    "Fields from " + label,
+			Summary:  fieldGroupSummary(fields, label),
+			Editable: true,
 		})
 	}
 	for index, projection := range catalogProjections {
@@ -73,8 +73,8 @@ func appendSourceScope(steps *[]authoringv2.ImportedSourceStep, parentID, resour
 		*steps = append(*steps, authoringv2.ImportedSourceStep{
 			ID: sourceIndexPath(parentID, "catalogProjections", index), ParentID: parentID,
 			Kind: SourcePlanCatalogProjection, SourceKey: projection.Name, Title: "Catalog fields: " + projection.Name,
-			Summary: "Discover populated source fields.",
-			Enabled: true, Editable: true, MaxColumns: &maxColumns,
+			Summary:  "Discover populated source fields.",
+			Editable: true, MaxColumns: &maxColumns,
 			ValueMode: string(projection.ValueMode.Normalized()),
 		})
 	}
@@ -82,8 +82,8 @@ func appendSourceScope(steps *[]authoringv2.ImportedSourceStep, parentID, resour
 		step := authoringv2.ImportedSourceStep{
 			ID: sourceIndexPath(parentID, "dynamicColumns", index), ParentID: parentID,
 			Kind: SourcePlanDynamicColumn, SourceKey: dynamic.Name, Title: "Dynamic columns: " + dynamic.Name,
-			Summary: "Discover columns from this keyed source.",
-			Enabled: true, Editable: true,
+			Summary:   "Discover columns from this keyed source.",
+			Editable:  true,
 			ValueMode: string(dynamic.ValueMode.Normalized()),
 		}
 		if dynamic.MaxColumns > 0 {
@@ -97,15 +97,15 @@ func appendSourceScope(steps *[]authoringv2.ImportedSourceStep, parentID, resour
 		*steps = append(*steps, authoringv2.ImportedSourceStep{
 			ID: sourceIndexPath(parentID, "extensionColumns", index), ParentID: parentID,
 			Kind: SourcePlanExtensionColumn, SourceKey: extension.Name, Title: "Extension columns: " + extension.Name,
-			Summary: "Discover typed columns from this extension source.",
-			Enabled: true, Editable: true, MaxColumns: &maxColumns,
+			Summary:  "Discover typed columns from this extension source.",
+			Editable: true, MaxColumns: &maxColumns,
 		})
 	}
 	for index, pivot := range pivots {
 		step := authoringv2.ImportedSourceStep{
 			ID: sourceIndexPath(parentID, "pivots", index), ParentID: parentID,
 			Kind: SourcePlanPivot, SourceKey: pivot.Name, Title: "Pivot: " + pivot.Name,
-			Summary: pivotSummary(pivot), Enabled: true, Editable: true,
+			Summary: pivotSummary(pivot), Editable: true,
 			ValueMode: recipe.NormalizedPivotProjectionMode(pivot.ProjectionMode),
 		}
 		if pivot.Discovery != nil {
@@ -139,7 +139,7 @@ func appendSourceScope(steps *[]authoringv2.ImportedSourceStep, parentID, resour
 		*steps = append(*steps, authoringv2.ImportedSourceStep{
 			ID: traversalID, ParentID: parentID, Kind: SourcePlanTraversal, OccurrenceID: occurrenceID, MatchMode: authoringv2.RouteMatchMode(traversal.MatchMode.Normalized()),
 			Title: title, Summary: summary,
-			Enabled: true, Editable: true,
+			Editable: true,
 		})
 		appendSourceScope(steps, traversalID, traversal.ToResourceType, traversal.Fields,
 			traversal.CatalogProjections, traversal.DynamicColumns, traversal.ExtensionColumns,
@@ -208,6 +208,11 @@ func ApplySourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan)
 		return recipe.Output{}, fmt.Errorf("validate imported source plan: %w", err)
 	}
 	expected := SourcePlan(output)
+	expectedSteps, err := retainedPinnedSteps(expected.Steps, plan.RemovedStepIDs)
+	if err != nil {
+		return recipe.Output{}, err
+	}
+	expected.Steps = expectedSteps
 	if len(plan.Steps) == len(expected.Steps)-1 && (len(plan.Steps) == 0 || plan.Steps[0].ID != "output") {
 		copyPlan := *plan
 		copyPlan.Steps = append([]authoringv2.ImportedSourceStep{expected.Steps[0]}, plan.Steps...)
@@ -234,9 +239,6 @@ func ApplySourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan)
 			(step.SourceKey != "" && step.SourceKey != base.SourceKey) || (step.OccurrenceID != "" && step.OccurrenceID != base.OccurrenceID) || (step.MatchMode != "" && step.MatchMode != base.MatchMode) {
 			return recipe.Output{}, fmt.Errorf("imported source plan step %d does not match the pinned source", index)
 		}
-		if !step.Editable && !step.Enabled {
-			return recipe.Output{}, fmt.Errorf("imported source plan step %q is read-only", step.ID)
-		}
 		if err := validateMaxColumnsOverride(step, base); err != nil {
 			return recipe.Output{}, err
 		}
@@ -250,9 +252,6 @@ func ApplySourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan)
 			if err := validateSourceParameterExpressionEdits(base.Parameters, step.Parameters); err != nil {
 				return recipe.Output{}, fmt.Errorf("source step %q: %w", step.ID, err)
 			}
-		}
-		if (step.Kind == "OUTPUT" || step.Kind == SourcePlanExpansion || step.Kind == SourcePlanIdentity) && !step.Enabled {
-			return recipe.Output{}, fmt.Errorf("source step %q cannot be disabled; edit its explicit row settings instead", step.ID)
 		}
 		steps[step.ID] = step
 	}
@@ -268,7 +267,7 @@ func ApplySourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan)
 	if err := applyParameterOverrides(&cloned, steps); err != nil {
 		return recipe.Output{}, err
 	}
-	if len(output.Fields) > 0 && !steps["fields"].Enabled {
+	if _, present := steps["fields"]; len(output.Fields) > 0 && !present {
 		cloned.Fields = nil
 	}
 	cloned.CatalogProjections = applyCatalogProjections(cloned.CatalogProjections, steps, "")
@@ -309,9 +308,6 @@ func applySourceRules(output *recipe.Output, additions []authoringv2.ImportedSou
 		if err := validateRuleAddition(addition.Kind, resourceType, params); err != nil {
 			return fmt.Errorf("source step %q: %w", addition.StepID, err)
 		}
-		if !addition.Enabled {
-			continue
-		}
 		limit := authoringv2.MaxImportedRuleColumns
 		if addition.MaxColumns != nil {
 			limit = *addition.MaxColumns
@@ -319,11 +315,15 @@ func applySourceRules(output *recipe.Output, additions []authoringv2.ImportedSou
 		switch addition.Kind {
 		case SourcePlanDynamicColumn:
 			dynamic := params.Dynamic
-			*dynamics = append(*dynamics, recipe.DynamicColumn{
+			column := recipe.DynamicColumn{
 				Name: dynamic.Name, ColumnPrefix: dynamic.ColumnPrefix,
 				Source: recipe.Expression{Select: alias + "." + dynamic.Source.Select},
 				Key:    dynamic.Key, Value: dynamic.Value, MaxColumns: limit,
-			})
+			}
+			for _, override := range dynamic.Outputs {
+				column.OutputOverrides = append(column.OutputOverrides, recipe.DynamicColumnOutputOverride{Key: override.Key, Enabled: override.Enabled})
+			}
+			*dynamics = append(*dynamics, column)
 		case SourcePlanExtensionColumn:
 			extension := params.Extension
 			*extensions = append(*extensions, recipe.ExtensionColumn{
@@ -361,7 +361,7 @@ func ruleAdditionStep(addition authoringv2.ImportedSourceRuleAddition, parentID 
 	return authoringv2.ImportedSourceStep{
 		ID: addition.StepID, Kind: addition.Kind, SourceKey: name, ParentID: parentID, OccurrenceID: addition.OccurrenceID,
 		Title: title + ": " + name, Summary: summary,
-		Enabled: addition.Enabled, Editable: true, Parameters: addition.Parameters, MaxColumns: addition.MaxColumns,
+		Editable: true, Parameters: addition.Parameters, MaxColumns: addition.MaxColumns,
 	}
 }
 
@@ -392,7 +392,7 @@ func sourceRuleSteps(base []authoringv2.ImportedSourceStep, plan *authoringv2.Im
 			steps = append(steps, authoringv2.ImportedSourceStep{
 				ID: id, ParentID: parents[addition.ParentOccurrenceID], Kind: SourcePlanTraversal,
 				OccurrenceID: addition.OccurrenceID, Title: "Related " + addition.ResourceType,
-				Summary: "Connected through " + addition.Relationship + ".", Enabled: true,
+				Summary: "Connected through " + addition.Relationship + ".",
 			})
 			parents[addition.OccurrenceID] = id
 		}
@@ -446,7 +446,7 @@ func applyCatalogProjections(input []recipe.CatalogProjection, steps map[string]
 	result := make([]recipe.CatalogProjection, 0, len(input))
 	for index, item := range input {
 		step := steps[sourceIndexPath(parentID, "catalogProjections", index)]
-		if !step.Enabled {
+		if step.ID == "" {
 			continue
 		}
 		if step.MaxColumns != nil {
@@ -464,7 +464,7 @@ func applyDynamicColumns(input []recipe.DynamicColumn, steps map[string]authorin
 	result := make([]recipe.DynamicColumn, 0, len(input))
 	for index, item := range input {
 		step := steps[sourceIndexPath(parentID, "dynamicColumns", index)]
-		if !step.Enabled {
+		if step.ID == "" {
 			continue
 		}
 		if step.MaxColumns != nil {
@@ -482,7 +482,7 @@ func applyExtensionColumns(input []recipe.ExtensionColumn, steps map[string]auth
 	result := make([]recipe.ExtensionColumn, 0, len(input))
 	for index, item := range input {
 		step := steps[sourceIndexPath(parentID, "extensionColumns", index)]
-		if !step.Enabled {
+		if step.ID == "" {
 			continue
 		}
 		if step.MaxColumns != nil {
@@ -497,7 +497,7 @@ func applyPivots(input []recipe.Pivot, steps map[string]authoringv2.ImportedSour
 	result := make([]recipe.Pivot, 0, len(input))
 	for index, item := range input {
 		step := steps[sourceIndexPath(parentID, "pivots", index)]
-		if !step.Enabled {
+		if step.ID == "" {
 			continue
 		}
 		if step.MaxColumns != nil && item.Discovery != nil {
@@ -516,7 +516,7 @@ func applyTraversals(input []recipe.Traversal, steps map[string]authoringv2.Impo
 	for index, item := range input {
 		traversalID := sourceIndexPath(parentID, "traversals", index)
 		step := steps[traversalID]
-		if !step.Enabled {
+		if step.ID == "" {
 			continue
 		}
 		item.Fields = applyFields(item.Fields, steps, traversalID)
@@ -531,7 +531,7 @@ func applyTraversals(input []recipe.Traversal, steps map[string]authoringv2.Impo
 }
 
 func applyFields(input []recipe.Field, steps map[string]authoringv2.ImportedSourceStep, parentID string) []recipe.Field {
-	if len(input) == 0 || steps[sourcePath(parentID, "fields")].Enabled {
+	if len(input) == 0 || steps[sourcePath(parentID, "fields")].ID != "" {
 		return input
 	}
 	return nil
@@ -565,12 +565,15 @@ func HydrateSourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePla
 	if err := json.Unmarshal(raw, &cloned); err != nil {
 		return authoringv2.ImportedSourcePlan{}, err
 	}
+	pristine.Steps, err = retainedPinnedSteps(pristine.Steps, cloned.RemovedStepIDs)
+	if err != nil {
+		return authoringv2.ImportedSourcePlan{}, err
+	}
 	for _, step := range cloned.Steps {
 		for i := range pristine.Steps {
 			if pristine.Steps[i].ID != step.ID {
 				continue
 			}
-			pristine.Steps[i].Enabled = step.Enabled
 			pristine.Steps[i].MaxColumns = step.MaxColumns
 			pristine.Steps[i].ValueMode = step.ValueMode
 			if step.Parameters != nil {
@@ -586,5 +589,34 @@ func HydrateSourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePla
 	pristine.FieldBindings = cloned.FieldBindings
 	pristine.RuleAdditions = cloned.RuleAdditions
 	pristine.Relationships = cloned.Relationships
+	pristine.RemovedStepIDs = cloned.RemovedStepIDs
+	pristine.NextRuleIndex = cloned.NextRuleIndex
 	return pristine, nil
+}
+
+func retainedPinnedSteps(steps []authoringv2.ImportedSourceStep, removals []string) ([]authoringv2.ImportedSourceStep, error) {
+	explicit := make(map[string]bool, len(removals))
+	for _, id := range removals {
+		explicit[id] = true
+	}
+	removed := make(map[string]bool, len(removals))
+	retained := make([]authoringv2.ImportedSourceStep, 0, len(steps))
+	for _, step := range steps {
+		if explicit[step.ID] {
+			delete(explicit, step.ID)
+			if !step.Editable || step.Kind == "OUTPUT" || step.Kind == SourcePlanExpansion || step.Kind == SourcePlanIdentity {
+				return nil, fmt.Errorf("source step %q cannot be removed", step.ID)
+			}
+			removed[step.ID] = true
+		}
+		if removed[step.ID] || removed[step.ParentID] {
+			removed[step.ID] = true
+			continue
+		}
+		retained = append(retained, step)
+	}
+	for id := range explicit {
+		return nil, fmt.Errorf("removed source step %q was not found in the pinned recipe", id)
+	}
+	return retained, nil
 }

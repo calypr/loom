@@ -16,10 +16,12 @@ import { useGraphViewportFitter, type GraphViewportBounds } from '../hooks/useGr
 import { useTraversalOverflow } from '../hooks/useTraversalOverflow';
 
 const OCCURRENCE_NODE_WIDTH = 250;
-const OCCURRENCE_NODE_HEIGHT = 112;
-const DISCOVERY_FOOTER_HEIGHT = 152;
-const DISCOVERY_FOOTER_GAP = 32;
-const DISCOVERY_MIN_WIDTH = 760;
+const OCCURRENCE_NODE_HEIGHT = 84;
+const OCCURRENCE_COLUMN_GAP = 440;
+const OCCURRENCE_ROW_GAP = 116;
+const DISCOVERY_CARD_HEIGHT = 76;
+const DISCOVERY_FOOTER_GAP = 20;
+const DISCOVERY_MIN_WIDTH = 660;
 const DISCOVERY_CARD_WIDTH = 250;
 const DISCOVERY_CARD_GAP = 16;
 const DISCOVERY_CARD_LEFT = 12;
@@ -82,7 +84,7 @@ export function layoutDiscoveryRail(
   selectedOccurrenceId: string,
   busY: number,
   nodeWidth = OCCURRENCE_NODE_WIDTH,
-  nodeHeight = OCCURRENCE_NODE_HEIGHT,
+  nodeHeight = 112,
   gutter = 16,
   padding = 12,
 ): ReadonlyArray<DiscoveryRailPoint> {
@@ -621,14 +623,14 @@ export const GuidedGraphWorkspace = ({
     parentId: occurrence.parentId ? routeNodeId(occurrence.parentId) : undefined,
     depth: occurrence.depth,
   }));
-  const occurrencePositions = layoutTraversalTree(layoutItems, 440, 168, OCCURRENCE_NODE_HEIGHT);
+  const occurrencePositions = layoutTraversalTree(layoutItems, OCCURRENCE_COLUMN_GAP, OCCURRENCE_ROW_GAP, OCCURRENCE_NODE_HEIGHT);
   const occurrenceNodes: Node[] = authoredGraphActive ? traversalOccurrences.map((occurrence) => {
     const unresolved = !occurrence.catalogNodeId;
     const selected = occurrence.occurrenceId === selectedOccurrenceId;
     const isCurrentRelatedRecord = occurrence.occurrenceId === currentRelatedRecord?.id;
     return {
       id: routeNodeId(occurrence.occurrenceId),
-      position: occurrencePositions.get(routeNodeId(occurrence.occurrenceId)) ?? { x: occurrence.depth * 440, y: 0 },
+      position: occurrencePositions.get(routeNodeId(occurrence.occurrenceId)) ?? { x: occurrence.depth * OCCURRENCE_COLUMN_GAP, y: 0 },
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
       ariaLabel: `${occurrence.path} (occurrence ${occurrence.occurrenceId})`,
@@ -638,9 +640,9 @@ export const GuidedGraphWorkspace = ({
         title={`${occurrence.path} · occurrence ${occurrence.occurrenceId}`}
         className={`nokey flex h-full w-full flex-col justify-center gap-1 rounded-lg border px-3 py-2 text-left ${selected ? 'border-blue-700 bg-blue-700 text-white shadow-md' : unresolved ? 'border-amber-400 bg-amber-50 text-amber-950' : 'border-blue-300 bg-white text-slate-900'}`}
         onClick={(event) => { event.stopPropagation(); onSelectOccurrence(occurrence.occurrenceId); }}>
-        <span className="truncate text-sm font-semibold">{occurrence.resourceType}</span>
+        <span className="truncate text-base font-semibold">{occurrence.resourceType}</span>
         <span className={`truncate text-xs ${selected ? 'text-blue-100' : unresolved ? 'text-amber-900' : 'text-blue-800'}`}>{occurrence.parentId ? occurrence.relationship ?? 'Relationship unavailable' : 'Starting records'}</span>
-        <span className={`text-[10px] ${selected ? 'text-blue-100' : 'text-slate-500'}`}>{isCurrentRelatedRecord ? 'Fields from this row’s record' : unresolved ? 'Catalog relationship unavailable' : occurrence.matchMode === 'REQUIRED' && occurrence.parentId ? 'Required match' : occurrence.parentId ? 'Optional feature' : 'Row start'}</span>
+        <span className={`text-[11px] ${selected ? 'text-blue-100' : 'text-slate-500'}`}>{isCurrentRelatedRecord ? 'Fields from this row’s record' : unresolved ? 'Catalog relationship unavailable' : occurrence.matchMode === 'REQUIRED' && occurrence.parentId ? 'Required match' : occurrence.parentId ? 'Optional feature' : 'Row start'}</span>
       </button> },
       style: { width: OCCURRENCE_NODE_WIDTH, height: OCCURRENCE_NODE_HEIGHT, border: selected ? '2px solid #1d4ed8' : unresolved ? '1px solid #d97706' : '1px solid #93c5fd', borderRadius: 10, background: '#fff', padding: 0, cursor: 'pointer', pointerEvents: 'auto' },
     };
@@ -683,14 +685,17 @@ export const GuidedGraphWorkspace = ({
     const maxY = Math.max(...positions.map((position) => position.y + OCCURRENCE_NODE_HEIGHT));
     const discoveryY = maxY + DISCOVERY_FOOTER_GAP;
     const discoveryWidth = Math.max(DISCOVERY_MIN_WIDTH, maxX - minX + 32);
+    const discoveryHeight = DISCOVERY_CARD_TOP + DISCOVERY_CARD_HEIGHT + 8;
+    const discoveryBounds = { x: minX, y: discoveryY, width: discoveryWidth, height: discoveryHeight };
+    const top = minY - 32;
     return {
       viewportBounds: {
         x: minX,
-        y: minY,
-        width: discoveryWidth,
-        height: discoveryY + DISCOVERY_FOOTER_HEIGHT - minY,
+        y: top,
+        width: discoveryBounds.width,
+        height: discoveryY + discoveryHeight - top,
       },
-      discoveryBounds: { x: minX, y: discoveryY, width: discoveryWidth, height: DISCOVERY_FOOTER_HEIGHT },
+      discoveryBounds,
     };
   })() : undefined;
   const authoredViewportBounds = authoredViewportGeometry?.viewportBounds;
@@ -714,7 +719,7 @@ export const GuidedGraphWorkspace = ({
     occurrencePositions.get(routeNodeId(occurrence.occurrenceId))!,
   ]));
   const discoveryTrunkPoints = authoredGraphActive && discoveryBounds
-    ? layoutDiscoveryRail(traversalOccurrences, occurrencePositionById, selectedOccurrenceId, discoveryBounds.y + 12)
+    ? layoutDiscoveryRail(traversalOccurrences, occurrencePositionById, selectedOccurrenceId, discoveryBounds.y + 12, OCCURRENCE_NODE_WIDTH, OCCURRENCE_NODE_HEIGHT)
     : [];
   const localDiscoveryTrunkPoints = authoredViewportBounds
     ? discoveryTrunkPoints.map((point) => ({ x: point.x - authoredViewportBounds.x, y: point.y - authoredViewportBounds.y }))
@@ -828,19 +833,18 @@ export const GuidedGraphWorkspace = ({
       >
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
-            {traversalPresentation ? (headerPath ? <p data-testid="selected-occurrence-path" className="truncate text-xs font-semibold text-slate-700" title={headerPath}>{headerPath}</p> : null) : <h2 className="text-base font-semibold text-slate-900">
+            {!traversalPresentation ? <h2 className="text-base font-semibold text-slate-900">
               {compact ? 'Related records' : 'Dataset graph'}{' '}
               <span className="ml-1 text-xs font-normal text-slate-400">
                 {catalog.nodes.length} resources · {catalog.edges.length}{' '}
                 relationships
               </span>
-            </h2>}
+            </h2> : null}
           </div>
           <div
             data-testid="graph-header-controls"
             className="flex flex-wrap items-center gap-1.5"
           >
-            {traversalPresentation && headerStatus ? <span className="px-2 text-xs text-slate-500">{headerStatus}</span> : null}
             {compact ? <label className="flex items-center gap-1.5 text-xs text-slate-700"><input type="checkbox" checked={showFullNetwork} onChange={(event) => setShowFullNetwork(event.currentTarget.checked)} />Show full network</label> : null}
             {!authoredGraphActive ? <label className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded border border-slate-300 bg-white/95 px-2 py-1 text-[11px] font-semibold text-slate-700 shadow-sm">
               <input
@@ -877,8 +881,12 @@ export const GuidedGraphWorkspace = ({
         <div
           ref={graphHostRef}
           data-testid="graph-viewport"
-          className={`relative mt-2 min-h-0 flex-1 overflow-hidden rounded-lg bg-slate-100/70 ${isExpanded || compact || traversalPresentation ? '' : 'min-h-[32rem]'}`}
+          className={`relative min-h-0 flex-1 overflow-hidden rounded-lg bg-slate-100/70 ${traversalPresentation ? '' : 'mt-2'} ${isExpanded || compact || traversalPresentation ? '' : 'min-h-[32rem]'}`}
         >
+          {traversalPresentation && (headerPath || headerStatus) ? <div className="pointer-events-none absolute inset-x-2 top-2 z-10 flex items-start justify-between gap-2">
+            {headerPath ? <p data-testid="selected-occurrence-path" className="pointer-events-auto min-w-0 rounded bg-white/95 px-1.5 py-0.5 text-xs font-semibold text-slate-700 [overflow-wrap:anywhere]" title={headerPath}>{headerPath}</p> : null}
+            {headerStatus ? <span className="rounded bg-white/95 px-1.5 py-0.5 text-xs text-slate-500">{headerStatus}</span> : null}
+          </div> : null}
           <ReactFlow
             key={graphIdentity}
             nodes={nodesForViewport}
@@ -971,8 +979,8 @@ export const GuidedGraphWorkspace = ({
                   const resource = catalogNodeById.get(edge.toNodeId)?.resourceType ?? 'resource';
                   return <button key={edge.edgeId} type="button" data-candidate-edge-id={edge.edgeId}
                     aria-label={`Add ${resource} via ${edge.label}`} title={`Connect ${selectedAuthoredOccurrence?.resourceType ?? 'selected resource'} to ${resource} via ${edge.label}`}
-                    className="nopan nodrag nowheel nokey pointer-events-auto absolute flex h-[112px] w-[250px] cursor-pointer flex-col justify-center gap-2 rounded-lg border border-dashed border-emerald-600 bg-emerald-50/95 px-3 py-2 text-left text-emerald-950 shadow-md hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
-                    style={{ left: x, top: discoveryFooterTop + DISCOVERY_CARD_TOP, pointerEvents: 'auto' }}
+                    className="nopan nodrag nowheel nokey pointer-events-auto absolute flex cursor-pointer flex-col justify-center gap-1 rounded-lg border border-dashed border-emerald-600 bg-emerald-50/95 px-3 py-2 text-left text-emerald-950 shadow-md hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{ left: x, top: discoveryCardTop, width: DISCOVERY_CARD_WIDTH, height: DISCOVERY_CARD_HEIGHT, pointerEvents: 'auto' }}
                     disabled={disabled || !canEditRelationships}
                     onPointerDown={(event) => event.stopPropagation()}
                     onWheel={(event) => event.stopPropagation()}

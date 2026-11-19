@@ -419,7 +419,7 @@ describe('PreviewTable column controls', () => {
     const view = render(React.createElement(PreviewTable, props));
     fireEvent.click(screen.getByRole('button', { name: 'Inspect row 1 identity' }));
     expect(screen.getByText('Starting FHIR record')).toBeInTheDocument();
-    expect(screen.getByText('Specimen/specimen-1')).toBeInTheDocument();
+    expect(within(screen.getByRole('dialog')).getByText('Specimen/specimen-1')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     view.rerender(React.createElement(PreviewTable, { ...props, preview: {
