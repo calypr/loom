@@ -113,6 +113,38 @@ func TestWalkMembersRejectsInvalidInputsAndPropagatesVisitorErrors(t *testing.T)
 	}
 }
 
+func TestWalkMembersCachesReferencedScopeWithParentRequirements(t *testing.T) {
+	index, err := schema.NewIndex([]schema.Definition{
+		{
+			Name: "Root",
+			Elements: []schema.Element{
+				{Name: "first", JSONType: schema.JSONTypeObject, ReferencedType: "Child", RequiredChildren: []string{"alpha"}},
+				{Name: "second", JSONType: schema.JSONTypeObject, ReferencedType: "Child", RequiredChildren: []string{"beta"}},
+			},
+		},
+		{Name: "Child", Elements: []schema.Element{{Name: "value", JSONType: "string"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte(`{"first":{},"second":{}}`)
+	for attempt := 0; attempt < 3; attempt++ {
+		diagnostics, err := WalkMembers(index, "Root", payload, func(MemberFact) error { return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(diagnostics) != 2 {
+			t.Fatalf("diagnostics = %#v", diagnostics)
+		}
+		for position, expected := range []string{"first.alpha", "second.beta"} {
+			diagnostic := diagnostics[position]
+			if diagnostic.Code != WalkMissingRequiredElement || diagnostic.CanonicalPath != expected {
+				t.Fatalf("diagnostic[%d] = %#v, want missing required %q", position, diagnostic, expected)
+			}
+		}
+	}
+}
+
 func signalPacketIndex(t *testing.T) *schema.Index {
 	t.Helper()
 	index, err := schema.NewIndex([]schema.Definition{

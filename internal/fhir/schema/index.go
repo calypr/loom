@@ -129,6 +129,14 @@ func (v ElementListView) Len() int {
 	return len(v.elements)
 }
 
+// Essential: Identity is stable while the owning schema index remains in use.
+func (v ElementListView) Identity() (ElementView, int) {
+	if len(v.elements) == 0 {
+		return ElementView{}, 0
+	}
+	return ElementView{element: &v.elements[0]}, len(v.elements)
+}
+
 func (v ElementListView) At(index int) (ElementView, bool) {
 	return elementAt(v.elements, index)
 }

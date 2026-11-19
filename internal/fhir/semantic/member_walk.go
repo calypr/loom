@@ -2,9 +2,12 @@ package semantic
 
 import (
 	"container/heap"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
+	"sync"
 
 	"github.com/calypr/loom/internal/fhir/schema"
 )
@@ -155,6 +158,28 @@ type memberWalkState struct {
 	limitErr     *WalkLimitError
 }
 
+type memberScopeCacheKey struct {
+	first         schema.ElementView
+	elementCount  int
+	requiredNames string
+}
+
+type memberScopePlan struct {
+	declared      map[string]schema.ElementView
+	requiredOrder []string
+	choiceGroups  map[string][]string
+	choiceOrder   []string
+}
+
+const maxMemberScopePlans = 8192
+
+var memberScopePlans sync.Map
+var memberScopePlanOrder = struct {
+	sync.Mutex
+	keys []memberScopeCacheKey
+	next int
+}{keys: make([]memberScopeCacheKey, 0, maxMemberScopePlans)}
+
 func walkMembersWithResourceTypesAndLimits(
 	index *schema.Index,
 	root schema.DefinitionName,
@@ -258,16 +283,12 @@ func walkMemberScope(
 	if state.options.limits != nil && depth > state.options.limits.maxDepth {
 		return state.newLimitError(WalkLimitDepth, state.options.limits.maxDepth)
 	}
-	declared := make(map[string]schema.ElementView, elements.Len())
-	for elementIndex := 0; elementIndex < elements.Len(); elementIndex++ {
-		element, ok := elements.At(elementIndex)
-		if !ok {
-			return fmt.Errorf("walk FHIR members for %q: schema element index %d is unavailable", root, elementIndex)
-		}
-		declared[element.Name()] = element
+	plan, err := cachedMemberScopePlan(elements, requiredNames, root)
+	if err != nil {
+		return err
 	}
 
-	unknown := unknownMemberNames(object, declared, len(*diagnostics), state)
+	unknown := unknownMemberNames(object, plan.declared, len(*diagnostics), state)
 	for _, name := range unknown {
 		if err := appendWalkDiagnostic(diagnostics, WalkDiagnostic{
 			Code:          WalkUnknownMember,
@@ -279,33 +300,13 @@ func walkMemberScope(
 		}
 	}
 
-	required := make(map[string]struct{}, len(requiredNames)+elements.Len())
-	for _, name := range requiredNames {
-		required[name] = struct{}{}
-	}
-	choiceGroups := make(map[string][]string)
-	for elementIndex := 0; elementIndex < elements.Len(); elementIndex++ {
-		element, _ := elements.At(elementIndex)
-		metadata := element.Snapshot()
-		if metadata.ElementRequired && metadata.ChoiceGroup == "" {
-			required[element.Name()] = struct{}{}
-		}
-		if metadata.ChoiceGroup != "" && metadata.ChoiceGroupRequired {
-			choiceGroups[metadata.ChoiceGroup] = append(choiceGroups[metadata.ChoiceGroup], element.Name())
-		}
-	}
-	requiredOrder := make([]string, 0, len(required))
-	for name := range required {
-		requiredOrder = append(requiredOrder, name)
-	}
-	sort.Strings(requiredOrder)
-	for _, name := range requiredOrder {
+	for _, name := range plan.requiredOrder {
 		value, ok := object.member(name)
 		if ok && !value.isNull() || !ok && depth == 0 && name == "resourceType" {
 			continue
 		}
 		canonicalPath := joinPath(canonicalPrefix, name)
-		if element, found := declared[name]; found && element.JSONType() == schema.JSONTypeArray {
+		if element, found := plan.declared[name]; found && element.JSONType() == schema.JSONTypeArray {
 			canonicalPath += "[]"
 		}
 		if err := appendWalkDiagnostic(diagnostics, WalkDiagnostic{
@@ -317,14 +318,9 @@ func walkMemberScope(
 			return err
 		}
 	}
-	groupNames := make([]string, 0, len(choiceGroups))
-	for group := range choiceGroups {
-		groupNames = append(groupNames, group)
-	}
-	sort.Strings(groupNames)
-	for _, group := range groupNames {
+	for _, group := range plan.choiceOrder {
 		present := false
-		for _, arm := range choiceGroups[group] {
+		for _, arm := range plan.choiceGroups[group] {
 			if value, ok := object.member(arm); ok && !value.isNull() {
 				present = true
 				break
@@ -361,6 +357,85 @@ func walkMemberScope(
 		}
 	}
 	return nil
+}
+
+func cachedMemberScopePlan(
+	elements schema.ElementListView,
+	requiredNames []string,
+	root schema.DefinitionName,
+) (*memberScopePlan, error) {
+	first, elementCount := elements.Identity()
+	key := memberScopeCacheKey{first: first, elementCount: elementCount, requiredNames: requiredNamesIdentity(requiredNames)}
+	if cached, ok := memberScopePlans.Load(key); ok {
+		return cached.(*memberScopePlan), nil
+	}
+	plan := &memberScopePlan{
+		declared:     make(map[string]schema.ElementView, elements.Len()),
+		choiceGroups: make(map[string][]string),
+	}
+	required := make(map[string]struct{}, len(requiredNames)+elements.Len())
+	for elementIndex := 0; elementIndex < elements.Len(); elementIndex++ {
+		element, ok := elements.At(elementIndex)
+		if !ok {
+			return nil, fmt.Errorf("walk FHIR members for %q: schema element index %d is unavailable", root, elementIndex)
+		}
+		plan.declared[element.Name()] = element
+	}
+	for _, name := range requiredNames {
+		required[name] = struct{}{}
+	}
+	for elementIndex := 0; elementIndex < elements.Len(); elementIndex++ {
+		element, _ := elements.At(elementIndex)
+		metadata := element.Snapshot()
+		if metadata.ElementRequired && metadata.ChoiceGroup == "" {
+			required[element.Name()] = struct{}{}
+		}
+		if metadata.ChoiceGroup != "" && metadata.ChoiceGroupRequired {
+			plan.choiceGroups[metadata.ChoiceGroup] = append(plan.choiceGroups[metadata.ChoiceGroup], element.Name())
+		}
+	}
+	plan.requiredOrder = make([]string, 0, len(required))
+	for name := range required {
+		plan.requiredOrder = append(plan.requiredOrder, name)
+	}
+	sort.Strings(plan.requiredOrder)
+	plan.choiceOrder = make([]string, 0, len(plan.choiceGroups))
+	for group := range plan.choiceGroups {
+		plan.choiceOrder = append(plan.choiceOrder, group)
+	}
+	sort.Strings(plan.choiceOrder)
+	actual, loaded := memberScopePlans.LoadOrStore(key, plan)
+	if !loaded {
+		memberScopePlanOrder.Lock()
+		if len(memberScopePlanOrder.keys) < maxMemberScopePlans {
+			memberScopePlanOrder.keys = append(memberScopePlanOrder.keys, key)
+		} else {
+			memberScopePlans.Delete(memberScopePlanOrder.keys[memberScopePlanOrder.next])
+			memberScopePlanOrder.keys[memberScopePlanOrder.next] = key
+			memberScopePlanOrder.next = (memberScopePlanOrder.next + 1) % maxMemberScopePlans
+		}
+		memberScopePlanOrder.Unlock()
+	}
+	return actual.(*memberScopePlan), nil
+}
+
+func requiredNamesIdentity(names []string) string {
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return "\x01" + names[0]
+	default:
+		var builder strings.Builder
+		builder.WriteByte(2)
+		var length [binary.MaxVarintLen64]byte
+		for _, name := range names {
+			encoded := binary.PutUvarint(length[:], uint64(len(name)))
+			builder.Write(length[:encoded])
+			builder.WriteString(name)
+		}
+		return builder.String()
+	}
 }
 
 func visitMemberValue(
