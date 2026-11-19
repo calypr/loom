@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -713,23 +712,18 @@ func semanticCanonical(resourceType, path string) string {
 }
 
 func extensionURLAncestry(ownerPath string, urls map[string]string) []string {
-	type ancestor struct {
-		owner string
-		url   string
-	}
-	ancestors := make([]ancestor, 0)
-	for owner, url := range urls {
-		if url == "" || (owner != ownerPath && !strings.HasPrefix(ownerPath, owner+".")) {
+	depth := strings.Count(ownerPath, ".") + 1
+	result := make([]string, 0, depth)
+	for end := 0; end < len(ownerPath); end++ {
+		if ownerPath[end] != '.' {
 			continue
 		}
-		ancestors = append(ancestors, ancestor{owner: owner, url: url})
+		if url := urls[ownerPath[:end]]; url != "" {
+			result = append(result, url)
+		}
 	}
-	sort.Slice(ancestors, func(left, right int) bool {
-		return len(ancestors[left].owner) < len(ancestors[right].owner)
-	})
-	result := make([]string, 0, len(ancestors))
-	for _, ancestor := range ancestors {
-		result = append(result, ancestor.url)
+	if url := urls[ownerPath]; url != "" {
+		result = append(result, url)
 	}
 	return result
 }
