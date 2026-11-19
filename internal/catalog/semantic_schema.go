@@ -17,7 +17,20 @@ type semanticScope struct {
 	ownerPath     string
 	definition    schema.DefinitionName
 	value         map[string]any
-	facts         []fhirsemantic.MemberFact
+	facts         []*fhirsemantic.MemberFact
+}
+
+const (
+	maxRetainedSemanticFacts  = 1024
+	maxRetainedSemanticScopes = 256
+	maxRetainedFactsPerScope  = 64
+)
+
+type semanticWalkScratch struct {
+	inUse   bool
+	facts   []fhirsemantic.MemberFact
+	scopes  []semanticScope
+	byOwner map[string]int
 }
 
 type semanticDatatypeAssociation struct {
@@ -74,15 +87,28 @@ func (p *Profiler) observeSchemaSemanticsWithEvidence(
 	sourceID string,
 	emit semanticCoverageObservationEmitter,
 ) error {
-	facts := make([]fhirsemantic.MemberFact, 0, 32)
+	scratch := &p.semanticScratch
+	if scratch.inUse {
+		scratch = &semanticWalkScratch{}
+	}
+	scratch.inUse = true
+	defer func() {
+		scratch.inUse = false
+		if cap(scratch.facts) > maxRetainedSemanticFacts {
+			scratch.facts = nil
+		} else {
+			clear(scratch.facts)
+			scratch.facts = scratch.facts[:0]
+		}
+	}()
 	if _, err := fhirsemantic.WalkMemberValues(index, schema.DefinitionName(p.resourceType), payload, func(fact fhirsemantic.MemberFact) error {
-		facts = append(facts, fact)
+		scratch.facts = append(scratch.facts, fact)
 		return nil
 	}); err != nil {
 		return err
 	}
 
-	return p.observeSchemaSemanticsFromFacts(payload, profile, sourceID, facts, emit)
+	return p.observeSchemaSemanticsFromFacts(payload, profile, sourceID, scratch.facts, scratch, emit)
 }
 
 func (p *Profiler) observeSchemaSemanticsFromFacts(
@@ -90,15 +116,17 @@ func (p *Profiler) observeSchemaSemanticsFromFacts(
 	profile string,
 	sourceID string,
 	facts []fhirsemantic.MemberFact,
+	scratch *semanticWalkScratch,
 	emit semanticCoverageObservationEmitter,
 ) error {
-	root := &semanticScope{
-		definition: schema.DefinitionName(p.resourceType),
-		value:      payload,
+	if scratch.byOwner == nil {
+		scratch.byOwner = make(map[string]int)
 	}
-	scopes := []*semanticScope{root}
-	byOwner := map[string]*semanticScope{"": root}
-	for _, fact := range facts {
+	scratch.addScope(semanticScope{definition: schema.DefinitionName(p.resourceType), value: payload})
+	defer scratch.resetScopes()
+
+	for i := range facts {
+		fact := &facts[i]
 		if fact.Repeated && !fact.ArrayItem {
 			continue
 		}
@@ -110,24 +138,28 @@ func (p *Profiler) observeSchemaSemanticsFromFacts(
 		if definition == "" {
 			definition = fact.DeclaringType
 		}
-		scope := &semanticScope{
+		scratch.addScope(semanticScope{
 			canonicalPath: fact.CanonicalPath,
 			ownerPath:     fact.OwnerPath,
 			definition:    definition,
 			value:         value,
-		}
-		scopes = append(scopes, scope)
-		byOwner[scope.ownerPath] = scope
+		})
 	}
-	for _, fact := range facts {
-		owner := directOwnerPath(fact.OwnerPath)
-		if scope := byOwner[owner]; scope != nil {
+	scopes := scratch.scopes
+	for i := range facts {
+		fact := &facts[i]
+		if fact.ArrayItem {
+			continue
+		}
+		if index, ok := scratch.byOwner[directOwnerPath(fact.OwnerPath)]; ok {
+			scope := &scopes[index]
 			scope.facts = append(scope.facts, fact)
 		}
 	}
 
 	extensionURLs := make(map[string]string)
-	for _, scope := range scopes {
+	for i := range scopes {
+		scope := &scopes[i]
 		if scope.definition != "Extension" {
 			continue
 		}
@@ -138,12 +170,14 @@ func (p *Profiler) observeSchemaSemanticsFromFacts(
 
 	pairedCodeableConcepts := make(map[string]struct{})
 	identifierOrExtensionOwners := make([]string, 0)
-	for _, scope := range scopes {
+	for i := range scopes {
+		scope := &scopes[i]
 		if scope.definition == "Identifier" || scope.definition == "Extension" {
 			identifierOrExtensionOwners = append(identifierOrExtensionOwners, scope.ownerPath)
 		}
 	}
-	for _, scope := range scopes {
+	for i := range scopes {
+		scope := &scopes[i]
 		association, hasAssociation := semanticDatatypeAssociations[scope.definition]
 		switch {
 		case hasAssociation && scope.definition == "Identifier":
@@ -166,7 +200,8 @@ func (p *Profiler) observeSchemaSemanticsFromFacts(
 			})
 		}
 	}
-	for _, scope := range scopes {
+	for i := range scopes {
+		scope := &scopes[i]
 		if scope.definition != "Coding" {
 			continue
 		}
@@ -181,6 +216,36 @@ func (p *Profiler) observeSchemaSemanticsFromFacts(
 		p.emitStandaloneCodingScope(scope, profile, sourceID, emit)
 	}
 	return nil
+}
+
+func (scratch *semanticWalkScratch) addScope(scope semanticScope) {
+	index := len(scratch.scopes)
+	if index < cap(scratch.scopes) {
+		scratch.scopes = scratch.scopes[:index+1]
+		scope.facts = scratch.scopes[index].facts
+		scratch.scopes[index] = scope
+	} else {
+		scratch.scopes = append(scratch.scopes, scope)
+	}
+	scratch.byOwner[scope.ownerPath] = index
+}
+
+func (scratch *semanticWalkScratch) resetScopes() {
+	if cap(scratch.scopes) > maxRetainedSemanticScopes {
+		scratch.scopes = nil
+		scratch.byOwner = nil
+		return
+	}
+	for i := range scratch.scopes {
+		facts := scratch.scopes[i].facts
+		scratch.scopes[i] = semanticScope{}
+		if cap(facts) <= maxRetainedFactsPerScope {
+			clear(facts)
+			scratch.scopes[i].facts = facts[:0]
+		}
+	}
+	scratch.scopes = scratch.scopes[:0]
+	clear(scratch.byOwner)
 }
 
 func (p *Profiler) emitStandaloneCodingScope(
@@ -336,7 +401,7 @@ func (p *Profiler) emitExtensionScope(
 	}
 	ancestry := extensionURLAncestry(scope.ownerPath, extensionURLs)
 	for _, fact := range scope.facts {
-		if fact.ArrayItem || fact.Element.ChoiceGroup == "" || fact.Null {
+		if fact.Element.ChoiceGroup == "" || fact.Null {
 			continue
 		}
 		value, ok := semanticChoiceValueFromFact(p.resourceType, fact)
@@ -388,12 +453,9 @@ func (p *Profiler) emitCodedChoiceScope(
 	sourceID string,
 	emit semanticCoverageObservationEmitter,
 ) {
-	concepts := make([]fhirsemantic.MemberFact, 0, 1)
+	concepts := make([]*fhirsemantic.MemberFact, 0, 1)
 	values := make([]semanticChoiceValue, 0, 2)
 	for _, fact := range scope.facts {
-		if fact.ArrayItem {
-			continue
-		}
 		if fact.Null {
 			continue
 		}
@@ -519,8 +581,8 @@ func (p *Profiler) recordSchemaSemanticObservation(
 
 func directSemanticFact(scope *semanticScope, member string) (fhirsemantic.MemberFact, bool) {
 	for _, fact := range scope.facts {
-		if !fact.ArrayItem && fact.Element.Name == member {
-			return fact, true
+		if fact.Element.Name == member {
+			return *fact, true
 		}
 	}
 	return fhirsemantic.MemberFact{}, false
@@ -537,7 +599,7 @@ func semanticUseJSONNumber(value any) any {
 	return value
 }
 
-func semanticChoiceValueFromFact(resourceType string, fact fhirsemantic.MemberFact) (semanticChoiceValue, bool) {
+func semanticChoiceValueFromFact(resourceType string, fact *fhirsemantic.MemberFact) (semanticChoiceValue, bool) {
 	value := semanticUseJSONNumber(fact.Value)
 	selector := fact.Element.Name
 	valueType := semanticGeneratedValueType(resourceType, fact.CanonicalPath, value, semanticValueType(value))

@@ -41,6 +41,13 @@ type SemanticInventoryEntryPartial struct {
 	Missing          uint32                        `json:"missing"`
 }
 
+type semanticInventoryEntryGroupKey struct {
+	AuthResourcePath string
+	ResourceType     string
+	BindingID        string
+	ConceptID        string
+}
+
 type SemanticInventoryEntryAggregator struct {
 	project           string
 	datasetGeneration string
@@ -48,7 +55,7 @@ type SemanticInventoryEntryAggregator struct {
 	authResourcePath  string
 	resourceType      string
 	sourceKind        string
-	entries           map[string]SemanticInventoryEntryPartial
+	entries           map[semanticInventoryEntryGroupKey]SemanticInventoryEntryPartial
 }
 
 func NewSemanticInventoryEntryAggregator(project, generation, authPath, resourceType, sourceKind string) *SemanticInventoryEntryAggregator {
@@ -59,7 +66,7 @@ func NewSemanticInventoryEntryAggregator(project, generation, authPath, resource
 	return &SemanticInventoryEntryAggregator{
 		project: project, datasetGeneration: generation, buildID: SemanticInventoryBuildID(project, generation),
 		authResourcePath: authPath, resourceType: resourceType, sourceKind: sourceKind,
-		entries: make(map[string]SemanticInventoryEntryPartial),
+		entries: make(map[semanticInventoryEntryGroupKey]SemanticInventoryEntryPartial),
 	}
 }
 
@@ -73,7 +80,7 @@ func (a *SemanticInventoryEntryAggregator) Add(value SemanticInventoryContributi
 		return errorsNewEntryIdentityMismatch
 	}
 	partial := newSemanticInventoryEntryPartial(value)
-	key := SemanticInventoryEntryGroupOrderKey(value)
+	key := semanticInventoryEntryGroupKeyFor(value)
 	if current, found := a.entries[key]; found {
 		merged, _ := MergeSemanticInventoryEntryPartials(current, partial)
 		a.entries[key] = merged
@@ -93,7 +100,7 @@ func (a *SemanticInventoryEntryAggregator) AddPartial(value SemanticInventoryEnt
 		semanticInventorySourceKind(contribution.SourceKind) != a.sourceKind {
 		return errorsNewEntryIdentityMismatch
 	}
-	key := SemanticInventoryEntryGroupOrderKey(contribution)
+	key := semanticInventoryEntryGroupKeyFor(contribution)
 	if current, found := a.entries[key]; found {
 		merged, _ := MergeSemanticInventoryEntryPartials(current, value)
 		a.entries[key] = merged
@@ -184,7 +191,7 @@ func newSemanticInventoryEntryPartial(value SemanticInventoryContribution) Seman
 }
 
 func MergeSemanticInventoryEntryPartials(left, right SemanticInventoryEntryPartial) (SemanticInventoryEntryPartial, bool) {
-	if SemanticInventoryEntryGroupOrderKey(left.Contribution) != SemanticInventoryEntryGroupOrderKey(right.Contribution) {
+	if semanticInventoryEntryGroupKeyFor(left.Contribution) != semanticInventoryEntryGroupKeyFor(right.Contribution) {
 		return SemanticInventoryEntryPartial{}, false
 	}
 	left.Contribution.Observation.Population += right.Contribution.Observation.Population
@@ -295,15 +302,25 @@ func compareStringSlices(left, right []string) int {
 }
 
 func SemanticInventoryEntryGroupOrderKey(value SemanticInventoryContribution) string {
-	parts := []string{value.AuthResourcePath, value.ResourceType, value.BindingID, value.ConceptID}
-	var key []byte
-	for _, part := range parts {
+	groupKey := semanticInventoryEntryGroupKeyFor(value)
+	var keyBytes []byte
+	for _, part := range [...]string{groupKey.AuthResourcePath, groupKey.ResourceType, groupKey.BindingID, groupKey.ConceptID} {
 		var size [8]byte
 		binary.BigEndian.PutUint64(size[:], uint64(len(part)))
-		key = append(key, size[:]...)
-		key = append(key, part...)
+		keyBytes = append(keyBytes, size[:]...)
+		keyBytes = append(keyBytes, part...)
 	}
-	return string(key)
+	return string(keyBytes)
+}
+
+// Essential: callers that aggregate spill runs must use the same four-field identity as the in-memory reducer.
+func semanticInventoryEntryGroupKeyFor(value SemanticInventoryContribution) semanticInventoryEntryGroupKey {
+	return semanticInventoryEntryGroupKey{
+		AuthResourcePath: value.AuthResourcePath,
+		ResourceType:     value.ResourceType,
+		BindingID:        value.BindingID,
+		ConceptID:        value.ConceptID,
+	}
 }
 
 func SemanticInventoryEntryKey(project, generation, buildID, sourceKind, authPath, bindingID, conceptID string) string {
@@ -319,23 +336,45 @@ func (a *SemanticInventoryEntryAggregator) Len() int {
 }
 func (a *SemanticInventoryEntryAggregator) Reset() {
 	if a != nil {
-		a.entries = make(map[string]SemanticInventoryEntryPartial)
+		a.entries = make(map[semanticInventoryEntryGroupKey]SemanticInventoryEntryPartial)
 	}
 }
 func (a *SemanticInventoryEntryAggregator) Values() []SemanticInventoryEntryPartial {
 	if a == nil || len(a.entries) == 0 {
 		return nil
 	}
-	keys := make([]string, 0, len(a.entries))
+	keys := make([]semanticInventoryEntryGroupKey, 0, len(a.entries))
 	for key := range a.entries {
 		keys = append(keys, key)
 	}
-	sort.Strings(keys)
+	sort.Slice(keys, func(i, j int) bool {
+		return compareSemanticInventoryEntryGroupKeys(keys[i], keys[j]) < 0
+	})
 	values := make([]SemanticInventoryEntryPartial, 0, len(keys))
 	for _, key := range keys {
 		values = append(values, a.entries[key])
 	}
 	return values
+}
+
+func compareSemanticInventoryEntryGroupKeys(left, right semanticInventoryEntryGroupKey) int {
+	leftParts := [...]string{left.AuthResourcePath, left.ResourceType, left.BindingID, left.ConceptID}
+	rightParts := [...]string{right.AuthResourcePath, right.ResourceType, right.BindingID, right.ConceptID}
+	for i := range leftParts {
+		if len(leftParts[i]) < len(rightParts[i]) {
+			return -1
+		}
+		if len(leftParts[i]) > len(rightParts[i]) {
+			return 1
+		}
+		if leftParts[i] < rightParts[i] {
+			return -1
+		}
+		if leftParts[i] > rightParts[i] {
+			return 1
+		}
+	}
+	return 0
 }
 
 func (a *SemanticInventoryEntryAggregator) Documents() []map[string]any {

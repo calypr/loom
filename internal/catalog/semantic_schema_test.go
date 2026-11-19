@@ -252,7 +252,7 @@ func observeSchemaFactsForTest(t *testing.T, index *schema.Index, resourceType, 
 	t.Helper()
 	profiler := NewProfilerForGeneration("project", "generation", "scope", resourceType, nil)
 	var emissions []semanticEmissionForTest
-	err := profiler.observeSchemaSemanticsFromFacts(payload, "", sourceID, facts, func(observation SemanticObservation, examples []any, evidence SemanticCoverageEmissionEvidence) {
+	err := profiler.observeSchemaSemanticsFromFacts(payload, "", sourceID, facts, &semanticWalkScratch{}, func(observation SemanticObservation, examples []any, evidence SemanticCoverageEmissionEvidence) {
 		emissions = append(emissions, semanticEmissionForTest{observation, examples, evidence})
 	})
 	if err != nil {
@@ -317,6 +317,7 @@ func TestSemanticValueWalkMatchesFixtureNDJSON(t *testing.T) {
 	rows := 0
 	for _, path := range files {
 		resourceType := strings.TrimSuffix(filepath.Base(path), ".ndjson")
+		profiler := NewProfilerForGeneration("project", "generation", "scope", resourceType, nil)
 		file, err := os.Open(path)
 		if err != nil {
 			t.Fatal(err)
@@ -373,7 +374,13 @@ func TestSemanticValueWalkMatchesFixtureNDJSON(t *testing.T) {
 				}
 			}
 			oldEmissions := observeSchemaFactsForTest(t, index, resourceType, fmt.Sprintf("%s:%d", path, lineNumber), payload, byteFacts)
-			newEmissions := observeSchemaFactsForTest(t, index, resourceType, fmt.Sprintf("%s:%d", path, lineNumber), payload, valueFacts)
+			var newEmissions []semanticEmissionForTest
+			if err := profiler.observeSchemaSemanticsWithEvidence(index, payload, "", fmt.Sprintf("%s:%d", path, lineNumber), func(observation SemanticObservation, examples []any, evidence SemanticCoverageEmissionEvidence) {
+				newEmissions = append(newEmissions, semanticEmissionForTest{observation, examples, evidence})
+			}); err != nil {
+				file.Close()
+				t.Fatalf("%s:%d observe with reused profiler: %v", path, lineNumber, err)
+			}
 			if !reflect.DeepEqual(oldEmissions, newEmissions) {
 				file.Close()
 				t.Fatalf("%s:%d semantic emissions differ: byte=%#v value=%#v", path, lineNumber, oldEmissions, newEmissions)
@@ -389,4 +396,39 @@ func TestSemanticValueWalkMatchesFixtureNDJSON(t *testing.T) {
 		}
 	}
 	t.Logf("compared byte and value walks for %d fixture rows in %d files", rows, len(files))
+}
+
+func TestSemanticProfilerRecoversAfterPartialWalk(t *testing.T) {
+	index, err := schema.GeneratedIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	newProfiler := func() *Profiler { return NewProfilerForGeneration("project", "generation", "scope", "Patient", nil) }
+	profiler := newProfiler()
+	bad := map[string]any{
+		"extension":  []any{map[string]any{"url": "urn:example", "valueString": "discard"}},
+		"identifier": map[string]any{"system": "urn:invalid"},
+	}
+	if err := profiler.observeSchemaSemanticsWithEvidence(index, bad, "", "bad", func(SemanticObservation, []any, SemanticCoverageEmissionEvidence) {
+		t.Fatal("a partial walk emitted a semantic observation")
+	}); err == nil {
+		t.Fatal("expected the identifier to fail the member walk")
+	}
+	good := map[string]any{
+		"identifier": []any{map[string]any{"system": "urn:patient", "value": "new"}},
+	}
+	observe := func(profiler *Profiler) []semanticEmissionForTest {
+		var result []semanticEmissionForTest
+		err := profiler.observeSchemaSemanticsWithEvidence(index, good, "", "good", func(observation SemanticObservation, examples []any, evidence SemanticCoverageEmissionEvidence) {
+			result = append(result, semanticEmissionForTest{observation, examples, evidence})
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	reused, fresh := observe(profiler), observe(newProfiler())
+	if len(fresh) != 1 || !reflect.DeepEqual(reused, fresh) {
+		t.Fatalf("reused profiler = %#v, fresh profiler = %#v", reused, fresh)
+	}
 }
