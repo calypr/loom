@@ -10,6 +10,8 @@ import (
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
+const DefaultWriteQueueSize = 2
+
 type LoadOptions struct {
 	arangostore.ConnectionOptions
 	MetaDir          string
@@ -89,7 +91,7 @@ func normalizeLoadOptions(opts LoadOptions) LoadOptions {
 		opts.LineQueueSize = 1024
 	}
 	if opts.WriteQueueSize <= 0 {
-		opts.WriteQueueSize = 16
+		opts.WriteQueueSize = DefaultWriteQueueSize
 	}
 	opts.CatalogLimits = catalog.NormalizeProfileLimits(opts.CatalogLimits)
 	if opts.WriteAPI == "" {

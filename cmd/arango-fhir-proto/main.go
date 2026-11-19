@@ -186,7 +186,7 @@ func configureLoadFlagsCore(fs *flag.FlagSet, config *loadCommandConfig) {
 	fs.IntVar(&config.Options.WriterCount, "writers", 2, "Concurrent writer goroutines")
 	fs.IntVar(&config.Options.WorkerCount, "workers", 2, "Concurrent parse/profile workers")
 	fs.IntVar(&config.Options.LineQueueSize, "line-queue-size", 1024, "Buffered input lines")
-	fs.IntVar(&config.Options.WriteQueueSize, "write-queue-size", 8, "Buffered write batches")
+	fs.IntVar(&config.Options.WriteQueueSize, "write-queue-size", ingest.DefaultWriteQueueSize, "Buffered write batches")
 	profileLimits := catalog.DefaultProfileLimits()
 	fs.IntVar(&config.Options.CatalogLimits.MaxFields, "max-catalog-fields", profileLimits.MaxFields, "Maximum retained catalog fields per resource")
 	fs.IntVar(&config.Options.CatalogLimits.MaxDistinctValuesPerField, "max-distinct-values", profileLimits.MaxDistinctValuesPerField, "Maximum retained distinct values per field")
