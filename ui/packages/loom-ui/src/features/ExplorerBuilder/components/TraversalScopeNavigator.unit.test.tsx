@@ -14,7 +14,7 @@ const table: DraftTable = { outputId: 'subjects', tabId: 'subjects', title: 'Sub
   ] },
 } };
 const props = (): TraversalScopeNavigatorProps => ({ table, projectionKind: 'saved', selectedOccurrenceId: 'base',
-  onSelectScope: vi.fn(), onEditSourceStep: vi.fn(), onEditSourceOutput: vi.fn(), onEditConstructionStep: vi.fn(), onEditColumn: vi.fn(), onEditSourceRows: vi.fn(),
+  onSelectScope: vi.fn(), onEditSourceStep: vi.fn(), onEditConstructionStep: vi.fn(), onEditColumn: vi.fn(), onEditSourceRows: vi.fn(),
   onExpandRelatedRows: vi.fn(), onGroupRows: vi.fn(),
 });
 it('opens the source operation directly without listing every field as a shortcut', () => {
