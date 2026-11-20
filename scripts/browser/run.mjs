@@ -158,7 +158,11 @@ try {
     let chromeErrors = '';
     chrome.stderr.on('data', chunk => { chromeErrors += chunk; });
     const portFile = join(profile, 'DevToolsActivePort');
-    await until(() => existsSync(portFile), 'Chromium DevTools startup', 8000);
+    try {
+        await until(() => existsSync(portFile), 'Chromium DevTools startup', 8000);
+    } catch (error) {
+        throw new Error(`Chromium failed to expose DevTools (exit ${chrome.exitCode ?? chrome.signalCode ?? 'pending'}): ${chromeErrors.trim()}`, { cause: error });
+    }
     const [port, browserPath] = (await readFile(portFile, 'utf8')).trim().split('\n');
     browser = await CDPClient.connect(`ws://127.0.0.1:${port}${browserPath}`);
     report.chrome = (await browser.send('Browser.getVersion')).product;
