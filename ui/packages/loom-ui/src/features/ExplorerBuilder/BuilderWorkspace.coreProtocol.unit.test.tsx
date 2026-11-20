@@ -350,8 +350,6 @@ const editFirstColumnPolicy = async () => {
   const cancel = screen.queryByRole('button', { name: 'Cancel column edit' });
   if (cancel) fireEvent.click(cancel);
   if (!screen.queryByRole('button', { name: /^Value policy for / })) {
-    const staleCancel = screen.queryByRole('button', { name: 'Cancel' });
-    if (staleCancel) fireEvent.click(staleCancel);
     const sourceFields = screen.queryByText(/^Source fields \(/);
     if (sourceFields) fireEvent.click(sourceFields);
   }
@@ -1433,6 +1431,11 @@ describe('mounted Builder core protocol admission', () => {
       if (delivered > 10) { throw new Error('c03 preview spin'); }
     }
     await settleDelay(50);
+
+    expect(screen.queryByRole('heading', { name: 'This edit expired' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Back to table' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Patient operations' })).toBeInTheDocument();
 
     renameColumnLabel(headLabels[2], 'C03 after refresh');
     await waitFor(() => expect(harness.applyCalls.length).toBe(2), { timeout: 5000 });

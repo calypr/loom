@@ -19,7 +19,10 @@ func VerifyStoredWorkspaceForMigration(raw []byte, expectedDigest string) (Works
 	if expectedDigest != digest {
 		legacy, err := workspace.LegacyNilConstructionStepsDigest()
 		if err != nil || legacy == "" || expectedDigest != legacy {
-			return Workspace{}, fmt.Errorf("stored workspace canonical digest mismatch")
+			legacySource, err := legacyImportedSourceDigest(raw, workspace)
+			if err != nil || legacySource == "" || expectedDigest != legacySource {
+				return Workspace{}, fmt.Errorf("stored workspace canonical digest mismatch")
+			}
 		}
 	}
 	return workspace, nil

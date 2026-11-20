@@ -29,9 +29,10 @@ for (let i = 2; i < process.argv.length; i++) {
 assert.ok(['all', 'preview', 'download', 'route'].includes(options.feature), 'Unknown browser feature');
 for (const file of [fixture, options.chrome, 'ui/node_modules/esbuild/lib/main.js', 'ui/node_modules/postcss/lib/postcss.mjs', 'ui/node_modules/tailwindcss/lib/index.js'])
     assert.ok(existsSync(resolve(root, file)), `Missing browser prerequisite: ${file}`);
-const version = spawnSync(options.chrome, ['--version'], { encoding: 'utf8', timeout: 3000 });
-assert.equal(version.status, 0, version.stderr);
 if (options.doctor) {
+    const version = spawnSync(options.chrome, ['--version'], { encoding: 'utf8', timeout: 8000 });
+    if (version.error) throw version.error;
+    assert.equal(version.status, 0, version.stderr);
     console.log(JSON.stringify({ status: 'ready-for-browser-component-checks', chrome: version.stdout.trim(), features: ['preview', 'download', 'route'], boundary: 'real production components in real Chromium; test-owned caller/data/download HTTP response, not deployed Loom/backend or disk durability' }));
     process.exit(0);
 }
@@ -59,7 +60,7 @@ const assets = join(temp, 'assets'), profile = join(temp, 'profile'), downloads 
 await mkdir(downloads);
 let server, chrome, client, browser, stopBuild, currentLoader;
 const started = performance.now(), requests = [], browserErrors = [], downloadStarts = [], downloadStates = new Map();
-const report = { schemaVersion: 1, status: 'running', feature: options.feature, sourceFingerprint: inputFingerprint, chrome: version.stdout.trim(), checks: [], boundary: 'Actual PreviewTable/OutputTable and saved-route editor/proposal lifecycle in Chromium; DOM select change plus native pointer input. Test-owned caller/API responses/sessionStorage and controlled attachment endpoint. No BuilderWorkspace, real API/store, published Viewer integration or disk durability claim.' };
+const report = { schemaVersion: 1, status: 'running', feature: options.feature, sourceFingerprint: inputFingerprint, chrome: null, checks: [], boundary: 'Actual PreviewTable/OutputTable and saved-route editor/proposal lifecycle in Chromium; DOM select change plus native pointer input. Test-owned caller/API responses/sessionStorage and controlled attachment endpoint. No BuilderWorkspace, real API/store, published Viewer integration or disk durability claim.' };
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(probe, message, milliseconds = 5000) {
     const deadline = performance.now() + milliseconds;
@@ -157,9 +158,14 @@ try {
     let chromeErrors = '';
     chrome.stderr.on('data', chunk => { chromeErrors += chunk; });
     const portFile = join(profile, 'DevToolsActivePort');
-    await until(() => existsSync(portFile), 'Chromium DevTools startup', 8000);
+    try {
+        await until(() => existsSync(portFile), 'Chromium DevTools startup', 8000);
+    } catch (error) {
+        throw new Error(`Chromium failed to expose DevTools (exit ${chrome.exitCode ?? chrome.signalCode ?? 'pending'}): ${chromeErrors.trim()}`, { cause: error });
+    }
     const [port, browserPath] = (await readFile(portFile, 'utf8')).trim().split('\n');
     browser = await CDPClient.connect(`ws://127.0.0.1:${port}${browserPath}`);
+    report.chrome = (await browser.send('Browser.getVersion')).product;
     browser.on('Browser.downloadWillBegin', event => downloadStarts.push(event));
     browser.on('Browser.downloadProgress', event => downloadStates.set(event.guid, event.state));
     await browser.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads, eventsEnabled: true });

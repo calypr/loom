@@ -428,7 +428,7 @@ func (p *RepositorySourceLoader) ensureSourceLoadCandidate(ctx context.Context, 
 			return &SourcePublishConflictError{Reason: "source-load candidate generation already exists with incompatible lifecycle state"}
 		}
 	}
-	if err := p.copyGenerationForward(workCtx, *record); err != nil {
+	if err := p.copyGenerationForward(workCtx, *record, created.IdentityFormat); err != nil {
 		return err
 	}
 	if err := p.prepareCandidateSemanticInventory(workCtx, *record); err != nil {

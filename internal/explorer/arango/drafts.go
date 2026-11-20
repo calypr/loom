@@ -77,7 +77,7 @@ RETURN d`, migration != nil), 1, map[string]any{
 
 		revision := draftRevisionFromExplorer(*previous)
 		revision.ID = draftRevisionKey(previous.Project, previous.ExplorerID, previous.DraftVersion)
-		if migration != nil {
+		if migration != nil && migration.beforeHistory != nil {
 			if err := migration.beforeHistory(txCtx, tx, *previous, revision); err != nil {
 				return err
 			}

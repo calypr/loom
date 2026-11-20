@@ -81,7 +81,7 @@ func BindCompiledNetwork(network authoringv2.AuthoringNetwork, columns []lower.C
 			}
 			var eligible []authoringv2.ImportedSourceStep
 			for _, step := range plan.Steps {
-				if step.ParentID == occurrence.SourceStepID && step.Kind == kind && step.Enabled {
+				if step.ParentID == occurrence.SourceStepID && step.Kind == kind {
 					eligible = append(eligible, step)
 				}
 			}

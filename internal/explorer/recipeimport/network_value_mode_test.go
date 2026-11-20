@@ -7,7 +7,7 @@ import (
 )
 
 func TestCompiledNetworkUsesAuthoringValuePolicyVocabulary(t *testing.T) {
-	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "fields", Kind: SourcePlanFieldGroup, Title: "Fields", Summary: "Pinned fields", Enabled: true, Editable: true}}}
+	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "fields", Kind: SourcePlanFieldGroup, Title: "Fields", Summary: "Pinned fields", Editable: true}}}
 	for _, tc := range []struct{ compiled, authored string }{{"scalar", "VALUE"}, {"first", "FIRST"}, {"array", "ALL"}, {"distinct_array", "DISTINCT"}, {"AUTO", "AUTO"}, {"ALL", "ALL"}} {
 		t.Run(tc.compiled, func(t *testing.T) {
 			network := authoringv2.AuthoringNetwork{Occurrences: []authoringv2.NetworkOccurrence{{OccurrenceID: "base", ResourceType: "Patient", Enabled: true}}, Bindings: []authoringv2.NetworkColumnBinding{{ColumnID: "id", Status: "UNKNOWN"}}}

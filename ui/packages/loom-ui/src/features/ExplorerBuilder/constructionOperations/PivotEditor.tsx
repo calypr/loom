@@ -1,5 +1,6 @@
 import { fieldPickerList, fieldPickerMetadata, fieldPickerToggleRow } from '../components/fieldPickerStyles';
 import { useId, useState } from 'react';
+import { FieldPickerDropdown } from '../components/FieldPickerDropdown';
 import { createOpaqueId, isNumericColumn, sourceLabel as pivotSourceLabel } from './editorShared';
 import type { ConstructionTableScalar } from '../../../types';
 import {
@@ -21,7 +22,6 @@ export const PivotEditor = (props: {
   readonly disabled: boolean;
   readonly discovery?: ConstructionReshapePivotDiscovery;
   readonly discoveryAwaited: boolean;
-  readonly requireEveryDiscoveredCategory: boolean;
   readonly canDiscover: boolean;
   readonly showRowSelection: boolean;
   readonly populationStatusFor: (columnId: string) => 'POPULATED' | 'EMPTY' | 'UNKNOWN';
@@ -36,6 +36,7 @@ export const PivotEditor = (props: {
   readonly onChange: (form: PivotForm) => void;
 }) => {
   const discoveryHelpId = useId();
+  const categoryHelpId = useId();
   const [categorySearch, setCategorySearch] = useState('');
   const columns = scalarColumnsFor(props.stage);
   const emptyRole = [props.form.categoryColumnId, props.form.valueColumnId]
@@ -70,7 +71,7 @@ export const PivotEditor = (props: {
     && props.discovery?.status === 'loading';
   const discoveryPending = hostDiscoveryPending || (props.discoveryAwaited && !categoriesKnown);
   const categoriesAvailable = discoveryComplete ? props.discovery.categories : [];
-  const missingDiscoveredCategories = props.requireEveryDiscoveredCategory
+  const missingDiscoveredCategories = props.form.unlistedCategoryPolicy === 'ERROR'
     && discoveryComplete
     && !allDiscoveredPivotCategoriesSelected(props.form, props.stage.id, props.discovery);
   const listedKeys = new Set(categoriesAvailable.map((category) => scalarIdentity(category.key)));
@@ -83,13 +84,8 @@ export const PivotEditor = (props: {
   const shownCategories = categoriesAvailable.filter((category) => matchesCategorySearch(category.label, category.key));
   const shownExistingNotListed = existingNotListed.filter((category) => matchesCategorySearch(scalarLabel(category.key), category.key));
   const selectedCategoryIdentities = new Set(props.form.categories.map((category) => scalarIdentity(category.key)));
-  const selectedCategoryLabels = props.form.categories.map((category) =>
-    categoriesAvailable.find((available) => scalarIdentity(available.key) === scalarIdentity(category.key))?.label
-      ?? scalarLabel(category.key),
-  );
-  const displayedSelectedCategoryLabels = selectedCategoryLabels.slice(0, 3);
-  const additionalSelectedCategoryCount = selectedCategoryLabels.length - displayedSelectedCategoryLabels.length;
-  const showSelectedCategoryLabels = selectedCategoryLabels.length <= 10;
+  const selectedNullCategory = props.form.categories.find(category => category.key.kind === 'NULL');
+  const discoveredNull = categoriesAvailable.some(category => category.key.kind === 'NULL');
   const shownCategoryIdentities = new Set([
     ...shownCategories.map((category) => scalarIdentity(category.key)),
     ...shownExistingNotListed.map((category) => scalarIdentity(category.key)),
@@ -193,7 +189,7 @@ export const PivotEditor = (props: {
     }
   };
   const renderSplitAction = (role: 'category' | 'value') => listRole === role && listColumn ? (
-    <div className="grid gap-2 rounded border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700">
+    <div className="grid gap-2 border-t border-slate-200 pt-2 text-xs text-slate-700">
       <p>Use each item in <strong>{pivotColumnLabel(listColumn)}</strong> separately. Each list item gets its own row, and the other values repeat.</p>
       <button type="button" disabled={props.disabled}
         onClick={() => props.onExpandListColumn?.(listColumn.id)}
@@ -288,48 +284,51 @@ export const PivotEditor = (props: {
         <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">No fields are available for Pivot at this stage.</p>
       ) : (
         <>
-          {props.showRowSelection ? (
-          <fieldset className="grid min-w-0 content-start gap-3" disabled={props.disabled || !props.supported}>
-            <legend className="m-0 text-sm font-semibold text-slate-900">One row per</legend>
-            <p className="m-0 text-xs text-slate-600">These fields identify each output row. Each category value becomes a new column.</p>
-            <div className="grid gap-2">
-              <label className="grid gap-1 text-xs font-medium text-slate-700">
-                Search fields
-                <input aria-label="Search pivot row fields" value={columnFilter} onChange={(event) => setColumnFilter(event.currentTarget.value)} placeholder="Search columns" className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm" />
-              </label>
-              <div className={fieldPickerList}>
-                {filteredGroupColumns.map((column) => {
-                  const label = pivotColumnLabel(column);
-                  return (
-                    <label key={column.id} title={pivotColumnTitle(column)} className={fieldPickerToggleRow}>
-                      <input
-                        type="checkbox"
-                        aria-label={`Pivot group ${label}`}
-                        checked={props.form.groupKeyIds.includes(column.id)}
-                        disabled={props.disabled || !props.supported || column.id === props.form.categoryColumnId || column.id === props.form.valueColumnId}
-                        onChange={(event) => toggleGroup(column.id, event.currentTarget.checked)}
-                      />
-                      <span className="min-w-0 flex-1 truncate">{column.label || column.name}</span>
-                      {column.type ? <span className={fieldPickerMetadata}>{column.type}</span> : null}
+          <section aria-label="Pivot fields" className="grid min-w-0 gap-3">
+            <h4 className="text-sm font-semibold text-slate-900">Set up your pivot</h4>
+            {props.showRowSelection ? (
+              <fieldset className="grid min-w-0 content-start gap-1" disabled={props.disabled || !props.supported}>
+                <legend className="mb-1 text-xs font-medium text-slate-700">One row per</legend>
+                <FieldPickerDropdown label="Choose pivot row fields" choicesLabel="Pivot row fields"
+                  summary={groupColumns.length ? groupColumns.map(column => column.label).join(', ') : 'Choose row fields'}
+                  disabled={props.disabled || !props.supported}>
+                  <div className="grid gap-2">
+                    <label className="grid gap-1 text-xs font-medium text-slate-700">
+                      Search fields
+                      <input aria-label="Search pivot row fields" value={columnFilter} onChange={(event) => setColumnFilter(event.currentTarget.value)} placeholder="Search columns" className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm" />
                     </label>
-                  );
-                })}
-                {filteredGroupColumns.length === 0 ? <p className="px-1 text-xs text-slate-500">{columns.length === 0 ? 'No columns are available.' : 'No columns match this search.'}</p> : null}
-              </div>
-              {sourceOptions.length > 0 ? <select aria-label="Add pivot group field" value="" disabled={props.disabled || !props.supported} onChange={(event) => chooseInput('group', event.currentTarget.value)} className="justify-self-start rounded border border-slate-300 bg-white px-2 py-1.5">
-                <option value="">Add another field</option>
-                {sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`} title={choice.fieldPath}>{pivotSourceLabel(choice)}</option>)}
-              </select> : null}
-              {props.form.groupKeyIds.length === 0 && props.supported ? <p role="status" className="m-0 text-xs text-amber-900">Choose one or more fields to identify each row{props.form.pivotSources?.length ? '. Choose a row identity before finding categories from source fields.' : '.'}</p> : null}
-            </div>
-          </fieldset>
-          ) : null}
-          <section aria-label="Pivot fields" className="grid gap-3 rounded-md border border-slate-200 bg-white p-3">
-            <h4 className="text-sm font-semibold text-slate-900">Choose pivot fields</h4>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="grid content-start gap-2">
+                    <div className={fieldPickerList}>
+                      {filteredGroupColumns.map((column) => {
+                        const label = pivotColumnLabel(column);
+                        return (
+                          <label key={column.id} title={pivotColumnTitle(column)} className={fieldPickerToggleRow}>
+                            <input
+                              type="checkbox"
+                              aria-label={`Pivot group ${label}`}
+                              checked={props.form.groupKeyIds.includes(column.id)}
+                              disabled={props.disabled || !props.supported || column.id === props.form.categoryColumnId || column.id === props.form.valueColumnId}
+                              onChange={(event) => toggleGroup(column.id, event.currentTarget.checked)}
+                            />
+                            <span className="min-w-0 flex-1 truncate">{column.label || column.name}</span>
+                            {column.type ? <span className={fieldPickerMetadata}>{column.type}</span> : null}
+                          </label>
+                        );
+                      })}
+                      {filteredGroupColumns.length === 0 ? <p className="px-1 text-xs text-slate-500">{columns.length === 0 ? 'No columns are available.' : 'No columns match this search.'}</p> : null}
+                    </div>
+                    {sourceOptions.length > 0 ? <select aria-label="Add pivot group field" value="" disabled={props.disabled || !props.supported} onChange={(event) => chooseInput('group', event.currentTarget.value)} className="justify-self-start rounded border border-slate-300 bg-white px-2 py-1.5">
+                      <option value="">Add another field</option>
+                      {sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`} title={choice.fieldPath}>{pivotSourceLabel(choice)}</option>)}
+                    </select> : null}
+                    {props.form.groupKeyIds.length === 0 && props.supported ? <p role="status" className="m-0 text-xs text-amber-900">Choose one or more fields to identify each row{props.form.pivotSources?.length ? '. Choose a row identity before finding categories from source fields.' : '.'}</p> : null}
+                  </div>
+                </FieldPickerDropdown>
+              </fieldset>
+            ) : null}
+            <div className="grid min-w-0 gap-3">
+              <div className="grid min-w-0 content-start gap-2">
                 <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
-                  New column names
+                  Make columns from
                   <select aria-label="Pivot category field" value={listRole === 'category' ? listColumn?.id : props.form.categoryColumnId} disabled={props.disabled || (!props.supported && listColumns.length === 0)} onChange={(event) => selectPivotInput('category', event.currentTarget.value)} className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm">
                     <option value="">Choose a column-name field</option>
                     {props.stage.columns.map((column) => renderInputColumn(column, 'category'))}
@@ -338,9 +337,9 @@ export const PivotEditor = (props: {
                 </label>
                 {renderSplitAction('category')}
               </div>
-              <div className="grid content-start gap-2">
+              <div className="grid min-w-0 content-start gap-2">
                 <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
-                  Cell values
+                  Fill cells with
                   <select aria-label="Pivot values field" value={listRole === 'value' ? listColumn?.id : props.form.valueColumnId} disabled={props.disabled || (!props.supported && listColumns.length === 0)} onChange={(event) => selectPivotInput('value', event.currentTarget.value)} className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm">
                     <option value="">Choose a cell-values field</option>
                     {props.stage.columns.map((column) => renderInputColumn(column, 'value'))}
@@ -353,10 +352,16 @@ export const PivotEditor = (props: {
             {!listColumn ? <p data-testid="construction-reshape-pivot-role-summary" className="m-0 text-xs text-slate-600">
               {roleSummary}
             </p> : null}
+            {categoryColumn && valueColumn && !listColumn ? <p className="m-0 text-xs text-slate-600">
+              {{ SUM: 'If several values land in one cell, Loom adds them.',
+                MIN: 'If several values land in one cell, Loom keeps the smallest.',
+                MAX: 'If several values land in one cell, Loom keeps the largest.',
+                ERROR: 'If several values land in one cell, Loom reports an error.' }[props.form.duplicatePolicy]}
+            </p> : null}
           </section>
           {!listColumn ? <section aria-label="Pivot categories" className="grid gap-3 border-t border-slate-200 pt-3">
           <h4 className="text-sm font-semibold text-slate-900">Categories</h4>
-          <div className="grid gap-1 rounded-md bg-slate-50 px-3 py-2">
+          <div className="grid gap-1">
             <label className="flex items-start gap-2 text-sm font-medium text-slate-800">
               <input
                 type="checkbox"
@@ -391,7 +396,7 @@ export const PivotEditor = (props: {
               data-stage-id={props.stage.id}
               data-category-column-id={props.form.categoryColumnId}
               data-value-column-id={props.form.valueColumnId}
-              className="grid gap-1 rounded bg-slate-50 px-3 py-2 text-sm text-slate-600"
+              className="grid gap-1 text-sm text-slate-600"
             >
               <p className="m-0">Finding categories…</p>
               <p className="m-0 text-xs">
@@ -405,18 +410,29 @@ export const PivotEditor = (props: {
           {props.discovery && discoveryMatches && props.discovery.status === 'no-values' ? <p role="status" className="text-sm text-amber-900">{props.discovery.reason}</p> : null}
           {categoriesKnown ? (
             <>
-              <p role="status" data-testid="construction-reshape-pivot-category-summary" className="rounded bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                Selected {selectedCategoryLabels.length} of {categoryCount} categories{selectedCategoryLabels.length === 0 ? ': none' : showSelectedCategoryLabels ? `: ${displayedSelectedCategoryLabels.join(', ')}${additionalSelectedCategoryCount > 0 ? `, and ${additionalSelectedCategoryCount} more` : ''}` : '. Review the list to change them.'}
+              <p role="status" data-testid="construction-reshape-pivot-category-summary" className="text-sm text-slate-700">
+                Selected {props.form.categories.length} of {categoryCount} categories
               </p>
               {discoveryComplete && categoryCount === 0 ? <p role="status" className="text-sm text-slate-600">No categories were found for this pair. Choose another New column names field or adjust the rows before continuing.</p> : null}
-              {missingDiscoveredCategories ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">Select every discovered category, or filter rows before pivoting.</p> : null}
-              <p role="status" aria-live="polite" data-testid="construction-reshape-pivot-category-status" className="text-sm text-slate-600">
-                {props.form.categories.length} selected · Showing {shownCategoryCount} of {categoryCount} category values
-              </p>
-              <details data-testid="construction-reshape-pivot-categories" className="rounded border border-slate-200 p-3">
+              {missingDiscoveredCategories ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">Preview needs a column for each category in the input. Select the unchecked categories below, or filter out their rows before pivoting.</p> : null}
+              {discoveredNull || selectedNullCategory ? <p role="status" data-testid="construction-reshape-pivot-null-category"
+                className="text-sm font-medium text-amber-900">
+                {selectedNullCategory
+                  ? `NULL category selected. Pivot will create the “${selectedNullCategory.label || selectedNullCategory.name}” column for rows with a NULL category.`
+                  : 'NULL category found. Selecting it creates a column for rows with a NULL category.'}
+              </p> : null}
+              {props.canDiscover ? (
+                <div>
+                  <button type="button" onClick={props.onDiscover} disabled={props.disabled || props.discoveryAwaited || !props.supported}
+                    className="text-sm text-blue-800 underline disabled:text-slate-400">
+                    {props.discoveryAwaited ? 'Checking categories…' : 'Refresh categories'}
+                  </button>
+                </div>
+              ) : null}
+              <details data-testid="construction-reshape-pivot-categories" className="border-t border-slate-200 pt-2">
                 <summary className="cursor-pointer text-sm font-semibold text-slate-800">Change selected categories</summary>
-                <fieldset className="mt-3 grid gap-3" disabled={props.disabled || !props.supported}>
-                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
+                <fieldset className="m-0 mt-3 grid min-w-0 gap-3 border-0 p-0" disabled={props.disabled || !props.supported}>
+                  <div className="grid min-w-0 gap-2">
                     <label className="grid gap-1 text-sm font-medium text-slate-700">
                       Search category values
                       <input
@@ -425,44 +441,60 @@ export const PivotEditor = (props: {
                         value={categorySearch}
                         onChange={(event) => setCategorySearch(event.currentTarget.value)}
                         placeholder="Search by label or value"
-                        className="rounded border border-slate-300 bg-white px-2 py-1.5"
+                        className="w-full min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5"
                       />
                     </label>
-                    <button
-                      type="button"
-                      aria-label="Select shown categories"
-                      disabled={props.disabled || !props.supported || !hasUnselectedShownCategory}
-                      onClick={selectShownCategories}
-                      className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
-                    >
-                      Select shown categories
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Clear shown categories"
-                      disabled={props.disabled || !props.supported || !hasSelectedShownCategory}
-                      onClick={clearShownCategories}
-                      className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
-                    >
-                      Clear shown categories
-                    </button>
+                    {categorySearchTerm && shownCategoryCount < categoryCount ? <p role="status" aria-live="polite"
+                      data-testid="construction-reshape-pivot-category-status" className="text-xs text-slate-600">
+                      Showing {shownCategoryCount} of {categoryCount} category values
+                    </p> : null}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        aria-label="Select shown categories"
+                        disabled={props.disabled || !props.supported || !hasUnselectedShownCategory}
+                        onClick={selectShownCategories}
+                        className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                      >
+                        Select shown
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Clear shown categories"
+                        disabled={props.disabled || !props.supported || !hasSelectedShownCategory}
+                        onClick={clearShownCategories}
+                        className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                      >
+                        Clear shown
+                      </button>
+                    </div>
                   </div>
-                  {shownCategories.map((available) => {
+                  {shownCategories.map((available, index) => {
                     const identity = scalarIdentity(available.key);
                     const current = props.form.categories.find((category) => scalarIdentity(category.key) === identity);
+                    const choiceLabel = available.key.kind === 'NULL' ? scalarLabel(available.key) : available.label;
+                    const blocksPreview = missingDiscoveredCategories && !current;
+                    const helpId = `${categoryHelpId}-${index}`;
                     return (
-                      <div key={identity} className="grid gap-2 rounded bg-slate-50 p-2">
+                      <div key={identity} className="grid gap-2 border-b border-slate-100 py-2">
                         <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
-                          <input type="checkbox" aria-label={`Include category ${available.label}`} checked={Boolean(current)} disabled={props.disabled || !props.supported} onChange={(event) => toggleCategory(available, event.currentTarget.checked)} />
-                          {available.label}
+                          <input type="checkbox" aria-label={`Include category ${choiceLabel}`} aria-describedby={blocksPreview ? helpId : undefined} checked={Boolean(current)} disabled={props.disabled || !props.supported} onChange={(event) => toggleCategory(available, event.currentTarget.checked)} />
+                          {choiceLabel}
                         </label>
+                        {blocksPreview ? (
+                          <p id={helpId} className="m-0 pl-5 text-sm text-amber-900">
+                            {available.key.kind === 'NULL'
+                              ? 'Some input rows have a NULL category. Recheck Null value or filter out those rows before pivoting.'
+                              : `Some input rows have the category “${choiceLabel}”. Select it or filter out those rows before pivoting.`}
+                          </p>
+                        ) : null}
                       </div>
                     );
                   })}
                   {shownExistingNotListed.map((category) => {
                     const identity = scalarIdentity(category.key);
                     return (
-                      <div key={identity} className={`grid gap-2 rounded p-2 ${discoveryComplete ? 'border border-amber-200 bg-amber-50' : 'bg-slate-50'}`}>
+                      <div key={identity} className={`grid gap-2 border-b py-2 ${discoveryComplete ? 'border-amber-200' : 'border-slate-100'}`}>
                         <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
                           <input type="checkbox" aria-label={`Keep saved category ${scalarLabel(category.key)}`} checked disabled={props.disabled || !props.supported} onChange={(event) => { if (!event.currentTarget.checked) toggleCategory({ key: category.key, label: scalarLabel(category.key) }, false); }} />
                           {scalarLabel(category.key)} {discoveryComplete ? <span className="font-normal text-amber-900">Not found in the latest category list</span> : null}
@@ -478,16 +510,16 @@ export const PivotEditor = (props: {
           ) : null}
           </section> : null}
           {props.form.categories.length > 0 ? (
-            <details className="rounded border border-slate-200 p-3">
+            <details className="border-t border-slate-200 pt-2">
               <summary className="cursor-pointer text-sm font-semibold text-slate-800">Output column names and labels</summary>
-                <fieldset className="grid gap-3 rounded border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
+                <fieldset className="grid gap-3 border-t border-slate-200 pt-2" disabled={props.disabled || !props.supported}>
                   <legend className="sr-only">Output column names and labels</legend>
                   {props.form.categories.map((category) => {
                     const identity = scalarIdentity(category.key);
                     const label = categoriesAvailable.find((available) => scalarIdentity(available.key) === identity)?.label
                       ?? scalarLabel(category.key);
                     return (
-                      <div key={identity} className="grid gap-2 rounded bg-slate-50 p-2">
+                      <div key={identity} className="grid gap-2 border-b border-slate-100 py-2">
                         <p className="text-sm font-medium text-slate-700">{label}</p>
                         <PivotCategoryOutput category={category} disabled={props.disabled || !props.supported} onChange={(update) => updateCategory(identity, update)} />
                       </div>

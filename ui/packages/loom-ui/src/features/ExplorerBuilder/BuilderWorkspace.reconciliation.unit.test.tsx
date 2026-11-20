@@ -4963,6 +4963,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         { kind: 'PIVOT', supported: true },
         { kind: 'UNPIVOT', supported: true },
         { kind: 'FILTER', supported: true },
+        { kind: 'DERIVE', supported: true },
       ],
     };
     const capabilities = {
@@ -4990,7 +4991,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     ));
     await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-preview-status', 'ready'));
 
-    fireEvent.click(screen.getByTestId('construction-action-keep-rows'));
+    fireEvent.click(screen.getByTestId('construction-action-calculate'));
     const selectedField = await screen.findByTestId('construction-column-specimen_identifier_id');
     fireEvent.click(selectedField);
     expect(selectedField).toHaveAttribute('aria-pressed', 'true');
@@ -5005,19 +5006,27 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(screen.getAllByRole('region', { name: 'Change editor' })).toHaveLength(1);
     const operationEditor = await within(inspector).findByTestId('construction-operation-editor');
     expect(operationEditor).toHaveAttribute('data-operation-family', 'RESHAPE');
-    expect(screen.getByTestId('construction-column-selection')).toBeInTheDocument();
+    expect(screen.queryByTestId('construction-column-selection')).not.toBeInTheDocument();
     const reshapeEditor = within(operationEditor).getByTestId('construction-reshape-editor');
     expect(within(reshapeEditor).getByRole('region', { name: 'Pivot categories into columns' })).toBeInTheDocument();
-    expect(within(screen.getByTestId('construction-column-selection'))
-      .getByTestId('construction-column-specimen_identifier_id')).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(within(reshapeEditor).getByLabelText('Choose pivot row fields'));
+    expect(within(reshapeEditor).getByLabelText(/Pivot group .*Specimen.*Identifier/i)).toHaveProperty('checked', true);
     expect(within(rowSettings).queryByText(/Inputs from your selection:/)).not.toBeInTheDocument();
+    fireEvent.click(within(reshapeEditor).getByRole('tab', { name: 'Unpivot' }));
+    expect(await screen.findByTestId('construction-reshape-unpivot')).toBeInTheDocument();
+    const unpivotSelection = await screen.findByTestId('construction-column-selection');
+    const unpivotField = within(unpivotSelection).getByTestId('construction-column-specimen_identifier_id');
+    fireEvent.click(unpivotField);
+    expect(screen.getByRole('tab', { name: 'Unpivot' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(unpivotField);
+    expect(screen.getByRole('tab', { name: 'Unpivot' })).toHaveAttribute('aria-selected', 'true');
     expect(applyCommands).not.toHaveBeenCalled();
 
     await openRowSettings();
     const reopenedActions = await findRowSettings();
     fireEvent.click(within(reopenedActions).getByRole('button', { name: 'Close row settings' }));
     await waitFor(() => expect(queryRowSettings()).not.toBeInTheDocument());
-    fireEvent.click(screen.getByTestId('construction-action-keep-rows'));
+    fireEvent.click(screen.getByTestId('construction-action-calculate'));
     const restoredSelection = await screen.findByTestId('construction-column-selection');
     expect(within(restoredSelection).getByTestId('construction-column-specimen_identifier_id')).toHaveAttribute('aria-pressed', 'true');
     expect(applyCommands).not.toHaveBeenCalled();
@@ -5033,7 +5042,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         { id: 'weight', name: 'weight', label: 'Weight', type: 'number' },
         { id: 'height', name: 'height', label: 'Height', type: 'number' },
       ],
-      capabilities: [{ kind: 'DERIVE' as const, supported: true }],
+      capabilities: [{ kind: 'DERIVE' as const, supported: true }, { kind: 'FILTER' as const, supported: true }],
     };
     mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
       readonly snapshotToken: string;
@@ -5104,12 +5113,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     expect(screen.queryByTestId('construction-column-selection')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('construction-action-keep-rows'));
-    const selectedColumn = await screen.findByTestId('construction-column-specimen_identifier_id');
-    expect(selectedColumn.tagName).toBe('BUTTON');
-    selectedColumn.focus();
-    expect(document.activeElement).toBe(selectedColumn);
-    fireEvent.click(selectedColumn);
-    expect(selectedColumn).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByTestId('construction-column-selection')).not.toBeInTheDocument();
     expect(screen.queryByTestId('construction-selection-keep-rows')).not.toBeInTheDocument();
     expect(screen.getByTestId('construction-operation-editor')).toHaveAttribute(
       'data-operation-family',

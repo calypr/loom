@@ -123,6 +123,7 @@ export const viewBuilderStateSchema = z
         z
           .object({
             recipeName: z.string(),
+            title: z.string().optional(),
             revisionId: z.string(),
             executionId: z.string(),
             generation: z.string(),

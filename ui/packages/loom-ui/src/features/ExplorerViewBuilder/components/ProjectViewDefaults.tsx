@@ -97,7 +97,7 @@ export const ProjectViewDefaults = ({
           <Select
             size="xs"
             className="min-w-0 flex-[1_1_9rem]"
-            label="Default view"
+            label="View that opens by default"
             placeholder="Choose a saved view"
             data={state.configs.map(({ config }) => ({
               value: config.id,
@@ -115,7 +115,7 @@ export const ProjectViewDefaults = ({
           <Select
             size="xs"
             className="min-w-0 flex-[1_1_9rem]"
-            label="Default table"
+            label="Tab that opens by default"
             placeholder="Choose a saved tab"
             data={defaultFrameOptions}
             value={defaultDraft.frameId || null}
@@ -139,7 +139,7 @@ export const ProjectViewDefaults = ({
             Save project default
           </Button>
           <Text c="dimmed" size="xs" className="self-center">
-            Saved separately from view edits.
+            Applies when someone opens Viewer without choosing a view.
           </Text>
         </Group>
       </Stack>

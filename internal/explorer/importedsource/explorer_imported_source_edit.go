@@ -586,6 +586,9 @@ func requiresPristineProjectionIdentity(output recipe.Output, plan *authoringv2.
 	if len(plan.FieldBindings) > 0 {
 		return true
 	}
+	if len(plan.RemovedStepIDs) > 0 || plan.NextRuleIndex > len(plan.RuleAdditions) {
+		return true
+	}
 	if r := plan.Relationships; r != nil && (len(r.Additions) > 0 || len(r.Removals) > 0 || len(r.MatchOverrides) > 0) {
 		return true
 	}
@@ -595,7 +598,7 @@ func requiresPristineProjectionIdentity(output recipe.Output, plan *authoringv2.
 	}
 	for _, step := range plan.Steps {
 		original := originals[step.ID]
-		if step.Enabled != original.Enabled || !reflect.DeepEqual(step.MaxColumns, original.MaxColumns) || step.ValueMode != original.ValueMode || (step.Parameters != nil && !reflect.DeepEqual(step.Parameters, original.Parameters)) {
+		if !reflect.DeepEqual(step.MaxColumns, original.MaxColumns) || step.ValueMode != original.ValueMode || (step.Parameters != nil && !reflect.DeepEqual(step.Parameters, original.Parameters)) {
 			return true
 		}
 	}

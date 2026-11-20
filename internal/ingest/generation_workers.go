@@ -115,6 +115,8 @@ type generationInsertCounters struct {
 }
 
 const rowErrorSampleLimit = 10
+const lineBatchSize = 256
+const lineBatchByteLimit = 1 << 20
 
 func selectGenerationRowErrorSamples(fileSamples [][]RowErrorSample) []RowErrorSample {
 	failing := make([][]RowErrorSample, 0, len(fileSamples))
@@ -231,7 +233,7 @@ func loadFile(
 
 	var rowBuilder RowBuilder = NewGeneratedRowBuilder(opts.Project, opts.AuthResourcePath)
 	if strings.TrimSpace(datasetGeneration) != "" {
-		rowBuilder, err = newGenerationRowBuilder(rowBuilder, opts.Project, datasetGeneration)
+		rowBuilder, err = newGenerationRowBuilderWithFormat(rowBuilder, opts.Project, datasetGeneration, opts.IdentityFormat)
 		if err != nil {
 			return result, err
 		}
@@ -240,7 +242,8 @@ func loadFile(
 		rowBuilder = sourceFileOwnerRowBuilder{delegate: rowBuilder, owner: opts.SourceFileOwner}
 	}
 
-	linesChan := make(chan fileLine, opts.LineQueueSize)
+	batchSize := min(lineBatchSize, opts.LineQueueSize)
+	linesChan := make(chan []fileLine, 1)
 	writeChan := make(chan fileWriteTask, opts.WriteQueueSize)
 	fileCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -260,6 +263,21 @@ func loadFile(
 	go func() {
 		defer close(linesChan)
 		lineNumber := 0
+		lineBatch := make([]fileLine, 0, batchSize)
+		lineBatchBytes := 0
+		flushLineBatch := func() bool {
+			if len(lineBatch) == 0 {
+				return true
+			}
+			select {
+			case linesChan <- lineBatch:
+				lineBatch = make([]fileLine, 0, batchSize)
+				lineBatchBytes = 0
+				return true
+			case <-fileCtx.Done():
+				return false
+			}
+		}
 		for scanner.Scan() {
 			lineNumber++
 			select {
@@ -271,15 +289,17 @@ func loadFile(
 			if line == "" {
 				continue
 			}
-			select {
-			case linesChan <- fileLine{number: lineNumber, text: line}:
-			case <-fileCtx.Done():
+			lineBatch = append(lineBatch, fileLine{number: lineNumber, text: line})
+			lineBatchBytes += len(line)
+			if (len(lineBatch) == batchSize || lineBatchBytes >= lineBatchByteLimit) && !flushLineBatch() {
 				return
 			}
 		}
 		if scanErr := scanner.Err(); scanErr != nil {
 			setPipelineErr(scanErr)
+			return
 		}
+		flushLineBatch()
 	}()
 
 	workerCount := opts.WorkerCount
@@ -418,7 +438,7 @@ func loadFile(
 				select {
 				case <-fileCtx.Done():
 					return
-				case line, open := <-linesChan:
+				case lines, open := <-linesChan:
 					if !open {
 						if !flushVertexBatch() || !flushEdgeBatch() {
 							return
@@ -446,95 +466,102 @@ func loadFile(
 							<-opts.fileWorkerBudget
 						}
 					}
-					built, errorType, buildErr := rowBuilder.Build(resourceType, []byte(line.text), localTimings)
-					if buildErr != nil {
-						if opts.FailFast {
-							setPipelineErr(&RowError{File: filepath.Base(file), ResourceType: resourceType,
-								Row: line.number, Category: string(errorType), Cause: buildErr})
+					for _, line := range lines {
+						select {
+						case <-fileCtx.Done():
 							releaseWorkerBudget()
 							return
+						default:
 						}
-						recordRowError(line.number, errorType, buildErr)
-						switch errorType {
-						case rowErrorValidation:
-							atomic.AddInt64(&validationErrors, 1)
-						case rowErrorGeneration:
-							atomic.AddInt64(&generationErrors, 1)
-						case rowErrorEdge:
-							atomic.AddInt64(&edgeErrors, 1)
-						}
-						releaseWorkerBudget()
-						continue
-					}
-
-					if semanticSourceFile == "" {
-						if observeErr := localCatalog.ObservePayload(built.payload, localTimings); observeErr != nil {
-							setPipelineErr(fmt.Errorf("observe payload for %s row %d: %w", filepath.Base(file), line.number, observeErr))
-							releaseWorkerBudget()
-							return
-						}
-					} else {
-						sourceID := semanticInventorySourceRecordID(semanticSourceFile, line.number)
-						semanticSink := func(contribution catalog.SemanticInventoryContribution) {
-							if semanticInventoryFailed || fileCtx.Err() != nil {
+						built, errorType, buildErr := rowBuilder.Build(resourceType, []byte(line.text), localTimings)
+						if buildErr != nil {
+							if opts.FailFast {
+								setPipelineErr(&RowError{File: filepath.Base(file), ResourceType: resourceType,
+									Row: line.number, Category: string(errorType), Cause: buildErr})
+								releaseWorkerBudget()
 								return
 							}
-							if addErr := localInventory.Add(contribution); addErr != nil {
+							recordRowError(line.number, errorType, buildErr)
+							switch errorType {
+							case rowErrorValidation:
+								atomic.AddInt64(&validationErrors, 1)
+							case rowErrorGeneration:
+								atomic.AddInt64(&generationErrors, 1)
+							case rowErrorEdge:
+								atomic.AddInt64(&edgeErrors, 1)
+							}
+							continue
+						}
+
+						if semanticSourceFile == "" {
+							if observeErr := localCatalog.ObservePayload(built.payload, localTimings); observeErr != nil {
+								setPipelineErr(fmt.Errorf("observe payload for %s row %d: %w", filepath.Base(file), line.number, observeErr))
+								releaseWorkerBudget()
+								return
+							}
+						} else {
+							sourceID := semanticInventorySourceRecordID(semanticSourceFile, line.number)
+							semanticSink := func(contribution catalog.SemanticInventoryContribution) {
+								if semanticInventoryFailed || fileCtx.Err() != nil {
+									return
+								}
+								if addErr := localInventory.Add(contribution); addErr != nil {
+									semanticInventoryFailed = true
+									setPipelineErr(fmt.Errorf("aggregate semantic inventory contribution for %s row %d: %w", filepath.Base(file), line.number, addErr))
+								}
+							}
+							if observeErr := localCatalog.ObservePayloadWithInventory(built.payload, localTimings, sourceID, semanticSink); observeErr != nil {
 								semanticInventoryFailed = true
-								setPipelineErr(fmt.Errorf("aggregate semantic inventory contribution for %s row %d: %w", filepath.Base(file), line.number, addErr))
+								setPipelineErr(fmt.Errorf("observe semantic inventory for %s row %d: %w", filepath.Base(file), line.number, observeErr))
+							}
+							if fileCtx.Err() != nil {
+								releaseWorkerBudget()
+								return
+							}
+							if localInventory.Len() >= semanticInventoryRunKeyLimit && !flushInventoryRun() {
+								releaseWorkerBudget()
+								return
 							}
 						}
-						if observeErr := localCatalog.ObservePayloadWithInventory(built.payload, localTimings, sourceID, semanticSink); observeErr != nil {
-							semanticInventoryFailed = true
-							setPipelineErr(fmt.Errorf("observe semantic inventory for %s row %d: %w", filepath.Base(file), line.number, observeErr))
-						}
-						if fileCtx.Err() != nil {
+						vertexBatch = append(vertexBatch, built.vertex)
+						atomic.AddInt64(&fileVertices, 1)
+						if len(vertexBatch) >= opts.BatchSize && !flushVertexBatch() {
 							releaseWorkerBudget()
 							return
 						}
-						if localInventory.Len() >= semanticInventoryRunKeyLimit && !flushInventoryRun() {
-							releaseWorkerBudget()
-							return
+						for edgeIndex, edge := range built.edges {
+							if edgeIndex < len(built.relationships) {
+								edgeRelationshipCounts[built.relationships[edgeIndex]]++
+							} else {
+								edgeRelationshipsKnown = false
+							}
+							edgeBatch = append(edgeBatch, edge)
+							atomic.AddInt64(&fileEdges, 1)
+							if len(edgeBatch) >= opts.BatchSize && !flushEdgeBatch() {
+								releaseWorkerBudget()
+								return
+							}
 						}
-					}
-					vertexBatch = append(vertexBatch, built.vertex)
-					atomic.AddInt64(&fileVertices, 1)
-					if len(vertexBatch) >= opts.BatchSize && !flushVertexBatch() {
-						releaseWorkerBudget()
-						return
-					}
-					for edgeIndex, edge := range built.edges {
-						if edgeIndex < len(built.relationships) {
-							edgeRelationshipCounts[built.relationships[edgeIndex]]++
-						} else {
-							edgeRelationshipsKnown = false
-						}
-						edgeBatch = append(edgeBatch, edge)
-						atomic.AddInt64(&fileEdges, 1)
-						if len(edgeBatch) >= opts.BatchSize && !flushEdgeBatch() {
-							releaseWorkerBudget()
-							return
-						}
-					}
 
-					currentRows := atomic.AddInt64(&fileRows, 1)
-					if currentRows%int64(opts.ProgressEvery) == 0 {
-						verticesTotal := priorVertices + int(atomic.LoadInt64(&verticesInserted))
-						edgesTotal := priorEdges + int(atomic.LoadInt64(&edgesInserted))
-						if opts.fileInsertedCounters != nil {
-							verticesTotal = int(atomic.LoadInt64(&opts.fileInsertedCounters.vertices))
-							edgesTotal = int(atomic.LoadInt64(&opts.fileInsertedCounters.edges))
+						currentRows := atomic.AddInt64(&fileRows, 1)
+						if currentRows%int64(opts.ProgressEvery) == 0 {
+							verticesTotal := priorVertices + int(atomic.LoadInt64(&verticesInserted))
+							edgesTotal := priorEdges + int(atomic.LoadInt64(&edgesInserted))
+							if opts.fileInsertedCounters != nil {
+								verticesTotal = int(atomic.LoadInt64(&opts.fileInsertedCounters.vertices))
+								edgesTotal = int(atomic.LoadInt64(&opts.fileInsertedCounters.edges))
+							}
+							emitEvent(opts.EventSink, "go_load_progress", map[string]any{
+								"file":              filepath.Base(file),
+								"resource":          resourceType,
+								"file_rows":         currentRows,
+								"file_vertices":     atomic.LoadInt64(&fileVertices),
+								"file_edges":        atomic.LoadInt64(&fileEdges),
+								"vertices_inserted": verticesTotal,
+								"edges_inserted":    edgesTotal,
+								"seconds":           SecondsSince(start),
+							})
 						}
-						emitEvent(opts.EventSink, "go_load_progress", map[string]any{
-							"file":              filepath.Base(file),
-							"resource":          resourceType,
-							"file_rows":         currentRows,
-							"file_vertices":     atomic.LoadInt64(&fileVertices),
-							"file_edges":        atomic.LoadInt64(&fileEdges),
-							"vertices_inserted": verticesTotal,
-							"edges_inserted":    edgesTotal,
-							"seconds":           SecondsSince(start),
-						})
 					}
 					releaseWorkerBudget()
 				}

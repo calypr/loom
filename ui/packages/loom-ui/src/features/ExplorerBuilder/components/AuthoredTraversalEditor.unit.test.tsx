@@ -167,8 +167,8 @@ it('keeps exact source policy editing in the traversal navigator across proposed
   const imported: DraftTable = {...table,document:{...table.document,
     importedRecipe:{name:'default',translationVersion:'1',digest:'a'.repeat(64),output:'subjects'},
     importedSource:{steps:[
-      {id:'patient_traversal',kind:'TRAVERSAL',occurrenceId:'subjectPatient',title:'Related Patient',summary:'Subject Patient',enabled:true,editable:true},
-      {id:'patient_fields',parentId:'patient_traversal',kind:'CATALOG_PROJECTION',title:'Patient fields',summary:'Patient names',enabled:true,editable:true,valueMode:'ALL'},
+      {id:'patient_traversal',kind:'TRAVERSAL',occurrenceId:'subjectPatient',title:'Related Patient',summary:'Subject Patient',editable:true},
+      {id:'patient_fields',parentId:'patient_traversal',kind:'CATALOG_PROJECTION',title:'Patient fields',summary:'Patient names',editable:true,valueMode:'ALL'},
     ]},columns:[{columnId:'patient_names',column:'names',label:'Patient names',occurrenceId:'subjectPatient',source:{kind:'imported',imported:{outputColumn:'names'}}}],
   }};
   const network: import('../../../types').AuthoringNetworkResponse['network']={owner:'IMPORTED_SOURCE',outputId:'subjects',sourceRows:imported.document.rows,
@@ -202,9 +202,9 @@ it('portals selected facts into the shared inspection host and preserves catalog
  const host=document.createElement('div'); document.body.appendChild(host);
  const props={table,catalog,projectionKind:'saved' as const,selectedOccurrenceId:'root',disabled:false,...callbacks()};
  const view=render(<AuthoredTraversalEditor {...props} inspectorHost={host}/>);
- expect(within(host).getByTestId('authored-occurrence-inspector')).not.toHaveClass('h-full');
+ expect(within(host).queryByTestId('authored-occurrence-inspector')).toBeNull();
  expect(within(screen.getByRole('region',{name:'Record network'})).queryByTestId('authored-occurrence-inspector')).toBeNull();
- view.rerender(<AuthoredTraversalEditor {...props} inspectorHost={host}/>);
+ view.rerender(<AuthoredTraversalEditor {...props} selectedOccurrenceId="subjectPatient" inspectorHost={host}/>);
  expect(within(host).getByTestId('authored-occurrence-inspector')).toBeInTheDocument();
  view.rerender(<AuthoredTraversalEditor {...props} inspectorHost={host} showInspector={false}/>);
  expect(within(host).queryByTestId('authored-occurrence-inspector')).toBeNull();

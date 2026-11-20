@@ -266,3 +266,37 @@ func checkElementMetadata(
 		checkElementMetadata(child, choiceGroup, choiceRequired, elementRequired, bindingStrength, bindingURI, bindingVersion, bindingDescription, referenceTargets, title, description)
 	}
 }
+
+func TestElementListIdentityIsStableAndDistinct(t *testing.T) {
+	index, err := NewIndex([]Definition{{
+		Name: "Root",
+		Elements: []Element{
+			{Name: "first", JSONType: JSONTypeObject, Elements: []Element{{Name: "child", JSONType: "string"}}},
+			{Name: "second", JSONType: JSONTypeObject, Elements: []Element{{Name: "child", JSONType: "string"}}},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, ok := index.ReadDefinition("Root")
+	if !ok {
+		t.Fatal("missing root definition")
+	}
+	rootElements := definition.Elements()
+	firstRoot, _ := rootElements.Identity()
+	secondRoot, _ := definition.Elements().Identity()
+	if firstRoot != secondRoot {
+		t.Fatal("identity changed for the same immutable element list")
+	}
+	first, _ := rootElements.At(0)
+	second, _ := rootElements.At(1)
+	firstChild, firstCount := first.Elements().Identity()
+	firstChildAgain, firstCountAgain := first.Elements().Identity()
+	secondChild, secondCount := second.Elements().Identity()
+	if firstChild == (ElementView{}) || firstChild != firstChildAgain || firstCount != firstCountAgain {
+		t.Fatal("nested element-list identity changed")
+	}
+	if firstChild == secondChild || firstCount != secondCount {
+		t.Fatal("distinct nested element lists have the same identity")
+	}
+}

@@ -190,13 +190,14 @@ describe('explorerBuilderDocumentSchema', () => {
         output: 'ResearchSubject',
       },
       importedSource: {
+        removedStepIds: ['ruleAdditions[2]'],
+        nextRuleIndex: 3,
         steps: [{
           id: 'traversals[0].pivots[0]',
           parentId: 'traversals[0]',
           kind: 'PIVOT',
           title: 'Observation values',
           summary: 'Discover columns for Observation values',
-          enabled: true,
           editable: true,
           maxColumns: 128,
           valueMode: 'FIRST',
@@ -206,6 +207,10 @@ describe('explorerBuilderDocumentSchema', () => {
 
     expect(explorerBuilderDocumentSchema.parse(importedDocument).importedSource)
       .toEqual(importedDocument.importedSource);
+    expect(explorerBuilderDocumentSchema.safeParse({
+      ...importedDocument,
+      importedSource: { steps: [{ ...importedDocument.importedSource.steps[0], enabled: true }] },
+    }).success).toBe(false);
     expect(explorerBuilderDocumentSchema.safeParse({
       ...importedDocument,
       importedSource: { steps: [{ ...importedDocument.importedSource.steps[0], maxColumns: 0 }] },
@@ -298,22 +303,32 @@ describe('imported source step authoring commands', () => {
     expect(explorerBuilderCommandSchema.parse({
       type: 'UPDATE_IMPORTED_SOURCE_STEP',
       outputId: 'patients',
-      sourceStep: { stepId: 'traversals[0].pivots[0]', enabled: true, maxColumns: 64, valueMode: 'ALL' },
+      sourceStep: { stepId: 'traversals[0].pivots[0]', maxColumns: 64, valueMode: 'ALL' },
     })).toMatchObject({ type: 'UPDATE_IMPORTED_SOURCE_STEP', outputId: 'patients' });
+    expect(explorerBuilderCommandSchema.parse({
+      type: 'UPDATE_IMPORTED_SOURCE_STEP',
+      outputId: 'patients',
+      sourceStep: { stepId: 'ruleAdditions[4]', remove: true },
+    })).toMatchObject({ type: 'UPDATE_IMPORTED_SOURCE_STEP', sourceStep: { stepId: 'ruleAdditions[4]', remove: true } });
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'UPDATE_IMPORTED_SOURCE_STEP',
+      outputId: 'patients',
+      sourceStep: { stepId: 'ruleAdditions[4]', remove: true, maxColumns: 12 },
+    }).success).toBe(false);
 
     expect(explorerBuilderCommandSchema.safeParse({
       type: 'UPDATE_IMPORTED_SOURCE_STEP',
       outputId: 'patients',
-      sourceStep: { stepId: 'pivot', enabled: true, maxColumns: 0 },
+      sourceStep: { stepId: 'pivot', maxColumns: 0 },
     }).success).toBe(false);
     expect(explorerBuilderCommandSchema.safeParse({
       type: 'REFRESH_IMPORTED_SOURCE',
       outputId: 'patients',
-      sourceStep: { stepId: 'pivot', enabled: true },
+      sourceStep: { stepId: 'pivot', remove: true },
     }).success).toBe(false);
     expect(explorerBuilderCommandSchema.safeParse({
       type: 'UPDATE_IMPORTED_SOURCE_STEP',
-      sourceStep: { stepId: 'pivot', enabled: true },
+      sourceStep: { stepId: 'pivot', remove: true },
     }).success).toBe(false);
   });
 
@@ -322,7 +337,7 @@ describe('imported source step authoring commands', () => {
       type: 'REMOVE_PROJECTED_FIELD', outputId: 'patients', columnId: 'patient-id-column',
     })).toEqual({ type: 'REMOVE_PROJECTED_FIELD', outputId: 'patients', columnId: 'patient-id-column' });
     expect(explorerBuilderCommandSchema.safeParse({
-      type: 'REMOVE_PROJECTED_FIELD', outputId: 'patients', columnId: 'patient-id-column', sourceStep: { stepId: 'fields', enabled: false },
+      type: 'REMOVE_PROJECTED_FIELD', outputId: 'patients', columnId: 'patient-id-column', sourceStep: { stepId: 'fields', remove: true },
     }).success).toBe(false);
     expect(explorerBuilderCommandSchema.safeParse({
       type: 'REMOVE_PROJECTED_FIELD', outputId: 'patients',
@@ -2235,7 +2250,7 @@ describe('explorerBuilderCommandSchema', () => {
 describe('typed imported source parameter editing', () => {
   const owner = { snapshotToken: 'snapshot', expectedDraftVersion: 4, expectedDraftDigest: 'draft', outputId: 'subjects' };
   it('preserves explicit empty prefix and null literals through proposal serialization', () => {
-    const sourceStep = { stepId: 'dynamic-identifiers', enabled: true, parameters: { dynamic: {
+    const sourceStep = { stepId: 'dynamic-identifiers', parameters: { dynamic: {
       name: 'identifiers', columnPrefix: '', source: { select: 'root.identifier[]' }, value: { literal: null },
     } } };
     expect(sourceRelationshipProposalRequestSchema.parse({ ...owner, sourceStep }).sourceStep).toEqual(sourceStep);
@@ -2246,19 +2261,19 @@ describe('typed imported source parameter editing', () => {
     for (const expr of [{ call: 'legacy_function', args: [{ select: 'root.id' }] }, { document: { context: 'prior' } }, { literal: { original: true } }]) {
       const parameters = { identity: { name: 'identity', expr } };
       expect(importedSourceParametersSchema.parse(parameters)).toEqual(parameters);
-      expect(sourceRelationshipProposalRequestSchema.safeParse({ ...owner, sourceStep: { stepId: 'identity', enabled: true, parameters } }).success).toBe(false);
+      expect(sourceRelationshipProposalRequestSchema.safeParse({ ...owner, sourceStep: { stepId: 'identity', parameters } }).success).toBe(false);
     }
   });
   it('keeps an explicit coupled alias edit atomic and rejects duplicate or mixed requests', () => {
     const sourceSteps = [
-      { stepId: 'expansion', enabled: true, parameters: { expansion: { from: { select: 'root.member[]' }, as: 'member' } } },
-      { stepId: 'identity', enabled: true, parameters: { identity: { name: 'member_id', expr: { select: 'member.reference' } } } },
+      { stepId: 'expansion', parameters: { expansion: { from: { select: 'root.member[]' }, as: 'member' } } },
+      { stepId: 'identity', parameters: { identity: { name: 'member_id', expr: { select: 'member.reference' } } } },
     ];
     expect(sourceRelationshipProposalRequestSchema.parse({ ...owner, sourceSteps }).sourceSteps).toEqual(sourceSteps);
     expect(sourceRelationshipProposalRequestSchema.safeParse({ ...owner, sourceSteps: [sourceSteps[0], sourceSteps[0]] }).success).toBe(false);
     expect(sourceRelationshipProposalRequestSchema.safeParse({ ...owner, sourceSteps, sourceStep: sourceSteps[0] }).success).toBe(false);
     expect(importedSourceParametersSchema.safeParse({ output: { rowGrain: 'one' }, identity: { name: 'id', expr: { select: 'root.id' } } }).success).toBe(false);
-    expect(sourceRelationshipProposalRequestSchema.safeParse({ ...owner, sourceStep: { stepId: 'identity', enabled: true, columnId: 'client-owned', parameters: sourceSteps[1].parameters } }).success).toBe(false);
+    expect(sourceRelationshipProposalRequestSchema.safeParse({ ...owner, sourceStep: { stepId: 'identity', columnId: 'client-owned', parameters: sourceSteps[1].parameters } }).success).toBe(false);
   });
 });
 
@@ -2266,7 +2281,7 @@ describe('typed imported source parameter editing', () => {
 it('treats arbitrary pivot alias names as strings while checking only actual expression slots', () => {
   const owner = { snapshotToken: 's', expectedDraftVersion: 4, expectedDraftDigest: 'd', outputId: 'Observation' };
   const parameters = { pivot: { name: 'codes', columns: ['call', 'document', 'literal'], columnAliases: { call: 'renamed_call', document: 'renamed_document', literal: 'renamed_literal' }, columnExpr: { select: 'root.code' }, valueExpr: { select: 'root.valueInteger' } } };
-  expect(sourceRelationshipProposalRequestSchema.parse({ ...owner, sourceStep: { stepId: 'pivots[0]', enabled: true, parameters } }).sourceStep?.parameters).toEqual(parameters);
+  expect(sourceRelationshipProposalRequestSchema.parse({ ...owner, sourceStep: { stepId: 'pivots[0]', parameters } }).sourceStep?.parameters).toEqual(parameters);
   const unsupported = { ...parameters, pivot: { ...parameters.pivot, valueFallbacks: [{ call: 'unsupported', args: [{ select: 'root.id' }] }] } };
-  expect(sourceRelationshipProposalRequestSchema.safeParse({ ...owner, sourceStep: { stepId: 'pivots[0]', enabled: true, parameters: unsupported } }).success).toBe(false);
+  expect(sourceRelationshipProposalRequestSchema.safeParse({ ...owner, sourceStep: { stepId: 'pivots[0]', parameters: unsupported } }).success).toBe(false);
 });

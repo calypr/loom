@@ -110,6 +110,7 @@ func manifestFromValue(value any) (publication.Manifest, error) {
 		Dataset        publication.Ref            `json:"dataset"`
 		State          publication.State          `json:"state"`
 		SchemaIdentity publication.SchemaSnapshot `json:"schemaIdentity"`
+		IdentityFormat string                     `json:"identityFormat,omitempty"`
 	}
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return publication.Manifest{}, fmt.Errorf("%w: decode manifest row: %w", ErrUnexpectedStoreResult, err)

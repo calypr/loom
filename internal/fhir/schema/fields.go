@@ -32,24 +32,38 @@ type resourceFields struct {
 	byPath map[string]FieldSpec
 }
 
+type resourceFieldsEntry struct {
+	once   sync.Once
+	fields resourceFields
+}
+
 var resourceCache sync.Map
 
 func cachedResourceFields(resourceType string) resourceFields {
+	var entry *resourceFieldsEntry
 	if cached, ok := resourceCache.Load(resourceType); ok {
-		return cached.(resourceFields)
-	}
-	fields := flattenDefinition(resourceType, 0, map[string]bool{})
-	if len(fields) == 0 {
-		return resourceFields{}
-	}
-	indexed := resourceFields{fields: fields, byPath: make(map[string]FieldSpec, len(fields))}
-	for _, field := range fields {
-		if _, exists := indexed.byPath[field.Path]; !exists {
-			indexed.byPath[field.Path] = field
+		entry = cached.(*resourceFieldsEntry)
+	} else {
+		if _, known := generatedDefinitions[resourceType]; !known {
+			return resourceFields{}
 		}
+		entryValue, _ := resourceCache.LoadOrStore(resourceType, &resourceFieldsEntry{})
+		entry = entryValue.(*resourceFieldsEntry)
 	}
-	cached, _ := resourceCache.LoadOrStore(resourceType, indexed)
-	return cached.(resourceFields)
+	entry.once.Do(func() {
+		fields := flattenDefinition(resourceType, 0, map[string]bool{})
+		if len(fields) == 0 {
+			return
+		}
+		indexed := resourceFields{fields: fields, byPath: make(map[string]FieldSpec, len(fields))}
+		for _, field := range fields {
+			if _, exists := indexed.byPath[field.Path]; !exists {
+				indexed.byPath[field.Path] = field
+			}
+		}
+		entry.fields = indexed
+	})
+	return entry.fields
 }
 
 func FieldsForResource(resourceType string) []FieldSpec {

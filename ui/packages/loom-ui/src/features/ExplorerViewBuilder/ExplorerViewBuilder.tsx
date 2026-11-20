@@ -124,8 +124,13 @@ const SavedViewBuilderContent = ({
   const [saveError, setSaveError] = useState<ErrorDetails | null>(null);
 
   const state = stateQuery.data;
-  const selectedConfigId =
-    routeConfigId || state?.settings.defaultConfigId || '';
+  const routeSelectsView = routeConfigId && (
+    Object.hasOwn(drafts, routeConfigId) ||
+    state?.configs.some((entry) => entry.config.id === routeConfigId)
+  );
+  const selectedConfigId = routeSelectsView
+    ? routeConfigId
+    : state?.settings.defaultConfigId || '';
   const serverConfigRevision = state?.configs.find(
     (entry) => entry.config.id === selectedConfigId,
   );
@@ -366,7 +371,7 @@ const SavedViewBuilderContent = ({
   const saveActions = (
     <Group gap="sm" wrap="nowrap" aria-label="View configuration actions">
       <Badge variant="light" color={isDirty ? 'yellow' : 'gray'} role="status">
-        {isDirty ? 'Unsaved changes' : 'Saved'}
+        {isDirty ? 'Unsaved changes' : selectedConfig ? 'Saved' : 'No view selected'}
       </Badge>
       <Button
         size="xs"
@@ -476,11 +481,13 @@ const SavedViewBuilderContent = ({
               <Select
                 size="xs"
                 className="min-w-0 flex-[1_1_9rem]"
-                label="Project view"
+                label="View you’re editing"
                 placeholder="Select a view"
                 data={Array.from(selectableConfigs, ([value, item]) => ({
                   value,
-                  label: item.title || value,
+                  label: value === state.settings.defaultConfigId
+                    ? `${item.title || value} (project default)`
+                    : item.title || value,
                 }))}
                 value={selectedConfigId || null}
                 onChange={(value) => onSelectConfig(value ?? undefined)}
@@ -488,6 +495,28 @@ const SavedViewBuilderContent = ({
                 searchable
                 clearable
               />
+              {selectedConfig ? (
+                <Select
+                  size="xs"
+                  className="min-w-0 flex-[1_1_12rem]"
+                  label="Published dataframe"
+                  data={state.catalogs.map(({ recipeName, title }) => ({
+                    value: recipeName,
+                    label: title || recipeName,
+                  }))}
+                  value={selectedConfig.recipeRef.name}
+                  onChange={(name) => {
+                    if (!name || name === selectedConfig.recipeRef.name) return;
+                    setNewFrameId(null);
+                    commitConfig({
+                      ...selectedConfig,
+                      recipeRef: { ...selectedConfig.recipeRef, name },
+                    });
+                  }}
+                  disabled={!state.canEdit}
+                  searchable
+                />
+              ) : null}
               {selectedConfig ? (
                 <TextInput
                   size="xs"
@@ -518,11 +547,11 @@ const SavedViewBuilderContent = ({
               {state.catalogs.length > 1 ? (
                 <Select
                   size="xs"
-                  label="Dataframer configuration"
-                  placeholder="Choose a dataframer configuration"
+                  label="Published dataframe"
+                  placeholder="Choose a published dataframe"
                   data={state.catalogs.map((catalog) => ({
                     value: catalog.recipeName,
-                    label: catalog.recipeName,
+                    label: catalog.title || catalog.recipeName,
                   }))}
                   value={newConfigRecipe}
                   onChange={setNewConfigRecipe}

@@ -41,6 +41,7 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
  'internal/testkit/httpfixtures': 'Share generated-HTTP test requests and response capture.',
  'internal/testkit/recipefixtures': 'Share recipe authorization and combine materialization fixtures across package tests.',
  '.': 'Start the default Loom server process through the internal server composition root.',
+ 'client/authoring': 'Publish dataframes through the Loom Explorer authoring HTTP API and validate publication receipts.',
  'client/ingest': 'Upload versioned source files and publish durable Loom source loads through the HTTP client '
                   'library.',
  'cmd/check-go-comments': 'Enforce the Go source comment policy locally and in CI.',

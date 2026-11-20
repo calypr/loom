@@ -382,6 +382,7 @@ type Profiler struct {
 	resourceType             string
 	semanticSourceKind       string
 	semanticOnly             bool
+	semanticScratch          semanticWalkScratch
 	limits                   ProfileLimits
 	shapeCache               *ShapePlanCache
 	stats                    map[string]*fieldCatalogStats

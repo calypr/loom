@@ -213,8 +213,7 @@ describe('BuilderToolbar', () => {
     expect(button.querySelector('.animate-spin')).not.toBeNull();
   });
 
-  it('offers dataset review before the existing Publish action', () => {
-    const onReview = vi.fn();
+  it('offers Publish without a dataset review action', () => {
     const onPublish = vi.fn();
     render(
       <BuilderToolbar
@@ -231,7 +230,7 @@ describe('BuilderToolbar', () => {
         onNewTable={vi.fn()}
         onDuplicateTable={vi.fn()}
         onDeleteTable={vi.fn()}
-        onReview={onReview}
+        onReview={vi.fn()}
         reviewExpanded
         onPublish={onPublish}
         publishDisabled={false}
@@ -239,13 +238,10 @@ describe('BuilderToolbar', () => {
       />,
     );
 
-    const review = screen.getByRole('button', { name: 'Review dataset' });
+    expect(screen.queryByRole('button', { name: 'Review dataset' })).not.toBeInTheDocument();
     const publish = screen.getByRole('button', { name: 'Publish' });
-    expect(review).toHaveAttribute('aria-expanded', 'true');
-    expect(review).toHaveAttribute('aria-controls', 'dataset-review-panel');
-    expect(review.compareDocumentPosition(publish) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(publish).toBeEnabled();
-    fireEvent.click(review);
-    expect(onReview).toHaveBeenCalledTimes(1);
+    fireEvent.click(publish);
+    expect(onPublish).toHaveBeenCalledTimes(1);
   });
 });

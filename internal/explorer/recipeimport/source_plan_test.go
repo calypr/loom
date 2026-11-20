@@ -60,11 +60,11 @@ func TestSourcePlanDescribesNativeOutputStagesWithStableOwnerPaths(t *testing.T)
 	}
 	groupPlan := SourcePlan(groupMember)
 	expansion, ok := sourcePlanStep(groupPlan, "expand")
-	if !ok || expansion.Kind != SourcePlanExpansion || !expansion.Editable || !expansion.Enabled {
+	if !ok || expansion.Kind != SourcePlanExpansion || !expansion.Editable {
 		t.Fatalf("expansion step must expose editable source settings: %#v, found=%t", expansion, ok)
 	}
 	identity, ok := sourcePlanStep(groupPlan, "identity")
-	if !ok || identity.Kind != SourcePlanIdentity || !identity.Editable || !identity.Enabled {
+	if !ok || identity.Kind != SourcePlanIdentity || !identity.Editable {
 		t.Fatalf("identity step must expose editable source settings: %#v, found=%t", identity, ok)
 	}
 }
@@ -75,8 +75,9 @@ func TestImportedIdentifierRuleAdditionIsValidatedAppliedAndHydrated(t *testing.
 	value := recipe.Expression{Select: "item.value"}
 	parameters := &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{
 		Name: "identifiers", Source: recipe.Expression{Select: "identifier[]"}, Key: &key, Value: &value,
+		Outputs: []authoringv2.ImportedDynamicOutput{{Key: "excluded", Enabled: false}},
 	}}
-	addition := authoringv2.ImportedSourceRuleAddition{Kind: "DYNAMIC_COLUMN", StepID: "ruleAdditions[0]", Enabled: true, Parameters: parameters}
+	addition := authoringv2.ImportedSourceRuleAddition{Kind: "DYNAMIC_COLUMN", StepID: "ruleAdditions[0]", Parameters: parameters}
 	plan := SourcePlan(output)
 	plan.RuleAdditions = []authoringv2.ImportedSourceRuleAddition{addition}
 	plan.Steps = append(plan.Steps, ruleAdditionStep(addition, ""))
@@ -87,6 +88,9 @@ func TestImportedIdentifierRuleAdditionIsValidatedAppliedAndHydrated(t *testing.
 	}
 	if len(effective.DynamicColumns) != 1 || effective.DynamicColumns[0].Name != "identifiers" || effective.DynamicColumns[0].Source.Select != "root.identifier[]" {
 		t.Fatalf("effective dynamic columns = %#v", effective.DynamicColumns)
+	}
+	if overrides := effective.DynamicColumns[0].OutputOverrides; len(overrides) != 1 || overrides[0].Key != "excluded" || overrides[0].Enabled {
+		t.Fatalf("identifier rule lost output exclusion: %#v", overrides)
 	}
 	hydrated, err := HydrateSourcePlan(output, &plan)
 	if err != nil {
@@ -115,14 +119,14 @@ func TestRootRuleWithQualifiedSelectorReloadsAndSavesRelative(t *testing.T) {
 	params := &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{
 		Name: "identifiers", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &key, Value: &value,
 	}}
-	addition := authoringv2.ImportedSourceRuleAddition{StepID: "ruleAdditions[0]", Kind: "DYNAMIC_COLUMN", Enabled: true, Parameters: params}
+	addition := authoringv2.ImportedSourceRuleAddition{StepID: "ruleAdditions[0]", Kind: "DYNAMIC_COLUMN", Parameters: params}
 	plan.RuleAdditions = append(plan.RuleAdditions, addition)
 	plan.Steps = append(plan.Steps, ruleAdditionStep(addition, ""))
 	hydrated, err := HydrateSourcePlan(output, &plan)
 	if err != nil {
 		t.Fatal(err)
 	}
-	change := authoringv2.ImportedSourceStepChange{StepID: addition.StepID, Enabled: true, Parameters: params}
+	change := authoringv2.ImportedSourceStepChange{StepID: addition.StepID, Parameters: params}
 	updated, err := EditPlan(output, hydrated, authoringv2.CatalogSnapshot{}, PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{change}}, PlanEditInput{})
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +136,7 @@ func TestRootRuleWithQualifiedSelectorReloadsAndSavesRelative(t *testing.T) {
 	}
 }
 
-func TestEditPlanCreatesAndDisablesRuleWithoutMutatingInput(t *testing.T) {
+func TestEditPlanDeletesRuleWithoutReusingItsIdentity(t *testing.T) {
 	output := recipe.Output{Name: "patient", RootResourceType: "Patient", RowGrain: "resource"}
 	original := SourcePlan(output)
 	catalog := authoringv2.CatalogSnapshot{}
@@ -148,16 +152,67 @@ func TestEditPlanCreatesAndDisablesRuleWithoutMutatingInput(t *testing.T) {
 		t.Fatal("creation mutated the input or lost the new rule")
 	}
 	id := created.RuleAdditions[0].StepID
-	change := authoringv2.ImportedSourceStepChange{StepID: id, Enabled: false}
-	edited, err := EditPlan(output, created, catalog, PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{change}}, PlanEditInput{})
+	other := rule
+	other.Parameters = &authoringv2.ImportedSourceParameters{
+		Dynamic: &authoringv2.ImportedDynamicParameters{Name: "other_identifiers", Source: recipe.Expression{Select: "identifier[]"}, Key: &key, Value: &value},
+	}
+	createdBoth, err := EditPlan(output, created, catalog, PlanEdit{RuleCreate: &other}, PlanEditInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !created.RuleAdditions[0].Enabled || edited.RuleAdditions[0].Enabled || edited.RuleAdditions[0].StepID != id {
-		t.Fatal("edit mutated its input or lost the durable rule identity")
+	survivor := createdBoth.RuleAdditions[1].StepID
+	change := authoringv2.ImportedSourceStepChange{StepID: id, Remove: true}
+	edited, err := EditPlan(output, createdBoth, catalog, PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{change}}, PlanEditInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(createdBoth.RuleAdditions) != 2 || len(edited.RuleAdditions) != 1 || edited.RuleAdditions[0].StepID != survivor || len(edited.Steps) != len(original.Steps)+1 {
+		t.Fatal("removal mutated its input, left the removed rule, or changed the surviving rule identity")
+	}
+	effective, err := ApplySourcePlan(output, &edited)
+	if err != nil || len(effective.DynamicColumns) != 1 || effective.DynamicColumns[0].Name != "other_identifiers" {
+		t.Fatalf("removal changed unrelated recipe output: %#v, %v", effective.DynamicColumns, err)
+	}
+	recreated, err := EditPlan(output, edited, catalog, PlanEdit{RuleCreate: &rule}, PlanEditInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recreated.RuleAdditions) != 2 || recreated.RuleAdditions[1].StepID == id {
+		t.Fatalf("removed rule identity was reused: %#v", recreated.RuleAdditions)
 	}
 	if _, err := EditPlan(output, original, catalog, PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{change}, RuleCreate: &rule}, PlanEditInput{}); err == nil {
 		t.Fatal("accepted more than one edit intent")
+	}
+}
+
+func TestEditPlanDeletesPinnedRuleFromSavedAndEffectiveRecipes(t *testing.T) {
+	output := outputNamed(t, defaultSourcePlanFixture(t), "DocumentReference")
+	plan := SourcePlan(output)
+	removedID := "dynamicColumns[0]"
+	survivorID := "dynamicColumns[1]"
+	edited, err := EditPlan(output, plan, authoringv2.CatalogSnapshot{}, PlanEdit{
+		StepChanges: []authoringv2.ImportedSourceStepChange{{StepID: removedID, Remove: true}},
+	}, PlanEditInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := HydrateSourcePlan(output, &edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := sourcePlanStep(reloaded, removedID); found {
+		t.Fatal("removed imported rule reappeared after hydration")
+	}
+	if _, found := sourcePlanStep(reloaded, survivorID); !found {
+		t.Fatal("surviving imported rule lost its step identity")
+	}
+	baseline, err := ApplySourcePlan(output, &plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	effective, err := ApplySourcePlan(output, &reloaded)
+	if err != nil || !reflect.DeepEqual(effective.DynamicColumns, baseline.DynamicColumns[1:]) {
+		t.Fatalf("effective rules after removal = %#v, %v", effective.DynamicColumns, err)
 	}
 }
 
@@ -181,7 +236,7 @@ func TestApplySourcePlanRejectsDisabledRuleOccurrence(t *testing.T) {
 	if got := effective.Traversals[0].DynamicColumns[0].Source.Select; got != "subject.identifier[]" {
 		t.Fatalf("name fallback produced %q", got)
 	}
-	change := authoringv2.ImportedSourceStepChange{StepID: "traversals[0]", Enabled: false}
+	change := authoringv2.ImportedSourceStepChange{StepID: "traversals[0]", Remove: true}
 	_, err = EditPlan(output, created, authoringv2.CatalogSnapshot{}, PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{change}}, PlanEditInput{})
 	var unavailable *authoringv2.UnavailableSourceRuleOccurrence
 	if !errors.As(err, &unavailable) || unavailable.OccurrenceID != "patient" {
@@ -197,10 +252,10 @@ func TestApplySourcePlanAppliesNestedEnablementAndBoundedOverridesWithoutMutatin
 		t.Fatal(err)
 	}
 	plan := SourcePlan(output)
-	setSourcePlanEnabled(t, &plan, "traversals[0].traversals[0].catalogProjections[0]", false)
-	setSourcePlanEnabled(t, &plan, "traversals[0].traversals[0].dynamicColumns[0]", false)
-	setSourcePlanEnabled(t, &plan, "traversals[0].traversals[0]", false)
-	setSourcePlanEnabled(t, &plan, "fields", false)
+	removePinnedTestStep(t, &plan, "traversals[0].traversals[0].catalogProjections[0]")
+	removePinnedTestStep(t, &plan, "traversals[0].traversals[0].dynamicColumns[0]")
+	removePinnedTestStep(t, &plan, "traversals[0].traversals[0]")
+	removePinnedTestStep(t, &plan, "fields")
 
 	maxStep, ok := sourcePlanStep(plan, "dynamicColumns[0]")
 	if !ok || maxStep.MaxColumns == nil || maxStep.ValueMode == "" {
@@ -247,16 +302,9 @@ func TestApplySourcePlanAppliesNestedEnablementAndBoundedOverridesWithoutMutatin
 		t.Fatal("ApplySourcePlan mutated the pinned source output")
 	}
 
-	setSourcePlanEnabled(t, &plan, "traversals[0].traversals[0]", true)
-	reenabled, err := ApplySourcePlan(output, &plan)
-	if err != nil {
-		t.Fatalf("re-enable disabled traversal: %v", err)
-	}
-	if len(reenabled.Traversals[0].Traversals) != 1 {
-		t.Fatalf("re-enabled Patient traversal count = %d, want 1", len(reenabled.Traversals[0].Traversals))
-	}
-	if len(reenabled.Traversals[0].Traversals[0].DynamicColumns) != 1 || len(reenabled.Traversals[0].Traversals[0].CatalogProjections) != 0 {
-		t.Fatalf("re-enabled traversal lost its disabled child settings: %#v", reenabled.Traversals[0].Traversals[0])
+	hydrated, err := HydrateSourcePlan(output, &plan)
+	if err != nil || !reflect.DeepEqual(hydrated.RemovedStepIDs, plan.RemovedStepIDs) {
+		t.Fatalf("removed steps did not survive hydration: %#v %v", hydrated.RemovedStepIDs, err)
 	}
 }
 
@@ -327,7 +375,7 @@ func TestApplySourcePlanRejectsStepsAndOverridesOutsidePinnedSource(t *testing.T
 
 	groupMember := outputNamed(t, bundle, "GroupMember")
 	readOnlyPlan := SourcePlan(groupMember)
-	setSourcePlanEnabled(t, &readOnlyPlan, "expand", false)
+	readOnlyPlan.RemovedStepIDs = []string{"expand"}
 	if _, err := ApplySourcePlan(groupMember, &readOnlyPlan); err == nil {
 		t.Fatal("ApplySourcePlan accepted disabling a read-only expansion step")
 	}
@@ -335,8 +383,8 @@ func TestApplySourcePlanRejectsStepsAndOverridesOutsidePinnedSource(t *testing.T
 
 func TestImportedSourcePlanValidationChecksHierarchyAndDocumentOwnership(t *testing.T) {
 	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{
-		{ID: "traversals[0]", Kind: SourcePlanTraversal, Title: "Traversal", Summary: "A relationship.", Enabled: true, Editable: true},
-		{ID: "traversals[0].fields", ParentID: "traversals[0]", Kind: SourcePlanFieldGroup, Title: "Fields", Summary: "Source fields.", Enabled: true, Editable: true},
+		{ID: "traversals[0]", Kind: SourcePlanTraversal, Title: "Traversal", Summary: "A relationship.", Editable: true},
+		{ID: "traversals[0].fields", ParentID: "traversals[0]", Kind: SourcePlanFieldGroup, Title: "Fields", Summary: "Source fields.", Editable: true},
 	}}
 	if err := plan.Validate(); err != nil {
 		t.Fatalf("valid source plan: %v", err)
@@ -427,11 +475,14 @@ func sourcePlanStep(plan authoringv2.ImportedSourcePlan, id string) (authoringv2
 	return authoringv2.ImportedSourceStep{}, false
 }
 
-func setSourcePlanEnabled(t *testing.T, plan *authoringv2.ImportedSourcePlan, id string, enabled bool) {
+func removePinnedTestStep(t *testing.T, plan *authoringv2.ImportedSourcePlan, id string) {
 	t.Helper()
-	if err := updateSourcePlanStep(plan, id, func(step *authoringv2.ImportedSourceStep) { step.Enabled = enabled }); err != nil {
+	retained, err := retainedPinnedSteps(plan.Steps, []string{id})
+	if err != nil {
 		t.Fatal(err)
 	}
+	plan.Steps = retained
+	plan.RemovedStepIDs = append(plan.RemovedStepIDs, id)
 }
 
 func updateSourcePlanStep(plan *authoringv2.ImportedSourcePlan, id string, update func(*authoringv2.ImportedSourceStep)) error {

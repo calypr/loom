@@ -9,21 +9,21 @@ import (
 
 func TestSourceProposalWireAcceptsExactlyOneClosedIntent(t *testing.T) {
 	for _, payload := range []string{
-		`{}`, `{"sourceStep":{"stepId":"fields","enabled":false},"includePreview":null}`, `{"sourceStep":{"stepId":"fields","enabled":false},"includePreview":"true"}`, `{"sourceStep":{"stepId":"fields","enabled":false},"previewSinkFactory":{}}`, `{"sourceStep":{"stepId":"fields","enabled":false},"nativePreview":{}}`, `{"change":null}`, `{"sourceStep":null}`, `{"change":{"action":"REMOVE","occurrenceId":"r"},"sourceStep":{"stepId":"fields","enabled":false}}`,
-		`{"sourceStep":{"stepId":"fields"}}`,
-		`{"sourceStep":{"stepId":"fields","enabled":false,"expr":{"select":"root.secret"}}}`,
-		`{"sourceStep":{"stepId":"fields","enabled":false},"project":"other"}`,
-		`{"sourceStep":{"stepId":"fields","enabled":false},"change":null}`,
-		`{"sourceStep":{"stepId":"fields","enabled":false},"limit":0}`,
-		`{"sourceStep":{"stepId":"fields","enabled":false},"limit":-1}`,
-		`{"sourceStep":{"stepId":"fields","enabled":false},"limit":null}`,
+		`{}`, `{"sourceStep":{"stepId":"fields","remove":true},"includePreview":null}`, `{"sourceStep":{"stepId":"fields","remove":true},"includePreview":"true"}`, `{"sourceStep":{"stepId":"fields","remove":true},"previewSinkFactory":{}}`, `{"sourceStep":{"stepId":"fields","remove":true},"nativePreview":{}}`, `{"change":null}`, `{"sourceStep":null}`, `{"change":{"action":"REMOVE","occurrenceId":"r"},"sourceStep":{"stepId":"fields","remove":true}}`,
+		`{"sourceStep":{"stepId":"fields","remove":true,"parameters":{"fieldGroup":{"fields":[]}}}}`,
+		`{"sourceStep":{"stepId":"fields","remove":true},"project":"other"}`,
+		`{"sourceStep":{"stepId":"fields","remove":true},"change":null}`,
+		`{"sourceStep":{"stepId":"fields","remove":true},"limit":0}`,
+		`{"sourceStep":{"stepId":"fields","remove":true},"limit":-1}`,
+		`{"sourceStep":{"stepId":"fields","remove":true},"limit":null}`,
+		`{"sourceStep":{"stepId":"fields","enabled":false}}`,
 	} {
 		var request SourceRelationshipProposalRequest
 		if err := json.Unmarshal([]byte(payload), &request); err == nil {
 			t.Fatalf("accepted injected or ambiguous source intent: %s", payload)
 		}
 	}
-	input := SourceRelationshipProposalRequest{Project: "server-project", ExplorerID: "server-owner", SnapshotToken: "snapshot", ExpectedDraftVersion: 3, ExpectedDraftDigest: "digest", OutputID: "patients", SourceStep: &authoringv2.ImportedSourceStepChange{StepID: "fields", Enabled: false}}
+	input := SourceRelationshipProposalRequest{Project: "server-project", ExplorerID: "server-owner", SnapshotToken: "snapshot", ExpectedDraftVersion: 3, ExpectedDraftDigest: "digest", OutputID: "patients", SourceStep: &authoringv2.ImportedSourceStepChange{StepID: "fields", Remove: true}}
 	raw, err := json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)
@@ -32,13 +32,13 @@ func TestSourceProposalWireAcceptsExactlyOneClosedIntent(t *testing.T) {
 	if err := json.Unmarshal(raw, &restored); err != nil {
 		t.Fatal(err)
 	}
-	if restored.Project != "" || restored.ExplorerID != "" || restored.Change.Action != "" || restored.SourceStep == nil || restored.SourceStep.Enabled || restored.SourceStep.StepID != "fields" || restored.ExpectedDraftVersion != 3 {
+	if restored.Project != "" || restored.ExplorerID != "" || restored.Change.Action != "" || restored.SourceStep == nil || !restored.SourceStep.Remove || restored.SourceStep.StepID != "fields" || restored.ExpectedDraftVersion != 3 {
 		t.Fatalf("closed source-step intent round trip lost ownership or settings: %s", raw)
 	}
 }
 
 func TestSourceProposalWireAdmitsOnlyAtomicBoundedUniqueBatch(t *testing.T) {
-	valid := `{"sourceSteps":[{"stepId":"expand","enabled":true,"parameters":{"expansion":{"from":{"select":"root.member[]"},"as":"entry"}}},{"stepId":"identity","enabled":true,"parameters":{"identity":{"name":"id","expr":{"select":"entry.id"}}}}]}`
+	valid := `{"sourceSteps":[{"stepId":"fields","remove":true},{"stepId":"dynamicColumns[0]","remove":true}]}`
 	var request SourceRelationshipProposalRequest
 	if err := json.Unmarshal([]byte(valid), &request); err != nil {
 		t.Fatal(err)
@@ -48,17 +48,17 @@ func TestSourceProposalWireAdmitsOnlyAtomicBoundedUniqueBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	var decoded SourceRelationshipProposalRequest
-	if err := json.Unmarshal(raw, &decoded); err != nil || len(decoded.SourceSteps) != 2 || decoded.SourceSteps[0].StepID != "expand" {
+	if err := json.Unmarshal(raw, &decoded); err != nil || len(decoded.SourceSteps) != 2 || decoded.SourceSteps[0].StepID != "fields" {
 		t.Fatalf("batch roundtrip lost identities: %v", err)
 	}
-	for _, payload := range []string{`{"sourceSteps":null}`, `{"sourceSteps":[]}`, `{"sourceSteps":[null]}`, `{"sourceSteps":[{"stepId":"fields","enabled":true},{"stepId":"fields","enabled":false}]}`, `{"sourceSteps":[{"stepId":"fields","enabled":true}],"sourceStep":{"stepId":"fields","enabled":true}}`, `{"sourceSteps":[{"stepId":"fields","enabled":true}],"change":{"action":"REMOVE","occurrenceId":"o"}}`, `{"sourceSteps":[{"stepId":"fields","enabled":true,"columnId":"forged"}]}`} {
+	for _, payload := range []string{`{"sourceSteps":null}`, `{"sourceSteps":[]}`, `{"sourceSteps":[null]}`, `{"sourceSteps":[{"stepId":"fields","remove":true},{"stepId":"fields","remove":true}]}`, `{"sourceSteps":[{"stepId":"fields","remove":true}],"sourceStep":{"stepId":"fields","remove":true}}`, `{"sourceSteps":[{"stepId":"fields","remove":true}],"change":{"action":"REMOVE","occurrenceId":"o"}}`, `{"sourceSteps":[{"stepId":"fields","remove":true,"columnId":"forged"}]}`} {
 		if err := json.Unmarshal([]byte(payload), &decoded); err == nil {
 			t.Fatalf("invalid batch admitted: %s", payload)
 		}
 	}
 	changes := make([]authoringv2.ImportedSourceStepChange, 129)
 	for i := range changes {
-		changes[i] = authoringv2.ImportedSourceStepChange{StepID: fmt.Sprintf("fields-%d", i), Enabled: true}
+		changes[i] = authoringv2.ImportedSourceStepChange{StepID: fmt.Sprintf("fields-%d", i), Remove: true}
 	}
 	if err := authoringv2.ValidateImportedSourceStepBatch(changes); err == nil {
 		t.Fatal("unbounded source batch admitted")
@@ -67,7 +67,7 @@ func TestSourceProposalWireAdmitsOnlyAtomicBoundedUniqueBatch(t *testing.T) {
 
 func TestSourceProposalPreviewOptInRoundTripsWithoutRuntimeFields(t *testing.T) {
 	for _, include := range []bool{false, true} {
-		input := SourceRelationshipProposalRequest{SnapshotToken: "snapshot", ExpectedDraftVersion: 1, ExpectedDraftDigest: "digest", OutputID: "out", IncludePreview: include, SourceStep: &authoringv2.ImportedSourceStepChange{StepID: "fields", Enabled: true}}
+		input := SourceRelationshipProposalRequest{SnapshotToken: "snapshot", ExpectedDraftVersion: 1, ExpectedDraftDigest: "digest", OutputID: "out", IncludePreview: include, SourceStep: &authoringv2.ImportedSourceStepChange{StepID: "fields", Remove: true}}
 		raw, err := json.Marshal(input)
 		if err != nil {
 			t.Fatal(err)

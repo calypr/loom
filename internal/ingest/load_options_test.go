@@ -11,8 +11,8 @@ func TestNormalizeLoadOptionsUsesBoundedConcurrencyDefaults(t *testing.T) {
 	if got.WorkerCount != 3 {
 		t.Fatalf("worker count = %d, want writer count 3", got.WorkerCount)
 	}
-	if got.LineQueueSize <= 0 || got.WriteQueueSize <= 0 {
-		t.Fatalf("queue sizes = line %d write %d, want positive bounded defaults", got.LineQueueSize, got.WriteQueueSize)
+	if got.LineQueueSize <= 0 || got.WriteQueueSize != 2 {
+		t.Fatalf("queue sizes = line %d write %d, want positive line limit and two write batches", got.LineQueueSize, got.WriteQueueSize)
 	}
 	if got.CatalogLimits.MaxDistinctValuesPerField <= 0 || got.CatalogLimits.MaxShapePlans <= 0 {
 		t.Fatalf("catalog limits = %#v, want finite defaults", got.CatalogLimits)

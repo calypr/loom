@@ -9,6 +9,7 @@ import (
 	"github.com/bytedance/sonic"
 	fhir "github.com/calypr/loom/fhir/model"
 	"github.com/calypr/loom/internal/catalog"
+	publication "github.com/calypr/loom/internal/dataset"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -45,10 +46,10 @@ func (b *GeneratedRowBuilder) Build(resourceType string, line []byte, stageSecon
 }
 
 func (b *GeneratedRowBuilder) BuildWithSourceFile(resourceType string, line []byte, stageSeconds map[string]float64, sourceFile string) (rowBuildResult, rowErrorType, error) {
-	return b.build(resourceType, line, stageSeconds, "", sourceFile)
+	return b.build(resourceType, line, stageSeconds, "", sourceFile, publication.IdentityFormatCompact)
 }
 
-func (b *GeneratedRowBuilder) build(resourceType string, line []byte, stageSeconds map[string]float64, datasetGeneration, sourceFile string) (rowBuildResult, rowErrorType, error) {
+func (b *GeneratedRowBuilder) build(resourceType string, line []byte, stageSeconds map[string]float64, datasetGeneration, sourceFile, identityFormat string) (rowBuildResult, rowErrorType, error) {
 	vDoc, eDocs, payload, errorType, err := loadRowGeneratedDocumentsWithPayload(resourceType, line, b.project, stageSeconds)
 	if err != nil {
 		return rowBuildResult{}, errorType, err
@@ -60,7 +61,7 @@ func (b *GeneratedRowBuilder) build(resourceType string, line []byte, stageSecon
 	var document any = &vDoc
 	if datasetGeneration != "" {
 		logicalKey := vDoc.Key
-		vDoc.Key = generationDocumentKey(b.project, datasetGeneration, resourceType, logicalKey)
+		vDoc.Key = generationDocumentKeyWithFormat(b.project, datasetGeneration, resourceType, logicalKey, identityFormat)
 		document = &struct {
 			VertexDocument
 			LogicalKey        string `json:"logical_key"`
@@ -73,7 +74,7 @@ func (b *GeneratedRowBuilder) build(resourceType string, line []byte, stageSecon
 		return rowBuildResult{}, rowErrorValidation, err
 	}
 	edgeStart := time.Now()
-	edgeBytes, relationships, err := marshalEdgeRows(eDocs, b.project, b.authResourcePath, datasetGeneration, sourceFile)
+	edgeBytes, relationships, err := marshalEdgeRowsWithFormat(eDocs, b.project, b.authResourcePath, datasetGeneration, sourceFile, identityFormat)
 	stageSeconds["edge_marshal"] += time.Since(edgeStart).Seconds()
 	if err != nil {
 		return rowBuildResult{}, rowErrorEdge, err
@@ -97,10 +98,14 @@ type edgeRow struct {
 }
 
 func marshalEdgeRows(documents []fhir.EdgeDocument, project, authResourcePath, datasetGeneration, sourceFile string) ([]json.RawMessage, []catalog.RelationshipKey, error) {
+	return marshalEdgeRowsWithFormat(documents, project, authResourcePath, datasetGeneration, sourceFile, publication.IdentityFormatCompact)
+}
+
+func marshalEdgeRowsWithFormat(documents []fhir.EdgeDocument, project, authResourcePath, datasetGeneration, sourceFile, identityFormat string) ([]json.RawMessage, []catalog.RelationshipKey, error) {
 	encoded := make([]json.RawMessage, len(documents))
 	relationships := make([]catalog.RelationshipKey, 0, len(documents))
 	for index, document := range documents {
-		row, relationship, err := namespaceEdgeDocumentValue(document, project, authResourcePath, datasetGeneration, sourceFile)
+		row, relationship, err := namespaceEdgeDocumentValueWithFormat(document, project, authResourcePath, datasetGeneration, sourceFile, identityFormat)
 		if err != nil {
 			return nil, nil, fmt.Errorf("edge %d: %w", index, err)
 		}
@@ -115,6 +120,10 @@ func marshalEdgeRows(documents []fhir.EdgeDocument, project, authResourcePath, d
 }
 
 func namespaceEdgeDocumentValue(document fhir.EdgeDocument, project, authResourcePath, datasetGeneration, sourceFile string) (edgeRow, catalog.RelationshipKey, error) {
+	return namespaceEdgeDocumentValueWithFormat(document, project, authResourcePath, datasetGeneration, sourceFile, publication.IdentityFormatCompact)
+}
+
+func namespaceEdgeDocumentValueWithFormat(document fhir.EdgeDocument, project, authResourcePath, datasetGeneration, sourceFile, identityFormat string) (edgeRow, catalog.RelationshipKey, error) {
 	if strings.TrimSpace(document.Key) == "" || strings.TrimSpace(document.From) == "" || strings.TrimSpace(document.To) == "" {
 		return edgeRow{}, catalog.RelationshipKey{}, fmt.Errorf("edge requires non-empty _key, _from, and _to")
 	}
@@ -130,11 +139,11 @@ func namespaceEdgeDocumentValue(document fhir.EdgeDocument, project, authResourc
 	row := edgeRow{EdgeDocument: document, AuthResourcePath: authResourcePath, SourceFile: sourceFile}
 	if datasetGeneration != "" {
 		logicalKey, from, to := document.Key, document.From, document.To
-		namespacedFrom, err := generationDocumentID(project, datasetGeneration, from)
+		namespacedFrom, err := generationDocumentIDWithFormat(project, datasetGeneration, from, identityFormat)
 		if err != nil {
 			return edgeRow{}, catalog.RelationshipKey{}, fmt.Errorf("edge _from: %w", err)
 		}
-		namespacedTo, err := generationDocumentID(project, datasetGeneration, to)
+		namespacedTo, err := generationDocumentIDWithFormat(project, datasetGeneration, to, identityFormat)
 		if err != nil {
 			return edgeRow{}, catalog.RelationshipKey{}, fmt.Errorf("edge _to: %w", err)
 		}
@@ -142,7 +151,7 @@ func namespaceEdgeDocumentValue(document fhir.EdgeDocument, project, authResourc
 		row.LogicalFrom = from
 		row.LogicalTo = to
 		row.DatasetGeneration = datasetGeneration
-		row.Key = generationEdgeKey(project, datasetGeneration, logicalKey, from, to)
+		row.Key = generationEdgeKeyWithFormat(project, datasetGeneration, logicalKey, from, to, identityFormat)
 		row.From = namespacedFrom
 		row.To = namespacedTo
 	}

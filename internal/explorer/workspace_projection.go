@@ -112,6 +112,10 @@ func (s *Service) artifactWorkspace(ctx context.Context, source WorkspaceArtifac
 			return workspace, digest, nil
 		}
 	}
+	if converted, changed, err := authoringv2.ConvertStoredSourcePlan(raw, source.IntentDigest); err == nil && changed {
+		digest, err := converted.Digest()
+		return converted, digest, err
+	}
 	reader, ok := s.store.(WorkspaceProjectionReader)
 	if !ok {
 		return authoringv2.Workspace{}, "", fmt.Errorf("immutable workspace requires its stored migration projection")

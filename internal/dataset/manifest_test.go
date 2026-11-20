@@ -27,6 +27,9 @@ func TestManifestTransitions(t *testing.T) {
 	if loading.State != StateLoading {
 		t.Fatalf("new state = %s", loading.State)
 	}
+	if loading.IdentityFormat != IdentityFormatCompact {
+		t.Fatalf("new identity format = %q, want %q", loading.IdentityFormat, IdentityFormatCompact)
+	}
 	for _, next := range []State{StateReady, StateFailed} {
 		got, err := loading.Transition(next)
 		if err != nil || got.State != next {
@@ -38,6 +41,18 @@ func TestManifestTransitions(t *testing.T) {
 	}
 	if _, err := loading.Transition(StateLoading); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("LOADING -> LOADING = %v", err)
+	}
+}
+
+func TestManifestAcceptsLegacyIdentityFormatAbsence(t *testing.T) {
+	legacy := testManifest(t)
+	legacy.IdentityFormat = ""
+	if err := legacy.Validate(); err != nil {
+		t.Fatalf("legacy manifest without identity format: %v", err)
+	}
+	legacy.IdentityFormat = "unknown"
+	if err := legacy.Validate(); err == nil {
+		t.Fatal("manifest with an unknown identity format was accepted")
 	}
 }
 

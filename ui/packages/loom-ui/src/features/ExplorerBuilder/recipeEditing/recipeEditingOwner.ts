@@ -62,10 +62,13 @@ export type RecipeEditingAction =
   | { readonly type: 'applying'; readonly token: RecipeEditToken }
   | { readonly type: 'failed'; readonly token: RecipeEditToken; readonly error: string; readonly stale?: boolean }
   | { readonly type: 'cancel'; readonly token: RecipeEditToken }
+  | { readonly type: 'discardStale' }
   | { readonly type: 'applied'; readonly token: RecipeEditToken }
   | { readonly type: 'identity'; readonly identity: RecipeEditingIdentity };
 
 export function recipeEditingReducer(state: RecipeEditingState, action: RecipeEditingAction): RecipeEditingState {
+  if (action.type === 'discardStale') return state.status === 'stale'
+    ? createRecipeEditingState(state.identity) : state;
   if (action.type === 'identity') {
     if (sameRecipeEditingIdentity(state.identity, action.identity)) return state;
     if (!recipeEditIsActive(state)) return createRecipeEditingState(action.identity);
@@ -138,6 +141,7 @@ export function useRecipeEditingOwner(identity: RecipeEditingIdentity) {
     applying: (token: RecipeEditToken) => dispatch({ type: 'applying', token }),
     fail: (token: RecipeEditToken, error: string, stale = false) => dispatch({ type: 'failed', token, error, stale }),
     cancel: (token: RecipeEditToken) => dispatch({ type: 'cancel', token }),
+    discardStale: () => dispatch({ type: 'discardStale' }),
     applied: (token: RecipeEditToken) => dispatch({ type: 'applied', token }),
   };
 }

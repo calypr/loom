@@ -31,7 +31,6 @@ export interface TraversalScopeNavigatorProps {
   readonly onSelectScope: (occurrenceId: string) => void;
   readonly onEditSourceStep: (stepId: string) => void;
   readonly onEditSourceField?: (stepId: string, fieldId: string) => void;
-  readonly onEditSourceOutput?: (stepId: string, outputKey: string) => void;
   readonly onEditConstructionStep: (stepId: string) => void;
   readonly onRemoveSourceStep?: (stepId: string) => void;
   readonly onRemoveConstructionStep?: (stepId: string) => void;
@@ -44,13 +43,6 @@ const rowButtonClass = 'flex w-full min-w-0 items-start gap-1.5 rounded-md px-1 
 const scopeButtonClass = 'flex w-full min-w-0 items-center rounded-md px-2 py-1 text-left text-xs transition-colors disabled:opacity-50';
 const secondaryActionClass = 'inline-flex items-center rounded-md bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-200 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50';
 const summaryClass = 'flex cursor-pointer items-center gap-1 text-xs font-medium text-slate-500 transition-colors hover:text-slate-900';
-type NetworkBinding = NonNullable<TraversalScopeNavigatorProps['network']>['bindings'][number];
-type EditableOutputBinding = NetworkBinding & { readonly sourceStepId: string; readonly outputKey: string };
-function isEditableOutputBinding(binding: NetworkBinding): binding is EditableOutputBinding {
-  return binding.status === 'EXACT' && typeof binding.sourceStepId === 'string' &&
-    'outputKey' in binding && typeof binding.outputKey === 'string' && binding.outputKey.length > 0;
-}
-
 export function TraversalScopeNavigator(props: TraversalScopeNavigatorProps) {
   const { table, selectedOccurrenceId, selectedOperation, projectionKind } = props;
   const model = traversalScopeModel(table.document, props.network, props.rowIdentity, props.constructionStages);
@@ -62,7 +54,7 @@ export function TraversalScopeNavigator(props: TraversalScopeNavigatorProps) {
   const editOperation = (operation: ScopedOperation) => operation.kind === 'source'
     ? props.onEditSourceStep(operation.id) : props.onEditConstructionStep(operation.id);
   const operationTitle = (operation: ScopedOperation) => operation.kind === 'source' ? props.sourceOperationLabels?.get(operation.id) ?? operation.title : operation.title;
-  const operationItem = (operation: ScopedOperation, showScope = false, compact = false, fieldGroup = false) => <li key={`${operation.kind}:${operation.position}:${operation.id}`}
+  const operationItem = (operation: ScopedOperation, showScope = false, fieldGroup = false) => <li key={`${operation.kind}:${operation.position}:${operation.id}`}
     data-operation-id={operation.id} data-operation-kind={operation.kind} data-occurrence-id={operation.scopeId}
     data-source-plan-position={operation.kind === 'source' ? operation.position : undefined}
     data-construction-position={operation.kind === 'construction' ? operation.position : undefined} className="border-b border-slate-100/70 py-0.5 last:border-0">
@@ -72,9 +64,11 @@ export function TraversalScopeNavigator(props: TraversalScopeNavigatorProps) {
         aria-pressed={selectedOperation?.kind === operation.kind && selectedOperation.stepId === operation.id}
         aria-label={`Edit ${operation.kind === 'source' ? 'source operation' : 'table operation'} ${operation.position}: ${fieldGroup ? `Fields from ${selected?.resourceType}` : operationTitle(operation)}`}
         onClick={() => editOperation(operation)}>
-        <span className="min-w-0 flex-1 font-medium leading-5">{fieldGroup ? `Fields from ${selected?.resourceType}` : operationTitle(operation)}{!operation.enabled ? ' · disabled' : ''}</span>
+        <span className="min-w-0 flex-1 font-medium leading-5">{fieldGroup ? `Fields from ${selected?.resourceType}` : operationTitle(operation)}</span>
       </button>
-      {!fieldGroup && (operation.kind === 'source' ? props.onRemoveSourceStep : props.onRemoveConstructionStep) ? (
+      {!fieldGroup && (operation.kind === 'source'
+        ? operation.sourceStep?.editable && !['OUTPUT', 'FIELD_GROUP', 'EXPANSION', 'IDENTITY'].includes(operation.sourceStep.kind) && props.onRemoveSourceStep
+        : props.onRemoveConstructionStep) ? (
         <button type="button" disabled={blocked || (operation.kind === 'source' && sourceOperationBlocked)}
           aria-label={`Remove ${operation.kind === 'source' ? 'source operation' : 'table operation'} ${operation.position}: ${operationTitle(operation)}`}
           onClick={() => (operation.kind === 'source' ? props.onRemoveSourceStep : props.onRemoveConstructionStep)?.(operation.id)}
@@ -84,28 +78,11 @@ export function TraversalScopeNavigator(props: TraversalScopeNavigatorProps) {
     {showScope && (operation.scopeId || operation.scopeReason) ? <p className="text-xs leading-4 text-slate-600">{operation.scopeId ? model.scopes.find(scope => scope.id === operation.scopeId)?.path : operation.scopeReason}</p> : null}
     {operation.scopeReason && !showScope ? <p role="note" className="text-xs text-amber-900">{operation.scopeReason}</p> : null}
     {!operation.editable ? <p className="text-xs text-amber-900">This operation has no supported in-place editor in the current operation metadata.</p> : null}
-    {operation.sourceStep && !compact && !fieldGroup ? <>
-      {(operation.sourceStep.kind === 'CATALOG_PROJECTION' || operation.sourceStep.kind === 'PIVOT') && props.onEditSourceOutput ? (() => {
-        const outputs = model.columns.flatMap(column => {
-          const bindings = props.network?.bindings.filter((binding): binding is EditableOutputBinding =>
-            isEditableOutputBinding(binding) && binding.columnId === column.id && binding.sourceStepId === operation.id) ?? [];
-          return bindings.length === 1 ? [{ column, outputKey: bindings[0].outputKey }] : [];
-        });
-        return outputs.length ? <details>
-          <summary className={summaryClass}>Outputs ({outputs.length})</summary>
-          <ul className="max-h-48 space-y-1 overflow-auto" aria-label={`Editable outputs from ${operationTitle(operation)}`}>
-            {outputs.map(({ column, outputKey }) => <li key={column.id} data-column-id={column.id} data-output-key={outputKey}>
-              <button type="button" className={rowButtonClass} disabled={sourceOperationBlocked || !operation.editable}
-                aria-label={`Edit output ${column.label}`} onClick={() => props.onEditSourceOutput?.(operation.id, outputKey)}>{column.label}</button>
-            </li>)}
-          </ul>
-        </details> : null;
-      })() : null}
-    </> : null}
   </li>;
-  const unresolvedSource = model.sourceOperations.filter(operation => !operation.scopeId && Boolean(operation.scopeReason));
+  const activeSourceOperations = model.sourceOperations;
+  const unresolvedSource = activeSourceOperations.filter(operation => !operation.scopeId && Boolean(operation.scopeReason));
   const unresolvedFields = model.columns.filter(column => column.unavailableReason);
-  const scopedSourceOperations = selected ? model.sourceOperations.filter(operation => operation.scopeId === selected.id) : [];
+  const scopedSourceOperations = selected ? activeSourceOperations.filter(operation => operation.scopeId === selected.id) : [];
   const scopeOperations = scopedSourceOperations;
   const ordinaryFields = selected && !table.document.importedRecipe ? model.columns.filter(column => column.scopeId === selected.id) : [];
   return <section aria-label="Traversal operations" data-testid="traversal-scope-navigator" data-recipe-state={projectionKind} className="min-h-0 min-w-0 space-y-2">
@@ -126,8 +103,8 @@ export function TraversalScopeNavigator(props: TraversalScopeNavigatorProps) {
       </div> : null}
       <div data-testid="traversal-recipe-steps">
         <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Recipe steps</h4>
-        {scopeOperations.length ? <ol aria-label="Source operations in selected scope" className="list-decimal space-y-0 pl-5 marker:text-[10px] marker:font-semibold marker:text-slate-400">{scopeOperations.map(operation => operationItem(operation, false, false, operation.sourceStep?.kind === 'FIELD_GROUP'))}</ol> : null}
-        {model.constructionOperations.length ? <ol start={scopeOperations.length + 1} aria-label="Ordered resulting-table operations" className="max-h-56 list-decimal space-y-0 overflow-auto pl-5 marker:text-[10px] marker:font-semibold marker:text-slate-400">{model.constructionOperations.map(operation => operationItem(operation, true, true))}</ol> : null}
+        {scopeOperations.length ? <ol aria-label="Source operations in selected scope" className="list-decimal space-y-0 pl-5 marker:text-[10px] marker:font-semibold marker:text-slate-400">{scopeOperations.map(operation => operationItem(operation, false, operation.sourceStep?.kind === 'FIELD_GROUP'))}</ol> : null}
+        {model.constructionOperations.length ? <ol start={scopeOperations.length + 1} aria-label="Ordered resulting-table operations" className="max-h-56 list-decimal space-y-0 overflow-auto pl-5 marker:text-[10px] marker:font-semibold marker:text-slate-400">{model.constructionOperations.map(operation => operationItem(operation, true))}</ol> : null}
         {!scopeOperations.length && !model.constructionOperations.length ? <p className="text-xs">No operations in this scope.</p> : null}
         {ordinaryFields.length ? <details className="mt-1"><summary className={summaryClass}>Source fields ({ordinaryFields.length})</summary><ul aria-label="Source fields in selected scope" className="max-h-48 overflow-auto">{ordinaryFields.map(column => <li key={column.id} data-column-id={column.id}>
           <button type="button" className={rowButtonClass} disabled={blocked} onClick={() => props.onEditColumn(column.id)}>Value policy for {column.label}</button>
