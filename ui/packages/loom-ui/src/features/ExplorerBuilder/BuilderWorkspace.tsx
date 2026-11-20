@@ -292,7 +292,7 @@ const BuilderWorkspaceContent = ({
     const available = (explorers.data ?? []).filter(
       (candidate) =>
         candidate.explorerId === 'dataframe-default' ||
-        (candidate.explorerId !== 'default' && candidate.management.toUpperCase() === 'INTERACTIVE'),
+        (candidate.explorerId !== 'default' && candidate.management?.toUpperCase() !== 'REPOSITORY'),
     );
     if (available.some((candidate) => candidate.explorerId === 'dataframe-default')) return available;
     return [{
