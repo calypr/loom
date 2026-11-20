@@ -289,7 +289,11 @@ const BuilderWorkspaceContent = ({
       ? selectedExplorerId
       : 'dataframe-default';
   const explorerSummaries = useMemo(() => {
-    const available = explorers.data ?? [];
+    const available = (explorers.data ?? []).filter(
+      (candidate) =>
+        candidate.explorerId === 'dataframe-default' ||
+        (candidate.explorerId !== 'default' && candidate.management.toUpperCase() === 'INTERACTIVE'),
+    );
     if (available.some((candidate) => candidate.explorerId === 'dataframe-default')) return available;
     return [{
       project: projectId,
@@ -329,7 +333,7 @@ const BuilderWorkspaceContent = ({
   });
   if (selectedExplorerId === 'dataframe-default' &&
       (builder.error as { code?: string } | undefined)?.code === 'DEFAULT_DATAFRAME_UNAVAILABLE') {
-    const fallback = (explorers.data ?? []).find((candidate) => candidate.explorerId !== 'dataframe-default' && candidate.explorerId !== 'default');
+    const fallback = explorerSummaries.find((candidate) => candidate.explorerId !== 'dataframe-default');
     if (fallback) setSelectedExplorerId(fallback.explorerId);
   }
   const capabilities = useGetExplorerAuthoringCapabilityV2Query(builderQueryArgs);
@@ -1247,7 +1251,7 @@ const BuilderWorkspaceContent = ({
       }
       deleteSupported={capabilities.data?.features.deleteExplorer ?? false}
       deleteDisabled={
-        !(explorers.data ?? []).some(
+        !explorerSummaries.some(
           (explorer) => explorer.explorerId !== effectiveExplorerId,
         )
       }
@@ -2298,42 +2302,30 @@ const BuilderWorkspaceContent = ({
                 activeFamily={activeConstructionFamily}
                 onSelectFamily={selectConstructionFamily}
                 preview={
-                  <>
-                    {!workspaceCandidatePreview && currentPreviewStatus === 'stale' ? (
-                      <p
-                        role="status"
-                        data-testid="construction-preview-stale-notice"
-                        className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-950"
-                      >
-                        Showing the last successful preview for this table.
-                        The table refreshes automatically when your changes are saved.
-                      </p>
-                    ) : null}
-                    {workspaceCandidatePreview ? (
-                      candidatePreviewElement
-                    ) : (
-                      <PreviewTable
-                        preview={tablePreview}
-                        previewErrorMessage={automaticPreviewFailureMessage}
-                        table={table}
-                        limit={previewLimit}
-                        onLimitChange={(limit) => {
-                          setPreviewLimit(limit);
-                        }}
-                        disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-                        onRowLineage={tablePreview ? (rowId, offset, signal) => loomClient.rowLineage({
-                          project: projectId,
-                          explorerId: state.explorerId,
-                          authResourcePath,
-                          receiptId: tablePreview.receiptId,
-                          outputId: tablePreview.outputId,
-                          rowId,
-                          offset,
-                          limit: 25,
-                        }, signal) : undefined}
-                      />
-                    )}
-                  </>
+                  workspaceCandidatePreview ? (
+                    candidatePreviewElement
+                  ) : (
+                    <PreviewTable
+                      preview={tablePreview}
+                      previewErrorMessage={automaticPreviewFailureMessage}
+                      table={table}
+                      limit={previewLimit}
+                      onLimitChange={(limit) => {
+                        setPreviewLimit(limit);
+                      }}
+                      disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+                      onRowLineage={tablePreview ? (rowId, offset, signal) => loomClient.rowLineage({
+                        project: projectId,
+                        explorerId: state.explorerId,
+                        authResourcePath,
+                        receiptId: tablePreview.receiptId,
+                        outputId: tablePreview.outputId,
+                        rowId,
+                        offset,
+                        limit: 25,
+                      }, signal) : undefined}
+                    />
+                  )
                 }
                 editor={externalWorkspaceEditor}
                 inspection={occurrenceInspection}

@@ -71,7 +71,7 @@ const explorerSummary = (explorerId: string, title: string) => ({
   project,
   explorerId,
   title,
-  management: 'repository',
+  management: explorerId === 'default' ? 'repository' : 'interactive',
   updatedAt: '2026-10-10T00:00:00Z',
 });
 const createTestClient = (
@@ -345,7 +345,7 @@ describe('BuilderWorkspace empty authenticated project', () => {
       expect.any(AbortSignal),
     );
     expect(screen.getByRole('option', { name: 'Shared default dataframe' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: listedDefault.title })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: listedDefault.title })).not.toBeInTheDocument();
     expect(getBuilder).not.toHaveBeenCalledWith(
       expect.objectContaining({ explorerId: 'default' }), expect.anything(),
     );

@@ -36,8 +36,19 @@ func (s *Service) ViewBuilderState(ctx context.Context, project string) (ViewBui
 	if err != nil {
 		return ViewBuilderState{}, fmt.Errorf("list project views: %w", err)
 	}
+	dataframeTitles := make(map[string]string)
 	for _, owner := range owners {
 		if owner.ProjectConfig == nil {
+			if owner.ActiveRevisionID != "" && owner.Title != "" {
+				revision, err := s.store.GetRevision(ctx, owner.ActiveRevisionID)
+				if err != nil {
+					return ViewBuilderState{}, fmt.Errorf("read published dataframe title: %w", err)
+				}
+				if revision != nil && revision.Project == storageProject && revision.ExplorerID == owner.ExplorerID &&
+					revision.Publication.ExecutionID != "" && settings.Catalogs[revision.Recipe.Name] != "" {
+					dataframeTitles[revision.Recipe.Name] = owner.Title
+				}
+			}
 			continue
 		}
 		definition, err := cloneProjectConfigDefinition(*owner.ProjectConfig)
@@ -76,6 +87,7 @@ func (s *Service) ViewBuilderState(ctx context.Context, project string) (ViewBui
 		if err != nil {
 			return ViewBuilderState{}, fmt.Errorf("decode published dataframe catalog: %w", err)
 		}
+		catalog.Title = dataframeTitles[name]
 		result.Catalogs = append(result.Catalogs, catalog)
 	}
 	return result, nil
