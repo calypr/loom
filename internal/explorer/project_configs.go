@@ -62,6 +62,9 @@ func ProjectConfigsForSourcePublication(
 }
 
 func initialProjectConfigID(recipeName string, owners map[string]Explorer) string {
+	if _, exists := owners["default"]; !exists {
+		return "default"
+	}
 	if _, exists := owners[recipeName]; !exists {
 		return recipeName
 	}
