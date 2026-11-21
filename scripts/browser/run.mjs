@@ -29,8 +29,9 @@ for (let i = 2; i < process.argv.length; i++) {
 assert.ok(['all', 'preview', 'download', 'route'].includes(options.feature), 'Unknown browser feature');
 for (const file of [fixture, options.chrome, 'ui/node_modules/esbuild/lib/main.js', 'ui/node_modules/postcss/lib/postcss.mjs', 'ui/node_modules/tailwindcss/lib/index.js'])
     assert.ok(existsSync(resolve(root, file)), `Missing browser prerequisite: ${file}`);
-const version = spawnSync(options.chrome, ['--version'], { encoding: 'utf8', timeout: 3000 });
-assert.equal(version.status, 0, version.stderr);
+const version = spawnSync(options.chrome, ['--version'], { encoding: 'utf8', timeout: 30_000 });
+if (version.error) throw new Error(`Could not get the Chromium version from ${options.chrome}`, { cause: version.error });
+assert.equal(version.status, 0, `Chromium version command failed (${version.signal ?? version.status}): ${version.stderr}`);
 if (options.doctor) {
     console.log(JSON.stringify({ status: 'ready-for-browser-component-checks', chrome: version.stdout.trim(), features: ['preview', 'download', 'route'], boundary: 'real production components in real Chromium; test-owned caller/data/download HTTP response, not deployed Loom/backend or disk durability' }));
     process.exit(0);
