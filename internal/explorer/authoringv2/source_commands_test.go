@@ -8,7 +8,7 @@ import (
 
 func TestImportedSourceCommandsRejectUnresolvedOrInjectedState(t *testing.T) {
 	for _, raw := range []string{
-		`{"type":"UPDATE_IMPORTED_SOURCE_STEP","outputId":"patients","sourceStep":{"stepId":"fields"}}`,
+		`{"type":"UPDATE_IMPORTED_SOURCE_STEP","outputId":"patients","sourceStep":{"stepId":"fields","enabled":false}}`,
 		`{"type":"UPDATE_IMPORTED_SOURCE_STEP","outputId":"patients","sourceStep":{"stepId":"fields","enabled":false,"expr":{"select":"root.id"}}}`,
 		`{"type":"REFRESH_IMPORTED_SOURCE","outputId":"patients","sourceStep":{"stepId":"fields","enabled":false}}`,
 		`{"type":"UPDATE_IMPORTED_SOURCE_STEP","outputId":"patients","sourceStep":{"stepId":"fields","enabled":false},"resolvedImportedDocument":{}}`,

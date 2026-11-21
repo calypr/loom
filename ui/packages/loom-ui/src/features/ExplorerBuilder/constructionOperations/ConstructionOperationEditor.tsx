@@ -1169,9 +1169,9 @@ const FormulaOperand = (props: {
     ? props.sourceInput.reason?.trim() || props.sourceInput.reasonCode?.trim() || undefined
     : undefined;
   return (
-    <fieldset className="grid gap-2 rounded border border-slate-200 p-2">
-      <legend className="px-1 text-xs font-semibold text-slate-700">{props.label}</legend>
-      <label className="grid gap-1 text-xs font-medium text-slate-700">
+    <fieldset className="grid min-w-0 content-start gap-2 border-t border-slate-200 pt-2">
+      <legend className="pr-2 text-xs font-semibold text-slate-700">{props.label}</legend>
+      <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
         <select
           aria-label={`${props.label} kind`}
           value={props.value.kind}
@@ -1197,7 +1197,7 @@ const FormulaOperand = (props: {
                 props.onChange({ kind: 'unset' });
             }
           }}
-          className="rounded border border-slate-300 bg-white px-2 py-1 text-xs"
+          className="w-full min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-xs"
         >
           <option value="unset">Choose a value</option>
           <option value="column" disabled={!firstNumeric && sourceOptions.length === 0}>Numeric column</option>
@@ -1206,7 +1206,7 @@ const FormulaOperand = (props: {
       </label>
 
       {props.value.kind === 'column' ? (
-        <label className="grid gap-1 text-xs font-medium text-slate-700">
+        <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
           Numeric field
           <select
             aria-label={`${props.label} column`}
@@ -1225,7 +1225,7 @@ const FormulaOperand = (props: {
               const columnId = materializedChoiceColumnId(choice) ?? existing?.columnId ?? createOpaqueId('derive-input');
               props.onSourceSelected(choice, columnId);
             }}
-            className="rounded border border-slate-300 bg-white px-2 py-1 text-xs"
+            className="w-full min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-xs"
           >
             {props.columns.filter(isNumericColumn).map((column) => <option key={column.id} value={column.id}>{column.label} ({column.type})</option>)}
             {sourceOptions.length > 0 ? <optgroup label="Dataset fields (not in output)">
@@ -1438,13 +1438,13 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
         </p>
       ) : null}
 
-      <div role="group" aria-label="Expression editor" className="flex gap-2">
+      <div role="group" aria-label="Expression editor" className="flex flex-wrap gap-1 border-b border-slate-200">
         <button
           type="button"
           aria-pressed={!isFormulaView}
           disabled={disabled}
           onClick={() => switchExpressionView('guided')}
-          className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium aria-pressed:bg-blue-50 aria-pressed:text-blue-900"
+          className="border-b-2 border-transparent px-3 py-2 text-sm font-medium text-slate-600 aria-pressed:border-blue-700 aria-pressed:text-blue-800"
         >
           Guided controls
         </button>
@@ -1453,14 +1453,14 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
           aria-pressed={isFormulaView}
           disabled={disabled}
           onClick={() => switchExpressionView('formula')}
-          className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium aria-pressed:bg-blue-50 aria-pressed:text-blue-900"
+          className="border-b-2 border-transparent px-3 py-2 text-sm font-medium text-slate-600 aria-pressed:border-blue-700 aria-pressed:text-blue-800"
         >
           Formula editor
         </button>
       </div>
 
       {isFormulaView ? (
-        <div data-testid="construction-calculate-formula-view" className="grid gap-2 rounded-lg border border-slate-200 p-3">
+        <div data-testid="construction-calculate-formula-view" className="grid min-w-0 gap-2">
           <p className="text-sm text-slate-600">Use one binary operation with numeric column names or numeric literals. Functions, nested expressions, parentheses, and conditional expressions are not supported.</p>
           <label className="grid gap-1 text-sm font-medium text-slate-700">
             Formula
@@ -1502,7 +1502,7 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
             </select>
           </label>
 
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid min-w-0 gap-3">
             <FormulaOperand
               label="First value"
               slot="left"
@@ -1533,7 +1533,7 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
         </>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid min-w-0 gap-3">
         <label className="grid gap-1 text-sm font-medium text-slate-700">
           If either value is missing
           <select

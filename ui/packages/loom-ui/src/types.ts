@@ -1828,13 +1828,14 @@ export const explorerBuilderDocumentSchema = z
     }).strict().optional(),
     importedSource: z.object({
       fieldBindings: z.array(z.object({ fieldId: opaqueIdSchema, columnId: opaqueIdSchema }).strict()).optional(),
+      removedStepIds: z.array(opaqueIdSchema).optional(),
+      nextRuleIndex: z.number().int().nonnegative().optional(),
       relationships: importedRelationshipOverlaySchema.optional(),
       ruleAdditions: z.array(z.object({
         kind: z.enum(["DYNAMIC_COLUMN", "EXTENSION_COLUMN", "CATALOG_PROJECTION"]),
         occurrenceId: opaqueIdSchema.optional(),
         maxColumns: z.number().int().min(1).max(128).optional(),
         stepId: opaqueIdSchema,
-        enabled: z.boolean(),
         parameters: importedSourceParametersSchema,
       }).strict()).optional(),
       steps: z.array(z.object({
@@ -1846,7 +1847,6 @@ export const explorerBuilderDocumentSchema = z
         kind: z.string().min(1),
         title: z.string().min(1),
         summary: z.string().min(1),
-        enabled: z.boolean(),
         editable: z.boolean(),
         maxColumns: z.number().int().positive().optional(),
         valueMode: z.string().min(1).optional(),
@@ -2746,11 +2746,14 @@ export type SemanticSelectionResult = z.infer<typeof semanticSelectionResultSche
 
 const importedSourceStepChangeSchema = z.object({
   stepId: opaqueIdSchema,
-  enabled: z.boolean(),
+  remove: z.literal(true).optional(),
   maxColumns: z.number().int().positive().optional(),
   valueMode: z.string().min(1).optional(),
   parameters: importedSourceParametersSchema.optional(),
 }).strict().superRefine((value, context) => {
+  if (value.remove && (value.maxColumns !== undefined || value.valueMode !== undefined || value.parameters !== undefined)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'A source step removal cannot include edits.' });
+  }
   if (value.parameters) validateEditableSourceParameters(value.parameters, context);
 });
 

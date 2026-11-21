@@ -3,7 +3,6 @@ import {
   moveArrayItem,
   projectConfigFromCatalog,
   projectViewFrameRef,
-  removeUnavailableViewBindings,
   viewForFrameReference,
 } from './projectViewDraft';
 import type { ProjectViewBuilderCatalog, ProjectViewConfig } from '../../projectViewBuilder';
@@ -130,45 +129,6 @@ describe('project view draft helpers', () => {
       'missing_action',
     ]);
     expect(duplicate.views[0]?.table.columns[0]?.pinned).toBe(true);
-  });
-
-  it('reports stale bindings and removes them only from the explicitly selected tab', () => {
-    const result = removeUnavailableViewBindings(
-      config,
-      catalog,
-      'specimen-tab',
-    );
-    expect(result.removed).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining('missing_table'),
-        expect.stringContaining('missing_filter'),
-        expect.stringContaining('members'),
-        expect.stringContaining('missing_fixed'),
-        expect.stringContaining('missing_action'),
-        expect.stringContaining('missing_header'),
-        expect.stringContaining('missing_shared'),
-      ]),
-    );
-    expect(result.config.untouchedConfigOption).toEqual({ preserve: true });
-    expect(result.config.views[0]?.untouchedViewOption).toEqual({
-      preserve: true,
-    });
-    expect(
-      result.config.views[0]?.table.columns.map((column) => column.column),
-    ).toEqual(['specimen_id']);
-    expect(
-      result.config.views[0]?.filters?.map((filter) => filter.column),
-    ).toEqual(['specimen_id']);
-    expect(
-      result.config.views[0]?.charts?.map((chart) => chart.column),
-    ).toEqual(['specimen_id']);
-    expect(result.config.views[0]?.actions?.[0]?.columns).toEqual([
-      'specimen_id',
-    ]);
-    expect(result.config.views[1]).toEqual(config.views[1]);
-    expect(result.config.sharedFilters?.cohort).toEqual([
-      { output: 'Patient', column: 'keep' },
-    ]);
   });
 
   it('moves array items without mutating the input or changing order at the boundary', () => {

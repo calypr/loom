@@ -3,7 +3,7 @@ import { useBrowserSubscription } from './useBrowserSubscription';
 const handlers: Array<() => void> = [];
 let listening = false;
 const onKeyDown = (event: KeyboardEvent) => {
-  if (event.key !== 'Escape' || event.defaultPrevented) return;
+  if (event.key !== 'Escape' || event.repeat || event.defaultPrevented) return;
   const handler = handlers.at(-1);
   if (!handler) return;
   event.preventDefault();

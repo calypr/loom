@@ -15,10 +15,7 @@ import type {
   ProjectViewBuilderFrame,
   ProjectViewConfig,
 } from '../../../projectViewBuilder';
-import {
-  canUseViewColumnPresentation,
-  removeUnavailableViewBindings,
-} from '../projectViewDraft';
+import { canUseViewColumnPresentation } from '../projectViewDraft';
 
 const frameForView = (
   catalog: ProjectViewBuilderCatalog | undefined,
@@ -645,20 +642,8 @@ export const ProjectViewEditor = ({
             variant="light"
             title="Frame not in current catalog"
           >
-            This saved tab is preserved. Choose another published table or
-            remove the unavailable bindings below.
+            Choose a published table for this tab.
           </Alert>
-        ) : null}
-        {frame && catalog ? (
-          <div className="lg:col-span-2">
-            <UnavailableBindingsRepair
-              config={config}
-              catalog={catalog}
-              viewId={view.id}
-              canEdit={canEdit}
-              onChange={onChange}
-            />
-          </div>
         ) : null}
         <FieldRow
           config={config}
@@ -669,55 +654,5 @@ export const ProjectViewEditor = ({
         />
       </div>
     </section>
-  );
-};
-
-const UnavailableBindingsRepair = ({
-  config,
-  catalog,
-  viewId,
-  canEdit,
-  onChange,
-}: {
-  readonly config: ProjectViewConfig;
-  readonly catalog: ProjectViewBuilderCatalog;
-  readonly viewId: string;
-  readonly canEdit: boolean;
-  readonly onChange: (config: ProjectViewConfig) => void;
-}) => {
-  const repair = removeUnavailableViewBindings(config, catalog, viewId);
-  if (repair.removed.length === 0) return null;
-  return (
-    <Alert
-      color="yellow"
-      variant="light"
-      title="This tab has unavailable bindings"
-    >
-      <Stack gap="xs">
-        <Text size="sm">
-          These saved references no longer match the current published table.
-          Review them before choosing to remove them.
-        </Text>
-        <ul className="list-disc pl-5 text-sm">
-          {repair.removed.map((reference) => (
-            <li key={reference}>{reference}</li>
-          ))}
-        </ul>
-        <Group>
-          <Button
-            size="xs"
-            color="yellow"
-            variant="light"
-            disabled={!canEdit}
-            onClick={() => onChange(repair.config)}
-          >
-            Remove these unavailable references
-          </Button>
-          <Text size="xs">
-            Nothing is removed unless you choose this action.
-          </Text>
-        </Group>
-      </Stack>
-    </Alert>
   );
 };

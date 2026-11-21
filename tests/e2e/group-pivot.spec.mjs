@@ -51,18 +51,28 @@ test('Pivot Observation valueQuantity by status and preserve Cancel then Apply a
       await page.click('[data-testid="construction-action-table-pivot-rows"]');
       try { await page.until(() => page.evaluate('Boolean(document.querySelector("[data-testid=construction-reshape-pivot]"))'), 'Pivot editor'); }
       catch (error) { throw new Error(`${error.message}; pivot UI=${JSON.stringify(await page.evaluate(`({text:document.body.innerText.slice(-1000),buttons:Array.from(document.querySelectorAll('button'),x=>x.getAttribute('aria-label')||x.innerText.trim()).filter(Boolean)})`))}`); }
-      let selectedInputs = await page.evaluate(`Array.from(document.querySelectorAll('[data-testid=construction-column-selection] [aria-selected=true]'),item=>item.getAttribute('aria-label'))`);
-      if (selectedInputs.includes('Remove Status (string)')) await page.clickLabel('Remove Status (string)', 'button');
-      if (selectedInputs.includes('Remove Value Quantity Value (decimal)')) await page.clickLabel('Remove Value Quantity Value (decimal)', 'button');
-      selectedInputs = await page.evaluate(`Array.from(document.querySelectorAll('[data-testid=construction-column-selection] [aria-selected=true]'),item=>item.getAttribute('aria-label'))`);
-      if (!selectedInputs.includes('Remove Observation ID (string)')) {
-        await page.click('[data-testid=construction-column-selection] [aria-label="Select Observation ID (string)"]');
+      assert.equal(await page.evaluate(`Boolean(document.querySelector('[data-testid="construction-column-selection"]'))`), false);
+      const roleTop = () => page.evaluate(`document.querySelector('[aria-label="Pivot category field"]').getBoundingClientRect().top`);
+      const closedTop = await roleTop();
+      await page.clickLabel('Choose pivot row fields');
+      assert.equal(await roleTop(), closedTop, 'opening the multiselect does not move the next field');
+      for (const columnLabel of ['Status', 'Value Quantity Value']) {
+        const roleLabel = `Pivot group ${columnLabel}`;
+        const checked = await page.evaluate(`[...document.querySelectorAll('input')].find(input => input.getAttribute('aria-label')?.startsWith(${JSON.stringify(roleLabel)}))?.checked`);
+        assert.equal(typeof checked, 'boolean', `Row identity includes ${columnLabel}`);
+        if (checked) await page.click(`label:has(> input[aria-label^="${roleLabel}"])`);
       }
-      selectedInputs = await page.evaluate(`Array.from(document.querySelectorAll('[data-testid=construction-column-selection] [aria-selected=true]'),item=>item.getAttribute('aria-label'))`);
-      assert.deepEqual(selectedInputs, ['Remove Observation ID (string)'], 'Observation ID remains the per-row identity while Status and value become Pivot roles');
+      await page.pressEscape();
+      assert.equal(await page.evaluate(`Boolean(document.querySelector('[aria-label="Pivot row fields"]:popover-open'))`), false);
       await page.until(() => page.evaluate(`Array.from(document.querySelector('[aria-label=\"Pivot category field\"]')?.options ?? []).some(option=>option.textContent.includes(${JSON.stringify(label('status'))}))`), 'Pivot fields updated for the selected row key');
       await page.selectOptionMatching('[aria-label="Pivot category field"]', label('status'));
       await page.selectOptionMatching('[aria-label="Pivot values field"]', label('valueQuantity.value'));
+      const rowKey = 'input[aria-label^="Pivot group Observation ID"]';
+      if (!await page.evaluate(`document.querySelector(${JSON.stringify(rowKey)})?.checked`)) {
+        await page.clickLabel('Choose pivot row fields');
+        await page.click(`label:has(> ${rowKey})`);
+        await page.clickLabel('Choose pivot row fields');
+      }
       await page.clickLabel('Discover categories when proposing', 'input');
       await page.until(() => page.evaluate("document.querySelector('[data-testid=construction-proposal-panel]')?.dataset.proposalStatus === 'ready'"), 'Pivot proposal with categories discovered by the proposal');
       const proposalHeaders = await page.evaluate(`Array.from(document.querySelectorAll('[data-testid=construction-proposal-preview] th'),item=>item.innerText.trim().split('\\n')[0])`);

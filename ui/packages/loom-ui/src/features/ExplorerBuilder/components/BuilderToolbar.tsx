@@ -261,8 +261,6 @@ export function BuilderToolbar({
   onNewTable,
   onDuplicateTable,
   onDeleteTable,
-  onReview,
-  reviewExpanded,
   onPublish,
   publishDisabled,
   publishing,
@@ -332,16 +330,6 @@ export function BuilderToolbar({
           </button>
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={onReview}
-            aria-expanded={reviewExpanded}
-            aria-controls="dataset-review-panel"
-            className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-900 hover:bg-blue-100 disabled:opacity-50"
-            disabled={busy}
-          >
-            Review dataset
-          </button>
           <button
             type="button"
             onClick={onPublish}

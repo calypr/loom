@@ -2,6 +2,7 @@ package authoringv2
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -15,17 +16,18 @@ type ImportedSourceFieldBinding struct {
 }
 
 type ImportedSourcePlan struct {
-	FieldBindings []ImportedSourceFieldBinding `json:"fieldBindings,omitempty"`
-	RuleAdditions []ImportedSourceRuleAddition `json:"ruleAdditions,omitempty"`
-	Steps         []ImportedSourceStep         `json:"steps"`
-	Relationships *ImportedRelationshipOverlay `json:"relationships,omitempty"`
+	RemovedStepIDs []string                     `json:"removedStepIds,omitempty"`
+	NextRuleIndex  int                          `json:"nextRuleIndex,omitempty"`
+	FieldBindings  []ImportedSourceFieldBinding `json:"fieldBindings,omitempty"`
+	RuleAdditions  []ImportedSourceRuleAddition `json:"ruleAdditions,omitempty"`
+	Steps          []ImportedSourceStep         `json:"steps"`
+	Relationships  *ImportedRelationshipOverlay `json:"relationships,omitempty"`
 }
 
 type ImportedSourceRuleAddition struct {
 	Kind         string                    `json:"kind"`
 	OccurrenceID string                    `json:"occurrenceId,omitempty"`
 	StepID       string                    `json:"stepId"`
-	Enabled      bool                      `json:"enabled"`
 	Parameters   *ImportedSourceParameters `json:"parameters"`
 	MaxColumns   *int                      `json:"maxColumns,omitempty"`
 }
@@ -40,7 +42,6 @@ type ImportedSourceStep struct {
 	Kind         string                    `json:"kind"`
 	Title        string                    `json:"title"`
 	Summary      string                    `json:"summary"`
-	Enabled      bool                      `json:"enabled"`
 	Editable     bool                      `json:"editable"`
 	MaxColumns   *int                      `json:"maxColumns,omitempty"`
 	ValueMode    string                    `json:"valueMode,omitempty"`
@@ -72,11 +73,28 @@ func (p ImportedSourcePlan) Validate() error {
 	if len(p.RuleAdditions) > 128 {
 		return fmt.Errorf("source plan has more than 128 rule additions")
 	}
-	rules := make(map[string]ImportedSourceRuleAddition, len(p.RuleAdditions))
-	for index, addition := range p.RuleAdditions {
-		if addition.StepID != fmt.Sprintf("ruleAdditions[%d]", index) {
-			return fmt.Errorf("ruleAdditions[%d].stepId must be its stable append-order identity", index)
+	if p.NextRuleIndex < 0 || len(p.RemovedStepIDs) > maxImportedSourcePlanSteps {
+		return fmt.Errorf("invalid imported source removal metadata")
+	}
+	removedSteps := make(map[string]bool, len(p.RemovedStepIDs))
+	for _, id := range p.RemovedStepIDs {
+		if err := validateImportedSourcePlanText("removedStepIds", id, maxImportedSourcePlanIDBytes); err != nil {
+			return err
 		}
+		if removedSteps[id] {
+			return fmt.Errorf("duplicate removed step %q", id)
+		}
+		removedSteps[id] = true
+	}
+	rules := make(map[string]ImportedSourceRuleAddition, len(p.RuleAdditions))
+	lastRuleIndex := -1
+	for index, addition := range p.RuleAdditions {
+		ruleIndex, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(addition.StepID, "ruleAdditions["), "]"))
+		if err != nil || ruleIndex <= lastRuleIndex || addition.StepID != fmt.Sprintf("ruleAdditions[%d]", ruleIndex) ||
+			(p.NextRuleIndex == 0 && ruleIndex != index) || (p.NextRuleIndex != 0 && ruleIndex >= p.NextRuleIndex) {
+			return fmt.Errorf("ruleAdditions[%d].stepId must be a stable append-order identity", index)
+		}
+		lastRuleIndex = ruleIndex
 		if err := (SourceRuleCreate{Kind: addition.Kind, OccurrenceID: addition.OccurrenceID, Parameters: addition.Parameters, MaxColumns: addition.MaxColumns}).Validate(); err != nil {
 			return fmt.Errorf("ruleAdditions[%d]: %w", index, err)
 		}
@@ -99,6 +117,9 @@ func (p ImportedSourcePlan) Validate() error {
 		}
 		if err := validateImportedSourcePlanText(path+".id", step.ID, maxImportedSourcePlanIDBytes); err != nil {
 			return err
+		}
+		if removedSteps[step.ID] {
+			return fmt.Errorf("removed source step %q is still present", step.ID)
 		}
 		if _, duplicate := seen[step.ID]; duplicate {
 			return fmt.Errorf("%s.id duplicates %q", path, step.ID)
@@ -130,7 +151,7 @@ func (p ImportedSourcePlan) Validate() error {
 				return err
 			}
 			if step.Kind == "TRAVERSAL" {
-				disabled[step.ID] = !step.Enabled || disabled[step.ParentID] || removed[step.OccurrenceID]
+				disabled[step.ID] = disabled[step.ParentID] || removed[step.OccurrenceID]
 				available[step.OccurrenceID] = !disabled[step.ID]
 			} else if rule, exists := rules[step.ID]; !exists || rule.OccurrenceID != step.OccurrenceID {
 				return fmt.Errorf("%s.occurrenceId requires a traversal or source rule descriptor", path)
@@ -138,9 +159,6 @@ func (p ImportedSourcePlan) Validate() error {
 		}
 		if step.MatchMode != "" && (step.Kind != "TRAVERSAL" || step.MatchMode != RouteMatchOptional && step.MatchMode != RouteMatchRequired) {
 			return fmt.Errorf("%s.matchMode requires a traversal OPTIONAL or REQUIRED descriptor", path)
-		}
-		if !step.Editable && !step.Enabled {
-			return fmt.Errorf("%s.enabled must remain true for a read-only step", path)
 		}
 		if step.MaxColumns != nil && *step.MaxColumns < 1 {
 			return fmt.Errorf("%s.maxColumns must be positive", path)

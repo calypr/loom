@@ -116,7 +116,7 @@ func (r Sources) RemoveOutput(
 		if step.ID != sourceStepID {
 			continue
 		}
-		if !step.Enabled || !step.Editable || step.Parameters == nil {
+		if !step.Editable || step.Parameters == nil {
 			return authoringv2.Document{}, fmt.Errorf("pinned output source is not editable")
 		}
 		parameters := *step.Parameters
@@ -188,7 +188,7 @@ func (r Sources) RemoveOutput(
 			return authoringv2.Document{}, fmt.Errorf("pinned source kind %q does not support per-output removal", step.Kind)
 		}
 		change := authoringv2.ImportedSourceStepChange{
-			StepID: step.ID, Enabled: step.Enabled, MaxColumns: step.MaxColumns,
+			StepID: step.ID, MaxColumns: step.MaxColumns,
 			ValueMode: step.ValueMode, Parameters: &parameters,
 		}
 		return r.Edit(ctx, project, authorized, document, &change)
@@ -336,7 +336,7 @@ func (r Sources) RemoveField(
 		if step.ID != sourceStepID {
 			continue
 		}
-		if !step.Enabled || !step.Editable || step.Kind != recipeimport.SourcePlanFieldGroup || step.Parameters == nil || step.Parameters.FieldGroup == nil {
+		if !step.Editable || step.Kind != recipeimport.SourcePlanFieldGroup || step.Parameters == nil || step.Parameters.FieldGroup == nil {
 			return authoringv2.Document{}, fmt.Errorf("pinned field source is not editable")
 		}
 		parameters := *step.Parameters
@@ -361,7 +361,7 @@ func (r Sources) RemoveField(
 			return authoringv2.Document{}, fmt.Errorf("pinned source field was not found")
 		}
 		parameters.FieldGroup = &fieldGroup
-		updated = authoringv2.ImportedSourceStepChange{StepID: step.ID, Enabled: step.Enabled, Parameters: &parameters}
+		updated = authoringv2.ImportedSourceStepChange{StepID: step.ID, Parameters: &parameters}
 		stepFound = true
 		break
 	}
@@ -423,7 +423,7 @@ func bindPinnedFieldRemoval(
 			field.OccurrenceID = binding.OccurrenceID
 		}
 		step, ok := steps[binding.SourceStepID]
-		if !ok || !step.Enabled || !step.Editable || step.Parameters == nil {
+		if !ok || !step.Editable || step.Parameters == nil {
 			continue
 		}
 		if binding.OutputKey != "" && supportsPinnedOutputRemoval(step, binding.OutputKey) {

@@ -217,7 +217,7 @@ const CategoryPicker = ({
 };
 
 export const FrameSourcePanel = ({
-  project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot, frames, columns, disabled, allowNewSource = true, addSourceRoute,
+  project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot, frames, columns, disabled, allowNewSource = true, addSourceRoute, unassignedFrameIds,
   onSet, onReplace, onRemove, onAddSelected, onRemoveColumn,
 }: {
   readonly project: string;
@@ -230,6 +230,7 @@ export const FrameSourcePanel = ({
   readonly columns: ReadonlyArray<{ readonly column: string; readonly label: string; readonly frameId?: string }>;
   readonly disabled: boolean;
   readonly allowNewSource?: boolean;
+  readonly unassignedFrameIds?: ReadonlySet<string>;
   readonly addSourceRoute?: { readonly resourceType: string; readonly edgeIds: readonly string[] };
   readonly onSet: (choice: FrameSourceOption, form: FrameDefinition['form']) => Promise<boolean>;
   readonly onReplace: (frameId: string, choice: FrameSourceOption, form: FrameDefinition['form']) => Promise<boolean>;
@@ -263,12 +264,13 @@ export const FrameSourcePanel = ({
     | { readonly kind: 'replace'; readonly frameId: string; readonly source: FrameSourceOption; readonly form: FrameDefinition['form'] }
   >();
 
-  useEscapeToClose(Boolean(editingFrame || sourcePickerOpen || pendingNewFrame || (addSourceRoute && openFrame)), () => {
-    if (addSourceRoute) setOpenFrame(undefined);
-    setEditingFrame(undefined);
-    setSourcePickerOpen(false);
-    setPendingNewFrame(undefined);
-    setPendingImpact(undefined);
+  const canCloseSourcePicker = sourcePickerOpen && (!addSourceRoute || Boolean(editingFrame));
+  useEscapeToClose(Boolean(pendingImpact || pendingNewFrame || canCloseSourcePicker || editingFrame || (addSourceRoute && openFrame)), () => {
+    if (pendingImpact) setPendingImpact(undefined);
+    else if (pendingNewFrame) setPendingNewFrame(undefined);
+    else if (canCloseSourcePicker) setSourcePickerOpen(false);
+    else if (editingFrame) setEditingFrame(undefined);
+    else if (addSourceRoute) setOpenFrame(undefined);
   });
   const sourceResourceType = addSourceRoute?.resourceType;
   const sourceSearchKeyFor = (search: string) => JSON.stringify([
@@ -393,27 +395,26 @@ export const FrameSourcePanel = ({
 
   return (
     <section aria-label="Frame coded values into columns" data-testid="frame-source-panel" className="min-w-0">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0">
+      {allowNewSource || editingFrame || sourcePickerOpen ? <div className="flex flex-wrap items-center justify-between gap-2">
+        {allowNewSource ? <div className="min-w-0">
           <h2 className="text-sm font-semibold text-slate-900">{addSourceRoute ? 'Columns from code values' : 'Coded sources'}</h2>
           <p className="text-xs text-slate-600">{addSourceRoute ? 'Choose a source, then select the codes to turn into columns.' : frames.length === 0
             ? 'Browse coded-value sources Loom can add to this table.'
             : 'Each code names a column; its paired value fills the cells.'}</p>
-        </div>
-        {allowNewSource || editingFrame || sourcePickerOpen ? (
-          <button type="button" aria-expanded={sourcePickerOpen} onClick={() => setSourcePickerOpen((open) => !open)}
+        </div> : null}
+        {!addSourceRoute ? <button type="button" aria-expanded={sourcePickerOpen} onClick={() => setSourcePickerOpen((open) => !open)}
             className="shrink-0 text-sm font-semibold text-blue-800 hover:underline">
             {sourcePickerOpen ? 'Hide source choices' : editingFrame ? 'Choose replacement' : frames.length === 0 ? 'Browse sources' : 'Add coded source'}
             <span aria-hidden="true"> {sourcePickerOpen ? '▴' : '▾'}</span>
-          </button>
-        ) : null}
-      </div>
+        </button> : null}
+      </div> : null}
       {visibleFrames.map((frame) => (
-        <div key={frame.id} className="mt-2 rounded-md border border-emerald-200 bg-emerald-50/40 p-2" data-testid={`saved-frame-${frame.id}`}>
+        <div key={frame.id} className={allowNewSource ? "mt-2 rounded-md border border-emerald-200 bg-emerald-50/40 p-2" : "border-b border-slate-100 py-2"} data-testid={`saved-frame-${frame.id}`}>
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
               <h3 className="text-sm font-semibold text-slate-900">{frame.title}</h3>
               <p className="text-xs text-slate-600">{routeLabel(frame)} · {matchSummary(frame)}</p>
+              {unassignedFrameIds?.has(frame.id) ? <p className="text-xs text-slate-600">Source route has no unique graph node.</p> : null}
             </div>
             <div className="flex gap-2 text-xs">
               <button type="button" disabled={disabled || busy} onClick={() => {
@@ -475,7 +476,7 @@ export const FrameSourcePanel = ({
         {state.kind === 'error' ? <p className="mt-3 text-sm text-red-800" role="alert">{state.message}</p> : null}
         {state.kind === 'ready' ? (
           <>
-            {sourceGroups.length === 0 ? <p className="mt-3 text-sm text-slate-600">{state.value.nextCursor ? 'No sources for this graph path on this page. More results are available.' : 'No available coded sources match this search.'}</p> : null}
+            {sourceGroups.length === 0 ? <p className="mt-3 text-sm text-slate-600">{state.value.nextCursor ? 'No sources for this graph path on this page. More results are available.' : query ? 'No coded sources match your search.' : 'No coded sources are available on this node.'}</p> : null}
             <div className="mt-2 max-h-80 divide-y divide-slate-100 overflow-y-auto rounded-md border border-slate-200">
               {(showAllSources ? sourceGroups : sourceGroups.slice(0, 4)).map(([key, routes]) => {
                 const source = routes.find((route) => route.choiceId === selectedRoutes.get(key)) ?? preferredRoute(routes, rowRoot);

@@ -228,7 +228,6 @@ export const createReshapeEditorEntry = (args: {
 };
 
 export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps) => {
-  useEscapeToClose(Boolean(props.onCancel), props.onCancel ?? (() => {}));
   const id = useId();
   const { construction, capabilities, editingStep, disabled, onCandidateChange } = props;
   const stage = capabilities.selectedStage;
@@ -273,24 +272,27 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const groupCodedPivotCapability = capabilityFor(groupStage, 'CODED_PIVOT');
   const groupCodedValuesSupported = savedGroupInputStageAvailable && Boolean(savedOwnedCodedInput || groupCodedPivotCapability.supported) &&
     isSourceProjectionStage(groupStage);
-  const contextKey = editorContextKey(capabilities, editingStep, (props.selectedColumns ?? []).join(','), props.initialKind ?? '');
+  const editorIdentity = editorContextKey(capabilities, editingStep, props.initialKind ?? '');
+  const contextKey = JSON.stringify([editorIdentity, props.selectedColumns ?? []]);
   const [form, setForm] = useState<ReshapeForm>(() => editingStep
     ? formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind)
     : props.initialEntry?.form
       ?? formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind));
-  const [formContextKey, setFormContextKey] = useState(contextKey);
+  const [formContext, setFormContext] = useState({ key: contextKey, editorIdentity });
+  const formContextKey = formContext.key;
   const [contractUnavailable, setContractUnavailable] = useState(false);
-  const [reshapeTab, setReshapeTab] = useState<'pivot' | 'unpivot'>('pivot');
   const [pivotBeforeSplit, setPivotBeforeSplit] = useState<PivotForm>();
   const [pivotListSelection, setPivotListSelection] = useState<PivotListSelection>();
   const [groupPurpose, setGroupPurpose] = useState<'group' | 'summarize' | undefined>();
   if (formContextKey !== contextKey) {
-    const initialForm = editingStep
+    const initialForm = !editingStep && form.kind === 'unpivot' && formContext.editorIdentity === editorIdentity
+      ? initialUnpivotForm(stage, props.selectedColumns ?? [])
+      : editingStep
       ? formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind)
       : props.initialEntry?.form
         ?? formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind);
     setForm(initialForm);
-    setFormContextKey(contextKey);
+    setFormContext({ key: contextKey, editorIdentity });
     setPivotBeforeSplit(undefined);
     setPivotListSelection(undefined);
     setContractUnavailable(false);
@@ -436,7 +438,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       hasInitialEntry: Boolean(props.initialEntry),
     });
     if (initialStateReported && !props.initialEntry) {
-      const initialForm = formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind);
+      const initialForm = attachedSnapshot.form;
       props.onFormKindChange?.(initialForm.kind);
       const initialCandidate = (!editingStep
         && (initialForm.kind === 'coded-group' && codedGroupSupport.supported
@@ -531,8 +533,10 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     const pivotCategoriesKnown = next.kind === 'pivot' && pivotCategoriesAreKnown(next, snapshot.stage.id, discovery);
     if (
       next.kind === 'pivot'
-      && snapshot.editingStep?.operation.kind !== 'PIVOT'
-      && pivotCategoriesKnown
+      && next.unlistedCategoryPolicy === 'ERROR'
+      && !next.discovery
+      && pivotDiscoveryMatches(next, snapshot.stage.id, discovery)
+      && discovery.status === 'complete'
       && !allDiscoveredPivotCategoriesSelected(next, snapshot.stage.id, discovery)
     ) return { kind: 'incomplete' };
     return candidateFor({
@@ -790,6 +794,11 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const showReshapeTabs = !editingStep && (form.kind === 'pivot' || form.kind === 'unpivot' || form.kind === 'coded-pivot' ||
     (form.kind === 'expand' && Boolean(pivotBeforeSplit)));
 
+  const backFromPivotSplit = () => {
+    if (pivotBeforeSplit && !disabled) updateForm(pivotBeforeSplit);
+  };
+  useEscapeToClose(Boolean(pivotBeforeSplit || props.onCancel), pivotBeforeSplit ? backFromPivotSplit : props.onCancel ?? (() => {}));
+
   return (
     <section ref={pivotDiscoveryRootRef} aria-label={props.rowValuesOnly ? 'Add columns from Group contributors' : 'Reshape editor'} data-testid="construction-reshape-editor" className="grid content-start gap-3">
 
@@ -811,7 +820,6 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
               data-testid={`construction-reshape-tab-${tab}`}
               disabled={disabled}
               onClick={() => {
-                setReshapeTab(tab);
                 if (tab === 'pivot') setPivotListSelection(undefined);
                 updateForm(tab === 'pivot'
                   ? initialPivotForm(stage, props.selectedColumns ?? [])
@@ -911,7 +919,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
               <h4 className="text-sm font-semibold text-slate-900">Split before pivoting</h4>
               <p className="text-xs text-slate-700">Review and apply the split. Then open Pivot again and choose “{form.outputLabel}” in place of the list. The split is saved as its own step.</p>
               <button type="button" disabled={disabled} className="justify-self-start text-sm font-medium text-blue-800"
-                onClick={() => updateForm(pivotBeforeSplit)}>
+                onClick={backFromPivotSplit}>
                 Back to pivot fields
               </button>
             </section>
@@ -941,7 +949,6 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           disabled={disabled}
           discovery={pivotDiscovery}
           discoveryAwaited={pivotDiscoveryInFlight}
-          requireEveryDiscoveredCategory={editingStep?.operation.kind !== 'PIVOT'}
           canDiscover={Boolean(props.onDiscoverCategories)}
           showRowSelection={!props.useExternalColumnSelection}
           populationStatusFor={populationStatusFor}
@@ -1457,10 +1464,10 @@ const UnpivotEditor = (props: {
   const rowEffect = inputCount === 0
     ? listColumns.length > 0
       ? 'Choose single-value fields. Split list columns before stacking.'
-      : 'Choose columns to see the row count.'
-    : `${inputCount} new ${inputCount === 1 ? 'row' : 'rows'} per original row. ${props.form.nullRowPolicy === 'PRESERVE'
-      ? 'Missing values keep their row.'
-      : 'Missing values are dropped.'}`;
+      : ''
+    : props.form.nullRowPolicy === 'PRESERVE'
+      ? `${inputCount} ${inputCount === 1 ? 'row' : 'rows'} per original row. Missing values keep their row.`
+      : `Up to ${inputCount} ${inputCount === 1 ? 'row' : 'rows'} per original row. Loom skips a row when its selected value is missing.`;
 
   const laneUnpivotBindings = props.form.unpivotSources ?? [];
   const laneOnlyUnpivotBinding = laneUnpivotBindings.length === 1 ? laneUnpivotBindings[0] : undefined;
@@ -1477,7 +1484,7 @@ const UnpivotEditor = (props: {
   return (
     <section aria-label="Unpivot columns into rows" data-testid="construction-reshape-unpivot" className="grid content-start gap-3">
       <p className="m-0 text-sm text-slate-600">
-        Turn columns into rows. For example, select Score 2024 and Score 2025 to make a separate row for each year’s score.
+        Choose the fields to stack. Each selected field can make a separate row. By default, <strong>{props.form.keyOutputLabel}</strong> holds the field name and <strong>{props.form.valueOutputLabel}</strong> holds its value. The other columns repeat on each new row.
       </p>
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
       {props.showInputSelection ? (
@@ -1504,9 +1511,7 @@ const UnpivotEditor = (props: {
           onExpand={props.onExpandListColumn}
         />
       ) : null}
-      <p data-testid="construction-unpivot-effect" className="m-0 text-sm text-slate-600">
-        {rowEffect}
-      </p>
+      {rowEffect ? <p data-testid="construction-unpivot-effect" className="m-0 text-sm text-slate-600">{rowEffect}</p> : null}
       {sourceUnavailableReason ? (
         <p role="status" data-testid="construction-reshape-unpivot-source-unavailable" className="m-0 text-sm text-amber-900">{sourceUnavailableReason}</p>
       ) : null}
@@ -1526,14 +1531,42 @@ const UnpivotEditor = (props: {
           Selected value columns must share a compatible type.
         </p>
       ) : null}
-      <details data-testid="construction-unpivot-advanced" className="rounded border border-slate-200 p-3">
-        <summary className="cursor-pointer text-sm font-medium text-blue-800">Advanced options: field names and missing values</summary>
-        <div className="mt-3 grid gap-3">
+      {props.form.inputs.length > 0 ? <section aria-label="How fields become rows" className="grid min-w-0 gap-2 border-t border-slate-200 pt-2">
+        <h4 className="text-sm font-semibold text-slate-900">How fields become rows</h4>
+        <p className="m-0 text-sm text-slate-600">
+          <strong>{props.form.keyOutputLabel}</strong> identifies the source field on each new row.
+          {' '}<strong>{props.form.valueOutputLabel}</strong> holds that field’s value. Each entry under {props.form.keyOutputLabel} must be unique.
+        </p>
+        <table className="w-full table-fixed border-y border-slate-200 text-left text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 text-xs text-slate-600">
+              <th scope="col" className="px-2 py-1.5">Source field</th>
+              <th scope="col" className="px-2 py-1.5">{props.form.keyOutputLabel}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {props.form.inputs.map((input) => (
+              <tr key={input.columnId}>
+                <th scope="row" className="break-words px-2 py-1.5 font-normal">
+                  {props.stage.columns.find((column) => column.id === input.columnId)?.label ?? 'Selected field'}
+                </th>
+                <td className="break-words px-2 py-1.5">
+                  {scalarLabel(input.key)}
+                  {input.key.kind === 'NULL' || input.key.kind === 'MISSING'
+                    ? <span className="ml-1 text-xs text-amber-900">Choose a value in Customize mappings</span>
+                    : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <details>
+          <summary className="cursor-pointer py-1 text-sm font-medium text-blue-800">Customize mappings</summary>
           {props.form.inputs.map((input, index) => {
             const column = props.stage.columns.find((candidate) => candidate.id === input.columnId);
-            return <div key={`${input.columnId}-${index}`} className="grid gap-2 rounded bg-slate-50 p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+            return <div key={`${input.columnId}-${index}`} className="grid min-w-0 gap-2 border-b border-slate-100 py-2">
               <label className="grid gap-1 text-sm font-medium text-slate-800">
-                <span>{column?.label ?? 'Selected field'}</span>
+                <span>Source field</span>
                 <select
                   aria-label={`Unpivot input ${index + 1} field`}
                   data-testid={`construction-reshape-unpivot-input-${index}-column`}
@@ -1562,32 +1595,20 @@ const UnpivotEditor = (props: {
               <ScalarKeyEditor input={input} disabled={props.disabled || !props.supported} onChange={(key) => updateInputKey(input.columnId, key)} />
             </div>;
           })}
-          {props.sourceInput?.supported ? (
-            <SourcePickerExplanation emptiness={unpivotSourceEmptiness} />
-          ) : null}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
-              <legend className="px-1 text-sm font-semibold text-slate-800">New key column</legend>
-              <label className="grid gap-1 text-sm font-medium text-slate-700">Column name<input aria-label="Unpivot key output name" value={props.form.keyOutputName} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, keyOutputName: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" /></label>
-              <label className="grid gap-1 text-sm font-medium text-slate-700">Column label<input aria-label="Unpivot key output label" value={props.form.keyOutputLabel} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, keyOutputLabel: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" /></label>
-            </fieldset>
-            <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
-              <legend className="px-1 text-sm font-semibold text-slate-800">New value column</legend>
-              <label className="grid gap-1 text-sm font-medium text-slate-700">Column name<input aria-label="Unpivot value output name" value={props.form.valueOutputName} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, valueOutputName: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" /></label>
-              <label className="grid gap-1 text-sm font-medium text-slate-700">Column label<input aria-label="Unpivot value output label" value={props.form.valueOutputLabel} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, valueOutputLabel: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" /></label>
-            </fieldset>
-          </div>
-          <label className="grid gap-1 text-sm font-medium text-slate-700">
-            If a selected value is missing
-            <select aria-label="Unpivot null row policy" value={props.form.nullRowPolicy} disabled={props.disabled || !props.supported} onChange={(event) => { const policy = event.currentTarget.value; if (policy === 'DROP' || policy === 'PRESERVE') props.onChange({ ...props.form, nullRowPolicy: policy }); }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
-              <option value="DROP">Leave that row out</option>
-              <option value="PRESERVE">Keep the row with a missing value</option>
-            </select>
-          </label>
-        </div>
-      </details>
+        </details>
+      </section> : null}
+      {props.sourceInput?.supported && unpivotSourceEmptiness.emptyClass !== 'none-listed' ? (
+        <SourcePickerExplanation emptiness={unpivotSourceEmptiness} />
+      ) : null}
+      <label className="grid gap-1 text-sm font-medium text-slate-700">
+        If a selected value is missing
+        <select aria-label="Unpivot null row policy" value={props.form.nullRowPolicy} disabled={props.disabled || !props.supported} onChange={(event) => { const policy = event.currentTarget.value; if (policy === 'DROP' || policy === 'PRESERVE') props.onChange({ ...props.form, nullRowPolicy: policy }); }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
+          <option value="DROP">Leave that row out</option>
+          <option value="PRESERVE">Keep the row with a missing value</option>
+        </select>
+      </label>
       {props.form.inputs.length === 0 && listColumns.length === 0 ? <p role="status" className="text-sm text-amber-900">Choose at least one input column.</p> : null}
-      {!outputNamesValid ? <p role="status" className="text-sm text-amber-900">Give every output a unique column name using letters, numbers, or underscores, and add a label.</p> : null}
+      {!outputNamesValid ? <p role="status" className="text-sm text-amber-900">The output column names or labels are invalid.</p> : null}
     </section>
   );
 };
@@ -1601,24 +1622,24 @@ const ScalarKeyEditor = (props: {
   return (
     <div className="grid gap-2 sm:grid-cols-[minmax(0,8rem)_minmax(0,1fr)]">
       <label className="grid gap-1 text-xs font-medium text-slate-600">
-        Key type
+        Row label type
         <select aria-label={`Unpivot key type ${props.input.columnId}`} value={props.input.key.kind} disabled={props.disabled} onChange={(event) => {
           const kind = scalarKindFromInput(event.currentTarget.value);
           if (kind) props.onChange(convertScalarKind(kind, props.input.key));
         }} className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm">
-          <option value="STRING">Text</option><option value="INTEGER">Whole number</option><option value="DECIMAL">Decimal number</option><option value="BOOLEAN">True or false</option><option value="NULL">Null (not allowed as a key)</option><option value="MISSING">Missing (not allowed as a key)</option>
+          <option value="STRING">Text</option><option value="INTEGER">Whole number</option><option value="DECIMAL">Decimal number</option><option value="BOOLEAN">True or false</option>{props.input.key.kind === 'NULL' ? <option value="NULL" disabled>Null</option> : null}{props.input.key.kind === 'MISSING' ? <option value="MISSING" disabled>Missing</option> : null}
         </select>
       </label>
       {props.input.key.kind === 'BOOLEAN' ? (
         <label className="grid gap-1 text-xs font-medium text-slate-600">
-          Key value
+          Row label
           <select aria-label={`Unpivot key value ${props.input.columnId}`} value={value} disabled={props.disabled} onChange={(event) => { const next = scalarFromText('BOOLEAN', event.currentTarget.value); if (next) props.onChange(next); }} className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"><option value="true">true</option><option value="false">false</option></select>
         </label>
       ) : props.input.key.kind === 'NULL' || props.input.key.kind === 'MISSING' ? (
-        <p role="status" className="self-end text-xs text-amber-900">A null or missing key is not allowed. Choose a concrete key type.</p>
+        <p role="status" className="self-end text-xs text-amber-900">Choose a row label type and enter a value.</p>
       ) : (
         <label className="grid gap-1 text-xs font-medium text-slate-600">
-          Key value
+          Row label
           <input aria-label={`Unpivot key value ${props.input.columnId}`} value={value} disabled={props.disabled} onChange={(event) => { const next = scalarFromText(props.input.key.kind, event.currentTarget.value); if (next) props.onChange(next); }} className="rounded border border-slate-300 px-2 py-1.5 text-sm" />
         </label>
       )}

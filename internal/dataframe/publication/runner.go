@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"reflect"
 	"strings"
@@ -30,10 +31,12 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 		return Result{}, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidData, "")
 	}
 	limits = limits.normalized()
+	beginStarted := time.Now()
 	tx, err := target.Begin(ctx, identity, schemas)
 	if err != nil {
 		return Result{}, err
 	}
+	beginDuration := time.Since(beginStarted)
 	fail := func(cause error) (Result, error) {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
@@ -41,6 +44,7 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 		return Result{}, errors.Join(cause, abortErr)
 	}
 	if tx.Idempotent() {
+		slog.InfoContext(ctx, "dataframe publication reused", "project", identity.Project, "generation", identity.DatasetGeneration, "recipe", identity.Name, "begin_ms", beginDuration.Milliseconds())
 		return Result{Outputs: tx.ExistingPublishedOutputs(), QualityReports: tx.ExistingQualityReports()}, nil
 	}
 	if metadataWriter, ok := tx.(SourceRowMetadataWriter); ok {
@@ -63,6 +67,9 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	populated := make(map[string]map[string]bool, len(normalizedOutputs))
 	qualityReports := make([]QualityReport, 0, len(normalizedOutputs))
 	for _, output := range normalizedOutputs {
+		outputStarted := time.Now()
+		var writeDuration time.Duration
+		batchCount := 0
 		stat := PublishedOutput{Name: output.Name}
 		quality := newQualityAccumulator(identity, output, limits.Quality)
 		batch := make([]map[string]any, 0, limits.BatchRows)
@@ -72,9 +79,12 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 			if len(batch) == 0 {
 				return nil
 			}
+			writeStarted := time.Now()
 			if err := tx.WriteBatch(ctx, output.Name, batch); err != nil {
 				return err
 			}
+			writeDuration += time.Since(writeStarted)
+			batchCount++
 			batch = batch[:0]
 			batchBytes = 0
 			return nil
@@ -144,8 +154,15 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 			}
 			qualityReports = append(qualityReports, report)
 		}
+		elapsed := time.Since(outputStarted)
+		slog.InfoContext(ctx, "dataframe publication output processed",
+			"project", identity.Project, "generation", identity.DatasetGeneration,
+			"recipe", identity.Name, "output", output.Name, "rows", stat.RowCount,
+			"batches", batchCount, "write_ms", writeDuration.Milliseconds(),
+			"stream_and_processing_ms", (elapsed - writeDuration).Milliseconds())
 		stats[output.Name] = stat
 	}
+	finalizeStarted := time.Now()
 	retained := make([]OutputSchema, 0, len(normalizedOutputs))
 	for _, output := range normalizedOutputs {
 		schema := OutputSchema{Name: output.Name, SourceRow: output.SourceRow}
@@ -167,10 +184,16 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	if err := tx.SetQualityReports(ctx, qualityReports); err != nil {
 		return fail(fmt.Errorf("publication quality evidence: %w", err))
 	}
+	commitStarted := time.Now()
 	published, err := tx.Commit(ctx)
 	if err != nil {
 		return fail(fmt.Errorf("publication commit: %w", err))
 	}
+	slog.InfoContext(ctx, "dataframe publication committed",
+		"project", identity.Project, "generation", identity.DatasetGeneration,
+		"recipe", identity.Name, "begin_ms", beginDuration.Milliseconds(),
+		"finalize_ms", commitStarted.Sub(finalizeStarted).Milliseconds(),
+		"commit_ms", time.Since(commitStarted).Milliseconds())
 	if len(published) == 0 {
 		published = make([]PublishedOutput, 0, len(outputs))
 		for _, output := range normalizedOutputs {

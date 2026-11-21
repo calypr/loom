@@ -12,6 +12,9 @@ const inheritedFieldPolicy = (expression: SourceRecipeExpression): keyof typeof 
 };
 type CatalogOutputOverride = { fieldPath: string; enabled: boolean; name?: string };
 type PivotOutputOverride = { key: string; enabled: boolean; name?: string };
+const projectedFieldListClass = 'divide-y divide-slate-100 border-y border-slate-200 bg-white';
+const projectedFieldRowClass = 'flex min-w-0 items-center gap-2 px-2 py-1.5 text-xs text-slate-800 hover:bg-slate-50';
+
 type EditorSourceParameters = Omit<ImportedSourceParameters, 'catalog' | 'pivot'> & {
   catalog?: NonNullable<ImportedSourceParameters['catalog']> & { outputs?: CatalogOutputOverride[] };
   pivot?: NonNullable<ImportedSourceParameters['pivot']> & { outputs?: PivotOutputOverride[] };
@@ -76,11 +79,12 @@ function CatalogChoices({ action, options, values, onChange }: {
   </fieldset>;
 }
 
-export function SourceStepParameterEditor({ parameters, onChange, disabled = false, selectedFieldId, fieldFocusRequest = 0, catalogOutputs = [], pivotOutputs = [], selectedOutputKey, outputFocusRequest = 0, outputRevision = 'unversioned', resourceTypeChoices, sourcePathChoices, extensionSourcePaths, fieldPathChoices, fieldKindChoices, projectedFields, sourceStepId, onRemoveProjectedField, onEditProjectedField, onRenameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason, view = 'all', structuredColumnRule = false }: {
+export function SourceStepParameterEditor({ parameters, onChange, disabled = false, selectedFieldId, fieldFocusRequest = 0, catalogOutputs = [], pivotOutputs = [], selectedOutputKey, outputFocusRequest = 0, outputRevision = 'unversioned', resourceTypeChoices, sourcePathChoices, extensionSourcePaths, fieldPathChoices, fieldKindChoices, projectedFields, sourceStepId, onRemoveProjectedField, canRemoveProjectedField, onEditProjectedField, onRenameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason, view = 'all', structuredColumnRule = false, hideCatalogPathControls = false }: {
   readonly view?: 'all' | 'fields' | 'settings';
   readonly parameters: EditorSourceParameters;
   readonly extensionSourcePaths?: ReadonlyArray<string>;
   readonly structuredColumnRule?: boolean;
+  readonly hideCatalogPathControls?: boolean;
   readonly onChange: (parameters: ImportedSourceParameters) => void;
   readonly disabled?: boolean;
   readonly selectedFieldId?: string;
@@ -96,7 +100,8 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
   readonly fieldKindChoices?: ReadonlyArray<string>;
   readonly projectedFields?: ReadonlyArray<ProjectedField>;
   readonly sourceStepId?: string;
-  readonly onRemoveProjectedField?: (columnId: string) => void;
+  readonly onRemoveProjectedField?: (field: ProjectedField) => void;
+  readonly canRemoveProjectedField?: (field: ProjectedField) => boolean;
   readonly onEditProjectedField?: (field: ProjectedField) => void;
   readonly onRenameProjectedField?: (columnId: string, label: string) => void;
   readonly editableProjectedFieldIds?: ReadonlySet<string>;
@@ -117,20 +122,20 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
   });
   const fieldFocusKey = JSON.stringify([selectedFieldId, fieldFocusRequest]);
   const outputFocusKey = JSON.stringify([selectedOutputKey, outputFocusRequest]);
-  const projectedFieldRow = (field: ProjectedField, index: number) => <li key={field.columnId ?? `${field.column}:${index}`} data-column-id={field.columnId} className="flex items-center gap-2 rounded border border-slate-200 p-1.5 text-xs">
+  const projectedFieldRow = (field: ProjectedField, index: number) => <li key={field.columnId ?? `${field.column}:${index}`} data-column-id={field.columnId} className={projectedFieldRowClass}>
     <span className="min-w-0 flex-1 truncate" title={field.label}>{field.label}</span>
     {onRenameProjectedField ? <ColumnLabelEditor field={field} disabled={Boolean(projectedFieldRemovalDisabledReason)} onRename={onRenameProjectedField} /> : null}
-    {field.columnId && ((field.sourceStepId && field.sourceFieldId) || editableProjectedFieldIds?.has(field.columnId)) && onEditProjectedField ? <button type="button" aria-label={`Edit ${field.label}`}
+    {field.columnId && ((field.sourceStepId && field.sourceFieldId) || editableProjectedFieldIds?.has(field.columnId)) && onEditProjectedField ? <button type="button" aria-label={`Value policy for ${field.label}`}
       disabled={Boolean(projectedFieldRemovalDisabledReason)} title={projectedFieldRemovalDisabledReason} className="shrink-0 rounded px-1.5 py-0.5 text-slate-600 hover:bg-slate-100"
-      onClick={() => onEditProjectedField(field)}>Edit</button> : null}
-    {field.columnId && field.removal !== 'UNAVAILABLE' && onRemoveProjectedField ? <button type="button" aria-label={`Remove ${field.label}`}
+      onClick={() => onEditProjectedField(field)}>Value policy</button> : null}
+    {onRemoveProjectedField && (canRemoveProjectedField?.(field) ?? (Boolean(field.columnId) && field.removal !== 'UNAVAILABLE')) ? <button type="button" aria-label={`Remove ${field.label}`}
       disabled={Boolean(projectedFieldRemovalDisabledReason)} title={projectedFieldRemovalDisabledReason} className="shrink-0 rounded px-1.5 py-0.5 text-slate-600 hover:bg-slate-100"
-      onClick={() => { if (field.columnId) onRemoveProjectedField(field.columnId); }}>Remove</button> : <span className="text-slate-500">Removal unavailable</span>}
+      onClick={() => onRemoveProjectedField(field)}>Remove</button> : <span className="text-slate-500">Removal unavailable</span>}
   </li>;
   return <fieldset disabled={disabled} aria-label="Source step parameters" className="min-w-0 space-y-2 py-1">
     {view !== 'settings' && !parameters.fieldGroup && projectedFields ? <div className="space-y-2">
       <p className="text-xs font-semibold">Projected fields ({projectedFields.length} included)</p>
-      <ol aria-label="Projected fields" className="space-y-2">{projectedFields.map(projectedFieldRow)}</ol>
+      <ol aria-label="Projected fields" className={projectedFieldListClass}>{projectedFields.map(projectedFieldRow)}</ol>
       {projectedFieldRemovalDisabledReason ? <p role="note" className="text-xs text-amber-900">{projectedFieldRemovalDisabledReason}</p> : null}
     </div> : null}
     {view !== 'fields' && 'output' in parameters && parameters.output ? <>
@@ -143,7 +148,7 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
       const extraFields = (projectedFields ?? []).filter((field) => field.sourceStepId !== sourceStepId);
       return <div className="space-y-2">
         <p className="text-xs font-semibold">Projected fields ({projectedFields ? `${includedCount + extraFields.length} included` : `${includedCount} included of ${group.fields.length}`})</p>
-        <ol aria-label="Projected fields" className="space-y-2">
+        <ol aria-label="Projected fields" className={projectedFieldListClass}>
           {group.fields.map((field, index) => {
             const projectedField = projectedFields?.find((item) => item.sourceStepId === sourceStepId && item.sourceFieldId === field.fieldId);
             const displayLabel = projectedField?.label || field.label || field.name;
@@ -160,9 +165,9 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
               node.querySelector<HTMLElement>('select')?.focus();
             });
           }}>
-            <details name={fieldDisclosureGroup} open={field.fieldId === selectedFieldId ? true : undefined} className="rounded border border-slate-200 p-1.5">
-              <summary className="flex cursor-pointer items-center justify-between gap-2 text-xs">
-                <span className="truncate">{displayLabel}{!field.enabled ? ' · disabled' : ''}</span>
+            <details name={fieldDisclosureGroup} open={field.fieldId === selectedFieldId ? true : undefined}>
+              <summary className={`${projectedFieldRowClass} cursor-pointer`}>
+                <span className="min-w-0 flex-1 truncate" title={displayLabel}>{displayLabel}{!field.enabled ? ' · disabled' : ''}</span>
                 <span className="shrink-0 text-[10px] text-slate-500">{policyLabel}</span>
                 {projectedField && onRenameProjectedField ? <ColumnLabelEditor field={projectedField} disabled={Boolean(projectedFieldRemovalDisabledReason)} onRename={onRenameProjectedField} /> : null}
                 <button type="button" aria-label={`${field.enabled ? 'Remove' : 'Restore'} ${displayLabel}`} title={field.enabled ? 'Remove field from the projection' : 'Restore field to the projection'}
@@ -192,7 +197,7 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
     })() : null}
     {view !== 'fields' && 'catalog' in parameters && parameters.catalog ? (() => { const p = parameters.catalog; const update = (patch: Partial<typeof p>) => onChange({ ...parameters, catalog: { ...p, ...patch } }); return <>
       {catalogOutputs.length ? <fieldset className="space-y-2"><legend className="text-xs font-semibold">Generated columns ({catalogOutputs.length})</legend>
-        <ol aria-label="Generated catalog outputs" className="space-y-2">
+        <ol aria-label="Generated catalog outputs" className="divide-y divide-slate-100 border-y border-slate-200">
           {catalogOutputs.map((output, index) => {
             const override = p.outputs?.find((candidate) => candidate.fieldPath === output.outputKey);
             const enabled = override?.enabled ?? output.enabled;
@@ -221,26 +226,37 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
                 node.querySelector<HTMLInputElement>(`input[aria-label="Generated column ${index + 1} name"]`)?.focus();
               });
             }}>
-              <details open={output.outputKey === selectedOutputKey ? true : undefined} className="rounded border border-slate-200 p-2">
-                <summary className="cursor-pointer text-sm">{visibleName}{!enabled ? ' · disabled' : ''}</summary>
-                <div className="space-y-2 pt-2">
-                  <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={enabled} onChange={(event) => updateOutput({ enabled: event.currentTarget.checked })} />Include {visibleName}</label>
-                  <Text label={`Generated column ${index + 1} name`} value={namePending ? '' : name} placeholder={namePending ? 'Generated name appears after preview' : undefined}
-                    onChange={(nextName) => updateOutput({ name: nextName })} />
-                  {override?.name !== undefined ? <button type="button" className="text-xs text-blue-800 underline" onClick={() => updateOutput({}, true)}>Use generated name</button> : null}
-                </div>
-              </details>
+              <div className="flex min-w-0 items-center gap-2 px-2 py-1.5 hover:bg-slate-50 focus-within:bg-slate-50">
+                <input type="checkbox" className="shrink-0" aria-label={`Include ${visibleName}`} checked={enabled}
+                  onChange={(event) => updateOutput({ enabled: event.currentTarget.checked })} />
+                <input aria-label={`Generated column ${index + 1} name`} title={visibleName}
+                  className={`min-w-0 flex-1 border-0 bg-transparent px-1 py-0.5 text-sm ${enabled ? 'text-slate-900' : 'text-slate-600'}`}
+                  value={namePending ? '' : name} placeholder={namePending ? 'Generated name appears after preview' : undefined}
+                  onChange={(event) => updateOutput({ name: event.currentTarget.value })} />
+                {override?.name !== undefined ? <button type="button" className="shrink-0 text-xs text-blue-800 underline"
+                  aria-label="Use generated name" onClick={() => updateOutput({}, true)}>Reset name</button> : null}
+              </div>
+              {namePending ? <p role="status" className="m-0 px-8 pb-1.5 text-xs text-slate-600">Generated name pending preview</p> : null}
             </li>;
           })}
         </ol>
       </fieldset> : null}
       {structuredColumnRule && fieldPathChoices ? <>
-        <CatalogChoices action="Include" options={fieldPathChoices} values={p.includePaths ?? []} onChange={(includePaths) => update({ includePaths })} />
-        <CatalogChoices action="Exclude" options={fieldPathChoices} values={p.excludePaths ?? []} onChange={(excludePaths) => update({ excludePaths })} />
+        {!hideCatalogPathControls && (['Include', 'Exclude'] as const).map(action => {
+          const values = (action === 'Include' ? p.includePaths : p.excludePaths) ?? [];
+          const choices = <CatalogChoices action={action} options={fieldPathChoices} values={values}
+            onChange={(paths) => update(action === 'Include' ? { includePaths: paths } : { excludePaths: paths })} />;
+          return view === 'all' ? <div key={action}>{choices}</div> : <details key={action} className="text-xs">
+            <summary className="cursor-pointer font-medium text-blue-800">{action} paths ({values.length})</summary>
+            <div className="pt-2">{choices}</div>
+          </details>;
+        })}
         <CatalogChoices action="Filter" options={['scalar', 'array', 'object']} values={p.kinds ?? []} onChange={(kinds) => update({ kinds })} />
       </> : <>
+        {!hideCatalogPathControls ? <>
         <Strings label="Included path" values={p.includePaths ?? []} options={fieldPathChoices} onChange={(includePaths) => update({ includePaths })} />
         <Strings label="Excluded path" values={p.excludePaths ?? []} options={fieldPathChoices} onChange={(excludePaths) => update({ excludePaths })} />
+        </> : null}
         <Strings label="Field kind" values={p.kinds ?? []} options={fieldKindChoices} onChange={(kinds) => update({ kinds })} />
       </>}
       <label className="grid gap-1 text-xs">Column naming<select aria-label="Column naming" className={controlClass} value={p.naming ?? ''} onChange={(event) => update({ naming: (event.currentTarget.value || undefined) as typeof p.naming })}><option value="">Recipe default</option><option value="PATH">Full path</option><option value="PATH_SUFFIX">Path suffix</option></select></label>
@@ -278,10 +294,7 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
         ) : isCategoryCoding ? (
           <p className="text-xs text-slate-600">Use the last part of each category coding’s system to name a column and put that coding’s display text in the cell.</p>
         ) : null}
-        {!structuredColumnRule ? <details className="space-y-2 rounded border border-slate-200 p-2" open={!isIdentifier && !isCategoryCoding}>
-          <summary className="cursor-pointer text-xs font-medium">Advanced expressions</summary>
-          {expressions}
-        </details> : null}
+        {!structuredColumnRule ? <div className="space-y-3 border-t border-slate-200 pt-3">{expressions}</div> : null}
       </>;
     })() : null}
     {view !== 'fields' && 'extension' in parameters && parameters.extension ? (() => { const p = parameters.extension; const update = (patch: Partial<typeof p>) => onChange({ ...parameters, extension: { ...p, ...patch } }); return <>

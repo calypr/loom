@@ -81,7 +81,7 @@ func TestSourceRuleColumnLimitIsBounded(t *testing.T) {
 		t.Fatalf("default limit is not available when editing: %+v", step)
 	}
 	excess := authoringv2.MaxImportedRuleColumns + 1
-	change := authoringv2.ImportedSourceStepChange{StepID: plan.RuleAdditions[0].StepID, Enabled: true, MaxColumns: &excess}
+	change := authoringv2.ImportedSourceStepChange{StepID: plan.RuleAdditions[0].StepID, MaxColumns: &excess}
 	if _, err := EditPlan(output, plan, authoringv2.CatalogSnapshot{}, PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{change}}, PlanEditInput{}); err == nil {
 		t.Fatal("accepted a column limit above the rule maximum")
 	}

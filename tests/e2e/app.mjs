@@ -475,8 +475,7 @@ export class E2EPage {
     const point = await until(() => this.evaluate(`(() => {const e=document.querySelector(${JSON.stringify(selector)}); if(!e || e.disabled)return null; e.focus(); e.select?.(); const r=e.getBoundingClientRect(); return r.width && r.height ? {x:r.x+r.width/2,y:r.y+r.height/2}:null})()`), `enabled input ${selector}`);
     await this.client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 });
     await this.client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 });
-    await this.client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'A', code: 'KeyA', modifiers: 2 });
-    await this.client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'A', code: 'KeyA', modifiers: 2 });
+    await this.evaluate(`document.querySelector(${JSON.stringify(selector)})?.select()`);
     await this.client.send('Input.insertText', { text: String(value) });
   }
 
