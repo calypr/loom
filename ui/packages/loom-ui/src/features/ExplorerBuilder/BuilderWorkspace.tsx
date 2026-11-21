@@ -289,7 +289,9 @@ const BuilderWorkspaceContent = ({
       ? selectedExplorerId
       : 'dataframe-default';
   const explorerSummaries = useMemo(() => {
-    const available = explorers.data ?? [];
+    const available = (explorers.data ?? []).filter(
+      (candidate) => candidate.management.toUpperCase() !== 'REPOSITORY',
+    );
     if (available.some((candidate) => candidate.explorerId === 'dataframe-default')) return available;
     return [{
       project: projectId,
@@ -329,7 +331,7 @@ const BuilderWorkspaceContent = ({
   });
   if (selectedExplorerId === 'dataframe-default' &&
       (builder.error as { code?: string } | undefined)?.code === 'DEFAULT_DATAFRAME_UNAVAILABLE') {
-    const fallback = (explorers.data ?? []).find((candidate) => candidate.explorerId !== 'dataframe-default' && candidate.explorerId !== 'default');
+    const fallback = explorerSummaries.find((candidate) => candidate.explorerId !== 'dataframe-default' && candidate.explorerId !== 'default');
     if (fallback) setSelectedExplorerId(fallback.explorerId);
   }
   const capabilities = useGetExplorerAuthoringCapabilityV2Query(builderQueryArgs);
