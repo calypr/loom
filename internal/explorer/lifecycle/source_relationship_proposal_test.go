@@ -58,7 +58,6 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: raw, DraftVersion: 1, DraftDigest: digest}, copyGet: true}
 	config.EditImportedRelationship = func(_ context.Context, _ string, _ AuthorizedCapability, d authoringv2.Document, _ authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
 		plan := recipeimport.SourcePlan(output)
-		setLifecycleSourceStepEnabled(t, &plan, "fields", false)
 		d.ImportedSource = &plan
 		return d, nil
 	}
@@ -143,7 +142,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 			}
 		})
 	}
-	if proposal.CandidateDocument.Output.ID != request.OutputID || proposal.CandidateDocument.ImportedSource == nil || lifecycleSourceStepEnabled(t, proposal.CandidateDocument.ImportedSource, "fields") || proposal.CandidateNetwork.OutputID != request.OutputID || proposal.CandidateRowIdentity.OutputID != request.OutputID {
+	if proposal.CandidateDocument.Output.ID != request.OutputID || proposal.CandidateDocument.ImportedSource == nil || !lifecycleHasSourceStep(proposal.CandidateDocument.ImportedSource, "fields") || proposal.CandidateNetwork.OutputID != request.OutputID || proposal.CandidateRowIdentity.OutputID != request.OutputID {
 		t.Fatalf("candidate projection lost the proposed source edit: %#v", proposal)
 	}
 	if *proposal.CandidateDocument.ImportedRecipe != *workspace.Documents[0].ImportedRecipe {
@@ -225,7 +224,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reloaded.Workspace == nil || lifecycleSourceStepEnabled(t, reloaded.Workspace.Documents[0].ImportedSource, "fields") {
+	if reloaded.Workspace == nil || !lifecycleHasSourceStep(reloaded.Workspace.Documents[0].ImportedSource, "fields") {
 		t.Fatal("fresh reload lost project-local source change")
 	}
 	store.receipt = candidateReceipt
@@ -239,21 +238,23 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	}
 
 	service.config.EditImportedSource = func(_ context.Context, _ string, _ AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
-		if change == nil || change.StepID != "fields" || !change.Enabled {
-			t.Fatal("bounded source-step intent was lost")
+		if change == nil || change.StepID != "fields" || !change.Remove {
+			t.Fatal("source removal intent was lost")
 		}
-		plan := recipeimport.SourcePlan(output)
-		setLifecycleSourceStepEnabled(t, &plan, "fields", change.Enabled)
-		document.ImportedSource = &plan
-		return document, nil
+		plan, err := recipeimport.EditPlan(output, *document.ImportedSource, authoringv2.CatalogSnapshot{},
+			recipeimport.PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{*change}}, recipeimport.PlanEditInput{})
+		if err == nil {
+			document.ImportedSource = &plan
+		}
+		return document, err
 	}
-	stepRequest := SourceRelationshipProposalRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: applied.DraftVersion, ExpectedDraftDigest: applied.DraftDigest, OutputID: "patients", SourceStep: &authoringv2.ImportedSourceStepChange{StepID: "fields", Enabled: true}}
+	stepRequest := SourceRelationshipProposalRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: applied.DraftVersion, ExpectedDraftDigest: applied.DraftDigest, OutputID: "patients", SourceStep: &authoringv2.ImportedSourceStepChange{StepID: "fields", Remove: true}}
 	compileFailure = true
 	if _, err := service.ProposeSourceRelationship(ctx, stepRequest); err == nil {
-		t.Fatal("downstream source-step failure produced a proposal")
+		t.Fatal("downstream source-step removal failure produced a proposal")
 	}
 	if store.saveDraftCalls != 1 || !bytes.Equal(before, store.created.DraftConfig) {
-		t.Fatal("failed source-step preview changed saved work")
+		t.Fatal("failed source-step removal preview changed saved work")
 	}
 	compileFailure = false
 	stepProposal, err := service.ProposeSourceRelationship(ctx, stepRequest)
@@ -261,14 +262,14 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		t.Fatal(err)
 	}
 	if store.saveDraftCalls != 1 || !bytes.Equal(before, store.created.DraftConfig) {
-		t.Fatal("source-step Preview/Cancel wrote the draft")
+		t.Fatal("source-step removal Preview wrote the draft")
 	}
-	restored, err := service.ApplyCommands(ctx, "project-a", "patients", authoringv2.ApplyCommandsRequest{CommandID: "source-step-restore", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: applied.DraftVersion, ExpectedDraftDigest: applied.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", ProposalID: stepProposal.ProposalID}}}, "tester")
+	removed, err := service.ApplyCommands(ctx, "project-a", "patients", authoringv2.ApplyCommandsRequest{CommandID: "source-step-remove", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: applied.DraftVersion, ExpectedDraftDigest: applied.DraftDigest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", ProposalID: stepProposal.ProposalID}}}, "tester")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restored.DraftVersion != 3 || store.saveDraftCalls != 2 || !lifecycleSourceStepEnabled(t, restored.Workspace.Documents[0].ImportedSource, "fields") || *restored.Workspace.Documents[0].ImportedRecipe != *workspace.Documents[0].ImportedRecipe {
-		t.Fatal("bounded source-step restore lost pin, settings, or revision")
+	if removed.DraftVersion != 3 || store.saveDraftCalls != 2 || lifecycleHasSourceStep(removed.Workspace.Documents[0].ImportedSource, "fields") || *removed.Workspace.Documents[0].ImportedRecipe != *workspace.Documents[0].ImportedRecipe {
+		t.Fatal("confirmed source removal did not delete the step while retaining its immutable pin")
 	}
 
 	parameters := &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{
@@ -286,7 +287,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		return document, err
 	}
 	ruleRequest := stepRequest
-	ruleRequest.ExpectedDraftVersion, ruleRequest.ExpectedDraftDigest = restored.DraftVersion, restored.DraftDigest
+	ruleRequest.ExpectedDraftVersion, ruleRequest.ExpectedDraftDigest = removed.DraftVersion, removed.DraftDigest
 	ruleRequest.SourceStep = nil
 	ruleRequest.SourceRule = &authoringv2.SourceRuleCreate{Kind: "DYNAMIC_COLUMN", Parameters: parameters}
 	rawBeforeRule := append([]byte(nil), store.created.DraftConfig...)
@@ -309,10 +310,10 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		}
 		return result
 	}
-	savedRule := applyRule(restored.DraftVersion, restored.DraftDigest, ruleProposal.ProposalID, "create-rule")
+	savedRule := applyRule(removed.DraftVersion, removed.DraftDigest, ruleProposal.ProposalID, "create-rule")
 	additions := savedRule.Workspace.Documents[0].ImportedSource.RuleAdditions
-	if len(additions) != 1 || !additions[0].Enabled {
-		t.Fatal("Apply did not save the enabled rule")
+	if len(additions) != 1 {
+		t.Fatal("Apply did not save the created rule")
 	}
 
 	service.config.EditImportedSource = func(_ context.Context, _ string, _ AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
@@ -332,7 +333,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	editRequest := ruleRequest
 	editRequest.ExpectedDraftVersion, editRequest.ExpectedDraftDigest = savedRule.DraftVersion, savedRule.DraftDigest
 	editRequest.SourceRule = nil
-	editRequest.SourceStep = &authoringv2.ImportedSourceStepChange{StepID: additions[0].StepID, Enabled: true, Parameters: &editedParams}
+	editRequest.SourceStep = &authoringv2.ImportedSourceStepChange{StepID: additions[0].StepID, Parameters: &editedParams}
 	rawBeforeEdit := append([]byte(nil), store.created.DraftConfig...)
 	editProposal, err := service.ProposeSourceRelationship(ctx, editRequest)
 	if err != nil {
@@ -349,25 +350,13 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 
 }
 
-func setLifecycleSourceStepEnabled(t *testing.T, plan *authoringv2.ImportedSourcePlan, id string, enabled bool) {
-	t.Helper()
-	for i := range plan.Steps {
-		if plan.Steps[i].ID == id {
-			plan.Steps[i].Enabled = enabled
-			return
-		}
-	}
-	t.Fatalf("missing source step %s", id)
-}
-func lifecycleSourceStepEnabled(t *testing.T, plan *authoringv2.ImportedSourcePlan, id string) bool {
-	t.Helper()
+func lifecycleHasSourceStep(plan *authoringv2.ImportedSourcePlan, id string) bool {
 	if plan != nil {
 		for _, step := range plan.Steps {
 			if step.ID == id {
-				return step.Enabled
+				return true
 			}
 		}
 	}
-	t.Fatalf("missing source step %s", id)
 	return false
 }

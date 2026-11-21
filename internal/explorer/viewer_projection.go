@@ -46,6 +46,10 @@ func viewerProjectionIntegrity(component string, cause error) error {
 }
 
 func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
+	return buildViewerProjection(revision, nil)
+}
+
+func buildViewerProjection(revision *Revision, saved *ProjectConfig) (*ExplorerRuntimeV1, error) {
 	if revision == nil {
 		return nil, nil
 	}
@@ -53,6 +57,12 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 	config, hasConfig, err := decodeProjectionConfig(revision.Config)
 	if err != nil {
 		return nil, err
+	}
+	if saved != nil {
+		config.Views = saved.Views
+		config.SharedFilters = saved.SharedFilters
+		config.FileActions = saved.FileActions
+		hasConfig = true
 	}
 	bundle := recipeIdentityMetadata(revision.Recipe)
 	if hasConfig && len(config.Recipe) > 0 {
@@ -253,8 +263,7 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 			configuredBindings[binding.Column] = binding
 		}
 		_, hasPublicContract := contractColumns[view.Output]
-		if hasPublicContract {
-
+		if hasPublicContract && saved == nil {
 			for index, name := range ordered {
 				column, ok := ensureColumn(name)
 				if !ok {
@@ -285,7 +294,7 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 		columns := make([]ExplorerRuntimeColumnV1, 0, len(ordered))
 		for index, name := range ordered {
 			column := columnsByName[name]
-			if !hasPublicContract && len(view.Table.Columns) == 0 && !runtimeColumnIsInternal(name) {
+			if !hasPublicContract && saved == nil && len(view.Table.Columns) == 0 && !runtimeColumnIsInternal(name) {
 				column.Visible, column.Order = true, index
 				table.Columns = append(table.Columns, ExplorerRuntimeTableColumnV1{Column: column.Column, EmissionID: column.Column, Visible: true})
 			}

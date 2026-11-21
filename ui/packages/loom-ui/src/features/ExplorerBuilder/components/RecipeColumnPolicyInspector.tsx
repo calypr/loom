@@ -47,8 +47,8 @@ export function RecipeColumnPolicyInspector(props: RecipeColumnPolicyInspectorPr
   useEscapeToClose(!props.cancelDisabled, props.onCancel);
   return <section aria-label={`Column value policy: ${column.label}`} data-testid="recipe-column-policy-inspector"
     data-column-id={column.columnId ?? column.column} className="space-y-2 rounded border bg-white p-2 text-xs">
-    <h3 className="font-semibold">Include {column.label}</h3>
-    <p>Current policy: {currentMode ? rowValuePolicyLabel(currentMode) : 'configured source policy'}. Row identity is preserved.</p>
+    <h3 className="font-semibold">Value policy for {column.label}</h3>
+    <p>Current policy: {currentMode ? rowValuePolicyLabel(currentMode) : 'configured source policy'}.</p>
     {source.kind === 'field' && source.field.relatedSelection ? <p>Across related records: keep only the first record by resource key. This existing selection is {source.field.relatedSelection.acknowledged ? 'acknowledged' : 'awaiting acknowledgement'} and remains unchanged by the value policy.</p> : null}
     {unavailable ? <p role="status">{unavailable}</p> : null}
     {source.kind === 'field' && metadataMatches ? <label className="flex flex-wrap items-center gap-2">

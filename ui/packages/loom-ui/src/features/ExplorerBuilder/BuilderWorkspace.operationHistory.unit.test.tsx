@@ -684,7 +684,7 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
     const imported=structuredClone(acceptedState);
     const document=imported.workspace!.documents[0];
     document.importedRecipe={name:'default',translationVersion:'1',digest:'a'.repeat(64),output:'table-1'};
-    document.importedSource={steps:[{id:'fields',kind:'FIELD_GROUP',title:'Patient fields',summary:'Patient source values',enabled:true,editable:true}]};
+    document.importedSource={steps:[{id:'fields',kind:'FIELD_GROUP',title:'Patient fields',summary:'Patient source values',editable:true}]};
     harness.builderState=imported;
     harness.client.proposeSourceRelationship.mockResolvedValue({proposalId:'candidate-source',candidateReceiptId:'candidate-source',outputId:'table-1',snapshotToken:catalog.snapshotToken,draftVersion:1,draftDigest:acceptedState.draftDigest,baseDocumentDigest:'base',candidateWorkspaceDigest:'next-draft',previewStatus:'READY',sampledRows:1,sampled:false,affectedColumns:[],notices:[],candidateDocument:document,candidateNetwork:{owner:'IMPORTED_SOURCE',outputId:'table-1',sourceRows:document.rows,occurrences:[],bindings:[],operations:[]},candidateRowIdentity:{outputId:'table-1',sourceDefinition:document.rows,stages:[],relationships:[]},preview:previewFor('candidate-source','table-1')});
     harness.applyCommands.mockImplementation((args)=>({unwrap:async()=>({commandId:args.commandId,workspace:imported.workspace,draftVersion:2,draftDigest:'next-draft',results:[],diagnostics:[]})}));
@@ -772,7 +772,7 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
   it('regression: source-step edit replaces the previous Group inspector', async () => {
     const imported=structuredClone(acceptedState);
     imported.workspace!.documents[0].importedRecipe={name:'default',translationVersion:'1',digest:'a'.repeat(64),output:'table-1'};
-    imported.workspace!.documents[0].importedSource={steps:[{id:'fields',kind:'FIELD_GROUP',title:'Patient fields',summary:'Patient source values',enabled:true,editable:true}]};
+    imported.workspace!.documents[0].importedSource={steps:[{id:'fields',kind:'FIELD_GROUP',title:'Patient fields',summary:'Patient source values',editable:true}]};
     harness.builderState=imported;
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
     await clickHistoryEdit('group-step');

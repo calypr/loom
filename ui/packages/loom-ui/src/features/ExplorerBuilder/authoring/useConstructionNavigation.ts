@@ -384,7 +384,7 @@ export const useConstructionNavigation = ({ ownerKey, state, latestState }: UseC
           reshapeEntry,
           reshapeEntryKind,
           constructionLifecycle.capabilities.response.selectedStage.id,
-        )}:${!editingConstructionStep && (reshapeFormKind === 'choose' || reshapeFormKind === 'pivot' || reshapeFormKind === 'unpivot') ? selectedColumnIds.join(',') : ''}`
+        )}:${!editingConstructionStep && reshapeFormKind === 'choose' ? selectedColumnIds.join(',') : ''}`
       : undefined;
     const activeReshapeInitialEntry = reshapeInitialEntry && reshapeInitialEntry.editorKey === activeReshapeEditorKey
       ? reshapeInitialEntry.entry
@@ -394,7 +394,7 @@ export const useConstructionNavigation = ({ ownerKey, state, latestState }: UseC
       ? 'choose'
       : reshapeEntryKind;
     const showReshapeColumnSelection = activeOperation?.family === 'RESHAPE' &&
-      (reshapeFormKind === 'choose' || reshapeFormKind === 'pivot' || reshapeFormKind === 'unpivot' || reshapeFormKind === 'coded-pivot');
+      (reshapeFormKind === 'choose' || reshapeFormKind === 'unpivot' || reshapeFormKind === 'coded-pivot');
     const hideGenericReshapeSelection = activeOperation?.family === 'RESHAPE' && !showReshapeColumnSelection;
     return { startCombine, selectConstructionFamily, chooseRelatedRows, chooseReshapeRows,
     selectConstructionHistory, editConstructionStep, closeConstructionWorkspace, cancelConstructionEditor,

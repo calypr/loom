@@ -126,7 +126,8 @@ describe('typed source step parameters', () => {
       value: { select: 'item.value' },
     };
     const { changed } = parameterHarness({ dynamic: rule });
-    expect(screen.getByText('Advanced expressions').closest('details')?.open).toBe(false);
+    expect(screen.queryByText('Advanced expressions')).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Read items from type' })).toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox', { name: 'Name columns using' }), { target: { value: 'system' } });
     expect(changed.mock.calls.at(-1)?.[0]).toEqual({ dynamic: { ...rule, key: { select: 'item.system' } } });
   });
@@ -152,17 +153,15 @@ describe('typed source step parameters', () => {
     render(<Harness />);
     const outputs = screen.getByRole('list', { name: 'Generated catalog outputs' });
     expect(within(outputs).getAllByRole('listitem')).toHaveLength(2);
-    expect(outputs.textContent).toContain('identifier_value');
-    expect(outputs.textContent).toContain('name_text');
+    expect(within(outputs).getByRole('textbox', { name: 'Generated column 1 name' })).toHaveProperty('value', 'identifier_value');
+    expect(within(outputs).getByRole('textbox', { name: 'Generated column 2 name' })).toHaveProperty('value', 'name_text');
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Generated column 1 name' }), { target: { value: 'patient_code' } });
     expect(changed.mock.calls.at(-1)![0].catalog.outputs).toEqual([
       { fieldPath: 'identifier[].value', enabled: true, name: 'patient_code' },
     ]);
 
-    const disabledOutput = within(outputs).getByText('name_text · disabled').closest('details')!;
-    disabledOutput.open = true;
-    fireEvent.click(within(disabledOutput).getByRole('checkbox', { name: 'Include name_text' }));
+    fireEvent.click(within(outputs).getByRole('checkbox', { name: 'Include name_text' }));
     expect(changed.mock.calls.at(-1)![0].catalog.outputs).toEqual([
       { fieldPath: 'identifier[].value', enabled: true, name: 'patient_code' },
       { fieldPath: 'name[0].text', enabled: true },
@@ -223,9 +222,7 @@ describe('typed source step parameters', () => {
     }
     render(<Harness />);
 
-    const output = screen.getByText('patient_code · disabled').closest('details')!;
-    output.open = true;
-    const include = within(output).getByRole('checkbox', { name: 'Include patient_code' });
+    const include = screen.getByRole('checkbox', { name: 'Include patient_code' });
     expect(include).toHaveProperty('checked', false);
     fireEvent.click(include);
     expect(screen.getByRole('checkbox', { name: 'Include patient_code' })).toHaveProperty('checked', true);
@@ -237,7 +234,7 @@ describe('typed source step parameters', () => {
       { fieldPath: 'identifier[].value', enabled: true, name: 'patient_identifier' },
     ] } });
   });
-  it('opens and focuses the exact selected generated output', () => {
+  it('focuses the exact selected generated output', () => {
     const frames: FrameRequestCallback[] = [];
     const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { frames.push(callback); return frames.length; });
     const outputs = [{ outputKey: 'identifier[].value', columnId: 'column-1', defaultName: 'identifier_value', enabled: true }];
@@ -336,8 +333,8 @@ it('shows original, generated, and added fields together in the source editor', 
   expect(within(list).getAllByRole('listitem')).toHaveLength(3);
   expect(within(list).getByText('Status')).toBeInTheDocument();
   fireEvent.click(within(list).getByRole('button', { name: 'Remove Type' }));
-  fireEvent.click(within(list).getByRole('button', { name: 'Edit Category' }));
-  expect(remove).toHaveBeenCalledExactlyOnceWith('generated');
+  fireEvent.click(within(list).getByRole('button', { name: 'Value policy for Category' }));
+  expect(remove).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ columnId: 'generated' }));
   expect(edit).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ columnId: 'added' }));
 });
 

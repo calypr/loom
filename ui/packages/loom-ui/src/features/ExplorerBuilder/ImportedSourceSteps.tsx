@@ -70,7 +70,6 @@ export const groupSourceSteps = (steps: ReadonlyArray<ImportedSourceStep>): Sour
 
 interface ImportedSourceStepEditorValues {
   readonly stepId: string;
-  readonly enabled: boolean;
   readonly maxColumns: string;
   readonly valueMode: string;
   readonly parameters?: ImportedSourceParameters;
@@ -92,19 +91,19 @@ interface ImportedSourceStepsProps {
   readonly disabled?: boolean;
   readonly navigatorOnly?: boolean;
   readonly reviewOwnsCancel?: boolean;
+  readonly reviewInEditor?: boolean;
   readonly fieldEditActionRef?: { current: ((stepId: string, fieldId: string) => void) | undefined };
   readonly outputEditActionRef?: { current: ((stepId: string, outputKey: string) => void) | undefined };
   readonly catalogOutputsForStep?: (stepId: string) => ReadonlyArray<{ readonly outputKey: string; readonly columnId?: string; readonly defaultName: string; readonly enabled: boolean }>;
   readonly pivotOutputsForStep?: (stepId: string) => ReadonlyArray<{ readonly outputKey: string; readonly columnId?: string; readonly defaultName: string; readonly enabled: boolean }>;
   readonly projectedFieldsForStep?: (stepId: string) => ReadonlyArray<ProjectedField>;
-  readonly onRemoveProjectedField?: (columnId: string) => void;
+  readonly onRemoveProjectedField?: (field: ProjectedField) => void;
+  readonly canRemoveProjectedField?: (field: ProjectedField) => boolean;
   readonly onEditProjectedField?: (field: ProjectedField) => void;
   readonly onRenameProjectedField?: (columnId: string, label: string) => void;
   readonly editableProjectedFieldIds?: ReadonlySet<string>;
   readonly projectedFieldRemovalDisabledReason?: string;
   readonly outputRevision?: string;
-  readonly codedColumnsForStep?: (stepId: string) => ReadonlyArray<{ column: string; label: string }>;
-  readonly onRemoveCodedColumn?: (column: string) => void;
   readonly resourceTypeChoices?: ReadonlyArray<string>;
   readonly sourcePathChoices?: ReadonlyArray<string>;
   readonly fieldPathChoices?: ReadonlyArray<string>;
@@ -128,7 +127,6 @@ interface ImportedSourceStepsProps {
 const editorStateFor = (step: ImportedSourceStep): ImportedSourceStepEditorState => ({
   stepId: step.id,
   activeStepId: step.id,
-  enabled: step.enabled,
   maxColumns: step.maxColumns === undefined ? '' : String(step.maxColumns),
   valueMode: step.valueMode ?? '',
   parameters: step.parameters,
@@ -141,20 +139,22 @@ export const ImportedSourceSteps = ({
   disabled = false,
   navigatorOnly = false,
   reviewOwnsCancel = false,
+  reviewInEditor = false,
   onRefresh,
   onApply,
   renderReview,
-  editActionRef, cancelEditActionRef, switchOccurrenceActionRef, occurrenceForStep, onSuspendEdit, fieldEditActionRef, outputEditActionRef, catalogOutputsForStep, pivotOutputsForStep, projectedFieldsForStep, onRemoveProjectedField, onEditProjectedField, onRenameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason, outputRevision, codedColumnsForStep, onRemoveCodedColumn, onBeginEdit, onActiveOperationChange, onCancelEdit, onDraftChange, editorHost, reviewHost, resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices,
+  editActionRef, cancelEditActionRef, switchOccurrenceActionRef, occurrenceForStep, onSuspendEdit, fieldEditActionRef, outputEditActionRef, catalogOutputsForStep, pivotOutputsForStep, projectedFieldsForStep, onRemoveProjectedField, canRemoveProjectedField, onEditProjectedField, onRenameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason, outputRevision, onBeginEdit, onActiveOperationChange, onCancelEdit, onDraftChange, editorHost, reviewHost, resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices,
 }: ImportedSourceStepsProps) => {
   const presentEditor = (node: ReactNode) => editorHost ? createPortal(node, editorHost) : node;
-  const presentReview = (node: ReactNode) => reviewHost ? createPortal(node, reviewHost) : node;
+  const presentReview = (node: ReactNode) => reviewHost && !reviewInEditor ? createPortal(node, reviewHost) : node;
   const [editor, setEditor] = useState<ImportedSourceStepEditorState>();
   const suspendedEditors = useRef(new Map<string, ImportedSourceStepEditorState>());
   const fieldFocusRequest = useRef(0);
   const [refreshing, setRefreshing] = useState(false);
   const [applying, setApplying] = useState(false);
   const [actionError, setActionError] = useState<string>();
-  const steps = importedSource?.steps;
+  const removedStepIds = new Set(importedSource?.removedStepIds ?? []);
+  const steps = importedSource?.steps.filter((step) => !removedStepIds.has(step.id));
   const closeEditor = () => { setEditor(undefined); onCancelEdit?.(); };
   const openEditor = (stepId: string, fieldId?: string, outputKey?: string) => {
     const step = steps?.find((candidate) => candidate.id === stepId);
@@ -190,7 +190,7 @@ export const ImportedSourceSteps = ({
   };
   const relationships = importedSource?.relationships;
   const removedOccurrences = new Set(relationships?.removals ?? []);
-  const effectiveEnabled = (step: ImportedSourceStep) => step.enabled && !(step.occurrenceId && removedOccurrences.has(step.occurrenceId));
+  const occurrenceRemoved = (step: ImportedSourceStep) => Boolean(step.occurrenceId && removedOccurrences.has(step.occurrenceId));
   const stepsById = new Map<string, ImportedSourceStep>();
   for (const step of steps ?? []) stepsById.set(step.id, step);
   const selectedStep = steps?.find((step) => step.id === editor?.stepId);
@@ -202,6 +202,8 @@ export const ImportedSourceSteps = ({
     ?? (editor?.inspectedValues && editor.inspectedValues.stepId === activeStepId ? editor.inspectedValues : activeStep ? editorStateFor(activeStep) : undefined);
   const activeParent = activeStep?.parentId ? stepsById.get(activeStep.parentId) : undefined;
   const editingAddedRule = importedSource?.ruleAdditions?.some(addition => addition.stepId === activeStep?.id) ?? false;
+  const savedCatalogRule = editingAddedRule ? activeStep?.parameters?.catalog : undefined;
+  const fixedCatalogPath = savedCatalogRule?.includePaths?.length === 1 && !savedCatalogRule.excludePaths?.length;
   const activeValueModes = activeStep ? valueModesForStep(activeStep) : undefined;
   const selectedParent = selectedStep?.parentId ? stepsById.get(selectedStep.parentId) : undefined;
   const valueModes = selectedStep ? valueModesForStep(selectedStep) : undefined;
@@ -210,7 +212,7 @@ export const ImportedSourceSteps = ({
     let parent = step.parentId ? stepsById.get(step.parentId) : undefined;
     while (parent) {
       if (visited.has(parent.id)) return parent;
-      if (!effectiveEnabled(parent)) return parent;
+      if (occurrenceRemoved(parent)) return parent;
       visited.add(parent.id);
       parent = parent.parentId ? stepsById.get(parent.parentId) : undefined;
     }
@@ -231,7 +233,6 @@ export const ImportedSourceSteps = ({
 
   const currentSourceStepChange: NonNullable<ExplorerBuilderCommand['sourceStep']> | undefined = editor && selectedStep ? {
       stepId: selectedStep.id,
-      enabled: editor.enabled,
       ...(editor.parametersChanged && editor.parameters ? { parameters: editor.parameters } : {}),
       ...(changedMaxColumns && parsedMaxColumns !== undefined
         ? { maxColumns: parsedMaxColumns }
@@ -251,14 +252,20 @@ export const ImportedSourceSteps = ({
   const dependentChanges = dependentEdits.flatMap((change): NonNullable<ExplorerBuilderCommand['sourceStep']>[] => {
     const step = stepsById.get(change.stepId);
     if (!step) return [];
-    if (!change.parametersChanged && change.enabled === step.enabled && change.maxColumns === (step.maxColumns === undefined ? '' : String(step.maxColumns)) && change.valueMode === (step.valueMode ?? '')) return [];
-    return [{ stepId: step.id, enabled: change.enabled,
+    if (!change.parametersChanged && change.maxColumns === (step.maxColumns === undefined ? '' : String(step.maxColumns)) && change.valueMode === (step.valueMode ?? '')) return [];
+    return [{ stepId: step.id,
       ...(change.parametersChanged && change.parameters ? { parameters: change.parameters } : {}),
       ...(step.maxColumns !== undefined && change.maxColumns !== String(step.maxColumns) ? { maxColumns: Number(change.maxColumns) } : {}),
       ...(isSupportedValueMode(step.valueMode, valueModesForStep(step)) && change.valueMode !== step.valueMode ? { valueMode: change.valueMode } : {}),
     }];
   });
-  const sourceReview = selectedStep?.editable && renderReview && currentSourceStepChange && validMaxColumns && validDependentEdits && !(selectedStep.occurrenceId && removedOccurrences.has(selectedStep.occurrenceId))
+  const hasSourceChanges = Boolean(editor && selectedStep && (
+    changedMaxColumns ||
+    editor.valueMode !== (selectedStep.valueMode ?? '') ||
+    JSON.stringify(editor.parameters) !== JSON.stringify(selectedStep.parameters) ||
+    dependentChanges.length > 0
+  ));
+  const sourceReview = (!reviewInEditor || hasSourceChanges) && selectedStep?.editable && renderReview && currentSourceStepChange && validMaxColumns && validDependentEdits && !(selectedStep.occurrenceId && removedOccurrences.has(selectedStep.occurrenceId))
     ? renderReview(currentSourceStepChange, closeEditor, dependentChanges.length ? [currentSourceStepChange, ...dependentChanges] : undefined) : null;
   const stageOrSelectOperation = (stepId: string, fieldId?: string, outputKey?: string) => {
     if (!editor || isDisabled) return;
@@ -431,19 +438,16 @@ export const ImportedSourceSteps = ({
             const renderStep = ({ step, number }: SourceStepEntry) => {
             const disabledAncestor = disabledAncestorFor(step);
             const parent = step.parentId ? stepsById.get(step.parentId) : undefined;
-            const statusLabel = step.occurrenceId && removedOccurrences.has(step.occurrenceId) ? 'Removed by project source change' : !step.enabled
-              ? 'Disabled'
-              : disabledAncestor
-                ? 'Inactive · parent off'
-                : 'Enabled';
+            const statusLabel = occurrenceRemoved(step) ? 'Removed by project source change'
+              : disabledAncestor ? 'Inactive · parent removed' : '';
             const content = <>
               <span aria-hidden="true" className="pt-0.5 text-xs font-semibold text-indigo-800">
                 {number}.
               </span>
               <span className="min-w-0 break-words text-sm">{sourceStepLabel(step)}</span>
               <span
-                title={disabledAncestor ? `Inactive because ${sourceStepLabel(disabledAncestor)} is disabled` : undefined}
-                className={effectiveEnabled(step) && !disabledAncestor ? 'sr-only' : 'shrink-0 text-xs text-slate-500'}
+                title={disabledAncestor ? `Inactive because ${sourceStepLabel(disabledAncestor)} was removed` : undefined}
+                className={!statusLabel ? 'sr-only' : 'shrink-0 text-xs text-slate-500'}
               >
                 {statusLabel}
               </span>
@@ -483,7 +487,7 @@ export const ImportedSourceSteps = ({
             if (!first || !last) return null;
             const parent = first.step.parentId ? stepsById.get(first.step.parentId) : undefined;
             const containsSelection = group.entries.some(({ step }) => step.id === selectedStep?.id);
-            const inactiveCount = group.entries.filter(({ step }) => !effectiveEnabled(step) || disabledAncestorFor(step)).length;
+            const inactiveCount = group.entries.filter(({ step }) => occurrenceRemoved(step) || disabledAncestorFor(step)).length;
             return (
               <li key={group.id} className="min-w-0 max-w-full">
                 <details data-testid={`source-step-group-${group.id}`} className="min-w-0">
@@ -491,7 +495,7 @@ export const ImportedSourceSteps = ({
                     <span className="font-medium">Columns</span> · {group.entries.length}
                     <span className="ml-1 text-xs text-slate-500">({first.number}–{last.number})</span>
                     {parent ? <span className="ml-1 text-xs text-slate-600">· {sourceStepLabel(parent)}</span> : null}
-                    {inactiveCount ? <span className="ml-1 text-xs text-slate-500">· {inactiveCount} inactive</span> : null}
+                    {inactiveCount ? <span className="ml-1 text-xs text-slate-500">· {inactiveCount} removed</span> : null}
                   </summary>
                   <ol className="m-0 mt-1 flex list-none flex-wrap gap-1 border-l-2 border-blue-200 pl-2">
                     {group.entries.map(renderStep)}
@@ -528,55 +532,18 @@ export const ImportedSourceSteps = ({
             </div>
             {activeParent ? <p className="m-0 text-xs text-indigo-800">Under {sourceStepLabel(activeParent)}</p> : null}
             {disabledAncestorFor(activeStep) ? <p role="status" className="text-xs text-slate-600">
-              Inactive because {sourceStepLabel(disabledAncestorFor(activeStep)!)} is disabled. This step’s settings are retained and do not run until the parent is enabled.
+              This step belongs to a source relationship that was removed from the recipe.
             </p> : null}
             {activeStep.editable && activeValues.parameters ? <SourceStepParameterEditor key={activeStep.id} selectedFieldId={activeValues.selectedFieldId} fieldFocusRequest={activeValues.fieldFocusRequest}
               view={activeStep.kind === 'FIELD_GROUP' ? 'fields' : 'settings'}
               sourceStepId={activeStep.id} projectedFields={activeStep.kind === 'FIELD_GROUP' ? projectedFieldsForStep?.(activeStep.id) : undefined}
-              onRemoveProjectedField={onRemoveProjectedField} onEditProjectedField={onEditProjectedField} onRenameProjectedField={onRenameProjectedField} editableProjectedFieldIds={editableProjectedFieldIds} projectedFieldRemovalDisabledReason={projectedFieldRemovalDisabledReason}
+              onRemoveProjectedField={onRemoveProjectedField} canRemoveProjectedField={canRemoveProjectedField} onEditProjectedField={onEditProjectedField} onRenameProjectedField={onRenameProjectedField} editableProjectedFieldIds={editableProjectedFieldIds} projectedFieldRemovalDisabledReason={projectedFieldRemovalDisabledReason}
               selectedOutputKey={activeValues.selectedOutputKey} outputFocusRequest={activeValues.outputFocusRequest}
               catalogOutputs={catalogOutputsForStep?.(activeStep.id) ?? []} pivotOutputs={pivotOutputsForStep?.(activeStep.id) ?? []}
               outputRevision={outputRevision}
-              structuredColumnRule={editingAddedRule}
+              structuredColumnRule={editingAddedRule} hideCatalogPathControls={fixedCatalogPath}
               parameters={activeValues.parameters} disabled={isDisabled} resourceTypeChoices={resourceTypeChoices} sourcePathChoices={sourcePathChoices} fieldPathChoices={fieldPathChoices} fieldKindChoices={fieldKindChoices} onChange={(parameters) => updateActive({ parameters, parametersChanged: true })} /> : null}
-            {activeStep.kind === 'FIELD_GROUP' ? (() => {
-              const pivotSteps = steps?.filter((step) =>
-                step.kind === 'PIVOT' && step.parentId === activeStep.parentId && step.editable,
-              ) ?? [];
-              const codedColumns = codedColumnsForStep?.(activeStep.id) ?? [];
-              if (!pivotSteps.length && !codedColumns.length) return null;
-              const canLeave = !editor.parametersChanged && editor.enabled === selectedStep.enabled &&
-                !changedMaxColumns && editor.valueMode === editorStateFor(selectedStep).valueMode &&
-                dependentEdits.length === 0 && !isDisabled;
-              return <section aria-label="Configured code values" className="space-y-2">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Configured code values</h4>
-                <ul className="divide-y divide-slate-100 border-y border-slate-200 bg-white text-xs">
-                  {codedColumns.map(({ column, label }) => (
-                    <li key={column} className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50">
-                      <span className="min-w-0 flex-1 break-words text-slate-800">{label}</span>
-                      {onRemoveCodedColumn ? <button type="button" disabled={!canLeave}
-                        className="shrink-0 text-blue-800 underline disabled:opacity-50"
-                        aria-label={`Remove code value ${label}`}
-                        onClick={() => { closeEditor(); onRemoveCodedColumn(column); }}>Remove</button> : null}
-                    </li>
-                  ))}
-                  {pivotSteps.map((step) => (
-                    <li key={step.id} className="px-2 py-1.5">
-                      <button type="button" disabled={isDisabled} className="text-xs text-blue-800 underline"
-                        onClick={() => renderReview ? stageOrSelectOperation(step.id) : openEditor(step.id)}>
-                        {sourceStepLabel(step)}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>;
-            })() : null}
             {activeStep.editable && activeStep.kind !== 'FIELD_GROUP' ? <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-              {editingAddedRule ? <label className="flex items-center gap-2 text-xs text-slate-700">
-                <input type="checkbox" checked={activeValues.enabled} disabled={isDisabled}
-                  data-testid="imported-source-rule-enabled" onChange={(event) => updateActive({ enabled: event.currentTarget.checked })} />
-                Enable column rule
-              </label> : null}
               {activeStep.maxColumns !== undefined ? <label className="grid gap-0.5 text-xs text-slate-700">Maximum columns
                 <input type="number" min={1} step={1} value={activeValues.maxColumns} disabled={isDisabled} aria-invalid={!validActiveMaxColumns}
                   data-testid="imported-source-max-columns" onChange={(event) => updateActive({ maxColumns: event.currentTarget.value })} className="rounded-md border border-slate-300 px-2 py-1 text-xs" />
@@ -600,7 +567,7 @@ export const ImportedSourceSteps = ({
             {activeStep.id === selectedStep?.id && !validDependentEdits ? <p role="alert" className="text-xs text-red-800">Each staged maximum must be a positive whole number.</p> : null}
           </section>
           </div>
-          {sourceReview ? presentReview(<div className="construction-inspector-review">{sourceReview}</div>) : null}
+          {sourceReview ? presentReview(<div className={reviewInEditor ? "construction-inspector-footer" : "construction-inspector-review"}>{sourceReview}</div>) : null}
           {!reviewOwnsCancel || !sourceReview ? <div className="construction-inspector-footer flex justify-end gap-2">
             <button
               type="button"

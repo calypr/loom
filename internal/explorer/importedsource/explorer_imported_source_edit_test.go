@@ -67,13 +67,13 @@ func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
 	t.Run("source label remains editable after earlier apply", func(t *testing.T) {
 		params := copySourceParametersForTest(t, document, "fields")
 		params.FieldGroup.Fields[0].Label = "First source label"
-		first, err := resolver.Edit(ctx, "project-a", authorized, document, &authoringv2.ImportedSourceStepChange{StepID: "fields", Enabled: true, Parameters: params})
+		first, err := resolver.Edit(ctx, "project-a", authorized, document, &authoringv2.ImportedSourceStepChange{StepID: "fields", Parameters: params})
 		if err != nil {
 			t.Fatal(err)
 		}
 		params = copySourceParametersForTest(t, first, "fields")
 		params.FieldGroup.Fields[0].Label = "Second source label"
-		second, err := resolver.Edit(ctx, "project-a", authorized, first, &authoringv2.ImportedSourceStepChange{StepID: "fields", Enabled: true, Parameters: params})
+		second, err := resolver.Edit(ctx, "project-a", authorized, first, &authoringv2.ImportedSourceStepChange{StepID: "fields", Parameters: params})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -92,12 +92,12 @@ func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
 		fields := copySourceParametersForTest(t, document, "traversals[0].fields")
 		traversal.Traversal.Alias = "person"
 		fields.FieldGroup.Fields[0].Expr = recipe.Expression{Select: "person.id"}
-		change := authoringv2.ImportedSourceStepChange{StepID: "traversals[0]", Enabled: true, Parameters: traversal}
+		change := authoringv2.ImportedSourceStepChange{StepID: "traversals[0]", Parameters: traversal}
 		before, _ := json.Marshal(document)
 		if _, err := resolver.Edit(ctx, "project-a", authorized, document, &change); err == nil {
 			t.Fatal("alias-only edit silently retargeted dependent selector")
 		}
-		updated, err := resolver.EditBatch(ctx, "project-a", authorized, document, []authoringv2.ImportedSourceStepChange{change, {StepID: "traversals[0].fields", Enabled: true, Parameters: fields}})
+		updated, err := resolver.EditBatch(ctx, "project-a", authorized, document, []authoringv2.ImportedSourceStepChange{change, {StepID: "traversals[0].fields", Parameters: fields}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -160,7 +160,7 @@ func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
 		}
 		params.FieldGroup.Fields[0].Name = "specimen_key"
 		params.FieldGroup.Fields[0].Expr = recipe.Expression{Select: "root.status"}
-		updated, err := resolver.Edit(ctx, "project-a", authorized, edited, &authoringv2.ImportedSourceStepChange{StepID: "fields", Enabled: true, Parameters: params})
+		updated, err := resolver.Edit(ctx, "project-a", authorized, edited, &authoringv2.ImportedSourceStepChange{StepID: "fields", Parameters: params})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -208,15 +208,18 @@ func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
 	if stepID == "" {
 		t.Fatalf("missing editable traversal: %#v", document.ImportedSource)
 	}
-	updated, err := resolver.Edit(ctx, "project-a", authorized, document, &authoringv2.ImportedSourceStepChange{StepID: stepID, Enabled: false})
+	updated, err := resolver.Edit(ctx, "project-a", authorized, document, &authoringv2.ImportedSourceStepChange{StepID: stepID, Remove: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if *updated.ImportedRecipe != *document.ImportedRecipe || len(updated.Route.Children) != 0 || len(updated.Columns) >= len(document.Columns) {
-		t.Fatalf("source edit failed to change schema/route while retaining pin: %#v", updated)
+		t.Fatalf("source step removal failed to change schema/route while retaining pin: %#v", updated)
 	}
 	if len(document.Route.Children) != 1 {
 		t.Fatal("source edit mutated accepted document")
+	}
+	if updated.ImportedSource == nil || len(updated.ImportedSource.RemovedStepIDs) != 1 || updated.ImportedSource.RemovedStepIDs[0] != stepID {
+		t.Fatalf("removed step was not recorded in the source overlay: %#v", updated.ImportedSource)
 	}
 	workspace.Documents[0] = updated
 	resolved, err := resolver.Resolve(ctx, "project-a", workspace, authorized)
@@ -228,7 +231,7 @@ func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(compiled.Bundle.Outputs[0].Traversals) != 0 {
-		t.Fatal("disabled traversal still executes")
+		t.Fatal("removed traversal still executes")
 	}
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -239,16 +242,9 @@ func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, step := range restored.Documents[0].ImportedSource.Steps {
-		if step.ID == stepID && step.Enabled {
-			t.Fatal("disabled state lost on reload")
+		if step.ID == stepID {
+			t.Fatal("removed step returned after reload")
 		}
-	}
-	back, err := resolver.Edit(ctx, "project-a", authorized, restored.Documents[0], &authoringv2.ImportedSourceStepChange{StepID: stepID, Enabled: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(back.Columns) != len(document.Columns) || len(back.Route.Children) != 1 {
-		t.Fatal("reenabling did not restore source")
 	}
 	dependent := document
 	var patientColumn string
@@ -274,19 +270,11 @@ func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
 	if _, err := explorercompilation.CompileWorkspace(ctx, "project-a", "test", workspace, snapshot, explorercompilation.ResolvedInputs{ImportedRecipes: resolved}); err != nil {
 		t.Fatalf("dependent baseline does not compile: %v", err)
 	}
-	broken, editErr := resolver.Edit(ctx, "project-a", authorized, dependent, &authoringv2.ImportedSourceStepChange{StepID: stepID, Enabled: false})
-	if editErr == nil {
-		workspace.Documents[0] = broken
-		resolved, err = resolver.Resolve(ctx, "project-a", workspace, authorized)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := explorercompilation.CompileWorkspace(ctx, "project-a", "test", workspace, snapshot, explorercompilation.ResolvedInputs{ImportedRecipes: resolved}); err == nil {
-			t.Fatal("source removal accepted a filter that still depends on the removed patient column")
-		}
+	if _, err := resolver.Edit(ctx, "project-a", authorized, dependent, &authoringv2.ImportedSourceStepChange{StepID: stepID, Remove: true}); err == nil {
+		t.Fatal("source removal accepted a filter that still depends on the removed patient column")
 	}
 	workspace.Documents[0] = document
-	workspace.Documents[1], err = resolver.Edit(ctx, "project-a", authorized, workspace.Documents[1], &authoringv2.ImportedSourceStepChange{StepID: stepID, Enabled: false})
+	workspace.Documents[1], err = resolver.Edit(ctx, "project-a", authorized, workspace.Documents[1], &authoringv2.ImportedSourceStepChange{StepID: stepID, Remove: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,11 +380,11 @@ func TestImportedSourceAtomicExpansionAliasPreservesUUIDAndFieldDependencies(t *
 	expansion.Expansion.As = "entry"
 	identity.Identity.Expr.Args[2].Args[1].Args[0].Select = "entry.entity.reference"
 	fields.FieldGroup.Fields[1].Expr.Args[0].Select = "entry.entity.reference"
-	alone := authoringv2.ImportedSourceStepChange{StepID: "expand", Enabled: true, Parameters: expansion}
+	alone := authoringv2.ImportedSourceStepChange{StepID: "expand", Parameters: expansion}
 	if _, err := resolver.Edit(ctx, "project-a", authorized, document, &alone); err == nil {
 		t.Fatal("expansion alias alone invalidated dependencies without rejection")
 	}
-	updated, err := resolver.EditBatch(ctx, "project-a", authorized, document, []authoringv2.ImportedSourceStepChange{alone, {StepID: "identity", Enabled: true, Parameters: identity}, {StepID: "fields", Enabled: true, Parameters: fields}})
+	updated, err := resolver.EditBatch(ctx, "project-a", authorized, document, []authoringv2.ImportedSourceStepChange{alone, {StepID: "identity", Parameters: identity}, {StepID: "fields", Parameters: fields}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +457,7 @@ func TestImportedSourceDiscoveredCollisionPreservesWinnerIdentity(t *testing.T) 
 	}
 	params := copySourceParametersForTest(t, document, "fields")
 	params.FieldGroup.Fields[0].Name = "revealed"
-	changed, err := resolver.Edit(ctx, "project-a", authorized, document, &authoringv2.ImportedSourceStepChange{StepID: "fields", Enabled: true, Parameters: params})
+	changed, err := resolver.Edit(ctx, "project-a", authorized, document, &authoringv2.ImportedSourceStepChange{StepID: "fields", Parameters: params})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -598,7 +586,7 @@ func TestImportedSourceGeneratedNamingPreservesNativeKeys(t *testing.T) {
 			document.Columns[0].Label = "Independent custom heading"
 			params := copySourceParametersForTest(t, document, c.step)
 			c.edit(params)
-			updated, err := f.resolver.Edit(context.Background(), "project-a", f.authorized, document, &authoringv2.ImportedSourceStepChange{StepID: c.step, Enabled: true, Parameters: params})
+			updated, err := f.resolver.Edit(context.Background(), "project-a", f.authorized, document, &authoringv2.ImportedSourceStepChange{StepID: c.step, Parameters: params})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -628,7 +616,7 @@ func TestImportedSourceHiddenFieldEditPreservesBoundDownstreamWinner(t *testing.
 	document.Construction = &authoringv2.Construction{Version: 1, Steps: []authoringv2.ConstructionStep{{ID: "keep-winner", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}}, Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{ColumnID: winner.ColumnID, Operator: authoringv2.ConstructionFilterExists}}, Outputs: []authoringv2.StageColumn{{ID: winner.ColumnID, Name: winner.Column, Label: winner.Label, Type: winner.LogicalType}}}}}
 	params := copySourceParametersForTest(t, document, "fields")
 	params.FieldGroup.Fields[0].Label = "Updated hidden declaration"
-	updated, err := f.resolver.Edit(context.Background(), "project-a", f.authorized, document, &authoringv2.ImportedSourceStepChange{StepID: "fields", Enabled: true, Parameters: params})
+	updated, err := f.resolver.Edit(context.Background(), "project-a", f.authorized, document, &authoringv2.ImportedSourceStepChange{StepID: "fields", Parameters: params})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -645,7 +633,7 @@ func TestImportedSourceHiddenFieldEditPreservesBoundDownstreamWinner(t *testing.
 	}
 }
 
-func TestImportedSourceLegacyEnablementRetainsDiscoveredWinnerIdentity(t *testing.T) {
+func TestImportedSourceStepRemovalRetainsDiscoveredWinnerIdentity(t *testing.T) {
 	empty := ""
 	output := recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", CollisionPolicy: "overwrite", Fields: []recipe.Field{{Name: "shadowed", Expr: recipe.Expression{Select: "root.id"}}}, DynamicColumns: []recipe.DynamicColumn{{Name: "identifiers", ColumnPrefix: &empty, Source: recipe.Expression{Select: "root.identifier[]"}, Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.value"}, MaxColumns: 1}}}
 	f := newSourceIdentityFixture(t, output, []catalog.PopulatedField{{ResourceType: "Specimen", Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"shadowed"}}})
@@ -654,12 +642,15 @@ func TestImportedSourceLegacyEnablementRetainsDiscoveredWinnerIdentity(t *testin
 		t.Fatal("fixture missing discovered winner")
 	}
 	old := document.Columns[0]
-	updated, err := f.resolver.Edit(context.Background(), "project-a", f.authorized, document, &authoringv2.ImportedSourceStepChange{StepID: "fields", Enabled: false})
+	updated, err := f.resolver.Edit(context.Background(), "project-a", f.authorized, document, &authoringv2.ImportedSourceStepChange{StepID: "fields", Remove: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(updated.Columns) != 1 || updated.Columns[0].ColumnID != old.ColumnID || updated.Columns[0].Column != old.Column {
-		t.Fatal("legacy enablement changed an untouched discovered winner identity")
+		t.Fatal("source step removal changed an untouched discovered winner identity")
+	}
+	for _, step := range updated.ImportedSource.Steps {
+		if step.ID == "fields" { t.Fatal("removed source step remains in recipe") }
 	}
 }
 
@@ -669,7 +660,7 @@ func TestImportedSourceNewPivotKeyRenameKeepsAuthoredIdentity(t *testing.T) {
 	document := f.workspace.Documents[0]
 	firstParams := copySourceParametersForTest(t, document, "pivots[0]")
 	firstParams.Pivot.Columns = append(firstParams.Pivot.Columns, "audited_score")
-	first, err := f.resolver.Edit(context.Background(), "project-a", f.authorized, document, &authoringv2.ImportedSourceStepChange{StepID: "pivots[0]", Enabled: true, Parameters: firstParams})
+	first, err := f.resolver.Edit(context.Background(), "project-a", f.authorized, document, &authoringv2.ImportedSourceStepChange{StepID: "pivots[0]", Parameters: firstParams})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -695,7 +686,7 @@ func TestImportedSourceNewPivotKeyRenameKeepsAuthoredIdentity(t *testing.T) {
 	}
 	nextParams := copySourceParametersForTest(t, first, "pivots[0]")
 	nextParams.Pivot.Name = "renamed_measurements"
-	second, err := f.resolver.Edit(context.Background(), "project-a", f.authorized, first, &authoringv2.ImportedSourceStepChange{StepID: "pivots[0]", Enabled: true, Parameters: nextParams})
+	second, err := f.resolver.Edit(context.Background(), "project-a", f.authorized, first, &authoringv2.ImportedSourceStepChange{StepID: "pivots[0]", Parameters: nextParams})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -722,7 +713,7 @@ func TestImportedSourceNewPivotKeyRenameKeepsAuthoredIdentity(t *testing.T) {
 	}
 	aliasParams := copySourceParametersForTest(t, second, "pivots[0]")
 	aliasParams.Pivot.ColumnAliases = map[string]string{"audited_score": "published_score"}
-	third, err := f.resolver.Edit(context.Background(), "project-a", f.authorized, second, &authoringv2.ImportedSourceStepChange{StepID: "pivots[0]", Enabled: true, Parameters: aliasParams})
+	third, err := f.resolver.Edit(context.Background(), "project-a", f.authorized, second, &authoringv2.ImportedSourceStepChange{StepID: "pivots[0]", Parameters: aliasParams})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -788,7 +779,7 @@ func TestImportedSourceNewNativeKeysRemainStableAcrossNamingAndReload(t *testing
 			document := f.workspace.Documents[0]
 			params := copySourceParametersForTest(t, document, c.step)
 			c.create(params)
-			first, err := f.resolver.Edit(context.Background(), "project-a", f.authorized, document, &authoringv2.ImportedSourceStepChange{StepID: c.step, Enabled: true, Parameters: params})
+			first, err := f.resolver.Edit(context.Background(), "project-a", f.authorized, document, &authoringv2.ImportedSourceStepChange{StepID: c.step, Parameters: params})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -816,7 +807,7 @@ func TestImportedSourceNewNativeKeysRemainStableAcrossNamingAndReload(t *testing
 			compile(first)
 			params = copySourceParametersForTest(t, first, c.step)
 			c.rename(params)
-			second, err := f.resolver.Edit(context.Background(), "project-a", f.authorized, first, &authoringv2.ImportedSourceStepChange{StepID: c.step, Enabled: true, Parameters: params})
+			second, err := f.resolver.Edit(context.Background(), "project-a", f.authorized, first, &authoringv2.ImportedSourceStepChange{StepID: c.step, Parameters: params})
 			if err != nil {
 				t.Fatal(err)
 			}

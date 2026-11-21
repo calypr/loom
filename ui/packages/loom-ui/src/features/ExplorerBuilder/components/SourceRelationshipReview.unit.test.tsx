@@ -76,10 +76,26 @@ it('rejects mismatched embedded preview receipt and never enables Apply', async 
     expect(calls.preview).not.toHaveBeenCalled();
     expect(calls.onApply).not.toHaveBeenCalled();
   });
+  it('automatically previews a saved-rule edit and enables Apply when its candidate arrives', async () => {
+    const proposeSourceRelationship = vi.fn().mockResolvedValue(proposal);
+    const onApply = vi.fn().mockResolvedValue(true);
+    const sourceStep = { stepId: 'catalogProjections[0]', maxColumns: 2 };
+    render(<SourceRelationshipReview client={{ proposeSourceRelationship } as unknown as LoomClient}
+      project="qa" explorerId="editor" snapshotToken="s1" draftVersion={2} draftDigest="d2" outputId="subjects"
+      disabled={false} ruleEdit sourceStep={sourceStep} onApply={onApply} onCancel={vi.fn()} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Updating preview');
+    expect(screen.queryByRole('button', { name: 'Preview changes' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
+    const apply = await screen.findByRole('button', { name: 'Apply changes' });
+    expect(proposeSourceRelationship).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sourceStep }), expect.any(AbortSignal));
+    expect(onApply).not.toHaveBeenCalled();
+    fireEvent.click(apply);
+    await waitFor(() => expect(onApply).toHaveBeenCalledOnce());
+  });
   it('previews bounded source-step settings through the same receipt without a direct source write', async () => {
     const proposeSourceRelationship = vi.fn().mockResolvedValue(proposal);
     const onApply = vi.fn().mockResolvedValue(true);
-    const sourceStep = { stepId: 'catalogProjections[0]', enabled: true, maxColumns: 2 };
+    const sourceStep = { stepId: 'catalogProjections[0]', maxColumns: 2 };
     render(<SourceRelationshipReview client={{ proposeSourceRelationship, preview: vi.fn().mockResolvedValue(rows) } as unknown as LoomClient}
       project="qa" explorerId="editor" snapshotToken="s1" draftVersion={2} draftDigest="d2" outputId="subjects"
       disabled={false} sourceStep={sourceStep} onApply={onApply} onCancel={vi.fn()} />);

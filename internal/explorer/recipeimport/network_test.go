@@ -314,7 +314,7 @@ func TestHydrateSourcePlanMigratesLegacyMetadataAndRejectsRetargeting(t *testing
 		legacy.Steps[i].MatchMode = ""
 		legacy.Steps[i].SourceKey = ""
 	}
-	setSourcePlanEnabled(t, &legacy, "fields", false)
+	removePinnedTestStep(t, &legacy, "fields")
 	legacy.Relationships = &authoringv2.ImportedRelationshipOverlay{}
 	for _, s := range pristine.Steps {
 		if s.Kind == SourcePlanTraversal {
@@ -326,12 +326,16 @@ func TestHydrateSourcePlanMigratesLegacyMetadataAndRejectsRetargeting(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	fieldStep, _ := sourcePlanStep(hydrated, "fields")
-	if fieldStep.Enabled || len(hydrated.Relationships.MatchOverrides) != 1 {
+	_, found := sourcePlanStep(hydrated, "fields")
+	if found || len(hydrated.Relationships.MatchOverrides) != 1 {
 		t.Fatal("migration lost bounded overrides or authored match policy")
 	}
-	for i, s := range pristine.Steps {
-		if hydrated.Steps[i].OccurrenceID != s.OccurrenceID || hydrated.Steps[i].MatchMode != s.MatchMode || hydrated.Steps[i].SourceKey != s.SourceKey {
+	for _, s := range pristine.Steps {
+		if s.ID == "fields" {
+			continue
+		}
+		actual, found := sourcePlanStep(hydrated, s.ID)
+		if !found || actual.OccurrenceID != s.OccurrenceID || actual.MatchMode != s.MatchMode || actual.SourceKey != s.SourceKey {
 			t.Fatalf("metadata migration differs at step %q", s.ID)
 		}
 	}
@@ -349,7 +353,7 @@ func TestHydrateSourcePlanMigratesLegacyMetadataAndRejectsRetargeting(t *testing
 func TestCompiledNetworkRejectsAmbiguousLegacyCatalogOwners(t *testing.T) {
 	network := authoringv2.AuthoringNetwork{Occurrences: []authoringv2.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []authoringv2.NetworkColumnBinding{{ColumnID: "id", Status: "UNKNOWN"}}}
 	columns := []lower.CompiledOutputColumn{{ID: "id", Name: "id", SourceOrigin: &lower.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "fields", SourceKind: SourcePlanCatalogProjection}}}
-	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "catalogProjections[0]", Kind: SourcePlanCatalogProjection, Title: "First", Summary: "First", Enabled: true, Editable: true}, {ID: "catalogProjections[1]", Kind: SourcePlanCatalogProjection, Title: "Second", Summary: "Second", Enabled: true, Editable: true}}}
+	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "catalogProjections[0]", Kind: SourcePlanCatalogProjection, Title: "First", Summary: "First", Editable: true}, {ID: "catalogProjections[1]", Kind: SourcePlanCatalogProjection, Title: "Second", Summary: "Second", Editable: true}}}
 	if _, err := BindCompiledNetwork(network, columns, &plan); err == nil || !strings.Contains(err.Error(), "SOURCE_PROVENANCE_AMBIGUOUS") {
 		t.Fatalf("ambiguous catalog provenance was guessed: %v", err)
 	}
@@ -366,7 +370,7 @@ func TestCompiledNetworkRejectsAmbiguousLegacyCatalogOwners(t *testing.T) {
 func TestCompiledNetworkCarriesCatalogOutputIdentityToSourceStep(t *testing.T) {
 	network := authoringv2.AuthoringNetwork{Occurrences: []authoringv2.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []authoringv2.NetworkColumnBinding{{ColumnID: "gender", Status: "UNKNOWN"}}}
 	columns := []lower.CompiledOutputColumn{{ID: "gender", Name: "gender", SourceOrigin: &lower.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "fields", SourceKind: SourcePlanCatalogProjection, SourceKey: "populated_fields", OutputKey: "gender"}}}
-	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "catalogProjections[0]", SourceKey: "populated_fields", Kind: SourcePlanCatalogProjection, Title: "Fields", Summary: "Pinned catalog projection", Enabled: true, Editable: true}}}
+	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "catalogProjections[0]", SourceKey: "populated_fields", Kind: SourcePlanCatalogProjection, Title: "Fields", Summary: "Pinned catalog projection", Editable: true}}}
 	got, err := BindCompiledNetwork(network, columns, &plan)
 	if err != nil {
 		t.Fatal(err)
@@ -379,7 +383,7 @@ func TestCompiledNetworkCarriesCatalogOutputIdentityToSourceStep(t *testing.T) {
 func TestCompiledNetworkFamilyKeysSurviveDiscoveryPruning(t *testing.T) {
 	network := authoringv2.AuthoringNetwork{Occurrences: []authoringv2.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []authoringv2.NetworkColumnBinding{{ColumnID: "pivot_result", Status: "UNKNOWN"}}}
 	columns := []lower.CompiledOutputColumn{{ID: "pivot_result", SourceOrigin: &lower.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "pivots[0]", SourceKind: SourcePlanPivot, SourceKey: "second", OutputKey: "urn:loinc|8480-6"}}}
-	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "pivots[0]", SourceKey: "first", Kind: SourcePlanPivot, Title: "First", Summary: "First", Enabled: true, Editable: true}, {ID: "pivots[1]", SourceKey: "second", Kind: SourcePlanPivot, Title: "Second", Summary: "Second", Enabled: true, Editable: true}}}
+	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "pivots[0]", SourceKey: "first", Kind: SourcePlanPivot, Title: "First", Summary: "First", Editable: true}, {ID: "pivots[1]", SourceKey: "second", Kind: SourcePlanPivot, Title: "Second", Summary: "Second", Editable: true}}}
 	got, err := BindCompiledNetwork(network, columns, &plan)
 	if err != nil {
 		t.Fatal(err)

@@ -7,7 +7,7 @@ import (
 )
 
 func TestSourceParametersValidateStructureBeforePinResolution(t *testing.T) {
-	valid := `{"stepId":"identity","enabled":true,"parameters":{"identity":{"name":"id","expr":{"call":"uuid5","args":[{"literal":"namespace"},{"select":"root.id"}]}}}}`
+	valid := `{"stepId":"identity","parameters":{"identity":{"name":"id","expr":{"call":"uuid5","args":[{"literal":"namespace"},{"select":"root.id"}]}}}}`
 	var c ImportedSourceStepChange
 	if err := json.Unmarshal([]byte(valid), &c); err != nil {
 		t.Fatal(err)

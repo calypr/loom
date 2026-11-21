@@ -9,7 +9,7 @@ import (
 type ImportedSourceStepChange struct {
 	Parameters *ImportedSourceParameters `json:"parameters,omitempty"`
 	StepID     string                    `json:"stepId"`
-	Enabled    bool                      `json:"enabled"`
+	Remove     bool                      `json:"remove,omitempty"`
 	MaxColumns *int                      `json:"maxColumns,omitempty"`
 	ValueMode  string                    `json:"valueMode,omitempty"`
 }
@@ -18,21 +18,24 @@ func (c *ImportedSourceStepChange) UnmarshalJSON(raw []byte) error {
 	var wire struct {
 		Parameters *ImportedSourceParameters `json:"parameters,omitempty"`
 		StepID     string                    `json:"stepId"`
-		Enabled    *bool                     `json:"enabled"`
+		Remove     *bool                     `json:"remove,omitempty"`
 		MaxColumns *int                      `json:"maxColumns,omitempty"`
 		ValueMode  string                    `json:"valueMode,omitempty"`
 	}
 	if err := strictDecode(raw, &wire); err != nil {
 		return err
 	}
-	if wire.Enabled == nil {
-		return fmt.Errorf("sourceStep.enabled is required")
+	if wire.Remove != nil && !*wire.Remove {
+		return fmt.Errorf("sourceStep.remove must be true when provided")
 	}
-	*c = ImportedSourceStepChange{Parameters: wire.Parameters, StepID: wire.StepID, Enabled: *wire.Enabled, MaxColumns: wire.MaxColumns, ValueMode: wire.ValueMode}
+	*c = ImportedSourceStepChange{Parameters: wire.Parameters, StepID: wire.StepID, Remove: wire.Remove != nil, MaxColumns: wire.MaxColumns, ValueMode: wire.ValueMode}
 	return c.Validate()
 }
 
 func (c ImportedSourceStepChange) Validate() error {
+	if c.Remove && (c.Parameters != nil || c.MaxColumns != nil || c.ValueMode != "") {
+		return fmt.Errorf("sourceStep.remove cannot be combined with source step settings")
+	}
 	if err := c.Parameters.Validate(""); err != nil {
 		return err
 	}

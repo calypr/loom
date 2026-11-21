@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -71,6 +72,7 @@ func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operation
 	if err != nil {
 		return SourcePublishReceipt{}, err
 	}
+	finalizeStarted := time.Now()
 	if candidate.State == dataset.StateLoading {
 		totalRows, err := p.finalizeSourceLoadCandidate(workCtx, record)
 		if err != nil {
@@ -93,6 +95,7 @@ func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operation
 	if err := p.prepareLegacySourceLoadActivation(workCtx, record); err != nil {
 		return SourcePublishReceipt{}, err
 	}
+	materializeStarted := time.Now()
 	executionID, revision, err := p.materialize(workCtx, project, record.Generation, operationID, record.Plan.Commit, record.BaseRevision)
 	if err != nil {
 		if errors.Is(err, dataset.ErrReleaseActivationConflict) {
@@ -101,6 +104,7 @@ func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operation
 		}
 		return SourcePublishReceipt{}, err
 	}
+	materialized := time.Now()
 	if executionID == "" || revision <= record.BaseRevision {
 		return SourcePublishReceipt{}, fmt.Errorf("source load publication returned an invalid release receipt")
 	}
@@ -113,6 +117,10 @@ func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operation
 		}
 		return SourcePublishReceipt{}, err
 	}
+	slog.InfoContext(ctx, "source load published", "operation_id", operationID, "execution_id", executionID,
+		"finalize_and_prepare_ms", materializeStarted.Sub(finalizeStarted).Milliseconds(),
+		"materialize_and_activate_ms", materialized.Sub(materializeStarted).Milliseconds(),
+		"complete_ms", time.Since(materialized).Milliseconds())
 	return sourceLoadPublicationReceipt(record, false), nil
 }
 

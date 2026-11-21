@@ -27,7 +27,7 @@ func (s *Store) PublishAuthoring(ctx context.Context, receipt explorer.Compilati
 		management = explorer.ManagementRepository
 	}
 	var out *explorer.Revision
-	err = s.client.WithTransaction(ctx, store.TransactionCollections{Write: []string{datasetarango.LifecycleCollection, ExplorersCollection, RevisionsCollection, CompilationReceiptsCollection}}, func(txCtx context.Context, tx store.RowQueryer) error {
+	err = s.client.WithTransaction(ctx, store.TransactionCollections{Write: []string{datasetarango.LifecycleCollection, ExplorersCollection, RevisionsCollection, CompilationReceiptsCollection, ViewBuilderSettingsCollection}}, func(txCtx context.Context, tx store.RowQueryer) error {
 		if err := tx.QueryRows(txCtx, `INSERT @doc INTO @@c OPTIONS { overwriteMode: "ignore" } RETURN NEW`, 1, map[string]any{"@c": CompilationReceiptsCollection, "doc": receiptDoc}, func(map[string]any) error { return nil }); err != nil {
 			return err
 		}
@@ -71,7 +71,40 @@ func (s *Store) PublishAuthoring(ctx context.Context, receipt explorer.Compilati
 		if err := activateRevisionAndOwner(txCtx, tx, state, time.Now().UTC()); err != nil {
 			return err
 		}
+		if err := registerAuthoringViewCatalog(txCtx, tx, revision); err != nil {
+			return err
+		}
 		return tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": RevisionsCollection, "key": revision.ID}, func(row map[string]any) error { value, err := decode[explorer.Revision](row); out = &value; return err })
 	})
 	return out, err
+}
+
+func registerAuthoringViewCatalog(ctx context.Context, tx store.RowQueryer, revision explorer.Revision) error {
+	name := revision.Recipe.Name
+	snapshot := adoptedCatalogSnapshot(revision, name)
+	current, err := readViewBuilderSettings(ctx, tx, revision.Project)
+	if err != nil {
+		return err
+	}
+	settings := emptyViewBuilderSettings(revision.Project)
+	if current != nil {
+		if current.value.Catalogs[name] == snapshot.ID {
+			return nil
+		}
+		settings = cloneViewBuilderSettings(current.value)
+	}
+
+	if _, err := explorer.ViewBuilderCatalogFromRevision(snapshot); err != nil {
+		return err
+	}
+	stored, err := readProjectConfigRevisions(ctx, tx, []string{snapshot.ID})
+	if err != nil {
+		return err
+	}
+	if err := insertProjectConfigRevision(ctx, tx, snapshot, stored[snapshot.ID]); err != nil {
+		return err
+	}
+	settings.Catalogs[name] = snapshot.ID
+	settings.Version++
+	return writeViewBuilderSettings(ctx, tx, current, settings)
 }

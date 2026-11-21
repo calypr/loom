@@ -72,6 +72,24 @@ func TestBuildViewerProjectionPreservesPublicContractColumnOrder(t *testing.T) {
 	if len(table) != 2 || table[0].Column != "subject.reference" || table[1].Column != "status" {
 		t.Fatalf("runtime table columns = %#v, want frozen public-contract order", table)
 	}
+
+	saved := &ProjectConfig{Views: []ConfigView{{
+		ID: "observations", Output: "observations",
+		Table: ConfigTable{Columns: []ConfigColumn{
+			{Column: "status", Label: "Saved status", Visible: true, Pinned: true},
+		}},
+	}}}
+	runtime, err = buildViewerProjection(revision, saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := runtime.Outputs[0]
+	if len(output.Table.Columns) != 1 || output.Table.Columns[0].Column != "status" || !output.Table.Columns[0].Pinned {
+		t.Fatalf("runtime table does not match the saved view: %#v", output.Table.Columns)
+	}
+	if output.Columns[1].Label != "Saved status" {
+		t.Fatalf("runtime status label = %q", output.Columns[1].Label)
+	}
 }
 
 func mustJSON(t *testing.T, value any) json.RawMessage {

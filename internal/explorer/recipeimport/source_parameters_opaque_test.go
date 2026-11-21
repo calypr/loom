@@ -28,7 +28,7 @@ func TestUnchangedOpaqueSourceExpressionsSurviveUnrelatedEdits(t *testing.T) {
 			plan := SourcePlan(pinned)
 			params := plan.Steps[1].Parameters
 			params.FieldGroup.Fields[0].Label = "Current label"
-			change := authoringv2.ImportedSourceStepChange{StepID: "fields", Enabled: true, Parameters: params}
+			change := authoringv2.ImportedSourceStepChange{StepID: "fields", Parameters: params}
 			raw, err := json.Marshal(change)
 			if err != nil {
 				t.Fatal(err)

@@ -373,7 +373,7 @@ describe('ConstructionReshapeEditor pivot discovery lifecycle', () => {
     gates[0]?.resolve(undefined);
 
     await waitFor(() => expect(screen.getByTestId('construction-reshape-pivot-category-summary'))
-      .toHaveTextContent('Selected 2 of 2 categories: Female, Male'));
+      .toHaveTextContent('Selected 2 of 2 categories'));
     expect(screen.queryByTestId('construction-reshape-pivot-discovery-status')).not.toBeInTheDocument();
   });
 
@@ -404,7 +404,7 @@ describe('ConstructionReshapeEditor pivot discovery lifecycle', () => {
     gates[1]?.resolve(undefined);
 
     await waitFor(() => expect(screen.getByTestId('construction-reshape-pivot-category-summary'))
-      .toHaveTextContent('Selected 2 of 2 categories: Female, Male'));
+      .toHaveTextContent('Selected 2 of 2 categories'));
     expect(screen.queryByTestId('construction-reshape-pivot-discovery-status')).not.toBeInTheDocument();
     fireEvent.click(screen.getByText('Output column names and labels', { selector: 'summary' }));
     fireEvent.change(screen.getByLabelText('Pivot output name female'), { target: { value: 'female_score' } });
