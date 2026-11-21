@@ -715,7 +715,7 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
     await waitFor(()=>expect(screen.queryByRole('button',{name:'Working…'})).toBeNull());
     expect(screen.queryByRole('button',{name:'Preview column policy'})).toBeNull();
     expect(screen.queryByRole('button',{name:'Apply column policy'})).toBeNull();
-    expect(screen.getByRole('button',{name:'Cancel'})).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/draft changed/i);
   });
 
   it('regression: Cancel aborts a pending policy preview and ignores its late response', async () => {

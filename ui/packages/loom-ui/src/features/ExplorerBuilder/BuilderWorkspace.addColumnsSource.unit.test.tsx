@@ -1383,15 +1383,14 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(applyExplorerCommands).not.toHaveBeenCalled();
   });
 
-  it('keeps Apply disabled when the proposal belongs to an older draft identity', async () => {
+  it('discards a proposal that belongs to an older draft identity', async () => {
     mockLoomClient.proposeSourceRelationship.mockResolvedValue(importedRelationshipProposal('sha256:old-draft'));
     renderImportedBuilder();
     fireEvent.click(await screen.findByRole('button', { name: 'Connect to Observation' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('draft changed while the proposal was loading');
-    const review = screen.getByRole('region', { name: 'Proposed related records' });
-    expect(within(review).getByRole('button', { name: 'Apply relationship' })).toBeDisabled();
-    expect(within(review).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Proposed related records' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Apply relationship' })).not.toBeInTheDocument();
     expect(applyExplorerCommands).not.toHaveBeenCalled();
     expect(mockLoomClient.preview).not.toHaveBeenCalled();
   });

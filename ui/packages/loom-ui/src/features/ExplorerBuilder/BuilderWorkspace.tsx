@@ -1988,7 +1988,9 @@ const BuilderWorkspaceContent = ({
           <>
             <span key={suggestionIdentity} ref={suggestionHostRef} hidden />
             {staleSourceEdit ? <span hidden ref={(element) => {
-              if (!element || recipeOwner.getState().status !== 'stale' || !cancelRecipeRelationship(false)) return;
+              const staleEdit = recipeOwner.getState();
+              if (!element || staleEdit.status !== 'stale' || !cancelRecipeRelationship(false)) return;
+              setRecipeNotice(staleEdit.error);
               advancedRuleEditorReturn.current = undefined;
               sourceStepEditDirty.current = false;
               setActiveSourceStepId(undefined);
