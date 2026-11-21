@@ -650,7 +650,9 @@ func TestImportedSourceStepRemovalRetainsDiscoveredWinnerIdentity(t *testing.T) 
 		t.Fatal("source step removal changed an untouched discovered winner identity")
 	}
 	for _, step := range updated.ImportedSource.Steps {
-		if step.ID == "fields" { t.Fatal("removed source step remains in recipe") }
+		if step.ID == "fields" {
+			t.Fatal("removed source step remains in recipe")
+		}
 	}
 }
 
