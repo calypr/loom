@@ -189,38 +189,6 @@ type RowDefinitionProposal struct {
 	Comparison               RowDefinitionComparison      `json:"comparison"`
 }
 
-type RowChoiceKind string
-
-const (
-	RowChoiceFieldGroup RowChoiceKind = "FIELD_GROUP"
-	RowChoiceExpanded   RowChoiceKind = "EXPANDED"
-)
-
-type RowChoiceResolveRequest struct {
-	Project      string
-	ExplorerID   string
-	OutputID     string
-	Snapshot     capability.Snapshot
-	Route        authoringv2.RouteNode
-	RowChoiceID  string
-	ExpectedKind RowChoiceKind
-}
-
-type ResolvedRowChoice struct {
-	Kind         RowChoiceKind
-	OccurrenceID string
-	FieldPath    string
-	ScopePath    string
-}
-
-type RowChoiceResolver interface {
-	ResolveRowChoiceID(context.Context, RowChoiceResolveRequest) (ResolvedRowChoice, error)
-}
-
-type RowChoicePlanner interface {
-	ListRowChoices(context.Context, capability.Snapshot, authoringv2.Document) ([]capability.RowChoice, error)
-}
-
 type ExplicitGroupRevisionResolveRequest struct {
 	Project          string
 	ExplorerID       string
