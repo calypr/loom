@@ -1,4 +1,4 @@
-package runtime
+package recipeauth
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	explorerarango "github.com/calypr/loom/internal/explorer/arango"
+	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func TestRecipeAuthorizationBindsSavedSelectionToAuthorizedProject(t *testing.T) {
@@ -23,7 +23,7 @@ func TestRecipeAuthorizationBindsSavedSelectionToAuthorizedProject(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if bindings.SelectionProject != "HTAN_INT/project-a" || bindings.SelectionMembersCollection != explorerarango.SelectionMembersCollection {
+			if bindings.SelectionProject != "HTAN_INT/project-a" || bindings.SelectionMembersCollection != arangostore.SelectionMembersCollection {
 				t.Fatalf("saved selection is not bound to the authorized project and server-owned store: project=%q collection=%q", bindings.SelectionProject, bindings.SelectionMembersCollection)
 			}
 			if bindings.Project != "HTAN_INT-project-a" || bindings.DatasetGeneration != "generation-a" || bindings.AuthScopeMode != authscope.ReadScopeUnrestricted {

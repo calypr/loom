@@ -7,8 +7,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/calypr/loom/internal/catalog"
 )
 
 const fb27ctlSentinelGeneration = "\x00all-generations"
@@ -16,11 +14,11 @@ const fb27ctlSentinelGeneration = "\x00all-generations"
 type fb27ctlLister struct {
 	mu     sync.Mutex
 	calls  int
-	opts   []catalog.AuthResourcePathOptions
-	behind func(catalog.AuthResourcePathOptions) ([]string, error)
+	opts   []AuthResourcePathOptions
+	behind func(AuthResourcePathOptions) ([]string, error)
 }
 
-func (l *fb27ctlLister) list(_ context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+func (l *fb27ctlLister) list(_ context.Context, opts AuthResourcePathOptions) ([]string, error) {
 	result, err := l.behind(opts)
 	l.mu.Lock()
 	l.calls++
@@ -35,17 +33,17 @@ func (l *fb27ctlLister) count() int {
 	return l.calls
 }
 
-func (l *fb27ctlLister) snapshotCalls() []catalog.AuthResourcePathOptions {
+func (l *fb27ctlLister) snapshotCalls() []AuthResourcePathOptions {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return append([]catalog.AuthResourcePathOptions(nil), l.opts...)
+	return append([]AuthResourcePathOptions(nil), l.opts...)
 }
 
-func (l *fb27ctlLister) lastCall() (catalog.AuthResourcePathOptions, bool) {
+func (l *fb27ctlLister) lastCall() (AuthResourcePathOptions, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if len(l.opts) == 0 {
-		return catalog.AuthResourcePathOptions{}, false
+		return AuthResourcePathOptions{}, false
 	}
 	return l.opts[len(l.opts)-1], true
 }
@@ -62,7 +60,7 @@ func fb27ctlPrincipal(paths ...string) *Principal {
 }
 
 func TestFB27SentinelGenerationPoisonCannotReachAuthorizeWrite(t *testing.T) {
-	l := &fb27ctlLister{behind: func(opts catalog.AuthResourcePathOptions) ([]string, error) {
+	l := &fb27ctlLister{behind: func(opts AuthResourcePathOptions) ([]string, error) {
 		if opts.AllGenerations {
 
 			return []string{"projB/data"}, nil
@@ -110,7 +108,7 @@ func TestFB27SentinelGenerationPoisonCannotReachAuthorizeWrite(t *testing.T) {
 
 func TestFB27ConcurrentDistinctKeyBurstKeepsSharedRecorderConsistent(t *testing.T) {
 	const goroutines = 64
-	l := &fb27ctlLister{behind: func(opts catalog.AuthResourcePathOptions) ([]string, error) {
+	l := &fb27ctlLister{behind: func(opts AuthResourcePathOptions) ([]string, error) {
 
 		if opts.AllGenerations {
 			return []string{opts.Project + "/data"}, nil

@@ -14,7 +14,6 @@ import (
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
@@ -27,7 +26,7 @@ type faultInjectionAuthPathStore struct {
 	fault error
 }
 
-func (s *faultInjectionAuthPathStore) List(_ context.Context, _ catalog.AuthResourcePathOptions) ([]string, error) {
+func (s *faultInjectionAuthPathStore) List(_ context.Context, _ authscope.AuthResourcePathOptions) ([]string, error) {
 	s.calls++
 	if s.fault != nil {
 		return nil, s.fault

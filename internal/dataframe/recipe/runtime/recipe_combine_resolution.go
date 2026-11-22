@@ -10,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/recipeauth"
 )
 
 type ExactMaterializationReader interface {
@@ -85,7 +86,7 @@ func (r CombineInputResolver) ResolveMaterialization(ctx context.Context, index 
 		principal, _ := authscope.PrincipalFromContext(ctx)
 		effectiveScope, err = r.scopes.ResolveReadScopeForGeneration(ctx, principal, materialization.Project, materialization.DatasetGeneration, persistedScope.AuthResourcePaths)
 		if err != nil {
-			return ir.ResolvedClickHouseTable{}, AuthorizationError(err)
+			return ir.ResolvedClickHouseTable{}, recipeauth.AuthorizationError(err)
 		}
 	}
 	if effectiveScope.Mode == authscope.ReadScopeRestricted && len(effectiveScope.AuthResourcePaths) == 0 {

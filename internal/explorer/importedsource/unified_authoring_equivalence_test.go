@@ -3,6 +3,7 @@ package importedsource
 import (
 	"context"
 	"encoding/json"
+	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -12,7 +13,7 @@ import (
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -77,10 +78,10 @@ func newUnifiedAuthoringFixture(t *testing.T) unifiedAuthoringFixture {
 	if err != nil {
 		t.Fatalf("digest imported recipe fixture: %v", err)
 	}
-	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
+	registry := &importedSourceRegistry{entry: recipe.Entry{Bundle: bundle, Digest: digest}}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry: registry, ScopeDigest: reciperuntime.ScopeDigest,
-		ResolveBundle: reciperuntime.RecipeSchemaResolver(func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
+		ResolveBundle: fielddiscovery.RecipeSchemaResolver(func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 			return nil, nil
 		}, nil),
 		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {

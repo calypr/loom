@@ -1,11 +1,11 @@
 package catalog
 
-import "strings"
+import "github.com/calypr/loom/internal/projectid"
 
 func NormalizeDatasetGeneration(generation string) string {
-	return strings.TrimSpace(generation)
+	return projectid.NormalizeGeneration(generation)
 }
 
 func HasDatasetGeneration(generation string) bool {
-	return NormalizeDatasetGeneration(generation) != ""
+	return projectid.HasGeneration(generation)
 }

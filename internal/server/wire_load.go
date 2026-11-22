@@ -10,6 +10,7 @@ import (
 	publicationcontract "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest/generation"
 	"github.com/calypr/loom/internal/ingest/sourceload"
+	"github.com/calypr/loom/internal/server/sourcepublication"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -38,7 +39,7 @@ func wireLoad(serverConfig Config, logger *slog.Logger, connOpts arangostore.Con
 	sourceLoadLimits := loadapi.SourceLoadLimits{MaxFileBytes: serverConfig.Server.SourceLoadMaxFileBytes}
 	var sourceLoader loadapi.SourceLoader
 	if bundleTarget != nil && configuredRecipeName != "" {
-		publicationAdapter := sourceload.NewSourcePublicationAdapter(sourceload.SourcePublicationAdapterConfig{
+		publicationAdapter := sourcepublication.NewSourcePublicationAdapter(sourcepublication.SourcePublicationAdapterConfig{
 			RecipeEngine: recipeEngine, PublicationTarget: bundleTarget, RecipeName: configuredRecipeName,
 			PublishedRegistry: publishedRegistry, Explorer: explorerStore, ReleaseService: releaseService,
 			DiscoveryCache: discoveryCache, ScopeResolver: scopeResolver,

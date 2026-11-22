@@ -14,9 +14,9 @@ import (
 
 	queryapi "github.com/calypr/loom/internal/api/dataframe/query"
 
-	"github.com/calypr/loom/internal/api/authpolicy"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataframe/errors/authpolicy"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/projectid"
 )

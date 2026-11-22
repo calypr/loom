@@ -7,7 +7,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/constructioninputs"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
-	"github.com/calypr/loom/internal/explorer/viewbuilder"
+	"github.com/calypr/loom/internal/explorer/projectconfig"
 )
 
 type explorerConfigReadAuthorizer func(context.Context, *authscope.Principal, string) error
@@ -15,7 +15,7 @@ type explorerConfigReadAuthorizer func(context.Context, *authscope.Principal, st
 type Handlers struct {
 	authorizer         authscope.Authorizer
 	authorizeRead      explorerConfigReadAuthorizer
-	views              *viewbuilder.Service
+	views              *projectconfig.Service
 	application        *lifecycle.Service
 	constructionInputs constructioninputs.Catalog
 	authorizeExecution func(context.Context, string) error
@@ -35,7 +35,7 @@ func NewHandlers(config Config) *Handlers {
 	return &Handlers{
 		authorizer:         config.Authorizer,
 		authorizeRead:      config.AuthorizeRead,
-		views:              viewbuilder.New(config.Explorers),
+		views:              projectconfig.New(config.Explorers),
 		application:        application,
 		constructionInputs: config.ConstructionInputs,
 		authorizeExecution: config.AuthorizeExecution,

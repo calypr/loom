@@ -5,8 +5,6 @@ import (
 	"errors"
 	"reflect"
 	"testing"
-
-	"github.com/calypr/loom/internal/catalog"
 )
 
 type fakeResourceAccessClient struct {
@@ -35,7 +33,7 @@ func TestScopeResolverResolveReadScopeIntersectsDBPaths(t *testing.T) {
 				"/programs/EllrottLab/projects/Other",
 			},
 		},
-		ListExistingAuthResourcePaths: func(ctx context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+		ListExistingAuthResourcePaths: func(ctx context.Context, opts AuthResourcePathOptions) ([]string, error) {
 			return []string{"EllrottLab-GDC_Data", "Another-Missing"}, nil
 		},
 	})
@@ -68,7 +66,7 @@ func TestScopeResolverRejectsRequestedPathOutsideIntersection(t *testing.T) {
 		ResourceAccess: fakeResourceAccessClient{
 			resources: []string{"/programs/EllrottLab/projects/GDC_Data"},
 		},
-		ListExistingAuthResourcePaths: func(ctx context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+		ListExistingAuthResourcePaths: func(ctx context.Context, opts AuthResourcePathOptions) ([]string, error) {
 			return []string{"EllrottLab-GDC_Data"}, nil
 		},
 	})
@@ -86,7 +84,7 @@ func TestScopeResolverResolveReadScopeKeepsRestrictedEmptyIntersection(t *testin
 		ResourceAccess: fakeResourceAccessClient{
 			resources: []string{"/programs/EllrottLab/projects/GDC_Data"},
 		},
-		ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+		ListExistingAuthResourcePaths: func(context.Context, AuthResourcePathOptions) ([]string, error) {
 
 			return []string{"Another-Project"}, nil
 		},
@@ -108,12 +106,12 @@ func TestScopeResolverResolveReadScopeKeepsRestrictedEmptyIntersection(t *testin
 }
 
 func TestScopeResolverCachesExistingPathsPerNormalizedGeneration(t *testing.T) {
-	var calls []catalog.AuthResourcePathOptions
+	var calls []AuthResourcePathOptions
 	resolver := NewScopeResolver(ScopeResolverConfig{
 		ResourceAccess: fakeResourceAccessClient{
 			resources: []string{"/programs/example/projects/allowed"},
 		},
-		ListExistingAuthResourcePaths: func(_ context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+		ListExistingAuthResourcePaths: func(_ context.Context, opts AuthResourcePathOptions) ([]string, error) {
 			calls = append(calls, opts)
 			switch opts.DatasetGeneration {
 			case "generation-a":
@@ -160,10 +158,10 @@ func TestScopeResolverCachesExistingPathsPerNormalizedGeneration(t *testing.T) {
 }
 
 func TestScopeResolverSharesCanonicalAndLegacyProjectCacheKeys(t *testing.T) {
-	var calls []catalog.AuthResourcePathOptions
+	var calls []AuthResourcePathOptions
 	resolver := NewScopeResolver(ScopeResolverConfig{
 		ResourceAccess: fakeResourceAccessClient{resources: []string{"/programs/HTAN_INT/projects/BForePC"}},
-		ListExistingAuthResourcePaths: func(_ context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+		ListExistingAuthResourcePaths: func(_ context.Context, opts AuthResourcePathOptions) ([]string, error) {
 			calls = append(calls, opts)
 			return []string{"HTAN_INT-BForePC"}, nil
 		},
@@ -191,7 +189,7 @@ func TestScopeResolverKeepsRestrictedEmptyScopeWithinGeneration(t *testing.T) {
 		ResourceAccess: fakeResourceAccessClient{
 			resources: []string{"/programs/example/projects/allowed"},
 		},
-		ListExistingAuthResourcePaths: func(_ context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+		ListExistingAuthResourcePaths: func(_ context.Context, opts AuthResourcePathOptions) ([]string, error) {
 			called = true
 			if opts.Project != "P1" || opts.DatasetGeneration != "generation-a" {
 				t.Fatalf("existing auth paths options = %+v, want P1/generation-a", opts)
@@ -251,7 +249,7 @@ func TestAuthorizeReadProjectDoesNotRequireEmptyGenerationCatalog(t *testing.T) 
 	client := &recordingResourceAccessClient{resources: []string{"/programs/HTAN_INT/projects/BForePC"}}
 	resolver := NewScopeResolver(ScopeResolverConfig{
 		ResourceAccess: client,
-		ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+		ListExistingAuthResourcePaths: func(context.Context, AuthResourcePathOptions) ([]string, error) {
 			t.Fatalf("project authorization must not resolve a generation catalog")
 			return nil, nil
 		},
@@ -276,7 +274,7 @@ func TestScopeResolverUsesWritePermissionForWriteScope(t *testing.T) {
 	client := &recordingResourceAccessClient{resources: []string{"/programs/example/projects/allowed"}}
 	resolver := NewScopeResolver(ScopeResolverConfig{
 		ResourceAccess: client,
-		ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+		ListExistingAuthResourcePaths: func(context.Context, AuthResourcePathOptions) ([]string, error) {
 			return []string{"example-allowed"}, nil
 		},
 	})

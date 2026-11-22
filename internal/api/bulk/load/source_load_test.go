@@ -13,7 +13,6 @@ import (
 
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/ingest"
 	"github.com/calypr/loom/internal/ingest/sourceload"
@@ -293,7 +292,7 @@ func TestSourceLoadPreservesPluginProjectIdentityForScopedPublication(t *testing
 	const generation = "candidate-generation"
 	store := &sourceLoadStoreFixture{}
 	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
-		ListExistingAuthResourcePaths: func(_ context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+		ListExistingAuthResourcePaths: func(_ context.Context, opts authscope.AuthResourcePathOptions) ([]string, error) {
 			if opts.Project == store.beginProject && opts.DatasetGeneration == generation {
 				return []string{project}, nil
 			}

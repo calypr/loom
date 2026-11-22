@@ -15,11 +15,12 @@ import (
 	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 	chartifactarango "github.com/calypr/loom/internal/dataframe/execution/chartifact/arango"
+	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 	bundlearango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	publicationclickhouse "github.com/calypr/loom/internal/dataframe/publication/clickhouse"
 	"github.com/calypr/loom/internal/dataframe/published"
-	recipearango "github.com/calypr/loom/internal/dataframe/recipe/exec/arango"
+	recipearango "github.com/calypr/loom/internal/dataframe/recipe/arango"
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	publicationcontract "github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -110,7 +111,7 @@ func wireDataframe(ctx context.Context, serverConfig Config, logger *slog.Logger
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry:                   recipeRegistry,
 		Revisions:                  recipeRevisions,
-		ResolveBundle:              reciperuntime.RecipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
+		ResolveBundle:              fielddiscovery.RecipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
 		PreparePreviewIndex:        queries.PreviewIndexPreparation(),
 		PreviewCoveringIndexes:     lifecycleClient.PreviewIndexes().ListPreviewCoveringIndexes,
 		PreviewCollectionRevision:  lifecycleClient.CollectionRevision,

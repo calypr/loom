@@ -23,9 +23,9 @@ func TestProjectFormsShareOneShotCatalogAndIntrospectionIdentity(t *testing.T) {
 	active := &builderActiveManifestResolver{manifest: builderReadyManifest(t, canonical, generation)}
 	var fieldCalls []fieldprofile.PopulatedFieldOptions
 	var referenceCalls []catalog.PopulatedReferenceOptions
-	var scopeCatalogCalls []catalog.AuthResourcePathOptions
+	var scopeCatalogCalls []authscope.AuthResourcePathOptions
 	scopeResolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
-		ListExistingAuthResourcePaths: func(_ context.Context, options catalog.AuthResourcePathOptions) ([]string, error) {
+		ListExistingAuthResourcePaths: func(_ context.Context, options authscope.AuthResourcePathOptions) ([]string, error) {
 			scopeCatalogCalls = append(scopeCatalogCalls, options)
 			return []string{scopePath}, nil
 		},

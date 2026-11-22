@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
 
@@ -34,7 +33,7 @@ const (
 
 type mscProbe struct {
 	pathsByProjectGeneration map[string][]string
-	calls                    []catalog.AuthResourcePathOptions
+	calls                    []authscope.AuthResourcePathOptions
 	fault                    error
 }
 
@@ -46,7 +45,7 @@ func mscKnownPaths() map[string][]string {
 	return map[string][]string{mscKey(mscHomeProject, mscGeneration): {mscGrantedPath}}
 }
 
-func (p *mscProbe) listExisting(_ context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+func (p *mscProbe) listExisting(_ context.Context, opts authscope.AuthResourcePathOptions) ([]string, error) {
 	p.calls = append(p.calls, opts)
 	if p.fault != nil {
 		return nil, p.fault

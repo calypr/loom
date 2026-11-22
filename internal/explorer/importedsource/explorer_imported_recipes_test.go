@@ -11,7 +11,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -41,15 +41,15 @@ func TestImportedSourceSchemaPreservesCompilerFacts(t *testing.T) {
 }
 
 type importedSourceRegistry struct {
-	entry exec.Entry
+	entry recipe.Entry
 	reads int
 }
 
-func (r *importedSourceRegistry) LoadRecipe(context.Context, string) (exec.Entry, error) {
+func (r *importedSourceRegistry) LoadRecipe(context.Context, string) (recipe.Entry, error) {
 	r.reads++
 	return r.entry, nil
 }
-func (r *importedSourceRegistry) LoadRecipeVersion(context.Context, string, string) (exec.Entry, error) {
+func (r *importedSourceRegistry) LoadRecipeVersion(context.Context, string, string) (recipe.Entry, error) {
 	r.reads++
 	return r.entry, nil
 }
@@ -60,7 +60,7 @@ func TestImportedSourceResolutionRejectsChangedPinsAndForeignScopes(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
+	registry := &importedSourceRegistry{entry: recipe.Entry{Bundle: bundle, Digest: digest}}
 	resolver := Sources{registry: registry, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	authorized := ports.AuthorizedCapability{Snapshot: capability.Snapshot{Identity: capability.SnapshotIdentity{Project: "HTAN_INT/BForePC", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}}, Scope: scope}

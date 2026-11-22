@@ -15,9 +15,9 @@ import (
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 
-	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -122,7 +122,7 @@ func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilit
 		if retErr != nil {
 			level = slog.LevelError
 		}
-		httpapi.LogServerDiagnostic(logger, level, "Explorer receipt compilation", httpapi.RequestIDFromContext(ctx), "compile_receipt", time.Since(started), retErr,
+		logServerDiagnostic(logger, level, "Explorer receipt compilation", httpctx.RequestIDFromContext(ctx), "compile_receipt", time.Since(started), retErr,
 			"project", request.Project, "explorer_id", request.ExplorerID, "receipt_id", receiptID,
 			"compile_role", request.RequestID, "output_ids", outputIDs, "stage_ids", stageIDs, "output_column_ids", columnIDs,
 			"prepare_ms", prepareDuration.Milliseconds(), "compile_workspace_ms", compileWorkspaceDuration.Milliseconds(),

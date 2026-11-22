@@ -15,7 +15,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
+
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataset"
 )
@@ -349,12 +349,12 @@ func TestPrepareProjectConfigsUsesFinalEngineResolvedSchemaDigest(t *testing.T) 
 
 type projectConfigEmptyRecipeReader struct{}
 
-func (projectConfigEmptyRecipeReader) LoadRecipe(context.Context, string) (recipeexec.Entry, error) {
-	return recipeexec.Entry{}, errors.New("recipe registry must not be used by ResolveBundle")
+func (projectConfigEmptyRecipeReader) LoadRecipe(context.Context, string) (recipe.Entry, error) {
+	return recipe.Entry{}, errors.New("recipe registry must not be used by ResolveBundle")
 }
 
-func (projectConfigEmptyRecipeReader) LoadRecipeVersion(context.Context, string, string) (recipeexec.Entry, error) {
-	return recipeexec.Entry{}, errors.New("recipe registry must not be used by ResolveBundle")
+func (projectConfigEmptyRecipeReader) LoadRecipeVersion(context.Context, string, string) (recipe.Entry, error) {
+	return recipe.Entry{}, errors.New("recipe registry must not be used by ResolveBundle")
 }
 
 func projectConfigPublicationFixture() (execution.Resolved, publication.BundleExecution, time.Time) {

@@ -9,8 +9,8 @@ import (
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
-	recipearango "github.com/calypr/loom/internal/dataframe/recipe/exec/arango"
+
+	recipearango "github.com/calypr/loom/internal/dataframe/recipe/arango"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -68,7 +68,7 @@ func wireStorage(ctx context.Context, serverConfig Config, logger *slog.Logger, 
 		}
 		configuredRecipeName = defaultBundle.Name
 		configuredRecipeVersion = defaultBundle.TranslationVersion
-		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterVersion(ctx, defaultBundle); err != nil {
+		if _, err := (recipe.PersistentRegistry{Store: recipeRegistry}).RegisterVersion(ctx, defaultBundle); err != nil {
 			degradation = recordDegradation(logger, degradation, "register default dataframe recipe", err)
 		}
 	}

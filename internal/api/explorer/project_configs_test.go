@@ -9,7 +9,6 @@ import (
 
 	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -119,7 +118,7 @@ func TestPersistedExplorerConcealsPartialExecutionScope(t *testing.T) {
 	store.Explorers[explorerfixtures.Key("project-a", "files")] = owner
 	store.Mu.Unlock()
 	handlers := newExplorerHTTPHandlers(authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service)
-	scopes := authscope.NewScopeResolver(authscope.ScopeResolverConfig{ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+	scopes := authscope.NewScopeResolver(authscope.ScopeResolverConfig{ListExistingAuthResourcePaths: func(context.Context, authscope.AuthResourcePathOptions) ([]string, error) {
 		return []string{"allowed", "denied"}, nil
 	}})
 	execution := publication.BundleExecution{ID: "execution-a", BundleIdentity: publication.BundleIdentity{Project: "project-a", DatasetGeneration: "g", AuthResourcePaths: []string{"allowed", "denied"}}, State: publication.BundlePublished}

@@ -1,11 +1,9 @@
-package exec
+package recipe
 
 import (
 	"context"
 	"errors"
 	"testing"
-
-	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 type memoryRecipeStore struct {
@@ -54,7 +52,7 @@ func (s *memoryRecipeStore) RecipeVersionUsed(_ context.Context, name, version s
 func TestPersistentRegistryRetainsVersions(t *testing.T) {
 	store := &memoryRecipeStore{}
 	registry := PersistentRegistry{Store: store}
-	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "default", TranslationVersion: "v", Outputs: []recipe.Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient"}}}
+	bundle := Bundle{RecipeSchemaVersion: 1, Name: "default", TranslationVersion: "v", Outputs: []Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient"}}}
 	first, err := registry.RegisterVersion(context.Background(), bundle)
 	if err != nil {
 		t.Fatal(err)
@@ -72,7 +70,7 @@ func TestPersistentRegistryRetainsVersions(t *testing.T) {
 func TestPersistentRegistryRejectsChangedDigestAfterUse(t *testing.T) {
 	store := &memoryRecipeStore{}
 	registry := PersistentRegistry{Store: store}
-	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "default", TranslationVersion: "v", Outputs: []recipe.Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient"}}}
+	bundle := Bundle{RecipeSchemaVersion: 1, Name: "default", TranslationVersion: "v", Outputs: []Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient"}}}
 	if _, err := registry.RegisterVersion(context.Background(), bundle); err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +84,7 @@ func TestPersistentRegistryRejectsChangedDigestAfterUse(t *testing.T) {
 func TestPersistentRegistryAllowsChangedDigestBeforeUse(t *testing.T) {
 	store := &memoryRecipeStore{}
 	registry := PersistentRegistry{Store: store}
-	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "default", TranslationVersion: "v", Outputs: []recipe.Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient"}}}
+	bundle := Bundle{RecipeSchemaVersion: 1, Name: "default", TranslationVersion: "v", Outputs: []Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient"}}}
 	first, err := registry.RegisterVersion(context.Background(), bundle)
 	if err != nil {
 		t.Fatal(err)

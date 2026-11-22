@@ -13,7 +13,6 @@ import (
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/gofiber/fiber/v3"
@@ -145,7 +144,7 @@ func TestViewBuilderScopedEditorCapability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{ListExistingAuthResourcePaths: func(context.Context, authscope.AuthResourcePathOptions) ([]string, error) {
 		return []string{"project-a"}, nil
 	}})
 	principal := &authscope.Principal{Projects: []string{"project-a"}, AuthResourcePaths: []string{"project-a"}}
@@ -174,7 +173,7 @@ func TestViewBuilderHTTPGetUsesAuthResourcePathForCanEdit(t *testing.T) {
 	const authResourcePath = "/programs/HTAN_INT/projects/BForePC"
 
 	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
-		ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+		ListExistingAuthResourcePaths: func(context.Context, authscope.AuthResourcePathOptions) ([]string, error) {
 			return []string{authResourcePath}, nil
 		},
 	})

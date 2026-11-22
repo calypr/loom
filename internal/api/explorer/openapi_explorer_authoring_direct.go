@@ -5,15 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 	"log/slog"
 	"net/http"
 	"time"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
-	"github.com/calypr/loom/internal/api/authpolicy"
-	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataframe/errors/authpolicy"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
 	"github.com/calypr/loom/internal/explorer"
@@ -259,7 +259,7 @@ func (h *Handlers) publishReceipt(ctx context.Context, project, explorerID, auth
 }
 
 func authoringErrorForOpenAPI(ctx context.Context, operation string, err error) (int, loomapi.ErrorResponse) {
-	requestID := httpapi.RequestIDFromContext(ctx)
+	requestID := httpctx.RequestIDFromContext(ctx)
 	status := http.StatusInternalServerError
 	code, message, stage, path := "INTERNAL_ERROR", "", "internal", ""
 	var details map[string]any

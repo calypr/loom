@@ -19,8 +19,8 @@ import (
 
 	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
 
-	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
+	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -32,7 +32,7 @@ func TestCompileExplorerReceiptLogsSafeStructuredSummary(t *testing.T) {
 	var output bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
 	requestID := "http-request-123"
-	ctx := httpapi.ContextWithRequestID(context.Background(), requestID)
+	ctx := httpctx.ContextWithRequestID(context.Background(), requestID)
 	request, engine, service := diagnosticCompileFixture(t, "synthetic-compile-role")
 	receipt, err := Compile(ctx, request, nil, engine, service, logger, nil)
 	if err != nil {
@@ -76,7 +76,7 @@ func TestConfiguredCategoryScannerSeparatesResolutionAndScanDiagnostics(t *testi
 	if err != nil {
 		t.Fatalf("compile receipt fixture: %v", err)
 	}
-	ctx := httpapi.ContextWithRequestID(context.Background(), "request-category")
+	ctx := httpctx.ContextWithRequestID(context.Background(), "request-category")
 	requestScan := dataframeexecution.CategoryScanRequest{Output: "patients", Column: "c_patient", MaxValues: 10}
 	_, err = NewRuntime(RuntimeConfig{Engine: engine, Logger: logger}).ScanCategories(ctx, receipt, recipeBindingsForDiagnostic(receipt), requestScan)
 	if err != nil {
@@ -179,7 +179,7 @@ func TestConfiguredCategoryScannerReturnsTransportNeutralReceiptConflict(t *test
 		t.Fatalf("compile receipt fixture: %v", err)
 	}
 	receipt.ResolvedSchemaDigest = "private-mismatch-value"
-	ctx := httpapi.ContextWithRequestID(context.Background(), "request-category-conflict")
+	ctx := httpctx.ContextWithRequestID(context.Background(), "request-category-conflict")
 	requestScan := dataframeexecution.CategoryScanRequest{Output: "patients", StageID: "stage-base", ColumnID: "category-id", ValueColumnID: "value-id", MaxValues: 10}
 	_, err = NewRuntime(RuntimeConfig{Engine: engine, Logger: logger}).ScanCategories(ctx, receipt, recipeBindingsForDiagnostic(receipt), requestScan)
 	var authoringErr *explorer.AuthoringError

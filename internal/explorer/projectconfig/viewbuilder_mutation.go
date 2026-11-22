@@ -1,4 +1,4 @@
-package viewbuilder
+package projectconfig
 
 import (
 	"context"

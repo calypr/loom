@@ -4,13 +4,17 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
-	httpapi "github.com/calypr/loom/internal/api/http"
+	"github.com/arangodb/go-driver/v2/arangodb/shared"
+
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -73,7 +77,7 @@ func ConfiguredAQLQueryRows(logger *slog.Logger, phase string, normalizeError fu
 		digest := sha256.Sum256([]byte(query))
 		queryHash := hex.EncodeToString(digest[:])
 		if logger != nil {
-			logger.Info("dataframe AQL started", "request_id", httpapi.RequestIDFromContext(ctx), "phase", phase+"_start",
+			logger.Info("dataframe AQL started", "request_id", httpctx.RequestIDFromContext(ctx), "phase", phase+"_start",
 				"query_hash", queryHash, "query_bytes", len(query), "bind_vars", len(bindVars), "cursor_batch_size", batchSize)
 		}
 		err := normalizeError(execute(ctx, query, batchSize, bindVars, visit))
@@ -81,10 +85,36 @@ func ConfiguredAQLQueryRows(logger *slog.Logger, phase string, normalizeError fu
 		if err != nil {
 			level = slog.LevelError
 		}
-		httpapi.LogServerDiagnostic(logger, level, "dataframe AQL execution", httpapi.RequestIDFromContext(ctx), phase, time.Since(started), err,
+		httpctx.LogDiagnostic(logger, level, "dataframe AQL execution", httpctx.RequestIDFromContext(ctx), phase, time.Since(started), err, classifyAQLDiagnostic,
 			"query_hash", queryHash)
 		return err
 	}
+}
+
+func classifyAQLDiagnostic(err error) (string, string) {
+	if err == nil {
+		return "", ""
+	}
+	if userErr, ok := dataframeerrors.AsUserError(err); ok {
+		return userErr.Code(), dataframeerrors.PublicMessage(err)
+	}
+	var arangoErr shared.ArangoError
+	if errors.As(err, &arangoErr) {
+		cause := fmt.Sprintf("ArangoDB error number %d (HTTP %d)", arangoErr.ErrorNum, arangoErr.Code)
+		if arangoErr.ErrorMessage != "" {
+			cause += ": " + arangoErr.ErrorMessage
+		}
+		return "", cause
+	}
+	var arangoErrPtr *shared.ArangoError
+	if errors.As(err, &arangoErrPtr) && arangoErrPtr != nil {
+		cause := fmt.Sprintf("ArangoDB error number %d (HTTP %d)", arangoErrPtr.ErrorNum, arangoErrPtr.Code)
+		if arangoErrPtr.ErrorMessage != "" {
+			cause += ": " + arangoErrPtr.ErrorMessage
+		}
+		return "", cause
+	}
+	return "", err.Error()
 }
 
 func LoggedPreviewIndexPreparation(logger *slog.Logger, prepare func(context.Context, compiler.PreviewCoveringIndexSpec) error) func(context.Context, compiler.PreviewCoveringIndexSpec) error {
@@ -95,7 +125,7 @@ func LoggedPreviewIndexPreparation(logger *slog.Logger, prepare func(context.Con
 		if err != nil {
 			level = slog.LevelWarn
 		}
-		httpapi.LogServerDiagnostic(logger, level, "dataframe preview index preparation", httpapi.RequestIDFromContext(ctx), "index_prepare", time.Since(started), err,
+		httpctx.LogDiagnostic(logger, level, "dataframe preview index preparation", httpctx.RequestIDFromContext(ctx), "index_prepare", time.Since(started), err, classifyAQLDiagnostic,
 			"collection", spec.Collection, "index", spec.Name, "prewarm", spec.PrepareAfterPreview)
 		return err
 	}

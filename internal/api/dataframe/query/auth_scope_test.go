@@ -20,7 +20,7 @@ func (dataframeBuilderRestrictedEmptyResourceAccess) GetAllowedResources(context
 func dataframeBuilderRestrictedEmptyScopeResolver() *authscope.ScopeResolver {
 	return authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 		ResourceAccess: dataframeBuilderRestrictedEmptyResourceAccess{},
-		ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+		ListExistingAuthResourcePaths: func(context.Context, authscope.AuthResourcePathOptions) ([]string, error) {
 			return []string{"example-different"}, nil
 		},
 	})

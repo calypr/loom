@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
@@ -14,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 )
 
 func diagnosticErrorAttrs(err error) []any {
@@ -29,7 +28,7 @@ func diagnosticErrorAttrs(err error) []any {
 }
 
 func diagnosticErrorCause(err error) string {
-	return capDiagnosticCause(redactDiagnosticCause(diagnosticErrorCauseValue(err)))
+	return httpctx.CapCause(httpctx.RedactCause(diagnosticErrorCauseValue(err)))
 }
 
 func diagnosticErrorCauseValue(err error) string {
@@ -68,36 +67,10 @@ func diagnosticErrorCauseValue(err error) string {
 	return err.Error()
 }
 
-const maxDiagnosticCauseBytes = 256
-
-func capDiagnosticCause(cause string) string {
-	if len(cause) <= maxDiagnosticCauseBytes {
-		return cause
-	}
-	return strings.ToValidUTF8(cause[:maxDiagnosticCauseBytes-3], "") + "..."
-}
-
 func arangoDiagnosticCause(err shared.ArangoError) string {
 	cause := fmt.Sprintf("ArangoDB error number %d (HTTP %d)", err.ErrorNum, err.Code)
 	if err.ErrorMessage != "" {
 		cause += ": " + err.ErrorMessage
-	}
-	return cause
-}
-
-var (
-	diagnosticCredentialAssignment = regexp.MustCompile(`(?i)((?:"|')?(?:authorization|proxy-authorization|access[_ -]?token|refresh[_ -]?token|token|password|secret|api[_ -]?key|apikey|credential)(?:"|')?\s*[:=]\s*)(?:(?:bearer|basic)\s+)?(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)`)
-	diagnosticBearerCredential     = regexp.MustCompile(`(?i)\b(?:bearer|basic)\s+[A-Za-z0-9._~+/-]+=*`)
-	diagnosticURLCredential        = regexp.MustCompile(`(?i)(https?://)[^/\s:@]+:[^/\s@]+@`)
-	diagnosticPayloadAssignment    = regexp.MustCompile(`(?i)\b((?:"|')?(?:query|bind[_ -]?vars?|bind[_ -]?values?|(?:request|response)[_ -]?body|body)(?:"|')?\s*[:=]\s*)`)
-)
-
-func redactDiagnosticCause(cause string) string {
-	cause = diagnosticCredentialAssignment.ReplaceAllString(cause, "${1}[redacted]")
-	cause = diagnosticBearerCredential.ReplaceAllString(cause, "[redacted credential]")
-	cause = diagnosticURLCredential.ReplaceAllString(cause, "${1}[redacted]@")
-	if match := diagnosticPayloadAssignment.FindStringIndex(cause); match != nil {
-		return cause[:match[0]] + cause[match[0]:match[1]] + "[redacted]"
 	}
 	return cause
 }
@@ -132,11 +105,7 @@ func diagnosticErrorCode(err error) string {
 }
 
 func LogServerDiagnostic(logger *slog.Logger, level slog.Level, message, requestID, phase string, duration time.Duration, err error, fields ...any) {
-	if logger == nil {
-		return
-	}
-	attrs := []any{"request_id", requestID, "phase", phase, "duration_ms", duration.Milliseconds()}
-	attrs = append(attrs, diagnosticErrorAttrs(err)...)
-	attrs = append(attrs, fields...)
-	logger.Log(context.Background(), level, message, attrs...)
+	httpctx.LogDiagnostic(logger, level, message, requestID, phase, duration, err, func(err error) (string, string) {
+		return diagnosticErrorCode(err), diagnosticErrorCause(err)
+	}, fields...)
 }

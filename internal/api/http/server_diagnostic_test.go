@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 )
 
 func TestDiagnosticErrorCauseCapsTypedSafeMessages(t *testing.T) {
 	message := strings.Repeat("safe diagnostic ", 32)
 	cause := diagnosticErrorCause(&ports.Error{Code: "SAFE_TEST", Message: message})
-	if len(cause) != maxDiagnosticCauseBytes || !strings.HasSuffix(cause, "...") {
-		t.Fatalf("diagnostic cause length/suffix = %d/%q, want exactly %d bytes with ellipsis", len(cause), cause[len(cause)-3:], maxDiagnosticCauseBytes)
+	if len(cause) != httpctx.MaxCauseBytes || !strings.HasSuffix(cause, "...") {
+		t.Fatalf("diagnostic cause length/suffix = %d/%q, want exactly %d bytes with ellipsis", len(cause), cause[len(cause)-3:], httpctx.MaxCauseBytes)
 	}
 	if strings.Contains(cause, "\uFFFD") {
 		t.Fatalf("diagnostic cause contains invalid UTF-8 replacement: %q", cause)

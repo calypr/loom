@@ -1,4 +1,4 @@
-package viewbuilder
+package projectconfig
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/projectconfig"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -133,7 +132,7 @@ func (v *Service) SaveViewBuilderConfig(ctx context.Context, project, id string,
 	if snapshot == nil || snapshot.Project != storageProject || snapshot.Recipe.Name != request.Config.RecipeRef.Name {
 		return explorer.ViewBuilderState{}, fmt.Errorf("%w: published catalog does not belong to this project and recipe", explorer.ErrInvalidViewBuilder)
 	}
-	publication, err := projectconfig.PrepareViewBuilderConfig(request.Config, *snapshot, actor)
+	publication, err := PrepareViewBuilderConfig(request.Config, *snapshot, actor)
 	if err != nil {
 		return explorer.ViewBuilderState{}, err
 	}

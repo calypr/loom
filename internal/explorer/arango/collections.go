@@ -8,7 +8,7 @@ const (
 	RevisionsCollection                = "loom_explorer_revisions"
 	CompilationReceiptsCollection      = "loom_explorer_compilation_receipts"
 	SelectionsCollection               = "loom_explorer_selections"
-	SelectionMembersCollection         = "loom_explorer_selection_members"
+	SelectionMembersCollection         = store.SelectionMembersCollection
 	ExplicitGroupRevisionsCollection   = "loom_explorer_explicit_group_revisions"
 	ExplicitGroupDefinitionsCollection = "loom_explorer_explicit_group_definitions"
 	ExplicitGroupMembershipsCollection = "loom_explorer_explicit_group_memberships"

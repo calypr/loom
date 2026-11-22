@@ -11,7 +11,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -214,10 +214,10 @@ func (categoryPresenceRowChoiceResolver) ResolveRowChoiceID(_ context.Context, r
 
 type categoryDiscoveryEmptyRecipeReader struct{}
 
-func (categoryDiscoveryEmptyRecipeReader) LoadRecipe(context.Context, string) (exec.Entry, error) {
-	return exec.Entry{}, fmt.Errorf("not used by compiled category scan")
+func (categoryDiscoveryEmptyRecipeReader) LoadRecipe(context.Context, string) (recipe.Entry, error) {
+	return recipe.Entry{}, fmt.Errorf("not used by compiled category scan")
 }
 
-func (categoryDiscoveryEmptyRecipeReader) LoadRecipeVersion(context.Context, string, string) (exec.Entry, error) {
-	return exec.Entry{}, fmt.Errorf("not used by compiled category scan")
+func (categoryDiscoveryEmptyRecipeReader) LoadRecipeVersion(context.Context, string, string) (recipe.Entry, error) {
+	return recipe.Entry{}, fmt.Errorf("not used by compiled category scan")
 }

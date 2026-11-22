@@ -13,7 +13,7 @@ import (
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -59,7 +59,7 @@ func (r *RevisionRegistry) Register(ctx context.Context, project string, bundle 
 		if parent == "" || current != parent {
 			return recipe.RecipeRevision{}, dataframeerrors.Wrap(fmt.Errorf("recipe revision parent %q is not current (current %q)", parent, current), dataframeerrors.CodeStaleCursor, "")
 		}
-	case errors.Is(currentErr, exec.ErrRecipeNotFound):
+	case errors.Is(currentErr, recipe.ErrRecipeNotFound):
 		if parent != "" {
 			return recipe.RecipeRevision{}, dataframeerrors.Wrap(fmt.Errorf("recipe revision parent %q provided for first revision", parent), dataframeerrors.CodeInvalidRequest, "")
 		}
@@ -97,7 +97,7 @@ func (r *RevisionRegistry) currentDigest(ctx context.Context, project, name stri
 		return "", err
 	}
 	if digest == "" {
-		return "", exec.ErrRecipeNotFound
+		return "", recipe.ErrRecipeNotFound
 	}
 	return digest, nil
 }

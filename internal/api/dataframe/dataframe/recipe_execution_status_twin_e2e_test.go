@@ -14,7 +14,6 @@ import (
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/gofiber/fiber/v3"
 )
@@ -109,10 +108,10 @@ func (s *twinExecutionStore) GetExecution(_ context.Context, id string) (publica
 
 type twinScopeProbe struct {
 	existingByProject map[string][]string
-	calls             []catalog.AuthResourcePathOptions
+	calls             []authscope.AuthResourcePathOptions
 }
 
-func (p *twinScopeProbe) listExisting(_ context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+func (p *twinScopeProbe) listExisting(_ context.Context, opts authscope.AuthResourcePathOptions) ([]string, error) {
 	p.calls = append(p.calls, opts)
 	return append([]string(nil), p.existingByProject[opts.Project]...), nil
 }

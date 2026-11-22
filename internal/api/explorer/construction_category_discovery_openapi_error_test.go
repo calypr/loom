@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 	"log/slog"
 	"strings"
 	"sync"
 	"testing"
 
-	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
@@ -68,7 +68,7 @@ func TestAuthoringErrorForOpenAPIMapsConstructionCategoryScanFailures(t *testing
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			ctx := httpapi.ContextWithRequestID(context.Background(), requestID)
+			ctx := httpctx.ContextWithRequestID(context.Background(), requestID)
 			status, response := authoringErrorForOpenAPI(ctx, "discoverExplorerConstructionCategories", test.err)
 			if status != test.wantStatus {
 				t.Fatalf("authoringErrorForOpenAPI status = %d, want %d", status, test.wantStatus)

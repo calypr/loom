@@ -22,7 +22,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
@@ -507,12 +507,12 @@ func semanticGroupProjectionBundle(output recipe.Output) recipe.Bundle {
 
 type semanticGroupProjectionRegistry struct{ bundle recipe.Bundle }
 
-func (r semanticGroupProjectionRegistry) LoadRecipe(context.Context, string) (exec.Entry, error) {
+func (r semanticGroupProjectionRegistry) LoadRecipe(context.Context, string) (recipe.Entry, error) {
 	digest, err := r.bundle.Digest()
-	return exec.Entry{Bundle: r.bundle, Digest: digest}, err
+	return recipe.Entry{Bundle: r.bundle, Digest: digest}, err
 }
 
-func (r semanticGroupProjectionRegistry) LoadRecipeVersion(context.Context, string, string) (exec.Entry, error) {
+func (r semanticGroupProjectionRegistry) LoadRecipeVersion(context.Context, string, string) (recipe.Entry, error) {
 	return r.LoadRecipe(context.Background(), r.bundle.Name)
 }
 

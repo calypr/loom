@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -70,7 +70,7 @@ func TestRecipeRegistryReadRoundTripAgainstArango(t *testing.T) {
 	if err != nil || got.Digest != first.Digest {
 		t.Fatalf("LoadRecipeVersion() = %q, %v; want first digest %q", got.Digest, err, first.Digest)
 	}
-	if _, err := registry.LoadRecipeVersion(ctx, "files", "missing"); !errors.Is(err, exec.ErrRecipeNotFound) {
+	if _, err := registry.LoadRecipeVersion(ctx, "files", "missing"); !errors.Is(err, recipe.ErrRecipeNotFound) {
 		t.Fatalf("LoadRecipeVersion(missing) error = %v, want ErrRecipeNotFound", err)
 	}
 

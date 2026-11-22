@@ -5,8 +5,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/calypr/loom/internal/catalog"
 )
 
 const (
@@ -115,7 +113,7 @@ func TestCoversExecutionPathsMalformedRefusalIsSoleDiscriminator(t *testing.T) {
 }
 
 func TestCoversExecutionPathsResolverBackedMalformedDeclarationDrivesTheGate(t *testing.T) {
-	lister := func(_ context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+	lister := func(_ context.Context, opts AuthResourcePathOptions) ([]string, error) {
 		if opts.Project != "legacy-project" || opts.DatasetGeneration != "g1" {
 			t.Fatalf("unexpected catalog lookup %+v", opts)
 		}
@@ -151,7 +149,7 @@ func TestGrantNormalizationRemainsUnchanged(t *testing.T) {
 		t.Fatalf("NormalizeAuthResourcePath(%q) = %q, want the empty refusal", msMalformedNUL, got)
 	}
 	principal := &Principal{Subject: "member", Projects: []string{"P"}, AuthResourcePaths: []string{msGrantedPath, msMalformedNUL}}
-	lister := func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+	lister := func(context.Context, AuthResourcePathOptions) ([]string, error) {
 		return []string{msGrantedPath}, nil
 	}
 	resolver := NewScopeResolver(ScopeResolverConfig{ListExistingAuthResourcePaths: lister})

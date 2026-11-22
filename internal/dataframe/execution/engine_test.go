@@ -15,7 +15,6 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 )
 
 func TestPlanHasExecutionWindowRecognizesStandaloneGroupRowsLimit(t *testing.T) {
@@ -147,8 +146,8 @@ func TestCompiledArtifactScopeAcceptsAuthorizedProjectAliasesAndRejectsScopeDrif
 
 type invalidRecipeRegistry struct{}
 
-func (invalidRecipeRegistry) LoadRecipe(context.Context, string) (exec.Entry, error) {
-	return exec.Entry{Bundle: recipe.Bundle{
+func (invalidRecipeRegistry) LoadRecipe(context.Context, string) (recipe.Entry, error) {
+	return recipe.Entry{Bundle: recipe.Bundle{
 		RecipeSchemaVersion: 1,
 		Name:                "default",
 		TranslationVersion:  "test",
@@ -159,7 +158,7 @@ func (invalidRecipeRegistry) LoadRecipe(context.Context, string) (exec.Entry, er
 	}}, nil
 }
 
-func (r invalidRecipeRegistry) LoadRecipeVersion(ctx context.Context, name, _ string) (exec.Entry, error) {
+func (r invalidRecipeRegistry) LoadRecipeVersion(ctx context.Context, name, _ string) (recipe.Entry, error) {
 	return r.LoadRecipe(ctx, name)
 }
 

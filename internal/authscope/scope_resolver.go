@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -17,13 +16,13 @@ type ResourceAccessClient interface {
 
 type ScopeResolverConfig struct {
 	ResourceAccess                ResourceAccessClient
-	ListExistingAuthResourcePaths func(context.Context, catalog.AuthResourcePathOptions) ([]string, error)
+	ListExistingAuthResourcePaths func(context.Context, AuthResourcePathOptions) ([]string, error)
 	CacheTTL                      time.Duration
 }
 
 type ScopeResolver struct {
 	resourceAccess ResourceAccessClient
-	listExisting   func(context.Context, catalog.AuthResourcePathOptions) ([]string, error)
+	listExisting   func(context.Context, AuthResourcePathOptions) ([]string, error)
 	cacheTTL       time.Duration
 
 	mu    sync.RWMutex
@@ -292,7 +291,7 @@ func (r *ScopeResolver) resolveCallerPaths(ctx context.Context, principal *Princ
 
 func (r *ScopeResolver) listExistingPaths(ctx context.Context, project, datasetGeneration string) ([]string, error) {
 	project = projectid.Canonical(project)
-	datasetGeneration = catalog.NormalizeDatasetGeneration(datasetGeneration)
+	datasetGeneration = projectid.NormalizeGeneration(datasetGeneration)
 	if project == "" {
 		return []string{}, nil
 	}
@@ -308,7 +307,7 @@ func (r *ScopeResolver) listExistingPaths(ctx context.Context, project, datasetG
 	if r.listExisting == nil {
 		return nil, ErrAuthorizationBackendUnavailable
 	}
-	paths, err := r.listExisting(ctx, catalog.AuthResourcePathOptions{
+	paths, err := r.listExisting(ctx, AuthResourcePathOptions{
 		Project:           projectid.Legacy(project),
 		DatasetGeneration: datasetGeneration,
 	})
@@ -341,7 +340,7 @@ func (r *ScopeResolver) listExistingPathsAllGenerations(ctx context.Context, pro
 	if r.listExisting == nil {
 		return nil, ErrAuthorizationBackendUnavailable
 	}
-	paths, err := r.listExisting(ctx, catalog.AuthResourcePathOptions{
+	paths, err := r.listExisting(ctx, AuthResourcePathOptions{
 		Project:        projectid.Legacy(project),
 		AllGenerations: true,
 	})
@@ -378,7 +377,7 @@ func (r *ScopeResolver) InvalidateProject(project string) {
 func (r *ScopeResolver) InvalidateGeneration(project, datasetGeneration string) {
 	key := scopeCacheKey{
 		project:           projectid.Canonical(project),
-		datasetGeneration: catalog.NormalizeDatasetGeneration(datasetGeneration),
+		datasetGeneration: projectid.NormalizeGeneration(datasetGeneration),
 		allGenerations:    false,
 	}
 	if key.project == "" {

@@ -38,3 +38,7 @@ func Legacy(raw string) string {
 	}
 	return canonical
 }
+
+func NormalizeGeneration(generation string) string { return strings.TrimSpace(generation) }
+
+func HasGeneration(generation string) bool { return NormalizeGeneration(generation) != "" }

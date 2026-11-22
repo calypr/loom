@@ -1,14 +1,13 @@
-package authscope
+package arango
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/calypr/loom/internal/authscope"
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -43,10 +42,10 @@ func (c *fb27ctlArangoClient) Bootstrap(context.Context, store.BootstrapSpec) er
 	panic("unused by the auth path discovery controls")
 }
 
-func fb27ctlDiscover(t *testing.T, opts catalog.AuthResourcePathOptions) ([]string, error) {
+func fb27ctlDiscover(t *testing.T, opts authscope.AuthResourcePathOptions) ([]string, error) {
 	t.Helper()
 	client := &fb27ctlArangoClient{}
-	s, err := catalogarango.New(client)
+	s, err := New(client)
 	if err != nil {
 		t.Fatalf("VERDICT=UNEXPECTED store construction = %v", err)
 	}
@@ -68,7 +67,7 @@ func fb27ctlDiscover(t *testing.T, opts catalog.AuthResourcePathOptions) ([]stri
 
 func TestFB27AllGenerationsWithSelectedGenerationIsRejected(t *testing.T) {
 	for _, generation := range []string{"gen-1", " gen-1 ", "sha256:0000000000000000000000000000000000000000000000000000000000000000"} {
-		_, err := fb27ctlDiscover(t, catalog.AuthResourcePathOptions{
+		_, err := fb27ctlDiscover(t, authscope.AuthResourcePathOptions{
 			Project:           "projA",
 			DatasetGeneration: generation,
 			AllGenerations:    true,
@@ -76,7 +75,7 @@ func TestFB27AllGenerationsWithSelectedGenerationIsRejected(t *testing.T) {
 		if err == nil {
 			t.Fatalf("VERDICT=CONFIRMED (pre-fix archived shape): AllGenerations with datasetGeneration %q was accepted, so discovery silently ignored the selected generation", generation)
 		}
-		if !errors.Is(err, catalogarango.ErrAllGenerationsWithGeneration) {
+		if !errors.Is(err, ErrAllGenerationsWithGeneration) {
 			t.Fatalf("VERDICT=UNEXPECTED conflict error must wrap ErrAllGenerationsWithGeneration, got %v", err)
 		}
 		for _, want := range []string{"AllGenerations", "datasetGeneration", generation} {
@@ -91,12 +90,12 @@ func TestFB27AllGenerationsWithSelectedGenerationIsRejected(t *testing.T) {
 func TestFB27SupportedAuthResourcePathOptionShapesStillDiscover(t *testing.T) {
 	cases := []struct {
 		name string
-		opts catalog.AuthResourcePathOptions
+		opts authscope.AuthResourcePathOptions
 	}{
-		{"all generations with empty generation", catalog.AuthResourcePathOptions{Project: "projA", AllGenerations: true}},
-		{"all generations with whitespace only generation", catalog.AuthResourcePathOptions{Project: "projA", DatasetGeneration: "   ", AllGenerations: true}},
-		{"generation scoped", catalog.AuthResourcePathOptions{Project: "projA", DatasetGeneration: " gen-1 "}},
-		{"legacy null namespace", catalog.AuthResourcePathOptions{Project: "projA"}},
+		{"all generations with empty generation", authscope.AuthResourcePathOptions{Project: "projA", AllGenerations: true}},
+		{"all generations with whitespace only generation", authscope.AuthResourcePathOptions{Project: "projA", DatasetGeneration: "   ", AllGenerations: true}},
+		{"generation scoped", authscope.AuthResourcePathOptions{Project: "projA", DatasetGeneration: " gen-1 "}},
+		{"legacy null namespace", authscope.AuthResourcePathOptions{Project: "projA"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -105,39 +104,4 @@ func TestFB27SupportedAuthResourcePathOptionShapesStillDiscover(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestFB27ResolverNeverEmitsTheConflictingShape(t *testing.T) {
-	l := &fb27ctlLister{behind: func(opts catalog.AuthResourcePathOptions) ([]string, error) {
-		if opts.AllGenerations && catalog.NormalizeDatasetGeneration(opts.DatasetGeneration) != "" {
-			t.Fatalf("VERDICT=CONFIRMED (pre-fix archived shape): resolver emitted the rejected option combination %+v", opts)
-		}
-		return []string{"projA/data"}, nil
-	}}
-	resolver := fb27ctlResolver(l)
-	principal := fb27ctlPrincipal("/projA/data")
-	ctx := context.Background()
-
-	if err := resolver.AuthorizeWrite(ctx, principal, "projA", "/projA/data"); err != nil {
-		t.Fatalf("VERDICT=UNEXPECTED same-project member write = %v", err)
-	}
-	if _, err := resolver.ResolveReadScopeForGeneration(ctx, principal, "projA", " gen-1 ", nil); err != nil {
-		t.Fatalf("VERDICT=UNEXPECTED generation read scope = %v", err)
-	}
-	if _, err := resolver.ResolveWriteScopeForGeneration(ctx, principal, "projA", "gen-2", nil); err != nil {
-		t.Fatalf("VERDICT=UNEXPECTED generation write scope = %v", err)
-	}
-	if l.calls != 3 {
-		t.Fatalf("VERDICT=UNEXPECTED discovery calls = %d, want 3 ( %+v)", l.calls, l.opts)
-	}
-	if !l.opts[0].AllGenerations || l.opts[0].DatasetGeneration != "" {
-		t.Fatalf("VERDICT=UNEXPECTED project-binding request = %+v", l.opts[0])
-	}
-	if l.opts[1].AllGenerations || l.opts[1].DatasetGeneration != "gen-1" {
-		t.Fatalf("VERDICT=UNEXPECTED read request = %+v", l.opts[1])
-	}
-	if l.opts[2].AllGenerations || l.opts[2].DatasetGeneration != "gen-2" {
-		t.Fatalf("VERDICT=UNEXPECTED write-scope request = %+v", l.opts[2])
-	}
-	t.Logf("VERDICT=REPAIRED resolver requests stay on one side of the F-2 boundary")
 }

@@ -19,7 +19,7 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/projectid"
@@ -70,7 +70,7 @@ type PreviewSummary struct {
 }
 
 type Config struct {
-	Registry                   exec.Reader
+	Registry                   recipe.Reader
 	Revisions                  recipe.RevisionStore
 	ResolveBundle              func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
 	QueryRows                  QueryRows
@@ -92,7 +92,7 @@ type Config struct {
 }
 
 type Engine struct {
-	registry                   exec.Reader
+	registry                   recipe.Reader
 	revisions                  recipe.RevisionStore
 	resolveBundle              func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
 	queryRows                  QueryRows
@@ -234,16 +234,16 @@ func New(cfg Config) (*Engine, error) {
 	}, nil
 }
 
-func (e *Engine) entry(ctx context.Context, name string, bindings recipe.RuntimeBindings) (exec.Entry, error) {
+func (e *Engine) entry(ctx context.Context, name string, bindings recipe.RuntimeBindings) (recipe.Entry, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
-		return exec.Entry{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
+		return recipe.Entry{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
 	if bindings.RecipeDigest != "" && e.revisions != nil {
 		revision, err := e.revisions.Get(ctx, bindings.Project, name, bindings.RecipeDigest)
 		if err != nil {
-			return exec.Entry{}, err
+			return recipe.Entry{}, err
 		}
-		return exec.Entry{Bundle: revision.Bundle, Digest: revision.Digest}, nil
+		return recipe.Entry{Bundle: revision.Bundle, Digest: revision.Digest}, nil
 	}
 	return e.registry.LoadRecipe(ctx, name)
 }
@@ -272,7 +272,7 @@ func (e *Engine) ResolveBundle(ctx context.Context, bundle recipe.Bundle, bindin
 	if err != nil {
 		return Resolved{}, fmt.Errorf("digest bundle: %w", err)
 	}
-	return e.resolveEntry(ctx, exec.Entry{Bundle: bundle, Digest: digest}, bindings)
+	return e.resolveEntry(ctx, recipe.Entry{Bundle: bundle, Digest: digest}, bindings)
 }
 
 func (e *Engine) CompileResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Resolved, error) {
@@ -328,7 +328,7 @@ func (e *Engine) MaterializeResolvedBundle(ctx context.Context, bundle recipe.Bu
 	return resolved, nil
 }
 
-func (e *Engine) resolveEntry(ctx context.Context, entry exec.Entry, bindings recipe.RuntimeBindings) (Resolved, error) {
+func (e *Engine) resolveEntry(ctx context.Context, entry recipe.Entry, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}

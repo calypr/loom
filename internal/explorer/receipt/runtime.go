@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -16,6 +15,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 )
 
 type RuntimeConfig struct {
@@ -80,7 +80,7 @@ func (r Runtime) PreviewReceipt(ctx context.Context, receipt *explorer.Compilati
 	}
 	summary, previewErr := r.engine.PreviewOutput(ctx, resolved, dataframeexecution.PreviewRequest{Output: output, Limit: bindings.PreviewLimit, IncludeRowIdentity: bindings.IncludeRowIdentity}, visit)
 	if previewErr != nil {
-		LogPreviewContractFailure(r.logger, httpapi.RequestIDFromContext(ctx), receipt.ID, output, previewErr)
+		LogPreviewContractFailure(r.logger, httpctx.RequestIDFromContext(ctx), receipt.ID, output, previewErr)
 	}
 	return summary, previewErr
 }
@@ -101,23 +101,23 @@ func (r Runtime) ScanCategories(ctx context.Context, receipt *explorer.Compilati
 	attrs := []any{"output_id", request.Output, "stage_id", request.StageID, "category_column_id", request.ColumnID, "value_column_id", request.ValueColumnID}
 	if receipt == nil {
 		err := fmt.Errorf("compilation receipt is missing")
-		httpapi.LogServerDiagnostic(r.logger, slog.LevelError, "Explorer table-shape category scan resolution", httpapi.RequestIDFromContext(ctx), "category_scan_resolution", time.Since(started), err, attrs...)
+		logServerDiagnostic(r.logger, slog.LevelError, "Explorer table-shape category scan resolution", httpctx.RequestIDFromContext(ctx), "category_scan_resolution", time.Since(started), err, attrs...)
 		return dataframeexecution.CategoryScanResult{}, err
 	}
 	resolved, err := CompileValidatedResolution(scanCtx, r.engine, receipt, bindings)
 	if err != nil {
 		resultErr := CategoryScanResolutionError(receipt.ID, err)
-		httpapi.LogServerDiagnostic(r.logger, slog.LevelError, "Explorer table-shape category scan resolution", httpapi.RequestIDFromContext(ctx), "category_scan_resolution", time.Since(started), resultErr, attrs...)
+		logServerDiagnostic(r.logger, slog.LevelError, "Explorer table-shape category scan resolution", httpctx.RequestIDFromContext(ctx), "category_scan_resolution", time.Since(started), resultErr, attrs...)
 		return dataframeexecution.CategoryScanResult{}, resultErr
 	}
-	httpapi.LogServerDiagnostic(r.logger, slog.LevelInfo, "Explorer table-shape category scan resolution", httpapi.RequestIDFromContext(ctx), "category_scan_resolution", time.Since(started), nil, attrs...)
+	logServerDiagnostic(r.logger, slog.LevelInfo, "Explorer table-shape category scan resolution", httpctx.RequestIDFromContext(ctx), "category_scan_resolution", time.Since(started), nil, attrs...)
 	scanStarted := time.Now()
 	result, err := r.engine.ScanCategories(scanCtx, resolved, request)
 	level := slog.LevelInfo
 	if err != nil {
 		level = slog.LevelError
 	}
-	httpapi.LogServerDiagnostic(r.logger, level, "Explorer table-shape category scan", httpapi.RequestIDFromContext(ctx), "category_scan", time.Since(scanStarted), err, attrs...)
+	logServerDiagnostic(r.logger, level, "Explorer table-shape category scan", httpctx.RequestIDFromContext(ctx), "category_scan", time.Since(scanStarted), err, attrs...)
 	return result, err
 }
 
@@ -128,23 +128,23 @@ func (r Runtime) ScanColumnPopulation(ctx context.Context, receipt *explorer.Com
 	attrs := []any{"output_id", request.Output, "stage_id", request.StageID, "column_ids", request.ColumnIDs}
 	if receipt == nil {
 		err := fmt.Errorf("compilation receipt is missing")
-		httpapi.LogServerDiagnostic(r.logger, slog.LevelError, "Explorer construction column population resolution", httpapi.RequestIDFromContext(ctx), "column_population_resolution", time.Since(started), err, attrs...)
+		logServerDiagnostic(r.logger, slog.LevelError, "Explorer construction column population resolution", httpctx.RequestIDFromContext(ctx), "column_population_resolution", time.Since(started), err, attrs...)
 		return dataframeexecution.ColumnPopulationResult{}, err
 	}
 	resolved, err := CompileValidatedResolution(scanCtx, r.engine, receipt, bindings)
 	if err != nil {
 		resultErr := CategoryScanResolutionError(receipt.ID, err)
-		httpapi.LogServerDiagnostic(r.logger, slog.LevelError, "Explorer construction column population resolution", httpapi.RequestIDFromContext(ctx), "column_population_resolution", time.Since(started), resultErr, attrs...)
+		logServerDiagnostic(r.logger, slog.LevelError, "Explorer construction column population resolution", httpctx.RequestIDFromContext(ctx), "column_population_resolution", time.Since(started), resultErr, attrs...)
 		return dataframeexecution.ColumnPopulationResult{}, resultErr
 	}
-	httpapi.LogServerDiagnostic(r.logger, slog.LevelInfo, "Explorer construction column population resolution", httpapi.RequestIDFromContext(ctx), "column_population_resolution", time.Since(started), nil, attrs...)
+	logServerDiagnostic(r.logger, slog.LevelInfo, "Explorer construction column population resolution", httpctx.RequestIDFromContext(ctx), "column_population_resolution", time.Since(started), nil, attrs...)
 	scanStarted := time.Now()
 	result, err := r.engine.ScanColumnPopulation(scanCtx, resolved, request)
 	level := slog.LevelInfo
 	if err != nil {
 		level = slog.LevelError
 	}
-	httpapi.LogServerDiagnostic(r.logger, level, "Explorer construction column population", httpapi.RequestIDFromContext(ctx), "column_population", time.Since(scanStarted), err, attrs...)
+	logServerDiagnostic(r.logger, level, "Explorer construction column population", httpctx.RequestIDFromContext(ctx), "column_population", time.Since(scanStarted), err, attrs...)
 	return result, err
 }
 

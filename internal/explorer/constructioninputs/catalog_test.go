@@ -14,7 +14,6 @@ import (
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -295,7 +294,7 @@ func TestConstructionInputsCatalogFiltersUnauthorizedScopeAndSupportsStablePagin
 	reader.Values[denied.ID+"/"+selectorB.Output] = constructionfixtures.Materialization(denied, selectorB, authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"allowed-b"}})
 	service.scopes = authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 		ResourceAccess: constructionInputsResourceAccess{"allowed-a"},
-		ListExistingAuthResourcePaths: func(_ context.Context, options catalog.AuthResourcePathOptions) ([]string, error) {
+		ListExistingAuthResourcePaths: func(_ context.Context, options authscope.AuthResourcePathOptions) ([]string, error) {
 			if options.Project != "project-a" || options.DatasetGeneration != "generation-a" {
 				t.Fatalf("scope lookup used project/generation %q/%q", options.Project, options.DatasetGeneration)
 			}

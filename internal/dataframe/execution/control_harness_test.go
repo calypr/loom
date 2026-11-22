@@ -9,7 +9,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
+
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
@@ -157,7 +157,7 @@ func recipeControlBackend(err error) error {
 	if _, ok := dataframeerrors.AsUserError(err); ok {
 		return err
 	}
-	if errors.Is(err, recipeexec.ErrRecipeNotFound) || errors.Is(err, recipe.ErrRecipeRevisionNotFound) {
+	if errors.Is(err, recipe.ErrRecipeNotFound) || errors.Is(err, recipe.ErrRecipeRevisionNotFound) {
 		return err
 	}
 	if errors.Is(err, context.Canceled) {

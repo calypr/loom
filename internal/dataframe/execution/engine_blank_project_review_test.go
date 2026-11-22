@@ -6,20 +6,20 @@ import (
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
+
 	"github.com/calypr/loom/internal/projectid"
 )
 
 type reviewBlankRegistry struct{ loads int }
 
-func (r *reviewBlankRegistry) LoadRecipe(context.Context, string) (recipeexec.Entry, error) {
+func (r *reviewBlankRegistry) LoadRecipe(context.Context, string) (recipe.Entry, error) {
 	r.loads++
-	return recipeexec.Entry{}, nil
+	return recipe.Entry{}, nil
 }
 
-func (r *reviewBlankRegistry) LoadRecipeVersion(context.Context, string, string) (recipeexec.Entry, error) {
+func (r *reviewBlankRegistry) LoadRecipeVersion(context.Context, string, string) (recipe.Entry, error) {
 	r.loads++
-	return recipeexec.Entry{}, nil
+	return recipe.Entry{}, nil
 }
 
 func TestEngineResolveBlankProjectDirectClassification(t *testing.T) {
@@ -77,7 +77,7 @@ func TestEngineAllFiveBlankProjectGuards(t *testing.T) {
 	requireTyped("ResolveBundle", err)
 	_, err = engine.CompileResolvedBundle(context.Background(), bundle, blank)
 	requireTyped("CompileResolvedBundle", err)
-	_, err = engine.resolveEntry(context.Background(), recipeexec.Entry{Bundle: bundle, Digest: "digest"}, blank)
+	_, err = engine.resolveEntry(context.Background(), recipe.Entry{Bundle: bundle, Digest: "digest"}, blank)
 	requireTyped("resolveEntry(unexported)", err)
 	if _, err := engine.compileResolvedBundle(context.Background(), bundle, blank, "digest"); err == nil {
 		t.Fatal("compileResolvedBundle accepted blank")

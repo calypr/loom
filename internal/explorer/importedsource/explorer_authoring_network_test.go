@@ -3,6 +3,7 @@ package importedsource
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
 	"reflect"
 	"strings"
 	"testing"
@@ -12,7 +13,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -33,7 +34,7 @@ func TestRemoveFieldEditsLegacyPinAndPreservesAuthoredAddition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
+	registry := &importedSourceRegistry{entry: recipe.Entry{Bundle: bundle, Digest: digest}}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	resolver := Sources{registry: registry, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
 	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false,
@@ -141,7 +142,7 @@ func TestPinnedFieldRemovalInventoryKeepsUneditedTraversalFieldActionable(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolver := Sources{registry: &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
+	resolver := Sources{registry: &importedSourceRegistry{entry: recipe.Entry{Bundle: bundle, Digest: digest}}, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false,
 		[]capability.Node{{ID: "specimen", ResourceType: "Specimen", RowRootEligible: true}, {ID: "patient", ResourceType: "Patient"}},
@@ -428,13 +429,13 @@ func TestRemoveOutputDisablesExactNestedExtensionMappingAcrossReload(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
+	registry := &importedSourceRegistry{entry: recipe.Entry{Bundle: bundle, Digest: digest}}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry:    registry,
 		QueryRows:   func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
 		ScopeDigest: reciperuntime.ScopeDigest,
-		ResolveBundle: reciperuntime.RecipeSchemaResolver(func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
+		ResolveBundle: fielddiscovery.RecipeSchemaResolver(func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 			if options.ResourceType != "DocumentReference" {
 				return nil, fmt.Errorf("unexpected discovery resource type %q", options.ResourceType)
 			}
@@ -527,13 +528,13 @@ func TestRemoveOutputDisablesExactDynamicKeyAndPreservesSibling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
+	registry := &importedSourceRegistry{entry: recipe.Entry{Bundle: bundle, Digest: digest}}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry:    registry,
 		QueryRows:   func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
 		ScopeDigest: reciperuntime.ScopeDigest,
-		ResolveBundle: reciperuntime.RecipeSchemaResolver(func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
+		ResolveBundle: fielddiscovery.RecipeSchemaResolver(func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 			return nil, nil
 		}, nil),
 	})

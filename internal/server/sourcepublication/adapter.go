@@ -1,4 +1,4 @@
-package sourceload
+package sourcepublication
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+	"github.com/calypr/loom/internal/dataframe/recipeauth"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/projectconfig"
@@ -53,7 +54,7 @@ func (a *SourcePublicationAdapter) ValidateProject(ctx context.Context, project 
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := a.config.ScopeResolver.AuthorizeReadProject(ctx, principal, project); err != nil {
-		return reciperuntime.AuthorizationError(err)
+		return recipeauth.AuthorizationError(err)
 	}
 	return nil
 }
@@ -64,7 +65,7 @@ func (a *SourcePublicationAdapter) MaterializeAndSelect(
 	expectedRevision int64,
 ) (string, int64, error) {
 	config := a.config
-	bindings, err := reciperuntime.NewAuthorization(config.ScopeResolver).AuthorizeRead(ctx, recipe.RuntimeBindings{
+	bindings, err := recipeauth.NewAuthorization(config.ScopeResolver).AuthorizeRead(ctx, recipe.RuntimeBindings{
 		Project: project, DatasetGeneration: generation,
 	})
 	if err != nil {

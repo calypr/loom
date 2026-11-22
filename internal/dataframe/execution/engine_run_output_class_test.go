@@ -9,20 +9,20 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
+
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
 type runOutputRegistry struct{ loads int }
 
-func (r *runOutputRegistry) LoadRecipe(context.Context, string) (recipeexec.Entry, error) {
+func (r *runOutputRegistry) LoadRecipe(context.Context, string) (recipe.Entry, error) {
 	r.loads++
-	return recipeexec.Entry{}, errors.New("registry must not be consulted")
+	return recipe.Entry{}, errors.New("registry must not be consulted")
 }
 
-func (r *runOutputRegistry) LoadRecipeVersion(context.Context, string, string) (recipeexec.Entry, error) {
+func (r *runOutputRegistry) LoadRecipeVersion(context.Context, string, string) (recipe.Entry, error) {
 	r.loads++
-	return recipeexec.Entry{}, errors.New("registry must not be consulted")
+	return recipe.Entry{}, errors.New("registry must not be consulted")
 }
 
 func newRunTestFixture(t *testing.T) (*Engine, *runOutputRegistry) {

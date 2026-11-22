@@ -1,15 +1,15 @@
-package runtime
+package recipeauth
 
 import (
 	"context"
 	"strings"
 
-	"github.com/calypr/loom/internal/api/authpolicy"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataframe/errors/authpolicy"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/projectid"
+	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 type Authorization struct {
@@ -22,7 +22,7 @@ func (a Authorization) AuthorizeRead(ctx context.Context, bindings recipe.Runtim
 	}
 	bindings.Project = strings.TrimSpace(bindings.Project)
 	bindings.SelectionProject = projectid.Canonical(bindings.Project)
-	bindings.SelectionMembersCollection = explorerarango.SelectionMembersCollection
+	bindings.SelectionMembersCollection = arangostore.SelectionMembersCollection
 	if a.resolver == nil {
 		bindings.AuthScopeMode = authscope.ReadScopeUnrestricted
 		return bindings, nil
@@ -46,7 +46,7 @@ func (a Authorization) AuthorizeWrite(ctx context.Context, bindings recipe.Runti
 	}
 	bindings.Project = strings.TrimSpace(bindings.Project)
 	bindings.SelectionProject = projectid.Canonical(bindings.Project)
-	bindings.SelectionMembersCollection = explorerarango.SelectionMembersCollection
+	bindings.SelectionMembersCollection = arangostore.SelectionMembersCollection
 	if a.resolver == nil {
 		bindings.AuthScopeMode = authscope.ReadScopeUnrestricted
 		return bindings, nil

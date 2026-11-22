@@ -9,20 +9,18 @@ import (
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-
-	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
 )
 
 type blankProjectRegistryFailures struct{ loads int }
 
-func (r *blankProjectRegistryFailures) LoadRecipe(context.Context, string) (recipeexec.Entry, error) {
+func (r *blankProjectRegistryFailures) LoadRecipe(context.Context, string) (recipe.Entry, error) {
 	r.loads++
-	return recipeexec.Entry{}, errors.New("recipe registry consulted for blank project")
+	return recipe.Entry{}, errors.New("recipe registry consulted for blank project")
 }
 
-func (r *blankProjectRegistryFailures) LoadRecipeVersion(context.Context, string, string) (recipeexec.Entry, error) {
+func (r *blankProjectRegistryFailures) LoadRecipeVersion(context.Context, string, string) (recipe.Entry, error) {
 	r.loads++
-	return recipeexec.Entry{}, errors.New("recipe registry consulted for blank project")
+	return recipe.Entry{}, errors.New("recipe registry consulted for blank project")
 }
 
 func blankProjectEngine(t *testing.T) (*dataframeexecution.Engine, *blankProjectRegistryFailures) {

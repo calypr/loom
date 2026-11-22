@@ -184,14 +184,6 @@ type CapabilityEvidenceReader interface {
 	DiscoverFieldEnrichment(context.Context, FieldEnrichmentOptions) (FieldEnrichmentResult, error)
 }
 
-type AuthResourcePathOptions struct {
-	Project           string
-	DatasetGeneration string
-	CursorBatch       int
-
-	AllGenerations bool
-}
-
 type PopulatedReferenceOptions struct {
 	Project string
 

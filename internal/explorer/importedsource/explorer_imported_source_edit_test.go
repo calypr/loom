@@ -3,6 +3,7 @@ package importedsource
 import (
 	"context"
 	"encoding/json"
+	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
 	"reflect"
 	"strings"
 	"testing"
@@ -12,7 +13,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -34,7 +35,7 @@ func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
+	registry := &importedSourceRegistry{entry: recipe.Entry{Bundle: bundle, Digest: digest}}
 	resolver := Sources{registry: registry, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false,
@@ -347,7 +348,7 @@ func TestImportedSourceAtomicExpansionAliasPreservesUUIDAndFieldDependencies(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolver := Sources{registry: &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
+	resolver := Sources{registry: &importedSourceRegistry{entry: recipe.Entry{Bundle: bundle, Digest: digest}}, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "group", ResourceType: "Group", RowRootEligible: true}}, nil, nil, nil)
 	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
@@ -406,8 +407,8 @@ func TestImportedSourceDiscoveredCollisionPreservesWinnerIdentity(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: registry, ScopeDigest: reciperuntime.ScopeDigest, ResolveBundle: reciperuntime.RecipeSchemaResolver(func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
+	registry := &importedSourceRegistry{entry: recipe.Entry{Bundle: bundle, Digest: digest}}
+	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: registry, ScopeDigest: reciperuntime.ScopeDigest, ResolveBundle: fielddiscovery.RecipeSchemaResolver(func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 		if options.Project != "project-a" || options.DatasetGeneration != "generation-a" || options.ResourceType != "Specimen" {
 			t.Fatalf("discovery lost exact scope: %+v", options)
 		}
@@ -515,8 +516,8 @@ func newSourceIdentityFixture(t *testing.T, output recipe.Output, fields []field
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: registry, ScopeDigest: reciperuntime.ScopeDigest, ResolveBundle: reciperuntime.RecipeSchemaResolver(func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
+	registry := &importedSourceRegistry{entry: recipe.Entry{Bundle: bundle, Digest: digest}}
+	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: registry, ScopeDigest: reciperuntime.ScopeDigest, ResolveBundle: fielddiscovery.RecipeSchemaResolver(func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 		if options.Project != "project-a" || options.DatasetGeneration != "generation-a" || options.ResourceType != output.RootResourceType {
 			t.Fatal("native identity discovery escaped its exact authorized scope")
 		}

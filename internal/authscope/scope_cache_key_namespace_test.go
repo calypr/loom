@@ -5,8 +5,6 @@ import (
 	"reflect"
 	"testing"
 	"time"
-
-	"github.com/calypr/loom/internal/catalog"
 )
 
 func fb27ctlSeed(r *ScopeResolver, project, datasetGeneration string, allGenerations bool, paths ...string) {
@@ -18,9 +16,9 @@ func fb27ctlSeed(r *ScopeResolver, project, datasetGeneration string, allGenerat
 	}
 }
 
-func fb27ctlForbiddingLister(t *testing.T) func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+func fb27ctlForbiddingLister(t *testing.T) func(context.Context, AuthResourcePathOptions) ([]string, error) {
 	t.Helper()
-	return func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+	return func(context.Context, AuthResourcePathOptions) ([]string, error) {
 		t.Fatalf("VERDICT=UNEXPECTED cache-resident decision re-consulted the catalog")
 		return nil, nil
 	}
@@ -53,7 +51,7 @@ func TestFB27ScopeCacheNamespacesDoNotLeakAcrossDiscriminator(t *testing.T) {
 }
 
 func TestFB27GenerationLookupNeverServedFromAllGenerationsEntry(t *testing.T) {
-	l := &fb27ctlLister{behind: func(catalog.AuthResourcePathOptions) ([]string, error) {
+	l := &fb27ctlLister{behind: func(AuthResourcePathOptions) ([]string, error) {
 		return []string{"fresh-generation-entry"}, nil
 	}}
 	resolver := fb27ctlResolver(l)
@@ -73,7 +71,7 @@ func TestFB27GenerationLookupNeverServedFromAllGenerationsEntry(t *testing.T) {
 }
 
 func TestFB27AllGenerationsLookupNeverServedFromGenerationEntry(t *testing.T) {
-	l := &fb27ctlLister{behind: func(catalog.AuthResourcePathOptions) ([]string, error) {
+	l := &fb27ctlLister{behind: func(AuthResourcePathOptions) ([]string, error) {
 		return []string{"fresh-all-generations-entry"}, nil
 	}}
 	resolver := fb27ctlResolver(l)
@@ -93,7 +91,7 @@ func TestFB27AllGenerationsLookupNeverServedFromGenerationEntry(t *testing.T) {
 }
 
 func TestFB27LiteralSentinelGenerationIsAnOrdinaryKey(t *testing.T) {
-	l := &fb27ctlLister{behind: func(opts catalog.AuthResourcePathOptions) ([]string, error) {
+	l := &fb27ctlLister{behind: func(opts AuthResourcePathOptions) ([]string, error) {
 		if opts.AllGenerations {
 			return []string{"projA/data"}, nil
 		}
@@ -144,7 +142,7 @@ func TestFB27LiteralSentinelGenerationIsAnOrdinaryKey(t *testing.T) {
 }
 
 func TestFB27AuthoritativeProjectBindingProducerUsesModeTrueOnly(t *testing.T) {
-	l := &fb27ctlLister{behind: func(opts catalog.AuthResourcePathOptions) ([]string, error) {
+	l := &fb27ctlLister{behind: func(opts AuthResourcePathOptions) ([]string, error) {
 		if opts.AllGenerations {
 			return []string{"projA/data"}, nil
 		}

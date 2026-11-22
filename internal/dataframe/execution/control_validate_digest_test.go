@@ -7,19 +7,18 @@ import (
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
 )
 
 type valNamedAbsent struct{ loads int }
 
-func (r *valNamedAbsent) LoadRecipe(context.Context, string) (recipeexec.Entry, error) {
+func (r *valNamedAbsent) LoadRecipe(context.Context, string) (recipe.Entry, error) {
 	r.loads++
-	return recipeexec.Entry{}, recipeexec.ErrRecipeNotFound
+	return recipe.Entry{}, recipe.ErrRecipeNotFound
 }
 
-func (r *valNamedAbsent) LoadRecipeVersion(context.Context, string, string) (recipeexec.Entry, error) {
+func (r *valNamedAbsent) LoadRecipeVersion(context.Context, string, string) (recipe.Entry, error) {
 	r.loads++
-	return recipeexec.Entry{}, recipeexec.ErrRecipeNotFound
+	return recipe.Entry{}, recipe.ErrRecipeNotFound
 }
 
 type valRevisions struct {
@@ -93,7 +92,7 @@ func TestValidateByNameStillUsesNamedRegistry(t *testing.T) {
 	controlEngine, registry := valControl(t, &valRevisions{revision: revisionFor("patient", "abc")})
 	control := Control{Engine: controlEngine}
 	_, err := control.Validate(context.Background(), "rows-a", recipe.RuntimeBindings{Project: "HTAN_INT"})
-	if !errors.Is(err, recipeexec.ErrRecipeNotFound) {
+	if !errors.Is(err, recipe.ErrRecipeNotFound) {
 		t.Fatalf("name-only validation must keep the named-registry lane, got %v", err)
 	}
 	if registry.loads != 1 {

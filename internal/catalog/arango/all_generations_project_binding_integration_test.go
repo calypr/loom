@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
 	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -107,7 +106,7 @@ func TestDiscoverExistingAuthResourcePathsAllGenerationsIsCrossGenerationUnionAg
 	insertGenBindCatalogRow(t, ctx, client, "genbind-e1", project, &alpha, "")
 	insertGenBindCatalogRow(t, ctx, client, "genbind-x1", otherProject, &alpha, "grants/cross-project")
 
-	union, err := store.DiscoverExistingAuthResourcePaths(ctx, catalog.AuthResourcePathOptions{Project: project, AllGenerations: true})
+	union, err := store.DiscoverExistingAuthResourcePaths(ctx, authscope.AuthResourcePathOptions{Project: project, AllGenerations: true})
 	genBindDiscoveryErrorShape(t, err, "AllGenerations discovery")
 	if err != nil {
 		t.Fatalf("AllGenerations discovery: %v", err)
@@ -121,7 +120,7 @@ func TestDiscoverExistingAuthResourcePathsAllGenerationsIsCrossGenerationUnionAg
 		}
 	}
 
-	scoped, err := store.DiscoverExistingAuthResourcePaths(ctx, catalog.AuthResourcePathOptions{Project: project, DatasetGeneration: alpha})
+	scoped, err := store.DiscoverExistingAuthResourcePaths(ctx, authscope.AuthResourcePathOptions{Project: project, DatasetGeneration: alpha})
 	if err != nil {
 		t.Fatalf("scoped discovery: %v", err)
 	}
@@ -129,7 +128,7 @@ func TestDiscoverExistingAuthResourcePathsAllGenerationsIsCrossGenerationUnionAg
 		t.Fatalf("scoped discovery (generation %s)=%v; want %v (generation-scoped query must keep binding @dataset_generation)", alpha, scoped, want)
 	}
 
-	noGeneration, err := store.DiscoverExistingAuthResourcePaths(ctx, catalog.AuthResourcePathOptions{Project: project})
+	noGeneration, err := store.DiscoverExistingAuthResourcePaths(ctx, authscope.AuthResourcePathOptions{Project: project})
 	if err != nil {
 		t.Fatalf("generation-less discovery: %v", err)
 	}
@@ -137,7 +136,7 @@ func TestDiscoverExistingAuthResourcePathsAllGenerationsIsCrossGenerationUnionAg
 		t.Fatalf("generation-less discovery=%v; want %v (empty generation must stay 'row has no generation')", noGeneration, want)
 	}
 
-	if _, err := store.DiscoverExistingAuthResourcePaths(ctx, catalog.AuthResourcePathOptions{Project: project, AllGenerations: true, DatasetGeneration: alpha}); !errors.Is(err, ErrAllGenerationsWithGeneration) {
+	if _, err := store.DiscoverExistingAuthResourcePaths(ctx, authscope.AuthResourcePathOptions{Project: project, AllGenerations: true, DatasetGeneration: alpha}); !errors.Is(err, ErrAllGenerationsWithGeneration) {
 		t.Fatalf("AllGenerations with selected generation err=%v; want %v", err, ErrAllGenerationsWithGeneration)
 	}
 }

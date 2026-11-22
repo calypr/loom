@@ -8,7 +8,6 @@ import (
 	"github.com/calypr/loom/internal/testkit/recipefixtures"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -114,7 +113,7 @@ func TestClickHouseCombineInputResolverReauthorizesExactGenerationAndScope(t *te
 	}}
 	var resolvedProject, resolvedGeneration string
 	scopes := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
-		ListExistingAuthResourcePaths: func(_ context.Context, options catalog.AuthResourcePathOptions) ([]string, error) {
+		ListExistingAuthResourcePaths: func(_ context.Context, options authscope.AuthResourcePathOptions) ([]string, error) {
 			resolvedProject, resolvedGeneration = options.Project, options.DatasetGeneration
 			return []string{"allowed-a", "allowed-b"}, nil
 		},
@@ -145,7 +144,7 @@ func TestClickHouseCombineInputResolverRejectsScopeMismatchAndRestrictedEmpty(t 
 			reference.RevisionID + "/" + reference.OutputID: materialization,
 		}}
 		scopes := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
-			ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+			ListExistingAuthResourcePaths: func(context.Context, authscope.AuthResourcePathOptions) ([]string, error) {
 				return []string{"allowed-a", "allowed-b"}, nil
 			},
 		})
@@ -169,7 +168,7 @@ func TestClickHouseCombineInputResolverRejectsScopeMismatchAndRestrictedEmpty(t 
 		}}
 		scopes := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 			ResourceAccess: combineResourceAccess{},
-			ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+			ListExistingAuthResourcePaths: func(context.Context, authscope.AuthResourcePathOptions) ([]string, error) {
 				return []string{"allowed-a"}, nil
 			},
 		})

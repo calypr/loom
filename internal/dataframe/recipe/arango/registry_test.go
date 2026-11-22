@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -127,8 +127,8 @@ func matchesRecipeIdentity(doc map[string]any, vars map[string]interface{}) bool
 	return docName == name && (version == "" || docVersion == version)
 }
 
-func legacyEntry(version, digest, rowGrain string) exec.Entry {
-	return exec.Entry{
+func legacyEntry(version, digest, rowGrain string) recipe.Entry {
+	return recipe.Entry{
 		Bundle: recipe.Bundle{
 			RecipeSchemaVersion: recipe.CurrentSchemaVersion,
 			Name:                "files",
@@ -172,7 +172,7 @@ func TestRegistrySaveAndLoadRecipes(t *testing.T) {
 	if loaded.Digest != first.Digest {
 		t.Fatalf("LoadRecipeVersion() digest = %q, want %q", loaded.Digest, first.Digest)
 	}
-	if _, err := registry.LoadRecipeVersion(context.Background(), "files", "missing"); !errors.Is(err, exec.ErrRecipeNotFound) {
+	if _, err := registry.LoadRecipeVersion(context.Background(), "files", "missing"); !errors.Is(err, recipe.ErrRecipeNotFound) {
 		t.Fatalf("LoadRecipeVersion() error = %v, want ErrRecipeNotFound", err)
 	}
 }
@@ -214,7 +214,7 @@ func TestRegistryReplaceRecipeVersionAndUsage(t *testing.T) {
 	if !used {
 		t.Fatal("RecipeVersionUsed() = false after an execution exists")
 	}
-	if err := registry.ReplaceRecipeVersion(context.Background(), original); !errors.Is(err, exec.ErrRecipeVersionImmutable) {
+	if err := registry.ReplaceRecipeVersion(context.Background(), original); !errors.Is(err, recipe.ErrRecipeVersionImmutable) {
 		t.Fatalf("ReplaceRecipeVersion() error = %v, want ErrRecipeVersionImmutable", err)
 	}
 }

@@ -3,8 +3,6 @@ package authscope
 import (
 	"context"
 	"testing"
-
-	"github.com/calypr/loom/internal/catalog"
 )
 
 const fb20CoversSentinelPath = "\x00all-generations"
@@ -100,8 +98,8 @@ func TestCoversExecutionPathsGenerationBoundControl(t *testing.T) {
 				{"P", "gA"}: {"pA"},
 				{"P", "gB"}: {"pB"},
 			}
-			var calls []catalog.AuthResourcePathOptions
-			lister := func(_ context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+			var calls []AuthResourcePathOptions
+			lister := func(_ context.Context, opts AuthResourcePathOptions) ([]string, error) {
 				calls = append(calls, opts)
 				return append([]string(nil), byGen[[2]string{opts.Project, opts.DatasetGeneration}]...), nil
 			}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/authscope"
 	"sort"
 	"strings"
 
@@ -12,7 +13,7 @@ import (
 
 var ErrAllGenerationsWithGeneration = errors.New("AllGenerations conflicts with a selected datasetGeneration")
 
-func (s *ResourceStore) DiscoverExistingAuthResourcePaths(ctx context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+func (s *ResourceStore) DiscoverExistingAuthResourcePaths(ctx context.Context, opts authscope.AuthResourcePathOptions) ([]string, error) {
 	if err := ValidateAuthResourcePathOptions(opts); err != nil {
 		return nil, err
 	}
@@ -158,7 +159,7 @@ FOR d IN fhir_field_catalog
   SORT auth_resource_path
   RETURN { auth_resource_path: auth_resource_path }`
 
-func ValidateAuthResourcePathOptions(opts catalog.AuthResourcePathOptions) error {
+func ValidateAuthResourcePathOptions(opts authscope.AuthResourcePathOptions) error {
 	if opts.AllGenerations && catalog.NormalizeDatasetGeneration(opts.DatasetGeneration) != "" {
 		return fmt.Errorf("%w: datasetGeneration %q must be empty when AllGenerations is set", ErrAllGenerationsWithGeneration, opts.DatasetGeneration)
 	}

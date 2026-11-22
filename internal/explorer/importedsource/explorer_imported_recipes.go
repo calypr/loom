@@ -14,7 +14,7 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -26,14 +26,14 @@ import (
 )
 
 type Sources struct {
-	registry       exec.Reader
+	registry       recipe.Reader
 	engine         *dataframeexecution.Engine
 	capabilities   *capabilityresolver.Resolver
 	defaultName    string
 	defaultVersion string
 }
 
-func New(registry exec.Reader, engine *dataframeexecution.Engine, capabilities *capabilityresolver.Resolver, defaultName, defaultVersion string) Sources {
+func New(registry recipe.Reader, engine *dataframeexecution.Engine, capabilities *capabilityresolver.Resolver, defaultName, defaultVersion string) Sources {
 	return Sources{registry: registry, engine: engine, capabilities: capabilities, defaultName: defaultName, defaultVersion: defaultVersion}
 }
 

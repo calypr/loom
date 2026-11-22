@@ -1,4 +1,4 @@
-package viewbuilder
+package projectconfig
 
 import (
 	"context"
@@ -15,7 +15,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/projectconfig"
 )
 
 type viewBuilderServiceStore struct {
@@ -75,8 +74,8 @@ func TestViewBuilderServiceGETDoesNotInitializeProject(t *testing.T) {
 }
 
 func TestViewBuilderServiceSavesPresentationAgainstExactCatalog(t *testing.T) {
-	resolved, published, _ := projectConfigPublicationFixture()
-	snapshot, err := projectconfig.PrepareViewBuilderCatalogSnapshot(resolved, published, "commit-a")
+	resolved, published, _ := viewBuilderPublicationFixture()
+	snapshot, err := PrepareViewBuilderCatalogSnapshot(resolved, published, "commit-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +122,7 @@ func (s *viewBuilderServiceStore) Get(_ context.Context, project, id string) (*e
 	return nil, explorer.ErrNotFound
 }
 
-func projectConfigPublicationFixture() (execution.Resolved, publication.BundleExecution, time.Time) {
+func viewBuilderPublicationFixture() (execution.Resolved, publication.BundleExecution, time.Time) {
 	created := time.Date(2026, time.November, 11, 10, 0, 0, 0, time.UTC)
 	published := created.Add(3 * time.Minute)
 	verified := published.Add(-time.Second)
@@ -169,7 +168,7 @@ func projectConfigPublicationFixture() (execution.Resolved, publication.BundleEx
 	if err != nil {
 		panic(err)
 	}
-	physicalColumns := projectConfigPhysicalFixture(logicalColumns)
+	physicalColumns := viewBuilderPhysicalFixture(logicalColumns)
 	finalSchemaDigest := publication.FinalSchemaDigest(publication.PublicationIdentity{
 		RecipeDigest: digest, ScopeDigest: "scope-v1", DatasetGeneration: "generation-v1",
 	}, []publication.OutputSchema{{Name: "Documents", Columns: logicalColumns}})
@@ -191,7 +190,7 @@ func projectConfigPublicationFixture() (execution.Resolved, publication.BundleEx
 	return resolved, executionValue, published
 }
 
-func projectConfigPhysicalFixture(columns []publication.LogicalColumn) []publication.PhysicalColumn {
+func viewBuilderPhysicalFixture(columns []publication.LogicalColumn) []publication.PhysicalColumn {
 	physical := make([]publication.PhysicalColumn, 0, len(columns))
 	for _, column := range columns {
 		loomOwned := column.LoomOwned || column.IsIdentity || strings.HasPrefix(column.Name, "__loom_") || column.Name == "auth_resource_path" || column.Name == "project_id"

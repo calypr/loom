@@ -2,12 +2,12 @@ package runtime
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/dataframe/recipeauth"
 	"testing"
 
 	"github.com/calypr/loom/internal/testkit/recipefixtures"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -18,7 +18,7 @@ const (
 )
 
 func TestRecipeAuthorizationWritesBackTrimmedProject(t *testing.T) {
-	authorizer := Authorization{}
+	authorizer := recipeauth.Authorization{}
 	for _, leg := range []struct {
 		name      string
 		authorize func(context.Context, recipe.RuntimeBindings) (recipe.RuntimeBindings, error)
@@ -52,7 +52,7 @@ type keyingPathLister struct {
 	paths    []string
 }
 
-func (l *keyingPathLister) list(_ context.Context, options catalog.AuthResourcePathOptions) ([]string, error) {
+func (l *keyingPathLister) list(_ context.Context, options authscope.AuthResourcePathOptions) ([]string, error) {
 	l.projects = append(l.projects, options.Project)
 	return l.paths, nil
 }
@@ -78,9 +78,9 @@ func TestRecipeAuthorizationScopeResolutionSeesNormalizedProject(t *testing.T) {
 		} {
 			t.Run(leg.name+" "+spelling.name, func(t *testing.T) {
 				lister := &keyingPathLister{paths: []string{"myproj/padata"}}
-				authorizer := Authorization{resolver: authscope.NewScopeResolver(authscope.ScopeResolverConfig{
+				authorizer := recipeauth.NewAuthorization(authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 					ListExistingAuthResourcePaths: lister.list,
-				})}
+				}))
 				authorize := authorizer.AuthorizeRead
 				if leg.isWrite {
 					authorize = authorizer.AuthorizeWrite
@@ -100,9 +100,9 @@ func TestRecipeAuthorizationScopeResolutionSeesNormalizedProject(t *testing.T) {
 				}
 
 				blankLister := &keyingPathLister{paths: []string{"myproj/padata"}}
-				blankAuthorizer := Authorization{resolver: authscope.NewScopeResolver(authscope.ScopeResolverConfig{
+				blankAuthorizer := recipeauth.NewAuthorization(authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 					ListExistingAuthResourcePaths: blankLister.list,
-				})}
+				}))
 				blankAuthorize := blankAuthorizer.AuthorizeRead
 				if leg.isWrite {
 					blankAuthorize = blankAuthorizer.AuthorizeWrite

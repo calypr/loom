@@ -76,7 +76,7 @@ func (c capabilityTestResourceAccess) GetAllowedResources(context.Context, strin
 func testCapabilityScopeResolver(paths []string) *authscope.ScopeResolver {
 	return authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 		ResourceAccess: capabilityTestResourceAccess{resources: []string{"/programs/example/projects/allowed"}},
-		ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+		ListExistingAuthResourcePaths: func(context.Context, authscope.AuthResourcePathOptions) ([]string, error) {
 			return append([]string(nil), paths...), nil
 		},
 	})

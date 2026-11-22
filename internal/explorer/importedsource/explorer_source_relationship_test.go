@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
 	"strings"
 	"testing"
 
@@ -11,7 +12,7 @@ import (
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -28,10 +29,10 @@ func TestImportedRelationshipAddMatchRemoveRoundTripPreservesPin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
+	registry := &importedSourceRegistry{entry: recipe.Entry{Bundle: bundle, Digest: digest}}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry: registry, ScopeDigest: reciperuntime.ScopeDigest,
-		ResolveBundle: reciperuntime.RecipeSchemaResolver(func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
+		ResolveBundle: fielddiscovery.RecipeSchemaResolver(func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 			if options.ResourceType != "Patient" {
 				return nil, nil
 			}

@@ -8,12 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+	"github.com/calypr/loom/internal/dataframe/recipeauth"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
@@ -47,7 +46,7 @@ func TestRecipeAuthorizationAdapterUsesOperationAuthPolicy(t *testing.T) {
 		{name: "authorization outage", err: authscope.ErrAuthorizationBackendUnavailable, code: "BACKEND_UNAVAILABLE", retryable: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			mapped := reciperuntime.AuthorizationError(test.err)
+			mapped := recipeauth.AuthorizationError(test.err)
 			userErr, ok := dataframeerrors.AsUserError(mapped)
 			if !ok || userErr.Code() != test.code || userErr.Retryable() != test.retryable {
 				t.Fatalf("mapped error = %#v, want code=%s retryable=%t", mapped, test.code, test.retryable)
@@ -64,7 +63,7 @@ func TestGetRecipeExecutionAuthorizationArbitraryFaultIsRetryableOutage(t *testi
 			},
 		}},
 		scopes: authscope.NewScopeResolver(authscope.ScopeResolverConfig{
-			ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+			ListExistingAuthResourcePaths: func(context.Context, authscope.AuthResourcePathOptions) ([]string, error) {
 				return nil, errors.New("catalog auth path listing exploded")
 			},
 		}),
@@ -85,7 +84,7 @@ func TestGetRecipeExecutionReturnsGeneratedRetryableOutage(t *testing.T) {
 			},
 		}},
 		scopes: authscope.NewScopeResolver(authscope.ScopeResolverConfig{
-			ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+			ListExistingAuthResourcePaths: func(context.Context, authscope.AuthResourcePathOptions) ([]string, error) {
 				return nil, authscope.ErrAuthorizationBackendUnavailable
 			},
 		}),

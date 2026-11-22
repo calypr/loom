@@ -1,11 +1,9 @@
-package exec
+package recipe
 
 import (
 	"context"
 	"errors"
 	"fmt"
-
-	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 type Reader interface {
@@ -24,7 +22,7 @@ var ErrRecipeNotFound = errors.New("recipe not found")
 var ErrRecipeVersionImmutable = errors.New("recipe version is immutable after its first execution")
 
 type Entry struct {
-	Bundle recipe.Bundle
+	Bundle Bundle
 	Digest string
 }
 
@@ -32,7 +30,7 @@ type PersistentRegistry struct {
 	Store Store
 }
 
-func (r PersistentRegistry) RegisterVersion(ctx context.Context, bundle recipe.Bundle) (Entry, error) {
+func (r PersistentRegistry) RegisterVersion(ctx context.Context, bundle Bundle) (Entry, error) {
 	entry, err := canonicalEntry(bundle)
 	if err != nil {
 		return Entry{}, err
@@ -63,7 +61,7 @@ func (r PersistentRegistry) RegisterVersion(ctx context.Context, bundle recipe.B
 	return entry, nil
 }
 
-func canonicalEntry(bundle recipe.Bundle) (Entry, error) {
+func canonicalEntry(bundle Bundle) (Entry, error) {
 	immutable, err := bundle.CanonicalBundle()
 	if err != nil {
 		return Entry{}, err

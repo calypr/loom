@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -31,11 +31,11 @@ func BootstrapSpec() arangostore.BootstrapSpec {
 	return arangostore.BootstrapSpec{Collections: []arangostore.CollectionSpec{{Name: Collection, Indexes: [][]string{{"name"}, {"name", "translationVersion"}, {"digest"}}}}}
 }
 
-func (r *Registry) SaveRecipe(ctx context.Context, entry exec.Entry) error {
+func (r *Registry) SaveRecipe(ctx context.Context, entry recipe.Entry) error {
 	return r.saveRecipe(ctx, entry)
 }
 
-func (r *Registry) ReplaceRecipeVersion(ctx context.Context, entry exec.Entry) error {
+func (r *Registry) ReplaceRecipeVersion(ctx context.Context, entry recipe.Entry) error {
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return err
@@ -61,12 +61,12 @@ RETURN {replaced: true}`, r.batchSize, map[string]interface{}{
 		return err
 	}
 	if !replaced {
-		return fmt.Errorf("%w: %s@%s", exec.ErrRecipeVersionImmutable, entry.Bundle.Name, entry.Bundle.TranslationVersion)
+		return fmt.Errorf("%w: %s@%s", recipe.ErrRecipeVersionImmutable, entry.Bundle.Name, entry.Bundle.TranslationVersion)
 	}
 	return nil
 }
 
-func (r *Registry) saveRecipe(ctx context.Context, entry exec.Entry) error {
+func (r *Registry) saveRecipe(ctx context.Context, entry recipe.Entry) error {
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return err
@@ -86,21 +86,21 @@ func (r *Registry) saveRecipe(ctx context.Context, entry exec.Entry) error {
 	return r.client.InsertBatchRaw(ctx, Collection, []json.RawMessage{data}, true, "document")
 }
 
-func (r *Registry) LoadRecipe(ctx context.Context, name string) (exec.Entry, error) {
+func (r *Registry) LoadRecipe(ctx context.Context, name string) (recipe.Entry, error) {
 	return r.loadRecipe(ctx, `FOR doc IN @@collection FILTER doc.name == @name SORT doc.translationVersion DESC LIMIT 1 RETURN doc`, map[string]interface{}{"@collection": Collection, "name": name})
 }
 
-func (r *Registry) LoadRecipeVersion(ctx context.Context, name, translationVersion string) (exec.Entry, error) {
+func (r *Registry) LoadRecipeVersion(ctx context.Context, name, translationVersion string) (recipe.Entry, error) {
 	return r.loadRecipe(ctx, `FOR doc IN @@collection FILTER doc.name == @name AND doc.translationVersion == @translationVersion LIMIT 1 RETURN doc`, map[string]interface{}{"@collection": Collection, "name": name, "translationVersion": translationVersion})
 }
 
-func (r *Registry) loadRecipe(ctx context.Context, query string, vars map[string]interface{}) (exec.Entry, error) {
-	entry, found, err := arangostore.QueryLast[exec.Entry](ctx, r.client, query, r.batchSize, vars)
+func (r *Registry) loadRecipe(ctx context.Context, query string, vars map[string]interface{}) (recipe.Entry, error) {
+	entry, found, err := arangostore.QueryLast[recipe.Entry](ctx, r.client, query, r.batchSize, vars)
 	if err != nil {
-		return exec.Entry{}, err
+		return recipe.Entry{}, err
 	}
 	if !found {
-		return exec.Entry{}, fmt.Errorf("%w", exec.ErrRecipeNotFound)
+		return recipe.Entry{}, fmt.Errorf("%w", recipe.ErrRecipeNotFound)
 	}
 	return entry, nil
 }
@@ -119,4 +119,4 @@ func recipeDocumentKey(name, translationVersion string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-var _ exec.Store = (*Registry)(nil)
+var _ recipe.Store = (*Registry)(nil)

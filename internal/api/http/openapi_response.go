@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/foundation/httpctx"
 	"log/slog"
 	"net/http"
 	"time"
@@ -37,10 +38,10 @@ func UnexpectedResponseStatus(operation string, status int) error {
 	return fmt.Errorf("%s returned undocumented HTTP status %d", operation, status)
 }
 func MapServiceError(err error, ctx context.Context) (int, loomapi.ServiceErrorResponse) {
-	mapped := MapDataframeError(err, RequestIDFromContext(ctx))
+	mapped := MapDataframeError(err, httpctx.RequestIDFromContext(ctx))
 	if mapped.Status >= http.StatusInternalServerError {
 		LogServerDiagnostic(slog.Default(), slog.LevelError, "data request failed",
-			RequestIDFromContext(ctx), "response", time.Duration(0), err)
+			httpctx.RequestIDFromContext(ctx), "response", time.Duration(0), err)
 	}
 	return mapped.Status, ServiceErrorResponse(mapped.Body)
 }

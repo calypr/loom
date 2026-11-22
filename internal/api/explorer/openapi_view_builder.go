@@ -14,7 +14,7 @@ import (
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/viewbuilder"
+	"github.com/calypr/loom/internal/explorer/projectconfig"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -51,8 +51,8 @@ func (h *Handlers) authorizedViewBuilderState(ctx context.Context, project, reso
 	return h.checkViewBuilderState(ctx, project, resource, value)
 }
 
-func (h *Handlers) viewMutationAccess(project, resource string) viewbuilder.MutationAccess {
-	return viewbuilder.MutationAccess{
+func (h *Handlers) viewMutationAccess(project, resource string) projectconfig.MutationAccess {
+	return projectconfig.MutationAccess{
 		CheckState: func(ctx context.Context, value explorer.ViewBuilderState) (explorer.ViewBuilderState, error) {
 			return h.checkViewBuilderState(ctx, project, resource, value)
 		},

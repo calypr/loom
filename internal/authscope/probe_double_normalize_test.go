@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
-
-	"github.com/calypr/loom/internal/catalog"
 )
 
 func TestProbeDeclaredPathNormalizationIsIdempotent(t *testing.T) {
@@ -197,7 +195,7 @@ func TestProbeUnicodeWhitespaceAndC1GapCharacterization(t *testing.T) {
 func TestProbeUnrestrictedCallerStillTraversesCoverageGate(t *testing.T) {
 	newResolver := func() *ScopeResolver {
 		return NewScopeResolver(ScopeResolverConfig{
-			ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+			ListExistingAuthResourcePaths: func(context.Context, AuthResourcePathOptions) ([]string, error) {
 				return []string{"p1", "p2"}, nil
 			},
 		})

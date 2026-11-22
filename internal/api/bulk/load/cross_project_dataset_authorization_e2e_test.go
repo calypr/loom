@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
 	dataframepublication "github.com/calypr/loom/internal/dataframe/publication"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
@@ -81,7 +80,7 @@ func newTestHandler(t *testing.T, writePaths []string, catalogPaths map[string][
 	t.Helper()
 	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 		ResourceAccess: stubResourceAccess{writePaths: writePaths},
-		ListExistingAuthResourcePaths: func(_ context.Context, options catalog.AuthResourcePathOptions) ([]string, error) {
+		ListExistingAuthResourcePaths: func(_ context.Context, options authscope.AuthResourcePathOptions) ([]string, error) {
 			return append([]string(nil), catalogPaths[options.Project]...), nil
 		},
 	})

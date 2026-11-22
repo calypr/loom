@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
 )
 
 type authComponents struct {
@@ -16,7 +15,7 @@ type authComponents struct {
 	scopeResolver *authscope.ScopeResolver
 }
 
-func wireAuth(cfg Config, noAuth bool, listExisting func(context.Context, catalog.AuthResourcePathOptions) ([]string, error)) (authComponents, error) {
+func wireAuth(cfg Config, noAuth bool, listExisting func(context.Context, authscope.AuthResourcePathOptions) ([]string, error)) (authComponents, error) {
 	if noAuth {
 		return authComponents{
 			authenticator: authscope.StaticAuthenticator{Principal: authscope.Principal{Subject: "anonymous"}},

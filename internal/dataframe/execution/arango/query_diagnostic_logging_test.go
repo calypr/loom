@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -20,7 +21,6 @@ import (
 
 	shared "github.com/arangodb/go-driver/v2/arangodb/shared"
 
-	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 )
 
@@ -29,7 +29,7 @@ func TestConfiguredAQLQueryRowsLogsSafeRequestCorrelatedRecords(t *testing.T) {
 		t.Run(phase, func(t *testing.T) {
 			var output bytes.Buffer
 			logger := slog.New(slog.NewJSONHandler(&output, nil))
-			ctx := httpapi.ContextWithRequestID(context.Background(), "request-123")
+			ctx := httpctx.ContextWithRequestID(context.Background(), "request-123")
 			query := "FOR d IN patients FILTER d.id == @secret RETURN d"
 			bindVars := map[string]any{"secret": "private-bind-value"}
 			failure := errors.New("arangodb unavailable: connection refused; query=RETURN @secret auth_token=private-auth-value")
@@ -85,7 +85,7 @@ func TestConfiguredAQLQueryRowsLogsSafeRequestCorrelatedRecords(t *testing.T) {
 func TestLoggedPreviewIndexPreparationUsesSafeFields(t *testing.T) {
 	var output bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
-	ctx := httpapi.ContextWithRequestID(context.Background(), "request-index")
+	ctx := httpctx.ContextWithRequestID(context.Background(), "request-index")
 	failure := fmt.Errorf("prepare index: %w", shared.ArangoError{
 		HasError: true, Code: http.StatusConflict, ErrorNum: 12345, ErrorMessage: "AQL: persistent index field is unsupported; access_token=private-auth-value",
 	})

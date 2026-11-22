@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/calypr/loom/internal/api/authpolicy"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataframe/errors/authpolicy"
 	materialization "github.com/calypr/loom/internal/dataframe/publication"
 )
 
