@@ -14,6 +14,7 @@ import (
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -25,7 +26,7 @@ func selectorsForBundle(bundle recipe.Bundle) []dataset.DataframeSelector {
 	return selectors
 }
 
-func verifyQueryableOutputs(bundle recipe.Bundle, execution Execution) error {
+func verifyQueryableOutputs(bundle recipe.Bundle, execution ports.Execution) error {
 	states := make(map[string]string, len(execution.Outputs))
 	for _, output := range execution.Outputs {
 		states[output.Name] = strings.ToUpper(output.State)
@@ -39,7 +40,7 @@ func verifyQueryableOutputs(bundle recipe.Bundle, execution Execution) error {
 	return nil
 }
 
-func verifyActivationQuality(receipt *explorer.CompilationReceipt, execution Execution) error {
+func verifyActivationQuality(receipt *explorer.CompilationReceipt, execution ports.Execution) error {
 	if receipt == nil {
 		return fmt.Errorf("compilation receipt is required")
 	}
@@ -65,7 +66,7 @@ func verifyActivationQuality(receipt *explorer.CompilationReceipt, execution Exe
 	return nil
 }
 
-func materializations(bundle recipe.Bundle, execution Execution) []explorer.Materialization {
+func materializations(bundle recipe.Bundle, execution ports.Execution) []explorer.Materialization {
 	out := make([]explorer.Materialization, 0, len(execution.Outputs))
 	for _, output := range execution.Outputs {
 		selector := dataset.DataframeSelector{Recipe: bundle.Name, TranslationVersion: bundle.TranslationVersion, Output: output.Name}
@@ -74,7 +75,7 @@ func materializations(bundle recipe.Bundle, execution Execution) []explorer.Mate
 	return out
 }
 
-func datasetMetadataFromExecution(bundle recipe.Bundle, generation, schemaDigest string, execution Execution) explorer.DatasetMetadata {
+func datasetMetadataFromExecution(bundle recipe.Bundle, generation, schemaDigest string, execution ports.Execution) explorer.DatasetMetadata {
 	outputs := make([]explorer.DatasetOutput, 0, len(execution.Outputs))
 	for _, output := range execution.Outputs {
 		state := strings.ToUpper(output.State)
@@ -186,7 +187,7 @@ func validateReceiptCapability(receipt *explorer.CompilationReceipt, snapshot ca
 	return nil
 }
 
-func validateAuthorizedReceiptExecution(receipt *explorer.CompilationReceipt, authorized AuthorizedCapability) error {
+func validateAuthorizedReceiptExecution(receipt *explorer.CompilationReceipt, authorized ports.AuthorizedCapability) error {
 	if receipt == nil {
 		return fmt.Errorf("receipt is required")
 	}
@@ -253,7 +254,7 @@ func validateReceiptOutputContract(receipt *explorer.CompilationReceipt, outputI
 	return nil
 }
 
-func applyAuthorizedScope(bindings *recipe.RuntimeBindings, authorized AuthorizedCapability, includeAuthResourcePath bool) {
+func applyAuthorizedScope(bindings *recipe.RuntimeBindings, authorized ports.AuthorizedCapability, includeAuthResourcePath bool) {
 	if bindings == nil {
 		return
 	}

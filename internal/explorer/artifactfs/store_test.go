@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/published"
+	"github.com/calypr/loom/internal/dataframe/artifactformat"
 	"github.com/calypr/loom/internal/explorer"
 )
 
@@ -25,7 +25,7 @@ func artifactRecord(t *testing.T) explorer.ArtifactRecord {
 		Project: "study/project", ExplorerID: "explorer", RevisionID: "revision", OutputID: "patients",
 		ReceiptID: "receipt", ExecutionID: "execution", IdempotencyKey: "request-1",
 		DatasetGeneration: "generation", SchemaDigest: "schema", AuthorizationScopeDigest: "scope", ExpiresAt: time.Now().UTC().Add(time.Hour),
-		Format: published.ArtifactFormatCSV,
+		Format: artifactformat.ArtifactFormatCSV,
 	}
 	id, err := explorer.ArtifactID(record)
 	if err != nil {

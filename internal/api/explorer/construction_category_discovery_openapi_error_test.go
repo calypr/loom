@@ -12,7 +12,7 @@ import (
 
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestAuthoringErrorForOpenAPIMapsConstructionCategoryScanFailures(t *testing.T) {
@@ -28,8 +28,8 @@ func TestAuthoringErrorForOpenAPIMapsConstructionCategoryScanFailures(t *testing
 	}{
 		{
 			name: "compiler refusal",
-			err: &lifecycle.Error{
-				Class: lifecycle.ClassUnprocessable, Stage: "construction-category-discovery",
+			err: &ports.Error{
+				Class: ports.ClassUnprocessable, Stage: "construction-category-discovery",
 				Code: string(compiler.CategoryScanStageUnknown), Message: "complete compiler-owned pivot categories are unavailable for this stage and pair",
 				Cause: privateCause,
 			},
@@ -38,8 +38,8 @@ func TestAuthoringErrorForOpenAPIMapsConstructionCategoryScanFailures(t *testing
 		},
 		{
 			name: "deadline",
-			err: &lifecycle.Error{
-				Class: lifecycle.ClassUnavailable, Stage: "construction-category-discovery",
+			err: &ports.Error{
+				Class: ports.ClassUnavailable, Stage: "construction-category-discovery",
 				Code: "CATEGORY_SCAN_TIMEOUT", Message: "finding all category values exceeded the preview time limit; filter the source rows and try again",
 				Cause: fmt.Errorf("execution deadline: %w", context.DeadlineExceeded),
 			},
@@ -49,8 +49,8 @@ func TestAuthoringErrorForOpenAPIMapsConstructionCategoryScanFailures(t *testing
 		},
 		{
 			name: "internal execution failure",
-			err: &lifecycle.Error{
-				Class: lifecycle.ClassInternal, Stage: "construction-category-discovery",
+			err: &ports.Error{
+				Class: ports.ClassInternal, Stage: "construction-category-discovery",
 				Code: "CATEGORY_DISCOVERY_FAILED", Message: "category discovery failed unexpectedly while reading the catalog; inspect the server log for the request ID",
 				Cause: fmt.Errorf("execute category query with private bind value: %w", privateCause),
 			},

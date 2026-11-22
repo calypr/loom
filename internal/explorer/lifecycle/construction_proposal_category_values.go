@@ -9,14 +9,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-func (s *Service) verifyConstructionProposalPivotCategories(
-	ctx context.Context,
-	request ConstructionProposalRequest,
-	candidate authoringv2.Construction,
-) ([]ConstructionProposalDiagnostic, error) {
-	return s.verifyConstructionProposalPivotCategoriesExcept(ctx, request, candidate, nil, nil)
-}
-
 func (s *Service) verifyConstructionProposalPivotCategoriesExcept(
 	ctx context.Context,
 	request ConstructionProposalRequest,

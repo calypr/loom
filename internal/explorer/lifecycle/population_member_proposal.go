@@ -8,6 +8,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 	"github.com/google/uuid"
 )
@@ -325,7 +326,7 @@ func (s *Service) populationRemovalRouteChoice(ctx context.Context, request Popu
 	return "", unprocessable("population-member-proposal", "INVALID_POPULATION_ROUTE", "the existing population route is no longer available for the candidate selection", nil)
 }
 
-func (s *Service) preparePopulationMemberRemovalProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized AuthorizedCapability, current authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, *explorer.CompilationReceipt, error) {
+func (s *Service) preparePopulationMemberRemovalProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, *explorer.CompilationReceipt, error) {
 	snapshot := authorized.Snapshot
 	if len(commands) != 1 || commands[0].Type != authoringv2.CommandApplyPopulationMemberProposal {
 		return nil, nil, malformed("commands", "APPLY_POPULATION_MEMBER_PROPOSAL must be the only command in its atomic request", nil)

@@ -3,6 +3,8 @@ package catalog
 import (
 	"fmt"
 	"sort"
+
+	"github.com/calypr/loom/internal/catalog/identity"
 )
 
 const (
@@ -19,7 +21,7 @@ type resourceInventoryCountIdentity struct {
 }
 
 func ResourceInventoryBuildKey(project, datasetGeneration string) string {
-	return "ribm_" + catalogIdentityDigest("resource-inventory-marker/v1", project, NormalizeDatasetGeneration(datasetGeneration))
+	return "ribm_" + identity.Digest("resource-inventory-marker/v1", project, NormalizeDatasetGeneration(datasetGeneration))
 }
 
 func ResourceInventoryCoverageDigest(resourceTypes []string) (string, error) {
@@ -99,7 +101,7 @@ func NewResourceInventoryBuild(project, datasetGeneration string, resourceTypes 
 	}
 	for i := range canonicalCounts {
 		count := &canonicalCounts[i]
-		count.Key = "ric_" + catalogIdentityDigest("resource-inventory-count/v1", project, datasetGeneration, buildID, count.ResourceType, count.AuthResourcePath)
+		count.Key = "ric_" + identity.Digest("resource-inventory-count/v1", project, datasetGeneration, buildID, count.ResourceType, count.AuthResourcePath)
 		count.RecordType = ResourceInventoryCountRecordType
 		count.Project = project
 		count.DatasetGeneration = datasetGeneration

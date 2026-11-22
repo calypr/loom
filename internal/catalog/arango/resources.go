@@ -12,7 +12,7 @@ import (
 
 var ErrAllGenerationsWithGeneration = errors.New("AllGenerations conflicts with a selected datasetGeneration")
 
-func (s *Store) DiscoverExistingAuthResourcePaths(ctx context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+func (s *ResourceStore) DiscoverExistingAuthResourcePaths(ctx context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
 	if err := ValidateAuthResourcePathOptions(opts); err != nil {
 		return nil, err
 	}
@@ -40,7 +40,7 @@ func (s *Store) DiscoverExistingAuthResourcePaths(ctx context.Context, opts cata
 	return result, nil
 }
 
-func (s *Store) DiscoverResourceInventory(ctx context.Context, opts catalog.ResourceInventoryOptions) (catalog.ResourceInventoryResult, error) {
+func (s *ResourceStore) DiscoverResourceInventory(ctx context.Context, opts catalog.ResourceInventoryOptions) (catalog.ResourceInventoryResult, error) {
 	if opts.CursorBatch <= 0 {
 		opts.CursorBatch = 1000
 	}

@@ -7,7 +7,16 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, stages []ir.PhysicalConstructionStage, terminal ir.PhysicalRowLineageReturn) (RenderedPhysicalPlan, error) {
+type rowLineageRenderer struct {
+	*renderContext
+	core *physicalPlanRenderer
+}
+
+func (r *physicalPlanRenderer) rowLineage() rowLineageRenderer {
+	return rowLineageRenderer{renderContext: &r.renderContext, core: r}
+}
+
+func (r rowLineageRenderer) renderConstructionRowLineage(sourceQuery string, stages []ir.PhysicalConstructionStage, terminal ir.PhysicalRowLineageReturn) (RenderedPhysicalPlan, error) {
 	if len(stages) == 0 {
 		return RenderedPhysicalPlan{}, fmt.Errorf("row lineage requires a construction stage")
 	}
@@ -48,9 +57,9 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 		}
 		return r.renderCodingIdentityGroupRowLineage(sourceQuery, stage, terminal)
 	}
-	input := r.newInternalVariable("row_lineage_group_input")
-	selected := r.newInternalVariable("row_lineage_selected_group")
-	identity := r.newInternalVariable("row_lineage_identity")
+	input := r.core.navigation().newInternalVariable("row_lineage_group_input")
+	selected := r.core.navigation().newInternalVariable("row_lineage_selected_group")
+	identity := r.core.navigation().newInternalVariable("row_lineage_identity")
 	keyVars := make([]string, len(group.Keys))
 	collectedVars := make([]string, len(group.Keys))
 	keyAliases := make([]string, len(group.Keys))
@@ -59,8 +68,8 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 	sortKeys := make([]string, 0, len(group.Keys))
 	selectedFields := make([]string, 0, len(group.Keys))
 	for index, key := range group.Keys {
-		keyVar := r.newInternalVariable(fmt.Sprintf("row_lineage_group_key_%d", index))
-		collectedVar := r.newInternalVariable(fmt.Sprintf("row_lineage_collected_group_key_%d", index))
+		keyVar := r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_group_key_%d", index))
+		collectedVar := r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_collected_group_key_%d", index))
 		keyVars[index] = keyVar
 		collectedVars[index] = collectedVar
 		keyAliases[index] = fmt.Sprintf("key%d", index)
@@ -75,7 +84,7 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 		if outputColumnID == "" {
 			return RenderedPhysicalPlan{}, fmt.Errorf("Group key output %q has no stable column ID", key.OutputColumn)
 		}
-		nameBind := r.newInternalBindKey("row_lineage_group_identity_column")
+		nameBind := r.core.newInternalBindKey("row_lineage_group_identity_column")
 		r.bindVars[nameBind] = outputColumnID
 		identityParts = append(identityParts, "[@"+nameBind+", "+collectedVar+"]")
 		selectedFields = append(selectedFields, keyAliases[index]+": "+collectedVar)
@@ -83,7 +92,7 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 	requestedRowID := "@" + terminal.RowIDBindKey
 	var matchLines []string
 	if len(group.Keys) == 0 {
-		count := r.newInternalVariable("row_lineage_empty_group_count")
+		count := r.core.navigation().newInternalVariable("row_lineage_empty_group_count")
 		matchLines = append(matchLines,
 			"LET "+selected+" = FIRST(",
 			"  FOR "+input+" IN (\n"+indentQuery(sourceQuery, "    ")+"\n  )",
@@ -107,7 +116,7 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 			if err != nil {
 				return RenderedPhysicalPlan{}, fmt.Errorf("Group key %q: %w", key.InputColumn, err)
 			}
-			typeBind := r.newInternalBindKey("row_lineage_group_key_type")
+			typeBind := r.core.newInternalBindKey("row_lineage_group_key_type")
 			r.bindVars[typeBind] = typeName
 			filters = append(filters, fmt.Sprintf("ASSERT(%s == null OR TYPENAME(%s) == @%s, \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")", keyVars[index], keyVars[index], typeBind))
 		}
@@ -116,7 +125,7 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 		}
 		matchLines = append(matchLines, "LET "+selected+" = FIRST(", "  FOR "+input+" IN (\n"+indentQuery(sourceQuery, "    ")+"\n  )")
 		for index, key := range group.Keys {
-			columnBind := r.newInternalBindKey("row_lineage_group_input_column")
+			columnBind := r.core.newInternalBindKey("row_lineage_group_input_column")
 			r.bindVars[columnBind] = key.InputColumn
 			matchLines = append(matchLines, fmt.Sprintf("  LET %s = %s[@%s]", keyVars[index], input, columnBind))
 		}
@@ -137,15 +146,15 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 		filteredSelection = passed
 		matchLines = append(matchLines, filterLines...)
 	}
-	page := r.newInternalVariable("row_lineage_page")
-	contributor := r.newInternalVariable("row_lineage_contributor")
+	page := r.core.navigation().newInternalVariable("row_lineage_page")
+	contributor := r.core.navigation().newInternalVariable("row_lineage_contributor")
 	filters := make([]string, 0, len(group.Keys)*2+2)
 	filters = append(filters, selected+" != null")
 	if filteredSelection != "" {
 		filters = append(filters, filteredSelection+" != null")
 	}
 	for index, key := range group.Keys {
-		columnBind := r.newInternalBindKey("row_lineage_contributor_column")
+		columnBind := r.core.newInternalBindKey("row_lineage_contributor_column")
 		r.bindVars[columnBind] = key.InputColumn
 		value := fmt.Sprintf("%s[@%s]", contributor, columnBind)
 		if group.MissingKeyPolicy == ir.PhysicalStageGroupMissingKeyExclude {
@@ -157,16 +166,16 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 		if err != nil {
 			return RenderedPhysicalPlan{}, fmt.Errorf("Group key %q: %w", key.InputColumn, err)
 		}
-		typeBind := r.newInternalBindKey("row_lineage_contributor_type")
+		typeBind := r.core.newInternalBindKey("row_lineage_contributor_type")
 		r.bindVars[typeBind] = typeName
 		filters = append(filters, fmt.Sprintf("ASSERT(%s == null OR TYPENAME(%s) == @%s, \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")", value, value, typeBind))
 		filters = append(filters, value+" == "+selected+"."+keyAliases[index])
 	}
-	resourceIDBind := r.newInternalBindKey("row_lineage_resource_id_column")
+	resourceIDBind := r.core.newInternalBindKey("row_lineage_resource_id_column")
 	r.bindVars[resourceIDBind] = terminal.ResourceIDColumn
-	occurrenceKeyBind := r.newInternalBindKey("row_lineage_occurrence_key_column")
+	occurrenceKeyBind := r.core.newInternalBindKey("row_lineage_occurrence_key_column")
 	r.bindVars[occurrenceKeyBind] = terminal.OccurrenceKeyColumn
-	resourceTypeBind := r.newInternalBindKey("row_lineage_resource_type")
+	resourceTypeBind := r.core.newInternalBindKey("row_lineage_resource_type")
 	r.bindVars[resourceTypeBind] = terminal.ResourceType
 	lines := append([]string(nil), matchLines...)
 	lines = append(lines,
@@ -183,7 +192,7 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil
 }
 
-func (r *physicalPlanRenderer) renderCodingIdentityGroupRowLineage(
+func (r rowLineageRenderer) renderCodingIdentityGroupRowLineage(
 	sourceQuery string,
 	stage ir.PhysicalConstructionStage,
 	terminal ir.PhysicalRowLineageReturn,
@@ -193,11 +202,11 @@ func (r *physicalPlanRenderer) renderCodingIdentityGroupRowLineage(
 		return RenderedPhysicalPlan{}, fmt.Errorf("CODING_IDENTITY Group payload is required")
 	}
 	coding := group.CodingKey
-	input := r.newInternalVariable("row_lineage_coding_group_input")
-	selected := r.newInternalVariable("row_lineage_coding_selected_group")
-	identity := r.newInternalVariable("row_lineage_coding_identity")
-	codingInputTuple := r.newInternalVariable("row_lineage_coding_input_tuple")
-	codingCollectedTuple := r.newInternalVariable("row_lineage_coding_collected_tuple")
+	input := r.core.navigation().newInternalVariable("row_lineage_coding_group_input")
+	selected := r.core.navigation().newInternalVariable("row_lineage_coding_selected_group")
+	identity := r.core.navigation().newInternalVariable("row_lineage_coding_identity")
+	codingInputTuple := r.core.navigation().newInternalVariable("row_lineage_coding_input_tuple")
+	codingCollectedTuple := r.core.navigation().newInternalVariable("row_lineage_coding_collected_tuple")
 	codingAlias := "codingTuple"
 	keyVars := make([]string, len(group.Keys))
 	keyCollected := make([]string, len(group.Keys))
@@ -208,10 +217,10 @@ func (r *physicalPlanRenderer) renderCodingIdentityGroupRowLineage(
 	selectedFields := make([]string, 0, len(group.Keys)+1)
 	filters := make([]string, 0, len(group.Keys)*2+4)
 	for index, key := range group.Keys {
-		keyVars[index] = r.newInternalVariable(fmt.Sprintf("row_lineage_coding_group_key_%d", index))
-		keyCollected[index] = r.newInternalVariable(fmt.Sprintf("row_lineage_coding_collected_key_%d", index))
+		keyVars[index] = r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_coding_group_key_%d", index))
+		keyCollected[index] = r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_coding_collected_key_%d", index))
 		keyAliases[index] = fmt.Sprintf("key%d", index)
-		columnBind := r.newInternalBindKeyWithValue("row_lineage_coding_group_input_column", key.InputColumn)
+		columnBind := r.core.newInternalBindKeyWithValue("row_lineage_coding_group_input_column", key.InputColumn)
 		filters = append(filters, fmt.Sprintf("LET %s = %s[@%s]", keyVars[index], input, columnBind))
 		switch group.MissingKeyPolicy {
 		case ir.PhysicalStageGroupMissingKeyGroup:
@@ -226,7 +235,7 @@ func (r *physicalPlanRenderer) renderCodingIdentityGroupRowLineage(
 		if err != nil {
 			return RenderedPhysicalPlan{}, fmt.Errorf("Group key %q: %w", key.InputColumn, err)
 		}
-		typeBind := r.newInternalBindKeyWithValue("row_lineage_coding_group_key_type", typeName)
+		typeBind := r.core.newInternalBindKeyWithValue("row_lineage_coding_group_key_type", typeName)
 		filters = append(filters, fmt.Sprintf("FILTER ASSERT(%s == null OR TYPENAME(%s) == @%s, \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")", keyVars[index], keyVars[index], typeBind))
 		outputID := ""
 		for _, column := range stage.OutputColumns {
@@ -238,7 +247,7 @@ func (r *physicalPlanRenderer) renderCodingIdentityGroupRowLineage(
 		if outputID == "" {
 			return RenderedPhysicalPlan{}, fmt.Errorf("Group key output %q has no stable column ID", key.OutputColumn)
 		}
-		outputBind := r.newInternalBindKeyWithValue("row_lineage_coding_group_identity_column", outputID)
+		outputBind := r.core.newInternalBindKeyWithValue("row_lineage_coding_group_identity_column", outputID)
 		identityParts = append(identityParts, "[@"+outputBind+", "+keyCollected[index]+"]")
 		collectParts = append(collectParts, keyCollected[index]+" = "+keyVars[index])
 		sortKeys = append(sortKeys, keyCollected[index]+" ASC")
@@ -254,9 +263,9 @@ func (r *physicalPlanRenderer) renderCodingIdentityGroupRowLineage(
 	if codingOutputID == "" {
 		return RenderedPhysicalPlan{}, fmt.Errorf("CODING_IDENTITY output %q has no stable column ID", coding.OutputColumn)
 	}
-	codingOutputBind := r.newInternalBindKeyWithValue("row_lineage_coding_identity_column", codingOutputID)
-	codingMembershipBind := r.newInternalBindKeyWithValue("row_lineage_coding_membership_column", coding.MembershipColumn)
-	codingMembership := r.newInternalVariable("row_lineage_coding_membership")
+	codingOutputBind := r.core.newInternalBindKeyWithValue("row_lineage_coding_identity_column", codingOutputID)
+	codingMembershipBind := r.core.newInternalBindKeyWithValue("row_lineage_coding_membership_column", coding.MembershipColumn)
+	codingMembership := r.core.navigation().newInternalVariable("row_lineage_coding_membership")
 	codingMissingFilter, err := codingIdentityMissingCodeFilter(group.MissingKeyPolicy, codingInputTuple)
 	if err != nil {
 		return RenderedPhysicalPlan{}, err
@@ -289,11 +298,11 @@ func (r *physicalPlanRenderer) renderCodingIdentityGroupRowLineage(
 		")",
 	)
 
-	contributor := r.newInternalVariable("row_lineage_coding_contributor")
-	contributorMembership := r.newInternalVariable("row_lineage_coding_contributor_membership")
+	contributor := r.core.navigation().newInternalVariable("row_lineage_coding_contributor")
+	contributorMembership := r.core.navigation().newInternalVariable("row_lineage_coding_contributor_membership")
 	contributorFilters := []string{selected + " != null"}
 	for index, key := range group.Keys {
-		columnBind := r.newInternalBindKeyWithValue("row_lineage_coding_contributor_column", key.InputColumn)
+		columnBind := r.core.newInternalBindKeyWithValue("row_lineage_coding_contributor_column", key.InputColumn)
 		value := fmt.Sprintf("%s[@%s]", contributor, columnBind)
 		if group.MissingKeyPolicy == ir.PhysicalStageGroupMissingKeyExclude {
 			contributorFilters = append(contributorFilters, value+" != null")
@@ -304,22 +313,22 @@ func (r *physicalPlanRenderer) renderCodingIdentityGroupRowLineage(
 		if err != nil {
 			return RenderedPhysicalPlan{}, fmt.Errorf("Group key %q: %w", key.InputColumn, err)
 		}
-		typeBind := r.newInternalBindKeyWithValue("row_lineage_coding_contributor_type", typeName)
+		typeBind := r.core.newInternalBindKeyWithValue("row_lineage_coding_contributor_type", typeName)
 		contributorFilters = append(contributorFilters,
 			fmt.Sprintf("ASSERT(%s == null OR TYPENAME(%s) == @%s, \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")", value, value, typeBind),
 			value+" == "+selected+"."+keyAliases[index],
 		)
 	}
-	contributorMembershipBind := r.newInternalBindKeyWithValue("row_lineage_coding_contributor_membership_column", coding.MembershipColumn)
-	contributorTupleVariable := r.newInternalVariable("row_lineage_coding_contributor_input_tuple")
+	contributorMembershipBind := r.core.newInternalBindKeyWithValue("row_lineage_coding_contributor_membership_column", coding.MembershipColumn)
+	contributorTupleVariable := r.core.navigation().newInternalVariable("row_lineage_coding_contributor_input_tuple")
 	contributorMissingFilter, err := codingIdentityMissingCodeFilter(group.MissingKeyPolicy, contributorTupleVariable)
 	if err != nil {
 		return RenderedPhysicalPlan{}, err
 	}
-	resourceIDBind := r.newInternalBindKeyWithValue("row_lineage_coding_resource_id_column", terminal.ResourceIDColumn)
-	occurrenceBind := r.newInternalBindKeyWithValue("row_lineage_coding_occurrence_key_column", terminal.OccurrenceKeyColumn)
-	resourceTypeBind := r.newInternalBindKeyWithValue("row_lineage_coding_resource_type", terminal.ResourceType)
-	page := r.newInternalVariable("row_lineage_coding_page")
+	resourceIDBind := r.core.newInternalBindKeyWithValue("row_lineage_coding_resource_id_column", terminal.ResourceIDColumn)
+	occurrenceBind := r.core.newInternalBindKeyWithValue("row_lineage_coding_occurrence_key_column", terminal.OccurrenceKeyColumn)
+	resourceTypeBind := r.core.newInternalBindKeyWithValue("row_lineage_coding_resource_type", terminal.ResourceType)
+	page := r.core.navigation().newInternalVariable("row_lineage_coding_page")
 	lines := append([]string(nil), matchLines...)
 	lines = append(lines,
 		"LET "+page+" = (",
@@ -346,7 +355,7 @@ func (r *physicalPlanRenderer) renderCodingIdentityGroupRowLineage(
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil
 }
 
-func (r *physicalPlanRenderer) renderSemanticGroupRowLineage(
+func (r rowLineageRenderer) renderSemanticGroupRowLineage(
 	sourceQuery string,
 	stage ir.PhysicalConstructionStage,
 	terminal ir.PhysicalRowLineageReturn,
@@ -359,10 +368,10 @@ func (r *physicalPlanRenderer) renderSemanticGroupRowLineage(
 	lineageSemantic := *semantic
 
 	lineageSemantic.SourceIdentityColumn = terminal.OccurrenceKeyColumn
-	input := r.newInternalVariable("row_lineage_semantic_group_input")
-	selected := r.newInternalVariable("row_lineage_semantic_selected_group")
-	identity := r.newInternalVariable("row_lineage_semantic_identity")
-	codeTuple := r.newInternalVariable("row_lineage_semantic_tuple")
+	input := r.core.navigation().newInternalVariable("row_lineage_semantic_group_input")
+	selected := r.core.navigation().newInternalVariable("row_lineage_semantic_selected_group")
+	identity := r.core.navigation().newInternalVariable("row_lineage_semantic_identity")
+	codeTuple := r.core.navigation().newInternalVariable("row_lineage_semantic_tuple")
 	keyVars := make([]string, len(group.Keys))
 	collectedVars := make([]string, len(group.Keys))
 	keyAliases := make([]string, len(group.Keys))
@@ -372,11 +381,11 @@ func (r *physicalPlanRenderer) renderSemanticGroupRowLineage(
 	selectedFields := make([]string, 0, len(group.Keys)+1)
 	filters := make([]string, 0, len(group.Keys)+1)
 	for index, key := range group.Keys {
-		keyVar := r.newInternalVariable(fmt.Sprintf("row_lineage_semantic_group_key_%d", index))
-		collectedVar := r.newInternalVariable(fmt.Sprintf("row_lineage_semantic_collected_key_%d", index))
+		keyVar := r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_semantic_group_key_%d", index))
+		collectedVar := r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_semantic_collected_key_%d", index))
 		keyVars[index], collectedVars[index] = keyVar, collectedVar
 		keyAliases[index] = fmt.Sprintf("key%d", index)
-		columnBind := r.newInternalBindKeyWithValue("row_lineage_semantic_group_input_column", key.InputColumn)
+		columnBind := r.core.newInternalBindKeyWithValue("row_lineage_semantic_group_input_column", key.InputColumn)
 		filters = append(filters, fmt.Sprintf("LET %s = %s[@%s]", keyVar, input, columnBind))
 		if group.MissingKeyPolicy == ir.PhysicalStageGroupMissingKeyExclude {
 			filters = append(filters, "FILTER "+keyVar+" != null")
@@ -389,7 +398,7 @@ func (r *physicalPlanRenderer) renderSemanticGroupRowLineage(
 		if err != nil {
 			return RenderedPhysicalPlan{}, fmt.Errorf("Group key %q: %w", key.InputColumn, err)
 		}
-		typeBind := r.newInternalBindKeyWithValue("row_lineage_semantic_group_key_type", typeName)
+		typeBind := r.core.newInternalBindKeyWithValue("row_lineage_semantic_group_key_type", typeName)
 		filters = append(filters, fmt.Sprintf("FILTER ASSERT(%s == null OR TYPENAME(%s) == @%s, \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")", keyVar, keyVar, typeBind))
 		outputColumnID := ""
 		for _, column := range stage.OutputColumns {
@@ -401,7 +410,7 @@ func (r *physicalPlanRenderer) renderSemanticGroupRowLineage(
 		if outputColumnID == "" {
 			return RenderedPhysicalPlan{}, fmt.Errorf("Group key output %q has no stable column ID", key.OutputColumn)
 		}
-		nameBind := r.newInternalBindKeyWithValue("row_lineage_semantic_group_identity_column", outputColumnID)
+		nameBind := r.core.newInternalBindKeyWithValue("row_lineage_semantic_group_identity_column", outputColumnID)
 		identityParts = append(identityParts, "[@"+nameBind+", "+collectedVar+"]")
 		collect = append(collect, collectedVar+" = "+keyVar)
 		sortKeys = append(sortKeys, collectedVar+" ASC")
@@ -411,7 +420,7 @@ func (r *physicalPlanRenderer) renderSemanticGroupRowLineage(
 	if err != nil {
 		return RenderedPhysicalPlan{}, err
 	}
-	semanticTupleBind := r.newInternalBindKey("row_lineage_semantic_tuple_column")
+	semanticTupleBind := r.core.newInternalBindKey("row_lineage_semantic_tuple_column")
 	for _, column := range stage.OutputColumns {
 		if column.Name == semantic.OutputColumn {
 			r.bindVars[semanticTupleBind] = column.ID
@@ -424,12 +433,12 @@ func (r *physicalPlanRenderer) renderSemanticGroupRowLineage(
 	collect = append(collect, codeTuple+" = ["+member+".system, "+member+".version, "+member+".code]")
 	sortKeys = append(sortKeys, codeTuple+" ASC")
 	selectedFields = append(selectedFields, "semanticTuple: "+codeTuple)
-	familyBinding := r.newInternalBindKeyWithValue("row_lineage_semantic_group_binding", semantic.BindingID)
-	familyRule := r.newInternalBindKeyWithValue("row_lineage_semantic_group_rule", semantic.RuleVersion)
-	familyID := r.newInternalBindKeyWithValue("row_lineage_semantic_group_family", semantic.FamilyID)
-	familySystem := r.newInternalBindKeyWithValue("row_lineage_semantic_group_system", semantic.System)
-	familyVersion := r.newInternalBindKeyWithValue("row_lineage_semantic_group_version", semantic.Version)
-	familyPath := r.newInternalBindKeyWithValue("row_lineage_semantic_group_path", semantic.CodingPath)
+	familyBinding := r.core.newInternalBindKeyWithValue("row_lineage_semantic_group_binding", semantic.BindingID)
+	familyRule := r.core.newInternalBindKeyWithValue("row_lineage_semantic_group_rule", semantic.RuleVersion)
+	familyID := r.core.newInternalBindKeyWithValue("row_lineage_semantic_group_family", semantic.FamilyID)
+	familySystem := r.core.newInternalBindKeyWithValue("row_lineage_semantic_group_system", semantic.System)
+	familyVersion := r.core.newInternalBindKeyWithValue("row_lineage_semantic_group_version", semantic.Version)
+	familyPath := r.core.newInternalBindKeyWithValue("row_lineage_semantic_group_path", semantic.CodingPath)
 	identityParts = append(identityParts, "[@"+semanticTupleBind+", \"semantic_family\", @"+familyBinding+", @"+familyRule+", @"+familyID+", @"+familySystem+", @"+familyVersion+", @"+familyPath+", "+codeTuple+"]")
 	semanticFilter := ""
 	switch group.MissingKeyPolicy {
@@ -460,14 +469,14 @@ func (r *physicalPlanRenderer) renderSemanticGroupRowLineage(
 		")",
 	)
 
-	contributor := r.newInternalVariable("row_lineage_semantic_contributor")
+	contributor := r.core.navigation().newInternalVariable("row_lineage_semantic_contributor")
 	contributorMembershipLines, contributorMemberships, contributorMember, err := r.semanticGroupMembershipForLineage(contributor, &lineageSemantic)
 	if err != nil {
 		return RenderedPhysicalPlan{}, err
 	}
 	contributorFilters := []string{selected + " != null"}
 	for index, key := range group.Keys {
-		columnBind := r.newInternalBindKeyWithValue("row_lineage_semantic_contributor_column", key.InputColumn)
+		columnBind := r.core.newInternalBindKeyWithValue("row_lineage_semantic_contributor_column", key.InputColumn)
 		value := fmt.Sprintf("%s[@%s]", contributor, columnBind)
 		if group.MissingKeyPolicy == ir.PhysicalStageGroupMissingKeyExclude {
 			contributorFilters = append(contributorFilters, value+" != null")
@@ -485,10 +494,10 @@ func (r *physicalPlanRenderer) renderSemanticGroupRowLineage(
 	}
 	contributorFilters = append(contributorFilters,
 		"["+contributorMember+".system, "+contributorMember+".version, "+contributorMember+".code] == "+selected+".semanticTuple")
-	resourceIDBind := r.newInternalBindKeyWithValue("row_lineage_semantic_resource_id_column", terminal.ResourceIDColumn)
-	occurrenceKeyBind := r.newInternalBindKeyWithValue("row_lineage_semantic_occurrence_key_column", terminal.OccurrenceKeyColumn)
-	resourceTypeBind := r.newInternalBindKeyWithValue("row_lineage_semantic_resource_type", terminal.ResourceType)
-	page := r.newInternalVariable("row_lineage_semantic_page")
+	resourceIDBind := r.core.newInternalBindKeyWithValue("row_lineage_semantic_resource_id_column", terminal.ResourceIDColumn)
+	occurrenceKeyBind := r.core.newInternalBindKeyWithValue("row_lineage_semantic_occurrence_key_column", terminal.OccurrenceKeyColumn)
+	resourceTypeBind := r.core.newInternalBindKeyWithValue("row_lineage_semantic_resource_type", terminal.ResourceType)
+	page := r.core.navigation().newInternalVariable("row_lineage_semantic_page")
 	lines := append([]string(nil), matchLines...)
 	lines = append(lines,
 		"LET "+page+" = (",
@@ -508,15 +517,15 @@ func (r *physicalPlanRenderer) renderSemanticGroupRowLineage(
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil
 }
 
-func (r *physicalPlanRenderer) semanticGroupMembershipForLineage(
+func (r rowLineageRenderer) semanticGroupMembershipForLineage(
 	inputRow string,
 	semantic *ir.PhysicalStageGroupSemanticKey,
 ) ([]string, string, string, error) {
-	lines, memberships, err := r.renderConstructionGroupSemanticMembership(semantic, constructionGroupInput{}, inputRow)
+	lines, memberships, err := r.core.renderConstructionGroupSemanticMembership(semantic, constructionGroupInput{}, inputRow)
 	if err != nil {
 		return nil, "", "", err
 	}
-	membership := r.newInternalVariable("row_lineage_semantic_membership")
+	membership := r.core.navigation().newInternalVariable("row_lineage_semantic_membership")
 	return lines, memberships, membership, nil
 }
 
@@ -527,7 +536,7 @@ func lineagePassedCondition(variable string) string {
 	return " AND " + variable + " != null"
 }
 
-func (r *physicalPlanRenderer) renderGroupFilterLineageCandidate(
+func (r rowLineageRenderer) renderGroupFilterLineageCandidate(
 	sourceQuery string,
 	groupStage ir.PhysicalConstructionStage,
 	filterStages []ir.PhysicalConstructionStage,
@@ -538,7 +547,7 @@ func (r *physicalPlanRenderer) renderGroupFilterLineageCandidate(
 	if group == nil {
 		return "", nil, fmt.Errorf("GROUP payload is required")
 	}
-	groupRows := r.newInternalVariable("row_lineage_filter_group_rows")
+	groupRows := r.core.navigation().newInternalVariable("row_lineage_filter_group_rows")
 	groupOutput := groupStage
 	candidateFilters := append([]ir.PhysicalConstructionStage(nil), filterStages...)
 	contributorColumn := ""
@@ -569,27 +578,27 @@ func (r *physicalPlanRenderer) renderGroupFilterLineageCandidate(
 			"  FILTER " + selected + " != null",
 		}
 		for index, key := range group.Keys {
-			columnBind := r.newInternalBindKey("row_lineage_filter_group_input_column")
+			columnBind := r.core.newInternalBindKey("row_lineage_filter_group_input_column")
 			r.bindVars[columnBind] = key.InputColumn
-			keyVar := r.newInternalVariable(fmt.Sprintf("row_lineage_filter_group_key_%d", index))
+			keyVar := r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_filter_group_key_%d", index))
 			lines = append(lines,
 				"  LET "+keyVar+" = "+input+"[@"+columnBind+"]",
 				"  FILTER "+keyVar+" == "+selected+"."+keyAliases[index],
 			)
 		}
-		groupLines, err = r.renderConstructionGroupStage(groupOutput, constructionGroupInput{SourceRowInScope: true})
+		groupLines, err = r.core.renderConstructionGroupStage(groupOutput, constructionGroupInput{SourceRowInScope: true})
 	} else {
-		input := r.newInternalVariable("row_lineage_filter_source")
-		inputRows := r.newInternalVariable("row_lineage_filter_group_inputs")
+		input := r.core.navigation().newInternalVariable("row_lineage_filter_source")
+		inputRows := r.core.navigation().newInternalVariable("row_lineage_filter_group_inputs")
 		lines = []string{
 			"LET " + inputRows + " = (",
 			"  FOR " + input + " IN (\n" + indentQuery(sourceQuery, "    ") + "\n  )",
 			"  FILTER " + selected + " != null",
 		}
 		for index, key := range group.Keys {
-			columnBind := r.newInternalBindKey("row_lineage_filter_group_input_column")
+			columnBind := r.core.newInternalBindKey("row_lineage_filter_group_input_column")
 			r.bindVars[columnBind] = key.InputColumn
-			keyVar := r.newInternalVariable(fmt.Sprintf("row_lineage_filter_group_key_%d", index))
+			keyVar := r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_filter_group_key_%d", index))
 			lines = append(lines,
 				"  LET "+keyVar+" = "+input+"[@"+columnBind+"]",
 				"  FILTER "+keyVar+" == "+selected+"."+keyAliases[index],
@@ -597,7 +606,7 @@ func (r *physicalPlanRenderer) renderGroupFilterLineageCandidate(
 		}
 		lines = append(lines, "  RETURN "+input, ")")
 		lines = append(lines, "LET "+groupRows+" = (")
-		groupLines, err = r.renderConstructionGroupStage(groupOutput, constructionGroupInput{RowsVariable: inputRows})
+		groupLines, err = r.core.renderConstructionGroupStage(groupOutput, constructionGroupInput{RowsVariable: inputRows})
 	}
 	if err != nil {
 		return "", nil, err
@@ -606,17 +615,17 @@ func (r *physicalPlanRenderer) renderGroupFilterLineageCandidate(
 	lines = append(lines, ")")
 	priorRows := groupRows
 	for index, filterStage := range candidateFilters {
-		stageRows := r.newInternalVariable(fmt.Sprintf("row_lineage_filter_stage_%d", index+1))
+		stageRows := r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_filter_stage_%d", index+1))
 		lines = append(lines,
 			"LET "+stageRows+" = (",
 			"  FOR "+filterStage.InputRowVariable+" IN "+priorRows,
 		)
-		predicate, renderErr := r.renderScopeOperation(ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: filterStage.Filter}, "  ")
+		predicate, renderErr := r.core.renderScopeOperation(ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: filterStage.Filter}, "  ")
 		if renderErr != nil {
 			return "", nil, fmt.Errorf("filter stage %q: %w", filterStage.ID, renderErr)
 		}
 		lines = append(lines, predicate...)
-		object, renderErr := r.renderReturn(ir.PhysicalReturn{Projections: filterStage.OutputProjections})
+		object, renderErr := r.core.renderReturn(ir.PhysicalReturn{Projections: filterStage.OutputProjections})
 		if renderErr != nil {
 			return "", nil, fmt.Errorf("filter stage %q output row: %w", filterStage.ID, renderErr)
 		}
@@ -627,8 +636,8 @@ func (r *physicalPlanRenderer) renderGroupFilterLineageCandidate(
 		)
 		priorRows = stageRows
 	}
-	passed := r.newInternalVariable("row_lineage_filter_selected")
-	final := r.newInternalVariable("row_lineage_filter_final")
+	passed := r.core.navigation().newInternalVariable("row_lineage_filter_selected")
+	final := r.core.navigation().newInternalVariable("row_lineage_filter_final")
 	lines = append(lines,
 		"LET "+passed+" = FIRST(",
 		"  FOR "+final+" IN "+priorRows,

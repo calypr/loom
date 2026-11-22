@@ -8,6 +8,7 @@ import (
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -38,50 +39,78 @@ func (s *Service) prepareRunInput(ctx context.Context, input dataframemodel.Fhir
 	if len(input.AuthResourcePaths) == 0 {
 		input.AuthResourcePaths = nil
 	}
-	if err := s.resolveNodeInputRefs(ctx, input.Project, generation, scope, input.RootResourceType, input.RootFields, input.RootFilters, input.RootPivots, input.RootAggregates, input.RootSlices); err != nil {
+	resolver := scopedInputResolver{
+		project: input.Project, datasetGeneration: generation,
+		scope: scope, discoverFields: s.discoverFields,
+	}
+	if err := resolver.resolveNodeInputRefs(ctx, nodeInput{
+		resourceType: input.RootResourceType, fields: input.RootFields,
+		filters: input.RootFilters, pivots: input.RootPivots,
+		aggregates: input.RootAggregates, slices: input.RootSlices,
+	}); err != nil {
 		return input, authscope.ReadScope{}, "", classifyError(err)
 	}
 	for _, step := range input.Traverse {
-		if err := s.resolveTraversalInputRefs(ctx, input.Project, generation, scope, step); err != nil {
+		if err := resolver.resolveTraversalInputRefs(ctx, step); err != nil {
 			return input, authscope.ReadScope{}, "", classifyError(err)
 		}
 	}
 	return input, scope.Clone(), generation, nil
 }
 
-func (s *Service) resolveTraversalInputRefs(ctx context.Context, project, datasetGeneration string, scope authscope.ReadScope, step *dataframemodel.FhirTraversalStepInput) error {
+type scopedInputResolver struct {
+	project           string
+	datasetGeneration string
+	scope             authscope.ReadScope
+	discoverFields    func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error)
+}
+
+type nodeInput struct {
+	resourceType string
+	fields       []*dataframemodel.FhirFieldSelectInput
+	filters      []*dataframemodel.FhirFilterInput
+	pivots       []*dataframemodel.FhirPivotInput
+	aggregates   []*dataframemodel.FhirAggregateInput
+	slices       []*dataframemodel.FhirRepresentativeSliceInput
+}
+
+func (r scopedInputResolver) resolveTraversalInputRefs(ctx context.Context, step *dataframemodel.FhirTraversalStepInput) error {
 	if step == nil {
 		return nil
 	}
-	if err := s.resolveNodeInputRefs(ctx, project, datasetGeneration, scope, step.ToResourceType, step.Fields, step.Filters, step.Pivots, step.Aggregates, step.Slices); err != nil {
+	if err := r.resolveNodeInputRefs(ctx, nodeInput{
+		resourceType: step.ToResourceType, fields: step.Fields,
+		filters: step.Filters, pivots: step.Pivots,
+		aggregates: step.Aggregates, slices: step.Slices,
+	}); err != nil {
 		return err
 	}
 	for _, child := range step.Traverse {
-		if err := s.resolveTraversalInputRefs(ctx, project, datasetGeneration, scope, child); err != nil {
+		if err := r.resolveTraversalInputRefs(ctx, child); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGeneration string, scope authscope.ReadScope, resourceType string, fields []*dataframemodel.FhirFieldSelectInput, filters []*dataframemodel.FhirFilterInput, pivots []*dataframemodel.FhirPivotInput, aggregates []*dataframemodel.FhirAggregateInput, slices []*dataframemodel.FhirRepresentativeSliceInput) error {
-	discovered, err := s.discoverFields(ctx, catalog.PopulatedFieldOptions{
-		Project:                       project,
-		DatasetGeneration:             datasetGeneration,
-		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(scope.Unrestricted()),
-		AuthResourcePaths:             cloneStrings(scope.AuthResourcePaths),
-		ResourceType:                  resourceType,
+func (r scopedInputResolver) resolveNodeInputRefs(ctx context.Context, input nodeInput) error {
+	discovered, err := r.discoverFields(ctx, fieldprofile.PopulatedFieldOptions{
+		Project:                       r.project,
+		DatasetGeneration:             r.datasetGeneration,
+		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(r.scope.Unrestricted()),
+		AuthResourcePaths:             cloneStrings(r.scope.AuthResourcePaths),
+		ResourceType:                  input.resourceType,
 	})
 	if err != nil {
 		return queryBackend(err)
 	}
 
-	for _, field := range fields {
+	for _, field := range input.fields {
 		if field == nil {
 			continue
 		}
 		if strings.TrimSpace(derefString(field.FieldRef)) != "" {
-			selectorText, err := resolveFieldRef(resourceType, discovered, derefString(field.FieldRef))
+			selectorText, err := resolveFieldRef(input.resourceType, discovered, derefString(field.FieldRef))
 			if err != nil {
 				return classifyError(err)
 			}
@@ -90,7 +119,7 @@ func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGene
 		if len(field.FallbackFieldRefs) > 0 {
 			fallbacks := make([]*dataframemodel.FhirFieldSelectorInput, 0, len(field.FallbackFieldRefs))
 			for _, ref := range field.FallbackFieldRefs {
-				selectorText, err := resolveFieldRef(resourceType, discovered, ref)
+				selectorText, err := resolveFieldRef(input.resourceType, discovered, ref)
 				if err != nil {
 					return err
 				}
@@ -100,12 +129,12 @@ func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGene
 		}
 	}
 
-	for _, pivot := range pivots {
+	for _, pivot := range input.pivots {
 		if pivot == nil {
 			continue
 		}
 		if strings.TrimSpace(derefString(pivot.FieldRef)) != "" {
-			hint, err := resolvePivotFieldRef(resourceType, discovered, derefString(pivot.FieldRef))
+			hint, err := resolvePivotFieldRef(input.resourceType, discovered, derefString(pivot.FieldRef))
 			if err != nil {
 				return err
 			}
@@ -118,30 +147,30 @@ func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGene
 		}
 	}
 
-	for _, filter := range filters {
+	for _, filter := range input.filters {
 		if filter == nil || strings.TrimSpace(derefString(filter.FieldRef)) == "" {
 			continue
 		}
-		selector, err := resolveFieldRef(resourceType, discovered, derefString(filter.FieldRef))
+		selector, err := resolveFieldRef(input.resourceType, discovered, derefString(filter.FieldRef))
 		if err != nil {
 			return err
 		}
 		filter.Select = selector
 	}
 
-	for _, aggregate := range aggregates {
+	for _, aggregate := range input.aggregates {
 		if aggregate == nil {
 			continue
 		}
 		if strings.TrimSpace(derefString(aggregate.FieldRef)) != "" {
-			selector, err := resolveFieldRef(resourceType, discovered, derefString(aggregate.FieldRef))
+			selector, err := resolveFieldRef(input.resourceType, discovered, derefString(aggregate.FieldRef))
 			if err != nil {
 				return err
 			}
 			aggregate.FhirPath = &selector
 		}
 		if strings.TrimSpace(derefString(aggregate.PredicateFieldRef)) != "" {
-			selector, err := resolveFieldRef(resourceType, discovered, derefString(aggregate.PredicateFieldRef))
+			selector, err := resolveFieldRef(input.resourceType, discovered, derefString(aggregate.PredicateFieldRef))
 			if err != nil {
 				return err
 			}
@@ -149,12 +178,12 @@ func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGene
 		}
 	}
 
-	for _, slice := range slices {
+	for _, slice := range input.slices {
 		if slice == nil {
 			continue
 		}
 		if strings.TrimSpace(derefString(slice.WhereFieldRef)) != "" {
-			selector, err := resolveFieldRef(resourceType, discovered, derefString(slice.WhereFieldRef))
+			selector, err := resolveFieldRef(input.resourceType, discovered, derefString(slice.WhereFieldRef))
 			if err != nil {
 				return err
 			}
@@ -165,7 +194,7 @@ func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGene
 				continue
 			}
 			if strings.TrimSpace(derefString(field.FieldRef)) != "" {
-				selectorText, err := resolveFieldRef(resourceType, discovered, derefString(field.FieldRef))
+				selectorText, err := resolveFieldRef(input.resourceType, discovered, derefString(field.FieldRef))
 				if err != nil {
 					return err
 				}
@@ -174,7 +203,7 @@ func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGene
 			if len(field.FallbackFieldRefs) > 0 {
 				fallbacks := make([]*dataframemodel.FhirFieldSelectorInput, 0, len(field.FallbackFieldRefs))
 				for _, ref := range field.FallbackFieldRefs {
-					selectorText, err := resolveFieldRef(resourceType, discovered, ref)
+					selectorText, err := resolveFieldRef(input.resourceType, discovered, ref)
 					if err != nil {
 						return err
 					}
@@ -188,17 +217,17 @@ func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGene
 	return nil
 }
 
-func resolvePivotFieldRef(resourceType string, discovered []catalog.PopulatedField, fieldRef string) (catalog.PopulatedField, error) {
+func resolvePivotFieldRef(resourceType string, discovered []fieldprofile.PopulatedField, fieldRef string) (fieldprofile.PopulatedField, error) {
 	fieldRef = strings.TrimSpace(fieldRef)
 	if fieldRef == "" {
-		return catalog.PopulatedField{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+		return fieldprofile.PopulatedField{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	for _, field := range discovered {
 		if defaultFieldRef(resourceType, field.Path) == fieldRef {
 			return field, nil
 		}
 	}
-	return catalog.PopulatedField{}, dataframeerrors.NewError(dataframeerrors.CodeUnknownField, fmt.Sprintf("unknown pivot fieldRef %q for resourceType %q", fieldRef, resourceType))
+	return fieldprofile.PopulatedField{}, dataframeerrors.NewError(dataframeerrors.CodeUnknownField, fmt.Sprintf("unknown pivot fieldRef %q for resourceType %q", fieldRef, resourceType))
 }
 
 func (s *Service) resolveReadScopeForGeneration(ctx context.Context, principal *authscope.Principal, project, datasetGeneration string, requested []string) (authscope.ReadScope, error) {

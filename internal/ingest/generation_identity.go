@@ -11,9 +11,9 @@ import (
 	publication "github.com/calypr/loom/internal/dataset"
 )
 
-const generationIdentityField = "dataset_generation"
+const GenerationIdentityField = "dataset_generation"
 
-const logicalKeyField = "logical_key"
+const LogicalKeyField = "logical_key"
 
 type generationRowBuilder struct {
 	delegate          RowBuilder
@@ -23,11 +23,11 @@ type generationRowBuilder struct {
 	identityFormat    string
 }
 
-func newGenerationRowBuilder(delegate RowBuilder, project, datasetGeneration string) (*generationRowBuilder, error) {
-	return newGenerationRowBuilderWithFormat(delegate, project, datasetGeneration, publication.IdentityFormatCompact)
+func NewGenerationRowBuilder(delegate RowBuilder, project, datasetGeneration string) (*generationRowBuilder, error) {
+	return NewGenerationRowBuilderWithFormat(delegate, project, datasetGeneration, publication.IdentityFormatCompact)
 }
 
-func newGenerationRowBuilderWithFormat(delegate RowBuilder, project, datasetGeneration, identityFormat string) (*generationRowBuilder, error) {
+func NewGenerationRowBuilderWithFormat(delegate RowBuilder, project, datasetGeneration, identityFormat string) (*generationRowBuilder, error) {
 	if delegate == nil {
 		return nil, fmt.Errorf("generation row builder requires a delegate")
 	}
@@ -53,56 +53,56 @@ func newGenerationRowBuilderWithFormat(delegate RowBuilder, project, datasetGene
 	}, nil
 }
 
-func (b *generationRowBuilder) Build(resourceType string, line []byte, stageSeconds map[string]float64) (rowBuildResult, rowErrorType, error) {
+func (b *generationRowBuilder) Build(resourceType string, line []byte, stageSeconds map[string]float64) (RowBuildResult, RowErrorType, error) {
 	return b.BuildWithSourceFile(resourceType, line, stageSeconds, "")
 }
 
-func (b *generationRowBuilder) BuildWithSourceFile(resourceType string, line []byte, stageSeconds map[string]float64, sourceFile string) (rowBuildResult, rowErrorType, error) {
+func (b *generationRowBuilder) BuildWithSourceFile(resourceType string, line []byte, stageSeconds map[string]float64, sourceFile string) (RowBuildResult, RowErrorType, error) {
 	if b.generated != nil {
 		result, errType, err := b.generated.build(resourceType, line, stageSeconds, b.datasetGeneration, sourceFile, b.identityFormat)
 		if err != nil {
-			return rowBuildResult{}, errType, err
+			return RowBuildResult{}, errType, err
 		}
 		return result, "", nil
 	}
 	result, errType, err := b.delegate.Build(resourceType, line, stageSeconds)
 	if err != nil {
-		return rowBuildResult{}, errType, err
+		return RowBuildResult{}, errType, err
 	}
 	namespaced, err := namespaceRowBuildResultWithFormat(result, b.project, b.datasetGeneration, resourceType, b.identityFormat)
 	if err != nil {
-		return rowBuildResult{}, rowErrorGeneration, err
+		return RowBuildResult{}, RowErrorGeneration, err
 	}
 	if sourceFile != "" {
 		namespaced.edges, err = sourceFileOwnerEdges(namespaced.edges, sourceFile)
 		if err != nil {
-			return rowBuildResult{}, rowErrorEdge, err
+			return RowBuildResult{}, RowErrorEdge, err
 		}
 	}
 	return namespaced, "", nil
 }
 
-func namespaceRowBuildResult(result rowBuildResult, project, datasetGeneration, resourceType string) (rowBuildResult, error) {
+func namespaceRowBuildResult(result RowBuildResult, project, datasetGeneration, resourceType string) (RowBuildResult, error) {
 	return namespaceRowBuildResultWithFormat(result, project, datasetGeneration, resourceType, publication.IdentityFormatCompact)
 }
 
-func namespaceRowBuildResultWithFormat(result rowBuildResult, project, datasetGeneration, resourceType, identityFormat string) (rowBuildResult, error) {
+func namespaceRowBuildResultWithFormat(result RowBuildResult, project, datasetGeneration, resourceType, identityFormat string) (RowBuildResult, error) {
 	project = strings.TrimSpace(project)
 	datasetGeneration = strings.TrimSpace(datasetGeneration)
 	resourceType = strings.TrimSpace(resourceType)
 	if project == "" || datasetGeneration == "" || resourceType == "" {
-		return rowBuildResult{}, fmt.Errorf("namespace row result requires project, dataset generation, and resource type")
+		return RowBuildResult{}, fmt.Errorf("namespace row result requires project, dataset generation, and resource type")
 	}
 
 	vertex, logicalVertexKey, err := namespaceVertexDocumentWithFormat(result.vertex, project, datasetGeneration, resourceType, identityFormat)
 	if err != nil {
-		return rowBuildResult{}, err
+		return RowBuildResult{}, err
 	}
 	edges, err := namespaceRowEdgesWithFormat(result.edges, project, datasetGeneration, identityFormat)
 	if err != nil {
-		return rowBuildResult{}, fmt.Errorf("namespace %s/%s: %w", resourceType, logicalVertexKey, err)
+		return RowBuildResult{}, fmt.Errorf("namespace %s/%s: %w", resourceType, logicalVertexKey, err)
 	}
-	return rowBuildResult{vertex: vertex, edges: edges, payload: result.payload}, nil
+	return RowBuildResult{vertex: vertex, edges: edges, payload: result.payload}, nil
 }
 
 func namespaceRowEdges(edges []json.RawMessage, project, datasetGeneration string) ([]json.RawMessage, error) {
@@ -112,7 +112,7 @@ func namespaceRowEdges(edges []json.RawMessage, project, datasetGeneration strin
 func namespaceRowEdgesWithFormat(edges []json.RawMessage, project, datasetGeneration, identityFormat string) ([]json.RawMessage, error) {
 	namespaced := make([]json.RawMessage, len(edges))
 	for index, edge := range edges {
-		document, err := namespaceEdgeDocumentWithFormat(edge, project, datasetGeneration, identityFormat)
+		document, err := NamespaceEdgeDocumentWithFormat(edge, project, datasetGeneration, identityFormat)
 		if err != nil {
 			return nil, fmt.Errorf("edge %d: %w", index, err)
 		}
@@ -126,7 +126,7 @@ func namespaceVertexDocument(raw json.RawMessage, project, datasetGeneration, re
 }
 
 func namespaceVertexDocumentWithFormat(raw json.RawMessage, project, datasetGeneration, resourceType, identityFormat string) (json.RawMessage, string, error) {
-	document, err := decodeTopLevelDocument(raw)
+	document, err := DecodeTopLevelDocument(raw)
 	if err != nil {
 		return nil, "", err
 	}
@@ -137,9 +137,9 @@ func namespaceVertexDocumentWithFormat(raw json.RawMessage, project, datasetGene
 	if err := requireProject(document, project); err != nil {
 		return nil, "", fmt.Errorf("vertex: %w", err)
 	}
-	document[logicalKeyField] = json.RawMessage(strconvQuote(logicalKey))
-	document[generationIdentityField] = json.RawMessage(strconvQuote(datasetGeneration))
-	document["_key"] = json.RawMessage(strconvQuote(generationDocumentKeyWithFormat(project, datasetGeneration, resourceType, logicalKey, identityFormat)))
+	document[LogicalKeyField] = json.RawMessage(QuoteDocumentString(logicalKey))
+	document[GenerationIdentityField] = json.RawMessage(QuoteDocumentString(datasetGeneration))
+	document["_key"] = json.RawMessage(QuoteDocumentString(GenerationDocumentKeyWithFormat(project, datasetGeneration, resourceType, logicalKey, identityFormat)))
 	encoded, err := json.Marshal(document)
 	if err != nil {
 		return nil, "", fmt.Errorf("marshal namespaced vertex: %w", err)
@@ -148,11 +148,11 @@ func namespaceVertexDocumentWithFormat(raw json.RawMessage, project, datasetGene
 }
 
 func namespaceEdgeDocument(raw json.RawMessage, project, datasetGeneration string) (json.RawMessage, error) {
-	return namespaceEdgeDocumentWithFormat(raw, project, datasetGeneration, publication.IdentityFormatCompact)
+	return NamespaceEdgeDocumentWithFormat(raw, project, datasetGeneration, publication.IdentityFormatCompact)
 }
 
-func namespaceEdgeDocumentWithFormat(raw json.RawMessage, project, datasetGeneration, identityFormat string) (json.RawMessage, error) {
-	document, err := decodeTopLevelDocument(raw)
+func NamespaceEdgeDocumentWithFormat(raw json.RawMessage, project, datasetGeneration, identityFormat string) (json.RawMessage, error) {
+	document, err := DecodeTopLevelDocument(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -179,14 +179,14 @@ func namespaceEdgeDocumentWithFormat(raw json.RawMessage, project, datasetGenera
 	if err != nil {
 		return nil, fmt.Errorf("edge _to: %w", err)
 	}
-	document[logicalKeyField] = json.RawMessage(strconvQuote(logicalKey))
+	document[LogicalKeyField] = json.RawMessage(QuoteDocumentString(logicalKey))
 
-	document["logical_from"] = json.RawMessage(strconvQuote(from))
-	document["logical_to"] = json.RawMessage(strconvQuote(to))
-	document[generationIdentityField] = json.RawMessage(strconvQuote(datasetGeneration))
-	document["_key"] = json.RawMessage(strconvQuote(generationEdgeKeyWithFormat(project, datasetGeneration, logicalKey, from, to, identityFormat)))
-	document["_from"] = json.RawMessage(strconvQuote(namespacedFrom))
-	document["_to"] = json.RawMessage(strconvQuote(namespacedTo))
+	document["logical_from"] = json.RawMessage(QuoteDocumentString(from))
+	document["logical_to"] = json.RawMessage(QuoteDocumentString(to))
+	document[GenerationIdentityField] = json.RawMessage(QuoteDocumentString(datasetGeneration))
+	document["_key"] = json.RawMessage(QuoteDocumentString(generationEdgeKeyWithFormat(project, datasetGeneration, logicalKey, from, to, identityFormat)))
+	document["_from"] = json.RawMessage(QuoteDocumentString(namespacedFrom))
+	document["_to"] = json.RawMessage(QuoteDocumentString(namespacedTo))
 	encoded, err := json.Marshal(document)
 	if err != nil {
 		return nil, fmt.Errorf("marshal namespaced edge: %w", err)
@@ -194,7 +194,7 @@ func namespaceEdgeDocumentWithFormat(raw json.RawMessage, project, datasetGenera
 	return json.RawMessage(encoded), nil
 }
 
-func decodeTopLevelDocument(raw json.RawMessage) (map[string]json.RawMessage, error) {
+func DecodeTopLevelDocument(raw json.RawMessage) (map[string]json.RawMessage, error) {
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("empty document")
 	}
@@ -240,18 +240,18 @@ func generationDocumentIDWithFormat(project, datasetGeneration, documentID, iden
 	if !ok || strings.TrimSpace(collection) == "" || strings.TrimSpace(logicalKey) == "" || strings.Contains(logicalKey, "/") {
 		return "", fmt.Errorf("document ID %q must be collection/key", documentID)
 	}
-	return collection + "/" + generationDocumentKeyWithFormat(project, datasetGeneration, collection, logicalKey, identityFormat), nil
+	return collection + "/" + GenerationDocumentKeyWithFormat(project, datasetGeneration, collection, logicalKey, identityFormat), nil
 }
 
 func generationDocumentKey(project, datasetGeneration, collection, logicalKey string) string {
-	return generationDocumentKeyWithFormat(project, datasetGeneration, collection, logicalKey, publication.IdentityFormatCompact)
+	return GenerationDocumentKeyWithFormat(project, datasetGeneration, collection, logicalKey, publication.IdentityFormatCompact)
 }
 
 func generationEdgeKey(project, datasetGeneration, logicalKey, from, to string) string {
 	return generationEdgeKeyWithFormat(project, datasetGeneration, logicalKey, from, to, publication.IdentityFormatCompact)
 }
 
-func generationDocumentKeyWithFormat(project, datasetGeneration, collection, logicalKey, format string) string {
+func GenerationDocumentKeyWithFormat(project, datasetGeneration, collection, logicalKey, format string) string {
 	format = normalizeIdentityFormat(format)
 	if format == publication.IdentityFormatLegacy {
 		return "g_" + generationHash("vertex", project, datasetGeneration, collection, logicalKey, "", 5, 64)
@@ -288,7 +288,7 @@ func generationHash(first, second, third, fourth, fifth, sixth string, partCount
 	return string(encoded[:hexLength])
 }
 
-func strconvQuote(value string) string {
+func QuoteDocumentString(value string) string {
 	encoded, _ := json.Marshal(value)
 	return string(encoded)
 }

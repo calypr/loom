@@ -209,7 +209,3 @@ func cloneSort(value *Sort) *Sort {
 	clone := *value
 	return &clone
 }
-
-func (f ExportFormat) Normalize() ExportFormat {
-	return ExportFormat(strings.ToUpper(strings.TrimSpace(string(f))))
-}

@@ -8,6 +8,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestApplyConstructionProposalAfterStoredV9MigrationUsesCurrentOwnerCAS(t *testing.T) {
@@ -32,7 +33,7 @@ func TestApplyConstructionProposalAfterStoredV9MigrationUsesCurrentOwnerCAS(t *t
 
 	compileReceipt := service.config.CompileReceipt
 	catalog := service.catalog(snapshot, store.created.ExplorerID)
-	service.config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		prepared, prepareErr := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, catalog)
 		if prepareErr != nil {
 			return nil, prepareErr

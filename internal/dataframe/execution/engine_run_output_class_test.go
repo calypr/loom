@@ -53,7 +53,7 @@ func runOutputResolved(names ...string) Resolved {
 
 func TestEngineRunUnknownOutputIsUserFault(t *testing.T) {
 	e, _ := newRunTestFixture(t)
-	_, err := e.streamsWithLimit(context.Background(), runOutputResolved("does-not-exist"), 0)
+	_, err := e.outputStreams().streamsWithLimit(context.Background(), runOutputResolved("does-not-exist"), 0)
 	userErr, ok := dataframeerrors.AsUserError(err)
 	if !ok {
 		t.Fatalf("unknown run output escaped as untyped (Engine.Run -> recipeControlBackend publishes retryable BACKEND_UNAVAILABLE for the raw leaf; the receipt-validation Streams channel reaches the leaf, and Control.Run's own output-selection rejection is a separate pre-wrapper 500 channel): %v", err)
@@ -72,7 +72,7 @@ func TestEngineRunUnknownOutputIsUserFault(t *testing.T) {
 func TestEngineRunBlankOutputIsUserFault(t *testing.T) {
 	e, _ := newRunTestFixture(t)
 	for _, name := range []string{"", "   "} {
-		_, err := e.streamsWithLimit(context.Background(), runOutputResolved(name), 0)
+		_, err := e.outputStreams().streamsWithLimit(context.Background(), runOutputResolved(name), 0)
 		userErr, ok := dataframeerrors.AsUserError(err)
 		if !ok {
 			t.Fatalf("blank run output %q escaped as untyped: %v", name, err)
@@ -85,7 +85,7 @@ func TestEngineRunBlankOutputIsUserFault(t *testing.T) {
 
 func TestEngineRunKnownOutputStillResolves(t *testing.T) {
 	e, _ := newRunTestFixture(t)
-	_, err := e.streamsWithLimit(context.Background(), runOutputResolved("patients"), 0)
+	_, err := e.outputStreams().streamsWithLimit(context.Background(), runOutputResolved("patients"), 0)
 	if err != nil && strings.Contains(err.Error(), "was not found") {
 		t.Fatalf("valid output must not take the unknown-output arm: %v", err)
 	}

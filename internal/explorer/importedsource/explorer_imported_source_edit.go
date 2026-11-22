@@ -11,49 +11,50 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/google/uuid"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+
 	"github.com/calypr/loom/internal/explorer/recipeimport"
 	"github.com/calypr/loom/internal/projectid"
 )
 
-func (r Sources) Edit(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
+func (r Sources) Edit(ctx context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
 	return r.editSource(ctx, project, authorized, document, change, nil)
 }
 
-func (r Sources) CreateSourceRule(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, rule authoringv2.SourceRuleCreate) (authoringv2.Document, error) {
+func (r Sources) CreateSourceRule(ctx context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document, rule authoringv2.SourceRuleCreate) (authoringv2.Document, error) {
 	if err := rule.Validate(); err != nil {
 		return authoringv2.Document{}, err
 	}
 	return r.editSources(ctx, project, authorized, document, nil, nil, &rule)
 }
 
-func (r Sources) EditRelationship(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
+func (r Sources) EditRelationship(ctx context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document, change authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
 	if err := change.Validate(); err != nil {
 		return authoringv2.Document{}, err
 	}
 	return r.editSource(ctx, project, authorized, document, nil, &change)
 }
 
-func (r Sources) EditBatch(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, changes []authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
+func (r Sources) EditBatch(ctx context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document, changes []authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
 	if err := authoringv2.ValidateImportedSourceStepBatch(changes); err != nil {
 		return authoringv2.Document{}, err
 	}
 	return r.editSources(ctx, project, authorized, document, changes, nil, nil)
 }
-func (r Sources) editSource(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange, relationship *authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
+func (r Sources) editSource(ctx context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange, relationship *authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
 	var changes []authoringv2.ImportedSourceStepChange
 	if change != nil {
 		changes = []authoringv2.ImportedSourceStepChange{*change}
 	}
 	return r.editSources(ctx, project, authorized, document, changes, relationship, nil)
 }
-func (r Sources) editSources(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, changes []authoringv2.ImportedSourceStepChange, relationship *authoringv2.ImportedRelationshipChange, rule *authoringv2.SourceRuleCreate) (authoringv2.Document, error) {
+func (r Sources) editSources(ctx context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document, changes []authoringv2.ImportedSourceStepChange, relationship *authoringv2.ImportedRelationshipChange, rule *authoringv2.SourceRuleCreate) (authoringv2.Document, error) {
 	if len(changes) > 0 {
 		if err := authoringv2.ValidateImportedSourceStepBatch(changes); err != nil {
 			return authoringv2.Document{}, err
@@ -67,7 +68,7 @@ func (r Sources) editSources(ctx context.Context, project string, authorized lif
 		return authoringv2.Document{}, err
 	}
 	if r.registry == nil || r.engine == nil || ref.Name != r.defaultName {
-		return authoringv2.Document{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported source recipes are not configured"}
+		return authoringv2.Document{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported source recipes are not configured"}
 	}
 	if projectid.Canonical(project) != projectid.Canonical(authorized.Snapshot.Identity.Project) {
 		return authoringv2.Document{}, capability.ErrStaleSnapshot
@@ -77,7 +78,7 @@ func (r Sources) editSources(ctx context.Context, project string, authorized lif
 	}
 	entry, err := r.registry.LoadRecipeVersion(ctx, ref.Name, ref.TranslationVersion)
 	if err != nil {
-		return authoringv2.Document{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the pinned dataframe recipe could not be loaded", Cause: err}
+		return authoringv2.Document{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the pinned dataframe recipe could not be loaded", Cause: err}
 	}
 	bundle, err := entry.Bundle.CanonicalBundle()
 	if err != nil {

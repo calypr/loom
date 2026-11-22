@@ -34,11 +34,11 @@ func TestDynamicPivotPreviewQuerySizeDoesNotScaleWithCategoryCount(t *testing.T)
 			Categories: categories, DuplicatePolicy: "SUM", MissingCellPolicy: "NULL",
 			UnlistedCategoryPolicy: "ERROR",
 		}
-		renderer := physicalPlanRenderer{
+		renderer := physicalPlanRenderer{renderContext: renderContext{
 			bindVars: bindVars, collectionKeys: map[string]struct{}{}, reservedVars: map[string]struct{}{},
 			dynamicPivotPreview: dynamic,
-		}
-		lines, err := renderer.renderGroupedTablePivot(pivot, true, "limit")
+		}}
+		lines, err := renderer.tableShape().renderGroupedTablePivot(pivot, true, "limit")
 		if err != nil {
 			t.Fatalf("render %d-category pivot (dynamic=%t): %v", categoryCount, dynamic, err)
 		}
@@ -122,11 +122,11 @@ func TestDynamicPivotPreviewBindsMissingCategoryWithPresenceProof(t *testing.T) 
 		Categories:      []ir.PhysicalGroupedPivotCategory{{Output: "missing", MatchKind: ir.PhysicalPivotCategoryMissingMatch}},
 		DuplicatePolicy: "SUM", MissingCellPolicy: "NULL", UnlistedCategoryPolicy: "ERROR",
 	}
-	renderer := physicalPlanRenderer{
+	renderer := physicalPlanRenderer{renderContext: renderContext{
 		bindVars: bindVars, collectionKeys: map[string]struct{}{}, reservedVars: map[string]struct{}{},
 		dynamicPivotPreview: true,
-	}
-	lines, err := renderer.renderGroupedTablePivot(pivot, true, "limit")
+	}}
+	lines, err := renderer.tableShape().renderGroupedTablePivot(pivot, true, "limit")
 	if err != nil {
 		t.Fatal(err)
 	}

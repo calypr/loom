@@ -5,12 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestDiagnosticErrorCauseCapsTypedSafeMessages(t *testing.T) {
 	message := strings.Repeat("safe diagnostic ", 32)
-	cause := diagnosticErrorCause(&lifecycle.Error{Code: "SAFE_TEST", Message: message})
+	cause := diagnosticErrorCause(&ports.Error{Code: "SAFE_TEST", Message: message})
 	if len(cause) != maxDiagnosticCauseBytes || !strings.HasSuffix(cause, "...") {
 		t.Fatalf("diagnostic cause length/suffix = %d/%q, want exactly %d bytes with ellipsis", len(cause), cause[len(cause)-3:], maxDiagnosticCauseBytes)
 	}

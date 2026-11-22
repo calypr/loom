@@ -7,25 +7,25 @@ import (
 	publication "github.com/calypr/loom/internal/dataset"
 )
 
-type runtimeFHIRSchema struct {
+type RuntimeFHIRSchema struct {
 	classes map[string]struct{}
 }
 
-func (s *runtimeFHIRSchema) HasClass(name string) bool {
+func (s *RuntimeFHIRSchema) HasClass(name string) bool {
 	_, ok := s.classes[name]
 	return ok
 }
 
-func loadRuntimeFHIRSchema() *runtimeFHIRSchema {
+func LoadRuntimeFHIRSchema() *RuntimeFHIRSchema {
 	resourceTypes := generated.ResourceTypes
 	classes := make(map[string]struct{}, len(resourceTypes))
 	for _, resourceType := range resourceTypes {
 		classes[resourceType] = struct{}{}
 	}
-	return &runtimeFHIRSchema{classes: classes}
+	return &RuntimeFHIRSchema{classes: classes}
 }
 
-func loadSchemaSnapshot() (publication.SchemaSnapshot, error) {
+func LoadSchemaSnapshot() (publication.SchemaSnapshot, error) {
 	resourceTypes := append([]string(nil), generated.ResourceTypes...)
 	sort.Strings(resourceTypes)
 	return publication.NewSchemaSnapshot(
@@ -36,10 +36,10 @@ func loadSchemaSnapshot() (publication.SchemaSnapshot, error) {
 	)
 }
 
-func loadSchema() (publication.SchemaSnapshot, *runtimeFHIRSchema, error) {
-	snapshot, err := loadSchemaSnapshot()
+func LoadSchema() (publication.SchemaSnapshot, *RuntimeFHIRSchema, error) {
+	snapshot, err := LoadSchemaSnapshot()
 	if err != nil {
 		return publication.SchemaSnapshot{}, nil, err
 	}
-	return snapshot, loadRuntimeFHIRSchema(), nil
+	return snapshot, LoadRuntimeFHIRSchema(), nil
 }

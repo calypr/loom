@@ -42,7 +42,7 @@ func emptyViewBuilderSettings(project string) explorer.ViewBuilderSettings {
 	return explorer.ViewBuilderSettings{Project: project, Catalogs: map[string]string{}}
 }
 
-func (s *Store) GetViewBuilderSettings(ctx context.Context, project string) (explorer.ViewBuilderSettings, error) {
+func (s *ViewBuilderStore) GetViewBuilderSettings(ctx context.Context, project string) (explorer.ViewBuilderSettings, error) {
 	project = strings.TrimSpace(project)
 	if project == "" {
 		return explorer.ViewBuilderSettings{}, fmt.Errorf("view builder project is required")
@@ -154,7 +154,7 @@ func canonicalProjectConfigProject(project string) string {
 	return projectid.Legacy(project)
 }
 
-func (s *Store) SaveViewBuilderConfig(ctx context.Context, mutation explorer.ViewBuilderMutation) error {
+func (s *ViewBuilderStore) SaveViewBuilderConfig(ctx context.Context, mutation explorer.ViewBuilderMutation) error {
 	project := canonicalProjectConfigProject(strings.TrimSpace(mutation.Project))
 	publication := mutation.Publication
 	if project == "" || publication.Definition.ID == "" || publication.Revision.ID == "" {
@@ -400,7 +400,7 @@ func sameProjectRecipeSnapshot(snapshot, viewRevision explorer.Revision) bool {
 		snapshot.Dataset.SchemaDigest == viewRevision.Dataset.SchemaDigest && snapshot.RecipeDigest == viewRevision.RecipeDigest
 }
 
-func (s *Store) DeleteViewBuilderConfig(ctx context.Context, project, id, expectedRevisionID string) error {
+func (s *ViewBuilderStore) DeleteViewBuilderConfig(ctx context.Context, project, id, expectedRevisionID string) error {
 	project = canonicalProjectConfigProject(strings.TrimSpace(project))
 	if project == "" || id == "" || expectedRevisionID == "" {
 		return explorer.ErrDraftConflict
@@ -448,7 +448,7 @@ func (s *Store) DeleteViewBuilderConfig(ctx context.Context, project, id, expect
 	return normalizeViewBuilderConflict(err)
 }
 
-func (s *Store) SaveViewBuilderDefaults(ctx context.Context, project string, request explorer.ViewBuilderDefaultsRequest) error {
+func (s *ViewBuilderStore) SaveViewBuilderDefaults(ctx context.Context, project string, request explorer.ViewBuilderDefaultsRequest) error {
 	project = canonicalProjectConfigProject(strings.TrimSpace(project))
 	if project == "" || request.DefaultConfigID == "" || request.DefaultFrameID == "" {
 		return fmt.Errorf("view builder default config and frame are required")
@@ -500,7 +500,7 @@ func projectConfigHasOutput(config explorer.ProjectConfig, output string) bool {
 	return false
 }
 
-func (s *Store) AdoptViewBuilderCatalogs(ctx context.Context, project string) error {
+func (s *ViewBuilderStore) AdoptViewBuilderCatalogs(ctx context.Context, project string) error {
 	project = canonicalProjectConfigProject(strings.TrimSpace(project))
 	if project == "" {
 		return fmt.Errorf("view builder project is required")

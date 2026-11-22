@@ -8,12 +8,13 @@ import (
 
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestRepositoryPublishActivationConflictMirrorsAuthoringContract(t *testing.T) {
 	wrapped := fmt.Errorf("activate release: arango preconditions emptied: %w", dataset.ErrReleaseActivationConflict)
 	lifecycleErr, store, err := repositoryPublishIntoActivation(t, wrapped)
-	if lifecycleErr.Class != ClassConflict || lifecycleErr.Code != "PUBLICATION_ACTIVATION_CONFLICT" {
+	if lifecycleErr.Class != ports.ClassConflict || lifecycleErr.Code != "PUBLICATION_ACTIVATION_CONFLICT" {
 		t.Fatalf("activation conflict classified %q/%q, want conflict/PUBLICATION_ACTIVATION_CONFLICT", lifecycleErr.Class, lifecycleErr.Code)
 	}
 	if _, retryable := lifecycleErr.Details["retryable"]; retryable {
@@ -38,7 +39,7 @@ func TestRepositoryPublishActivationConflictMirrorsAuthoringContract(t *testing.
 
 func TestRepositoryPublishActivationConflictUnwrappedSentinelClassifiesTheSame(t *testing.T) {
 	lifecycleErr, _, err := repositoryPublishIntoActivation(t, dataset.ErrReleaseActivationConflict)
-	if lifecycleErr.Class != ClassConflict || lifecycleErr.Code != "PUBLICATION_ACTIVATION_CONFLICT" {
+	if lifecycleErr.Class != ports.ClassConflict || lifecycleErr.Code != "PUBLICATION_ACTIVATION_CONFLICT" {
 		t.Fatalf("unwrapped sentinel classified %q/%q, want conflict/PUBLICATION_ACTIVATION_CONFLICT", lifecycleErr.Class, lifecycleErr.Code)
 	}
 	if !strings.Contains(err.Error(), "another publication won activation") {
@@ -48,7 +49,7 @@ func TestRepositoryPublishActivationConflictUnwrappedSentinelClassifiesTheSame(t
 
 func TestRepositoryPublishActivationInfrastructureFaultStaysRetryableUnavailable(t *testing.T) {
 	lifecycleErr, store, _ := repositoryPublishIntoActivation(t, errors.New("arango: connection reset by peer"))
-	if lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "RELEASE_ACTIVATION_FAILED" {
+	if lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "RELEASE_ACTIVATION_FAILED" {
 		t.Fatalf("infrastructure fault classified %q/%q, want unavailable/RELEASE_ACTIVATION_FAILED", lifecycleErr.Class, lifecycleErr.Code)
 	}
 	if store.repositoryRevision == nil || len(store.repositoryRevision.Diagnostics) != 1 || !store.repositoryRevision.Diagnostics[0].Retryable {

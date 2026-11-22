@@ -13,6 +13,7 @@ import (
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
 	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/dataset"
@@ -872,12 +873,12 @@ func TestCapabilityEvidenceRetainsObservedOwnerFieldsAndSemanticSummary(t *testi
 		}}},
 		FieldEnrichment: catalog.FieldEnrichmentResult{Values: []catalog.FieldEnrichmentObservation{{
 			ResourceType: "Patient", Path: "identifier", Kind: "object", DocCount: 3, DistinctValues: []string{"urn:mrn"},
-			SemanticObservations: []catalog.SemanticObservation{{
-				SchemaVersion: catalog.SemanticObservationSchemaVersion,
-				Source:        catalog.SemanticObservationSource{Type: "Patient", Path: "identifier"},
-				Key:           catalog.SemanticObservationKey{Selector: "system", System: "urn:mrn", Code: "MRN"},
-				Value:         catalog.SemanticObservationValue{Selector: "value", Type: "string"},
-				OwningScope:   "identifier", Completeness: catalog.SemanticComplete, Status: "SUPPORTED", Population: 3,
+			SemanticObservations: []codedconcept.Observation{{
+				SchemaVersion: codedconcept.ObservationSchemaVersion,
+				Source:        codedconcept.Source{Type: "Patient", Path: "identifier"},
+				Key:           codedconcept.Key{Selector: "system", System: "urn:mrn", Code: "MRN"},
+				Value:         codedconcept.Value{Selector: "value", Type: "string"},
+				OwningScope:   "identifier", Completeness: codedconcept.Complete, Status: "SUPPORTED", Population: 3,
 			}},
 		}}},
 	}

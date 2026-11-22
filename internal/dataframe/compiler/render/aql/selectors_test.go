@@ -10,11 +10,11 @@ import (
 )
 
 func newSelectorTestRenderer() *physicalPlanRenderer {
-	return &physicalPlanRenderer{
+	return &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:     map[string]any{},
 		setVariables: map[string]string{},
 		reservedVars: map[string]struct{}{},
-	}
+	}}
 }
 
 func TestAggregateItemRenderingKeepsDifferentSourceFallbackAtRoot(t *testing.T) {
@@ -40,7 +40,7 @@ func TestAggregateItemRenderingKeepsDifferentSourceFallbackAtRoot(t *testing.T) 
 			},
 		},
 	}
-	renderer := &physicalPlanRenderer{bindVars: map[string]any{}}
+	renderer := &physicalPlanRenderer{renderContext: renderContext{bindVars: map[string]any{}}}
 	query, err := renderer.renderAggregateItemValue(expression, "aggregate_item")
 	if err != nil {
 		t.Fatal(err)

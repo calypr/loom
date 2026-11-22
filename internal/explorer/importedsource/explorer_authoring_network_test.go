@@ -7,22 +7,18 @@ import (
 	"strings"
 	"testing"
 
-	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
-	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
-
-	recipeapi "github.com/calypr/loom/internal/api/recipe"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
-
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/recipeimport"
-
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -42,10 +38,10 @@ func TestRemoveFieldEditsLegacyPinAndPreservesAuthoredAddition(t *testing.T) {
 	resolver := Sources{registry: registry, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
 	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false,
 		[]capability.Node{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}, nil, nil, nil)
-	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
+	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	source, err := resolver.load(ctx, "project-a", bundle.Name, bundle.TranslationVersion, digest, authorized)
 	if err != nil {
-		if typed, ok := err.(*lifecycle.Error); ok {
+		if typed, ok := err.(*ports.Error); ok {
 			t.Fatalf("load imported source: %s: %v", typed.Code, typed.Cause)
 		}
 		t.Fatal(err)
@@ -150,10 +146,10 @@ func TestPinnedFieldRemovalInventoryKeepsUneditedTraversalFieldActionable(t *tes
 	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false,
 		[]capability.Node{{ID: "specimen", ResourceType: "Specimen", RowRootEligible: true}, {ID: "patient", ResourceType: "Patient"}},
 		[]capability.Edge{{ID: "subject", FromNodeID: "specimen", ToNodeID: "patient", Label: "subject", StorageDirection: "OUTBOUND"}}, nil, nil)
-	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
+	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	source, err := resolver.load(ctx, "project-a", bundle.Name, bundle.TranslationVersion, digest, authorized)
 	if err != nil {
-		if typed, ok := err.(*lifecycle.Error); ok {
+		if typed, ok := err.(*ports.Error); ok {
 			t.Fatalf("load traversal source: %s: %v", typed.Code, typed.Cause)
 		}
 		t.Fatal(err)
@@ -422,9 +418,9 @@ func TestRemoveOutputDisablesExactNestedExtensionMappingAcrossReload(t *testing.
 	const parentA = "https://example.test/parent-a"
 	const parentB = "https://example.test/parent-b"
 	const statusURL = "https://example.test/status"
-	fields := []catalog.PopulatedField{
-		{ResourceType: "DocumentReference", Path: "extension[].extension[].url", ExtensionValues: []catalog.ExtensionValueObservation{{URL: statusURL, SourcePath: "extension[].extension[]", URLPath: []string{parentA}, ValuePath: "valueString", ValueType: "string"}}},
-		{ResourceType: "DocumentReference", Path: "extension[].extension[].url", ExtensionValues: []catalog.ExtensionValueObservation{{URL: statusURL, SourcePath: "extension[].extension[]", URLPath: []string{parentB}, ValuePath: "valueString", ValueType: "string"}}},
+	fields := []fieldprofile.PopulatedField{
+		{ResourceType: "DocumentReference", Path: "extension[].extension[].url", ExtensionValues: []fieldprofile.ExtensionValueObservation{{URL: statusURL, SourcePath: "extension[].extension[]", URLPath: []string{parentA}, ValuePath: "valueString", ValueType: "string"}}},
+		{ResourceType: "DocumentReference", Path: "extension[].extension[].url", ExtensionValues: []fieldprofile.ExtensionValueObservation{{URL: statusURL, SourcePath: "extension[].extension[]", URLPath: []string{parentB}, ValuePath: "valueString", ValueType: "string"}}},
 	}
 	output := recipe.Output{Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "file", ExtensionColumns: []recipe.ExtensionColumn{{Name: "extensions", Source: recipe.Expression{Select: "root.extension[]"}, MaxColumns: 8}}}
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "default", TranslationVersion: "v1", Outputs: []recipe.Output{output}}
@@ -438,7 +434,7 @@ func TestRemoveOutputDisablesExactNestedExtensionMappingAcrossReload(t *testing.
 		Registry:    registry,
 		QueryRows:   func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
 		ScopeDigest: reciperuntime.ScopeDigest,
-		ResolveBundle: recipeapi.RecipeSchemaResolver(func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+		ResolveBundle: reciperuntime.RecipeSchemaResolver(func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 			if options.ResourceType != "DocumentReference" {
 				return nil, fmt.Errorf("unexpected discovery resource type %q", options.ResourceType)
 			}
@@ -451,7 +447,7 @@ func TestRemoveOutputDisablesExactNestedExtensionMappingAcrossReload(t *testing.
 	resolver := Sources{registry: registry, engine: engine, defaultName: bundle.Name}
 	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false,
 		[]capability.Node{{ID: "document-reference", ResourceType: "DocumentReference", RowRootEligible: true}}, nil, nil, nil)
-	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
+	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	resolved, err := resolver.load(ctx, "project-a", bundle.Name, bundle.TranslationVersion, digest, authorized)
 	if err != nil {
 		t.Fatal(err)
@@ -537,7 +533,7 @@ func TestRemoveOutputDisablesExactDynamicKeyAndPreservesSibling(t *testing.T) {
 		Registry:    registry,
 		QueryRows:   func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
 		ScopeDigest: reciperuntime.ScopeDigest,
-		ResolveBundle: recipeapi.RecipeSchemaResolver(func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+		ResolveBundle: reciperuntime.RecipeSchemaResolver(func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 			return nil, nil
 		}, nil),
 	})
@@ -547,10 +543,10 @@ func TestRemoveOutputDisablesExactDynamicKeyAndPreservesSibling(t *testing.T) {
 	resolver := Sources{registry: registry, engine: engine, defaultName: bundle.Name}
 	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false,
 		[]capability.Node{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}, nil, nil, nil)
-	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
+	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	resolved, err := resolver.load(ctx, "project-a", bundle.Name, bundle.TranslationVersion, digest, authorized)
 	if err != nil {
-		if typed, ok := err.(*lifecycle.Error); ok {
+		if typed, ok := err.(*ports.Error); ok {
 			t.Fatalf("load source: %s: %#v", typed.Code, typed.Cause)
 		}
 		t.Fatal(err)

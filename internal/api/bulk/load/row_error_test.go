@@ -10,6 +10,7 @@ import (
 	fhir "github.com/calypr/loom/fhir/model"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/sourceload"
 )
 
 func TestRowValidationResponseExplainsFileAndField(t *testing.T) {
@@ -55,7 +56,7 @@ func TestInternalRowFailuresKeepServerStatus(t *testing.T) {
 }
 
 func TestSourceLimitResponseNamesItsBudget(t *testing.T) {
-	mapped := httpapi.MapDataframeError(normalizeError(&ingest.SourcePublishLimitError{
+	mapped := httpapi.MapDataframeError(normalizeError(&sourceload.SourcePublishLimitError{
 		Limit: "document count", Maximum: 25000,
 	}), "limit-test")
 	if mapped.Status != http.StatusRequestEntityTooLarge ||

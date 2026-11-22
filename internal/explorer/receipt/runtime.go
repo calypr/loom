@@ -15,7 +15,7 @@ import (
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	"github.com/calypr/loom/internal/explorer"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 type RuntimeConfig struct {
@@ -25,8 +25,8 @@ type RuntimeConfig struct {
 	Logger                  *slog.Logger
 	CombineInputSchemas     CombineInputSchemaResolver
 	ImportedSources         ImportedRecipeResolver
-	ConstructionSourceStage lifecycle.ConstructionSourceStageCompiler
-	Materializer            lifecycle.ReceiptMaterializer
+	ConstructionSourceStage ports.ConstructionSourceStageCompiler
+	Materializer            ports.ReceiptMaterializer
 }
 
 type Runtime struct {
@@ -36,8 +36,8 @@ type Runtime struct {
 	logger                  *slog.Logger
 	combineInputSchemas     CombineInputSchemaResolver
 	importedSources         ImportedRecipeResolver
-	constructionSourceStage lifecycle.ConstructionSourceStageCompiler
-	materializer            lifecycle.ReceiptMaterializer
+	constructionSourceStage ports.ConstructionSourceStageCompiler
+	materializer            ports.ReceiptMaterializer
 }
 
 func NewRuntime(config RuntimeConfig) Runtime {
@@ -50,11 +50,11 @@ func NewRuntime(config RuntimeConfig) Runtime {
 	}
 }
 
-func (r Runtime) CompileReceipt(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+func (r Runtime) CompileReceipt(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 	return Compile(ctx, request, r.capabilities, r.engine, r.explorers, r.logger, r.combineInputSchemas, r.importedSources)
 }
 
-func (r Runtime) ConstructionSourceStage(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+func (r Runtime) ConstructionSourceStage(ctx context.Context, request ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 	if r.constructionSourceStage == nil {
 		return CompileConstructionSourceStage(ctx, request, r.engine)
 	}
@@ -192,7 +192,7 @@ func (r Runtime) RowLineage(ctx context.Context, receipt *explorer.CompilationRe
 	return r.engine.RowLineage(ctx, resolved, request)
 }
 
-func (r Runtime) MaterializeReceipt(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (lifecycle.Execution, error) {
+func (r Runtime) MaterializeReceipt(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (ports.Execution, error) {
 	return r.materializer(ctx, receipt, bindings)
 }
 

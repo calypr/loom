@@ -10,6 +10,7 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -156,7 +157,7 @@ func (s *Service) ProposeColumnPolicy(ctx context.Context, request ColumnPolicyP
 	return ColumnPolicyProposal{CandidateDocument: *candidateDocument, CandidateNetwork: network, CandidateRowIdentity: rowIdentityForNetwork(*candidateDocument, network), ProposalID: receipt.ID, CandidateReceiptID: receipt.ID, OutputID: request.OutputID, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, BaseDocumentDigest: baseDigest, CandidateWorkspaceDigest: candidateDigest, PreviewStatus: "READY", SampledRows: preview.Summary.RowCount, Sampled: !preview.Summary.Complete || preview.Summary.Truncated || preview.Summary.PartialValidation, AffectedColumns: []string{request.ColumnID}, Notices: []string{"The existing column keeps its identity, source occurrence, and field. Only its value policy changes; output row identity is preserved.", "Existing downstream operations must compile and validate before Apply."}}, nil
 }
 
-func (s *Service) prepareColumnPolicyProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized AuthorizedCapability, current authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) prepareColumnPolicyProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 	const stage = "commands"
 	if len(commands) != 1 {
 		return nil, malformed(stage, "column policy Apply requires one command", nil)

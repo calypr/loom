@@ -15,6 +15,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -271,17 +272,46 @@ type ExplicitGroupRevisionResolver interface {
 	ValidateCompilationReceipt(context.Context, ExplicitGroupRevisionProof, *explorer.CompilationReceipt) error
 }
 
+type rowProposalFlow struct {
+	store                        *explorer.Service
+	capability                   ports.CapabilityResolver
+	canCompile                   bool
+	canPreview                   bool
+	choices                      RowChoiceResolver
+	groups                       ExplicitGroupRevisionResolver
+	getOwner                     func(context.Context, string, string) (*explorer.Explorer, error)
+	compile                      func(context.Context, compileRequest) (*explorer.CompilationReceipt, error)
+	lookupReceipt                func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
+	verifyProposalReceipt        func(context.Context, string, *explorer.CompilationReceipt, string, string, string, capability.Snapshot, *authoringv2.Workspace) (authoringv2.Workspace, error)
+	compareRowDefinitionReceipts func(context.Context, RowDefinitionProposalRequest, capability.Snapshot, *explorer.CompilationReceipt, *explorer.CompilationReceipt, int) (RowDefinitionComparison, error)
+}
+
+func (s *Service) rowProposals() rowProposalFlow {
+	return rowProposalFlow{
+		store: s.store, capability: s.config.Capability,
+		canCompile: s.config.CompileReceipt != nil, canPreview: s.config.PreviewReceipt != nil,
+		choices: s.config.RowChoiceResolver, groups: s.config.ExplicitGroupResolver,
+		getOwner: s.getOwner, compile: s.compile, lookupReceipt: s.lookupReceipt,
+		verifyProposalReceipt: s.verifyProposalReceipt, compareRowDefinitionReceipts: s.compareRowDefinitionReceipts,
+	}
+}
+
 func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitionProposalRequest) (RowDefinitionProposal, error) {
+	flow := s.rowProposals()
+	return flow.propose(ctx, request)
+}
+
+func (s rowProposalFlow) propose(ctx context.Context, request RowDefinitionProposalRequest) (RowDefinitionProposal, error) {
 	if err := request.Validate(); err != nil {
 		return RowDefinitionProposal{}, malformed("row-definition-proposal", err.Error(), err)
 	}
 	if request.Selection.Kind == RowDefinitionSelectionFieldGroup {
 		return RowDefinitionProposal{}, unsupportedFieldGroupRowDefinition()
 	}
-	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil || s.config.CompileReceipt == nil {
+	if s.capability.ForCompilation == nil || s.capability.Catalog == nil || !s.canCompile {
 		return RowDefinitionProposal{}, unavailable("row-definition-proposal", "PROPOSAL_UNAVAILABLE", "row definition proposal compilation is not configured", nil)
 	}
-	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
+	authorized, err := s.capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
 	snapshot := authorized.Snapshot
 	if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(request.Project) {
 		return RowDefinitionProposal{}, conflict("row-definition-proposal", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
@@ -323,14 +353,14 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	if err != nil {
 		return RowDefinitionProposal{}, err
 	}
-	if s.config.PreviewReceipt == nil || s.config.Capability.ForExecution == nil {
+	if !s.canPreview || s.capability.ForExecution == nil {
 		return RowDefinitionProposal{}, unavailable("row-definition-proposal", "PREVIEW_UNAVAILABLE", "row definition preview execution is not configured", nil)
 	}
 	command := authoringv2.Command{Type: authoringv2.CommandApplyRowDefinitionProposal, OutputID: request.OutputID, ProposalID: "proposal-preview"}
 	if err := command.ResolveRowDefinitionProposal(rows); err != nil {
 		return RowDefinitionProposal{}, unprocessable("row-definition-proposal", "INVALID_ROW_DEFINITION", err.Error(), err)
 	}
-	catalog := s.config.Capability.Catalog(snapshot, request.ExplorerID)
+	catalog := s.capability.Catalog(snapshot, request.ExplorerID)
 	comparisonBase, _, err := authoringv2.ApplyCommands(workspace, catalog, "row-definition-preview", nil)
 	if err != nil {
 		return RowDefinitionProposal{}, unprocessable("row-definition-proposal", "INVALID_ROW_DEFINITION", err.Error(), err)
@@ -403,7 +433,7 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	}, nil
 }
 
-func (s *Service) resolveRowDefinitionSelection(ctx context.Context, request RowDefinitionProposalRequest, snapshot capability.Snapshot, document authoringv2.Document) (authoringv2.RowDefinition, *ExplicitGroupRevisionProof, error) {
+func (s rowProposalFlow) resolveRowDefinitionSelection(ctx context.Context, request RowDefinitionProposalRequest, snapshot capability.Snapshot, document authoringv2.Document) (authoringv2.RowDefinition, *ExplicitGroupRevisionProof, error) {
 	switch request.Selection.Kind {
 	case RowDefinitionSelectionRecords:
 		return authoringv2.RecordsRowDefinition(), nil, nil
@@ -432,10 +462,10 @@ func (s *Service) resolveRowDefinitionSelection(ctx context.Context, request Row
 		}
 		return authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: groups}, &proof, nil
 	case RowDefinitionSelectionExpanded:
-		if s.config.RowChoiceResolver == nil {
+		if s.choices == nil {
 			return authoringv2.RowDefinition{}, nil, unavailable("row-definition-proposal", "ROW_CHOICE_UNAVAILABLE", "row choice resolution is not configured", nil)
 		}
-		resolved, err := s.config.RowChoiceResolver.ResolveRowChoiceID(ctx, RowChoiceResolveRequest{
+		resolved, err := s.choices.ResolveRowChoiceID(ctx, RowChoiceResolveRequest{
 			Project: request.Project, ExplorerID: request.ExplorerID, OutputID: request.OutputID,
 			Snapshot: snapshot.Clone(), Route: document.Route, RowChoiceID: request.Selection.Expanded.RowChoiceID, ExpectedKind: RowChoiceExpanded,
 		})
@@ -489,7 +519,7 @@ func routeContainsOccurrence(route authoringv2.RouteNode, occurrenceID string) b
 	return false
 }
 
-func (s *Service) resolveExplicitGroupForDocument(ctx context.Context, project, explorerID, outputID string, snapshot capability.Snapshot, document authoringv2.Document, receipt *explorer.CompilationReceipt) (*ExplicitGroupRevisionProof, error) {
+func (s rowProposalFlow) resolveExplicitGroupForDocument(ctx context.Context, project, explorerID, outputID string, snapshot capability.Snapshot, document authoringv2.Document, receipt *explorer.CompilationReceipt) (*ExplicitGroupRevisionProof, error) {
 	rows := document.Rows
 	if rows.Kind != authoringv2.RowDefinitionGroups || rows.Groups == nil || rows.Groups.Source.Kind != authoringv2.GroupSourceExplicit || rows.Groups.Source.Explicit == nil {
 		return nil, nil
@@ -497,13 +527,13 @@ func (s *Service) resolveExplicitGroupForDocument(ctx context.Context, project, 
 	return s.resolveExplicitGroupRevisionForRows(ctx, project, explorerID, outputID, snapshot, document, rows, receipt)
 }
 
-func (s *Service) resolveExplicitGroupRevision(ctx context.Context, request ExplicitGroupRevisionResolveRequest) (ExplicitGroupRevisionProof, error) {
-	if s.config.ExplicitGroupResolver == nil {
+func (s rowProposalFlow) resolveExplicitGroupRevision(ctx context.Context, request ExplicitGroupRevisionResolveRequest) (ExplicitGroupRevisionProof, error) {
+	if s.groups == nil {
 		return ExplicitGroupRevisionProof{}, unavailable("row-definition-proposal", "EXPLICIT_GROUP_UNAVAILABLE", "explicit group revision validation is not configured", nil)
 	}
-	proof, err := s.config.ExplicitGroupResolver.ResolveExplicitGroupRevision(ctx, request)
+	proof, err := s.groups.ResolveExplicitGroupRevision(ctx, request)
 	if err != nil {
-		var typed *Error
+		var typed *ports.Error
 		if errors.As(err, &typed) {
 			return ExplicitGroupRevisionProof{}, typed
 		}
@@ -515,7 +545,7 @@ func (s *Service) resolveExplicitGroupRevision(ctx context.Context, request Expl
 	return proof, nil
 }
 
-func (s *Service) resolveExplicitGroupRevisionForRows(ctx context.Context, project, explorerID, outputID string, snapshot capability.Snapshot, document authoringv2.Document, rows authoringv2.RowDefinition, receipt *explorer.CompilationReceipt) (*ExplicitGroupRevisionProof, error) {
+func (s rowProposalFlow) resolveExplicitGroupRevisionForRows(ctx context.Context, project, explorerID, outputID string, snapshot capability.Snapshot, document authoringv2.Document, rows authoringv2.RowDefinition, receipt *explorer.CompilationReceipt) (*ExplicitGroupRevisionProof, error) {
 	if rows.Kind != authoringv2.RowDefinitionGroups || rows.Groups == nil || rows.Groups.Source.Kind != authoringv2.GroupSourceExplicit || rows.Groups.Source.Explicit == nil {
 		return nil, nil
 	}
@@ -552,24 +582,24 @@ func validateExplicitGroupRevisionProof(proof ExplicitGroupRevisionProof, reques
 	return nil
 }
 
-func (s *Service) validateExplicitGroupReceipt(ctx context.Context, proof *ExplicitGroupRevisionProof, receipt *explorer.CompilationReceipt) error {
+func (s rowProposalFlow) validateExplicitGroupReceipt(ctx context.Context, proof *ExplicitGroupRevisionProof, receipt *explorer.CompilationReceipt) error {
 	if proof == nil {
 		return nil
 	}
-	if s.config.ExplicitGroupResolver == nil {
+	if s.groups == nil {
 		return unavailable("row-definition-proposal", "EXPLICIT_GROUP_UNAVAILABLE", "explicit group receipt validation is not configured", nil)
 	}
-	if err := s.config.ExplicitGroupResolver.ValidateCompilationReceipt(ctx, *proof, receipt); err != nil {
+	if err := s.groups.ValidateCompilationReceipt(ctx, *proof, receipt); err != nil {
 		return conflict("row-definition-proposal", "INVALID_EXPLICIT_GROUP_RECEIPT", "the candidate receipt does not prove the exact explicit group revision", nil, err)
 	}
 	return nil
 }
 
-func (s *Service) verifyRowDefinitionReceipt(ctx context.Context, receipt *explorer.CompilationReceipt, project, explorerID, snapshotToken string, snapshot capability.Snapshot, expected *authoringv2.Workspace) (authoringv2.Workspace, error) {
+func (s rowProposalFlow) verifyRowDefinitionReceipt(ctx context.Context, receipt *explorer.CompilationReceipt, project, explorerID, snapshotToken string, snapshot capability.Snapshot, expected *authoringv2.Workspace) (authoringv2.Workspace, error) {
 	return s.verifyProposalReceipt(ctx, "row-definition-proposal", receipt, project, explorerID, snapshotToken, snapshot, expected)
 }
 
-func (s *Service) prepareRowDefinitionProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, *explorer.CompilationReceipt, error) {
+func (s rowProposalFlow) prepareRowDefinitionProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, *explorer.CompilationReceipt, error) {
 	if len(commands) != 1 || commands[0].Type != authoringv2.CommandApplyRowDefinitionProposal {
 		return nil, nil, malformed("commands", "APPLY_ROW_DEFINITION_PROPOSAL must be the only command in its atomic request", nil)
 	}
@@ -612,7 +642,7 @@ func (s *Service) prepareRowDefinitionProposal(ctx context.Context, project, exp
 	if candidateDocument == nil {
 		return nil, nil, conflict("commands", "INVALID_ROW_DEFINITION_PROPOSAL", "the candidate receipt does not contain the requested output", nil, nil)
 	}
-	catalog := s.config.Capability.Catalog(snapshot, explorerID)
+	catalog := s.capability.Catalog(snapshot, explorerID)
 	comparisonBase, _, err := authoringv2.ApplyCommands(current, catalog, "row-definition-proposal-apply", nil)
 	if err != nil {
 		return nil, nil, conflict("commands", "STALE_ROW_DEFINITION_PROPOSAL", "the saved draft can no longer be normalized for the proposal", nil, err)
@@ -637,7 +667,7 @@ func (s *Service) prepareRowDefinitionProposal(ctx context.Context, project, exp
 	return commands, receipt, nil
 }
 
-func (s *Service) checkRowDefinitionProposalResult(workspace authoringv2.Workspace, receipt *explorer.CompilationReceipt) error {
+func checkRowDefinitionProposalResult(workspace authoringv2.Workspace, receipt *explorer.CompilationReceipt) error {
 	if receipt == nil {
 		return conflict("commands", "INVALID_ROW_DEFINITION_PROPOSAL", "the candidate receipt was not prepared", nil, nil)
 	}

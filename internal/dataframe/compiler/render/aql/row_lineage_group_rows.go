@@ -78,12 +78,12 @@ func renderPhysicalGroupRowsLineage(
 	candidateLines := ""
 	foundExpression := fmt.Sprintf("@%s == revision._key AND (definition != null OR (@%s == \"__loom_unassigned__\" AND @%s == \"GROUP_AS_UNASSIGNED\" AND unassigned_count > 0))", requestedRevisionBind, requestedGroupBind, rows.PolicyBindKey)
 	if len(filterStages) != 0 {
-		renderer := physicalPlanRenderer{
+		renderer := physicalPlanRenderer{renderContext: renderContext{
 			bindVars: binds, collectionKeys: collectionKeys, setVariables: map[string]string{},
 			reservedVars: stageSequenceVariableNames(plan), internalPrefix: "cohort_lineage_",
-		}
-		candidate := renderer.newInternalVariable("candidate")
-		unassignedMaximum := renderer.newInternalVariable("unassigned_max_ordinal")
+		}}
+		candidate := renderer.navigation().newInternalVariable("candidate")
+		unassignedMaximum := renderer.navigation().newInternalVariable("unassigned_max_ordinal")
 		candidateLines = fmt.Sprintf(`LET %s = @%s == "__loom_unassigned__" ? FIRST(
   FOR candidate_definition IN @@%s
     FILTER candidate_definition.revisionId == revision._key AND candidate_definition.project == @%s
@@ -95,7 +95,7 @@ LET %s = @%s == revision._key ? (definition != null ? {group_id: definition.grou
 		current := candidate
 		var filterLines []string
 		for _, stage := range filterStages {
-			filtered := renderer.newInternalVariable("filtered_candidate")
+			filtered := renderer.navigation().newInternalVariable("filtered_candidate")
 			operations, renderErr := renderer.renderScopeOperation(
 				ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: stage.Filter}, "      ",
 			)

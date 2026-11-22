@@ -12,7 +12,7 @@ import (
 
 var ErrResourceInventoryBuildUnavailable = errors.New("resource inventory build is unavailable; run arango-fhir-proto rebuild-resource-inventory --generation ID")
 
-func (s *Store) RebuildResourceInventory(ctx context.Context, opts catalog.ResourceInventoryRebuildOptions) (catalog.ResourceInventoryRebuildSummary, error) {
+func (s *ResourceStore) RebuildResourceInventory(ctx context.Context, opts catalog.ResourceInventoryRebuildOptions) (catalog.ResourceInventoryRebuildSummary, error) {
 	if opts.Project == "" || catalog.NormalizeDatasetGeneration(opts.DatasetGeneration) == "" {
 		return catalog.ResourceInventoryRebuildSummary{}, fmt.Errorf("resource inventory rebuild requires project and exact dataset generation")
 	}
@@ -117,7 +117,7 @@ func (s *Store) RebuildResourceInventory(ctx context.Context, opts catalog.Resou
 	}, nil
 }
 
-func (s *Store) readResourceInventoryBuild(ctx context.Context, project, datasetGeneration string) (catalog.ResourceInventoryBuild, bool, error) {
+func (s *ResourceStore) readResourceInventoryBuild(ctx context.Context, project, datasetGeneration string) (catalog.ResourceInventoryBuild, bool, error) {
 	var build catalog.ResourceInventoryBuild
 	found := false
 	err := s.client.QueryRows(ctx, readResourceInventoryBuildAQL, 1, map[string]interface{}{

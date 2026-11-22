@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 )
 
 func canonicalDigest(value any) (string, error) {
@@ -112,11 +115,11 @@ func cloneFieldEnrichment(in []FieldEnrichmentObservation) []FieldEnrichmentObse
 		out[i].DistinctValues = append([]string(nil), in[i].DistinctValues...)
 		out[i].PivotColumns = append([]string(nil), in[i].PivotColumns...)
 		out[i].PivotValueSelectors = append([]string(nil), in[i].PivotValueSelectors...)
-		out[i].ExtensionValues = append([]ExtensionValueObservation(nil), in[i].ExtensionValues...)
+		out[i].ExtensionValues = append([]fieldprofile.ExtensionValueObservation(nil), in[i].ExtensionValues...)
 		for j := range out[i].ExtensionValues {
 			out[i].ExtensionValues[j].URLPath = append([]string(nil), in[i].ExtensionValues[j].URLPath...)
 		}
-		out[i].SemanticObservations = append([]SemanticObservation(nil), in[i].SemanticObservations...)
+		out[i].SemanticObservations = append([]codedconcept.Observation(nil), in[i].SemanticObservations...)
 		for j := range out[i].SemanticObservations {
 			out[i].SemanticObservations[j].ExtensionURLPath = append([]string(nil), in[i].SemanticObservations[j].ExtensionURLPath...)
 			out[i].SemanticObservations[j].ObservedUnits = append([]string(nil), in[i].SemanticObservations[j].ObservedUnits...)

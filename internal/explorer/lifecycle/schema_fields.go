@@ -74,6 +74,10 @@ type schemaFieldCursor struct {
 }
 
 func (s *Service) SearchSchemaFields(ctx context.Context, request SearchSchemaFieldsRequest) (SchemaFieldSearchResponse, error) {
+	return s.fieldBrowse().SearchSchemaFields(ctx, request)
+}
+
+func (b *fieldBrowse) SearchSchemaFields(ctx context.Context, request SearchSchemaFieldsRequest) (SchemaFieldSearchResponse, error) {
 	result := SchemaFieldSearchResponse{
 		SnapshotToken: request.SnapshotToken,
 		NodeID:        request.NodeID,
@@ -86,7 +90,7 @@ func (s *Service) SearchSchemaFields(ctx context.Context, request SearchSchemaFi
 		request.Limit < 0 || request.Limit > schemaFieldMaxLimit {
 		return result, malformed("schema-fields", "project, explorer, snapshotToken, nodeId, and a page limit of at most 50 are required", nil)
 	}
-	if s.config.Capability.ForCompilation == nil {
+	if b.capability.ForCompilation == nil {
 		return result, unavailable("schema-fields", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 	}
 	limit := request.Limit
@@ -95,7 +99,7 @@ func (s *Service) SearchSchemaFields(ctx context.Context, request SearchSchemaFi
 	}
 	project := projectid.Canonical(request.Project)
 	query := strings.ToLower(strings.TrimSpace(request.Query))
-	authorized, err := s.config.Capability.ForCompilation(ctx, project, request.SnapshotToken)
+	authorized, err := b.capability.ForCompilation(ctx, project, request.SnapshotToken)
 	if errors.Is(err, capability.ErrStaleSnapshot) || errors.Is(err, capability.ErrSnapshotUnavailable) {
 		return result, conflict("schema-fields", "STALE_CATALOG_SNAPSHOT", "reload the catalog before browsing generated fields", nil, err)
 	}

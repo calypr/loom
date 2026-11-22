@@ -10,6 +10,7 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -109,7 +110,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 		updated, err = s.config.EditImportedRelationship(ctx, request.Project, authorized, *document, request.Change)
 	}
 	if err != nil {
-		var typed *Error
+		var typed *ports.Error
 		if errors.As(err, &typed) {
 			return fail, typed
 		}
@@ -150,7 +151,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	}
 	candidateNetwork, err := s.config.AuthoringNetwork(ctx, request.Project, authorized, *candidateDocument)
 	if err != nil {
-		var typed *Error
+		var typed *ports.Error
 		if errors.As(err, &typed) {
 			return fail, typed
 		}
@@ -210,7 +211,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	return SourceRelationshipProposal{NativePreview: &preview, CandidateDocument: *candidateDocument, CandidateNetwork: candidateNetwork, CandidateRowIdentity: candidateRowIdentity, ProposalID: receipt.ID, CandidateReceiptID: receipt.ID, OutputID: request.OutputID, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest, PreviewStatus: "READY", SampledRows: preview.Summary.RowCount, Sampled: !preview.Summary.Complete || preview.Summary.Truncated || preview.Summary.PartialValidation, AffectedColumns: affected, Notices: notices}, nil
 }
 
-func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized AuthorizedCapability, current authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 	if len(commands) != 1 {
 		return nil, malformed("commands", "source relationship Apply requires one command", nil)
 	}

@@ -10,8 +10,7 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-func lowerConstructionGroup(
-	plan *ir.PhysicalPlan,
+func (lowerer *constructionLowerer) lowerConstructionGroup(
 	group recipe.ConstructionGroup,
 	rowValues []recipe.ConstructionRowValue,
 	declarations []recipe.StageColumn,
@@ -20,16 +19,14 @@ func lowerConstructionGroup(
 	inputStageID string,
 	rootResourceType string,
 	outputs map[string]recipe.StageColumn,
-	usedVariables map[string]bool,
 	stepIndex int,
 	stage *ir.PhysicalConstructionStage,
-	policy ir.PhysicalOptimizationPolicy,
 ) (ir.PhysicalStageGroup, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
-	constructionBind := nextTableReshapeBindKey(plan.BindVars, "construction_group_id")
-	plan.BindVars[constructionBind] = group.ConstructionID
+	constructionBind := nextTableReshapeBindKey(lowerer.plan.BindVars, "construction_group_id")
+	lowerer.plan.BindVars[constructionBind] = group.ConstructionID
 	physical := ir.PhysicalStageGroup{
-		GroupRowsVariable:     allocateConstructionVariable(usedVariables, "group_rows", stepIndex),
-		IdentityVariable:      allocateConstructionVariable(usedVariables, "group_identity", stepIndex),
+		GroupRowsVariable:     allocateConstructionVariable(lowerer.usedVariables, "group_rows", stepIndex),
+		IdentityVariable:      allocateConstructionVariable(lowerer.usedVariables, "group_identity", stepIndex),
 		ConstructionIDBindKey: constructionBind,
 		MissingKeyPolicy:      ir.PhysicalStageGroupMissingKeyPolicy(group.MissingKeyPolicy.Normalized()),
 	}
@@ -50,7 +47,7 @@ func lowerConstructionGroup(
 			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group fieldSource must bind the exact input stage")
 		}
 		var err error
-		groupFieldContext, err = describeGroupFieldSourceContext(inputStageID, rootResourceType, inputIdentity, plan)
+		groupFieldContext, err = describeGroupFieldSourceContext(inputStageID, rootResourceType, inputIdentity, lowerer.plan)
 		if err != nil {
 			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("recompute Group field source context: %w", err)
 		}
@@ -62,7 +59,7 @@ func lowerConstructionGroup(
 	projectionByOutputID := make(map[string]ir.PhysicalProjection, len(declarations))
 	for _, key := range group.Keys {
 		if key.SemanticCategory != nil {
-			if err := constructionDirectRootRowsUnique(plan, "semantic GROUP"); err != nil {
+			if err := constructionDirectRootRowsUnique(lowerer.plan, "semantic GROUP"); err != nil {
 				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("semantic Group requires row-preserving direct root input: %w", err)
 			}
 			if inputStageID != recipe.ConstructionSourceProjectionID || inputIdentity != "_key" {
@@ -72,11 +69,11 @@ func lowerConstructionGroup(
 			if category.Kind != "BINDING" || category.ResourceType != rootResourceType {
 				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("semantic group binding does not match direct root resource %q", rootResourceType)
 			}
-			if len(plan.Operations) == 0 || plan.Operations[0].Kind != ir.PhysicalRootScanOp || plan.Operations[0].RootScan == nil {
+			if len(lowerer.plan.Operations) == 0 || lowerer.plan.Operations[0].Kind != ir.PhysicalRootScanOp || lowerer.plan.Operations[0].RootScan == nil {
 				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("semantic group requires a direct root resource scan")
 			}
-			rootScan := plan.Operations[0].RootScan
-			if rootScan.CollectionBindKey == "" || plan.BindVars[rootScan.CollectionBindKey] != rootResourceType || rootScan.Variable == "" {
+			rootScan := lowerer.plan.Operations[0].RootScan
+			if rootScan.CollectionBindKey == "" || lowerer.plan.BindVars[rootScan.CollectionBindKey] != rootResourceType || rootScan.Variable == "" {
 				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("semantic group root collection does not match selected root resource %q", rootResourceType)
 			}
 			index, err := fhirschema.GeneratedIndex()
@@ -115,8 +112,8 @@ func lowerConstructionGroup(
 				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("semantic group output %q must be a string column", output.ID)
 			}
 			physical.SemanticKey = &ir.PhysicalStageGroupSemanticKey{
-				OutputColumn: output.Name, TupleVariable: allocateConstructionVariable(usedVariables, "group_semantic_tuple", stepIndex),
-				LabelVariable:      allocateConstructionVariable(usedVariables, "group_semantic_label", stepIndex),
+				OutputColumn: output.Name, TupleVariable: allocateConstructionVariable(lowerer.usedVariables, "group_semantic_tuple", stepIndex),
+				LabelVariable:      allocateConstructionVariable(lowerer.usedVariables, "group_semantic_label", stepIndex),
 				SourceRootVariable: rootScan.Variable, SourceIdentityColumn: inputIdentity,
 				RootCollectionBindKey: rootScan.CollectionBindKey, ResourceType: rootResourceType,
 				CodingPath: category.CodingPath, PathSegments: segments, BindingID: category.BindingID,
@@ -142,9 +139,9 @@ func lowerConstructionGroup(
 					return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group supports at most one coded identity key")
 				}
 				if source.Input != nil && source.Input.Kind == "RELATED_OCCURRENCE" {
-					codingKey, column, projection, membershipColumn, membershipProjection, err := lowerConstructionGroupRelatedCodingKey(
-						plan, source, groupFieldContext, output, group.MissingKeyPolicy, usedVariables, stepIndex, len(physical.Keys), stage,
-						&physical.RelatedOccurrence, policy,
+					codingKey, column, projection, membershipColumn, membershipProjection, err := lowerer.lowerConstructionGroupRelatedCodingKey(
+						source, groupFieldContext, output, group.MissingKeyPolicy, stepIndex, len(physical.Keys), stage,
+						&physical.RelatedOccurrence,
 					)
 					if err != nil {
 						return ir.PhysicalStageGroup{}, nil, nil, err
@@ -157,7 +154,7 @@ func lowerConstructionGroup(
 					continue
 				}
 				codingKey, column, projection, _, _, err := lowerConstructionGroupCodingKey(
-					plan, source, groupFieldContext, output, group.MissingKeyPolicy, usedVariables, stepIndex, stage,
+					lowerer.plan, source, groupFieldContext, output, group.MissingKeyPolicy, lowerer.usedVariables, stepIndex, stage,
 				)
 				if err != nil {
 					return ir.PhysicalStageGroup{}, nil, nil, err
@@ -168,8 +165,8 @@ func lowerConstructionGroup(
 				continue
 			}
 			inputColumn, inputProjection, fieldSource, err := lowerConstructionGroupScalarSource(
-				plan, source, groupFieldContext, stepIndex, len(physical.Keys), usedVariables, stage,
-				constructionGroupFieldSourceLoweringOptions{RelatedAdapterSlot: &physical.RelatedOccurrence, Policy: policy},
+				lowerer.plan, source, groupFieldContext, stepIndex, len(physical.Keys), lowerer.usedVariables, stage,
+				constructionGroupFieldSourceLoweringOptions{RelatedAdapterSlot: &physical.RelatedOccurrence, Policy: lowerer.policy},
 			)
 			if err != nil {
 				return ir.PhysicalStageGroup{}, nil, nil, err
@@ -183,7 +180,7 @@ func lowerConstructionGroup(
 			}
 			physicalKey := ir.PhysicalStageGroupKey{
 				InputColumn: inputColumn.Name, OutputColumn: output.Name,
-				Variable: allocateConstructionVariable(usedVariables, "group_key", stepIndex), Kind: kind,
+				Variable: allocateConstructionVariable(lowerer.usedVariables, "group_key", stepIndex), Kind: kind,
 				InputInternal: true, FieldSource: fieldSource,
 			}
 			physical.Keys = append(physical.Keys, physicalKey)
@@ -212,7 +209,7 @@ func lowerConstructionGroup(
 		}
 		physicalKey := ir.PhysicalStageGroupKey{
 			InputColumn: inputColumn.Name, OutputColumn: output.Name,
-			Variable: allocateConstructionVariable(usedVariables, "group_key", stepIndex), Kind: kind,
+			Variable: allocateConstructionVariable(lowerer.usedVariables, "group_key", stepIndex), Kind: kind,
 		}
 		physical.Keys = append(physical.Keys, physicalKey)
 		column := inputColumn
@@ -228,7 +225,7 @@ func lowerConstructionGroup(
 		}
 		physicalAggregate := ir.PhysicalStageGroupAggregate{
 			Operation: string(aggregate.Operation), Output: output.Name,
-			Variable: allocateConstructionVariable(usedVariables, "group_aggregate", stepIndex),
+			Variable: allocateConstructionVariable(lowerer.usedVariables, "group_aggregate", stepIndex),
 		}
 		column := CompiledOutputColumn{
 			ID: output.ID, Name: output.Name, Label: constructionFirstNonEmpty(output.Label, output.Name),
@@ -280,11 +277,11 @@ func lowerConstructionGroup(
 		physical.Aggregates = append(physical.Aggregates, physicalAggregate)
 	}
 	rowValueSource := &constructionGroupRowValueSourceContext{
-		Plan: plan, SourceContext: groupFieldContext, InputStageID: inputStageID,
-		Stage: stage, FirstSourceIndex: len(group.Keys), RelatedAdapterSlot: &physical.RelatedOccurrence, Policy: policy,
+		Plan: lowerer.plan, SourceContext: groupFieldContext, InputStageID: inputStageID,
+		Stage: stage, FirstSourceIndex: len(group.Keys), RelatedAdapterSlot: &physical.RelatedOccurrence, Policy: lowerer.policy,
 	}
 	physicalRowValues, rowValueColumns, err := lowerConstructionRowValues(
-		rowValues, input, outputs, group.ConstructionID, usedVariables, stepIndex, rowValueSource,
+		rowValues, input, outputs, group.ConstructionID, lowerer.usedVariables, stepIndex, rowValueSource,
 	)
 	if err != nil {
 		return ir.PhysicalStageGroup{}, nil, nil, err

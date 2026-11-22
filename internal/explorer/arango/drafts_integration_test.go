@@ -19,6 +19,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -280,7 +281,7 @@ func TestDraftCASPublicApplyConflictClassAgainstArango(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := capability.Snapshot{Identity: capability.SnapshotIdentity{Project: before.Project, Generation: "generation-one", AuthorizationScopeDigest: "scope-one", SchemaDigest: "schema", ShapeDigest: "shape"}, Token: "snapshot-one", Status: capability.StatusReady, Complete: true}
-	config := lifecycle.Config{Capability: lifecycle.CapabilityResolver{
+	config := lifecycle.Config{Capability: ports.CapabilityResolver{
 		Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
 		Catalog: func(got capability.Snapshot, id string) authoringv2.CatalogSnapshot {
 			return authoringv2.CatalogSnapshot{APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: got.Identity.Project, ExplorerID: id, SourceGeneration: got.Identity.Generation, AuthorizationScopeDigest: got.Identity.AuthorizationScopeDigest, SnapshotToken: got.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true}, Nodes: []authoringv2.CatalogNode{{ID: "node", ResourceType: "Patient", RowRootEligible: true}}}
@@ -309,12 +310,12 @@ func TestDraftCASPublicApplyConflictClassAgainstArango(t *testing.T) {
 	if wins != 1 {
 		t.Fatalf("expected one public Apply success, got=%d failed=%v", wins, failed)
 	}
-	var app *lifecycle.Error
+	var app *ports.Error
 	if !errors.As(failed, &app) {
 		t.Fatalf("public Apply error lacks lifecycle classification: %v", failed)
 	}
 	t.Logf("CAS_REAL_PUBLIC_APPLY class=%s code=%s cause=%v", app.Class, app.Code, app.Cause)
-	if app.Class != lifecycle.ClassConflict || app.Code != "DRAFT_CONFLICT" {
+	if app.Class != ports.ClassConflict || app.Code != "DRAFT_CONFLICT" {
 		t.Errorf("CAS_PUBLIC_APPLY_WRONG_CLASS: class=%s code=%s", app.Class, app.Code)
 	}
 }

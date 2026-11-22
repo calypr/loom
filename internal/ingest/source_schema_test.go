@@ -10,7 +10,7 @@ import (
 )
 
 func TestLoadSchemaSnapshotUsesOfficialGeneratedIdentity(t *testing.T) {
-	snapshot, err := loadSchemaSnapshot()
+	snapshot, err := LoadSchemaSnapshot()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestLoadSchemaSnapshotUsesOfficialGeneratedIdentity(t *testing.T) {
 }
 
 func TestRuntimeGraphSchemaUsesGeneratedResourceRegistry(t *testing.T) {
-	schema := loadRuntimeFHIRSchema()
+	schema := LoadRuntimeFHIRSchema()
 	for _, resourceType := range generated.ResourceTypes {
 		if !schema.HasClass(resourceType) {
 			t.Errorf("generated resource %q is missing from runtime registry", resourceType)
@@ -53,21 +53,5 @@ func TestPreviousSchemaSnapshotsRemainReadable(t *testing.T) {
 	}
 	if err := previous.Validate(); err != nil {
 		t.Fatalf("read prior published identity: %v", err)
-	}
-}
-
-func TestSourceSchemaChangeRequiresFullReload(t *testing.T) {
-	current := publication.SchemaSnapshot{
-		SchemaSHA256: "current", GeneratedResourceTypes: []string{"Observation", "Patient"},
-	}
-	previous := publication.SchemaSnapshot{SchemaSHA256: "previous"}
-	if copySource, err := sourceSchemaAllowsCopy(current, current, []string{"Patient"}); err != nil || !copySource {
-		t.Fatalf("same schema partial update copy = %t, err = %v", copySource, err)
-	}
-	if copySource, err := sourceSchemaAllowsCopy(previous, current, []string{"Patient"}); err == nil || copySource {
-		t.Fatalf("different schema partial update copy = %t, err = %v", copySource, err)
-	}
-	if copySource, err := sourceSchemaAllowsCopy(previous, current, []string{"Patient", "Observation"}); err != nil || copySource {
-		t.Fatalf("different schema full update copy = %t, err = %v", copySource, err)
 	}
 }

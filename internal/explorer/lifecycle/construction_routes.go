@@ -12,12 +12,14 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -30,7 +32,7 @@ type ConstructionChoiceSearchSource struct {
 	ConceptID     string                                  `json:"conceptId,omitempty"`
 	BindingID     string                                  `json:"bindingId,omitempty"`
 	ChoiceID      string                                  `json:"choiceId,omitempty"`
-	SelectionMode catalog.SemanticInventorySelectionMode  `json:"selectionMode,omitempty"`
+	SelectionMode semanticinventory.SelectionMode         `json:"selectionMode,omitempty"`
 }
 
 type ConstructionChoiceSearchRequest struct {
@@ -184,7 +186,37 @@ type relatedFieldChoiceCursor struct {
 	Offset       int    `json:"offset"`
 }
 
+type constructionRouteFlow struct {
+	capability       ports.CapabilityResolver
+	loadBase         func(context.Context, string, string, string, int64, string, string) (constructionBase, error)
+	currentWorkspace func(context.Context, string, string) (authoringv2.Workspace, error)
+	resolveInventory func(context.Context, semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error)
+}
+
+func (s *Service) constructionRoutes() constructionRouteFlow {
+	return constructionRouteFlow{
+		capability: s.config.Capability, loadBase: s.loadConstructionBase,
+		currentWorkspace: s.currentWorkspace, resolveInventory: s.config.ResolveSemanticInventorySelections,
+	}
+}
+
 func (s *Service) SearchRelatedFieldChoices(ctx context.Context, request RelatedFieldChoiceSearchRequest) (RelatedFieldChoiceSearchResponse, error) {
+	return s.constructionRoutes().searchRelatedFieldChoices(ctx, request)
+}
+
+func (s *Service) SearchRelatedExpandContributorChoices(ctx context.Context, request RelatedExpandContributorChoiceSearchRequest) (RelatedExpandContributorChoiceSearchResponse, error) {
+	return s.constructionRoutes().searchRelatedExpandContributorChoices(ctx, request)
+}
+
+func (s *Service) SearchRelatedExpandChoices(ctx context.Context, request RelatedExpandChoiceSearchRequest) (RelatedExpandChoiceSearchResponse, error) {
+	return s.constructionRoutes().searchRelatedExpandChoices(ctx, request)
+}
+
+func (s *Service) SearchConstructionChoices(ctx context.Context, request ConstructionChoiceSearchRequest) (ConstructionChoiceSearchResponse, error) {
+	return s.constructionRoutes().searchConstructionChoices(ctx, request)
+}
+
+func (s constructionRouteFlow) searchRelatedFieldChoices(ctx context.Context, request RelatedFieldChoiceSearchRequest) (RelatedFieldChoiceSearchResponse, error) {
 	result := RelatedFieldChoiceSearchResponse{
 		SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, StageID: request.StageID,
 		Choices: []RelatedFieldChoice{},
@@ -196,10 +228,10 @@ func (s *Service) SearchRelatedFieldChoices(ctx context.Context, request Related
 		len(request.Query) > 256 || strings.TrimSpace(request.Cursor) != request.Cursor || len(request.Cursor) > 4096 {
 		return result, malformed("related-field-choices", "project, explorer, snapshot, draft, output, and stage identities are required", nil)
 	}
-	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil {
+	if s.capability.ForCompilation == nil || s.capability.Catalog == nil {
 		return result, unavailable("related-field-choices", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 	}
-	base, err := s.loadConstructionBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken,
+	base, err := s.loadBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken,
 		request.ExpectedDraftVersion, request.ExpectedDraftDigest, request.OutputID)
 	if err != nil {
 		return result, err
@@ -302,7 +334,7 @@ func (s *Service) SearchRelatedFieldChoices(ctx context.Context, request Related
 	return result, nil
 }
 
-func (s *Service) SearchRelatedExpandContributorChoices(ctx context.Context, request RelatedExpandContributorChoiceSearchRequest) (RelatedExpandContributorChoiceSearchResponse, error) {
+func (s constructionRouteFlow) searchRelatedExpandContributorChoices(ctx context.Context, request RelatedExpandContributorChoiceSearchRequest) (RelatedExpandContributorChoiceSearchResponse, error) {
 	result := RelatedExpandContributorChoiceSearchResponse{
 		SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, StageID: request.StageID,
 		RouteChoiceID: request.RouteChoiceID, Choices: []RelatedExpandContributorChoice{},
@@ -315,10 +347,10 @@ func (s *Service) SearchRelatedExpandContributorChoices(ctx context.Context, req
 		strings.TrimSpace(request.Cursor) != request.Cursor || len(request.Cursor) > 4096 {
 		return result, malformed("related-expand-contributors", "project, explorer, snapshot, draft, output, stage, and exact route choice identities are required", nil)
 	}
-	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil {
+	if s.capability.ForCompilation == nil || s.capability.Catalog == nil {
 		return result, unavailable("related-expand-contributors", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 	}
-	base, err := s.loadConstructionBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken,
+	base, err := s.loadBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken,
 		request.ExpectedDraftVersion, request.ExpectedDraftDigest, request.OutputID)
 	if err != nil {
 		return result, err
@@ -583,7 +615,7 @@ type ResolvedPopulationRouteChoice struct {
 	SelectionID string
 }
 
-func (s *Service) SearchRelatedExpandChoices(ctx context.Context, request RelatedExpandChoiceSearchRequest) (RelatedExpandChoiceSearchResponse, error) {
+func (s constructionRouteFlow) searchRelatedExpandChoices(ctx context.Context, request RelatedExpandChoiceSearchRequest) (RelatedExpandChoiceSearchResponse, error) {
 	result := RelatedExpandChoiceSearchResponse{
 		SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, StageID: request.StageID,
 		Choices: []RelatedExpandRouteChoice{},
@@ -595,10 +627,10 @@ func (s *Service) SearchRelatedExpandChoices(ctx context.Context, request Relate
 		strings.TrimSpace(request.ExpectedDraftDigest) == "" || request.ExpectedDraftVersion < 1 {
 		return result, malformed("related-expand-choices", "project, explorer, snapshot, draft, output, stage, and target resource identities are required", nil)
 	}
-	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil {
+	if s.capability.ForCompilation == nil || s.capability.Catalog == nil {
 		return result, unavailable("related-expand-choices", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 	}
-	base, err := s.loadConstructionBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken,
+	base, err := s.loadBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken,
 		request.ExpectedDraftVersion, request.ExpectedDraftDigest, request.OutputID)
 	if err != nil {
 		return result, err
@@ -813,11 +845,11 @@ func resolveRelatedExpandAnchor(snapshot capability.Snapshot, stage explorer.Rec
 	return resolvedRelatedExpandAnchor{}, fmt.Errorf("anchor column %q is not compiler-proven for stage %q", columnID, stage.ID)
 }
 
-func constructionRouteHasCompilerProof(ctx context.Context, authorized AuthorizedCapability, route []capability.ConstructionRouteStep) bool {
+func constructionRouteHasCompilerProof(ctx context.Context, authorized ports.AuthorizedCapability, route []capability.ConstructionRouteStep) bool {
 	return constructionRouteHasCompilerProofCached(ctx, authorized, route, nil)
 }
 
-func constructionRouteHasCompilerProofCached(ctx context.Context, authorized AuthorizedCapability, route []capability.ConstructionRouteStep, proofs map[capability.ConstructionRouteStep]bool) bool {
+func constructionRouteHasCompilerProofCached(ctx context.Context, authorized ports.AuthorizedCapability, route []capability.ConstructionRouteStep, proofs map[capability.ConstructionRouteStep]bool) bool {
 	if len(route) == 0 {
 		return false
 	}
@@ -944,7 +976,7 @@ func reauthorizeConstructionRouteFromAnchor(snapshot capability.Snapshot, anchor
 	return resolved, nil
 }
 
-func proveConstructionCandidate(ctx context.Context, authorized AuthorizedCapability, rootResourceType string, candidate capability.Candidate, route []capability.ConstructionRouteStep) (capability.Candidate, error) {
+func proveConstructionCandidate(ctx context.Context, authorized ports.AuthorizedCapability, rootResourceType string, candidate capability.Candidate, route []capability.ConstructionRouteStep) (capability.Candidate, error) {
 	compilerRoute := make([]compilerprobe.Traversal, 0, len(route))
 	for index, step := range route {
 		matchMode := spec.TraversalMatchOptional
@@ -984,7 +1016,7 @@ func proveConstructionCandidate(ctx context.Context, authorized AuthorizedCapabi
 	return updated, nil
 }
 
-func constructionCompilerScope(authorized AuthorizedCapability) compilerprobe.Scope {
+func constructionCompilerScope(authorized ports.AuthorizedCapability) compilerprobe.Scope {
 	return compilerprobe.Scope{
 		Project: authorized.Snapshot.Identity.Project, DatasetGeneration: authorized.Snapshot.Identity.Generation,
 		AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode,
@@ -1093,19 +1125,19 @@ func routePathToOccurrence(root authoringv2.RouteNode, occurrenceID string) ([]a
 	return nil, false
 }
 
-func (s *Service) SearchConstructionChoices(ctx context.Context, request ConstructionChoiceSearchRequest) (ConstructionChoiceSearchResponse, error) {
+func (s constructionRouteFlow) searchConstructionChoices(ctx context.Context, request ConstructionChoiceSearchRequest) (ConstructionChoiceSearchResponse, error) {
 	result := ConstructionChoiceSearchResponse{SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, Choices: []capability.ConstructionChoice{}}
 	if strings.TrimSpace(request.Project) == "" || strings.TrimSpace(request.ExplorerID) == "" || strings.TrimSpace(request.SnapshotToken) == "" || strings.TrimSpace(request.OutputID) == "" || len(request.Cursor) > 4096 {
 		return result, malformed("construction-choices", "project, explorerId, snapshotToken, and outputId are required", nil)
 	}
-	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil {
+	if s.capability.ForCompilation == nil || s.capability.Catalog == nil {
 		return result, unavailable("construction-choices", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 	}
 	identityKey, err := constructionSearchSourceKey(request.Source)
 	if err != nil {
 		return result, err
 	}
-	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
+	authorized, err := s.capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
 	if err != nil || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil {
 		return result, conflict("construction-choices", "STALE_CATALOG_SNAPSHOT", "reload the catalog before searching routes", nil, err)
 	}
@@ -1125,13 +1157,13 @@ func (s *Service) SearchConstructionChoices(ctx context.Context, request Constru
 		return result, malformed("construction-choices", "outputId does not identify a valid row-rooted table", nil)
 	}
 	var candidate capability.Candidate
-	var semanticEntry catalog.SemanticInventoryEntry
-	var semanticFamily *catalog.SemanticInventoryFamily
+	var semanticEntry semanticinventory.Entry
+	var semanticFamily *semanticinventory.Family
 	semanticContext := ""
 	buildID := ""
 	if request.Source.Kind == capability.ConstructionChoiceSourceSemantic {
-		if request.Source.SelectionMode == catalog.SemanticInventorySystemVersionCategory {
-			var family catalog.SemanticInventoryFamily
+		if request.Source.SelectionMode == semanticinventory.SystemVersionCategory {
+			var family semanticinventory.Family
 			family, buildID, err = s.resolveConstructionSearchSemanticFamily(ctx, authorized, request)
 			if err == nil {
 				semanticFamily = &family
@@ -1239,13 +1271,13 @@ func constructionSearchSourceKey(source ConstructionChoiceSearchSource) (string,
 		if strings.TrimSpace(source.ContextToken) == "" || strings.TrimSpace(source.BuildID) == "" || strings.TrimSpace(source.ConceptID) == "" || strings.TrimSpace(source.BindingID) == "" || source.CandidateID != "" {
 			return "", malformed("construction-choices", "SEMANTIC source requires contextToken, buildId, conceptId, and bindingId", nil)
 		}
-		if source.SelectionMode == "" || source.SelectionMode == catalog.SemanticInventoryExactConcept {
+		if source.SelectionMode == "" || source.SelectionMode == semanticinventory.ExactConcept {
 			if source.ChoiceID != "" {
 				return "", malformed("construction-choices", "exact SEMANTIC source cannot include a category choiceId", nil)
 			}
 			return "semantic:" + source.ContextToken + "\x00" + source.BuildID + "\x00" + source.BindingID + "\x00" + source.ConceptID, nil
 		}
-		if source.SelectionMode != catalog.SemanticInventorySystemVersionCategory || strings.TrimSpace(source.ChoiceID) == "" {
+		if source.SelectionMode != semanticinventory.SystemVersionCategory || strings.TrimSpace(source.ChoiceID) == "" {
 			return "", malformed("construction-choices", "category SEMANTIC source requires a signed choiceId", nil)
 		}
 		return "semantic-category:" + source.ContextToken + "\x00" + source.BuildID + "\x00" + source.BindingID + "\x00" + source.ConceptID + "\x00" + source.ChoiceID, nil
@@ -1284,71 +1316,71 @@ func (s *Service) currentWorkspace(ctx context.Context, project, explorerID stri
 	return authoringv2.Workspace{}, conflict("construction-choices", "AUTHORING_STATE_MISSING", "the Explorer has no V2 authoring workspace", nil, nil)
 }
 
-func (s *Service) resolveConstructionSearchSemanticEntry(ctx context.Context, authorized AuthorizedCapability, request ConstructionChoiceSearchRequest) (catalog.SemanticInventoryEntry, string, error) {
-	if s.config.ResolveSemanticInventorySelections == nil {
-		return catalog.SemanticInventoryEntry{}, "", unavailable("construction-choices", "CATALOG_UNAVAILABLE", "semantic inventory resolution is not configured", nil)
+func (s constructionRouteFlow) resolveConstructionSearchSemanticEntry(ctx context.Context, authorized ports.AuthorizedCapability, request ConstructionChoiceSearchRequest) (semanticinventory.Entry, string, error) {
+	if s.resolveInventory == nil {
+		return semanticinventory.Entry{}, "", unavailable("construction-choices", "CATALOG_UNAVAILABLE", "semantic inventory resolution is not configured", nil)
 	}
 	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
-	resolved, err := s.config.ResolveSemanticInventorySelections(ctx, catalog.SemanticInventoryResolveOptions{
+	resolved, err := s.resolveInventory(ctx, semanticinventory.ResolveOptions{
 		Project: projectid.Legacy(authorized.Snapshot.Identity.Project), DatasetGeneration: authorized.Snapshot.Identity.Generation,
 		AuthResourcePathsUnrestricted: &unrestricted, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...),
-		References: []catalog.SemanticInventoryReference{{ConceptID: request.Source.ConceptID, BindingID: request.Source.BindingID}},
+		References: []semanticinventory.Reference{{ConceptID: request.Source.ConceptID, BindingID: request.Source.BindingID}},
 	})
 	if err != nil {
-		return catalog.SemanticInventoryEntry{}, "", unavailable("construction-choices", "CATALOG_UNAVAILABLE", "the selected semantic source could not be resolved", err)
+		return semanticinventory.Entry{}, "", unavailable("construction-choices", "CATALOG_UNAVAILABLE", "the selected semantic source could not be resolved", err)
 	}
-	expectedBuild := catalog.SemanticInventoryBuildID(projectid.Legacy(authorized.Snapshot.Identity.Project), authorized.Snapshot.Identity.Generation)
-	if resolved.State != catalog.SemanticInventoryComplete || resolved.Build.State != catalog.SemanticInventoryComplete || resolved.Build.BuildID != expectedBuild || request.Source.BuildID != expectedBuild {
-		return catalog.SemanticInventoryEntry{}, "", conflict("construction-choices", "STALE_SEMANTIC_CONTEXT", "the semantic source belongs to a different or incomplete inventory build", nil, nil)
+	expectedBuild := semanticinventory.BuildID(projectid.Legacy(authorized.Snapshot.Identity.Project), authorized.Snapshot.Identity.Generation)
+	if resolved.State != semanticinventory.Complete || resolved.Build.State != semanticinventory.Complete || resolved.Build.BuildID != expectedBuild || request.Source.BuildID != expectedBuild {
+		return semanticinventory.Entry{}, "", conflict("construction-choices", "STALE_SEMANTIC_CONTEXT", "the semantic source belongs to a different or incomplete inventory build", nil, nil)
 	}
-	var match catalog.SemanticInventoryEntry
+	var match semanticinventory.Entry
 	for _, entry := range resolved.Entries {
 		if entry.ConceptID != request.Source.ConceptID || entry.BindingID != request.Source.BindingID || match.ConceptID != "" {
-			return catalog.SemanticInventoryEntry{}, "", unavailable("construction-choices", "CATALOG_UNAVAILABLE", "semantic inventory returned an unrelated or duplicate source", nil)
+			return semanticinventory.Entry{}, "", unavailable("construction-choices", "CATALOG_UNAVAILABLE", "semantic inventory returned an unrelated or duplicate source", nil)
 		}
 		match = entry
 	}
 	if match.ConceptID == "" {
-		return catalog.SemanticInventoryEntry{}, "", unprocessable("construction-choices", "INVALID_CONSTRUCTION_SOURCE", "the exact semantic source is unavailable in this authorized inventory", nil)
+		return semanticinventory.Entry{}, "", unprocessable("construction-choices", "INVALID_CONSTRUCTION_SOURCE", "the exact semantic source is unavailable in this authorized inventory", nil)
 	}
 	return match, expectedBuild, nil
 }
 
-func (s *Service) resolveConstructionSearchSemanticFamily(ctx context.Context, authorized AuthorizedCapability, request ConstructionChoiceSearchRequest) (catalog.SemanticInventoryFamily, string, error) {
-	var zero catalog.SemanticInventoryFamily
+func (s constructionRouteFlow) resolveConstructionSearchSemanticFamily(ctx context.Context, authorized ports.AuthorizedCapability, request ConstructionChoiceSearchRequest) (semanticinventory.Family, string, error) {
+	var zero semanticinventory.Family
 	identity, err := capability.DecodeConstructionChoiceID(request.Source.ChoiceID)
 	if err != nil || identity.SnapshotToken != authorized.Snapshot.Token || identity.Kind != capability.ConstructionChoiceSourceSemantic ||
 		identity.SemanticContextToken != request.Source.ContextToken || identity.BuildID != request.Source.BuildID {
 		return zero, "", conflict("construction-choices", "STALE_SEMANTIC_CONTEXT", "reload the signed category choice for the current table root and inventory build", nil, err)
 	}
 	source, ok := identity.Source.(capability.SemanticBindingChoiceSource)
-	if !ok || source.RuleHint != catalog.SemanticRuleHintCodedCategoryV1 || source.ConceptID != request.Source.ConceptID ||
+	if !ok || source.RuleHint != codedconcept.RuleHintCodedCategoryV1 || source.ConceptID != request.Source.ConceptID ||
 		source.BindingID != request.Source.BindingID || source.System == "" || source.Code != "" ||
-		(source.SourceKind != catalog.SemanticInventorySourceFile && source.SourceKind != catalog.SemanticInventorySourceRetained) {
+		(source.SourceKind != semanticinventory.SourceFile && source.SourceKind != semanticinventory.SourceRetained) {
 		return zero, "", unprocessable("construction-choices", "INVALID_CONSTRUCTION_SOURCE", "the signed source is not a supported coded category family", nil)
 	}
-	if s.config.ResolveSemanticInventorySelections == nil {
+	if s.resolveInventory == nil {
 		return zero, "", unavailable("construction-choices", "CATALOG_UNAVAILABLE", "semantic inventory resolution is not configured", nil)
 	}
 	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
-	reference := catalog.SemanticInventoryFamilyReference{
+	reference := semanticinventory.FamilyReference{
 		FamilyID: source.ConceptID, BindingID: source.BindingID, SourceKind: source.SourceKind,
 		ResourceType: source.ResourceType, SourcePath: source.SourcePath, System: source.System, Version: source.Version,
 	}
-	resolved, err := s.config.ResolveSemanticInventorySelections(ctx, catalog.SemanticInventoryResolveOptions{
+	resolved, err := s.resolveInventory(ctx, semanticinventory.ResolveOptions{
 		Project: projectid.Legacy(authorized.Snapshot.Identity.Project), DatasetGeneration: authorized.Snapshot.Identity.Generation,
 		AuthResourcePathsUnrestricted: &unrestricted, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...),
-		FamilyReferences: []catalog.SemanticInventoryFamilyReference{reference},
+		FamilyReferences: []semanticinventory.FamilyReference{reference},
 	})
 	if err != nil {
 		return zero, "", unavailable("construction-choices", "CATALOG_UNAVAILABLE", "the selected semantic category could not be resolved", err)
 	}
-	expectedBuild := catalog.SemanticInventoryBuildID(projectid.Legacy(authorized.Snapshot.Identity.Project), authorized.Snapshot.Identity.Generation)
-	if resolved.State != catalog.SemanticInventoryComplete || resolved.Build.State != catalog.SemanticInventoryComplete ||
+	expectedBuild := semanticinventory.BuildID(projectid.Legacy(authorized.Snapshot.Identity.Project), authorized.Snapshot.Identity.Generation)
+	if resolved.State != semanticinventory.Complete || resolved.Build.State != semanticinventory.Complete ||
 		resolved.Build.BuildID != expectedBuild || request.Source.BuildID != expectedBuild {
 		return zero, "", conflict("construction-choices", "STALE_SEMANTIC_CONTEXT", "the semantic category belongs to a different or incomplete inventory build", nil, nil)
 	}
-	if len(resolved.Families) != 1 || resolved.Families[0].SemanticInventoryFamilyReference != reference {
+	if len(resolved.Families) != 1 || resolved.Families[0].FamilyReference != reference {
 		return zero, "", unprocessable("construction-choices", "INVALID_CONSTRUCTION_SOURCE", "the exact semantic category is unavailable in this authorized inventory", nil)
 	}
 	return resolved.Families[0], expectedBuild, nil

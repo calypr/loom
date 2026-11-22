@@ -9,9 +9,11 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 type constructionChoiceNegativeCase struct {
@@ -22,7 +24,7 @@ type constructionChoiceNegativeCase struct {
 	candidateID   string
 	duplicatePath bool
 	form          capability.ConstructionChoiceForm
-	mutateEntry   func(*catalog.SemanticInventoryEntry)
+	mutateEntry   func(*semanticinventory.Entry)
 }
 
 func TestApplyConstructionChoiceMapsRepeatedFieldForms(t *testing.T) {
@@ -133,18 +135,18 @@ func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOpti
 		ProjectionModes:    []capability.ProjectionMode{capability.ProjectionFirst, capability.ProjectionArray},
 	}
 	snapshot.Candidates = []capability.Candidate{primary, fallback}
-	entry := catalog.SemanticInventoryEntry{ConceptID: "concept-snomed-1222590007", BindingID: "binding-snomed", Observation: catalog.SemanticObservation{
-		SchemaVersion: catalog.SemanticObservationSchemaVersion,
-		Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "code"},
-		Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: "http://snomed.info/sct", Code: "1222590007"},
-		Value: catalog.SemanticObservationValue{
+	entry := semanticinventory.Entry{ConceptID: "concept-snomed-1222590007", BindingID: "binding-snomed", Observation: codedconcept.Observation{
+		SchemaVersion: codedconcept.ObservationSchemaVersion,
+		Source:        codedconcept.Source{Type: "Observation", Path: "code"},
+		Key:           codedconcept.Key{Selector: "code.coding[]", System: "http://snomed.info/sct", Code: "1222590007"},
+		Value: codedconcept.Value{
 			Selector: "valueCodeableConcept.text", Type: "string",
 			FallbackSelectors: []string{"valueCodeableConcept.coding[].display"}, FallbackOnBlankString: true,
 		},
-		ChoiceArm: "valueCodeableConcept", LogicalType: "string", Completeness: catalog.SemanticComplete,
-		Status: "SUPPORTED", RuleHint: catalog.SemanticRuleHintCodedValueV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+		ChoiceArm: "valueCodeableConcept", LogicalType: "string", Completeness: codedconcept.Complete,
+		Status: "SUPPORTED", RuleHint: codedconcept.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
 	}}
-	buildID := catalog.SemanticInventoryBuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
+	buildID := semanticinventory.BuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
 	contextToken, err := semanticInventoryContextToken(snapshot, "explorer-a", "Medication", buildID)
 	if err != nil {
 		t.Fatal(err)
@@ -169,9 +171,9 @@ func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOpti
 			continue
 		}
 		resolved, _, err := resolveSemanticConstructionChoice(
-			context.Background(), AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
+			context.Background(), ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 			"explorer-a", "Medication", contextToken, buildID, buildID,
-			map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
+			map[string]semanticinventory.Entry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
 			authoringv2.ConstructionChoiceSelection{ChoiceID: choice.ChoiceID, Form: option.Form}, identity,
 			semanticSource,
 		)
@@ -209,9 +211,9 @@ func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOpti
 	}
 	for _, option := range scalarFieldChoice.Options {
 		resolved, _, err := resolveSemanticConstructionChoice(
-			context.Background(), AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
+			context.Background(), ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 			"explorer-a", "Medication", contextToken, buildID, buildID,
-			map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(scalarEntry.ConceptID, scalarEntry.BindingID): scalarEntry}, nil,
+			map[string]semanticinventory.Entry{semanticChoiceKey(scalarEntry.ConceptID, scalarEntry.BindingID): scalarEntry}, nil,
 			authoringv2.ConstructionChoiceSelection{ChoiceID: scalarChoice.ChoiceID, Form: option.Form}, scalarIdentity,
 			scalarSource,
 		)
@@ -248,9 +250,9 @@ func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOpti
 		ConstructionChoice: &rootFieldChoice,
 	}}}
 	rootResolved, _, err := resolveSemanticConstructionChoice(
-		context.Background(), AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, rootCatalogSnapshot,
+		context.Background(), ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, rootCatalogSnapshot,
 		"explorer-a", "Observation", rootContextToken, buildID, buildID,
-		map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
+		map[string]semanticinventory.Entry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
 		authoringv2.ConstructionChoiceSelection{ChoiceID: rootChoice.ChoiceID, Form: capability.ConstructionChoiceValue}, rootIdentity,
 		rootSemanticSource,
 	)
@@ -275,16 +277,16 @@ func TestResolveSemanticConstructionChoiceBuildsOwnerRecordSourceAfterCompilerPr
 		RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "component[]"}},
 	}
 	snapshot.Candidates = []capability.Candidate{candidate}
-	entry := catalog.SemanticInventoryEntry{ConceptID: "height", BindingID: "height-binding", Observation: catalog.SemanticObservation{
-		SchemaVersion: catalog.SemanticObservationSchemaVersion,
-		Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "component[].code"},
-		Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: "http://loinc.org", Code: "8302-2", Display: "Body height"},
-		Value:         catalog.SemanticObservationValue{Selector: "valueQuantity.value", Type: "decimal"},
+	entry := semanticinventory.Entry{ConceptID: "height", BindingID: "height-binding", Observation: codedconcept.Observation{
+		SchemaVersion: codedconcept.ObservationSchemaVersion,
+		Source:        codedconcept.Source{Type: "Observation", Path: "component[].code"},
+		Key:           codedconcept.Key{Selector: "code.coding[]", System: "http://loinc.org", Code: "8302-2", Display: "Body height"},
+		Value:         codedconcept.Value{Selector: "valueQuantity.value", Type: "decimal"},
 		OwningScope:   "component[]", ChoiceArm: "valueQuantity", LogicalType: "decimal",
-		Completeness: catalog.SemanticComplete, Status: "SUPPORTED", RuleHint: catalog.SemanticRuleHintCodedValueV1,
-		RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+		Completeness: codedconcept.Complete, Status: "SUPPORTED", RuleHint: codedconcept.RuleHintCodedValueV1,
+		RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
 	}}
-	buildID := catalog.SemanticInventoryBuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
+	buildID := semanticinventory.BuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
 	contextToken, err := semanticInventoryContextToken(snapshot, "patients", "Observation", buildID)
 	if err != nil {
 		t.Fatal(err)
@@ -306,9 +308,9 @@ func TestResolveSemanticConstructionChoiceBuildsOwnerRecordSourceAfterCompilerPr
 		t.Fatal(err)
 	}
 	resolved, _, err := resolveSemanticConstructionChoice(
-		context.Background(), AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
+		context.Background(), ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 		"patients", "Observation", contextToken, buildID, buildID,
-		map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
+		map[string]semanticinventory.Entry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
 		authoringv2.ConstructionChoiceSelection{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceOwnerRecords},
 		identity,
 		identity.Source.(capability.SemanticBindingChoiceSource),
@@ -332,7 +334,7 @@ func TestApplyConstructionChoiceRejectsInvalidSemanticChoicesAtomically(t *testi
 		{name: "wrong root", root: "Patient", form: capability.ConstructionChoiceValue},
 		{name: "unrelated candidate", root: "Observation", candidateID: "other-candidate", form: capability.ConstructionChoiceValue},
 		{name: "ambiguous compiler match", root: "Observation", duplicatePath: true, form: capability.ConstructionChoiceValue},
-		{name: "changed observation source", root: "Observation", form: capability.ConstructionChoiceValue, mutateEntry: func(entry *catalog.SemanticInventoryEntry) { entry.Observation.Key.Code = "changed-code" }},
+		{name: "changed observation source", root: "Observation", form: capability.ConstructionChoiceValue, mutateEntry: func(entry *semanticinventory.Entry) { entry.Observation.Key.Code = "changed-code" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store, service, snapshot, _, choice := constructionSemanticChoiceFixture(t, test.mutateEntry, &test, test.root)
@@ -498,9 +500,9 @@ func constructionChoiceFixtureWithScopes(t *testing.T, snapshotScope, resolverSc
 		Candidates: catalogCandidates, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
 	}
 	store := semanticAuthoringStore(t)
-	service := newTestService(t, store, Config{Capability: CapabilityResolver{
-		ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: resolverScope}, nil
+	service := newTestService(t, store, Config{Capability: ports.CapabilityResolver{
+		ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: resolverScope}, nil
 		},
 		Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot },
 	}})
@@ -523,7 +525,7 @@ func constructionChoiceRequest(snapshot capability.Snapshot, commandID, choiceID
 	}
 }
 
-func constructionSemanticChoiceFixture(t *testing.T, mutateEntry func(*catalog.SemanticInventoryEntry), test *constructionChoiceNegativeCase, root string) (*fakeStore, *Service, capability.Snapshot, catalog.SemanticInventoryEntry, capability.ConstructionChoice) {
+func constructionSemanticChoiceFixture(t *testing.T, mutateEntry func(*semanticinventory.Entry), test *constructionChoiceNegativeCase, root string) (*fakeStore, *Service, capability.Snapshot, semanticinventory.Entry, capability.ConstructionChoice) {
 	t.Helper()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := readySnapshot("project-a", "generation-a", "semantic-choice-snapshot", scope)
@@ -532,7 +534,7 @@ func constructionSemanticChoiceFixture(t *testing.T, mutateEntry func(*catalog.S
 	snapshot.Candidates = []capability.Candidate{candidate}
 	entry := *semanticAuthoringEntry("concept-a", "binding-a", "urn:system:a", "code-a", "")
 	choiceEntry := entry
-	buildID := catalog.SemanticInventoryBuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
+	buildID := semanticinventory.BuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
 	semanticContext := ""
 	if test != nil {
 		if test.build != "" {
@@ -589,15 +591,19 @@ func constructionSemanticChoiceFixture(t *testing.T, mutateEntry func(*catalog.S
 		catalogSnapshot.Candidates = append(catalogSnapshot.Candidates, authoringv2.CatalogCandidate{ID: duplicate.ID, NodeID: duplicate.NodeID, FieldPath: duplicate.FieldPath, Cardinality: duplicate.Cardinality, Label: duplicate.Label, LogicalType: duplicate.LogicalType, ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: fieldChoicePointer(t, snapshot, duplicate)})
 	}
 	service := newTestService(t, store, Config{
-		Capability: CapabilityResolver{
-			ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-				return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capability: ports.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
 			Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot },
 		},
-		ResolveSemanticInventorySelections: func(context.Context, catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error) {
-			return semanticAuthoringInventory(snapshot, []catalog.SemanticInventoryEntry{entry}), nil
+		ResolveSemanticInventorySelections: func(context.Context, semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
+			return semanticAuthoringInventory(snapshot, []semanticinventory.Entry{entry}), nil
 		},
 	})
 	return store, service, snapshot, entry, choice
+}
+
+func semanticInventoryConstructionChoice(snapshot capability.Snapshot, contextToken, buildID string, entry semanticinventory.Entry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {
+	return semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, entry, candidate, ownerRecordsProved)
 }

@@ -13,13 +13,14 @@ import (
 	"github.com/arangodb/go-driver/v2/utils"
 )
 
-func (c *Client) MigratePreviewSupersededIndexes(ctx context.Context, dryRun bool) (PreviewSupersedesAudit, error) {
+func (preview PreviewIndexes) MigratePreviewSupersededIndexes(ctx context.Context, dryRun bool) (PreviewSupersedesAudit, error) {
+	c := preview.client
 	if c == nil || c.db == nil {
 		return PreviewSupersedesAudit{}, errors.New("preview-index migration requires an open database")
 	}
 	c.previewIndexMu.Lock()
 	defer c.previewIndexMu.Unlock()
-	audit, err := c.AuditPreviewSupersededIndexes(ctx)
+	audit, err := preview.AuditPreviewSupersededIndexes(ctx)
 	if err != nil {
 		return audit, err
 	}
@@ -44,7 +45,7 @@ func (c *Client) MigratePreviewSupersededIndexes(ctx context.Context, dryRun boo
 			return audit, fmt.Errorf("migrate %s/%s: %w", candidate.Collection, candidate.OldName, err)
 		}
 	}
-	final, err := c.AuditPreviewSupersededIndexes(ctx)
+	final, err := preview.AuditPreviewSupersededIndexes(ctx)
 	final.Action = "apply"
 	if err != nil {
 		return final, err
@@ -52,7 +53,7 @@ func (c *Client) MigratePreviewSupersededIndexes(ctx context.Context, dryRun boo
 	if final.LegacyCandidateCount != 0 {
 		return final, errors.New("preview-index migration cannot complete while legacy indexes remain")
 	}
-	if err := c.recordPreviewSupersedesMigration(ctx, audit.Candidates); err != nil {
+	if err := preview.recordPreviewSupersedesMigration(ctx, audit.Candidates); err != nil {
 		return final, err
 	}
 	final.LedgerPresent = true
@@ -239,7 +240,8 @@ func findIndexByName(indexes []driver.IndexResponse, name string) (driver.IndexR
 	return driver.IndexResponse{}, false
 }
 
-func (c *Client) recordPreviewSupersedesMigration(ctx context.Context, candidates []PreviewSupersededIndex) error {
+func (preview PreviewIndexes) recordPreviewSupersedesMigration(ctx context.Context, candidates []PreviewSupersededIndex) error {
+	c := preview.client
 	ledger, err := c.ensureCollection(ctx, previewSupersedesMigrationLedger, false)
 	if err != nil {
 		return fmt.Errorf("open migration ledger: %w", err)

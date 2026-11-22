@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/artifactformat"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -63,11 +65,11 @@ func (s *Service) PrepareArtifact(ctx context.Context, request ArtifactRequest) 
 	if len(columns) == 0 {
 		return ArtifactResult{}, unprocessable("artifact", "NO_EXPORTABLE_COLUMNS", "the published output has no exportable columns", nil)
 	}
-	requestedFormat := dataframepublished.ArtifactFormatAuto
+	requestedFormat := artifactformat.ArtifactFormatAuto
 	if !artifactColumnsContainRowIdentity(descriptor, columns) {
-		requestedFormat = dataframepublished.ArtifactFormatJSONL
+		requestedFormat = artifactformat.ArtifactFormatJSONL
 	}
-	format, err := dataframepublished.ResolveArtifactFormat(requestedFormat, columns)
+	format, err := artifactformat.ResolveArtifactFormat(requestedFormat, columns)
 	if err != nil {
 		return ArtifactResult{}, malformed("artifact", err.Error(), err)
 	}
@@ -136,13 +138,13 @@ func (s *Service) PrepareArtifact(ctx context.Context, request ArtifactRequest) 
 		Columns:            artifactColumnNames(columns),
 		AuthResourcePaths:  append([]string(nil), authorized.Scope.AuthResourcePaths...),
 		Unrestricted:       authorized.Scope.Unrestricted(),
-		IncludeRowIdentity: format == dataframepublished.ArtifactFormatJSONL,
+		IncludeRowIdentity: format == artifactformat.ArtifactFormatJSONL,
 		ReaderID:           identity.ID,
 		PinExpiresAt:       identity.ExpiresAt,
 	}
 	var streamResult dataframepublished.ExactExportResult
-	encoded, encodeErr := dataframepublished.WriteArtifact(ctx, stage, dataframepublished.ArtifactRequest{
-		Identity: dataframepublished.ArtifactIdentity{
+	encoded, encodeErr := artifactformat.WriteArtifact(ctx, stage, artifactformat.ArtifactRequest{
+		Identity: artifactformat.ArtifactIdentity{
 			Project:              project,
 			DatasetGeneration:    materialization.DatasetGeneration,
 			ReceiptID:            receipt.ID,
@@ -161,7 +163,7 @@ func (s *Service) PrepareArtifact(ctx context.Context, request ArtifactRequest) 
 		Quality:                qualityMetadata,
 		MaxRows:                s.artifactMaxRows(),
 		MaxBytes:               s.artifactMaxBytes(),
-	}, func(visit dataframepublished.ArtifactRowVisitor) error {
+	}, func(visit artifactformat.ArtifactRowVisitor) error {
 		var err error
 		artifactVisit := visit
 		if descriptor.RowGrain == string(spec.RowGrainGroups) {
@@ -274,59 +276,59 @@ func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest)
 	return reader, opened, nil
 }
 
-func (s *Service) resolveArtifactSource(ctx context.Context, request ArtifactRequest, project string) (*explorer.CompilationReceipt, *explorer.Revision, AuthorizedCapability, dataframepublished.Materialization, publication.QualityReport, error) {
+func (s *Service) resolveArtifactSource(ctx context.Context, request ArtifactRequest, project string) (*explorer.CompilationReceipt, *explorer.Revision, ports.AuthorizedCapability, dataframepublished.Materialization, publication.QualityReport, error) {
 	revision, err := s.store.GetRevision(ctx, request.RevisionID)
 	if err != nil {
 		if errors.Is(err, explorer.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
-			return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, notFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", err)
+			return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, notFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", err)
 		}
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, unavailable("artifact", "REVISION_STORE_UNAVAILABLE", "published revision could not be loaded", err)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, unavailable("artifact", "REVISION_STORE_UNAVAILABLE", "published revision could not be loaded", err)
 	}
 	if revision == nil {
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, notFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", nil)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, notFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", nil)
 	}
 	if projectid.Canonical(revision.Project) != project || revision.ExplorerID != request.ExplorerID || revision.ID != request.RevisionID {
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, notFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", explorer.ErrNotFound)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, notFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", explorer.ErrNotFound)
 	}
 	if strings.TrimSpace(revision.CompilationReceiptID) == "" || strings.TrimSpace(revision.Publication.ExecutionID) == "" {
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, conflict("artifact", "REVISION_NOT_PUBLISHED", "revision has no exact receipt/execution identity", nil, nil)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, conflict("artifact", "REVISION_NOT_PUBLISHED", "revision has no exact receipt/execution identity", nil, nil)
 	}
 	receipt, err := s.lookupReceipt(ctx, project, request.ExplorerID, revision.CompilationReceiptID)
 	if err != nil {
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, err
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, err
 	}
 	if err := s.validateArchivedReceiptRoute(receipt, project, request.ExplorerID); err != nil {
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, err
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, err
 	}
 	if err := validateReceiptOutputContract(receipt, request.OutputID); err != nil {
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, unprocessable("artifact", "OUTPUT_NOT_PUBLISHED", "requested output is not part of the immutable receipt", err)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, unprocessable("artifact", "OUTPUT_NOT_PUBLISHED", "requested output is not part of the immutable receipt", err)
 	}
 	if receipt.ID != revision.CompilationReceiptID || receipt.SourceGeneration != revision.SourceGeneration || receipt.SourceGeneration == "" {
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, conflict("artifact", "REVISION_IDENTITY_CHANGED", "revision and receipt identities do not match", nil, nil)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, conflict("artifact", "REVISION_IDENTITY_CHANGED", "revision and receipt identities do not match", nil, nil)
 	}
 	authorized, snapshot, err := s.resolveExecutionCapability(ctx, project, receipt.SnapshotToken)
 	if err != nil {
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, capabilityResolutionFailure("artifact", "the artifact capability is unavailable or unauthorized", err)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, capabilityResolutionFailure("artifact", "the artifact capability is unavailable or unauthorized", err)
 	}
 	if err := validateReceiptCapability(receipt, snapshot); err != nil {
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, conflict("artifact", "RECEIPT_STALE", "the artifact receipt is no longer authorized", nil, err)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, conflict("artifact", "RECEIPT_STALE", "the artifact receipt is no longer authorized", nil, err)
 	}
 	if err := validateAuthorizedReceiptExecution(receipt, authorized); err != nil {
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, forbidden("artifact", "current caller is not authorized for this artifact", err)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, forbidden("artifact", "current caller is not authorized for this artifact", err)
 	}
 	if err := validateArtifactRevisionReceipt(*revision, *receipt); err != nil {
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, conflict("artifact", "REVISION_IDENTITY_CHANGED", "revision does not match its immutable receipt", nil, err)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, conflict("artifact", "REVISION_IDENTITY_CHANGED", "revision does not match its immutable receipt", nil, err)
 	}
 	quality, err := artifactQualityReport(*revision, request.OutputID, *receipt)
 	if err != nil {
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, unprocessable("quality", "QUALITY_INCOMPLETE", "artifact export requires complete, passed quality evidence: "+err.Error(), err)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, unprocessable("quality", "QUALITY_INCOMPLETE", "artifact export requires complete, passed quality evidence: "+err.Error(), err)
 	}
 	materialization, err := s.config.PublishedReader.ExactExecutionMaterialization(ctx, revision.Publication.ExecutionID, request.OutputID)
 	if err != nil {
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, unavailable("artifact", "MATERIALIZATION_UNAVAILABLE", "the exact published output is not available", err)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, unavailable("artifact", "MATERIALIZATION_UNAVAILABLE", "the exact published output is not available", err)
 	}
 	if err := validateArtifactMaterialization(materialization, *revision, *receipt, authorized.Scope, request.OutputID); err != nil {
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, conflict("artifact", "MATERIALIZATION_IDENTITY_CHANGED", "the exact published output no longer matches the revision", nil, err)
+		return nil, nil, ports.AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, conflict("artifact", "MATERIALIZATION_IDENTITY_CHANGED", "the exact published output no longer matches the revision", nil, err)
 	}
 	return receipt, revision, authorized, materialization, quality, nil
 }
@@ -361,14 +363,14 @@ func (s *Service) artifactMaxBytes() int64 {
 	return defaultArtifactMaxBytes
 }
 
-func artifactDescriptor(receipt *explorer.CompilationReceipt, materialization dataframepublished.Materialization, outputID string) (dataframepublished.ArtifactDescriptor, []dataframepublished.ArtifactColumn, error) {
+func artifactDescriptor(receipt *explorer.CompilationReceipt, materialization dataframepublished.Materialization, outputID string) (artifactformat.ArtifactDescriptor, []artifactformat.ArtifactColumn, error) {
 	contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
 	if err != nil {
-		return dataframepublished.ArtifactDescriptor{}, nil, err
+		return artifactformat.ArtifactDescriptor{}, nil, err
 	}
 	contract, ok := contracts.Output(outputID)
 	if !ok {
-		return dataframepublished.ArtifactDescriptor{}, nil, fmt.Errorf("output %q is absent from its contract", outputID)
+		return artifactformat.ArtifactDescriptor{}, nil, fmt.Errorf("output %q is absent from its contract", outputID)
 	}
 	if spec.RowGrain(contract.RowGrain) == spec.RowGrainGroups {
 		return groupArtifactDescriptor(receipt, materialization, outputID, contract)
@@ -391,22 +393,22 @@ func artifactDescriptor(receipt *explorer.CompilationReceipt, materialization da
 			continue
 		}
 		if _, duplicate := emissions[emission.PublicColumn]; duplicate {
-			return dataframepublished.ArtifactDescriptor{}, nil, fmt.Errorf("duplicate emitted column %q", emission.PublicColumn)
+			return artifactformat.ArtifactDescriptor{}, nil, fmt.Errorf("duplicate emitted column %q", emission.PublicColumn)
 		}
 		emissions[emission.PublicColumn] = emission
 	}
-	columns := make([]dataframepublished.ArtifactColumn, 0, len(contract.Columns))
+	columns := make([]artifactformat.ArtifactColumn, 0, len(contract.Columns))
 	for _, public := range contract.Columns {
 		name := strings.TrimSpace(public.Column)
 		column, exists := physical[name]
 		if !exists {
-			return dataframepublished.ArtifactDescriptor{}, nil, fmt.Errorf("contract column %q is absent from the exact materialization", name)
+			return artifactformat.ArtifactDescriptor{}, nil, fmt.Errorf("contract column %q is absent from the exact materialization", name)
 		}
 		emission, exists := emissions[name]
 		if !exists {
-			return dataframepublished.ArtifactDescriptor{}, nil, fmt.Errorf("contract column %q has no construction identity", name)
+			return artifactformat.ArtifactDescriptor{}, nil, fmt.Errorf("contract column %q has no construction identity", name)
 		}
-		columns = append(columns, dataframepublished.ArtifactColumn{
+		columns = append(columns, artifactformat.ArtifactColumn{
 			Name: name, OutputKey: public.Column, Label: public.Label, LogicalType: public.LogicalType, Shape: public.Shape,
 			ResultUnit: public.ResultUnit,
 			Nullable:   public.Nullable, Repeated: column.Repeated || public.Shape == "array" || public.Shape == "record_list",
@@ -418,9 +420,9 @@ func artifactDescriptor(receipt *explorer.CompilationReceipt, materialization da
 		})
 	}
 	if len(columns) != len(physical) {
-		return dataframepublished.ArtifactDescriptor{}, nil, fmt.Errorf("materialized column count %d does not match output contract count %d", len(physical), len(columns))
+		return artifactformat.ArtifactDescriptor{}, nil, fmt.Errorf("materialized column count %d does not match output contract count %d", len(physical), len(columns))
 	}
-	descriptor := dataframepublished.ArtifactDescriptor{
+	descriptor := artifactformat.ArtifactDescriptor{
 		Version: 1, OutputKey: outputID,
 		ReceiptFormatVersion:    receipt.ReceiptFormatVersion,
 		CompilerContractVersion: receipt.CompilerContractVersion,
@@ -431,7 +433,7 @@ func artifactDescriptor(receipt *explorer.CompilationReceipt, materialization da
 		ResolvedSchemaDigest:    receipt.ResolvedSchemaDigest,
 		OutputContractDigest:    receipt.OutputContractDigest,
 		RowGrain:                contract.RowGrain, RowMultiplication: contract.RowMultiplication,
-		RowIdentity: dataframepublished.ArtifactRowIdentity{Key: "__loom_row_id"},
+		RowIdentity: artifactformat.ArtifactRowIdentity{Key: "__loom_row_id"},
 	}
 	if materialization.SourceRow != nil {
 		descriptor.RowIdentity.SourceResourceType = materialization.SourceRow.ResourceType
@@ -441,7 +443,7 @@ func artifactDescriptor(receipt *explorer.CompilationReceipt, materialization da
 		if interpretation.OutputID != outputID {
 			continue
 		}
-		descriptor.Interpretations = append(descriptor.Interpretations, dataframepublished.ArtifactInterpretationIdentity{
+		descriptor.Interpretations = append(descriptor.Interpretations, artifactformat.ArtifactInterpretationIdentity{
 			OutputKey: interpretation.Column, OccurrenceID: interpretation.OccurrenceID,
 			RevisionID: string(interpretation.Revision.ID), ContentDigest: string(interpretation.Revision.ContentDigest),
 			RuleID: string(interpretation.SelectedRuleID),
@@ -450,12 +452,12 @@ func artifactDescriptor(receipt *explorer.CompilationReceipt, materialization da
 	return descriptor, columns, nil
 }
 
-func groupArtifactDescriptor(receipt *explorer.CompilationReceipt, materialization dataframepublished.Materialization, outputID string, contract explorer.PublicOutputContract) (dataframepublished.ArtifactDescriptor, []dataframepublished.ArtifactColumn, error) {
+func groupArtifactDescriptor(receipt *explorer.CompilationReceipt, materialization dataframepublished.Materialization, outputID string, contract explorer.PublicOutputContract) (artifactformat.ArtifactDescriptor, []artifactformat.ArtifactColumn, error) {
 	contractColumns := make(map[string]explorer.PublicOutputColumn, len(contract.Columns))
 	for _, public := range contract.Columns {
 		contractColumns[strings.TrimSpace(public.Column)] = public
 	}
-	columns := make([]dataframepublished.ArtifactColumn, 0, len(materialization.Columns))
+	columns := make([]artifactformat.ArtifactColumn, 0, len(materialization.Columns))
 	for _, column := range materialization.Columns {
 		name := strings.TrimSpace(column.Name)
 		semanticPath := strings.TrimSpace(column.SemanticPath)
@@ -470,16 +472,16 @@ func groupArtifactDescriptor(receipt *explorer.CompilationReceipt, materializati
 			}
 		}
 		public := contractColumns[name]
-		columns = append(columns, dataframepublished.ArtifactColumn{
+		columns = append(columns, artifactformat.ArtifactColumn{
 			Name: name, OutputKey: name, Label: public.Label, LogicalType: column.LogicalType, Shape: shape,
 			ResultUnit: public.ResultUnit,
 			Nullable:   column.Nullable, Repeated: column.Repeated,
 		})
 	}
 	if len(columns) == 0 {
-		return dataframepublished.ArtifactDescriptor{}, nil, fmt.Errorf("group output %q has no public synthetic columns in the exact materialization", outputID)
+		return artifactformat.ArtifactDescriptor{}, nil, fmt.Errorf("group output %q has no public synthetic columns in the exact materialization", outputID)
 	}
-	descriptor := dataframepublished.ArtifactDescriptor{
+	descriptor := artifactformat.ArtifactDescriptor{
 		Version: 1, OutputKey: outputID,
 		ReceiptFormatVersion:    receipt.ReceiptFormatVersion,
 		CompilerContractVersion: receipt.CompilerContractVersion,
@@ -490,13 +492,13 @@ func groupArtifactDescriptor(receipt *explorer.CompilationReceipt, materializati
 		ResolvedSchemaDigest:    receipt.ResolvedSchemaDigest,
 		OutputContractDigest:    receipt.OutputContractDigest,
 		RowGrain:                string(spec.RowGrainGroups), RowMultiplication: contract.RowMultiplication,
-		RowIdentity: dataframepublished.ArtifactRowIdentity{Key: "__loom_row_id"},
+		RowIdentity: artifactformat.ArtifactRowIdentity{Key: "__loom_row_id"},
 	}
 	for _, interpretation := range receipt.ResolvedInterpretations {
 		if interpretation.OutputID != outputID {
 			continue
 		}
-		descriptor.Interpretations = append(descriptor.Interpretations, dataframepublished.ArtifactInterpretationIdentity{
+		descriptor.Interpretations = append(descriptor.Interpretations, artifactformat.ArtifactInterpretationIdentity{
 			OutputKey: interpretation.Column, OccurrenceID: interpretation.OccurrenceID,
 			RevisionID: string(interpretation.Revision.ID), ContentDigest: string(interpretation.Revision.ContentDigest),
 			RuleID: string(interpretation.SelectedRuleID),
@@ -557,7 +559,7 @@ func validateGroupArtifactIdentityMap(fields map[string]string) (map[string]stri
 	return map[string]string{"group_revision_id": fields["group_revision_id"], "group_id": fields["group_id"]}, nil
 }
 
-func artifactColumnNames(columns []dataframepublished.ArtifactColumn) []string {
+func artifactColumnNames(columns []artifactformat.ArtifactColumn) []string {
 	names := make([]string, len(columns))
 	for i := range columns {
 		names[i] = columns[i].Name
@@ -565,7 +567,7 @@ func artifactColumnNames(columns []dataframepublished.ArtifactColumn) []string {
 	return names
 }
 
-func artifactColumnsContainRowIdentity(descriptor dataframepublished.ArtifactDescriptor, columns []dataframepublished.ArtifactColumn) bool {
+func artifactColumnsContainRowIdentity(descriptor artifactformat.ArtifactDescriptor, columns []artifactformat.ArtifactColumn) bool {
 	identityColumn := strings.TrimSpace(descriptor.RowIdentity.SourceIDColumn)
 	if identityColumn == "" {
 		return false

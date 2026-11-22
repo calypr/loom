@@ -9,7 +9,6 @@ import (
 	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
 	queryapi "github.com/calypr/loom/internal/api/dataframe/query"
 	explorerapi "github.com/calypr/loom/internal/api/explorer"
-	recipeapi "github.com/calypr/loom/internal/api/recipe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -111,9 +110,9 @@ func wireDataframe(ctx context.Context, serverConfig Config, logger *slog.Logger
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry:                   recipeRegistry,
 		Revisions:                  recipeRevisions,
-		ResolveBundle:              recipeapi.RecipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
+		ResolveBundle:              reciperuntime.RecipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
 		PreparePreviewIndex:        queries.PreviewIndexPreparation(),
-		PreviewCoveringIndexes:     lifecycleClient.ListPreviewCoveringIndexes,
+		PreviewCoveringIndexes:     lifecycleClient.PreviewIndexes().ListPreviewCoveringIndexes,
 		PreviewCollectionRevision:  lifecycleClient.CollectionRevision,
 		PreviewExplainQuery:        queries.Explain,
 		PreviewCollectionCount:     lifecycleClient.CollectionCount,

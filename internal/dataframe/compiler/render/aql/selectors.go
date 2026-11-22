@@ -139,7 +139,7 @@ func selectorEndsWithRepeatedValue(selector spec.Selector) bool {
 
 func (r *physicalPlanRenderer) flattenTerminalRepeatedValues(values string) string {
 	flatValues := "FLATTEN(" + values + ", 1)"
-	valueVariable := r.newInternalVariable("selector_terminal_value")
+	valueVariable := r.navigation().newInternalVariable("selector_terminal_value")
 	return fmt.Sprintf("(FOR %s IN %s FILTER %s != null RETURN %s)", valueVariable, flatValues, valueVariable, valueVariable)
 }
 
@@ -177,7 +177,7 @@ func (r *physicalPlanRenderer) renderUnitNormalizedExtract(expression ir.Physica
 	}
 	ruleBindKey := r.newInternalBindKey("unit_rules")
 	r.bindVars[ruleBindKey] = unitRuleBindings(normalization.Rules)
-	item := r.newInternalVariable("unit_item")
+	item := r.navigation().newInternalVariable("unit_item")
 	itemSource := item + ".payload"
 	if !setSource {
 		itemSource = item
@@ -194,8 +194,8 @@ func (r *physicalPlanRenderer) renderUnitNormalizedExtract(expression ir.Physica
 	if err != nil {
 		return "", fmt.Errorf("unit code selector: %w", err)
 	}
-	value := r.newInternalVariable("unit_value")
-	rule := r.newInternalVariable("unit_rule")
+	value := r.navigation().newInternalVariable("unit_value")
+	rule := r.navigation().newInternalVariable("unit_rule")
 	lines := []string{
 		"(FOR " + item + " IN " + items,
 		"  FOR " + value + " IN FLATTEN(" + valueValues + ")",
@@ -397,9 +397,9 @@ func (r *physicalPlanRenderer) renderReturn(returnOp ir.PhysicalReturn) (string,
 		var err error
 		if projection.PresenceOutput {
 			if projection.Name == r.storedPresenceOutputName {
-				value, err = r.renderProjectionPresenceOnStoredParent(*projection.Presence)
+				value, err = r.tableShape().renderProjectionPresenceOnStoredParent(*projection.Presence)
 			} else {
-				value, err = r.renderProjectionPresence(*projection.Presence)
+				value, err = r.tableShape().renderProjectionPresence(*projection.Presence)
 			}
 		} else if projection.Expression != nil {
 			value, err = r.renderExpression(*projection.Expression)
@@ -417,7 +417,7 @@ func (r *physicalPlanRenderer) renderReturn(returnOp ir.PhysicalReturn) (string,
 					if marker, ok := r.passThroughPresenceMarker(projection); ok {
 						present = marker
 					} else {
-						present, err = r.renderProjectionPresence(*projection.Presence)
+						present, err = r.tableShape().renderProjectionPresence(*projection.Presence)
 						if err != nil {
 							return "", fmt.Errorf("render projection presence for %q: %w", projection.Name, err)
 						}

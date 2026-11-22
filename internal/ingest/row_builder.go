@@ -13,23 +13,28 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-type rowErrorType string
+type RowErrorType string
 
 const (
-	rowErrorValidation rowErrorType = "validation"
-	rowErrorGeneration rowErrorType = "generation"
-	rowErrorEdge       rowErrorType = "edge"
+	RowErrorValidation RowErrorType = "validation"
+	RowErrorGeneration RowErrorType = "generation"
+	RowErrorEdge       RowErrorType = "edge"
 )
 
-type rowBuildResult struct {
+type RowBuildResult struct {
 	vertex        json.RawMessage
 	edges         []json.RawMessage
 	payload       map[string]any
 	relationships []catalog.RelationshipKey
 }
 
+func (r RowBuildResult) Vertex() json.RawMessage                  { return r.vertex }
+func (r RowBuildResult) Edges() []json.RawMessage                 { return r.edges }
+func (r RowBuildResult) Payload() map[string]any                  { return r.payload }
+func (r RowBuildResult) Relationships() []catalog.RelationshipKey { return r.relationships }
+
 type RowBuilder interface {
-	Build(resourceType string, line []byte, stageSeconds map[string]float64) (rowBuildResult, rowErrorType, error)
+	Build(resourceType string, line []byte, stageSeconds map[string]float64) (RowBuildResult, RowErrorType, error)
 }
 
 type GeneratedRowBuilder struct {
@@ -41,18 +46,18 @@ func NewGeneratedRowBuilder(project, authResourcePath string) *GeneratedRowBuild
 	return &GeneratedRowBuilder{project: project, authResourcePath: authResourcePath}
 }
 
-func (b *GeneratedRowBuilder) Build(resourceType string, line []byte, stageSeconds map[string]float64) (rowBuildResult, rowErrorType, error) {
+func (b *GeneratedRowBuilder) Build(resourceType string, line []byte, stageSeconds map[string]float64) (RowBuildResult, RowErrorType, error) {
 	return b.BuildWithSourceFile(resourceType, line, stageSeconds, "")
 }
 
-func (b *GeneratedRowBuilder) BuildWithSourceFile(resourceType string, line []byte, stageSeconds map[string]float64, sourceFile string) (rowBuildResult, rowErrorType, error) {
+func (b *GeneratedRowBuilder) BuildWithSourceFile(resourceType string, line []byte, stageSeconds map[string]float64, sourceFile string) (RowBuildResult, RowErrorType, error) {
 	return b.build(resourceType, line, stageSeconds, "", sourceFile, publication.IdentityFormatCompact)
 }
 
-func (b *GeneratedRowBuilder) build(resourceType string, line []byte, stageSeconds map[string]float64, datasetGeneration, sourceFile, identityFormat string) (rowBuildResult, rowErrorType, error) {
+func (b *GeneratedRowBuilder) build(resourceType string, line []byte, stageSeconds map[string]float64, datasetGeneration, sourceFile, identityFormat string) (RowBuildResult, RowErrorType, error) {
 	vDoc, eDocs, payload, errorType, err := loadRowGeneratedDocumentsWithPayload(resourceType, line, b.project, stageSeconds)
 	if err != nil {
-		return rowBuildResult{}, errorType, err
+		return RowBuildResult{}, errorType, err
 	}
 	if b.authResourcePath != "" {
 		vDoc.AuthResourcePath = b.authResourcePath
@@ -61,7 +66,7 @@ func (b *GeneratedRowBuilder) build(resourceType string, line []byte, stageSecon
 	var document any = &vDoc
 	if datasetGeneration != "" {
 		logicalKey := vDoc.Key
-		vDoc.Key = generationDocumentKeyWithFormat(b.project, datasetGeneration, resourceType, logicalKey, identityFormat)
+		vDoc.Key = GenerationDocumentKeyWithFormat(b.project, datasetGeneration, resourceType, logicalKey, identityFormat)
 		document = &struct {
 			VertexDocument
 			LogicalKey        string `json:"logical_key"`
@@ -71,15 +76,15 @@ func (b *GeneratedRowBuilder) build(resourceType string, line []byte, stageSecon
 	vBytes, err := sonic.ConfigFastest.Marshal(document)
 	stageSeconds["vertex_marshal"] += time.Since(marshalStart).Seconds()
 	if err != nil {
-		return rowBuildResult{}, rowErrorValidation, err
+		return RowBuildResult{}, RowErrorValidation, err
 	}
 	edgeStart := time.Now()
 	edgeBytes, relationships, err := marshalEdgeRowsWithFormat(eDocs, b.project, b.authResourcePath, datasetGeneration, sourceFile, identityFormat)
 	stageSeconds["edge_marshal"] += time.Since(edgeStart).Seconds()
 	if err != nil {
-		return rowBuildResult{}, rowErrorEdge, err
+		return RowBuildResult{}, RowErrorEdge, err
 	}
-	return rowBuildResult{
+	return RowBuildResult{
 		vertex:        json.RawMessage(vBytes),
 		edges:         edgeBytes,
 		payload:       payload,

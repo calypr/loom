@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
@@ -184,16 +185,16 @@ FOR d IN Patient
 	identity.AuthorizationScopeDigest = capabilityresolver.ScopeDigest(scope)
 	snapshot := capability.NewSnapshot(identity, baseSnapshot.Policy, baseSnapshot.Status, baseSnapshot.Complete, baseSnapshot.Truncated,
 		baseSnapshot.Nodes, baseSnapshot.Edges, baseSnapshot.Candidates, baseSnapshot.Diagnostics)
-	resolveCapability := func(ctx context.Context, requestedProject, token string) (lifecycle.AuthorizedCapability, error) {
+	resolveCapability := func(ctx context.Context, requestedProject, token string) (ports.AuthorizedCapability, error) {
 		currentPrincipal, _ := authscope.PrincipalFromContext(ctx)
 		currentScope, err := resolver.ResolveReadScopeForGeneration(ctx, currentPrincipal, requestedProject, generation, nil)
 		if err != nil {
-			return lifecycle.AuthorizedCapability{}, err
+			return ports.AuthorizedCapability{}, err
 		}
 		if token != snapshot.Token || capabilityresolver.ScopeDigest(currentScope) != snapshot.Identity.AuthorizationScopeDigest {
-			return lifecycle.AuthorizedCapability{}, capability.ErrStaleSnapshot
+			return ports.AuthorizedCapability{}, capability.ErrStaleSnapshot
 		}
-		return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: currentScope}, nil
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: currentScope}, nil
 	}
 
 	proposalStore := &explorerfixtures.SelectionStore{
@@ -207,7 +208,7 @@ FOR d IN Patient
 	}
 	config := lifecycle.Config{
 		SelectionMembersCollection: "loom_explorer_selection_members",
-		Capability: lifecycle.CapabilityResolver{
+		Capability: ports.CapabilityResolver{
 			Current: func(context.Context, string, string, string) (capability.Snapshot, error) {
 				return snapshot, nil
 			},

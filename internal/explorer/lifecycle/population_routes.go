@@ -10,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -148,7 +149,7 @@ func (s *Service) getAuthorizedPopulationSelection(ctx context.Context, project,
 	return selection, nil
 }
 
-func provePopulationRoute(ctx context.Context, authorized AuthorizedCapability, rootResourceType, terminalResourceType string, route []capability.ConstructionRouteStep) bool {
+func provePopulationRoute(ctx context.Context, authorized ports.AuthorizedCapability, rootResourceType, terminalResourceType string, route []capability.ConstructionRouteStep) bool {
 	compilerRoute := make([]compilerprobe.Traversal, 0, len(route))
 	for _, step := range route {
 		matchMode := spec.TraversalMatchOptional
@@ -189,7 +190,7 @@ func populationRoutePresentation(rootResourceType, terminalResourceType string, 
 	return capability.ConstructionChoicePresentation{Summary: summary, Facts: facts}
 }
 
-func (s *Service) preparePopulationRouteChoices(ctx context.Context, project string, authorized AuthorizedCapability, identities []capability.PopulationRouteChoiceIdentity, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) preparePopulationRouteChoices(ctx context.Context, project string, authorized ports.AuthorizedCapability, identities []capability.PopulationRouteChoiceIdentity, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 	if len(commands) == 0 || len(commands) != len(identities) {
 		return nil, malformed("commands", "population route choices must resolve one-to-one with commands", nil)
 	}

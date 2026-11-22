@@ -4,13 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"testing"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"testing"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func migrateStoredWorkspaceFixture(t *testing.T, raw []byte, catalog authoringv2.CatalogSnapshot) authoringv2.StoredWorkspaceMigration {
@@ -123,9 +125,9 @@ func TestLegacyReceiptRemainsReadableButCannotPreviewOrPublish(t *testing.T) {
 		previewCalls++
 		return dataframeexecution.PreviewSummary{}, nil
 	}
-	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
+	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 		materializeCalls++
-		return Execution{}, nil
+		return ports.Execution{}, nil
 	}
 	config.ValidateReleaseGeneration = func(context.Context, string, string) error { return nil }
 	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {

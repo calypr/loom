@@ -28,13 +28,22 @@ type PreviewCoveringIndex struct {
 	StoredValues []string
 }
 
+type PreviewIndexes struct {
+	client *Client
+}
+
+func (c *Client) PreviewIndexes() PreviewIndexes {
+	return PreviewIndexes{client: c}
+}
+
 type previewIndexCollection interface {
 	Indexes(context.Context) ([]driver.IndexResponse, error)
 	EnsurePersistentIndex(context.Context, []string, *driver.CreatePersistentIndexOptions) (driver.IndexResponse, bool, error)
 	DeleteIndexByID(context.Context, string) error
 }
 
-func (c *Client) ListPreviewCoveringIndexes(ctx context.Context, collection string) ([]PreviewCoveringIndex, error) {
+func (preview PreviewIndexes) ListPreviewCoveringIndexes(ctx context.Context, collection string) ([]PreviewCoveringIndex, error) {
+	c := preview.client
 	if c == nil || c.db == nil || collection == "" || !validIndexPath(collection) {
 		return nil, fmt.Errorf("invalid preview covering collection")
 	}
@@ -67,29 +76,32 @@ func previewCoveringIndexDefinitions(collection string, indexes []driver.IndexRe
 	return definitions
 }
 
-func (c *Client) EnsurePreviewCoveringIndex(ctx context.Context, collection, name string, fields []string) error {
-	return c.ensurePreviewCoveringIndex(ctx, collection, name, fields)
+func (preview PreviewIndexes) EnsurePreviewCoveringIndex(ctx context.Context, collection, name string, fields []string) error {
+	return preview.ensurePreviewCoveringIndex(ctx, collection, name, fields)
 }
 
 // Essential: EnsurePreviewCoveringIndexWithStoredValues provisions a compiler-owned
 // projection index. Stored values are validated and verified as part of the
 // exact index definition because Arango's ensure operation does not distinguish
 // otherwise identical field tuples by stored-value configuration.
-func (c *Client) EnsurePreviewCoveringIndexWithStoredValues(ctx context.Context, collection, name string, fields, storedValues []string) error {
+func (preview PreviewIndexes) EnsurePreviewCoveringIndexWithStoredValues(ctx context.Context, collection, name string, fields, storedValues []string) error {
+	c := preview.client
 	if c == nil || !validPreviewCoveringIndexWithStoredValues(collection, name, fields, storedValues) {
 		return fmt.Errorf("invalid preview covering index specification")
 	}
-	return c.ensurePreviewCoveringIndexDefinition(ctx, collection, name, fields, storedValues)
+	return preview.ensurePreviewCoveringIndexDefinition(ctx, collection, name, fields, storedValues)
 }
 
-func (c *Client) ensurePreviewCoveringIndex(ctx context.Context, collection, name string, fields []string) error {
+func (preview PreviewIndexes) ensurePreviewCoveringIndex(ctx context.Context, collection, name string, fields []string) error {
+	c := preview.client
 	if c == nil || !validPreviewCoveringIndex(collection, name, fields) {
 		return fmt.Errorf("invalid preview covering index specification")
 	}
-	return c.ensurePreviewCoveringIndexDefinition(ctx, collection, name, fields, nil)
+	return preview.ensurePreviewCoveringIndexDefinition(ctx, collection, name, fields, nil)
 }
 
-func (c *Client) ensurePreviewCoveringIndexDefinition(ctx context.Context, collection, name string, fields, storedValues []string) error {
+func (preview PreviewIndexes) ensurePreviewCoveringIndexDefinition(ctx context.Context, collection, name string, fields, storedValues []string) error {
+	c := preview.client
 	valid := validPreviewCoveringIndex(collection, name, fields)
 	if len(storedValues) != 0 {
 		valid = validPreviewCoveringIndexWithStoredValues(collection, name, fields, storedValues)

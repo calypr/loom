@@ -6,12 +6,14 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestCapabilityEvidenceSynthesizesCodeableConceptTextFieldFromProfiler(t *testing.T) {
-	profiler := catalog.NewProfilerForGenerationWithLimits("project-a", "generation-a", "", "Observation", nil, catalog.ProfileLimits{})
+	profiler := fieldprofile.NewProfilerForGenerationWithLimits("project-a", "generation-a", "", "Observation", nil, fieldprofile.ProfileLimits{})
 	profiler.ObservePayload(map[string]any{
 		"resourceType": "Observation",
 		"code": map[string]any{"coding": []any{
@@ -25,18 +27,18 @@ func TestCapabilityEvidenceSynthesizesCodeableConceptTextFieldFromProfiler(t *te
 
 	documents := profiler.Documents()
 	fieldValues := make([]catalog.FieldEnrichmentObservation, 0, len(documents))
-	var profiledObservation *catalog.SemanticObservation
+	var profiledObservation *codedconcept.Observation
 	for _, document := range documents {
 		fieldValues = append(fieldValues, catalog.FieldEnrichmentObservation{
 			Project: document.Project, DatasetGeneration: document.DatasetGeneration,
 			ResourceType: document.ResourceType, Path: document.Path, Kind: document.Kind,
 			DocCount: document.DocCount, MaxItems: document.MaxItems, SampleCount: document.SampleCount,
 			DistinctValues:       append([]string(nil), document.DistinctValues...),
-			SemanticObservations: append([]catalog.SemanticObservation(nil), document.SemanticObservations...),
+			SemanticObservations: append([]codedconcept.Observation(nil), document.SemanticObservations...),
 		})
 		for index := range document.SemanticObservations {
 			observation := document.SemanticObservations[index]
-			if observation.RuleHint == catalog.SemanticRuleHintCodedValueV1 && observation.Key.Code == "stage" {
+			if observation.RuleHint == codedconcept.RuleHintCodedValueV1 && observation.Key.Code == "stage" {
 				profiledObservation = &observation
 			}
 		}
@@ -88,11 +90,11 @@ func TestCapabilityEvidenceSynthesizesCodeableConceptTextFieldFromProfiler(t *te
 		t.Fatalf("synthesized scalar concept = %#v, want the profiler identity and text value selector with both examples", concept)
 	}
 
-	var retained *catalog.SemanticObservation
+	var retained *codedconcept.Observation
 	for _, field := range fieldValues {
 		for index := range field.SemanticObservations {
 			observation := &field.SemanticObservations[index]
-			if observation.RuleHint == catalog.SemanticRuleHintCodedValueV1 && observation.Key.Code == "stage" {
+			if observation.RuleHint == codedconcept.RuleHintCodedValueV1 && observation.Key.Code == "stage" {
 				retained = observation
 			}
 		}

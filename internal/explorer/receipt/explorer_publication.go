@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"
@@ -13,24 +14,23 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/compilation"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
-func NewMaterializer(recipeEngine *dataframeexecution.Engine, target publication.Target, registry *materializationarango.Registry, degradation error, logger *slog.Logger, batchRows, batchBytes int, qualityMaxRows, qualityMaxDistinctKeys int64) lifecycle.ReceiptMaterializer {
-	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (lifecycle.Execution, error) {
+func NewMaterializer(recipeEngine *dataframeexecution.Engine, target publication.Target, registry *materializationarango.Registry, degradation error, logger *slog.Logger, batchRows, batchBytes int, qualityMaxRows, qualityMaxDistinctKeys int64) ports.ReceiptMaterializer {
+	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (ports.Execution, error) {
 		if receipt == nil {
-			return lifecycle.Execution{}, fmt.Errorf("compilation receipt is required")
+			return ports.Execution{}, fmt.Errorf("compilation receipt is required")
 		}
 		if target == nil {
-			return lifecycle.Execution{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "materialize", Code: "MATERIALIZATION_UNAVAILABLE", Message: "Explorer publication is not configured", Cause: degradation}
+			return ports.Execution{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "materialize", Code: "MATERIALIZATION_UNAVAILABLE", Message: "Explorer publication is not configured", Cause: degradation}
 		}
 		workspace, err := receipt.CurrentWorkspace()
 		if err != nil {
-			return lifecycle.Execution{}, fmt.Errorf("publication workspace: %w", err)
+			return ports.Execution{}, fmt.Errorf("publication workspace: %w", err)
 		}
 		contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
 		if err != nil {
-			return lifecycle.Execution{}, fmt.Errorf("publication contracts: %w", err)
+			return ports.Execution{}, fmt.Errorf("publication contracts: %w", err)
 		}
 		sourceRows := make(map[string]*publication.SourceRowMetadata)
 		for _, contract := range contracts.Outputs {
@@ -50,21 +50,21 @@ func NewMaterializer(recipeEngine *dataframeexecution.Engine, target publication
 			return publishErr
 		})
 		if err != nil {
-			return lifecycle.Execution{}, err
+			return ports.Execution{}, err
 		}
 		published, err := registry.FindExecutionByKey(ctx, identity.Key())
 		if err != nil {
-			return lifecycle.Execution{}, fmt.Errorf("load Explorer publication: %w", err)
+			return ports.Execution{}, fmt.Errorf("load Explorer publication: %w", err)
 		}
-		outputs := make([]lifecycle.ExecutionOutput, 0, len(published.Outputs))
+		outputs := make([]ports.ExecutionOutput, 0, len(published.Outputs))
 		for _, output := range published.Outputs {
 			count := int(output.RowCount)
-			outputs = append(outputs, lifecycle.ExecutionOutput{Name: output.Name, State: string(output.State.Canonical()), RowCount: &count, Columns: append([]publication.PhysicalColumn(nil), output.Columns...)})
+			outputs = append(outputs, ports.ExecutionOutput{Name: output.Name, State: string(output.State.Canonical()), RowCount: &count, Columns: append([]publication.PhysicalColumn(nil), output.Columns...)})
 		}
 		if logger != nil {
 			logger.Info("Explorer receipt materialization complete", "project", bindings.Project, "execution", published.ID)
 		}
-		return lifecycle.Execution{
+		return ports.Execution{
 			ID: published.ID, Name: receipt.Bundle.Name, Project: published.Project,
 			RecipeDigest: published.RecipeDigest, ResolvedSchemaDigest: published.SchemaDigest,
 			SourceGeneration: published.DatasetGeneration, ScopeDigest: published.ScopeDigest,

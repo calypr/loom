@@ -11,14 +11,15 @@ import (
 	api "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/generation"
 )
 
 type HTTPRoutes = routes
 
 type routeRunner struct{}
 
-func (routeRunner) RunGeneration(context.Context, loadapi.GenerationLoadRequest, ingest.EventSink) (ingest.LoadSummary, error) {
-	return ingest.LoadSummary{}, nil
+func (routeRunner) RunGeneration(context.Context, loadapi.GenerationLoadRequest, ingest.EventSink) (generation.LoadSummary, error) {
+	return generation.LoadSummary{}, nil
 }
 
 func TestRegisterRoutesExposesGenerationReleaseWorkflow(t *testing.T) {

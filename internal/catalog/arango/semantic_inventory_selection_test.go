@@ -4,39 +4,40 @@ import (
 	"context"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 )
 
 func TestPageSemanticInventoryDoesNotAdvertiseOlderCompletedBuild(t *testing.T) {
 	project, generation := "project", "generation"
-	currentBuildID := catalog.SemanticInventoryBuildID(project, generation)
-	olderBuild := catalog.NewSemanticInventoryBuild(project, generation, "")
+	currentBuildID := semanticinventory.BuildID(project, generation)
+	olderBuild := semanticinventory.NewBuild(project, generation, "")
 	olderBuild.BuildID = "older-build"
-	olderBuild.State = catalog.SemanticInventoryComplete
-	olderBuild.EntryIndexVersion = catalog.SemanticInventoryEntryIndexVersion
-	olderBuild.SourceAvailability = catalog.SemanticInventorySourceAvailabilityVerified
-	staleEntry := catalog.SemanticInventoryEntry{
+	olderBuild.State = semanticinventory.Complete
+	olderBuild.EntryIndexVersion = semanticinventory.EntryIndexVersion
+	olderBuild.SourceAvailability = semanticinventory.SourceAvailabilityVerified
+	staleEntry := semanticinventory.Entry{
 		ConceptID: "stale-concept",
 		BindingID: "stale-binding",
-		Observation: catalog.SemanticObservation{
-			SchemaVersion: catalog.SemanticObservationSchemaVersion,
-			Completeness:  catalog.SemanticComplete,
+		Observation: codedconcept.Observation{
+			SchemaVersion: codedconcept.ObservationSchemaVersion,
+			Completeness:  codedconcept.Complete,
 			Status:        "SUPPORTED",
 		},
 	}
 
 	tests := []struct {
 		name        string
-		current     *catalog.SemanticInventoryBuild
-		wantState   catalog.SemanticInventoryState
+		current     *semanticinventory.Build
+		wantState   semanticinventory.State
 		wantBuildID string
 	}{
-		{name: "current build absent", wantState: catalog.SemanticInventoryUnknown},
-		{name: "current build running", current: func() *catalog.SemanticInventoryBuild {
-			build := catalog.NewSemanticInventoryBuild(project, generation, "")
-			build.State = catalog.SemanticInventoryRunning
+		{name: "current build absent", wantState: semanticinventory.Unknown},
+		{name: "current build running", current: func() *semanticinventory.Build {
+			build := semanticinventory.NewBuild(project, generation, "")
+			build.State = semanticinventory.Running
 			return &build
-		}(), wantState: catalog.SemanticInventoryRunning, wantBuildID: currentBuildID},
+		}(), wantState: semanticinventory.Running, wantBuildID: currentBuildID},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -50,15 +51,15 @@ func TestPageSemanticInventoryDoesNotAdvertiseOlderCompletedBuild(t *testing.T) 
 					semanticInventoryPageAQL:   []map[string]any{semanticInventoryTestRow(t, staleEntry)},
 				},
 				collections: map[string]bool{
-					catalog.SemanticInventoryBuildCollection: true,
-					catalog.SemanticInventoryEntryCollection: true,
+					semanticinventory.BuildCollection: true,
+					semanticinventory.EntryCollection: true,
 				},
 			}
 			adapter, err := New(client)
 			if err != nil {
 				t.Fatal(err)
 			}
-			page, err := adapter.PageSemanticInventory(context.Background(), catalog.SemanticInventoryPageOptions{
+			page, err := adapter.PageSemanticInventory(context.Background(), semanticinventory.PageOptions{
 				Project: project, DatasetGeneration: generation,
 			})
 			if err != nil {

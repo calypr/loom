@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 )
 
 func TestEncodeSemanticCoverageSourceEnvelopeIsOneVersionedBoundedDocument(t *testing.T) {
@@ -19,7 +19,7 @@ func TestEncodeSemanticCoverageSourceEnvelopeIsOneVersionedBoundedDocument(t *te
 	if err := json.Unmarshal(encoded, &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.RecordKind != semanticCoverageEnvelopeRecordKind || envelope.CoverageStorageFormatVersion != catalog.SemanticCoverageStorageFormatVersion {
+	if envelope.RecordKind != semanticCoverageEnvelopeRecordKind || envelope.CoverageStorageFormatVersion != fieldprofile.SemanticCoverageStorageFormatVersion {
 		t.Fatalf("envelope version = (%q, %d)", envelope.RecordKind, envelope.CoverageStorageFormatVersion)
 	}
 	if envelope.SourceRecordCount != 1 || len(envelope.Paths) != 1 || len(envelope.Paths[0].Path.Facets) != 1 {
@@ -65,29 +65,29 @@ func TestEncodeSemanticCoverageSourceEnvelopeRejectsOversizedDocument(t *testing
 	}
 }
 
-func semanticCoverageEnvelopeTestContribution() catalog.SemanticCoverageSourceContribution {
-	return catalog.SemanticCoverageSourceContribution{
-		Identity: catalog.SemanticCoverageSourceIdentity{
+func semanticCoverageEnvelopeTestContribution() fieldprofile.SemanticCoverageSourceContribution {
+	return fieldprofile.SemanticCoverageSourceContribution{
+		Identity: fieldprofile.SemanticCoverageSourceIdentity{
 			Project: "project", DatasetGeneration: "generation", AuthResourcePath: "/specimen",
 			SchemaIdentity: "schema-sha256", SourceKind: "retained_vertex",
 			SourceID: "retained:specimens/key-1", ResourceType: "Specimen",
 		},
 		BuildID: "inventory-build", SourceRecordCount: 1,
-		Counts:   catalog.SemanticCoverageCounts{CodeableConceptOwners: 1, CodingOccurrences: 1},
+		Counts:   fieldprofile.SemanticCoverageCounts{CodeableConceptOwners: 1, CodingOccurrences: 1},
 		Complete: true,
-		Diagnostics: []catalog.SemanticCoverageDiagnostic{{
+		Diagnostics: []fieldprofile.SemanticCoverageDiagnostic{{
 			Code: "TEST_DIAGNOSTIC", CanonicalPath: "code", Explanation: "RAW-EXPLANATION-CANARY",
 		}},
-		Paths: []catalog.SemanticCoveragePathAggregate{{
-			CanonicalPath: "code", Kind: catalog.SemanticCoverageCodeableConcept,
-			Disposition:     catalog.SemanticCoverageSemanticDisposition,
+		Paths: []fieldprofile.SemanticCoveragePathAggregate{{
+			CanonicalPath: "code", Kind: fieldprofile.SemanticCoverageCodeableConcept,
+			Disposition:     fieldprofile.SemanticCoverageSemanticDisposition,
 			OccurrenceCount: 1, OwnerCount: 1, CodingCount: 1,
 			OwnerPathWitnesses: []string{"RAW-SOURCE-CANARY"},
-			Facets: []catalog.SemanticCoverageFacetAggregate{{
+			Facets: []fieldprofile.SemanticCoverageFacetAggregate{{
 				Path: "code.coding[].code", Kind: "PRIMITIVE_CODE",
-				Disposition:     catalog.SemanticCoverageSemanticDisposition,
+				Disposition:     fieldprofile.SemanticCoverageSemanticDisposition,
 				OccurrenceCount: 1,
-				References:      []catalog.SemanticCoverageReference{{Kind: catalog.SemanticCoverageExactReference, ConceptID: "concept-1", BindingID: "binding-1"}},
+				References:      []fieldprofile.SemanticCoverageReference{{Kind: fieldprofile.SemanticCoverageExactReference, ConceptID: "concept-1", BindingID: "binding-1"}},
 			}},
 		}},
 	}

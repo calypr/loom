@@ -5,17 +5,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 )
 
 func TestRefreshSemanticInventorySourceAvailabilityUsesExactCompletedBuildCAS(t *testing.T) {
-	expected := catalog.NewSemanticInventoryBuild("project", "generation", "")
-	expected.State = catalog.SemanticInventoryComplete
-	expected.SourceKind = catalog.SemanticInventorySourceRetained
-	expected.SourceAvailability = catalog.SemanticInventorySourceAvailabilityUnproven
+	expected := semanticinventory.NewBuild("project", "generation", "")
+	expected.State = semanticinventory.Complete
+	expected.SourceKind = semanticinventory.SourceRetained
+	expected.SourceAvailability = semanticinventory.SourceAvailabilityUnproven
 	expected.ScannedResources = 17
 	refreshed := expected
-	refreshed.SourceAvailability = catalog.SemanticInventorySourceAvailabilityVerified
+	refreshed.SourceAvailability = semanticinventory.SourceAvailabilityVerified
 	client := &evidenceClient{rows: map[string][]map[string]any{
 		refreshSemanticInventorySourceAvailabilityAQL: {semanticInventoryTestRow(t, refreshed)},
 	}}
@@ -25,7 +25,7 @@ func TestRefreshSemanticInventorySourceAvailabilityUsesExactCompletedBuildCAS(t 
 	}
 
 	got, updated, err := adapter.RefreshSemanticInventorySourceAvailability(context.Background(), expected)
-	if err != nil || !updated || got.SourceAvailability != catalog.SemanticInventorySourceAvailabilityVerified {
+	if err != nil || !updated || got.SourceAvailability != semanticinventory.SourceAvailabilityVerified {
 		t.Fatalf("refreshed build = %+v updated=%t err=%v", got, updated, err)
 	}
 	if len(client.queries) != 1 || client.queries[0] != refreshSemanticInventorySourceAvailabilityAQL {
@@ -50,10 +50,10 @@ func TestRefreshSemanticInventorySourceAvailabilityUsesExactCompletedBuildCAS(t 
 }
 
 func TestRefreshSemanticInventorySourceAvailabilityRejectsScopedBuild(t *testing.T) {
-	expected := catalog.NewSemanticInventoryBuild("project", "generation", "scope-a")
-	expected.State = catalog.SemanticInventoryComplete
-	expected.SourceKind = catalog.SemanticInventorySourceRetained
-	expected.SourceAvailability = catalog.SemanticInventorySourceAvailabilityUnproven
+	expected := semanticinventory.NewBuild("project", "generation", "scope-a")
+	expected.State = semanticinventory.Complete
+	expected.SourceKind = semanticinventory.SourceRetained
+	expected.SourceAvailability = semanticinventory.SourceAvailabilityUnproven
 	client := &evidenceClient{rows: map[string][]map[string]any{}}
 	adapter, err := New(client)
 	if err != nil {
@@ -61,16 +61,16 @@ func TestRefreshSemanticInventorySourceAvailabilityRejectsScopedBuild(t *testing
 	}
 
 	got, updated, err := adapter.RefreshSemanticInventorySourceAvailability(context.Background(), expected)
-	if err != nil || updated || got.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnproven || len(client.queries) != 0 {
+	if err != nil || updated || got.SourceAvailability != semanticinventory.SourceAvailabilityUnproven || len(client.queries) != 0 {
 		t.Fatalf("scoped build CAS result = %+v updated=%t err=%v queries=%v", got, updated, err, client.queries)
 	}
 }
 
 func TestRefreshSemanticInventorySourceAvailabilityLeavesConcurrentChangeAlone(t *testing.T) {
-	expected := catalog.NewSemanticInventoryBuild("project", "generation", "")
-	expected.State = catalog.SemanticInventoryComplete
-	expected.SourceKind = catalog.SemanticInventorySourceRetained
-	expected.SourceAvailability = catalog.SemanticInventorySourceAvailabilityUnproven
+	expected := semanticinventory.NewBuild("project", "generation", "")
+	expected.State = semanticinventory.Complete
+	expected.SourceKind = semanticinventory.SourceRetained
+	expected.SourceAvailability = semanticinventory.SourceAvailabilityUnproven
 	client := &evidenceClient{rows: map[string][]map[string]any{}}
 	adapter, err := New(client)
 	if err != nil {
@@ -78,16 +78,16 @@ func TestRefreshSemanticInventorySourceAvailabilityLeavesConcurrentChangeAlone(t
 	}
 
 	got, updated, err := adapter.RefreshSemanticInventorySourceAvailability(context.Background(), expected)
-	if err != nil || updated || got.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnproven {
+	if err != nil || updated || got.SourceAvailability != semanticinventory.SourceAvailabilityUnproven {
 		t.Fatalf("concurrent CAS result = %+v updated=%t err=%v", got, updated, err)
 	}
 }
 
 func TestRefreshSemanticInventorySourceAvailabilityRejectsDiagnosticBuildBeforeWrite(t *testing.T) {
-	expected := catalog.NewSemanticInventoryBuild("project", "generation", "")
-	expected.State = catalog.SemanticInventoryComplete
-	expected.SourceKind = catalog.SemanticInventorySourceRetained
-	expected.SourceAvailability = catalog.SemanticInventorySourceAvailabilityUnproven
+	expected := semanticinventory.NewBuild("project", "generation", "")
+	expected.State = semanticinventory.Complete
+	expected.SourceKind = semanticinventory.SourceRetained
+	expected.SourceAvailability = semanticinventory.SourceAvailabilityUnproven
 	expected.Diagnostics = []string{"source scan diagnostic"}
 	client := &evidenceClient{rows: map[string][]map[string]any{}}
 	adapter, err := New(client)
@@ -96,7 +96,7 @@ func TestRefreshSemanticInventorySourceAvailabilityRejectsDiagnosticBuildBeforeW
 	}
 
 	got, updated, err := adapter.RefreshSemanticInventorySourceAvailability(context.Background(), expected)
-	if err != nil || updated || got.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnproven || len(client.queries) != 0 {
+	if err != nil || updated || got.SourceAvailability != semanticinventory.SourceAvailabilityUnproven || len(client.queries) != 0 {
 		t.Fatalf("diagnostic build CAS result = %+v updated=%t err=%v queries=%v", got, updated, err, client.queries)
 	}
 }

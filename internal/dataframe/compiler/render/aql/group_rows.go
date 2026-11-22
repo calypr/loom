@@ -71,7 +71,7 @@ SORT row.group_ordinal ASC, row.group_id ASC
 		query += "LIMIT @" + rows.LimitBindKey + "\n"
 	}
 	rendered := runtimePhysicalBindVars(plan.BindVars, collectionKeys)
-	renderer := physicalPlanRenderer{bindVars: rendered, collectionKeys: collectionKeys, setVariables: map[string]string{}, reservedVars: map[string]struct{}{"row": {}, "cohort_member": {}, "cohort_value_rows": {}}}
+	renderer := physicalPlanRenderer{renderContext: renderContext{bindVars: rendered, collectionKeys: collectionKeys, setVariables: map[string]string{}, reservedVars: map[string]struct{}{"row": {}, "cohort_member": {}, "cohort_value_rows": {}}}}
 	traceMemberValue, traceMemberValueFound := groupRowsCellTraceMemberValue(rows)
 	if len(rows.MemberValues) == 0 {
 		if rows.CellTrace == nil {
@@ -95,7 +95,7 @@ SORT row.group_ordinal ASC, row.group_id ASC
 			if err != nil {
 				return RenderedPhysicalPlan{}, err
 			}
-			variable := renderer.newInternalVariable(fmt.Sprintf("cohort_member_value_%d", index))
+			variable := renderer.navigation().newInternalVariable(fmt.Sprintf("cohort_member_value_%d", index))
 			projections = append(projections, fmt.Sprintf("%q: %s", value.Output, expression))
 			outputs = append(outputs, fmt.Sprintf("%q: %s", value.Output, variable))
 			values = append(values, ir.PhysicalStageRowValue{InputColumn: value.Output, InputKind: value.Kind, InputMany: value.Expression.Cardinality == ir.PhysicalArrayCardinality, Output: value.Output, Policy: value.Policy, Variable: variable})
@@ -109,7 +109,7 @@ SORT row.group_ordinal ASC, row.group_id ASC
 		if rows.CellTrace == nil {
 			query += "RETURN MERGE(row, {" + strings.Join(outputs, ", ") + "})\n"
 		} else {
-			finalRow := renderer.newInternalVariable("cohort_group_final_row")
+			finalRow := renderer.navigation().newInternalVariable("cohort_group_final_row")
 			query += "LET " + finalRow + " = MERGE(row, {" + strings.Join(outputs, ", ") + "})\n"
 			var contributorRows *string
 			if traceMemberValueFound {
@@ -167,7 +167,7 @@ func renderGroupRowsCellTraceReturn(renderer physicalPlanRenderer, trace ir.Phys
 		terminal.Contribution = &ir.PhysicalCellTraceContribution{SetVariable: contributorRows, ValueField: "value"}
 		terminal.OmissionCode = ""
 	}
-	traceLines, err := renderer.renderCellTraceReturn(terminal)
+	traceLines, err := renderer.cellTraces().renderCellTraceReturn(terminal)
 	if err != nil {
 		return nil, err
 	}
@@ -181,9 +181,9 @@ func renderGroupRowsCellTraceContributors(
 	memberValue ir.PhysicalGroupMemberValue,
 ) (string, []string, error) {
 	columnBind := renderer.newInternalBindKeyWithValue("group_rows_trace_column", memberValue.Output)
-	input := renderer.newInternalVariable("group_rows_trace_input")
-	item := renderer.newInternalVariable("group_rows_trace_value")
-	contributors := renderer.newInternalVariable("group_rows_trace_contributors")
+	input := renderer.navigation().newInternalVariable("group_rows_trace_input")
+	item := renderer.navigation().newInternalVariable("group_rows_trace_value")
+	contributors := renderer.navigation().newInternalVariable("group_rows_trace_contributors")
 	finalValue, err := renderer.renderExpression(ir.PhysicalExpression{
 		Kind: ir.PhysicalValueExpression, Cardinality: trace.Cardinality,
 		NullBehavior: ir.PhysicalPreserveNull,
@@ -203,7 +203,7 @@ func renderGroupRowsCellTraceContributors(
 	}
 	var source string
 	if memberValue.Expression.Cardinality == ir.PhysicalArrayCardinality {
-		arrayValue := renderer.newInternalVariable("group_rows_trace_array")
+		arrayValue := renderer.navigation().newInternalVariable("group_rows_trace_array")
 		source = fmt.Sprintf(
 			"(FOR %s IN %s LET %s = %s[@%s] FILTER %s != null FOR %s IN (ASSERT(IS_ARRAY(%s), \"CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH\") ? %s : []) FILTER %s != null FILTER %s RETURN %s)",
 			input, valueRows, arrayValue, input, columnBind, arrayValue,
@@ -215,7 +215,7 @@ func renderGroupRowsCellTraceContributors(
 			input, valueRows, item, input, columnBind, item, match, project(item),
 		)
 	}
-	uniqueRows := renderer.newInternalVariable("group_rows_trace_unique")
+	uniqueRows := renderer.navigation().newInternalVariable("group_rows_trace_unique")
 	lines := []string{
 		"LET " + contributors + " = " + source,
 		fmt.Sprintf("LET %s = (FOR %s IN UNIQUE(%s) SORT %s.resourceType ASC, %s.id ASC, %s.value ASC RETURN %s)", uniqueRows, item, contributors, item, item, item, item),
@@ -228,20 +228,20 @@ func (r *physicalPlanRenderer) renderCohortRootScan(root ir.PhysicalRootScan) ([
 	if source == nil {
 		return nil, fmt.Errorf("cohort root source is required")
 	}
-	revision := r.newInternalVariable("cohort_source_revision")
-	revisionGuard := r.newInternalVariable("cohort_source_revision_guard")
-	selection := r.newInternalVariable("cohort_source_selection")
-	selectionGuard := r.newInternalVariable("cohort_source_selection_guard")
-	selectionMember := r.newInternalVariable("cohort_source_selection_member")
-	selectionCandidate := r.newInternalVariable("cohort_source_selection_candidate")
-	memberships := r.newInternalVariable("cohort_source_membership")
-	membershipRow := r.newInternalVariable("cohort_source_membership_row")
-	membershipCandidate := r.newInternalVariable("cohort_source_membership_candidate")
-	membershipCheck := r.newInternalVariable("cohort_source_membership_check")
-	unassigned := r.newInternalVariable("cohort_source_unassigned")
-	policyGuard := r.newInternalVariable("cohort_source_policy_guard")
-	candidateIDs := r.newInternalVariable("cohort_source_candidate_ids")
-	candidateID := r.newInternalVariable("cohort_source_candidate_id")
+	revision := r.navigation().newInternalVariable("cohort_source_revision")
+	revisionGuard := r.navigation().newInternalVariable("cohort_source_revision_guard")
+	selection := r.navigation().newInternalVariable("cohort_source_selection")
+	selectionGuard := r.navigation().newInternalVariable("cohort_source_selection_guard")
+	selectionMember := r.navigation().newInternalVariable("cohort_source_selection_member")
+	selectionCandidate := r.navigation().newInternalVariable("cohort_source_selection_candidate")
+	memberships := r.navigation().newInternalVariable("cohort_source_membership")
+	membershipRow := r.navigation().newInternalVariable("cohort_source_membership_row")
+	membershipCandidate := r.navigation().newInternalVariable("cohort_source_membership_candidate")
+	membershipCheck := r.navigation().newInternalVariable("cohort_source_membership_check")
+	unassigned := r.navigation().newInternalVariable("cohort_source_unassigned")
+	policyGuard := r.navigation().newInternalVariable("cohort_source_policy_guard")
+	candidateIDs := r.navigation().newInternalVariable("cohort_source_candidate_ids")
+	candidateID := r.navigation().newInternalVariable("cohort_source_candidate_id")
 	lines := []string{
 		fmt.Sprintf("LET %s = DOCUMENT(@@%s, @%s)", revision, source.RevisionCollectionBindKey, source.RevisionIDBindKey),
 		fmt.Sprintf("FOR %s IN [ASSERT(%s != null AND %s.state == \"COMPLETE\" AND %s.project == @%s AND %s.generation == @%s AND %s.resourceType == @%s, \"EXPLICIT_GROUP_REVISION_INVALID\")]", revisionGuard, revision, revision, revision, source.ProjectBindKey, revision, source.DatasetGenerationBindKey, revision, source.ResourceTypeBindKey),
@@ -277,7 +277,7 @@ func (r *physicalPlanRenderer) renderConstructionCohortGroupStage(stage ir.Physi
 	}
 	rows := cohort.Rows
 	contributorInput := fmt.Sprintf("%s.%s", stage.InputRowVariable, cohort.ContributorInputColumn)
-	contributors := r.newInternalVariable("cohort_root_contributors")
+	contributors := r.navigation().newInternalVariable("cohort_root_contributors")
 	lines := []string{
 		fmt.Sprintf("  LET %s = UNIQUE(FLATTEN((FOR %s IN %s RETURN (IS_ARRAY(%s) ? %s : [%s])), 1))", contributors,
 			stage.InputRowVariable, inputRows, contributorInput, contributorInput, contributorInput),
@@ -301,13 +301,13 @@ func (r *physicalPlanRenderer) renderConstructionCohortGroupStage(stage ir.Physi
 		"    FILTER policy_guard",
 		fmt.Sprintf("  LET definitions = (FOR definition IN @@%s FILTER definition.revisionId == revision._key AND definition.project == @%s SORT definition.ordinal ASC, definition.groupId ASC RETURN definition)", rows.DefinitionsCollectionBindKey, rows.ProjectBindKey),
 	}
-	memberRecords := r.newInternalVariable("cohort_group_member_records")
-	memberRow := r.newInternalVariable("cohort_group_member_record")
-	source := r.newInternalVariable("cohort_group_source")
-	definition := r.newInternalVariable("cohort_group_definition")
-	groupRows := r.newInternalVariable("cohort_group_rows")
-	groupContributorKeys := r.newInternalVariable("cohort_group_contributor_keys")
-	unassignedContributorKeys := r.newInternalVariable("cohort_unassigned_contributors")
+	memberRecords := r.navigation().newInternalVariable("cohort_group_member_records")
+	memberRow := r.navigation().newInternalVariable("cohort_group_member_record")
+	source := r.navigation().newInternalVariable("cohort_group_source")
+	definition := r.navigation().newInternalVariable("cohort_group_definition")
+	groupRows := r.navigation().newInternalVariable("cohort_group_rows")
+	groupContributorKeys := r.navigation().newInternalVariable("cohort_group_contributor_keys")
+	unassignedContributorKeys := r.navigation().newInternalVariable("cohort_unassigned_contributors")
 	lines = append(lines,
 		fmt.Sprintf("  LET %s = (FOR %s IN definitions", groupRows, definition),
 		fmt.Sprintf("    LET %s = (FOR member IN all_memberships", memberRecords),
@@ -344,7 +344,7 @@ func (r *physicalPlanRenderer) renderConstructionCohortGroupStage(stage ir.Physi
 		lines = append(lines, "  RETURN "+stage.OutputRowVariable)
 		return lines, nil
 	}
-	valueRows := r.newInternalVariable("cohort_value_rows")
+	valueRows := r.navigation().newInternalVariable("cohort_value_rows")
 	projections := make([]string, 0, len(rows.MemberValues))
 	values := make([]ir.PhysicalStageRowValue, 0, len(rows.MemberValues))
 	outputs := make([]string, 0, len(rows.MemberValues)+1)
@@ -353,7 +353,7 @@ func (r *physicalPlanRenderer) renderConstructionCohortGroupStage(stage ir.Physi
 		if err != nil {
 			return nil, err
 		}
-		variable := r.newInternalVariable(fmt.Sprintf("cohort_member_value_%d", index))
+		variable := r.navigation().newInternalVariable(fmt.Sprintf("cohort_member_value_%d", index))
 		projections = append(projections, fmt.Sprintf("%q: %s", value.Output, expression))
 		outputs = append(outputs, fmt.Sprintf("%q: %s", value.Output, variable))
 		values = append(values, ir.PhysicalStageRowValue{InputColumn: value.Output, InputKind: value.Kind, InputMany: value.Expression.Cardinality == ir.PhysicalArrayCardinality, Output: value.Output, Policy: value.Policy, Variable: variable})

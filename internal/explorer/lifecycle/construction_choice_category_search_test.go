@@ -6,9 +6,11 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestConstructionChoiceSearchReauthorizesSignedCategoryFamily(t *testing.T) {
@@ -26,7 +28,7 @@ func TestConstructionChoiceSearchReauthorizesSignedCategoryFamily(t *testing.T) 
 	codeCandidate.Label = "Observation code"
 	snapshot.Candidates = []capability.Candidate{displayCandidate, codeCandidate}
 	family := testCodedCategoryFamily("file", "Observation", "Observation.code.coding[]", "https://example.org/codes", "v1")
-	buildID := catalog.SemanticInventoryBuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
+	buildID := semanticinventory.BuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
 	contextToken, err := semanticInventoryContextToken(snapshot, "patients", "Patient", buildID)
 	if err != nil {
 		t.Fatal(err)
@@ -36,26 +38,26 @@ func TestConstructionChoiceSearchReauthorizesSignedCategoryFamily(t *testing.T) 
 		t.Fatal(err)
 	}
 	service := newTestService(t, store, Config{
-		Capability: CapabilityResolver{
-			ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-				return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capability: ports.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
 			Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot },
 		},
-		ResolveSemanticInventorySelections: func(_ context.Context, options catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error) {
-			expected := catalog.SemanticInventoryFamilyReference{
+		ResolveSemanticInventorySelections: func(_ context.Context, options semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
+			expected := semanticinventory.FamilyReference{
 				FamilyID: family.FamilyID, BindingID: family.BindingID, SourceKind: family.SourceKind,
 				ResourceType: family.ResourceType, SourcePath: family.SourcePath, System: family.System, Version: family.Version,
 			}
-			if !reflect.DeepEqual(options.FamilyReferences, []catalog.SemanticInventoryFamilyReference{expected}) || options.AuthResourcePathsUnrestricted == nil || !*options.AuthResourcePathsUnrestricted {
+			if !reflect.DeepEqual(options.FamilyReferences, []semanticinventory.FamilyReference{expected}) || options.AuthResourcePathsUnrestricted == nil || !*options.AuthResourcePathsUnrestricted {
 				t.Fatalf("category resolution was not bound to the signed family and authorized scope: %#v", options)
 			}
-			return catalog.SemanticInventoryResolveResult{
-				Build: catalog.SemanticInventoryBuild{
+			return semanticinventory.ResolveResult{
+				Build: semanticinventory.Build{
 					Project: snapshot.Identity.Project, DatasetGeneration: snapshot.Identity.Generation,
-					BuildID: buildID, State: catalog.SemanticInventoryComplete,
+					BuildID: buildID, State: semanticinventory.Complete,
 				},
-				State: catalog.SemanticInventoryComplete, Families: []catalog.SemanticInventoryFamily{family},
+				State: semanticinventory.Complete, Families: []semanticinventory.Family{family},
 			}, nil
 		},
 	})
@@ -64,7 +66,7 @@ func TestConstructionChoiceSearchReauthorizesSignedCategoryFamily(t *testing.T) 
 		Source: ConstructionChoiceSearchSource{
 			Kind: capability.ConstructionChoiceSourceSemantic, ContextToken: contextToken, BuildID: buildID,
 			ConceptID: family.FamilyID, BindingID: family.BindingID, ChoiceID: signed.ChoiceID,
-			SelectionMode: catalog.SemanticInventorySystemVersionCategory,
+			SelectionMode: semanticinventory.SystemVersionCategory,
 		},
 	})
 	if err != nil || !result.Complete || len(result.Choices) != 1 {
@@ -79,7 +81,7 @@ func TestConstructionChoiceSearchReauthorizesSignedCategoryFamily(t *testing.T) 
 		t.Fatal(err)
 	}
 	source, ok := identity.Source.(capability.SemanticBindingChoiceSource)
-	if !ok || source.RuleHint != catalog.SemanticRuleHintCodedCategoryV1 || source.ConceptID != family.FamilyID || source.System != family.System || source.Version != family.Version || source.SourceKind != family.SourceKind {
+	if !ok || source.RuleHint != codedconcept.RuleHintCodedCategoryV1 || source.ConceptID != family.FamilyID || source.System != family.System || source.Version != family.Version || source.SourceKind != family.SourceKind {
 		t.Fatalf("route search returned an exact-code or unsigned source: %#v", identity.Source)
 	}
 	allSupported := false

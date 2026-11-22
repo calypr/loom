@@ -231,13 +231,13 @@ func renderGroupRowValuePreviewFrontier(
 	for variable := range physicalPlanVariableNames(frontierPlan) {
 		reserved[variable] = struct{}{}
 	}
-	renderer := physicalPlanRenderer{bindVars: bindVars, reservedVars: reserved, internalPrefix: "construction_"}
-	sourceRows := renderer.newInternalVariable("group_preview_source_rows")
-	groupRootKeys := renderer.newInternalVariable("group_preview_root_keys_by_group")
-	selectedRootKeys := renderer.newInternalVariable("group_preview_selected_root_keys")
-	sourceRow := renderer.newInternalVariable("group_preview_source_row")
-	groupKey := renderer.newInternalVariable("group_preview_group_key")
-	groupRootKey := renderer.newInternalVariable("group_preview_root_key")
+	renderer := physicalPlanRenderer{renderContext: renderContext{bindVars: bindVars, reservedVars: reserved, internalPrefix: "construction_"}}
+	sourceRows := renderer.navigation().newInternalVariable("group_preview_source_rows")
+	groupRootKeys := renderer.navigation().newInternalVariable("group_preview_root_keys_by_group")
+	selectedRootKeys := renderer.navigation().newInternalVariable("group_preview_selected_root_keys")
+	sourceRow := renderer.navigation().newInternalVariable("group_preview_source_row")
+	groupKey := renderer.navigation().newInternalVariable("group_preview_group_key")
+	groupRootKey := renderer.navigation().newInternalVariable("group_preview_root_key")
 	groupKeyTypeBind := renderer.newInternalBindKey("group_preview_key_type")
 	renderer.bindVars[groupKeyTypeBind] = shape.keyType
 	limitBindKey := sequence.PreviewLimitBindKey

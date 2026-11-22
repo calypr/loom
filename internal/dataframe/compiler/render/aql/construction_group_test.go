@@ -8,11 +8,11 @@ import (
 )
 
 func TestKeylessGroupFallbackRetainsEmptyInputSentinel(t *testing.T) {
-	renderer := &physicalPlanRenderer{
+	renderer := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       map[string]any{"construction_id": "group"},
 		reservedVars:   map[string]struct{}{},
 		internalPrefix: "test_",
-	}
+	}}
 	stage := ir.PhysicalConstructionStage{
 		InputRowVariable:  "input_row",
 		OutputRowVariable: "output_row",
@@ -56,11 +56,11 @@ func TestKeylessGroupFallbackRetainsEmptyInputSentinel(t *testing.T) {
 }
 
 func TestKeylessGroupOneValuesAggregatesZeroRowsThroughSentinel(t *testing.T) {
-	renderer := &physicalPlanRenderer{
+	renderer := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       map[string]any{"construction_id": "group"},
 		reservedVars:   map[string]struct{}{},
 		internalPrefix: "test_",
-	}
+	}}
 	stage := ir.PhysicalConstructionStage{
 		InputRowVariable:  "input_row",
 		OutputRowVariable: "output_row",
@@ -101,11 +101,11 @@ func TestKeylessGroupOneValuesAggregatesZeroRowsThroughSentinel(t *testing.T) {
 }
 
 func TestKeylessGroupAllValuesAggregatesZeroRowsThroughSentinel(t *testing.T) {
-	renderer := &physicalPlanRenderer{
+	renderer := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       map[string]any{"construction_id": "group"},
 		reservedVars:   map[string]struct{}{},
 		internalPrefix: "test_",
-	}
+	}}
 	stage := ir.PhysicalConstructionStage{
 		InputRowVariable:  "input_row",
 		OutputRowVariable: "output_row",
@@ -147,11 +147,11 @@ func TestKeylessGroupAllValuesAggregatesZeroRowsThroughSentinel(t *testing.T) {
 }
 
 func TestKeylessGroupOneValuesAggregatesCurrentSourceScope(t *testing.T) {
-	renderer := &physicalPlanRenderer{
+	renderer := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       map[string]any{"construction_id": "group"},
 		reservedVars:   map[string]struct{}{},
 		internalPrefix: "test_",
-	}
+	}}
 	stage := ir.PhysicalConstructionStage{
 		InputRowVariable:  "input_row",
 		OutputRowVariable: "output_row",
@@ -190,11 +190,11 @@ func TestKeylessGroupOneValuesAggregatesCurrentSourceScope(t *testing.T) {
 }
 
 func TestKeyedGroupWithoutSummariesCollectsKeysWithoutRetainingRows(t *testing.T) {
-	renderer := &physicalPlanRenderer{
+	renderer := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       map[string]any{"construction_id": "group"},
 		reservedVars:   map[string]struct{}{},
 		internalPrefix: "test_",
-	}
+	}}
 	stage := ir.PhysicalConstructionStage{
 		InputRowVariable:  "input_row",
 		OutputRowVariable: "output_row",
@@ -233,11 +233,11 @@ func TestKeyedGroupWithoutSummariesCollectsKeysWithoutRetainingRows(t *testing.T
 }
 
 func TestKeyedGroupOneRowValueStreamsDistinctValues(t *testing.T) {
-	renderer := &physicalPlanRenderer{
+	renderer := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       map[string]any{"construction_id": "group"},
 		reservedVars:   map[string]struct{}{},
 		internalPrefix: "test_",
-	}
+	}}
 	stage := ir.PhysicalConstructionStage{
 		InputRowVariable:  "input_row",
 		OutputRowVariable: "output_row",
@@ -326,11 +326,11 @@ func TestGroupKeyTypeAssertionFollowsCollectBeforeSort(t *testing.T) {
 	for _, path := range paths {
 		for _, policy := range policies {
 			t.Run(path.name+"/"+string(policy), func(t *testing.T) {
-				renderer := &physicalPlanRenderer{
+				renderer := &physicalPlanRenderer{renderContext: renderContext{
 					bindVars:       map[string]any{"construction_id": "group"},
 					reservedVars:   map[string]struct{}{},
 					internalPrefix: "test_",
-				}
+				}}
 				stage := ir.PhysicalConstructionStage{
 					InputRowVariable:  "input_row",
 					OutputRowVariable: "output_row",
@@ -376,11 +376,11 @@ func TestCodingIdentityGroupStreamsTupleCountAndNullableDisplayMin(t *testing.T)
 		ir.PhysicalStageGroupMissingKeyError,
 	} {
 		t.Run(string(policy), func(t *testing.T) {
-			renderer := &physicalPlanRenderer{
+			renderer := &physicalPlanRenderer{renderContext: renderContext{
 				bindVars:       map[string]any{"construction_id": "group"},
 				reservedVars:   map[string]struct{}{},
 				internalPrefix: "test_",
-			}
+			}}
 			stage := ir.PhysicalConstructionStage{
 				InputRowVariable:  "input_row",
 				OutputRowVariable: "output_row",

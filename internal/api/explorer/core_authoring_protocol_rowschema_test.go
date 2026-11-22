@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
@@ -291,18 +292,18 @@ func c19NewFixture(t *testing.T) (*coreProtocolFixture, *c19RowStore) {
 	fixture := &coreProtocolFixture{t: t, store: store, snapshot: snapshot, workspace: workspace, initialDigest: digest, basePath: "/api/v1/projects/" + c19Project + "/explorers/" + c19ExplorerID + "/authoring/v2"}
 	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	serviceConfig := lifecycle.Config{
-		Capability: lifecycle.CapabilityResolver{
+		Capability: ports.CapabilityResolver{
 			Current: func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil },
 			Token:   func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
 		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
@@ -850,18 +851,18 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 	fixture := &coreProtocolFixture{t: t, snapshot: snapshot, workspace: workspace, initialDigest: digest, basePath: "/api/v1/projects/" + c19Project + "/explorers/" + c19ExplorerID + "/authoring/v2"}
 	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	serviceConfig := lifecycle.Config{
-		Capability: lifecycle.CapabilityResolver{
+		Capability: ports.CapabilityResolver{
 			Current: func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil },
 			Token:   func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
 		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {

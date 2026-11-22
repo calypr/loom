@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 	recipetest "github.com/calypr/loom/internal/testkit/recipetest"
 
@@ -17,7 +18,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
 func TestCompileExplorerReceiptBindsPopulationRemovalWithGroupedRelatedSummary(t *testing.T) {
@@ -140,14 +140,14 @@ func TestCompileExplorerReceiptBindsPopulationRemovalWithGroupedRelatedSummary(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := lifecycle.CompileReceiptRequest{
+	request := ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
 		SelectionMembersCollection: "loom_explorer_selection_members", PopulationMemberRemovalProposal: binding,
 		ResolvedInputs: explorercompilation.ResolvedInputs{Populations: []explorercompilation.ResolvedPopulation{{
 			OutputID: "patients", SelectionRevisionID: "selection-candidate", MembershipDigest: binding.CandidateMembershipDigest,
 			MemberCount: binding.CandidateMemberCount, ResourceType: "Patient", Route: []authoringv2.PopulationRouteStep{},
 		}}},
-		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope},
+		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope},
 	}
 	receipt, err := Compile(context.Background(), request, nil, engine, service, nil, nil)
 	if err != nil {

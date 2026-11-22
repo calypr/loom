@@ -13,9 +13,10 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
-func repositoryPublishIntoCompilation(t *testing.T, receipt *explorer.CompilationReceipt, compileErr error) (*Error, *fakeStore, error) {
+func repositoryPublishIntoCompilation(t *testing.T, receipt *explorer.CompilationReceipt, compileErr error) (*ports.Error, *fakeStore, error) {
 	t.Helper()
 	visible := true
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
@@ -33,18 +34,18 @@ func repositoryPublishIntoCompilation(t *testing.T, receipt *explorer.Compilatio
 	store := &fakeStore{}
 	config := testConfig(snapshot)
 	config.Capability.Current = func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil }
-	config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
-	config.CompileReceipt = func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		return receipt, compileErr
 	}
-	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
+	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 		return successfulTestExecution(base, "PUBLISHED"), nil
 	}
 	service := newTestService(t, store, config)
 	_, err := service.PublishRepository(context.Background(), RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: "commit-a", Actor: "alice"})
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("repository publish did not surface a lifecycle error: %v", err)
 	}
@@ -54,7 +55,7 @@ func repositoryPublishIntoCompilation(t *testing.T, receipt *explorer.Compilatio
 func TestRepositoryPublishUntypedCompileFaultIsUnavailable(t *testing.T) {
 	fault := errors.New("compile: dial tcp 127.0.0.1:8529: connect: connection refused")
 	lifecycleErr, store, err := repositoryPublishIntoCompilation(t, nil, fault)
-	if lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "COMPILATION_UNAVAILABLE" {
+	if lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "COMPILATION_UNAVAILABLE" {
 		t.Fatalf("untyped compile fault classified %q/%q, want unavailable/COMPILATION_UNAVAILABLE", lifecycleErr.Class, lifecycleErr.Code)
 	}
 	if !errors.Is(err, fault) {
@@ -69,12 +70,12 @@ func TestRepositoryPublishUntypedCompileFaultIsUnavailable(t *testing.T) {
 }
 
 func TestRepositoryPublishTypedCompileErrorPassesThrough(t *testing.T) {
-	typed := &Error{Class: ClassForbidden, Stage: "compile", Code: "TYPED_COMPILE_DENIED", Message: "compile is forbidden"}
+	typed := &ports.Error{Class: ports.ClassForbidden, Stage: "compile", Code: "TYPED_COMPILE_DENIED", Message: "compile is forbidden"}
 	lifecycleErr, _, err := repositoryPublishIntoCompilation(t, nil, typed)
 	if lifecycleErr != typed {
 		t.Fatalf("typed compile error was replaced: got %#v, want the original %#v", lifecycleErr, typed)
 	}
-	if lifecycleErr.Class != ClassForbidden || lifecycleErr.Code != "TYPED_COMPILE_DENIED" {
+	if lifecycleErr.Class != ports.ClassForbidden || lifecycleErr.Code != "TYPED_COMPILE_DENIED" {
 		t.Fatalf("typed compile error classified %q/%q, want unchanged forbidden/TYPED_COMPILE_DENIED", lifecycleErr.Class, lifecycleErr.Code)
 	}
 	if !errors.Is(err, typed) {
@@ -92,10 +93,10 @@ func TestRepositoryPublishCompileCancellationAndDeadlineAreUnavailable(t *testin
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			lifecycleErr, _, err := repositoryPublishIntoCompilation(t, nil, test.err)
-			if lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "COMPILATION_UNAVAILABLE" {
+			if lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "COMPILATION_UNAVAILABLE" {
 				t.Fatalf("%s classified %q/%q, want unavailable/COMPILATION_UNAVAILABLE", test.name, lifecycleErr.Class, lifecycleErr.Code)
 			}
-			if lifecycleErr.Class == ClassUnprocessable {
+			if lifecycleErr.Class == ports.ClassUnprocessable {
 				t.Fatalf("%s surfaced as a client validation failure", test.name)
 			}
 			if !errors.Is(err, test.err) || !errors.Is(err, errors.Unwrap(test.err)) {
@@ -113,7 +114,7 @@ func TestRepositoryPublishDeterministicCompilerValidationStaysUnprocessable(t *t
 		Message: "the selected root node no longer exists",
 	}
 	lifecycleErr, _, err := repositoryPublishIntoCompilation(t, nil, compileErr)
-	if lifecycleErr.Class != ClassUnprocessable || lifecycleErr.Code != "INVALID_ROOT_NODE" {
+	if lifecycleErr.Class != ports.ClassUnprocessable || lifecycleErr.Code != "INVALID_ROOT_NODE" {
 		t.Fatalf("deterministic compile validation classified %q/%q, want unprocessable/INVALID_ROOT_NODE", lifecycleErr.Class, lifecycleErr.Code)
 	}
 	if lifecycleErr.Message != compileErr.Message {
@@ -133,7 +134,7 @@ func TestRepositoryPublishAuthoringErrorKeepsConflictClassAndCode(t *testing.T) 
 		},
 	}
 	lifecycleErr, _, err := repositoryPublishIntoCompilation(t, nil, compileErr)
-	if lifecycleErr.Class != ClassConflict || lifecycleErr.Code != "COMPILATION_CONTRACT_MISMATCH" {
+	if lifecycleErr.Class != ports.ClassConflict || lifecycleErr.Code != "COMPILATION_CONTRACT_MISMATCH" {
 		t.Fatalf("authoring error classified %q/%q, want conflict/COMPILATION_CONTRACT_MISMATCH", lifecycleErr.Class, lifecycleErr.Code)
 	}
 	if !errors.Is(err, compileErr) {
@@ -143,7 +144,7 @@ func TestRepositoryPublishAuthoringErrorKeepsConflictClassAndCode(t *testing.T) 
 
 func TestRepositoryPublishStaleCapabilityIsConflict(t *testing.T) {
 	lifecycleErr, _, err := repositoryPublishIntoCompilation(t, nil, capability.ErrStaleSnapshot)
-	if lifecycleErr.Class != ClassConflict || lifecycleErr.Code != "STALE_CATALOG_SNAPSHOT" {
+	if lifecycleErr.Class != ports.ClassConflict || lifecycleErr.Code != "STALE_CATALOG_SNAPSHOT" {
 		t.Fatalf("stale snapshot classified %q/%q, want conflict/STALE_CATALOG_SNAPSHOT", lifecycleErr.Class, lifecycleErr.Code)
 	}
 	if !errors.Is(err, capability.ErrStaleSnapshot) {
@@ -153,7 +154,7 @@ func TestRepositoryPublishStaleCapabilityIsConflict(t *testing.T) {
 
 func TestRepositoryPublishNilCompileReceiptStaysCompilationFailedUnavailable(t *testing.T) {
 	lifecycleErr, _, _ := repositoryPublishIntoCompilation(t, nil, nil)
-	if lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "COMPILATION_FAILED" {
+	if lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "COMPILATION_FAILED" {
 		t.Fatalf("nil receipt classified %q/%q, want unavailable/COMPILATION_FAILED", lifecycleErr.Class, lifecycleErr.Code)
 	}
 }

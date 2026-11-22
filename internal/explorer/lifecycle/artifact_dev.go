@@ -5,10 +5,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/published"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 type artifactDelayReader struct {
-	next  ArtifactPublishedReader
+	next  ports.ArtifactPublishedReader
 	delay time.Duration
 }
 
@@ -29,8 +30,8 @@ func (r artifactDelayReader) StreamExactExport(ctx context.Context, request publ
 	})
 }
 
-var _ ArtifactPublishedReader = artifactDelayReader{}
+var _ ports.ArtifactPublishedReader = artifactDelayReader{}
 
-func DelayArtifactRows(next ArtifactPublishedReader, delay time.Duration) ArtifactPublishedReader {
+func DelayArtifactRows(next ports.ArtifactPublishedReader, delay time.Duration) ports.ArtifactPublishedReader {
 	return artifactDelayReader{next: next, delay: delay}
 }

@@ -15,14 +15,17 @@ import (
 	"unicode"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -214,39 +217,39 @@ type FieldPresentationGroupUnderSemantic struct {
 func (FieldPresentationGroupUnderSemantic) fieldPresentationDecision() {}
 
 type SemanticInventoryItem struct {
-	ConceptID              string                                  `json:"conceptId"`
-	BindingID              string                                  `json:"bindingId"`
-	SelectionMode          string                                  `json:"selectionMode,omitempty"`
-	FamilyID               string                                  `json:"familyId,omitempty"`
-	ResourceType           string                                  `json:"resourceType"`
-	SourcePath             string                                  `json:"sourcePath"`
-	System                 string                                  `json:"system"`
-	Code                   string                                  `json:"code"`
-	CodingVersion          string                                  `json:"codingVersion"`
-	Display                string                                  `json:"display"`
-	ValueSelector          string                                  `json:"valueSelector"`
-	ValueType              string                                  `json:"valueType"`
-	OwningScope            string                                  `json:"owningScope"`
-	Occurrences            int64                                   `json:"occurrences"`
-	Examples               []string                                `json:"examples,omitempty"`
-	ExamplesTruncated      bool                                    `json:"examplesTruncated"`
-	ObservedUnits          []string                                `json:"observedUnits,omitempty"`
-	ObservedUnitsTruncated bool                                    `json:"observedUnitsTruncated"`
-	Completeness           catalog.SemanticObservationCompleteness `json:"completeness,omitempty"`
-	Readiness              authoringv2.SemanticSelectionReadiness  `json:"readiness"`
-	ConstructionChoice     *capability.ConstructionChoice          `json:"constructionChoice,omitempty"`
+	ConceptID              string                                 `json:"conceptId"`
+	BindingID              string                                 `json:"bindingId"`
+	SelectionMode          string                                 `json:"selectionMode,omitempty"`
+	FamilyID               string                                 `json:"familyId,omitempty"`
+	ResourceType           string                                 `json:"resourceType"`
+	SourcePath             string                                 `json:"sourcePath"`
+	System                 string                                 `json:"system"`
+	Code                   string                                 `json:"code"`
+	CodingVersion          string                                 `json:"codingVersion"`
+	Display                string                                 `json:"display"`
+	ValueSelector          string                                 `json:"valueSelector"`
+	ValueType              string                                 `json:"valueType"`
+	OwningScope            string                                 `json:"owningScope"`
+	Occurrences            int64                                  `json:"occurrences"`
+	Examples               []string                               `json:"examples,omitempty"`
+	ExamplesTruncated      bool                                   `json:"examplesTruncated"`
+	ObservedUnits          []string                               `json:"observedUnits,omitempty"`
+	ObservedUnitsTruncated bool                                   `json:"observedUnitsTruncated"`
+	Completeness           codedconcept.Completeness              `json:"completeness,omitempty"`
+	Readiness              authoringv2.SemanticSelectionReadiness `json:"readiness"`
+	ConstructionChoice     *capability.ConstructionChoice         `json:"constructionChoice,omitempty"`
 }
 
 type BrowseSemanticInventoryResponse struct {
-	FrameID            string                         `json:"frameId,omitempty"`
-	FrameSource        *authoringv2.FrameDefinition   `json:"frameSource,omitempty"`
-	ContextToken       string                         `json:"contextToken"`
-	BuildID            string                         `json:"buildId"`
-	State              catalog.SemanticInventoryState `json:"state"`
-	SourceAvailability string                         `json:"sourceAvailability"`
-	Entries            []SemanticInventoryItem        `json:"entries"`
-	NextCursor         string                         `json:"nextCursor,omitempty"`
-	FieldPresentation  fieldPresentationResult        `json:"fieldPresentation,omitempty"`
+	FrameID            string                       `json:"frameId,omitempty"`
+	FrameSource        *authoringv2.FrameDefinition `json:"frameSource,omitempty"`
+	ContextToken       string                       `json:"contextToken"`
+	BuildID            string                       `json:"buildId"`
+	State              semanticinventory.State      `json:"state"`
+	SourceAvailability string                       `json:"sourceAvailability"`
+	Entries            []SemanticInventoryItem      `json:"entries"`
+	NextCursor         string                       `json:"nextCursor,omitempty"`
+	FieldPresentation  fieldPresentationResult      `json:"fieldPresentation,omitempty"`
 }
 
 type semanticBrowseCursor struct {
@@ -259,6 +262,7 @@ type semanticBrowseCursor struct {
 }
 
 func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanticInventoryRequest) (BrowseSemanticInventoryResponse, error) {
+	browse := s.fieldBrowse()
 	var result BrowseSemanticInventoryResponse
 	if req.FieldPresentation != nil {
 		if err := req.FieldPresentation.validate(); err != nil {
@@ -272,12 +276,12 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		}
 	}
 	if req.SelectionMode == "" {
-		req.SelectionMode = string(catalog.SemanticInventoryExactConcept)
+		req.SelectionMode = string(semanticinventory.ExactConcept)
 	}
-	if req.SelectionMode != string(catalog.SemanticInventoryExactConcept) && req.SelectionMode != string(catalog.SemanticInventorySystemVersionCategory) {
+	if req.SelectionMode != string(semanticinventory.ExactConcept) && req.SelectionMode != string(semanticinventory.SystemVersionCategory) {
 		return result, malformed("catalog", "selectionMode must be EXACT_CONCEPT or SYSTEM_VERSION_CATEGORY", nil)
 	}
-	if strings.TrimSpace(req.Project) == "" || strings.TrimSpace(req.ExplorerID) == "" || req.SnapshotToken == "" || req.RowRoot == "" || req.Limit < 0 || req.Limit > catalog.SemanticInventoryPageLimit || len(req.Query) > 256 || len(req.Cursor) > 4096 {
+	if strings.TrimSpace(req.Project) == "" || strings.TrimSpace(req.ExplorerID) == "" || req.SnapshotToken == "" || req.RowRoot == "" || req.Limit < 0 || req.Limit > semanticinventory.PageLimit || len(req.Query) > 256 || len(req.Cursor) > 4096 {
 		return result, malformed("catalog", "project, explorer, snapshotToken, rowRoot, and a page limit of at most 50 are required", nil)
 	}
 	if s.config.SemanticInventory == nil || s.config.Capability.ForCompilation == nil {
@@ -309,7 +313,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 	if req.FrameID != "" && req.SourceChoiceID != "" {
 		return result, malformed("catalog", "frameId and sourceChoiceId are mutually exclusive", nil)
 	}
-	if req.SelectionMode == string(catalog.SemanticInventorySystemVersionCategory) && (req.FrameID != "" || req.SourceChoiceID != "") {
+	if req.SelectionMode == string(semanticinventory.SystemVersionCategory) && (req.FrameID != "" || req.SourceChoiceID != "") {
 		return result, malformed("catalog", "system-version category browsing is available only outside a saved frame or coded source selection", nil)
 	}
 	var frame *authoringv2.FrameDefinition
@@ -394,7 +398,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 	}
 	if req.OutputID != "" && frame == nil && codedFamily == nil {
 		if req.FieldPresentation != nil {
-			current, currentErr := s.fieldPresentationCurrentContext(ctx, req, snapshot)
+			current, currentErr := browse.fieldPresentationCurrentContext(ctx, req, snapshot)
 			if currentErr != nil {
 				return result, currentErr
 			}
@@ -421,13 +425,13 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		}
 	}
 	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
-	page, err := s.config.SemanticInventory(ctx, catalog.SemanticInventoryPageOptions{
+	page, err := s.config.SemanticInventory(ctx, semanticinventory.PageOptions{
 		Project: projectid.Legacy(snapshot.Identity.Project), DatasetGeneration: snapshot.Identity.Generation,
 		AuthResourcePathsUnrestricted: &unrestricted, AuthResourcePaths: authorized.Scope.AuthResourcePaths,
 		ResourceType: req.ResourceType, BindingID: bindingFilter, Query: req.Query, Cursor: cursor.Page, Limit: req.Limit,
-		SelectionMode: catalog.SemanticInventorySelectionMode(req.SelectionMode),
+		SelectionMode: semanticinventory.SelectionMode(req.SelectionMode),
 	})
-	if errors.Is(err, catalog.ErrSemanticInventoryCursorMismatch) {
+	if errors.Is(err, semanticinventory.ErrSemanticInventoryCursorMismatch) {
 		return result, conflict("catalog", "STALE_CATALOG_CURSOR", "restart catalog search with an empty cursor", nil, err)
 	}
 	if err != nil {
@@ -443,23 +447,23 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 	result.BuildID, result.State = page.Build.BuildID, page.State
 	result.SourceAvailability = page.Build.SourceAvailability
 	if result.SourceAvailability == "" {
-		result.SourceAvailability = catalog.SemanticInventorySourceAvailabilityUnknown
+		result.SourceAvailability = semanticinventory.SourceAvailabilityUnknown
 	}
-	categoryEntries := make([]catalog.SemanticInventoryEntry, 0, len(page.Families))
-	familyByChoice := make(map[string]catalog.SemanticInventoryFamily, len(page.Families))
+	categoryEntries := make([]semanticinventory.Entry, 0, len(page.Families))
+	familyByChoice := make(map[string]semanticinventory.Family, len(page.Families))
 	for _, family := range page.Families {
 		entry := semanticInventoryEntryForFamily(family)
 		key := semanticChoiceKey(entry.ConceptID, entry.BindingID)
 		categoryEntries = append(categoryEntries, entry)
 		familyByChoice[key] = family
 	}
-	entries := make([]catalog.SemanticInventoryEntry, 0, len(page.Entries)+len(categoryEntries))
+	entries := make([]semanticinventory.Entry, 0, len(page.Entries)+len(categoryEntries))
 	entries = append(entries, page.Entries...)
 	entries = append(entries, categoryEntries...)
 	var outputChoices map[string]capability.ConstructionChoice
 	if outputDocument != nil {
 		if presentationCurrent != nil {
-			outputChoices, result.FieldPresentation, err = s.semanticInventoryPresentationForOutput(
+			outputChoices, result.FieldPresentation, err = browse.semanticInventoryPresentationForOutput(
 				ctx, authorized, snapshot, *outputDocument, req.OutputID, result.ContextToken,
 				page.Build, page.Entries, page.Families, *presentationCurrent, *req.FieldPresentation,
 			)
@@ -497,7 +501,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 			item.Display = semanticIdentifierLabel(observation.Key.System)
 		}
 		if isCategory {
-			item.SelectionMode = string(catalog.SemanticInventorySystemVersionCategory)
+			item.SelectionMode = string(semanticinventory.SystemVersionCategory)
 			item.FamilyID = family.FamilyID
 			item.Display = semanticCategoryLabel(family, capability.Candidate{})
 			item.Code = ""
@@ -584,7 +588,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 
 func semanticBrowseCursorSelectionMode(mode string) string {
 	if mode == "" {
-		return string(catalog.SemanticInventoryExactConcept)
+		return string(semanticinventory.ExactConcept)
 	}
 	return mode
 }
@@ -602,19 +606,19 @@ type fieldPresentationCurrentContext struct {
 type semanticPresentationReference struct {
 	identity semanticInventoryItemIdentity
 	key      string
-	exact    *catalog.SemanticInventoryReference
-	family   *catalog.SemanticInventoryFamilyReference
+	exact    *semanticinventory.Reference
+	family   *semanticinventory.FamilyReference
 }
 
-func (s *Service) semanticInventoryPresentationForOutput(
+func (b *fieldBrowse) semanticInventoryPresentationForOutput(
 	ctx context.Context,
-	authorized AuthorizedCapability,
+	authorized ports.AuthorizedCapability,
 	snapshot capability.Snapshot,
 	document authoringv2.Document,
 	outputID, contextToken string,
-	build catalog.SemanticInventoryBuild,
-	entries []catalog.SemanticInventoryEntry,
-	families []catalog.SemanticInventoryFamily,
+	build semanticinventory.Build,
+	entries []semanticinventory.Entry,
+	families []semanticinventory.Family,
 	current fieldPresentationCurrentContext,
 	request FieldPresentationRequest,
 ) (map[string]capability.ConstructionChoice, fieldPresentationResult, error) {
@@ -629,7 +633,7 @@ func (s *Service) semanticInventoryPresentationForOutput(
 	if !current.stageSupported {
 		return choices, fieldPresentationUnavailable(FieldPresentationUnsupportedCurrentStage), nil
 	}
-	if s.config.SemanticCoverage == nil {
+	if b.semanticCoverage == nil {
 		return choices, fieldPresentationUnavailable(FieldPresentationCoverageUnavailable), nil
 	}
 	if build.BuildID == "" || build.SourceKind == "" {
@@ -647,7 +651,7 @@ func (s *Service) semanticInventoryPresentationForOutput(
 		coveragePaths = append(coveragePaths, path)
 	}
 	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
-	lookup, err := s.config.SemanticCoverage(ctx, catalogarango.SemanticCoverageLookupOptions{
+	lookup, err := b.semanticCoverage(ctx, catalogarango.SemanticCoverageLookupOptions{
 		Project: projectid.Legacy(snapshot.Identity.Project), DatasetGeneration: snapshot.Identity.Generation,
 		BuildID: build.BuildID, SchemaIdentity: snapshot.Identity.SchemaDigest, SourceKind: build.SourceKind,
 		AuthResourcePaths:             append([]string(nil), authorized.Scope.AuthResourcePaths...),
@@ -773,7 +777,7 @@ func (s *Service) semanticInventoryPresentationForOutput(
 	if len(groupReferences) == 0 {
 		return choices, FieldPresentationReady{Kind: FieldPresentationResultReady, Context: context, Decisions: decisions, Replacements: []SemanticInventoryItem{}}, nil
 	}
-	resolvedItems, replacementsComplete, err := s.resolveFieldPresentationReplacements(ctx, authorized, snapshot, document.RootResourceType, contextToken, build.BuildID, current, requestedReferences, proofCache)
+	resolvedItems, replacementsComplete, err := b.resolveFieldPresentationReplacements(ctx, authorized, snapshot, document.RootResourceType, contextToken, build.BuildID, current, requestedReferences, proofCache)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -828,18 +832,18 @@ func (s *Service) semanticInventoryPresentationForOutput(
 
 func semanticInventoryChoicesForExactOccurrence(
 	ctx context.Context,
-	authorized AuthorizedCapability,
+	authorized ports.AuthorizedCapability,
 	snapshot capability.Snapshot,
 	rootResourceType string,
 	contextToken, buildID string,
-	entries []catalog.SemanticInventoryEntry,
-	families []catalog.SemanticInventoryFamily,
+	entries []semanticinventory.Entry,
+	families []semanticinventory.Family,
 	sourceNodeID string,
 	route []capability.ConstructionRouteStep,
 	proofCache map[string]semanticCandidateRouteProof,
 ) (map[string]capability.ConstructionChoice, error) {
 	choices := make(map[string]capability.ConstructionChoice)
-	add := func(entry catalog.SemanticInventoryEntry, family *catalog.SemanticInventoryFamily) error {
+	add := func(entry semanticinventory.Entry, family *semanticinventory.Family) error {
 		if !authoringv2.ResolveSemanticSelectionPlan(entry.Observation).Readiness.Addable() {
 			return nil
 		}
@@ -886,7 +890,7 @@ func semanticInventoryChoicesForExactOccurrence(
 
 func proveSemanticCandidateForRoute(
 	ctx context.Context,
-	authorized AuthorizedCapability,
+	authorized ports.AuthorizedCapability,
 	rootResourceType string,
 	candidate capability.Candidate,
 	route []capability.ConstructionRouteStep,
@@ -951,21 +955,21 @@ func fieldPresentationCoverageReason(reason string) (FieldPresentationReason, bo
 	}
 }
 
-func semanticPresentationReferenceFromCoverage(reference catalog.SemanticCoverageReference, candidate capability.Candidate, sourceKind string) (semanticPresentationReference, bool) {
+func semanticPresentationReferenceFromCoverage(reference fieldprofile.SemanticCoverageReference, candidate capability.Candidate, sourceKind string) (semanticPresentationReference, bool) {
 	if reference.ResourceType != candidate.ResourceType || reference.CandidatePath != candidate.FieldPath {
 		return semanticPresentationReference{}, false
 	}
 	switch reference.Kind {
-	case catalog.SemanticCoverageExactReference:
+	case fieldprofile.SemanticCoverageExactReference:
 		if reference.ConceptID == "" || reference.BindingID == "" {
 			return semanticPresentationReference{}, false
 		}
 		identity := ExactSemanticInventoryItemIdentity{Kind: SemanticInventoryIdentityExact, ConceptID: reference.ConceptID, BindingID: reference.BindingID}
-		exact := catalog.SemanticInventoryReference{ConceptID: reference.ConceptID, BindingID: reference.BindingID}
+		exact := semanticinventory.Reference{ConceptID: reference.ConceptID, BindingID: reference.BindingID}
 		return semanticPresentationReference{identity: identity, key: "EXACT\x00" + reference.BindingID + "\x00" + reference.ConceptID, exact: &exact}, true
-	case catalog.SemanticCoverageFamilyReference:
+	case fieldprofile.SemanticCoverageFamilyReference:
 		family := reference.Family
-		if family.FamilyID == "" || family.FamilyID != catalog.SemanticInventoryFamilyID(family) ||
+		if family.FamilyID == "" || family.FamilyID != semanticinventory.FamilyID(family) ||
 			family.BindingID == "" || family.BindingID != reference.BindingID || family.SourceKind != sourceKind ||
 			family.ResourceType != candidate.ResourceType || family.SourcePath == "" || family.System == "" {
 			return semanticPresentationReference{}, false
@@ -980,7 +984,7 @@ func semanticPresentationReferenceFromCoverage(reference catalog.SemanticCoverag
 
 func fieldPresentationRawCandidateChoice(
 	ctx context.Context,
-	authorized AuthorizedCapability,
+	authorized ports.AuthorizedCapability,
 	snapshot capability.Snapshot,
 	rootResourceType string,
 	candidate capability.Candidate,
@@ -1004,9 +1008,9 @@ func fieldPresentationRawCandidateChoice(
 	return choice, true, nil
 }
 
-func (s *Service) resolveFieldPresentationReplacements(
+func (b *fieldBrowse) resolveFieldPresentationReplacements(
 	ctx context.Context,
-	authorized AuthorizedCapability,
+	authorized ports.AuthorizedCapability,
 	snapshot capability.Snapshot,
 	rootResourceType, semanticContextToken, buildID string,
 	current fieldPresentationCurrentContext,
@@ -1017,7 +1021,7 @@ func (s *Service) resolveFieldPresentationReplacements(
 	if len(references) == 0 {
 		return items, true, nil
 	}
-	if s.config.ResolveSemanticInventorySelections == nil {
+	if b.resolveSelections == nil {
 		return items, false, nil
 	}
 	keys := make([]string, 0, len(references))
@@ -1025,8 +1029,8 @@ func (s *Service) resolveFieldPresentationReplacements(
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	exactReferences := make([]catalog.SemanticInventoryReference, 0, len(keys))
-	familyReferences := make([]catalog.SemanticInventoryFamilyReference, 0, len(keys))
+	exactReferences := make([]semanticinventory.Reference, 0, len(keys))
+	familyReferences := make([]semanticinventory.FamilyReference, 0, len(keys))
 	for _, key := range keys {
 		reference := references[key]
 		if reference.exact != nil {
@@ -1037,7 +1041,7 @@ func (s *Service) resolveFieldPresentationReplacements(
 		}
 	}
 	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
-	resolved, err := s.config.ResolveSemanticInventorySelections(ctx, catalog.SemanticInventoryResolveOptions{
+	resolved, err := b.resolveSelections(ctx, semanticinventory.ResolveOptions{
 		Project: projectid.Legacy(snapshot.Identity.Project), DatasetGeneration: snapshot.Identity.Generation,
 		AuthResourcePathsUnrestricted: &unrestricted,
 		AuthResourcePaths:             append([]string(nil), authorized.Scope.AuthResourcePaths...),
@@ -1049,17 +1053,17 @@ func (s *Service) resolveFieldPresentationReplacements(
 		}
 		return nil, false, persistenceFailure("catalog", "authorized semantic replacements could not be read", err)
 	}
-	if resolved.State != catalog.SemanticInventoryComplete || resolved.Build.State != catalog.SemanticInventoryComplete || resolved.Build.BuildID != buildID {
+	if resolved.State != semanticinventory.Complete || resolved.Build.State != semanticinventory.Complete || resolved.Build.BuildID != buildID {
 		return items, false, nil
 	}
-	exactEntries := make(map[string][]catalog.SemanticInventoryEntry, len(exactReferences))
+	exactEntries := make(map[string][]semanticinventory.Entry, len(exactReferences))
 	for _, entry := range resolved.Entries {
 		key := "EXACT\x00" + entry.BindingID + "\x00" + entry.ConceptID
 		if _, requested := references[key]; requested {
 			exactEntries[key] = append(exactEntries[key], entry)
 		}
 	}
-	familyEntries := make(map[string][]catalog.SemanticInventoryFamily, len(familyReferences))
+	familyEntries := make(map[string][]semanticinventory.Family, len(familyReferences))
 	for _, family := range resolved.Families {
 		key := "FAMILY\x00" + family.BindingID + "\x00" + family.FamilyID
 		if _, requested := references[key]; requested {
@@ -1068,8 +1072,8 @@ func (s *Service) resolveFieldPresentationReplacements(
 	}
 	for _, key := range keys {
 		reference := references[key]
-		var entry catalog.SemanticInventoryEntry
-		var family *catalog.SemanticInventoryFamily
+		var entry semanticinventory.Entry
+		var family *semanticinventory.Family
 		if reference.exact != nil {
 			matches := exactEntries[key]
 			if len(matches) != 1 {
@@ -1087,7 +1091,7 @@ func (s *Service) resolveFieldPresentationReplacements(
 		} else {
 			continue
 		}
-		item, available, _, itemErr := s.semanticFieldPresentationReplacement(
+		item, available, _, itemErr := b.semanticFieldPresentationReplacement(
 			ctx, authorized, snapshot, rootResourceType, semanticContextToken, buildID,
 			current, entry, family, proofCache,
 		)
@@ -1101,14 +1105,14 @@ func (s *Service) resolveFieldPresentationReplacements(
 	return items, true, nil
 }
 
-func (s *Service) semanticFieldPresentationReplacement(
+func (b *fieldBrowse) semanticFieldPresentationReplacement(
 	ctx context.Context,
-	authorized AuthorizedCapability,
+	authorized ports.AuthorizedCapability,
 	snapshot capability.Snapshot,
 	rootResourceType, semanticContextToken, buildID string,
 	current fieldPresentationCurrentContext,
-	entry catalog.SemanticInventoryEntry,
-	family *catalog.SemanticInventoryFamily,
+	entry semanticinventory.Entry,
+	family *semanticinventory.Family,
 	proofCache map[string]semanticCandidateRouteProof,
 ) (SemanticInventoryItem, bool, FieldPresentationReason, error) {
 	observation := entry.Observation
@@ -1152,7 +1156,7 @@ func (s *Service) semanticFieldPresentationReplacement(
 
 func fieldPresentationRuleVisibleInCodedView(ruleHint string) bool {
 	switch ruleHint {
-	case catalog.SemanticRuleHintCodedValueV1, catalog.SemanticRuleHintCodedConceptV1, catalog.SemanticRuleHintCodedCategoryV1:
+	case codedconcept.RuleHintCodedValueV1, codedconcept.RuleHintCodedConceptV1, codedconcept.RuleHintCodedCategoryV1:
 		return true
 	default:
 		return false
@@ -1160,8 +1164,8 @@ func fieldPresentationRuleVisibleInCodedView(ruleHint string) bool {
 }
 
 func semanticInventoryItemForPresentation(
-	entry catalog.SemanticInventoryEntry,
-	family *catalog.SemanticInventoryFamily,
+	entry semanticinventory.Entry,
+	family *semanticinventory.Family,
 	candidate capability.Candidate,
 	choice capability.ConstructionChoice,
 ) SemanticInventoryItem {
@@ -1178,7 +1182,7 @@ func semanticInventoryItemForPresentation(
 		Completeness: observation.Completeness, Readiness: plan.Readiness, ConstructionChoice: &choice,
 	}
 	if family != nil {
-		item.SelectionMode = string(catalog.SemanticInventorySystemVersionCategory)
+		item.SelectionMode = string(semanticinventory.SystemVersionCategory)
 		item.FamilyID = family.FamilyID
 		item.Display = semanticCategoryLabel(*family, candidate)
 		item.Code = ""
@@ -1188,7 +1192,7 @@ func semanticInventoryItemForPresentation(
 	return item
 }
 
-func (s *Service) fieldPresentationCurrentContext(
+func (b *fieldBrowse) fieldPresentationCurrentContext(
 	ctx context.Context,
 	request BrowseSemanticInventoryRequest,
 	snapshot capability.Snapshot,
@@ -1198,10 +1202,10 @@ func (s *Service) fieldPresentationCurrentContext(
 	if presentation == nil {
 		return current, malformed("catalog", "fieldPresentation request is required", nil)
 	}
-	if s.store == nil {
+	if !b.storeConfigured {
 		return current, unavailable("catalog", "AUTHORING_STATE_UNAVAILABLE", "current Explorer drafts are not configured", nil)
 	}
-	owner, err := s.getOwner(ctx, projectid.Canonical(request.Project), request.ExplorerID)
+	owner, err := b.getOwner(ctx, projectid.Canonical(request.Project), request.ExplorerID)
 	if errors.Is(err, explorer.ErrNotFound) {
 		return current, notFound("catalog", "EXPLORER_NOT_FOUND", "Explorer not found", err)
 	}
@@ -1278,8 +1282,8 @@ func (s *Service) fieldPresentationCurrentContext(
 
 type semanticInventoryRouteCandidate struct {
 	key       string
-	entry     catalog.SemanticInventoryEntry
-	family    *catalog.SemanticInventoryFamily
+	entry     semanticinventory.Entry
+	family    *semanticinventory.Family
 	candidate capability.Candidate
 }
 
@@ -1291,12 +1295,12 @@ type semanticCandidateRouteProof struct {
 
 func semanticInventoryChoicesForOutput(
 	ctx context.Context,
-	authorized AuthorizedCapability,
+	authorized ports.AuthorizedCapability,
 	snapshot capability.Snapshot,
 	document authoringv2.Document,
 	outputID, contextToken, buildID string,
-	entries []catalog.SemanticInventoryEntry,
-	families []catalog.SemanticInventoryFamily,
+	entries []semanticinventory.Entry,
+	families []semanticinventory.Family,
 ) (map[string]capability.ConstructionChoice, error) {
 	choices := make(map[string]capability.ConstructionChoice)
 	byNode := make(map[string][]semanticInventoryRouteCandidate)
@@ -1470,13 +1474,9 @@ func semanticCandidateRouteProofCacheKey(candidate capability.Candidate, route [
 	return string(identity)
 }
 
-func semanticInventoryConstructionChoice(snapshot capability.Snapshot, contextToken, buildID string, entry catalog.SemanticInventoryEntry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {
-	return semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, entry, candidate, ownerRecordsProved)
-}
-
-func semanticInventoryConstructionChoiceForRoute(snapshot capability.Snapshot, contextToken, buildID string, route []capability.ConstructionRouteStep, entry catalog.SemanticInventoryEntry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {
+func semanticInventoryConstructionChoiceForRoute(snapshot capability.Snapshot, contextToken, buildID string, route []capability.ConstructionRouteStep, entry semanticinventory.Entry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {
 	observation := entry.Observation
-	if observation.RuleHint == catalog.SemanticRuleHintCodedConceptV1 {
+	if observation.RuleHint == codedconcept.RuleHintCodedConceptV1 {
 
 		ownerRecordsProved = false
 	}
@@ -1503,13 +1503,13 @@ func semanticInventoryConstructionChoiceForRoute(snapshot capability.Snapshot, c
 	return capability.NewSemanticConstructionChoiceForRoute(snapshot.Token, contextToken, buildID, route, source, projectedCandidate, ownerRecordsProved)
 }
 
-func semanticInventoryEntryForFamily(family catalog.SemanticInventoryFamily) catalog.SemanticInventoryEntry {
-	return catalog.SemanticInventoryEntry{
+func semanticInventoryEntryForFamily(family semanticinventory.Family) semanticinventory.Entry {
+	return semanticinventory.Entry{
 		ConceptID: family.FamilyID, BindingID: family.BindingID,
-		Observation: catalog.SemanticObservation{
+		Observation: codedconcept.Observation{
 			SchemaVersion: family.SchemaVersion,
 			Source:        family.Source,
-			Key: catalog.SemanticObservationKey{
+			Key: codedconcept.Key{
 				Selector: family.KeySelector, System: family.System, Version: family.Version,
 			},
 			Value:             family.Value,
@@ -1520,7 +1520,7 @@ func semanticInventoryEntryForFamily(family catalog.SemanticInventoryFamily) cat
 			Population:        family.Population,
 			Examples:          append([]string(nil), family.Examples...),
 			ExamplesTruncated: family.ExamplesTruncated,
-			RuleHint:          catalog.SemanticRuleHintCodedCategoryV1,
+			RuleHint:          codedconcept.RuleHintCodedCategoryV1,
 			RuleVersion:       family.RuleVersion,
 		},
 	}
@@ -1530,7 +1530,7 @@ func semanticCategoryConstructionChoiceForRoute(
 	snapshot capability.Snapshot,
 	contextToken, buildID string,
 	route []capability.ConstructionRouteStep,
-	family catalog.SemanticInventoryFamily,
+	family semanticinventory.Family,
 	candidate capability.Candidate,
 ) (capability.ConstructionChoice, error) {
 	entry := semanticInventoryEntryForFamily(family)
@@ -1553,13 +1553,13 @@ func semanticCategoryConstructionChoiceForRoute(
 		ValueFallbacks:        append([]string(nil), family.Value.FallbackSelectors...),
 		FallbackOnBlankString: family.Value.FallbackOnBlankString,
 		LogicalType:           firstNonEmpty(family.LogicalType, family.Value.Type),
-		RuleHint:              catalog.SemanticRuleHintCodedCategoryV1, RuleVersion: family.RuleVersion,
+		RuleHint:              codedconcept.RuleHintCodedCategoryV1, RuleVersion: family.RuleVersion,
 		SchemaVersion: family.SchemaVersion,
 	}
 	return capability.NewSemanticConstructionChoiceForRoute(snapshot.Token, contextToken, buildID, route, source, projectedCandidate)
 }
 
-func semanticCategoryLabel(family catalog.SemanticInventoryFamily, candidate capability.Candidate) string {
+func semanticCategoryLabel(family semanticinventory.Family, candidate capability.Candidate) string {
 	if label := semanticSystemTailLabel(family.System); label != "" {
 		return label
 	}
@@ -1645,23 +1645,23 @@ func semanticHumanizeLabel(value string) string {
 	return strings.Join(words, " ")
 }
 
-func semanticEntryMatchesFrame(entry catalog.SemanticInventoryEntry, frame authoringv2.FrameDefinition) bool {
+func semanticEntryMatchesFrame(entry semanticinventory.Entry, frame authoringv2.FrameDefinition) bool {
 	_, _, ok := semanticEntryForFrameFamily(entry, frame.Source)
 	return ok
 }
 
-func semanticEntryMatchesFrameFamily(entry catalog.SemanticInventoryEntry, family capability.SemanticFrameFamily) bool {
+func semanticEntryMatchesFrameFamily(entry semanticinventory.Entry, family capability.SemanticFrameFamily) bool {
 	_, _, ok := semanticEntryForFrameFamily(entry, family)
 	return ok
 }
 
-func semanticFrameFamilyMatchesPinnedPrior(current, pinned capability.SemanticFrameFamily, observation catalog.SemanticObservation) bool {
-	return current.SchemaVersion == catalog.SemanticObservationSchemaVersion &&
-		current.RuleVersion == strconv.Itoa(catalog.SemanticObservationRuleVersion) &&
-		pinned.SchemaVersion == catalog.SemanticObservationLegacyV1SchemaVersion &&
-		pinned.RuleVersion == strconv.Itoa(catalog.SemanticObservationLegacyV1RuleVersion) &&
+func semanticFrameFamilyMatchesPinnedPrior(current, pinned capability.SemanticFrameFamily, observation codedconcept.Observation) bool {
+	return current.SchemaVersion == codedconcept.ObservationSchemaVersion &&
+		current.RuleVersion == strconv.Itoa(semanticinventory.SemanticObservationRuleVersion) &&
+		pinned.SchemaVersion == semanticinventory.SemanticObservationLegacyV1SchemaVersion &&
+		pinned.RuleVersion == strconv.Itoa(semanticinventory.SemanticObservationLegacyV1RuleVersion) &&
 		len(pinned.ValueFallbacks) == 0 && !pinned.FallbackOnBlankString &&
-		pinned.BindingID == catalog.LegacySemanticBindingIDV1(observation) &&
+		pinned.BindingID == semanticinventory.LegacySemanticBindingIDV1(observation) &&
 		semanticEntrySourceMatchesFrameFamily(observation, pinned) &&
 		current.ResourceType == pinned.ResourceType &&
 		current.SourcePath == pinned.SourcePath && current.SourceCanonical == pinned.SourceCanonical &&
@@ -1671,23 +1671,23 @@ func semanticFrameFamilyMatchesPinnedPrior(current, pinned capability.SemanticFr
 }
 
 func semanticEntryForFrameFamily(
-	entry catalog.SemanticInventoryEntry,
+	entry semanticinventory.Entry,
 	family capability.SemanticFrameFamily,
-) (catalog.SemanticInventoryEntry, authoringv2.SemanticSelectionPlan, bool) {
+) (semanticinventory.Entry, authoringv2.SemanticSelectionPlan, bool) {
 	observation := entry.Observation
-	if observation.RuleHint != catalog.SemanticRuleHintCodedValueV1 || !semanticEntrySourceMatchesFrameFamily(observation, family) || observation.Key.Version != "" {
-		return catalog.SemanticInventoryEntry{}, authoringv2.SemanticSelectionPlan{}, false
+	if observation.RuleHint != codedconcept.RuleHintCodedValueV1 || !semanticEntrySourceMatchesFrameFamily(observation, family) || observation.Key.Version != "" {
+		return semanticinventory.Entry{}, authoringv2.SemanticSelectionPlan{}, false
 	}
 
-	currentRuleVersion := strconv.Itoa(catalog.SemanticObservationRuleVersion)
-	if observation.SchemaVersion != catalog.SemanticObservationSchemaVersion || observation.RuleVersion != currentRuleVersion {
-		return catalog.SemanticInventoryEntry{}, authoringv2.SemanticSelectionPlan{}, false
+	currentRuleVersion := strconv.Itoa(semanticinventory.SemanticObservationRuleVersion)
+	if observation.SchemaVersion != codedconcept.ObservationSchemaVersion || observation.RuleVersion != currentRuleVersion {
+		return semanticinventory.Entry{}, authoringv2.SemanticSelectionPlan{}, false
 	}
 	currentFamily := family.SchemaVersion == observation.SchemaVersion && family.RuleVersion == observation.RuleVersion && family.BindingID == entry.BindingID
 	priorFamily := isPriorPrimaryOnlySemanticFrameFamily(family) &&
-		family.BindingID == catalog.LegacySemanticBindingIDV1(observation)
+		family.BindingID == semanticinventory.LegacySemanticBindingIDV1(observation)
 	if !currentFamily && !priorFamily {
-		return catalog.SemanticInventoryEntry{}, authoringv2.SemanticSelectionPlan{}, false
+		return semanticinventory.Entry{}, authoringv2.SemanticSelectionPlan{}, false
 	}
 	if priorFamily {
 		observation.Value.FallbackSelectors = nil
@@ -1698,30 +1698,30 @@ func semanticEntryForFrameFamily(
 	plan := authoringv2.ResolveSemanticSelectionPlan(observation)
 	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Kind != authoringv2.SourceCodedValue ||
 		plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil {
-		return catalog.SemanticInventoryEntry{}, authoringv2.SemanticSelectionPlan{}, false
+		return semanticinventory.Entry{}, authoringv2.SemanticSelectionPlan{}, false
 	}
 	binding := plan.Source.Lookup.Binding
 	if binding.OwnerPath != family.OwningScope || binding.KeyPath != family.KeyPath || binding.ValuePath != family.ValuePath ||
 		!slices.Equal(binding.ValueFallback, family.ValueFallbacks) || binding.FallbackOnBlankString != family.FallbackOnBlankString ||
 		binding.LogicalType != family.LogicalType || !reflect.DeepEqual(binding.ChoiceArms, family.ChoiceArms) {
-		return catalog.SemanticInventoryEntry{}, authoringv2.SemanticSelectionPlan{}, false
+		return semanticinventory.Entry{}, authoringv2.SemanticSelectionPlan{}, false
 	}
 	return entry, plan, true
 }
 
 func isPriorPrimaryOnlySemanticFrameFamily(family capability.SemanticFrameFamily) bool {
-	return family.SchemaVersion == catalog.SemanticObservationLegacyV1SchemaVersion &&
-		family.RuleVersion == strconv.Itoa(catalog.SemanticObservationLegacyV1RuleVersion) &&
+	return family.SchemaVersion == semanticinventory.SemanticObservationLegacyV1SchemaVersion &&
+		family.RuleVersion == strconv.Itoa(semanticinventory.SemanticObservationLegacyV1RuleVersion) &&
 		len(family.ValueFallbacks) == 0 && !family.FallbackOnBlankString
 }
 
-func semanticEntrySourceMatchesFrameFamily(observation catalog.SemanticObservation, family capability.SemanticFrameFamily) bool {
+func semanticEntrySourceMatchesFrameFamily(observation codedconcept.Observation, family capability.SemanticFrameFamily) bool {
 	return observation.Source.Type == family.ResourceType &&
 		observation.Source.Path == family.SourcePath && observation.Source.Canonical == family.SourceCanonical &&
 		observation.Source.Profile == family.SourceProfile
 }
 
-func proveOwnerRecordsForRoute(ctx context.Context, authorized AuthorizedCapability, rootResourceType string, observation catalog.SemanticObservation, route []capability.ConstructionRouteStep) bool {
+func proveOwnerRecordsForRoute(ctx context.Context, authorized ports.AuthorizedCapability, rootResourceType string, observation codedconcept.Observation, route []capability.ConstructionRouteStep) bool {
 	plan := authoringv2.ResolveSemanticSelectionPlan(observation)
 	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Kind != authoringv2.SourceCodedValue || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil {
 		return false
@@ -1748,7 +1748,7 @@ func proveOwnerRecordsForRoute(ctx context.Context, authorized AuthorizedCapabil
 	return err == nil
 }
 
-func semanticConstructionCandidate(snapshot capability.Snapshot, observation catalog.SemanticObservation) (capability.Candidate, bool) {
+func semanticConstructionCandidate(snapshot capability.Snapshot, observation codedconcept.Observation) (capability.Candidate, bool) {
 	resourceType := strings.TrimSpace(observation.Source.Type)
 	valuePath := semanticObservationValuePath(observation)
 	if resourceType == "" || valuePath == "" {
@@ -1767,7 +1767,7 @@ func semanticConstructionCandidate(snapshot capability.Snapshot, observation cat
 	return match, found
 }
 
-func semanticCandidateWithFallback(snapshot capability.Snapshot, observation catalog.SemanticObservation, primary capability.Candidate) (capability.Candidate, bool) {
+func semanticCandidateWithFallback(snapshot capability.Snapshot, observation codedconcept.Observation, primary capability.Candidate) (capability.Candidate, bool) {
 	if len(observation.Value.FallbackSelectors) == 0 {
 		return primary, !observation.Value.FallbackOnBlankString
 	}
@@ -1835,7 +1835,7 @@ func semanticCandidateWithFallback(snapshot capability.Snapshot, observation cat
 	return combined, true
 }
 
-func semanticObservationValuePath(observation catalog.SemanticObservation) string {
+func semanticObservationValuePath(observation codedconcept.Observation) string {
 	valuePath := canonicalInventoryPath(observation.Value.Selector)
 	ownerPath := canonicalInventoryPath(observation.OwningScope)
 	if valuePath == "" || ownerPath == "" || valuePath == ownerPath || strings.HasPrefix(valuePath, ownerPath+".") {

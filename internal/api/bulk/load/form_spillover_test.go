@@ -16,6 +16,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/generation"
 )
 
 const spilloverFileBytes = 20 * 1024 * 1024
@@ -31,7 +32,7 @@ type spilloverRunner struct {
 	otherBytesAt  int64
 }
 
-func (r *spilloverRunner) RunGeneration(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (ingest.LoadSummary, error) {
+func (r *spilloverRunner) RunGeneration(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
 	r.project = req.Project
 	r.stagedAt = nil
 	r.spillsAtLoad = nil
@@ -41,19 +42,19 @@ func (r *spilloverRunner) RunGeneration(_ context.Context, req GenerationLoadReq
 	for _, name := range []string{"Patient.ndjson", "Specimen.ndjson"} {
 		data, err := os.ReadFile(filepath.Join(req.StagedDir, name))
 		if err != nil {
-			return ingest.LoadSummary{}, fmt.Errorf("staged %s unreadable at load time: %w", name, err)
+			return generation.LoadSummary{}, fmt.Errorf("staged %s unreadable at load time: %w", name, err)
 		}
 		r.stagedAt = append(r.stagedAt, len(data))
 		r.stagedBytesAt += int64(len(data))
 	}
 	snapshot, err := snapshotTempRoot(req.StagedDir)
 	if err != nil {
-		return ingest.LoadSummary{}, err
+		return generation.LoadSummary{}, err
 	}
 	r.spillsAtLoad = snapshot.spillNames
 	r.spillBytesAt = snapshot.spillBytes
 	r.otherBytesAt = snapshot.otherBytes
-	return ingest.LoadSummary{Files: 2}, nil
+	return generation.LoadSummary{Files: 2}, nil
 }
 
 type tempRootSnapshot struct {

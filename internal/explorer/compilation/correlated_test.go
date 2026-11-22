@@ -7,7 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
@@ -27,20 +28,20 @@ func TestCompileAuthoringCodedConceptCarriesSelectedVersionToRenderBinds(t *test
 		{name: "unversioned", version: ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			observation := catalog.SemanticObservation{
-				SchemaVersion: catalog.SemanticObservationSchemaVersion,
-				Source:        catalog.SemanticObservationSource{Type: "Condition", Path: "code.coding[]"},
-				Key: catalog.SemanticObservationKey{
+			observation := codedconcept.Observation{
+				SchemaVersion: codedconcept.ObservationSchemaVersion,
+				Source:        codedconcept.Source{Type: "Condition", Path: "code.coding[]"},
+				Key: codedconcept.Key{
 					Selector: "code.coding[]", System: "urn:example:condition", Version: test.version, Code: "condition-shared",
 				},
-				Value: catalog.SemanticObservationValue{
+				Value: codedconcept.Value{
 					Selector: "code.coding[].display", Type: "string",
 					FallbackSelectors: []string{"code.coding[].code"}, FallbackOnBlankString: true,
 				},
-				Completeness: catalog.SemanticComplete,
+				Completeness: codedconcept.Complete,
 				Status:       "SUPPORTED",
-				RuleHint:     catalog.SemanticRuleHintCodedConceptV1,
-				RuleVersion:  strconv.Itoa(catalog.SemanticObservationRuleVersion),
+				RuleHint:     codedconcept.RuleHintCodedConceptV1,
+				RuleVersion:  strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
 			}
 			selection := authoringv2.ResolveSemanticSelectionPlan(observation)
 			if selection.Source == nil || selection.Source.Lookup == nil || selection.Source.Lookup.Key == nil {

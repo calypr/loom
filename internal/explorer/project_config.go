@@ -1,14 +1,12 @@
 package explorer
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"regexp"
 	"strings"
 
@@ -32,12 +30,6 @@ type ProjectConfig struct {
 	FileActions   FileActions               `json:"fileActions,omitempty"`
 }
 
-type ProjectConfigCatalog struct {
-	APIVersion string          `json:"apiVersion"`
-	Kind       string          `json:"kind"`
-	Configs    []ProjectConfig `json:"configs"`
-}
-
 type ProjectConfigPublication struct {
 	Definition ProjectConfig
 	Revision   Revision
@@ -56,60 +48,8 @@ type ProjectConfigPublisher interface {
 	PublishProjectConfigs(context.Context, ProjectConfigPublishRequest) (dataset.ActiveRelease, error)
 }
 
-func DecodeProjectConfigs(raw []byte) (ProjectConfigCatalog, error) {
-	if len(bytes.TrimSpace(raw)) == 0 {
-		return ProjectConfigCatalog{}, errors.New("project config catalog is required")
-	}
-	if err := rejectDuplicateJSONKeys(raw); err != nil {
-		return ProjectConfigCatalog{}, fmt.Errorf("decode project config catalog: %w", err)
-	}
-
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-		if err == nil {
-			err = errors.New("catalog must be a JSON object")
-		}
-		return ProjectConfigCatalog{}, fmt.Errorf("decode project config catalog: %w", err)
-	}
-	for _, required := range []string{"apiVersion", "kind", "configs"} {
-		if _, ok := fields[required]; !ok {
-			return ProjectConfigCatalog{}, fmt.Errorf("decode project config catalog: %s is required", required)
-		}
-	}
-	if bytes.Equal(bytes.TrimSpace(fields["configs"]), []byte("null")) {
-		return ProjectConfigCatalog{}, errors.New("decode project config catalog: configs must be an array")
-	}
-
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	var catalog ProjectConfigCatalog
-	if err := decoder.Decode(&catalog); err != nil {
-		return ProjectConfigCatalog{}, fmt.Errorf("decode project config catalog: %w", err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		if err == nil {
-			err = errors.New("multiple JSON values")
-		}
-		return ProjectConfigCatalog{}, fmt.Errorf("decode project config catalog: trailing JSON: %w", err)
-	}
-	if catalog.APIVersion != ProjectConfigsAPIVersion {
-		return ProjectConfigCatalog{}, fmt.Errorf("unsupported project config apiVersion %q", catalog.APIVersion)
-	}
-	if catalog.Kind != "ProjectConfigs" {
-		return ProjectConfigCatalog{}, fmt.Errorf("unsupported project config kind %q", catalog.Kind)
-	}
-	if catalog.Configs == nil {
-		return ProjectConfigCatalog{}, errors.New("project config catalog configs must be an array")
-	}
-	if err := validateProjectConfigs(catalog.Configs); err != nil {
-		return ProjectConfigCatalog{}, err
-	}
-	return catalog, nil
-}
-
 func (config ProjectConfig) Digest() (string, error) {
-	if err := config.validate(); err != nil {
+	if err := config.Validate(); err != nil {
 		return "", err
 	}
 	canonical := normalizeProjectConfig(config)
@@ -128,7 +68,7 @@ func (config ProjectConfig) Digest() (string, error) {
 func validateProjectConfigs(configs []ProjectConfig) error {
 	seen := make(map[string]struct{}, len(configs))
 	for index, config := range configs {
-		if err := config.validate(); err != nil {
+		if err := config.Validate(); err != nil {
 			return fmt.Errorf("configs[%d]: %w", index, err)
 		}
 		if _, ok := seen[config.ID]; ok {
@@ -139,7 +79,7 @@ func validateProjectConfigs(configs []ProjectConfig) error {
 	return nil
 }
 
-func (config ProjectConfig) validate() error {
+func (config ProjectConfig) Validate() error {
 	if !projectConfigIDPattern.MatchString(config.ID) {
 		return fmt.Errorf("id must contain only letters, digits, '.', '_' or '-' and start with a letter or digit")
 	}
@@ -315,7 +255,7 @@ func normalizeProjectConfig(config ProjectConfig) ProjectConfig {
 	return config
 }
 
-func cloneProjectConfigDefinition(config ProjectConfig) (ProjectConfig, error) {
+func CloneProjectConfigDefinition(config ProjectConfig) (ProjectConfig, error) {
 	raw, err := json.Marshal(config)
 	if err != nil {
 		return ProjectConfig{}, fmt.Errorf("encode config: %w", err)

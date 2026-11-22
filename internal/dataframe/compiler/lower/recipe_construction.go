@@ -254,6 +254,18 @@ func constructionFirstGroupHasBoundFieldSource(construction recipe.Construction)
 	return false
 }
 
+type constructionStageInput struct {
+	stageID                      string
+	schema                       []CompiledOutputColumn
+	identity                     string
+	rootResourceType             string
+	index                        int
+	rootContributorProvenance    bool
+	lazyRootContributorAvailable bool
+	retainRootContributors       bool
+	presenceCategoryIDs          map[string]bool
+}
+
 type constructionStageResult struct {
 	physical                     ir.PhysicalConstructionStage
 	schema                       []CompiledOutputColumn
@@ -261,6 +273,12 @@ type constructionStageResult struct {
 	rootContributorProvenance    bool
 	lazyRootContributorAvailable bool
 	descriptor                   CompiledStageDescriptor
+}
+
+type constructionLowerer struct {
+	plan          *ir.PhysicalPlan
+	policy        ir.PhysicalOptimizationPolicy
+	usedVariables map[string]bool
 }
 
 type cohortGroupCompileInput struct {
@@ -336,6 +354,7 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 		return resolvedSource, descriptors, sourceIdentity, nil
 	}
 	usedVariables := physicalPlanVariables(plan.Operations)
+	lowerer := &constructionLowerer{plan: plan, policy: policy, usedVariables: usedVariables}
 	retainForLaterOperations := constructionNeedsRetainedRootContributors(construction.Steps) || cohortNeedsRetainedRootContributors(construction, cohort)
 	retainForPopulation := populationConstructionNeedsRetainedRootContributors(construction.Steps, cohort, populationRootSourceAvailable)
 	retainRootContributors := retainForLaterOperations || retainForPopulation
@@ -425,7 +444,11 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 				return nil, nil, "", fmt.Errorf("construction step %q: %w", step.ID, err)
 			}
 		}
-		result, stageErr := lowerConstructionStep(plan, step, priorStageID, priorSchema, priorIdentity, rootResourceType, policy, usedVariables, index, rootContributorProvenance, lazyRootContributorAvailable, retainRootContributors, presenceCategoryIDs)
+		result, stageErr := lowerer.lowerConstructionStep(step, constructionStageInput{
+			stageID: priorStageID, schema: priorSchema, identity: priorIdentity, rootResourceType: rootResourceType, index: index,
+			rootContributorProvenance: rootContributorProvenance, lazyRootContributorAvailable: lazyRootContributorAvailable,
+			retainRootContributors: retainRootContributors, presenceCategoryIDs: presenceCategoryIDs,
+		})
 		if stageErr != nil {
 			if anchorErr, ok := stageErr.(*RelatedSourceAnchorError); ok && anchorErr.OutputID == "" {
 				anchorErr.OutputID = outputName
@@ -1193,14 +1216,28 @@ func sourcePresenceCompanionColumn(schema []CompiledOutputColumn, name string) (
 	return CompiledOutputColumn{}, false
 }
 
-func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, inputStageID string, inputSchema []CompiledOutputColumn, inputIdentity, rootResourceType string, policy ir.PhysicalOptimizationPolicy, usedVariables map[string]bool, index int, rootContributorProvenance, lazyRootContributorAvailable, retainRootContributors bool, presenceCategoryIDs map[string]bool) (constructionStageResult, error) {
+type constructionStageLowering struct {
+	input       constructionStageInput
+	inputByID   map[string]CompiledOutputColumn
+	outputByID  map[string]recipe.StageColumn
+	publicInput []CompiledOutputColumn
+	physical    ir.PhysicalConstructionStage
+	schema      []CompiledOutputColumn
+	identity    string
+}
+
+func (lowerer *constructionLowerer) lowerConstructionStep(step recipe.ConstructionStep, input constructionStageInput) (constructionStageResult, error) {
+	inputStageID, inputSchema, inputIdentity := input.stageID, input.schema, input.identity
+	rootResourceType, index := input.rootResourceType, input.index
+	rootContributorProvenance := input.rootContributorProvenance
+	retainRootContributors := input.retainRootContributors
 	inputByID := compiledSchemaByID(inputSchema)
 	outputByID := make(map[string]recipe.StageColumn, len(step.Outputs))
 	for _, column := range step.Outputs {
 		outputByID[column.ID] = column
 	}
-	inputRow := allocateConstructionVariable(usedVariables, "input", index)
-	outputRow := allocateConstructionVariable(usedVariables, "output", index)
+	inputRow := allocateConstructionVariable(lowerer.usedVariables, "input", index)
+	outputRow := allocateConstructionVariable(lowerer.usedVariables, "output", index)
 	inputColumns := toPhysicalStageColumns(inputSchema)
 	inputProjections := stageInputProjections(inputSchema, inputRow)
 	base := ir.PhysicalConstructionStage{
@@ -1208,329 +1245,43 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		OutputRowVariable: outputRow, InputColumns: inputColumns,
 		InputProjections: inputProjections,
 	}
-	publicInput := publicCompiledSchema(inputSchema)
-	var outputSchema []CompiledOutputColumn
-	var outputIdentity string
+	work := constructionStageLowering{
+		input: input, inputByID: inputByID, outputByID: outputByID,
+		publicInput: publicCompiledSchema(inputSchema), physical: base,
+	}
+	var err error
 	switch step.Operation.Kind {
 	case recipe.ConstructionDeriveOp:
-		derive := step.Operation.Derive
-		column, ok := outputByID[derive.OutputColumnID]
-		if !ok {
-			return constructionStageResult{}, fmt.Errorf("derived output ID %q is missing from step schema", derive.OutputColumnID)
-		}
-		recipeColumn, err := constructionDerivedColumn(*derive, column, inputByID)
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		temporary := ir.PhysicalPlan{BindVars: plan.BindVars, Operations: []ir.PhysicalOperation{{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: inputProjections}}}}
-		derivedTypes, err := appendRecipeDerivedColumnsWithVariables(&temporary, []recipe.DerivedColumn{recipeColumn}, inputSchema, usedVariables)
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		derivedProjection, found := findProjection(temporary.Operations, column.Name)
-		if !found {
-			return constructionStageResult{}, fmt.Errorf("derived output %q has no physical projection", column.Name)
-		}
-		base.Kind = ir.PhysicalStageDeriveOp
-		for _, operation := range temporary.Operations {
-			if operation.Kind != ir.PhysicalReturnOp {
-				base.DerivedLets = append(base.DerivedLets, operation)
-			}
-		}
-		outputSchema = make([]CompiledOutputColumn, 0, len(step.Outputs)+1)
-		for _, declaration := range step.Outputs {
-			if prior, exists := inputByID[declaration.ID]; exists {
-				prior.Name, prior.Label = declaration.Name, constructionFirstNonEmpty(declaration.Label, prior.Label, declaration.Name)
-				outputSchema = append(outputSchema, prior)
-				continue
-			}
-			if declaration.ID != derive.OutputColumnID {
-				return constructionStageResult{}, fmt.Errorf("derive output schema contains unexpected new column ID %q", declaration.ID)
-			}
-			metadata := derivedTypes[recipeColumn.Name]
-			outputSchema = append(outputSchema, CompiledOutputColumn{
-				ID: declaration.ID, Name: declaration.Name, Label: constructionFirstNonEmpty(declaration.Label, declaration.Name),
-				SemanticPath: "derived:" + derive.ConstructionID, Kind: string(metadata.Type.Kind),
-				Cardinality: string(metadata.Type.Cardinality), Nullable: metadata.Type.Cardinality.Optional(),
-				NormalizedUnit: cloneUnitIdentity(metadata.NormalizedUnit),
-			})
-		}
-		base.OutputProjections = stagePassThroughAndDerivedProjections(step.Outputs, inputByID, inputRow, column.ID, column.Name, derivedProjection)
-		outputIdentity = inputIdentity
+		err = lowerer.lowerDeriveStage(step, &work)
 	case recipe.ConstructionFilterOp:
-		filter := step.Operation.Filter
-		inputColumn, ok := inputByID[filter.ColumnID]
-		if !ok || inputColumn.Internal {
-			return constructionStageResult{}, fmt.Errorf("filter column ID %q is not a public input", filter.ColumnID)
-		}
-		physicalFilter, err := constructionPhysicalFilter(plan, *filter, inputRow, inputColumn)
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		base.Kind, base.Filter = ir.PhysicalStageFilterOp, &physicalFilter
-		outputSchema = make([]CompiledOutputColumn, 0, len(step.Outputs)+1)
-		for _, declaration := range step.Outputs {
-			prior, exists := inputByID[declaration.ID]
-			if !exists || prior.Internal {
-				return constructionStageResult{}, fmt.Errorf("filter output ID %q is not a public input column", declaration.ID)
-			}
-			prior.Name, prior.Label = declaration.Name, constructionFirstNonEmpty(declaration.Label, prior.Label, declaration.Name)
-			outputSchema = append(outputSchema, prior)
-		}
-		base.OutputProjections = stagePassThroughProjections(step.Outputs, inputByID, inputRow)
-		outputIdentity = inputIdentity
+		err = lowerer.lowerFilterStage(step, &work)
 	case recipe.ConstructionPivotOp:
-		pivot := step.Operation.Pivot
-		semanticPivot, outputNames, err := constructionSemanticPivot(*pivot, inputByID, outputByID)
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		nameSchema, nameProjections := compiledSchemaByName(publicInput), stageProjectionMap(inputProjections)
-		physicalPivot, projections, compiled, err := lowerRecipeGroupedPivot(plan, semanticPivot, inputProjections, nameSchema, nameProjections, usedVariables)
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		for index := range physicalPivot.GroupKeys {
-			outputName := outputNames[physicalPivot.GroupKeys[index].Column]
-			physicalPivot.GroupKeys[index].Output = outputName
-		}
-		for index := range physicalPivot.Categories {
-			physicalPivot.Categories[index].Output = outputNames[physicalPivot.Categories[index].Output]
-		}
-		rowValuesIR, rowValueColumns, err := lowerConstructionRowValues(
-			step.RowValues, inputByID, outputByID, pivot.ConstructionID, usedVariables, index,
-		)
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		physicalPivot.RowValues = rowValuesIR
-		if retainRootContributors && rootContributorProvenance {
-			contributor, ok := rootContributorInput(inputSchema, rootResourceType)
-			if !ok {
-				return constructionStageResult{}, fmt.Errorf("Pivot cannot retain root contributors because the compiler-proven root identity was lost")
-			}
-			physicalPivot.RootContributorInputColumn = contributor.Name
-			physicalPivot.RootContributorInputMany = contributor.Cardinality == string(expression.Many)
-			physicalPivot.RootContributorOutputColumn = rootContributorSetColumn
-			physicalPivot.RootContributorVariable = allocateConstructionVariable(usedVariables, "pivot_root_contributors", index)
-			compiled = append(compiled, CompiledOutputColumn{
-				ID: rootContributorSetColumn, Name: rootContributorSetColumn, Label: rootContributorSetColumn,
-				SemanticPath: "construction_root_contributors:" + pivot.ConstructionID,
-				Kind:         string(expression.KindString), Cardinality: string(expression.Many), Internal: true,
-				RootContributorResourceType: rootResourceType,
-			})
-			identityProjection := projections[len(projections)-1]
-			projections[len(projections)-1] = ir.PhysicalProjection{Name: rootContributorSetColumn, Hidden: true, Value: ir.PhysicalValue{Variable: physicalPivot.RootContributorVariable}}
-			projections = append(projections, identityProjection)
-		}
-		for _, column := range rowValueColumns {
-			outputNames[column.Name] = column.Name
-			compiled = append(compiled, column)
-			projections = append(projections, ir.PhysicalProjection{
-				Name: column.Name, Value: ir.PhysicalValue{Variable: physicalPivot.OutputRowVariable, Path: []string{column.Name}},
-			})
-		}
-		base.Kind, base.GroupedPivot = ir.PhysicalStagePivotOp, &physicalPivot
-		base.OutputRowVariable = physicalPivot.OutputRowVariable
-		base.OutputProjections = projections
-		outputSchema, err = reconcileConstructionShapeSchema(step.Outputs, outputNames, compiled, inputByID)
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		if physicalPivot.RootContributorOutputColumn != "" {
-			outputSchema = append(outputSchema, CompiledOutputColumn{
-				ID: rootContributorSetColumn, Name: rootContributorSetColumn, Label: rootContributorSetColumn,
-				SemanticPath: "construction_root_contributors:" + pivot.ConstructionID,
-				Kind:         string(expression.KindString), Cardinality: string(expression.Many), Internal: true,
-				RootContributorResourceType: rootResourceType,
-			})
-		}
-		if physicalPivot.UnlistedEvidenceColumn != "" {
-			for _, column := range compiled {
-				if column.Name == physicalPivot.UnlistedEvidenceColumn {
-					column.ID = column.Name
-					outputSchema = append(outputSchema, column)
-				}
-			}
-		}
-		outputIdentity = constructionRowID
+		err = lowerer.lowerPivotStage(step, &work)
 	case recipe.ConstructionCodedPivotOp:
-		codedPivot := step.Operation.CodedPivot
-		if codedPivot == nil {
-			return constructionStageResult{}, fmt.Errorf("coded Pivot payload is required")
-		}
-		physicalPivot, projections, compiled, err := lowerConstructionCodedPivot(
-			plan, *codedPivot, step.RowValues, step.Outputs, inputByID, inputIdentity, rootResourceType, inputRow, usedVariables, index,
-		)
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		base.Kind, base.GroupedPivot = ir.PhysicalStagePivotOp, &physicalPivot
-		base.OutputRowVariable, base.OutputProjections = physicalPivot.OutputRowVariable, projections
-		outputSchema, err = reconcileConstructionCodedPivotSchema(step.Outputs, compiled, inputByID)
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		rootIdentity := inputByID[inputIdentity]
-		rootIdentity.Identity = false
-		rootIdentity.Internal = true
-		outputSchema = append([]CompiledOutputColumn{rootIdentity}, outputSchema...)
-		outputIdentity = constructionRowID
+		err = lowerer.lowerCodedPivotStage(step, &work)
 	case recipe.ConstructionUnpivotOp:
-		unpivot := step.Operation.Unpivot
-		semanticUnpivot, err := constructionSemanticUnpivot(*unpivot, inputByID, outputByID)
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		nameProjections := stageProjectionMap(inputProjections)
-		identity := spec.RowIdentity{Grain: spec.RowGrainPatient, Fields: []string{inputIdentity}}
-		physicalUnpivot, projections, compiled, err := lowerRecipeUnpivot(plan, semanticUnpivot, &identity, inputProjections, compiledSchemaByName(inputSchema), nameProjections, usedVariables)
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		physicalUnpivot.PreservedOutputs = constructionUnpivotPreservedOutputs(*unpivot, step.Outputs, inputByID)
-		base.Kind, base.Unpivot = ir.PhysicalStageUnpivotOp, &physicalUnpivot
-		base.OutputRowVariable = physicalUnpivot.OutputRowVariable
-		base.OutputProjections = projections
-		outputSchema, err = reconcileConstructionUnpivotSchema(step.Outputs, compiled, inputByID, *unpivot)
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		outputIdentity = constructionRowID
+		err = lowerer.lowerUnpivotStage(step, &work)
 	case recipe.ConstructionGroupOp:
-		group := step.Operation.Group
-		physicalGroup, projections, compiled, err := lowerConstructionGroup(
-			plan, *group, step.RowValues, step.Outputs, inputByID, inputIdentity,
-			inputStageID, rootResourceType, outputByID, usedVariables, index, &base, policy,
-		)
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		if retainRootContributors && rootContributorProvenance {
-			contributor, ok := rootContributorInput(inputSchema, rootResourceType)
-			if !ok {
-				return constructionStageResult{}, fmt.Errorf("Group cannot retain root contributors because the compiler-proven root identity was lost")
-			}
-			physicalGroup.RootContributorInputColumn = contributor.Name
-			physicalGroup.RootContributorInputMany = contributor.Cardinality == string(expression.Many)
-			physicalGroup.RootContributorOutputColumn = rootContributorSetColumn
-			physicalGroup.RootContributorVariable = allocateConstructionVariable(usedVariables, "group_root_contributors", index)
-			compiled = append(compiled, CompiledOutputColumn{
-				ID: rootContributorSetColumn, Name: rootContributorSetColumn, Label: rootContributorSetColumn,
-				SemanticPath: "construction_root_contributors:" + group.ConstructionID,
-				Kind:         string(expression.KindString), Cardinality: string(expression.Many), Internal: true,
-				RootContributorResourceType: rootResourceType,
-			})
-			identityProjection := projections[len(projections)-1]
-			projections[len(projections)-1] = ir.PhysicalProjection{Name: rootContributorSetColumn, Hidden: true, Value: ir.PhysicalValue{Variable: physicalGroup.RootContributorVariable}}
-			projections = append(projections, identityProjection)
-		}
-		if inventory, ok := schemaColumn(inputSchema, "__loom_dynamic_runtime_keys"); ok && inventory.Internal {
-			physicalGroup.DynamicRuntimeKeysVariable = allocateConstructionVariable(usedVariables, "group_dynamic_keys", index)
-			inventory.Cardinality = string(expression.Many)
-			compiled = append(compiled, inventory)
-			identityProjection := projections[len(projections)-1]
-			projections[len(projections)-1] = ir.PhysicalProjection{
-				Name: inventory.Name, Hidden: true, Value: ir.PhysicalValue{Variable: physicalGroup.DynamicRuntimeKeysVariable},
-			}
-			projections = append(projections, identityProjection)
-		}
-		base.Kind, base.Group = ir.PhysicalStageGroupOp, &physicalGroup
-		base.OutputProjections = projections
-		outputSchema, outputIdentity = compiled, constructionRowID
+		err = lowerer.lowerGroupStage(step, &work)
 	case recipe.ConstructionCodedGroupOp:
-		codedGroup := step.Operation.CodedGroup
-		if codedGroup == nil {
-			return constructionStageResult{}, fmt.Errorf("coded group payload is required")
-		}
-		physicalCodedGroup, projections, compiled, err := lowerConstructionCodedGroup(
-			plan, *codedGroup, step.RowValues, step.Outputs, inputByID, inputIdentity, rootResourceType, usedVariables, index,
-		)
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		base.Kind, base.CodedGroup, base.OutputProjections = ir.PhysicalStageCodedGroupOp, &physicalCodedGroup, projections
-		outputSchema, outputIdentity = compiled, constructionRowID
+		err = lowerer.lowerCodedGroupStage(step, &work)
 	case recipe.ConstructionExpandOp:
-		expand := step.Operation.Expand
-		physicalExpand, projections, compiled, err := lowerConstructionExpand(plan, *expand, step.Outputs, inputByID, outputByID, inputRow, usedVariables, index)
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		base.Kind, base.Expand = ir.PhysicalStageExpandOp, &physicalExpand
-		base.OutputProjections = projections
-		outputSchema, outputIdentity = compiled, constructionRowID
+		err = lowerer.lowerExpandStage(step, &work)
 	case recipe.ConstructionRelatedSourceOp:
-		related := step.Operation.RelatedSource
-		if related == nil {
-			return constructionStageResult{}, fmt.Errorf("related source payload is required")
-		}
-		rowValuePolicy := related.RowValuePolicy
-		if rowValuePolicy == "" {
-			rowValuePolicy = recipe.ConstructionRowValueAll
-		}
-		projections, compiled, err := lowerConstructionRelatedSource(plan, step, *related, inputByID, outputByID, inputRow, inputIdentity, rootResourceType, policy, usedVariables, index)
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		base.Kind, base.OutputProjections = ir.PhysicalStageRelatedSourceOp, projections
-		rootContributor, _ := rootContributorInput(inputSchema, rootResourceType)
-		rootContributorColumn := rootContributor.Name
-		if related.AnchorColumnID == rootContributorColumn && related.AnchorColumnID == inputIdentity {
-			rootContributorColumn = ""
-		}
-		base.RelatedSource = &ir.PhysicalStageRelatedSource{
-			AnchorColumnID: related.AnchorColumnID, RootContributorColumn: rootContributorColumn,
-			RootResourceType: rootResourceType, OutputColumnID: related.OutputColumnID,
-			CandidateID: related.Source.CandidateID, SourceOccurrenceID: related.SourceOccurrenceID,
-			ResourceType: related.Source.ResourceType, Path: related.Source.Path, LogicalType: related.Source.LogicalType,
-			Form: related.Form, RowValuePolicy: string(rowValuePolicy), ContributorPolicy: related.ContributorPolicy,
-		}
-		outputSchema, outputIdentity = compiled, inputIdentity
+		err = lowerer.lowerRelatedSourceStage(step, &work)
 	case recipe.ConstructionRelatedExpandOp:
-		related := step.Operation.RelatedExpand
-		if related == nil {
-			return constructionStageResult{}, fmt.Errorf("related expansion payload is required")
-		}
-		physicalExpand, projections, compiled, err := lowerConstructionRelatedExpand(
-			plan, step, *related, inputByID, outputByID, inputRow, inputIdentity,
-			rootResourceType, policy, usedVariables, index,
-		)
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		base.Kind, base.RelatedExpand = ir.PhysicalStageRelatedExpandOp, &physicalExpand
-		base.OutputProjections = projections
-		outputSchema, outputIdentity = compiled, constructionRowID
+		err = lowerer.lowerRelatedExpandStage(step, &work)
 	case recipe.ConstructionRelatedEligibilityOp:
-		related := step.Operation.RelatedEligibility
-		if related == nil {
-			return constructionStageResult{}, fmt.Errorf("related eligibility payload is required")
-		}
-		physicalFilter, derivedLets, projections, compiled, err := lowerConstructionRelatedEligibility(
-			plan, step, *related, inputByID, outputByID, inputRow, inputIdentity,
-			rootResourceType, policy, usedVariables, index,
-		)
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		base.Kind, base.Filter, base.DerivedLets = ir.PhysicalStageRelatedEligibilityOp, &physicalFilter, derivedLets
-		base.OutputProjections = projections
-		outputSchema, outputIdentity = compiled, inputIdentity
+		err = lowerer.lowerRelatedEligibilityStage(step, &work)
 	case recipe.ConstructionRelatedFieldOp:
-		related := step.Operation.RelatedField
-		if related == nil {
-			return constructionStageResult{}, fmt.Errorf("related field payload is required")
-		}
-		physicalRelatedField, projections, compiled, err := lowerConstructionRelatedField(step, *related, inputByID, outputByID, inputSchema, inputRow, presenceCategoryIDs[related.OutputColumnID])
-		if err != nil {
-			return constructionStageResult{}, err
-		}
-		base.Kind, base.RelatedField, base.OutputProjections = ir.PhysicalStageRelatedFieldOp, &physicalRelatedField, projections
-		outputSchema, outputIdentity = compiled, inputIdentity
+		err = lowerer.lowerRelatedFieldStage(step, &work)
 	default:
 		return constructionStageResult{}, fmt.Errorf("unsupported operation kind %q", step.Operation.Kind)
 	}
+	if err != nil {
+		return constructionStageResult{}, err
+	}
+	base, outputSchema, outputIdentity := work.physical, work.schema, work.identity
 	if constructionPreservesPresenceCompanions(base.Kind) {
 		outputSchema, base.OutputProjections = carryConstructionPresenceCompanions(inputSchema, outputSchema, base.OutputProjections, inputRow)
 	} else {
@@ -1637,7 +1388,7 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		}
 	}
 	rootContributorOutputProvenance := rootContributorProvenance && constructionPreservesRootContributorProvenance(step.Operation.Kind)
-	lazyRootContributorOutputAvailable := lazyRootContributorAvailable && constructionPreservesLazyRootContributorAvailability(step.Operation.Kind)
+	lazyRootContributorOutputAvailable := input.lazyRootContributorAvailable && constructionPreservesLazyRootContributorAvailability(step.Operation.Kind)
 	if step.Operation.Kind == recipe.ConstructionGroupOp || step.Operation.Kind == recipe.ConstructionPivotOp {
 		lazyRootContributorOutputAvailable = rootContributorOutputProvenance
 	}
@@ -1646,20 +1397,17 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 	return constructionStageResult{physical: base, schema: outputSchema, identity: outputIdentity, rootContributorProvenance: rootContributorOutputProvenance, lazyRootContributorAvailable: lazyRootContributorOutputAvailable, descriptor: descriptor}, nil
 }
 
-func lowerConstructionRelatedSource(
-	plan *ir.PhysicalPlan,
+func (lowerer *constructionLowerer) lowerConstructionRelatedSource(
 	step recipe.ConstructionStep,
 	related recipe.ConstructionRelatedSource,
 	inputByID map[string]CompiledOutputColumn,
 	outputByID map[string]recipe.StageColumn,
 	inputRow, inputIdentity, rootResourceType string,
-	policy ir.PhysicalOptimizationPolicy,
-	usedVariables map[string]bool,
 	index int,
 ) ([]ir.PhysicalProjection, []CompiledOutputColumn, error) {
-	if related.AnchorColumnID != inputIdentity || rootResourceType == "" || rootResourceType != plan.Source.ResourceType {
+	if related.AnchorColumnID != inputIdentity || rootResourceType == "" || rootResourceType != lowerer.plan.Source.ResourceType {
 		reason := "row_identity_changed"
-		if rootResourceType == "" || rootResourceType != plan.Source.ResourceType {
+		if rootResourceType == "" || rootResourceType != lowerer.plan.Source.ResourceType {
 			reason = "root_resource_changed"
 		}
 		return nil, nil, &RelatedSourceAnchorError{StepID: step.ID, Reason: reason}
@@ -1699,8 +1447,8 @@ func lowerConstructionRelatedSource(
 		return nil, nil, fmt.Errorf("related source field path: %w", err)
 	}
 
-	rootVariable := allocateConstructionVariable(usedVariables, fmt.Sprintf("related_%d_root", index), index)
-	rootNode := semantic.SemanticNode{Alias: plan.Source.SemanticNode, ResourceType: rootResourceType}
+	rootVariable := allocateConstructionVariable(lowerer.usedVariables, fmt.Sprintf("related_%d_root", index), index)
+	rootNode := semantic.SemanticNode{Alias: lowerer.plan.Source.SemanticNode, ResourceType: rootResourceType}
 	keySetAnchor := !directRootAnchor && hasContributor && contributor.Cardinality == string(expression.Many)
 	rootOperation := ir.PhysicalOperation{
 		Kind:   ir.PhysicalCollectionScanOp,
@@ -1710,7 +1458,7 @@ func lowerConstructionRelatedSource(
 		},
 	}
 	if keySetAnchor {
-		keyVariable := allocateConstructionVariable(usedVariables, fmt.Sprintf("related_%d_root_key", index), index)
+		keyVariable := allocateConstructionVariable(lowerer.usedVariables, fmt.Sprintf("related_%d_root_key", index), index)
 		rootOperation = ir.PhysicalOperation{
 			Kind:   ir.PhysicalKeySetLookupOp,
 			Source: ir.PhysicalSource{SemanticNode: rootNode.Alias, ResourceType: rootResourceType, SemanticField: "_key"},
@@ -1747,12 +1495,12 @@ func lowerConstructionRelatedSource(
 			return nil, nil, fmt.Errorf("related source route hop %d does not extend the compiled source", routeIndex)
 		}
 		prefix := fmt.Sprintf("related_%d_hop_%d", index, routeIndex+1)
-		targetVariable := allocateConstructionVariable(usedVariables, prefix+"_target", index)
-		edgeVariable := allocateConstructionVariable(usedVariables, prefix+"_edge", index)
+		targetVariable := allocateConstructionVariable(lowerer.usedVariables, prefix+"_target", index)
+		edgeVariable := allocateConstructionVariable(lowerer.usedVariables, prefix+"_edge", index)
 		traversal, traversalErr := BuildPhysicalTraversal(TraversalLoweringRequest{
 			FromType: currentResource, EdgeLabel: hop.Relationship, ToType: hop.ToResourceType,
 			SourceVariable: currentVariable, TargetVariable: targetVariable, EdgeVariable: edgeVariable,
-			BindPrefix: prefix, Policy: policy,
+			BindPrefix: prefix, Policy: lowerer.policy,
 		})
 		if traversalErr != nil {
 			return nil, nil, fmt.Errorf("related source route hop %d: %w", routeIndex, traversalErr)
@@ -1761,7 +1509,7 @@ func lowerConstructionRelatedSource(
 			return nil, nil, fmt.Errorf("related source route hop %d storage direction changed", routeIndex)
 		}
 		for key, value := range traversal.BindVars {
-			plan.BindVars[key] = value
+			lowerer.plan.BindVars[key] = value
 		}
 		child := semantic.SemanticNode{Alias: hop.ToNodeID, ResourceType: hop.ToResourceType, EdgeLabel: hop.Relationship}
 		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
@@ -1798,7 +1546,7 @@ func lowerConstructionRelatedSource(
 				return nil, nil, fmt.Errorf("related source contributor predicate: %w", literalErr)
 			}
 			bindKey := fmt.Sprintf("related_%d_contributor_value", index)
-			plan.BindVars[bindKey] = literal
+			lowerer.plan.BindVars[bindKey] = literal
 			physicalPredicate.Right = &ir.PhysicalValue{BindKey: bindKey}
 			physicalPredicate.ValueKind = spec.FilterValueKind(predicate.Value.Kind)
 		}
@@ -1848,7 +1596,7 @@ func lowerConstructionRelatedSource(
 		outputKind, outputCardinality, outputNullable = "integer", expression.RequiredOne, false
 		if related.Form == "PRESENCE" {
 			zeroKey := fmt.Sprintf("related_%d_zero", index)
-			plan.BindVars[zeroKey] = 0
+			lowerer.plan.BindVars[zeroKey] = 0
 			zero := ir.PhysicalExpression{Kind: ir.PhysicalLiteralExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Literal: &ir.PhysicalLiteral{BindKey: zeroKey}}
 			outputExpression = ir.PhysicalExpression{
 				Kind: ir.PhysicalCallExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,

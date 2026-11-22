@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -68,7 +69,7 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 	applyAuthorizedScope(&bindings, authorized, true)
 	execution, err := s.config.MaterializeReceipt(ctx, receipt, bindings)
 	if err != nil {
-		var typed *Error
+		var typed *ports.Error
 		if errors.As(err, &typed) {
 			return PublishResult{}, typed
 		}
@@ -98,7 +99,7 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 	if err != nil {
 		var requirementsErr *dataset.ReleaseRequirementsError
 		if errors.As(err, &requirementsErr) {
-			return PublishResult{}, failureDetails(ClassUnprocessable, "activation", "RELEASE_REQUIREMENTS_UNMET", "release contract verification is unsatisfied; the prior Explorer revision was retained", map[string]any{"retryable": false}, err)
+			return PublishResult{}, failureDetails(ports.ClassUnprocessable, "activation", "RELEASE_REQUIREMENTS_UNMET", "release contract verification is unsatisfied; the prior Explorer revision was retained", map[string]any{"retryable": false}, err)
 		}
 		return PublishResult{}, unavailable("activation", "MATERIALIZATION_ACTIVATION_FAILED", "dataset release preparation failed; the prior Explorer revision was retained", err)
 	}
@@ -133,7 +134,7 @@ func classifyMaterializationError(stage string, err error) error {
 			instruction = "Choose the empty-list or no-match policy, then publish again."
 		}
 		message := dataframeerrors.PublicMessage(err) + ". " + instruction + " The active revision was retained."
-		return failureDetails(ClassUnprocessable, stage, userErr.Code(), message, userErr.Details(), err)
+		return failureDetails(ports.ClassUnprocessable, stage, userErr.Code(), message, userErr.Details(), err)
 	}
 	var message string
 	switch userErr.Code() {
@@ -146,14 +147,14 @@ func classifyMaterializationError(stage string, err error) error {
 	default:
 		return nil
 	}
-	return failureDetails(ClassUnavailable, stage, userErr.Code(), message, userErr.Details(), err)
+	return failureDetails(ports.ClassUnavailable, stage, userErr.Code(), message, userErr.Details(), err)
 }
 
-func (s *Service) resolveExecutionCapability(ctx context.Context, project, token string) (AuthorizedCapability, capability.Snapshot, error) {
+func (s *Service) resolveExecutionCapability(ctx context.Context, project, token string) (ports.AuthorizedCapability, capability.Snapshot, error) {
 	if s.config.Capability.ForExecution != nil {
 		authorized, err := s.config.Capability.ForExecution(ctx, project, token)
 		return authorized, authorized.Snapshot, err
 	}
 	snapshot, err := s.config.Capability.Token(ctx, project, token)
-	return AuthorizedCapability{Snapshot: snapshot}, snapshot, err
+	return ports.AuthorizedCapability{Snapshot: snapshot}, snapshot, err
 }

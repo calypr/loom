@@ -6,6 +6,8 @@ import (
 	"strconv"
 
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 )
 
 func generation(value string) any {
@@ -79,7 +81,7 @@ func decodeStrings(value any) ([]string, error) {
 	}
 }
 
-func decodeExtensionValues(value any) ([]catalog.ExtensionValueObservation, error) {
+func decodeExtensionValues(value any) ([]fieldprofile.ExtensionValueObservation, error) {
 	if value == nil {
 		return nil, nil
 	}
@@ -94,7 +96,7 @@ func decodeExtensionValues(value any) ([]catalog.ExtensionValueObservation, erro
 			return nil, fmt.Errorf("unsupported extension observation slice type %T", value)
 		}
 	}
-	result := make([]catalog.ExtensionValueObservation, 0, len(items))
+	result := make([]fieldprofile.ExtensionValueObservation, 0, len(items))
 	for i, item := range items {
 		row, ok := item.(map[string]any)
 		if !ok {
@@ -104,12 +106,12 @@ func decodeExtensionValues(value any) ([]catalog.ExtensionValueObservation, erro
 		if err != nil {
 			return nil, fmt.Errorf("extension observation URL path: %w", err)
 		}
-		result = append(result, catalog.ExtensionValueObservation{URL: stringValue(row["url"]), SourcePath: stringValue(row["source_path"]), ValuePath: stringValue(row["value_path"]), ValueType: stringValue(row["value_type"]), URLPath: urlPath})
+		result = append(result, fieldprofile.ExtensionValueObservation{URL: stringValue(row["url"]), SourcePath: stringValue(row["source_path"]), ValuePath: stringValue(row["value_path"]), ValueType: stringValue(row["value_type"]), URLPath: urlPath})
 	}
 	return result, nil
 }
 
-func decodeSemanticObservations(value any) ([]catalog.SemanticObservation, error) {
+func decodeSemanticObservations(value any) ([]codedconcept.Observation, error) {
 	if value == nil {
 		return nil, nil
 	}
@@ -124,13 +126,13 @@ func decodeSemanticObservations(value any) ([]catalog.SemanticObservation, error
 			return nil, fmt.Errorf("unsupported semantic observation slice type %T", value)
 		}
 	}
-	result := make([]catalog.SemanticObservation, 0, len(items))
+	result := make([]codedconcept.Observation, 0, len(items))
 	for i, item := range items {
 		row, ok := item.(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("unsupported semantic observation type %T at index %d", item, i)
 		}
-		observation := catalog.SemanticObservation{}
+		observation := codedconcept.Observation{}
 		var err error
 		if version, versionErr := decodeInt64(row["schema_version"]); versionErr != nil {
 			return nil, versionErr
@@ -141,7 +143,7 @@ func decodeSemanticObservations(value any) ([]catalog.SemanticObservation, error
 		observation.ChoiceArm = stringValue(row["choice_arm"])
 		observation.LogicalType = stringValue(row["logical_type"])
 		observation.Status = stringValue(row["status"])
-		observation.Completeness = catalog.SemanticObservationCompleteness(stringValue(row["completeness"]))
+		observation.Completeness = codedconcept.Completeness(stringValue(row["completeness"]))
 		observation.RuleHint = stringValue(row["rule_hint"])
 		observation.RuleVersion = stringValue(row["rule_version"])
 		if observation.Population, err = decodeInt64(row["population"]); err != nil {
@@ -163,10 +165,10 @@ func decodeSemanticObservations(value any) ([]catalog.SemanticObservation, error
 			return nil, err
 		}
 		if source, ok := row["source"].(map[string]any); ok {
-			observation.Source = catalog.SemanticObservationSource{Canonical: stringValue(source["canonical"]), Type: stringValue(source["type"]), Profile: stringValue(source["profile"]), Path: stringValue(source["path"])}
+			observation.Source = codedconcept.Source{Canonical: stringValue(source["canonical"]), Type: stringValue(source["type"]), Profile: stringValue(source["profile"]), Path: stringValue(source["path"])}
 		}
 		if key, ok := row["key"].(map[string]any); ok {
-			observation.Key = catalog.SemanticObservationKey{Selector: stringValue(key["selector"]), System: stringValue(key["system"]), Version: stringValue(key["version"]), Code: stringValue(key["code"]), Display: stringValue(key["display"])}
+			observation.Key = codedconcept.Key{Selector: stringValue(key["selector"]), System: stringValue(key["system"]), Version: stringValue(key["version"]), Code: stringValue(key["code"]), Display: stringValue(key["display"])}
 		}
 		if value, ok := row["value"].(map[string]any); ok {
 			fallbackSelectors, err := decodeStrings(value["fallback_selectors"])
@@ -177,7 +179,7 @@ func decodeSemanticObservations(value any) ([]catalog.SemanticObservation, error
 			if err != nil {
 				return nil, fmt.Errorf("decode semantic observation blank fallback: %w", err)
 			}
-			observation.Value = catalog.SemanticObservationValue{
+			observation.Value = codedconcept.Value{
 				Selector: stringValue(value["selector"]), Type: stringValue(value["type"]),
 				FallbackSelectors: fallbackSelectors, FallbackOnBlankString: fallbackOnBlankString,
 			}
@@ -187,7 +189,7 @@ func decodeSemanticObservations(value any) ([]catalog.SemanticObservation, error
 	return result, nil
 }
 
-func decode(row map[string]any, out *catalog.PopulatedField) error {
+func decode(row map[string]any, out *fieldprofile.PopulatedField) error {
 	out.Project = stringValue(row["project"])
 	out.DatasetGeneration = stringValue(row["dataset_generation"])
 	out.AuthResourcePath = stringValue(row["auth_resource_path"])

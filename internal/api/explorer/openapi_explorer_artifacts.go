@@ -9,6 +9,7 @@ import (
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func (r *Handlers) PrepareExplorerArtifact(ctx context.Context, request loomapi.PrepareExplorerArtifactRequestObject) (loomapi.PrepareExplorerArtifactResponseObject, error) {
@@ -72,7 +73,7 @@ func (r *Handlers) DownloadExplorerArtifact(ctx context.Context, request loomapi
 		return loomapi.DownloadExplorerArtifact200ApplicationzipResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "downloadExplorerArtifact", err)
-	var lifecycleErr *lifecycle.Error
+	var lifecycleErr *ports.Error
 	if errors.As(err, &lifecycleErr) && lifecycleErr.Code == "ARTIFACT_EXPIRED" {
 		status = http.StatusGone
 	}

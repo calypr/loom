@@ -5,26 +5,24 @@ import (
 	"encoding/json"
 	"net/http"
 
-	httpapi "github.com/calypr/loom/internal/api/http"
-
 	loomapi "github.com/calypr/loom/api/loomapi"
+	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
-
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/sourceload"
 )
 
 func (r *StrictHandlers) BeginDatasetSourceLoad(ctx context.Context, request loomapi.BeginDatasetSourceLoadRequestObject) (loomapi.BeginDatasetSourceLoadResponseObject, error) {
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	var status ingest.SourceLoadStatus
+	var status sourceload.SourceLoadStatus
 	var err error
 	if request.Body == nil {
 		err = dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	} else {
-		plan := ingest.SourceLoadPlan{
+		plan := sourceload.SourceLoadPlan{
 			Repository: request.Body.Repository,
 			Commit:     request.Body.Commit,
-			Files:      make([]ingest.SourceManifestFile, 0, len(request.Body.Files)),
+			Files:      make([]sourceload.SourceManifestFile, 0, len(request.Body.Files)),
 		}
 		if request.Body.AuthResourcePath != nil {
 			plan.AuthResourcePath = *request.Body.AuthResourcePath
@@ -34,7 +32,7 @@ func (r *StrictHandlers) BeginDatasetSourceLoad(ctx context.Context, request loo
 			plan.ExpectedRevision = &value
 		}
 		for _, file := range request.Body.Files {
-			item := ingest.SourceManifestFile{Path: file.Path}
+			item := sourceload.SourceManifestFile{Path: file.Path}
 			if file.Sha256 != nil {
 				item.SHA256 = *file.Sha256
 			}
@@ -86,7 +84,7 @@ func (r *StrictHandlers) PublishDatasetSourceLoad(ctx context.Context, request l
 	return loomapi.NewPublishDatasetSourceLoadErrorResponse(code, body)
 }
 
-func sourceLoadStatusValue(status ingest.SourceLoadStatus) loomapi.SourceLoadStatus {
+func sourceLoadStatusValue(status sourceload.SourceLoadStatus) loomapi.SourceLoadStatus {
 	files := make([]loomapi.SourceFileReceipt, 0, len(status.Files))
 	for _, file := range status.Files {
 		files = append(files, sourceFileReceiptValue(file))
@@ -98,7 +96,7 @@ func sourceLoadStatusValue(status ingest.SourceLoadStatus) loomapi.SourceLoadSta
 	}
 }
 
-func sourceFileReceiptValue(receipt ingest.SourceFileReceipt) loomapi.SourceFileReceipt {
+func sourceFileReceiptValue(receipt sourceload.SourceFileReceipt) loomapi.SourceFileReceipt {
 	return loomapi.SourceFileReceipt{
 		Path: receipt.Path, ResourceType: receipt.ResourceType,
 		Sha256: receipt.SHA256, Rows: receipt.Rows,

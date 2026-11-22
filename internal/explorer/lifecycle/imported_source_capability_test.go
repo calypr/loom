@@ -92,11 +92,11 @@ func TestImportedSourceCapabilityHelpersSkipGenericRowChoicePlanner(t *testing.T
 		call func(*Service, constructionBase) (bool, string, string, int, error)
 	}{
 		{name: "group", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {
-			got, err := service.constructionGroupSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
+			got, err := service.constructionSources().constructionGroupSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
 			return got.Supported, got.ReasonCode, got.Reason, len(got.Choices), err
 		}},
 		{name: "pivot", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {
-			got, err := service.constructionPivotSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
+			got, err := service.constructionSources().constructionPivotSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
 			return got.Supported, got.ReasonCode, got.Reason, len(got.Choices), err
 		}},
 		{name: "filter", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {

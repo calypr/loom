@@ -71,12 +71,12 @@ func RenderPhysicalRootScopeCount(plan ir.PhysicalPlan) (RenderedPhysicalPlan, e
 	if err != nil {
 		return RenderedPhysicalPlan{}, err
 	}
-	renderer := physicalPlanRenderer{
+	renderer := physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       runtimePhysicalBindVars(plan.BindVars, collectionKeys),
 		collectionKeys: collectionKeys,
 		reservedVars:   physicalPlanVariableNames(plan),
 		internalPrefix: "preview_",
-	}
+	}}
 	lines, err := renderer.renderRootScan(*root.RootScan)
 	if err != nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("render root scope count scan: %w", err)
@@ -115,7 +115,7 @@ func RenderPhysicalRootScopeCount(plan ir.PhysicalPlan) (RenderedPhysicalPlan, e
 	if filters != 3 || authLets != 1 || returns != 1 {
 		return RenderedPhysicalPlan{}, fmt.Errorf("root scope count requires exactly three canonical filters, one authorization LET, and one RETURN")
 	}
-	countVariable := renderer.newInternalVariable("scope_count")
+	countVariable := renderer.navigation().newInternalVariable("scope_count")
 	lines = append(lines, "  COLLECT WITH COUNT INTO "+countVariable, "  RETURN {count: "+countVariable+"}")
 	query := strings.Join(lines, "\n") + "\n"
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query)}, nil
@@ -385,7 +385,7 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 		return RenderedPhysicalPlan{}, err
 	}
 
-	renderer := physicalPlanRenderer{
+	renderer := physicalPlanRenderer{renderContext: renderContext{
 		bindVars:                        runtimePhysicalBindVars(plan.BindVars, collectionKeys),
 		collectionKeys:                  collectionKeys,
 		rootIndexHint:                   options.rootIndexHint,
@@ -404,7 +404,7 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 		storedPresenceParentPath:        append([]string(nil), options.storedPresenceParentPath...),
 		previewRootKeyWindowVariable:    options.previewRootKeyWindowVariable,
 		previewGroupIdentityFilter:      options.previewGroupIdentityFilter,
-	}
+	}}
 	lines, err := renderer.renderRootScan(layout.root)
 	if err != nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("render root scan: %w", err)
@@ -421,7 +421,7 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 		var line []string
 		if operation.Kind == ir.PhysicalSetOp {
 			rootSetIndex++
-			line, err = renderer.renderSet(*operation.Set, rootSetIndex)
+			line, err = renderer.navigation().renderSet(*operation.Set, rootSetIndex)
 		} else {
 			line, err = renderer.renderScopeOperation(operation, "  ")
 		}
@@ -431,7 +431,7 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 		lines = append(lines, line...)
 	}
 	for index, unnest := range layout.unnests {
-		line, err := renderer.renderUnnest(unnest, "  ", index, 0)
+		line, err := renderer.navigation().renderUnnest(unnest, "  ", index, 0)
 		if err != nil {
 			return RenderedPhysicalPlan{}, fmt.Errorf("render unnest %d: %w", index+1, err)
 		}
@@ -451,13 +451,13 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 		case ir.PhysicalTraversalOp:
 			traversalIndex++
 			block := physicalNavigationTraversal{traversal: *item.operation.Traversal, scope: item.traversalScope}
-			line, err = renderer.renderTraversalSet(block, layout.root.Variable, traversalIndex)
+			line, err = renderer.navigation().renderTraversalSet(block, layout.root.Variable, traversalIndex)
 			if err != nil {
 				return RenderedPhysicalPlan{}, fmt.Errorf("render traversal %d: %w", traversalIndex, err)
 			}
 		case ir.PhysicalSetOp:
 			setIndex++
-			line, err = renderer.renderSet(*item.operation.Set, setIndex)
+			line, err = renderer.navigation().renderSet(*item.operation.Set, setIndex)
 			if err != nil {
 				return RenderedPhysicalPlan{}, fmt.Errorf("render child set %d: %w", setIndex, err)
 			}
@@ -468,7 +468,7 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 			}
 			expressionLetIndex++
 		case ir.PhysicalGroupedPivotOp, ir.PhysicalUnpivotOp:
-			line, err = renderer.renderTableReshape(item.operation)
+			line, err = renderer.tableShape().renderTableReshape(item.operation)
 			if err != nil {
 				return RenderedPhysicalPlan{}, fmt.Errorf("render table reshape: %w", err)
 			}
@@ -496,13 +496,13 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 		}
 		lines = append(lines, mappingLines...)
 	} else if layout.traceReturn != nil {
-		traceLines, traceErr := renderer.renderCellTraceReturn(*layout.traceReturn)
+		traceLines, traceErr := renderer.cellTraces().renderCellTraceReturn(*layout.traceReturn)
 		if traceErr != nil {
 			return RenderedPhysicalPlan{}, fmt.Errorf("render cell trace RETURN: %w", traceErr)
 		}
 		lines = append(lines, traceLines...)
 	} else if layout.exclusionReturn != nil {
-		exclusionLines, exclusionErr := renderer.renderTableShapeExclusionReturn(*layout.exclusionReturn)
+		exclusionLines, exclusionErr := renderer.tableShape().renderTableShapeExclusionReturn(*layout.exclusionReturn)
 		if exclusionErr != nil {
 			return RenderedPhysicalPlan{}, fmt.Errorf("render table-shape exclusion RETURN: %w", exclusionErr)
 		}
@@ -541,7 +541,7 @@ func (r *physicalPlanRenderer) renderRootScan(root ir.PhysicalRootScan) ([]strin
 		if root.Population != nil || root.CohortSource != nil || root.PageCandidateSeed != nil {
 			return nil, fmt.Errorf("preview root-key window requires a direct root scan")
 		}
-		rootKeyVariable := r.newInternalVariable("preview_root_key")
+		rootKeyVariable := r.navigation().newInternalVariable("preview_root_key")
 		return []string{
 			fmt.Sprintf("FOR %s IN %s", rootKeyVariable, r.previewRootKeyWindowVariable),
 			fmt.Sprintf("LET %s = DOCUMENT(@@%s, %s)", root.Variable, root.CollectionBindKey, rootKeyVariable),
@@ -549,7 +549,7 @@ func (r *physicalPlanRenderer) renderRootScan(root ir.PhysicalRootScan) ([]strin
 		}, nil
 	}
 	if seed := root.PageCandidateSeed; seed != nil {
-		candidateKey := r.newInternalVariable("root_page_candidate_key")
+		candidateKey := r.navigation().newInternalVariable("root_page_candidate_key")
 		candidateKeys, err := r.renderSubplan(seed.Subplan, "  ", false)
 		if err != nil {
 			return nil, fmt.Errorf("render root page candidate seed: %w", err)
@@ -599,11 +599,11 @@ func (r *physicalPlanRenderer) renderRootScan(root ir.PhysicalRootScan) ([]strin
 	frontierTarget := ""
 	frontierPending := false
 	collectFrontier := func() {
-		frontierKey := r.newInternalVariable("population_frontier_key")
-		frontierRows := r.newInternalVariable("population_frontier_rows")
+		frontierKey := r.navigation().newInternalVariable("population_frontier_key")
+		frontierRows := r.navigation().newInternalVariable("population_frontier_rows")
 		collect := fmt.Sprintf("  COLLECT %s = %s._key", frontierKey, frontierTarget)
 		if memberID != "" {
-			frontierMember := r.newInternalVariable("population_frontier_member")
+			frontierMember := r.navigation().newInternalVariable("population_frontier_member")
 			collect = fmt.Sprintf("  COLLECT %s = %s, %s = %s._key", frontierMember, memberID, frontierKey, frontierTarget)
 			memberID = frontierMember
 		}
@@ -628,7 +628,7 @@ func (r *physicalPlanRenderer) renderRootScan(root ir.PhysicalRootScan) ([]strin
 		case ir.PhysicalCollectionScanOp:
 			lines = append(lines, fmt.Sprintf("  FOR %s IN @@%s", operation.CollectionScan.Variable, operation.CollectionScan.CollectionBindKey))
 		case ir.PhysicalTraversalOp:
-			lines = append(lines, r.renderTraversalScan(*operation.Traversal, operation.Traversal.SourceVariable, "  ")...)
+			lines = append(lines, r.navigation().renderTraversalScan(*operation.Traversal, operation.Traversal.SourceVariable, "  ")...)
 			frontierTarget = operation.Traversal.TargetVariable
 			frontierPending = true
 		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp:
@@ -648,11 +648,11 @@ func (r *physicalPlanRenderer) renderRootScan(root ir.PhysicalRootScan) ([]strin
 	if err != nil {
 		return nil, fmt.Errorf("render population root key: %w", err)
 	}
-	rootKeyVariable := r.newInternalVariable("population_root_key")
+	rootKeyVariable := r.navigation().newInternalVariable("population_root_key")
 	if population.CollectMembersVariable == "" {
 		lines = append(lines, fmt.Sprintf("  COLLECT %s = %s", rootKeyVariable, rootKey))
 	} else {
-		memberIDsVariable := r.newInternalVariable("population_member_ids")
+		memberIDsVariable := r.navigation().newInternalVariable("population_member_ids")
 		lines = append(lines,
 			fmt.Sprintf("  COLLECT %s = %s INTO %s = %s", rootKeyVariable, rootKey, memberIDsVariable, memberID),
 			fmt.Sprintf("  LET %s = SORTED_UNIQUE(%s)", population.CollectMembersVariable, memberIDsVariable),
@@ -704,6 +704,10 @@ func (r *physicalPlanRenderer) renderRootWindowOperation(operation ir.PhysicalOp
 }
 
 type physicalPlanRenderer struct {
+	renderContext
+}
+
+type renderContext struct {
 	rootCategoryResourceType             string
 	bindVars                             map[string]any
 	collectionKeys                       map[string]struct{}

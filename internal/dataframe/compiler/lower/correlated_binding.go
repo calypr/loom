@@ -117,10 +117,6 @@ func LowerExtensionBinding(resourceType string, binding fhirschema.ExtensionBind
 	}, nil
 }
 
-func LowerCorrelatedPredicate(physical *ir.PhysicalPlan, resourceType string, binding fhirschema.CorrelatedBinding, source ir.PhysicalValue, code spec.CodeValue) (ir.PhysicalPredicate, error) {
-	return LowerCorrelatedPredicateWithIdentity(physical, resourceType, binding, source, code, "")
-}
-
 func LowerCorrelatedPredicateWithIdentity(physical *ir.PhysicalPlan, resourceType string, binding fhirschema.CorrelatedBinding, source ir.PhysicalValue, code spec.CodeValue, identity string) (ir.PhysicalPredicate, error) {
 	if physical == nil {
 		return ir.PhysicalPredicate{}, fmt.Errorf("physical plan is required")

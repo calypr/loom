@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
@@ -40,9 +41,9 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 	}
 	previewCalls := 0
 	config := lifecycle.Config{
-		Capability: lifecycle.CapabilityResolver{
-			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: executionScope}, nil
+		Capability: ports.CapabilityResolver{
+			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: executionScope}, nil
 			},
 		},
 		ReceiptLookup: service.CompilationReceiptForExplorer,
@@ -71,7 +72,7 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := explorerfixtures.PersistTestNativeReceipt(context.Background(), t, service, lifecycle.CompileReceiptRequest{Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token, Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}}, snapshot)
+	receipt, err := explorerfixtures.PersistTestNativeReceipt(context.Background(), t, service, ports.CompileReceiptRequest{Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token, Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}}, snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,15 +122,15 @@ func TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	config := lifecycle.Config{
-		Capability: lifecycle.CapabilityResolver{
+		Capability: ports.CapabilityResolver{
 			Current: func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil },
 			Token:   func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return explorerfixtures.PersistTestNativeReceipt(ctx, t, service, request, snapshot)
 		},
 	}

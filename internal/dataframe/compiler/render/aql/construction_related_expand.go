@@ -7,16 +7,16 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
-func (r *physicalPlanRenderer) renderConstructionRelatedExpandStage(stage ir.PhysicalConstructionStage, previewLimitBindKey string) ([]string, error) {
+func (r navigationRenderer) renderConstructionRelatedExpandStage(stage ir.PhysicalConstructionStage, previewLimitBindKey string) ([]string, error) {
 	related := stage.RelatedExpand
 	if related == nil {
 		return nil, fmt.Errorf("related expansion stage is missing its typed payload")
 	}
-	records, err := r.renderSubplan(related.RelatedRecords, "  ", false)
+	records, err := r.core.renderSubplan(related.RelatedRecords, "  ", false)
 	if err != nil {
 		return nil, fmt.Errorf("render exact related-resource route: %w", err)
 	}
-	identityColumnBind := r.newInternalBindKey("related_expand_parent_identity_column")
+	identityColumnBind := r.core.newInternalBindKey("related_expand_parent_identity_column")
 	r.bindVars[identityColumnBind] = related.ParentIdentityColumn
 	lines := make([]string, 0, 12)
 	if previewLimitBindKey != "" {
@@ -51,7 +51,7 @@ func (r *physicalPlanRenderer) renderConstructionRelatedExpandStage(stage ir.Phy
 		fmt.Sprintf("  LET %s = (%s == null ? null : %s[%s])", related.ItemVariable, related.IndexVariable, related.RelatedRecordsVariable, related.IndexVariable),
 		fmt.Sprintf("  LET %s = %s", related.IdentityVariable, constructionRelatedExpandIdentityExpression(stage.InputRowVariable, identityColumnBind, related.ConstructionIDBindKey, related.ItemVariable)),
 	)
-	object, err := r.renderReturn(ir.PhysicalReturn{Projections: stage.OutputProjections})
+	object, err := r.core.renderReturn(ir.PhysicalReturn{Projections: stage.OutputProjections})
 	if err != nil {
 		return nil, fmt.Errorf("render related expansion output row: %w", err)
 	}

@@ -7,6 +7,7 @@ import (
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 )
 
@@ -47,10 +48,10 @@ func TestRunPreservesRestrictedEmptyScopeIntoDataframeService(t *testing.T) {
 	service := NewService(Config{
 		ScopeResolver:          resolver,
 		ActiveManifestResolver: &builderActiveManifestResolver{manifest: builderReadyManifest(t, "P1", "generation-1")},
-		DiscoverFields: func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+		DiscoverFields: func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 			preparedCatalogCalls++
 			assertRestrictedEmptyFieldScope(t, options)
-			return []catalog.PopulatedField{}, nil
+			return []fieldprofile.PopulatedField{}, nil
 		},
 		Dataframes: dataframes,
 	})
@@ -77,10 +78,10 @@ func TestIntrospectKeepsRestrictedEmptyCatalogMode(t *testing.T) {
 	service := NewService(Config{
 		ScopeResolver:          resolver,
 		ActiveManifestResolver: &builderActiveManifestResolver{manifest: builderReadyManifest(t, "P1", "generation-1")},
-		DiscoverFields: func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+		DiscoverFields: func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 			fieldCalls++
 			assertRestrictedEmptyFieldScope(t, options)
-			return []catalog.PopulatedField{}, nil
+			return []fieldprofile.PopulatedField{}, nil
 		},
 		DiscoverReferences: func(_ context.Context, options catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 			referenceCalls++
@@ -98,7 +99,7 @@ func TestIntrospectKeepsRestrictedEmptyCatalogMode(t *testing.T) {
 	}
 }
 
-func assertRestrictedEmptyFieldScope(t *testing.T, options catalog.PopulatedFieldOptions) {
+func assertRestrictedEmptyFieldScope(t *testing.T, options fieldprofile.PopulatedFieldOptions) {
 	t.Helper()
 	if options.AuthResourcePathsUnrestricted == nil || *options.AuthResourcePathsUnrestricted {
 		t.Fatalf("field catalog scope = %#v, want explicit false", options.AuthResourcePathsUnrestricted)

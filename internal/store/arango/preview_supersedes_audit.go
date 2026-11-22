@@ -54,7 +54,8 @@ type PreviewSupersedesAudit struct {
 	WouldRecordVersion      bool                         `json:"wouldRecordVersion"`
 }
 
-func (c *Client) AuditPreviewSupersededIndexes(ctx context.Context) (PreviewSupersedesAudit, error) {
+func (preview PreviewIndexes) AuditPreviewSupersededIndexes(ctx context.Context) (PreviewSupersedesAudit, error) {
+	c := preview.client
 	if c == nil || c.db == nil {
 		return PreviewSupersedesAudit{}, errors.New("preview-index audit requires an open database")
 	}
@@ -99,7 +100,7 @@ func (c *Client) AuditPreviewSupersededIndexes(ctx context.Context) (PreviewSupe
 		}
 		return audit.OtherOwnedIndexes[i].Name < audit.OtherOwnedIndexes[j].Name
 	})
-	audit.LedgerPresent, err = c.previewSupersedesLedgerExists(ctx)
+	audit.LedgerPresent, err = preview.previewSupersedesLedgerExists(ctx)
 	if err != nil {
 		return audit, err
 	}
@@ -223,7 +224,8 @@ func previewIndexStoredValues(index driver.IndexResponse) []string {
 	return index.RegularIndex.StoredValues
 }
 
-func (c *Client) previewSupersedesLedgerExists(ctx context.Context) (bool, error) {
+func (preview PreviewIndexes) previewSupersedesLedgerExists(ctx context.Context) (bool, error) {
+	c := preview.client
 	exists, err := c.db.CollectionExists(ctx, previewSupersedesMigrationLedger)
 	if err != nil || !exists {
 		return exists, err

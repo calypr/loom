@@ -22,14 +22,14 @@ func TestCodedGroupSourceInliningUsesPhysicalRootScanVariable(t *testing.T) {
 			},
 		}},
 	}
-	if got := codedGroupSourceRootVariable(plan, sequence, sequence.Stages, physicalRenderOptions{}); got != "selected_root" {
+	if got := (stageSourceRenderer{plan: plan, sequence: sequence, stages: sequence.Stages, options: physicalRenderOptions{}}).codedGroupSourceRootVariable(); got != "selected_root" {
 		t.Fatalf("inline root variable = %q, want physical RootScan variable %q", got, "selected_root")
 	}
-	if got := codedGroupSourceRootVariable(plan, sequence, sequence.Stages, physicalRenderOptions{terminalProjectionColumn: "source_records"}); got != "" {
+	if got := (stageSourceRenderer{plan: plan, sequence: sequence, stages: sequence.Stages, options: physicalRenderOptions{terminalProjectionColumn: "source_records"}}).codedGroupSourceRootVariable(); got != "" {
 		t.Fatalf("terminal-projection render selected inline root %q, want fallback", got)
 	}
 	plan.Operations = append(plan.Operations[:1], ir.PhysicalOperation{Kind: ir.PhysicalUnnestOp}, plan.Operations[1])
-	if got := codedGroupSourceRootVariable(plan, sequence, sequence.Stages, physicalRenderOptions{}); got != "" {
+	if got := (stageSourceRenderer{plan: plan, sequence: sequence, stages: sequence.Stages, options: physicalRenderOptions{}}).codedGroupSourceRootVariable(); got != "" {
 		t.Fatalf("cardinality-changing source selected inline root %q, want fallback", got)
 	}
 }

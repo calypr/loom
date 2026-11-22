@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 type dataframeDefaultStore struct {
@@ -125,7 +126,7 @@ func TestBuilderCorruptStoredDefaultDraftFailsClosedBeforeActiveBundle(t *testin
 		t.Fatal(err)
 	}
 	_, err = service.Builder(context.Background(), BuilderRequest{Project: "project-a", ExplorerID: DefaultDataframeID})
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "DRAFT_STATE_INVALID" {
 		t.Fatalf("Builder error = %v, want corrupt saved draft failure", err)
 	}

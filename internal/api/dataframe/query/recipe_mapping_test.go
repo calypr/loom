@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
@@ -114,10 +114,10 @@ func TestGraphQLRecipeResolutionUsesScopedCatalogBeforeSemanticTyping(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got catalog.PopulatedFieldOptions
-	service := NewService(Config{DiscoverFields: func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+	var got fieldprofile.PopulatedFieldOptions
+	service := NewService(Config{DiscoverFields: func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 		got = options
-		return []catalog.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar"}}, nil
+		return []fieldprofile.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar"}}, nil
 	}})
 	resolved, err := service.resolveRecipeBundle(context.Background(), bundle, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "g", AuthResourcePaths: []string{"/controlled"}})
 	if err != nil {

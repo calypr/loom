@@ -6,13 +6,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"strings"
+	"testing"
+
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	"io"
-	"strings"
-	"testing"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestArchivedRecipeArtifactsRemainReadableButCannotExecute(t *testing.T) {
@@ -71,8 +73,8 @@ func TestArchivedRecipeArtifactsRemainReadableButCannotExecute(t *testing.T) {
 			previewCalled = true
 			return dataframeexecution.PreviewSummary{}, nil
 		},
-		Capability: CapabilityResolver{ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 		}},
 	})
 	if err != nil {
@@ -132,7 +134,7 @@ func TestArchivedRecipeArtifactsRemainReadableButCannotExecute(t *testing.T) {
 		t.Fatal("artifact omitted manifest")
 	}
 	_, err = service.Preview(context.Background(), PreviewRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID, OutputID: "patients", Limit: 1})
-	var failure *Error
+	var failure *ports.Error
 	if !errors.As(err, &failure) || failure.Code != "RECEIPT_RECOMPILE_REQUIRED" || previewCalled {
 		t.Fatalf("retired execution outcome=%v callback=%v", err, previewCalled)
 	}

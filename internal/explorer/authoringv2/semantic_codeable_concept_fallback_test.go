@@ -5,22 +5,23 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 )
 
 func TestSemanticCodeableConceptPlanCarriesOrderedValueFallbacks(t *testing.T) {
-	observation := catalog.SemanticObservation{
-		SchemaVersion: catalog.SemanticObservationSchemaVersion,
-		Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "code"},
-		Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: "urn:study", Code: "stage"},
-		Value: catalog.SemanticObservationValue{
+	observation := codedconcept.Observation{
+		SchemaVersion: codedconcept.ObservationSchemaVersion,
+		Source:        codedconcept.Source{Type: "Observation", Path: "code"},
+		Key:           codedconcept.Key{Selector: "code.coding[]", System: "urn:study", Code: "stage"},
+		Value: codedconcept.Value{
 			Selector:              "valueCodeableConcept.text",
 			Type:                  "string",
 			FallbackSelectors:     []string{"valueCodeableConcept.coding[].display"},
 			FallbackOnBlankString: true,
 		},
-		ChoiceArm: "valueCodeableConcept", LogicalType: "string", Completeness: catalog.SemanticComplete,
-		Status: "SUPPORTED", RuleHint: catalog.SemanticRuleHintCodedValueV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+		ChoiceArm: "valueCodeableConcept", LogicalType: "string", Completeness: codedconcept.Complete,
+		Status: "SUPPORTED", RuleHint: codedconcept.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
 	}
 
 	plan := ResolveSemanticSelectionPlan(observation)
@@ -34,7 +35,7 @@ func TestSemanticCodeableConceptPlanCarriesOrderedValueFallbacks(t *testing.T) {
 	}
 
 	genericString := observation
-	genericString.Value = catalog.SemanticObservationValue{
+	genericString.Value = codedconcept.Value{
 		Selector:          "valueCodeableConcept.text",
 		Type:              "string",
 		FallbackSelectors: []string{"valueCodeableConcept.coding[].display"},
@@ -51,17 +52,17 @@ func TestSemanticCodeableConceptPlanCarriesOrderedValueFallbacks(t *testing.T) {
 }
 
 func TestSemanticExtensionCodeableConceptPlanCarriesBlankStringFallback(t *testing.T) {
-	observation := catalog.SemanticObservation{
-		SchemaVersion: catalog.SemanticObservationSchemaVersion,
-		Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "extension[]"},
-		Key:           catalog.SemanticObservationKey{Selector: "extension[].url", Display: "urn:study:stage"},
-		Value: catalog.SemanticObservationValue{
+	observation := codedconcept.Observation{
+		SchemaVersion: codedconcept.ObservationSchemaVersion,
+		Source:        codedconcept.Source{Type: "Observation", Path: "extension[]"},
+		Key:           codedconcept.Key{Selector: "extension[].url", Display: "urn:study:stage"},
+		Value: codedconcept.Value{
 			Selector: "extension[].valueCodeableConcept.text", Type: "string",
 			FallbackSelectors: []string{"extension[].valueCodeableConcept.coding[].display"}, FallbackOnBlankString: true,
 		},
 		OwningScope: "extension[]", ExtensionURLPath: []string{"urn:study:stage"},
-		ChoiceArm: "valueCodeableConcept", LogicalType: "string", Completeness: catalog.SemanticComplete,
-		Status: "SUPPORTED", RuleHint: "EXTENSION_URL_VALUE", RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+		ChoiceArm: "valueCodeableConcept", LogicalType: "string", Completeness: codedconcept.Complete,
+		Status: "SUPPORTED", RuleHint: "EXTENSION_URL_VALUE", RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
 	}
 	plan := ResolveSemanticSelectionPlan(observation)
 	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Extension == nil {

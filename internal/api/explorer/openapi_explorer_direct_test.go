@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestExplorerErrorResponsePreservesLifecycleDetails(t *testing.T) {
@@ -51,8 +51,8 @@ func TestExplorerLegacyResponseFillsEmptyInternalMessage(t *testing.T) {
 }
 
 func TestAuthoringErrorMapsPublicationInProgressToConflict(t *testing.T) {
-	status, response := authoringErrorForOpenAPI(context.Background(), "publish", &lifecycle.Error{
-		Class:   lifecycle.ClassConflict,
+	status, response := authoringErrorForOpenAPI(context.Background(), "publish", &ports.Error{
+		Class:   ports.ClassConflict,
 		Stage:   "materialize",
 		Code:    "PUBLICATION_IN_PROGRESS",
 		Message: "Explorer publication is already in progress; retry after it completes",

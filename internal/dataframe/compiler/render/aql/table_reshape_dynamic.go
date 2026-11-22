@@ -6,7 +6,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-func (r *physicalPlanRenderer) renderGroupedTablePivotDynamicPreview(
+func (r tableShapeRenderer) renderGroupedTablePivotDynamicPreview(
 	pivot ir.PhysicalGroupedPivot,
 	lines []string,
 	categoryColumnBind string,
@@ -40,14 +40,14 @@ func (r *physicalPlanRenderer) renderGroupedTablePivotDynamicPreview(
 		specs = append(specs, spec)
 	}
 
-	specsBind := r.newInternalBindKey("reshape_category_specs")
+	specsBind := r.core.newInternalBindKey("reshape_category_specs")
 	r.bindVars[specsBind] = specs
-	categorySpecVariable := r.newInternalVariable("reshape_category_spec")
-	cellVariable := r.newInternalVariable("reshape_dynamic_cell")
-	valueVariable := r.newInternalVariable("reshape_dynamic_value")
-	valuesVariable := r.newInternalVariable("reshape_dynamic_values")
-	typedValuesVariable := r.newInternalVariable("reshape_dynamic_typed_values")
-	cellResultVariable := r.newInternalVariable("reshape_dynamic_cell_result")
+	categorySpecVariable := r.core.navigation().newInternalVariable("reshape_category_spec")
+	cellVariable := r.core.navigation().newInternalVariable("reshape_dynamic_cell")
+	valueVariable := r.core.navigation().newInternalVariable("reshape_dynamic_value")
+	valuesVariable := r.core.navigation().newInternalVariable("reshape_dynamic_values")
+	typedValuesVariable := r.core.navigation().newInternalVariable("reshape_dynamic_typed_values")
+	cellResultVariable := r.core.navigation().newInternalVariable("reshape_dynamic_cell_result")
 	categoryMatch, err := groupedPivotDynamicCategoryMatchPredicate(
 		categorySpecVariable, cellVariable, categoryColumnBind, categoryPresenceBind, categoryTypeBind,
 	)
@@ -55,7 +55,7 @@ func (r *physicalPlanRenderer) renderGroupedTablePivotDynamicPreview(
 		return nil, err
 	}
 
-	categoryCellsVariable := r.newInternalVariable("reshape_dynamic_cells")
+	categoryCellsVariable := r.core.navigation().newInternalVariable("reshape_dynamic_cells")
 	cellResultExpression, err := groupedPivotCellResultExpression(pivot, valuesVariable, typedValuesVariable)
 	if err != nil {
 		return nil, err
@@ -96,9 +96,9 @@ func (r *physicalPlanRenderer) renderGroupedTablePivotDynamicPreview(
 	}
 
 	if pivot.UnlistedCategoryPolicy == "EXCLUDE_WITH_EVIDENCE" || pivot.UnlistedCategoryPolicy == "ERROR" {
-		unlistedVariable := r.newInternalVariable("reshape_unlisted_count")
-		itemVariable := r.newInternalVariable("reshape_unlisted_item")
-		listedSpecVariable := r.newInternalVariable("reshape_listed_category_spec")
+		unlistedVariable := r.core.navigation().newInternalVariable("reshape_unlisted_count")
+		itemVariable := r.core.navigation().newInternalVariable("reshape_unlisted_item")
+		listedSpecVariable := r.core.navigation().newInternalVariable("reshape_listed_category_spec")
 		listedMatch, matchErr := groupedPivotDynamicCategoryMatchPredicate(
 			listedSpecVariable, itemVariable, categoryColumnBind, categoryPresenceBind, categoryTypeBind,
 		)
@@ -135,13 +135,13 @@ func (r *physicalPlanRenderer) renderGroupedTablePivotDynamicPreview(
 		if identityErr != nil {
 			return nil, identityErr
 		}
-		identityVariable = r.newInternalVariable("reshape_identity")
+		identityVariable = r.core.navigation().newInternalVariable("reshape_identity")
 		lines = append(lines, fmt.Sprintf("  LET %s = %s", identityVariable, identity))
 	}
 	outputProjections = append(outputProjections, ir.PhysicalProjection{
 		Name: "__loom_row_id", Value: ir.PhysicalValue{Variable: identityVariable},
 	})
-	baseObject, err := r.renderReturn(ir.PhysicalReturn{Projections: outputProjections})
+	baseObject, err := r.core.renderReturn(ir.PhysicalReturn{Projections: outputProjections})
 	if err != nil {
 		return nil, err
 	}

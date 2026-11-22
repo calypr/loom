@@ -15,8 +15,8 @@ import (
 	bundlepublication "github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
-	"github.com/google/uuid"
 )
 
 const (
@@ -293,288 +293,29 @@ func (s *Service) createSelectionIntent(ctx context.Context, req SelectionIntent
 }
 
 func (s *Service) createSelectionWithMaterialization(ctx context.Context, req selectionCreateRequest, materialization published.Materialization, resolver SelectionSourceResolver) (SelectionCreateResult, error) {
-	return s.createSelection(ctx, req, materializationSelectionReader{materialization: materialization, resolver: resolver})
+	flow := s.selectionFlow()
+	return flow.createSelectionWithMaterialization(ctx, req, materialization, resolver)
 }
 
 func (s *Service) createSelection(parent context.Context, req selectionCreateRequest, reader SelectionPublishedReader) (SelectionCreateResult, error) {
-	if s == nil || s.store == nil {
-		return SelectionCreateResult{}, fmt.Errorf("Explorer lifecycle store is required")
-	}
-	req.Project = strings.TrimSpace(req.Project)
-	req.Generation = strings.TrimSpace(req.Generation)
-	req.ResourceType = strings.TrimSpace(req.ResourceType)
-	if req.Project == "" || req.Generation == "" || req.ResourceType == "" || strings.TrimSpace(req.IdempotencyKey) == "" {
-		return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("selection project, generation, resource type, and idempotency key are required"))
-	}
-	if err := validateAuthorizedReadScope(req.Scope, req.ScopeDigest); err != nil {
-		return SelectionCreateResult{}, selectionStale(err)
-	}
-	req.Rule = req.Rule.Canonical()
-	if err := req.Rule.Validate(); err != nil {
-		return SelectionCreateResult{}, selectionMalformed(err)
-	}
-	req.Source = req.Source.Canonical()
-	if req.Source.Kind == "" {
-		req.Source.Kind = explorer.SelectionSourceExplicit
-	}
-	if reader == nil && req.Rule.Kind != explorer.SelectionRuleExplicit {
-		return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("explicit selection source is required"))
-	}
-	if reader != nil && req.Source.Kind != explorer.SelectionSourcePublished {
-		return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("published source identity is required"))
-	}
-	if reader == nil && req.Source.Kind != explorer.SelectionSourceExplicit && req.Source.Kind != explorer.SelectionSourceRevision {
-		return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("explicit source identity is required"))
-	}
-	if err := req.Source.Validate(req.Project, req.Generation, req.ResourceType); err != nil && reader == nil {
-		return SelectionCreateResult{}, selectionMalformed(err)
-	}
-	for i := range req.Exclusions {
-		req.Exclusions[i] = req.Exclusions[i].Canonical()
-		if err := req.Exclusions[i].Validate(req.Project, req.Generation, req.ResourceType); err != nil {
-			if errors.Is(err, explorer.ErrResourceRefScopeMismatch) {
-				return SelectionCreateResult{}, selectionStale(err)
-			}
-			return SelectionCreateResult{}, selectionMalformed(err)
-		}
-	}
-	if reader != nil {
-		materialization, err := reader.ExactExecutionMaterialization(parent, req.Source.ExecutionID, req.Source.OutputID)
-		if err != nil {
-			return SelectionCreateResult{}, err
-		}
-		if projectid.Canonical(materialization.Project) != req.Project || materialization.DatasetGeneration != req.Generation || materialization.Revision != req.Source.ExecutionID {
-			return SelectionCreateResult{}, selectionStale(fmt.Errorf("published selection source identity changed"))
-		}
-		if materialization.SourceRow == nil || !materialization.SourceRow.Valid() || materialization.SourceRow.ResourceType != req.ResourceType {
-			return SelectionCreateResult{}, explorer.ErrSelectionNotAddressable
-		}
-		if materialization.Revision == "" || materialization.SourceRow.IDColumn == "" {
-			return SelectionCreateResult{}, explorer.ErrSelectionNotAddressable
-		}
-		req.Source.Generation = materialization.DatasetGeneration
-		if materialization.SourceRevision != "" && req.Source.RevisionID != materialization.SourceRevision {
-			return SelectionCreateResult{}, selectionStale(fmt.Errorf("published selection revision changed"))
-		}
-		req.Source.RevisionID = firstNonEmpty(req.Source.RevisionID, materialization.SourceRevision)
-		req.Source.ExecutionID = materialization.Revision
-		req.Source.ReceiptID = materialization.ReceiptID
-		req.Source.SchemaDigest = materialization.SchemaDigest
-		req.Source.ResourceType = materialization.SourceRow.ResourceType
-		req.Source.SourceIDColumn = materialization.SourceRow.IDColumn
-		if req.Source.ReceiptID == "" || req.Source.SchemaDigest == "" {
-			return SelectionCreateResult{}, explorer.ErrSelectionNotAddressable
-		}
-	}
-	var requestMembers []explorer.ResourceRef
-	if req.Rule.Kind == explorer.SelectionRuleExplicit && req.Source.Kind == explorer.SelectionSourceExplicit {
-		requestMembers = req.Members
-	}
-	ruleDigest, err := explorer.SelectionRuleDigestWithMembers(req.Rule, req.Source, req.Exclusions, requestMembers)
-	if err != nil {
-		return SelectionCreateResult{}, err
-	}
-	selectionID := selectionID(req.Project, req.Generation, req.IdempotencyKey)
-	header := explorer.SelectionRevision{ID: selectionID, Project: req.Project, Generation: req.Generation, ResourceType: req.ResourceType, Rule: req.Rule, Source: req.Source, Exclusions: req.Exclusions, ScopeDigest: req.ScopeDigest, RuleDigest: ruleDigest, IdempotencyKey: strings.TrimSpace(req.IdempotencyKey), CreatedAt: time.Now().UTC()}
-	writerToken := uuid.NewString()
-	started, err := s.store.BeginSelection(parent, header, writerToken)
-	if err != nil {
-		return SelectionCreateResult{}, err
-	}
-	if started.Complete {
-		return SelectionCreateResult{Header: started}, nil
-	}
-	ctx, cancel := context.WithTimeout(parent, DefaultSelectionMaxDuration)
-	defer cancel()
-	if req.Source.Kind == explorer.SelectionSourceRevision {
-		if err := s.appendSelectionRevision(ctx, header, writerToken, req.BaseSelectionID); err != nil {
-			return SelectionCreateResult{}, errors.Join(err, s.abortSelectionBounded(parent, header.ID, writerToken))
-		}
-	} else if reader == nil {
-		if err := s.appendExplicit(ctx, header, writerToken, req.Members); err != nil {
-			return SelectionCreateResult{}, errors.Join(err, s.abortSelectionBounded(parent, header.ID, writerToken))
-		}
-	} else {
-		if err := s.appendPublished(ctx, header, writerToken, req, reader); err != nil {
-			return SelectionCreateResult{}, errors.Join(err, s.abortSelectionBounded(parent, header.ID, writerToken))
-		}
-	}
-	digest, count, bytes, err := s.store.DigestSelectionMembers(ctx, header.Project, header.ID)
-	if err != nil || count > DefaultSelectionMaxRows || bytes > DefaultSelectionMaxBytes {
-		if err == nil {
-			err = explorer.ErrSelectionLimit
-		}
-		return SelectionCreateResult{}, errors.Join(err, s.abortSelectionBounded(parent, header.ID, writerToken))
-	}
-	completed, err := s.store.CompleteSelection(ctx, header.ID, writerToken, digest, count, bytes, time.Now().UTC())
-	if err != nil {
-		return SelectionCreateResult{}, errors.Join(err, s.abortSelectionBounded(parent, header.ID, writerToken))
-	}
-	return SelectionCreateResult{Header: completed}, nil
-}
-
-func (s *Service) appendSelectionRevision(ctx context.Context, header explorer.SelectionRevision, writerToken, baseSelectionID string) error {
-	excluded := exclusionSet(header.Exclusions)
-	after := ""
-	for {
-		batch := make([]explorer.SelectionMember, 0, selectionBatchSize)
-		next, err := s.store.VisitSelectionMembers(ctx, header.Project, baseSelectionID, after, selectionBatchSize, func(member explorer.SelectionMember) error {
-			if _, skip := excluded[refKey(member.Ref)]; !skip {
-				batch = append(batch, explorer.SelectionMember{Ref: member.Ref})
-			}
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-		if _, err := s.store.AppendSelectionMembers(ctx, header.ID, writerToken, batch); err != nil {
-			return err
-		}
-		if next == "" || next == after {
-			return nil
-		}
-		after = next
-	}
-}
-
-func (s *Service) abortSelectionBounded(parent context.Context, selectionID, writerToken string) error {
-	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), 10*time.Second)
-	defer cancel()
-	return s.store.AbortSelection(cleanupCtx, selectionID, writerToken)
-}
-
-func (s *Service) appendExplicit(ctx context.Context, header explorer.SelectionRevision, writerToken string, members []explorer.ResourceRef) error {
-	excluded := exclusionSet(header.Exclusions)
-	for offset := 0; offset < len(members); offset += selectionBatchSize {
-		end := offset + selectionBatchSize
-		if end > len(members) {
-			end = len(members)
-		}
-		batch := make([]explorer.SelectionMember, 0, end-offset)
-		for _, ref := range members[offset:end] {
-			ref = ref.Canonical()
-			if err := ref.Validate(header.Project, header.Generation, header.ResourceType); err != nil {
-				return err
-			}
-			if _, skip := excluded[refKey(ref)]; skip {
-				continue
-			}
-			batch = append(batch, explorer.SelectionMember{Ref: ref})
-		}
-		if _, err := s.store.AppendSelectionMembers(ctx, header.ID, writerToken, batch); err != nil {
-			return err
-		}
-		if int64(end) > DefaultSelectionMaxRows {
-			return explorer.ErrSelectionLimit
-		}
-	}
-	return nil
-}
-
-func (s *Service) appendPublished(ctx context.Context, header explorer.SelectionRevision, writerToken string, req selectionCreateRequest, reader SelectionPublishedReader) error {
-	materialization, err := reader.ExactExecutionMaterialization(ctx, req.Source.ExecutionID, req.Source.OutputID)
-	if err != nil {
-		return err
-	}
-	excluded := exclusionSet(header.Exclusions)
-	batch := make([]explorer.SelectionMember, 0, selectionBatchSize)
-	var sourceRows, sourceBytes int64
-	appendBatch := func() error {
-		if len(batch) == 0 {
-			return nil
-		}
-		_, err := s.store.AppendSelectionMembers(ctx, header.ID, writerToken, batch)
-		batch = batch[:0]
-		return err
-	}
-	streamReq := published.StreamRequest{Filters: req.Rule.Filters, AuthResourcePaths: append([]string(nil), req.Scope.AuthResourcePaths...), Unrestricted: req.Scope.Mode == authscope.ReadScopeUnrestricted}
-	if err := reader.StreamExactExecution(ctx, req.Source.ExecutionID, req.Source.OutputID, streamReq, func(row map[string]any) error {
-		sourceRows++
-		if sourceRows > DefaultSelectionMaxRows {
-			return explorer.ErrSelectionLimit
-		}
-		encoded, encodeErr := json.Marshal(row)
-		if encodeErr != nil {
-			return encodeErr
-		}
-		sourceBytes += int64(len(encoded))
-		if sourceBytes > DefaultSelectionMaxBytes {
-			return explorer.ErrSelectionLimit
-		}
-		resourceType, id, err := published.SourceResourceRef(materialization, row)
-		if err != nil {
-			return err
-		}
-		ref := explorer.ResourceRef{Project: header.Project, Generation: header.Generation, ResourceType: resourceType, ID: id}
-		if _, skip := excluded[refKey(ref)]; skip {
-			return nil
-		}
-		batch = append(batch, explorer.SelectionMember{Ref: ref})
-		if len(batch) >= selectionBatchSize {
-			return appendBatch()
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	return appendBatch()
+	flow := s.selectionFlow()
+	return flow.createSelection(parent, req, reader)
 }
 
 func (s *Service) readSelectionResolved(ctx context.Context, req selectionReadRequest) (SelectionReadResult, error) {
-	if s == nil || s.store == nil {
-		return SelectionReadResult{}, fmt.Errorf("Explorer lifecycle store is required")
+	flow := s.selectionFlow()
+	return flow.readSelectionResolved(ctx, req)
+}
+
+func (s *Service) selectionFlow() selectionFlow {
+	if s == nil {
+		return selectionFlow{}
 	}
-	if err := validateAuthorizedReadScope(req.Scope, req.ScopeDigest); err != nil {
-		return SelectionReadResult{}, selectionStale(err)
-	}
-	cursor, err := decodeSelectionCursor(req.Cursor)
-	if err != nil {
-		return SelectionReadResult{}, selectionMalformed(err)
-	}
-	if cursor != nil && (cursor.Project != req.Project || cursor.RevisionID != req.RevisionID || cursor.Scope != req.ScopeDigest) {
-		return SelectionReadResult{}, selectionStale(fmt.Errorf("selection cursor is stale"))
-	}
-	header, err := s.store.GetSelection(ctx, req.Project, req.RevisionID)
-	if err != nil {
-		return SelectionReadResult{}, err
-	}
-	if !header.Complete {
-		return SelectionReadResult{}, explorer.ErrSelectionIncomplete
-	}
-	if header.ScopeDigest != req.ScopeDigest {
-		return SelectionReadResult{}, selectionStale(fmt.Errorf("selection authorization scope changed"))
-	}
-	if strings.TrimSpace(req.Generation) != "" && header.Generation != strings.TrimSpace(req.Generation) {
-		return SelectionReadResult{}, selectionStale(fmt.Errorf("selection generation changed"))
-	}
-	after := ""
-	if cursor != nil {
-		if cursor.Generation != header.Generation {
-			return SelectionReadResult{}, selectionStale(fmt.Errorf("selection cursor is stale"))
-		}
-		after = cursor.MemberKey
-	}
-	limit := req.Limit
-	if limit <= 0 || limit > selectionBatchSize {
-		limit = selectionBatchSize
-	}
-	members := make([]explorer.SelectionMember, 0, limit)
-	next, err := s.store.VisitSelectionMembers(ctx, req.Project, req.RevisionID, after, limit, func(member explorer.SelectionMember) error {
-		members = append(members, member)
-		return nil
-	})
-	if err != nil {
-		return SelectionReadResult{}, err
-	}
-	nextCursor := ""
-	if next != "" && len(members) == limit {
-		nextCursor, err = encodeSelectionCursor(selectionCursor{Version: 1, Project: req.Project, RevisionID: req.RevisionID, Generation: header.Generation, Scope: req.ScopeDigest, MemberKey: next})
-		if err != nil {
-			return SelectionReadResult{}, err
-		}
-	}
-	return SelectionReadResult{Header: header, Members: members, NextCursor: nextCursor}, nil
+	return selectionFlow{store: s.store}
+}
+
+type selectionFlow struct {
+	store *explorer.Service
 }
 
 func (s *Service) ReadSelection(ctx context.Context, req SelectionReadIntentRequest) (result SelectionReadResult, err error) {
@@ -609,7 +350,7 @@ func normalizeSelectionError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var typed *Error
+	var typed *ports.Error
 	if errors.As(err, &typed) {
 		return err
 	}

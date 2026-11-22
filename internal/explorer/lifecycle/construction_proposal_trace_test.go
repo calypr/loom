@@ -23,6 +23,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestProposeConstructionGroupMeanRecalculatesDependentFilterWithRealCompiler(t *testing.T) {
@@ -32,8 +33,8 @@ func TestProposeConstructionGroupMeanRecalculatesDependentFilterWithRealCompiler
 	numericCandidate := traceFieldCandidate(snapshot.Token, "candidate-birth-count", "multipleBirthInteger", "integer")
 	snapshot.Candidates = []capability.Candidate{idCandidate, numericCandidate}
 	service.config.Capability.Token = func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil }
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
 	service.config.Capability.ForExecution = service.config.Capability.ForCompilation
 	service.config.Capability.Catalog = func(got capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
@@ -54,7 +55,7 @@ func TestProposeConstructionGroupMeanRecalculatesDependentFilterWithRealCompiler
 
 	workspace, baseDocument, baseConstruction := traceGroupMeanWorkspace(t, store)
 	compileCount := 0
-	service.config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		compileCount++
 		receipt, err := compileTraceReceipt(ctx, request, snapshot, service.catalog(snapshot, request.ExplorerID))
 		if err != nil {
@@ -235,7 +236,7 @@ func traceFieldCandidate(snapshotToken, id, field, logicalType string) capabilit
 	}
 }
 
-func compileTraceReceipt(ctx context.Context, request CompileReceiptRequest, snapshot capability.Snapshot, catalog authoringv2.CatalogSnapshot) (*explorer.CompilationReceipt, error) {
+func compileTraceReceipt(ctx context.Context, request ports.CompileReceiptRequest, snapshot capability.Snapshot, catalog authoringv2.CatalogSnapshot) (*explorer.CompilationReceipt, error) {
 	prepared, err := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, catalog)
 	if err != nil {
 		return nil, fmt.Errorf("prepare trace workspace: %w", err)
@@ -1335,7 +1336,7 @@ func newOperationHistoryService(t *testing.T, w authoringv2.Workspace, request C
 		return c
 	}
 	stats := &operationHistoryCompileStats{}
-	config.CompileReceipt = func(ctx context.Context, cr CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(ctx context.Context, cr ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		if cr.ConstructionProposal == nil {
 			stats.base++
 		} else {

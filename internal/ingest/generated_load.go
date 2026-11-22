@@ -17,7 +17,7 @@ type generatedLoadResource interface {
 	ExtractEdgeDocuments(string) ([]fhir.EdgeDocument, error)
 }
 
-func supportsGeneratedLoad(resourceType string) bool {
+func SupportsGeneratedLoad(resourceType string) bool {
 	resource, ok := fhir.NewConcreteResource(resourceType)
 	if !ok {
 		return false
@@ -26,16 +26,7 @@ func supportsGeneratedLoad(resourceType string) bool {
 	return ok
 }
 
-func loadRowGenerated(resourceType string, line []byte, project string, stageSeconds map[string]float64) (VertexDocument, []json.RawMessage, rowErrorType, error) {
-	vertex, documents, _, errorType, err := loadRowGeneratedInternal(resourceType, line, project, stageSeconds, false)
-	if err != nil {
-		return VertexDocument{}, nil, errorType, err
-	}
-	edges, err := marshalEdgeDocuments(documents)
-	return vertex, edges, errorType, err
-}
-
-func loadRowGeneratedWithPayload(resourceType string, line []byte, project string, stageSeconds map[string]float64) (VertexDocument, []json.RawMessage, map[string]any, rowErrorType, error) {
+func loadRowGeneratedWithPayload(resourceType string, line []byte, project string, stageSeconds map[string]float64) (VertexDocument, []json.RawMessage, map[string]any, RowErrorType, error) {
 	vertex, documents, payload, errorType, err := loadRowGeneratedInternal(resourceType, line, project, stageSeconds, true)
 	if err != nil {
 		return VertexDocument{}, nil, nil, errorType, err
@@ -44,7 +35,7 @@ func loadRowGeneratedWithPayload(resourceType string, line []byte, project strin
 	return vertex, edges, payload, errorType, err
 }
 
-func loadRowGeneratedDocumentsWithPayload(resourceType string, line []byte, project string, stageSeconds map[string]float64) (VertexDocument, []fhir.EdgeDocument, map[string]any, rowErrorType, error) {
+func loadRowGeneratedDocumentsWithPayload(resourceType string, line []byte, project string, stageSeconds map[string]float64) (VertexDocument, []fhir.EdgeDocument, map[string]any, RowErrorType, error) {
 	return loadRowGeneratedInternal(resourceType, line, project, stageSeconds, true)
 }
 
@@ -65,14 +56,14 @@ func marshalEdgeDocuments(documents []fhir.EdgeDocument) ([]json.RawMessage, err
 	return edges, nil
 }
 
-func loadRowGeneratedInternal(resourceType string, line []byte, project string, stageSeconds map[string]float64, includePayloadMap bool) (VertexDocument, []fhir.EdgeDocument, map[string]any, rowErrorType, error) {
+func loadRowGeneratedInternal(resourceType string, line []byte, project string, stageSeconds map[string]float64, includePayloadMap bool) (VertexDocument, []fhir.EdgeDocument, map[string]any, RowErrorType, error) {
 	resource, ok := fhir.NewConcreteResource(resourceType)
 	if !ok {
-		return VertexDocument{}, nil, nil, rowErrorGeneration, fmt.Errorf("generated loader does not support %q", resourceType)
+		return VertexDocument{}, nil, nil, RowErrorGeneration, fmt.Errorf("generated loader does not support %q", resourceType)
 	}
 	value, ok := resource.(generatedLoadResource)
 	if !ok {
-		return VertexDocument{}, nil, nil, rowErrorGeneration, fmt.Errorf("generated loader does not support %q", resourceType)
+		return VertexDocument{}, nil, nil, RowErrorGeneration, fmt.Errorf("generated loader does not support %q", resourceType)
 	}
 
 	var payload map[string]any
@@ -82,13 +73,13 @@ func loadRowGeneratedInternal(resourceType string, line []byte, project string, 
 		normalized, normalizedPayload := normalizeFHIRInteger64(line, resourceType, project)
 		if normalized == nil {
 			stageSeconds["decode"] += time.Since(start).Seconds()
-			return VertexDocument{}, nil, nil, rowErrorValidation, err
+			return VertexDocument{}, nil, nil, RowErrorValidation, err
 		}
 		resource, _ := fhir.NewConcreteResource(resourceType)
 		value = resource.(generatedLoadResource)
 		if err := sonic.ConfigFastest.Unmarshal(normalized, value); err != nil {
 			stageSeconds["decode"] += time.Since(start).Seconds()
-			return VertexDocument{}, nil, nil, rowErrorValidation, err
+			return VertexDocument{}, nil, nil, RowErrorValidation, err
 		}
 		vertexPayload = normalized
 		if includePayloadMap {
@@ -101,21 +92,21 @@ func loadRowGeneratedInternal(resourceType string, line []byte, project string, 
 	err := value.Validate()
 	stageSeconds["validate"] += time.Since(start).Seconds()
 	if err != nil {
-		return VertexDocument{}, nil, nil, rowErrorValidation, err
+		return VertexDocument{}, nil, nil, RowErrorValidation, err
 	}
 
 	start = time.Now()
 	objectID := strings.TrimSpace(value.GetID())
 	stageSeconds["object_id"] += time.Since(start).Seconds()
 	if objectID == "" {
-		return VertexDocument{}, nil, nil, rowErrorValidation, fmt.Errorf("%s payload missing string id", resourceType)
+		return VertexDocument{}, nil, nil, RowErrorValidation, fmt.Errorf("%s payload missing string id", resourceType)
 	}
 
 	start = time.Now()
 	edges, err := value.ExtractEdgeDocuments(project)
 	stageSeconds["edge_generation"] += time.Since(start).Seconds()
 	if err != nil {
-		return VertexDocument{}, nil, nil, rowErrorGeneration, err
+		return VertexDocument{}, nil, nil, RowErrorGeneration, err
 	}
 
 	if vertexPayload == nil {
@@ -124,7 +115,7 @@ func loadRowGeneratedInternal(resourceType string, line []byte, project string, 
 			payload, err = decodePayloadWithProjectID(line, project)
 			stageSeconds["payload_map_decode"] += time.Since(start).Seconds()
 			if err != nil {
-				return VertexDocument{}, nil, nil, rowErrorValidation, err
+				return VertexDocument{}, nil, nil, RowErrorValidation, err
 			}
 			vertexPayload = marshalPayloadWithFallback(payload, line)
 		} else {

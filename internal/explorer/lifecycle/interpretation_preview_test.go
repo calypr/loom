@@ -10,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestCompareInterpretationCandidateRowsCountsTransitionsAndPreservesPublicValues(t *testing.T) {
@@ -80,7 +81,7 @@ func TestPreviewInterpretationCandidateUsesBothReceiptsWithoutMutatingDraft(t *t
 	}
 	config.InterpretationRepository = repository
 	var compiled, previewed int
-	config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		compiled++
 		var resolved *explorer.InterpretationRevision
 		if len(request.ResolvedInputs.Interpretations) != 0 {

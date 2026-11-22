@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	recipearango "github.com/calypr/loom/internal/dataframe/recipe/exec/arango"
@@ -32,7 +32,7 @@ func wireStorage(ctx context.Context, serverConfig Config, logger *slog.Logger, 
 	}
 	if err := lifecycleClient.Bootstrap(ctx, arangostore.BootstrapSpec{
 		Collections: []arangostore.CollectionSpec{
-			{Name: catalog.FieldCatalogCollection},
+			{Name: fieldprofile.FieldCatalogCollection},
 			catalogarango.SemanticCoverageCollectionSpec(),
 		},
 	}); err != nil {

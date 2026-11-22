@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 type libraryRepository struct {
@@ -67,8 +68,8 @@ func TestCreateInterpretationRevisionClassifiesRepositoryFailureAsInternal(t *te
 		Project: parent.Project, LibraryID: string(parent.LibraryID), Applicability: parent.Applicability,
 		Rules: parent.Rules, Explanation: parent.Explanation, Author: parent.Author,
 	})
-	var lifecycleErr *Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "PERSISTENCE_UNAVAILABLE" {
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "PERSISTENCE_UNAVAILABLE" {
 		t.Fatalf("repository failure = %v", err)
 	}
 }
@@ -85,8 +86,8 @@ func TestCreateInterpretationRevisionRejectsRepositoryIntegrityMutation(t *testi
 		Project: parent.Project, LibraryID: string(parent.LibraryID), Applicability: parent.Applicability,
 		Rules: parent.Rules, Explanation: parent.Explanation, Author: parent.Author,
 	})
-	var lifecycleErr *Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassInternal || lifecycleErr.Code != "INTERPRETATION_REVISION_INTEGRITY" {
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassInternal || lifecycleErr.Code != "INTERPRETATION_REVISION_INTEGRITY" {
 		t.Fatalf("repository integrity error = %v", err)
 	}
 }
@@ -110,8 +111,8 @@ func TestInterpretationLibraryBrowseAndExactGetExpandImmutableHead(t *testing.T)
 		t.Fatalf("exact revision = %#v, err=%v", got, err)
 	}
 	_, err = service.GetInterpretationRevision(context.Background(), GetInterpretationRevisionRequest{Project: "other-project", RevisionID: string(revision.ID)})
-	var lifecycleErr *Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassNotFound {
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassNotFound {
 		t.Fatalf("cross-project revision error = %v", err)
 	}
 }
@@ -139,8 +140,8 @@ func TestCreateInterpretationRevisionUsesHeadParentAndRejectsStaleParent(t *test
 		Project: parent.Project, LibraryID: string(parent.LibraryID), ParentRevisionID: string(oldHead),
 		Applicability: parent.Applicability, Rules: parent.Rules, Explanation: "stale", Author: "researcher",
 	})
-	var lifecycleErr *Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassConflict {
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassConflict {
 		t.Fatalf("stale parent error = %v", err)
 	}
 }

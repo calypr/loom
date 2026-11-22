@@ -15,6 +15,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/artifactfs"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestArchivedRecipeArtifactFilesystemDownloadRetainsAuthorizedBytes(t *testing.T) {
@@ -76,8 +77,8 @@ func TestArchivedRecipeArtifactFilesystemDownloadRetainsAuthorizedBytes(t *testi
 		PreviewReceipt: func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			return dataframeexecution.PreviewSummary{}, nil
 		},
-		Capability: CapabilityResolver{ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 		}},
 	})
 	if err != nil {

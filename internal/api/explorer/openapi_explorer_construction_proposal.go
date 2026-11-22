@@ -5,7 +5,6 @@ import (
 	"time"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
-	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
 	explorer "github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -190,33 +189,29 @@ func (r *Handlers) ProposeExplorerConstruction(ctx context.Context, request loom
 		if body.Limit != nil {
 			request.Limit = *body.Limit
 		}
-		value, err := h.application.ProposeConstruction(ctx, request)
-		if err != nil {
-			return result, err
+		options, encoder := h.proposalPreviewOptions(project, body.OutputId, body.Limit, 0, true)
+		options.Budget = func(ctx context.Context) (context.Context, time.Duration) {
+			return constructionProposalPreviewBudget(ctx, candidate)
 		}
-		result, err = directAuthoringJSON[loomapi.ConstructionProposalResponse](value)
-		if err != nil {
-			return result, err
+		run, err := h.application.ProposeConstructionAndPreview(ctx, request, options, func(value lifecycle.ConstructionProposalResponse) error {
+			var err error
+			result, err = directAuthoringJSON[loomapi.ConstructionProposalResponse](value)
+			if err != nil {
+				return err
+			}
+			if value.PreviewStatus == "NEEDS_REPAIR" {
+				return nil
+			}
+			if value.PreviewStatus != "PREVIEW_PENDING" || result.ProposalId == nil || *result.ProposalId == "" {
+				return explorer.MalformedRouteError("construction-proposal", nil)
+			}
+			return nil
+		})
+		if err != nil || !run.Completed {
+			return result, proposalPreviewFailure(err)
 		}
-		if result.PreviewStatus == loomapi.ConstructionProposalResponsePreviewStatus("NEEDS_REPAIR") {
-			return result, nil
-		}
-		if result.PreviewStatus != loomapi.ConstructionProposalResponsePreviewStatus("PREVIEW_PENDING") {
-			return result, explorer.MalformedRouteError("construction-proposal", nil)
-		}
-		if result.ProposalId == nil || *result.ProposalId == "" {
-			return result, explorer.MalformedRouteError("construction-proposal", nil)
-		}
-		limit := dataframeexecution.DefaultPreviewLimit
-		if body.Limit != nil {
-			limit = *body.Limit
-		}
-		previewCtx, previewTimeout := constructionProposalPreviewBudget(ctx, candidate)
-		started := time.Now()
-		preview, err := h.previewSavedReceiptWithTimeout(previewCtx, project, explorerID, &loomapi.PreviewExplorerJSONRequestBody{
-			ReceiptId: *result.ProposalId, OutputId: body.OutputId, Limit: &limit,
-		}, previewTimeout, true)
-		result.PreviewDurationMs = time.Since(started).Milliseconds()
+		preview, err := encoder.response(run)
+		result.PreviewDurationMs = time.Since(run.Started).Milliseconds()
 		if err != nil {
 			return result, err
 		}

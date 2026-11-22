@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func (s *Service) prepareProjectedFieldRemoval(
@@ -13,7 +14,7 @@ func (s *Service) prepareProjectedFieldRemoval(
 	project string,
 	explorerID string,
 	request authoringv2.ApplyCommandsRequest,
-	authorized AuthorizedCapability,
+	authorized ports.AuthorizedCapability,
 	workspace authoringv2.Workspace,
 	catalog authoringv2.CatalogSnapshot,
 	commands []authoringv2.Command,
@@ -37,7 +38,7 @@ func (s *Service) prepareProjectedFieldRemoval(
 	}
 	network, err := s.config.AuthoringNetwork(ctx, project, authorized, *document)
 	if err != nil {
-		var typed *Error
+		var typed *ports.Error
 		if errors.As(err, &typed) {
 			return nil, typed
 		}
@@ -77,7 +78,7 @@ func (s *Service) prepareProjectedFieldRemoval(
 		}
 		updated, editErr := s.config.RemoveImportedField(ctx, project, authorized, *document, projected.SourceStepID, projected.SourceFieldID)
 		if editErr != nil {
-			var typed *Error
+			var typed *ports.Error
 			if errors.As(editErr, &typed) {
 				return nil, typed
 			}
@@ -92,7 +93,7 @@ func (s *Service) prepareProjectedFieldRemoval(
 		}
 		updated, editErr := s.config.RemoveImportedOutput(ctx, project, authorized, *document, projected.SourceStepID, projected.SourceOutputKey)
 		if editErr != nil {
-			var typed *Error
+			var typed *ports.Error
 			if errors.As(editErr, &typed) {
 				return nil, typed
 			}

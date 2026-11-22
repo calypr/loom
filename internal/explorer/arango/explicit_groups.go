@@ -44,7 +44,7 @@ func explicitGroupStorageKey(parts ...string) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-func (s *Store) BeginExplicitGroupRevision(ctx context.Context, revision explorer.ExplicitGroupRevision, source explorer.SelectionRevision, writerToken string) (*explorer.ExplicitGroupRevision, error) {
+func (s *ExplicitGroupStore) BeginExplicitGroupRevision(ctx context.Context, revision explorer.ExplicitGroupRevision, source explorer.SelectionRevision, writerToken string) (*explorer.ExplicitGroupRevision, error) {
 	revision = revision.Canonical()
 	writerToken = strings.TrimSpace(writerToken)
 	if writerToken == "" {
@@ -56,7 +56,7 @@ func (s *Store) BeginExplicitGroupRevision(ctx context.Context, revision explore
 	if err := revision.ValidateSourceSelection(source); err != nil {
 		return nil, err
 	}
-	storedSource, err := s.GetSelection(ctx, revision.Project, revision.SourceSelectionRevisionID)
+	storedSource, err := s.selections.GetSelection(ctx, revision.Project, revision.SourceSelectionRevisionID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: source selection unavailable: %w", explorer.ErrExplicitGroupRevisionStaleSource, err)
 	}
@@ -115,7 +115,7 @@ func sameExplicitGroupRevisionIntent(left, right explorer.ExplicitGroupRevision)
 	return left.ID == right.ID && left.Project == right.Project && left.Generation == right.Generation && left.ScopeDigest == right.ScopeDigest && left.ResourceType == right.ResourceType && left.SourceSelectionRevisionID == right.SourceSelectionRevisionID && left.SourceMembershipDigest == right.SourceMembershipDigest && left.IdempotencyKey == right.IdempotencyKey
 }
 
-func (s *Store) PutExplicitGroupDefinitions(ctx context.Context, revisionID explorer.ExplicitGroupRevisionID, writerToken string, groups []explorer.ExplicitGroupDefinition) error {
+func (s *ExplicitGroupStore) PutExplicitGroupDefinitions(ctx context.Context, revisionID explorer.ExplicitGroupRevisionID, writerToken string, groups []explorer.ExplicitGroupDefinition) error {
 	revisionID = explorer.ExplicitGroupRevisionID(strings.TrimSpace(string(revisionID)))
 	writerToken = strings.TrimSpace(writerToken)
 	if revisionID == "" || writerToken == "" {
@@ -178,7 +178,7 @@ RETURN {key: NEW._key}`, len(docs), map[string]any{"@c": ExplicitGroupDefinition
 	})
 }
 
-func (s *Store) AppendExplicitGroupMemberships(ctx context.Context, revisionID explorer.ExplicitGroupRevisionID, writerToken string, memberships []explorer.ExplicitGroupMembership) ([]explorer.ExplicitGroupMembership, error) {
+func (s *ExplicitGroupStore) AppendExplicitGroupMemberships(ctx context.Context, revisionID explorer.ExplicitGroupRevisionID, writerToken string, memberships []explorer.ExplicitGroupMembership) ([]explorer.ExplicitGroupMembership, error) {
 	revisionID = explorer.ExplicitGroupRevisionID(strings.TrimSpace(string(revisionID)))
 	writerToken = strings.TrimSpace(writerToken)
 	if revisionID == "" || writerToken == "" {
@@ -313,7 +313,7 @@ RETURN {renewed: true}`, 1, map[string]any{"@c": ExplicitGroupRevisionsCollectio
 	return nil
 }
 
-func (s *Store) DigestExplicitGroupRevision(ctx context.Context, project string, revisionID explorer.ExplicitGroupRevisionID) (string, string, int64, int64, error) {
+func (s *ExplicitGroupStore) DigestExplicitGroupRevision(ctx context.Context, project string, revisionID explorer.ExplicitGroupRevisionID) (string, string, int64, int64, error) {
 	header, _, err := s.readExplicitGroupRevision(ctx, s.client, revisionID, project)
 	if err != nil {
 		return "", "", 0, 0, err
@@ -368,7 +368,7 @@ func digestExplicitGroupChildren(ctx context.Context, queryer store.RowQueryer, 
 	return definitionDigest, hex.EncodeToString(hash.Sum(nil)), int64(len(groups)), memberCount, nil
 }
 
-func (s *Store) CompleteExplicitGroupRevision(ctx context.Context, revisionID explorer.ExplicitGroupRevisionID, writerToken, definitionDigest, membershipDigest string, groupCount, memberCount int64, completedAt time.Time) (*explorer.ExplicitGroupRevision, error) {
+func (s *ExplicitGroupStore) CompleteExplicitGroupRevision(ctx context.Context, revisionID explorer.ExplicitGroupRevisionID, writerToken, definitionDigest, membershipDigest string, groupCount, memberCount int64, completedAt time.Time) (*explorer.ExplicitGroupRevision, error) {
 	revisionID = explorer.ExplicitGroupRevisionID(strings.TrimSpace(string(revisionID)))
 	writerToken = strings.TrimSpace(writerToken)
 	definitionDigest, membershipDigest = strings.TrimSpace(definitionDigest), strings.TrimSpace(membershipDigest)
@@ -505,7 +505,7 @@ RETURN m`, len(keys), map[string]any{
 	return nil
 }
 
-func (s *Store) AbortExplicitGroupRevision(ctx context.Context, revisionID explorer.ExplicitGroupRevisionID, writerToken string) error {
+func (s *ExplicitGroupStore) AbortExplicitGroupRevision(ctx context.Context, revisionID explorer.ExplicitGroupRevisionID, writerToken string) error {
 	revisionID = explorer.ExplicitGroupRevisionID(strings.TrimSpace(string(revisionID)))
 	writerToken = strings.TrimSpace(writerToken)
 	if revisionID == "" {
@@ -554,7 +554,7 @@ RETURN {removed: LENGTH(removedHeaders) > 0}`
 	})
 }
 
-func (s *Store) CleanupExplicitGroupStaging(ctx context.Context, before time.Time, limit int) error {
+func (s *ExplicitGroupStore) CleanupExplicitGroupStaging(ctx context.Context, before time.Time, limit int) error {
 	if limit <= 0 {
 		limit = explicitGroupCleanupLimit
 	}
@@ -580,7 +580,7 @@ RETURN {removed: true}`
 	return s.client.QueryRows(ctx, query, limit, map[string]any{"@revisions": ExplicitGroupRevisionsCollection, "@definitions": ExplicitGroupDefinitionsCollection, "@memberships": ExplicitGroupMembershipsCollection, "state": explorer.ExplicitGroupRevisionStaging, "before": before.UTC(), "now": time.Now().UTC().UnixMilli(), "limit": limit}, func(map[string]any) error { return nil })
 }
 
-func (s *Store) GetExplicitGroupRevision(ctx context.Context, project string, revisionID explorer.ExplicitGroupRevisionID) (*explorer.ExplicitGroupRevision, error) {
+func (s *ExplicitGroupStore) GetExplicitGroupRevision(ctx context.Context, project string, revisionID explorer.ExplicitGroupRevisionID) (*explorer.ExplicitGroupRevision, error) {
 	header, _, err := s.readExplicitGroupRevision(ctx, s.client, revisionID, project)
 	if err != nil {
 		return nil, err
@@ -591,7 +591,7 @@ func (s *Store) GetExplicitGroupRevision(ctx context.Context, project string, re
 	return header, nil
 }
 
-func (s *Store) ListExplicitGroupRevisions(ctx context.Context, project, generation, scopeDigest, resourceType string, limit int) ([]explorer.ExplicitGroupRevision, error) {
+func (s *ExplicitGroupStore) ListExplicitGroupRevisions(ctx context.Context, project, generation, scopeDigest, resourceType string, limit int) ([]explorer.ExplicitGroupRevision, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -622,7 +622,7 @@ RETURN d`, limit, map[string]any{
 	return revisions, err
 }
 
-func (s *Store) readExplicitGroupRevision(ctx context.Context, queryer store.RowQueryer, revisionID explorer.ExplicitGroupRevisionID, project string) (*explorer.ExplicitGroupRevision, map[string]any, error) {
+func (s *ExplicitGroupStore) readExplicitGroupRevision(ctx context.Context, queryer store.RowQueryer, revisionID explorer.ExplicitGroupRevisionID, project string) (*explorer.ExplicitGroupRevision, map[string]any, error) {
 	if strings.TrimSpace(string(revisionID)) == "" {
 		return nil, nil, explorer.ErrExplicitGroupRevisionNotFound
 	}
@@ -731,7 +731,7 @@ func validateExplicitGroupMembershipRow(row map[string]any, membership explorer.
 	return nil
 }
 
-func (s *Store) ListExplicitGroupDefinitions(ctx context.Context, project string, revisionID explorer.ExplicitGroupRevisionID) ([]explorer.ExplicitGroupDefinition, error) {
+func (s *ExplicitGroupStore) ListExplicitGroupDefinitions(ctx context.Context, project string, revisionID explorer.ExplicitGroupRevisionID) ([]explorer.ExplicitGroupDefinition, error) {
 	header, err := s.GetExplicitGroupRevision(ctx, project, revisionID)
 	if err != nil {
 		return nil, err
@@ -739,7 +739,7 @@ func (s *Store) ListExplicitGroupDefinitions(ctx context.Context, project string
 	return listExplicitGroupDefinitions(ctx, s.client, *header)
 }
 
-func (s *Store) VisitExplicitGroupMemberships(ctx context.Context, project string, revisionID explorer.ExplicitGroupRevisionID, after explorer.ExplicitGroupMembershipCursor, pageSize int, visit func(explorer.ExplicitGroupMembership) error) (explorer.ExplicitGroupMembershipCursor, error) {
+func (s *ExplicitGroupStore) VisitExplicitGroupMemberships(ctx context.Context, project string, revisionID explorer.ExplicitGroupRevisionID, after explorer.ExplicitGroupMembershipCursor, pageSize int, visit func(explorer.ExplicitGroupMembership) error) (explorer.ExplicitGroupMembershipCursor, error) {
 	if visit == nil {
 		return after, fmt.Errorf("explicit group membership visitor is required")
 	}

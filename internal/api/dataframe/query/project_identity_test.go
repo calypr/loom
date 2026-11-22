@@ -8,6 +8,7 @@ import (
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 )
 
@@ -20,7 +21,7 @@ func TestProjectFormsShareOneShotCatalogAndIntrospectionIdentity(t *testing.T) {
 	)
 
 	active := &builderActiveManifestResolver{manifest: builderReadyManifest(t, canonical, generation)}
-	var fieldCalls []catalog.PopulatedFieldOptions
+	var fieldCalls []fieldprofile.PopulatedFieldOptions
 	var referenceCalls []catalog.PopulatedReferenceOptions
 	var scopeCatalogCalls []catalog.AuthResourcePathOptions
 	scopeResolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
@@ -42,13 +43,13 @@ func TestProjectFormsShareOneShotCatalogAndIntrospectionIdentity(t *testing.T) {
 	service := NewService(Config{
 		ScopeResolver:          scopeResolver,
 		ActiveManifestResolver: active,
-		DiscoverFields: func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+		DiscoverFields: func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 			fieldCalls = append(fieldCalls, options)
 			if options.Project != canonical || options.DatasetGeneration != generation {
 				t.Fatalf("field catalog identity = %+v, want %s/%s", options, canonical, generation)
 			}
 			checkScope(options.AuthResourcePathsUnrestricted, options.AuthResourcePaths)
-			return []catalog.PopulatedField{{Project: canonical, DatasetGeneration: generation, ResourceType: options.ResourceType, Path: "gender", Kind: "scalar"}}, nil
+			return []fieldprofile.PopulatedField{{Project: canonical, DatasetGeneration: generation, ResourceType: options.ResourceType, Path: "gender", Kind: "scalar"}}, nil
 		},
 		DiscoverReferences: func(_ context.Context, options catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 			referenceCalls = append(referenceCalls, options)

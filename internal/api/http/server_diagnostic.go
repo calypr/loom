@@ -13,7 +13,7 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func diagnosticErrorAttrs(err error) []any {
@@ -39,7 +39,7 @@ func diagnosticErrorCauseValue(err error) string {
 	if _, ok := dataframeerrors.AsUserError(err); ok {
 		return dataframeerrors.PublicMessage(err)
 	}
-	var lifecycleErr *lifecycle.Error
+	var lifecycleErr *ports.Error
 	if errors.As(err, &lifecycleErr) && lifecycleErr.Message != "" {
 		return lifecycleErr.Message
 	}
@@ -109,7 +109,7 @@ func diagnosticErrorCode(err error) string {
 	if userErr, ok := dataframeerrors.AsUserError(err); ok {
 		return userErr.Code()
 	}
-	var lifecycleErr *lifecycle.Error
+	var lifecycleErr *ports.Error
 	if errors.As(err, &lifecycleErr) {
 		return lifecycleErr.Code
 	}

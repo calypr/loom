@@ -434,3 +434,7 @@ func workspaceMigrationCollectionCount(t *testing.T, ctx context.Context, client
 	}
 	return count
 }
+
+func insertWorkspaceProjection(ctx context.Context, query store.RowQueryer, projection explorer.WorkspaceProjection) error {
+	return insertWorkspaceProjectionFor(ctx, query, projection, workspaceEncodingTarget)
+}

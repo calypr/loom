@@ -2,8 +2,9 @@ package aql
 
 import (
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
 const categoryColumnBind = "__loom_category_column"
@@ -14,7 +15,16 @@ type RenderedCategoryScan struct {
 	OverflowWitness *RenderedPhysicalPlan
 }
 
+type categoryScanRenderer struct {
+	terminal ir.PhysicalCategoryScanReturn
+}
+
 func RenderCategoryScan(plan ir.PhysicalPlan, terminal ir.PhysicalCategoryScanReturn) (RenderedCategoryScan, error) {
+	return categoryScanRenderer{terminal: terminal}.render(plan)
+}
+
+func (renderer categoryScanRenderer) render(plan ir.PhysicalPlan) (RenderedCategoryScan, error) {
+	terminal := renderer.terminal
 	if err := plan.Validate(); err != nil {
 		return RenderedCategoryScan{}, err
 	}
@@ -51,13 +61,13 @@ func RenderCategoryScan(plan ir.PhysicalPlan, terminal ir.PhysicalCategoryScanRe
 		}
 	}
 	if terminal.IndexedRoot != nil {
-		return renderIndexedCategoryScan(plan, terminal)
+		return renderer.renderIndexed(plan)
 	}
 	if terminal.ValueColumn != "" && plan.StageSequence != nil && terminal.PresenceCompanionColumn == "" {
-		return renderValueCategoryScan(plan, terminal)
+		return renderer.renderValues(plan)
 	}
 	variables := categoryScanVariables(plan)
-	options := categoryScanSourceOptions(plan, terminal, "")
+	options := renderer.sourceOptions(plan, "")
 	if terminal.StreamRoot {
 		if plan.StageSequence != nil {
 			return RenderedCategoryScan{}, fmt.Errorf("streamed category scan cannot contain construction stages")
@@ -120,7 +130,8 @@ func RenderCategoryScan(plan ir.PhysicalPlan, terminal ir.PhysicalCategoryScanRe
 	return result, nil
 }
 
-func categoryScanSourceOptions(plan ir.PhysicalPlan, t ir.PhysicalCategoryScanReturn, namespace string) physicalRenderOptions {
+func (renderer categoryScanRenderer) sourceOptions(plan ir.PhysicalPlan, namespace string) physicalRenderOptions {
+	t := renderer.terminal
 	options := physicalRenderOptions{internalPrefix: namespace}
 	if t.PresenceCompanionColumn != "" && !t.StreamRoot {
 		return options
@@ -218,12 +229,13 @@ func categoryDistinctSuffix(v map[string]string, marker, presenceBind, valueBind
 		" }"
 }
 
-func renderValueCategoryScan(plan ir.PhysicalPlan, t ir.PhysicalCategoryScanReturn) (RenderedCategoryScan, error) {
+func (renderer categoryScanRenderer) renderValues(plan ir.PhysicalPlan) (RenderedCategoryScan, error) {
+	t := renderer.terminal
 	values, err := renderPhysicalPlanWithOptions(plan, physicalRenderOptions{})
 	if err != nil {
 		return RenderedCategoryScan{}, err
 	}
-	presence, err := renderPhysicalPlanWithOptions(plan, categoryScanSourceOptions(plan, t, "category_presence_"))
+	presence, err := renderPhysicalPlanWithOptions(plan, renderer.sourceOptions(plan, "category_presence_"))
 	if err != nil {
 		return RenderedCategoryScan{}, err
 	}
@@ -279,7 +291,8 @@ func renderValueCategoryScan(plan ir.PhysicalPlan, t ir.PhysicalCategoryScanRetu
 	return RenderedCategoryScan{RenderedPhysicalPlan: RenderedPhysicalPlan{Query: query, BindVars: binds}}, nil
 }
 
-func renderIndexedCategoryScan(plan ir.PhysicalPlan, t ir.PhysicalCategoryScanReturn) (RenderedCategoryScan, error) {
+func (renderer categoryScanRenderer) renderIndexed(plan ir.PhysicalPlan) (RenderedCategoryScan, error) {
+	t := renderer.terminal
 	scan := t.IndexedRoot
 	maxValues := t.MaxValues
 	var root *ir.PhysicalRootScan

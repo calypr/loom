@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/published"
+	"github.com/calypr/loom/internal/dataframe/artifactformat"
 	"github.com/calypr/loom/internal/explorer"
 )
 
@@ -374,7 +374,7 @@ func validateRecord(record explorer.ArtifactRecord) error {
 	if !safeID(record.ID) || strings.TrimSpace(record.Project) == "" || strings.TrimSpace(record.ExplorerID) == "" || strings.TrimSpace(record.RevisionID) == "" || strings.TrimSpace(record.OutputID) == "" || strings.TrimSpace(record.ReceiptID) == "" || strings.TrimSpace(record.ExecutionID) == "" || strings.TrimSpace(record.DatasetGeneration) == "" || strings.TrimSpace(record.SchemaDigest) == "" || strings.TrimSpace(record.AuthorizationScopeDigest) == "" || record.ExpiresAt.IsZero() {
 		return fmt.Errorf("artifact record identity and expiry are required")
 	}
-	if record.Format != published.ArtifactFormatCSV && record.Format != published.ArtifactFormatJSONL {
+	if record.Format != artifactformat.ArtifactFormatCSV && record.Format != artifactformat.ArtifactFormatJSONL {
 		return fmt.Errorf("artifact record format is required")
 	}
 	return nil

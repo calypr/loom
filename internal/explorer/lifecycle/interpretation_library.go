@@ -10,15 +10,34 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-func (s *Service) interpretationRepository() (explorer.InterpretationRepository, error) {
-	if s == nil || s.config.InterpretationRepository == nil {
+type interpretationLibrary struct {
+	repository explorer.InterpretationRepository
+}
+
+func (s *Service) interpretationLibrary() interpretationLibrary {
+	if s == nil {
+		return interpretationLibrary{}
+	}
+	return interpretationLibrary{repository: s.config.InterpretationRepository}
+}
+
+func (library interpretationLibrary) repositoryOrError() (explorer.InterpretationRepository, error) {
+	if library.repository == nil {
 		return nil, unavailable("interpretations", "INTERPRETATION_UNAVAILABLE", "interpretation repository is not configured", nil)
 	}
-	return s.config.InterpretationRepository, nil
+	return library.repository, nil
+}
+
+func (s *Service) interpretationRepository() (explorer.InterpretationRepository, error) {
+	return s.interpretationLibrary().repositoryOrError()
 }
 
 func (s *Service) ListInterpretationLibraries(ctx context.Context, rawProject string) (ListInterpretationLibrariesResult, error) {
-	repository, err := s.interpretationRepository()
+	return s.interpretationLibrary().list(ctx, rawProject)
+}
+
+func (library interpretationLibrary) list(ctx context.Context, rawProject string) (ListInterpretationLibrariesResult, error) {
+	repository, err := library.repositoryOrError()
 	if err != nil {
 		return ListInterpretationLibrariesResult{}, err
 	}
@@ -52,7 +71,11 @@ func (s *Service) ListInterpretationLibraries(ctx context.Context, rawProject st
 }
 
 func (s *Service) GetInterpretationRevision(ctx context.Context, request GetInterpretationRevisionRequest) (explorer.InterpretationRevision, error) {
-	repository, err := s.interpretationRepository()
+	return s.interpretationLibrary().get(ctx, request)
+}
+
+func (library interpretationLibrary) get(ctx context.Context, request GetInterpretationRevisionRequest) (explorer.InterpretationRevision, error) {
+	repository, err := library.repositoryOrError()
 	if err != nil {
 		return explorer.InterpretationRevision{}, err
 	}
@@ -78,7 +101,11 @@ func (s *Service) GetInterpretationRevision(ctx context.Context, request GetInte
 }
 
 func (s *Service) CreateInterpretationRevision(ctx context.Context, request CreateInterpretationRevisionRequest) (explorer.InterpretationRevision, error) {
-	repository, err := s.interpretationRepository()
+	return s.interpretationLibrary().create(ctx, request)
+}
+
+func (library interpretationLibrary) create(ctx context.Context, request CreateInterpretationRevisionRequest) (explorer.InterpretationRevision, error) {
+	repository, err := library.repositoryOrError()
 	if err != nil {
 		return explorer.InterpretationRevision{}, err
 	}

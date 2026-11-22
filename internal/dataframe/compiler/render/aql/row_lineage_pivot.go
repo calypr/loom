@@ -7,7 +7,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-func (r *physicalPlanRenderer) renderConstructionPivotRowLineage(
+func (r rowLineageRenderer) renderConstructionPivotRowLineage(
 	sourceQuery string,
 	stage ir.PhysicalConstructionStage,
 	match ir.PhysicalRowLineageStageMatch,
@@ -32,40 +32,40 @@ func (r *physicalPlanRenderer) renderConstructionPivotRowLineage(
 		}
 	}
 
-	resourceIDBind := r.newInternalBindKey("row_lineage_pivot_resource_id_column")
+	resourceIDBind := r.core.newInternalBindKey("row_lineage_pivot_resource_id_column")
 	r.bindVars[resourceIDBind] = terminal.ResourceIDColumn
-	occurrenceKeyBind := r.newInternalBindKey("row_lineage_pivot_occurrence_key_column")
+	occurrenceKeyBind := r.core.newInternalBindKey("row_lineage_pivot_occurrence_key_column")
 	r.bindVars[occurrenceKeyBind] = terminal.OccurrenceKeyColumn
-	resourceTypeBind := r.newInternalBindKey("row_lineage_pivot_resource_type")
+	resourceTypeBind := r.core.newInternalBindKey("row_lineage_pivot_resource_type")
 	r.bindVars[resourceTypeBind] = terminal.ResourceType
-	categoryColumnBind := r.newInternalBindKey("row_lineage_pivot_category_column")
+	categoryColumnBind := r.core.newInternalBindKey("row_lineage_pivot_category_column")
 	r.bindVars[categoryColumnBind] = pivot.CategoryColumn
-	valueColumnBind := r.newInternalBindKey("row_lineage_pivot_value_column")
+	valueColumnBind := r.core.newInternalBindKey("row_lineage_pivot_value_column")
 	r.bindVars[valueColumnBind] = pivot.ValueColumn
 	categoryType, err := aqlTableScalarType(pivot.CategoryType)
 	if err != nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("construction Pivot category type: %w", err)
 	}
-	categoryTypeBind := r.newInternalBindKey("row_lineage_pivot_category_type")
+	categoryTypeBind := r.core.newInternalBindKey("row_lineage_pivot_category_type")
 	r.bindVars[categoryTypeBind] = categoryType
 	valueType, err := aqlTableScalarType(pivot.ValueType)
 	if err != nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("construction Pivot value type: %w", err)
 	}
-	valueTypeBind := r.newInternalBindKey("row_lineage_pivot_value_type")
+	valueTypeBind := r.core.newInternalBindKey("row_lineage_pivot_value_type")
 	r.bindVars[valueTypeBind] = valueType
 	categoryPresenceBind := ""
 	if pivot.CategoryPresence != nil {
-		categoryPresenceBind = r.newInternalBindKey("row_lineage_pivot_category_presence_column")
+		categoryPresenceBind = r.core.newInternalBindKey("row_lineage_pivot_category_presence_column")
 		r.bindVars[categoryPresenceBind] = pivot.CategoryPresenceColumn
 	}
 	keyColumnBinds := make([]string, len(pivot.GroupKeys))
 	for index, key := range pivot.GroupKeys {
-		keyColumnBinds[index] = r.newInternalBindKey(fmt.Sprintf("row_lineage_pivot_group_column_%d", index))
+		keyColumnBinds[index] = r.core.newInternalBindKey(fmt.Sprintf("row_lineage_pivot_group_column_%d", index))
 		r.bindVars[keyColumnBinds[index]] = key.Column
 	}
 
-	selected := r.newInternalVariable("row_lineage_pivot_selected")
+	selected := r.core.navigation().newInternalVariable("row_lineage_pivot_selected")
 	validationLines, err := r.renderConstructionPivotLineageValidation(
 		sourceQuery, stage, pivot, match, keyColumnBinds,
 		categoryColumnBind, categoryTypeBind, categoryPresenceBind, valueColumnBind, valueTypeBind,
@@ -81,7 +81,7 @@ func (r *physicalPlanRenderer) renderConstructionPivotRowLineage(
 	if err != nil {
 		return RenderedPhysicalPlan{}, err
 	}
-	page := r.newInternalVariable("row_lineage_pivot_page")
+	page := r.core.navigation().newInternalVariable("row_lineage_pivot_page")
 	pageLines := append([]string(nil), pageSource...)
 	pageLines = append(pageLines,
 		"FILTER "+selected+" != null",
@@ -107,7 +107,7 @@ type constructionPivotLineageVariables struct {
 	Source string
 }
 
-func (r *physicalPlanRenderer) renderConstructionPivotLineageValidation(
+func (r rowLineageRenderer) renderConstructionPivotLineageValidation(
 	sourceQuery string,
 	stage ir.PhysicalConstructionStage,
 	pivot *ir.PhysicalGroupedPivot,
@@ -115,9 +115,9 @@ func (r *physicalPlanRenderer) renderConstructionPivotLineageValidation(
 	keyColumnBinds []string,
 	categoryColumnBind, categoryTypeBind, categoryPresenceBind, valueColumnBind, valueTypeBind string,
 ) ([]string, error) {
-	source := r.newInternalVariable("row_lineage_pivot_validation_source")
-	projected := r.newInternalVariable("row_lineage_pivot_validation_input")
-	projection, err := r.renderReturn(ir.PhysicalReturn{Projections: pivot.InputProjections})
+	source := r.core.navigation().newInternalVariable("row_lineage_pivot_validation_source")
+	projected := r.core.navigation().newInternalVariable("row_lineage_pivot_validation_input")
+	projection, err := r.core.renderReturn(ir.PhysicalReturn{Projections: pivot.InputProjections})
 	if err != nil {
 		return nil, fmt.Errorf("render construction Pivot source projection: %w", err)
 	}
@@ -125,7 +125,7 @@ func (r *physicalPlanRenderer) renderConstructionPivotLineageValidation(
 	if pivot.CategoryPresence == nil {
 		lines = append(lines, "LET "+projected+" = "+projection)
 	} else {
-		presence, presenceErr := r.renderProjectionPresence(*pivot.CategoryPresence)
+		presence, presenceErr := r.core.tableShape().renderProjectionPresence(*pivot.CategoryPresence)
 		if presenceErr != nil {
 			return nil, fmt.Errorf("render Pivot category presence: %w", presenceErr)
 		}
@@ -135,8 +135,8 @@ func (r *physicalPlanRenderer) renderConstructionPivotLineageValidation(
 	groupedKeys := make([]string, len(pivot.GroupKeys))
 	collectKeys := make([]string, len(pivot.GroupKeys))
 	for index := range pivot.GroupKeys {
-		inputKey := r.newInternalVariable(fmt.Sprintf("row_lineage_pivot_validation_key_%d", index))
-		groupedKeys[index] = r.newInternalVariable(fmt.Sprintf("row_lineage_pivot_group_key_%d", index))
+		inputKey := r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_pivot_validation_key_%d", index))
+		groupedKeys[index] = r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_pivot_group_key_%d", index))
 		lines = append(lines, "LET "+inputKey+" = "+projected+"[@"+keyColumnBinds[index]+"]")
 		collectKeys[index] = groupedKeys[index] + " = " + inputKey
 	}
@@ -146,13 +146,13 @@ func (r *physicalPlanRenderer) renderConstructionPivotLineageValidation(
 		return nil, fmt.Errorf("render Pivot category membership: %w", err)
 	}
 	lines = append(lines, "FILTER ASSERT("+categoryListed+", \"TABLE_PIVOT_UNLISTED_CATEGORY\")")
-	value := r.newInternalVariable("row_lineage_pivot_validation_value")
+	value := r.core.navigation().newInternalVariable("row_lineage_pivot_validation_value")
 	lines = append(lines, "LET "+value+" = "+projected+"[@"+valueColumnBind+"]")
 
 	aggregates := make([]string, 0, len(pivot.Categories)*2)
 	policyFilters := make([]string, 0, len(pivot.Categories)*2)
 	for index, category := range pivot.Categories {
-		matchVariable := r.newInternalVariable(fmt.Sprintf("row_lineage_pivot_category_match_%d", index))
+		matchVariable := r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_pivot_category_match_%d", index))
 		categoryMatch, matchErr := groupedPivotCategoryMatchPredicate(category, projected, categoryColumnBind, categoryPresenceBind, categoryTypeBind)
 		if matchErr != nil {
 			return nil, fmt.Errorf("Pivot category %q: %w", category.Output, matchErr)
@@ -162,8 +162,8 @@ func (r *physicalPlanRenderer) renderConstructionPivotLineageValidation(
 			lines = append(lines, fmt.Sprintf("FILTER NOT(%s) OR %s == null OR ASSERT(TYPENAME(%s) == @%s, \"TABLE_PIVOT_VALUE_TYPE_MISMATCH\")", matchVariable, value, value, valueTypeBind))
 		}
 
-		rawCount := r.newInternalVariable(fmt.Sprintf("row_lineage_pivot_category_count_%d", index))
-		nonNullCount := r.newInternalVariable(fmt.Sprintf("row_lineage_pivot_category_nonnull_%d", index))
+		rawCount := r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_pivot_category_count_%d", index))
+		nonNullCount := r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_pivot_category_nonnull_%d", index))
 		aggregates = append(aggregates,
 			rawCount+" = SUM("+matchVariable+" ? 1 : 0)",
 			nonNullCount+" = SUM(("+matchVariable+" AND "+value+" != null) ? 1 : 0)",
@@ -187,13 +187,13 @@ func (r *physicalPlanRenderer) renderConstructionPivotLineageValidation(
 	for _, policyFilter := range policyFilters {
 		lines = append(lines, "FILTER "+policyFilter)
 	}
-	identity, err := r.renderGroupedPivotIdentity(*pivot, groupedKeys)
+	identity, err := r.core.tableShape().renderGroupedPivotIdentity(*pivot, groupedKeys)
 	if err != nil {
 		return nil, err
 	}
-	identityVariable := r.newInternalVariable("row_lineage_pivot_validation_identity")
+	identityVariable := r.core.navigation().newInternalVariable("row_lineage_pivot_validation_identity")
 	lines = append(lines, "LET "+identityVariable+" = "+identity)
-	selectedCount := r.newInternalVariable("row_lineage_pivot_selected_group_count")
+	selectedCount := r.core.navigation().newInternalVariable("row_lineage_pivot_selected_group_count")
 	lines = append(lines,
 		"COLLECT AGGREGATE "+selectedCount+" = SUM("+identityVariable+" == @"+match.StageRowIDBindKey+" ? 1 : 0)",
 		"FILTER "+selectedCount+" > 0",
@@ -201,31 +201,31 @@ func (r *physicalPlanRenderer) renderConstructionPivotLineageValidation(
 	return lines, nil
 }
 
-func (r *physicalPlanRenderer) renderConstructionPivotLineagePreimage(
+func (r rowLineageRenderer) renderConstructionPivotLineagePreimage(
 	sourceQuery string,
 	stage ir.PhysicalConstructionStage,
 	pivot *ir.PhysicalGroupedPivot,
 	match ir.PhysicalRowLineageStageMatch,
 	keyColumnBinds []string,
 ) ([]string, constructionPivotLineageVariables, error) {
-	source := r.newInternalVariable("row_lineage_pivot_source")
-	projected := r.newInternalVariable("row_lineage_pivot_input")
-	projection, err := r.renderReturn(ir.PhysicalReturn{Projections: pivot.InputProjections})
+	source := r.core.navigation().newInternalVariable("row_lineage_pivot_source")
+	projected := r.core.navigation().newInternalVariable("row_lineage_pivot_input")
+	projection, err := r.core.renderReturn(ir.PhysicalReturn{Projections: pivot.InputProjections})
 	if err != nil {
 		return nil, constructionPivotLineageVariables{}, fmt.Errorf("render construction Pivot source projection: %w", err)
 	}
 	lines := []string{"FOR " + source + " IN (", indentQuery(sourceQuery, "  "), ")", "LET " + stage.InputRowVariable + " = " + source, "LET " + projected + " = " + projection}
 	keyValues := make([]string, len(pivot.GroupKeys))
 	for index := range pivot.GroupKeys {
-		keyValues[index] = r.newInternalVariable(fmt.Sprintf("row_lineage_pivot_group_key_%d", index))
+		keyValues[index] = r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_pivot_group_key_%d", index))
 		lines = append(lines, "LET "+keyValues[index]+" = "+projected+"[@"+keyColumnBinds[index]+"]")
 		lines = append(lines, "FILTER "+keyValues[index]+" == @"+match.IdentityKeyBindKeys[index])
 	}
-	identity, err := r.renderGroupedPivotIdentity(*pivot, keyValues)
+	identity, err := r.core.tableShape().renderGroupedPivotIdentity(*pivot, keyValues)
 	if err != nil {
 		return nil, constructionPivotLineageVariables{}, err
 	}
-	identityVariable := r.newInternalVariable("row_lineage_pivot_identity")
+	identityVariable := r.core.navigation().newInternalVariable("row_lineage_pivot_identity")
 	lines = append(lines,
 		"LET "+identityVariable+" = "+identity,
 		"FILTER "+identityVariable+" == @"+match.StageRowIDBindKey,

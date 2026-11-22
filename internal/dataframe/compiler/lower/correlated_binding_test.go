@@ -69,7 +69,7 @@ func TestLowerCorrelatedBindingPreservesExplicitSystemVersionSelection(t *testin
 		t.Fatal("category binding accepted an unused code bind")
 	}
 	physical := ir.PhysicalPlan{BindVars: map[string]any{}}
-	if _, err := LowerCorrelatedPredicate(&physical, "Condition", binding, ir.PhysicalValue{Variable: "root"}, spec.CodeValue{System: "urn:test"}); err != nil {
+	if _, err := LowerCorrelatedPredicateWithIdentity(&physical, "Condition", binding, ir.PhysicalValue{Variable: "root"}, spec.CodeValue{System: "urn:test"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if len(physical.BindVars) != 2 || physical.BindVars["correlated_version_root"] != "" {

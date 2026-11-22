@@ -113,7 +113,7 @@ func TestPreviewSupersededPublicMigrationVersionedAgainstArango(t *testing.T) {
 				t.Fatal(err)
 			}
 			beforeDocuments := wp19Rows(t, ctx, client, collection.Name())
-			dry, err := client.MigratePreviewSupersededIndexes(ctx, true)
+			dry, err := client.PreviewIndexes().MigratePreviewSupersededIndexes(ctx, true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -148,7 +148,7 @@ func TestPreviewSupersededPublicMigrationVersionedAgainstArango(t *testing.T) {
 			if got := wp19Rows(t, ctx, client, collection.Name()); !reflect.DeepEqual(got, beforeDocuments) {
 				t.Fatalf("dry-run changed documents: %v", got)
 			}
-			final, err := client.MigratePreviewSupersededIndexes(ctx, false)
+			final, err := client.PreviewIndexes().MigratePreviewSupersededIndexes(ctx, false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -196,7 +196,7 @@ func TestPreviewSupersededPublicMigrationVersionedAgainstArango(t *testing.T) {
 				t.Fatalf("expected exactly one versioned ledger marker with revision: %v", markers)
 			}
 			markerRevision := fmt.Sprint(markers[0]["_rev"])
-			rerun, err := client.MigratePreviewSupersededIndexes(ctx, false)
+			rerun, err := client.PreviewIndexes().MigratePreviewSupersededIndexes(ctx, false)
 			if err != nil {
 				t.Fatal(err)
 			}

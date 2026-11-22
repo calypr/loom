@@ -8,7 +8,8 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	publicationcontract "github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/generation"
+	"github.com/calypr/loom/internal/ingest/sourceload"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -16,7 +17,7 @@ func wireLoad(serverConfig Config, logger *slog.Logger, connOpts arangostore.Con
 	lifecycleStore, explorerStore := storage.lifecycle, storage.explorer
 	configuredRecipeName := storage.recipeName
 	bundleTarget, recipeEngine, publishedRegistry := dataframe.target, dataframe.engine, dataframe.registry
-	ingestRunner := loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
+	ingestRunner := loadapi.IngestRunner{BaseOptions: generation.LoadOptions{
 		ConnectionOptions: connOpts,
 	}}
 	generationService, err := loadapi.NewService(loadapi.ServiceConfig{
@@ -37,14 +38,14 @@ func wireLoad(serverConfig Config, logger *slog.Logger, connOpts arangostore.Con
 	sourceLoadLimits := loadapi.SourceLoadLimits{MaxFileBytes: serverConfig.Server.SourceLoadMaxFileBytes}
 	var sourceLoader loadapi.SourceLoader
 	if bundleTarget != nil && configuredRecipeName != "" {
-		publicationAdapter := ingest.NewSourcePublicationAdapter(ingest.SourcePublicationAdapterConfig{
+		publicationAdapter := sourceload.NewSourcePublicationAdapter(sourceload.SourcePublicationAdapterConfig{
 			RecipeEngine: recipeEngine, PublicationTarget: bundleTarget, RecipeName: configuredRecipeName,
 			PublishedRegistry: publishedRegistry, Explorer: explorerStore, ReleaseService: releaseService,
 			DiscoveryCache: discoveryCache, ScopeResolver: scopeResolver,
 			BatchRows: serverConfig.Server.RecipeBatchRows, BatchBytes: serverConfig.Server.RecipeBatchBytes,
 			QualityMaxRows: serverConfig.Server.RecipeQualityMaxRows, QualityMaxDistinctKeys: serverConfig.Server.RecipeQualityMaxDistinctKeys,
 		})
-		sourceLoader, err = ingest.NewRepositorySourceLoader(ingest.SourceLoadPublisherConfig{
+		sourceLoader, err = sourceload.NewRepositorySourceLoader(sourceload.SourceLoadPublisherConfig{
 			Client: lifecycleClient, DatasetStore: lifecycleStore,
 			ValidateProject: publicationAdapter.ValidateProject, MaterializeAndSelect: publicationAdapter.MaterializeAndSelect,
 		})

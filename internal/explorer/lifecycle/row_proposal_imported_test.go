@@ -7,6 +7,7 @@ import (
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestImportedSourceRowProposalRejectsProjectedRowsWithoutCompilingOrSaving(t *testing.T) {
@@ -35,7 +36,7 @@ func TestImportedSourceRowProposalRejectsProjectedRowsWithoutCompilingOrSaving(t
 			original := string(raw)
 			version := store.created.DraftVersion
 			compileCalls := 0
-			service.config.CompileReceipt = func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			service.config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 				compileCalls++
 				t.Error("rejected projected source row edit reached compiler")
 				return nil, nil

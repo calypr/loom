@@ -8,23 +8,18 @@ import (
 	"reflect"
 	"testing"
 
-	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
-	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
-
-	recipeapi "github.com/calypr/loom/internal/api/recipe"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
-
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/recipeimport"
-
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -38,7 +33,7 @@ type unifiedAuthoringFixture struct {
 	bundle     recipe.Bundle
 	digest     string
 	resolver   Sources
-	authorized lifecycle.AuthorizedCapability
+	authorized ports.AuthorizedCapability
 	workspace  authoringv2.Workspace
 }
 
@@ -85,7 +80,7 @@ func newUnifiedAuthoringFixture(t *testing.T) unifiedAuthoringFixture {
 	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry: registry, ScopeDigest: reciperuntime.ScopeDigest,
-		ResolveBundle: recipeapi.RecipeSchemaResolver(func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+		ResolveBundle: reciperuntime.RecipeSchemaResolver(func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 			return nil, nil
 		}, nil),
 		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
@@ -106,10 +101,10 @@ func newUnifiedAuthoringFixture(t *testing.T) unifiedAuthoringFixture {
 		[]capability.Candidate{{ID: "dose-unit", NodeID: "n_medication_administration", ResourceType: "MedicationAdministration", FieldPath: "dosage.dose.unit", Label: "Dose unit", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: []capability.Operation{capability.OperationSelect}}},
 		nil,
 	)
-	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
+	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	source, err := resolver.load(context.Background(), "project-a", bundle.Name, bundle.TranslationVersion, digest, authorized)
 	if err != nil {
-		if sourceErr, ok := err.(*lifecycle.Error); ok && sourceErr.Cause != nil {
+		if sourceErr, ok := err.(*ports.Error); ok && sourceErr.Cause != nil {
 			t.Fatalf("resolve checked-in imported recipe fixture: %v", sourceErr.Cause)
 		}
 		t.Fatalf("resolve checked-in imported recipe fixture: %v", err)

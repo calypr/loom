@@ -47,7 +47,7 @@ var pivotSourceReasons = rowSourceLaneReasons{
 	inventoryReason: "the row-choice inventory backing root Pivot source fields is unavailable for the current dataset snapshot",
 }
 
-func (s *Service) constructionPivotSourceCapability(
+func (s constructionRowSources) constructionPivotSourceCapability(
 	ctx context.Context,
 	base constructionBase,
 	outputID, stageID string,
@@ -65,10 +65,10 @@ func (s *Service) constructionPivotSourceCapability(
 	}
 	enumeration := rowSourceEnumeration{
 		rootReachable:     constructionRootProjectionCanReachStage(base.construction, stageID),
-		plannerConfigured: s.config.RowChoicePlanner != nil,
+		plannerConfigured: s.planner != nil,
 	}
 	if enumeration.rootReachable && enumeration.plannerConfigured {
-		choices, err := s.config.RowChoicePlanner.ListRowChoices(ctx, base.snapshot.Clone(), base.document)
+		choices, err := s.planner.ListRowChoices(ctx, base.snapshot.Clone(), base.document)
 		if err != nil {
 			result.ReasonCode, result.Reason = rowSourceInventoryFailure(pivotSourceReasons)
 			return result, unavailable("construction-capabilities", result.ReasonCode, result.Reason,
@@ -442,7 +442,7 @@ type resolvedConstructionPivotSource struct {
 	label     string
 }
 
-func (s *Service) constructionCandidateWithPivotSources(
+func (s constructionRowSources) constructionCandidateWithPivotSources(
 	ctx context.Context,
 	base constructionBase,
 	request ConstructionProposalRequest,
@@ -614,7 +614,7 @@ func (s *Service) constructionCandidateWithPivotSources(
 	return candidate, authorizedHelpers, nil
 }
 
-func (s *Service) resolveConstructionPivotSource(
+func (s constructionRowSources) resolveConstructionPivotSource(
 	ctx context.Context,
 	base constructionBase,
 	request ConstructionProposalRequest,
@@ -623,10 +623,10 @@ func (s *Service) resolveConstructionPivotSource(
 ) (resolvedConstructionPivotSource, error) {
 	identity, err := capability.DecodeRowChoiceID(selection.ChoiceID)
 	if err == nil {
-		if s.config.RowChoiceResolver == nil {
+		if s.resolver == nil {
 			return resolvedConstructionPivotSource{}, unavailable("construction-proposal", "ROW_CHOICE_UNAVAILABLE", "authorized Pivot source choice resolution is not configured", nil)
 		}
-		resolved, resolveErr := s.config.RowChoiceResolver.ResolveRowChoiceID(ctx, RowChoiceResolveRequest{
+		resolved, resolveErr := s.resolver.ResolveRowChoiceID(ctx, RowChoiceResolveRequest{
 			Project: request.Project, ExplorerID: request.ExplorerID, OutputID: request.OutputID,
 			Snapshot: base.snapshot.Clone(), Route: base.document.Route,
 			RowChoiceID: selection.ChoiceID, ExpectedKind: RowChoiceFieldGroup,

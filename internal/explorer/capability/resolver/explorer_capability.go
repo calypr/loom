@@ -12,12 +12,13 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
 	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/projectid"
 	"golang.org/x/sync/singleflight"
@@ -159,45 +160,45 @@ func (r *Resolver) ResolveToken(ctx context.Context, project, token string) (cap
 	return authorized.Snapshot.Clone(), nil
 }
 
-func (r *Resolver) ResolveForExecution(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {
+func (r *Resolver) ResolveForExecution(ctx context.Context, project, token string) (ports.AuthorizedCapability, error) {
 	project = projectid.Canonical(project)
 	token = strings.TrimSpace(token)
 	snapshot, err := r.snapshots.GetByToken(ctx, token)
 	if err != nil {
-		return lifecycle.AuthorizedCapability{}, err
+		return ports.AuthorizedCapability{}, err
 	}
 	if snapshot.Identity.Project != project {
-		return lifecycle.AuthorizedCapability{}, capability.ErrStaleSnapshot
+		return ports.AuthorizedCapability{}, capability.ErrStaleSnapshot
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := authscope.AuthorizeProject(principal, project, false); err != nil {
-		return lifecycle.AuthorizedCapability{}, err
+		return ports.AuthorizedCapability{}, err
 	}
 	scope, err := r.resolveScope(ctx, principal, projectid.Legacy(project), snapshot.Identity.Generation)
 	if err != nil {
-		return lifecycle.AuthorizedCapability{}, err
+		return ports.AuthorizedCapability{}, err
 	}
 	if ScopeDigest(scope) != snapshot.Identity.AuthorizationScopeDigest {
-		return lifecycle.AuthorizedCapability{}, capability.ErrStaleSnapshot
+		return ports.AuthorizedCapability{}, capability.ErrStaleSnapshot
 	}
 	if err := snapshot.ValidateToken(token); err != nil {
-		return lifecycle.AuthorizedCapability{}, err
+		return ports.AuthorizedCapability{}, err
 	}
-	return lifecycle.AuthorizedCapability{Snapshot: snapshot.Clone(), Scope: scope.Clone()}, nil
+	return ports.AuthorizedCapability{Snapshot: snapshot.Clone(), Scope: scope.Clone()}, nil
 }
 
-func (r *Resolver) ResolveForCompilation(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {
+func (r *Resolver) ResolveForCompilation(ctx context.Context, project, token string) (ports.AuthorizedCapability, error) {
 	project = projectid.Canonical(project)
 	authorized, err := r.ResolveForExecution(ctx, project, token)
 	if err != nil {
-		return lifecycle.AuthorizedCapability{}, err
+		return ports.AuthorizedCapability{}, err
 	}
 	manifest, err := dataset.ResolveActive(ctx, r.manifests, projectid.Legacy(project))
 	if err != nil {
-		return lifecycle.AuthorizedCapability{}, fmt.Errorf("resolve current capability generation: %w", err)
+		return ports.AuthorizedCapability{}, fmt.Errorf("resolve current capability generation: %w", err)
 	}
 	if authorized.Snapshot.Identity.Generation != manifest.Dataset.Generation {
-		return lifecycle.AuthorizedCapability{}, capability.ErrStaleSnapshot
+		return ports.AuthorizedCapability{}, capability.ErrStaleSnapshot
 	}
 	return authorized.Clone(), nil
 }
@@ -477,7 +478,7 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 	return out
 }
 
-func semanticConceptValuePath(observation catalog.SemanticObservation) string {
+func semanticConceptValuePath(observation codedconcept.Observation) string {
 	selector := strings.Trim(strings.TrimSpace(observation.Value.Selector), ".")
 	selector = strings.TrimPrefix(selector, "root.")
 	if selector == "" {
@@ -491,7 +492,7 @@ func semanticConceptValuePath(observation catalog.SemanticObservation) string {
 	return scope + "." + selector
 }
 
-func semanticConceptOwnerPath(fieldPath string, observation catalog.SemanticObservation) bool {
+func semanticConceptOwnerPath(fieldPath string, observation codedconcept.Observation) bool {
 	fieldPath = strings.TrimPrefix(strings.Trim(strings.TrimSpace(fieldPath), "."), "root.")
 	ownerPath := strings.TrimPrefix(strings.Trim(strings.TrimSpace(observation.OwningScope), "."), "root.")
 	return fieldPath != "" && ownerPath != "" && fieldPath == ownerPath
@@ -632,7 +633,7 @@ func observedShapeKind(value string) string {
 	return value
 }
 
-func capabilitySemanticCandidate(value catalog.SemanticObservation) capability.ConceptCandidate {
+func capabilitySemanticCandidate(value codedconcept.Observation) capability.ConceptCandidate {
 	return capability.ConceptCandidate{
 		SourceResourceType: value.Source.Type, SourceCanonical: value.Source.Canonical,
 		SourceProfile: value.Source.Profile, SourcePath: value.Source.Path,

@@ -21,14 +21,9 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	if len(outputs) == 0 {
 		return Result{}, fmt.Errorf("publication requires at least one output")
 	}
-	normalizedOutputs, err := injectPublicationMetadata(identity, outputs)
+	normalizedOutputs, schemas, supportsObjects, err := prepareOutputs(target, identity, outputs)
 	if err != nil {
 		return Result{}, err
-	}
-	supportsObjects := target.SupportsObjectValues()
-	schemas, err := validateOutputs(normalizedOutputs, supportsObjects)
-	if err != nil {
-		return Result{}, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidData, "")
 	}
 	limits = limits.normalized()
 	beginStarted := time.Now()
@@ -67,100 +62,13 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	populated := make(map[string]map[string]bool, len(normalizedOutputs))
 	qualityReports := make([]QualityReport, 0, len(normalizedOutputs))
 	for _, output := range normalizedOutputs {
-		outputStarted := time.Now()
-		var writeDuration time.Duration
-		batchCount := 0
-		stat := PublishedOutput{Name: output.Name}
-		quality := newQualityAccumulator(identity, output, limits.Quality)
-		batch := make([]map[string]any, 0, limits.BatchRows)
-		batchBytes := 0
-		populated[output.Name] = make(map[string]bool)
-		flush := func() error {
-			if len(batch) == 0 {
-				return nil
-			}
-			writeStarted := time.Now()
-			if err := tx.WriteBatch(ctx, output.Name, batch); err != nil {
-				return err
-			}
-			writeDuration += time.Since(writeStarted)
-			batchCount++
-			batch = batch[:0]
-			batchBytes = 0
-			return nil
-		}
-		err := output.Stream(ctx, func(row map[string]any) error {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if err := validateRow(output.Columns, row, supportsObjects); err != nil {
-				return dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidData, "")
-			}
-			if err := quality.observe(row); err != nil {
-				return err
-			}
-			for _, column := range output.Columns {
-				if column.Provenance != ColumnDiscovered || column.LoomOwned || column.IsIdentity {
-					continue
-				}
-				value, ok := row[column.Name]
-				if ok && populatedValue(column, value) {
-					populated[output.Name][column.Name] = true
-				}
-			}
-			encoded, err := json.Marshal(row)
-			if err != nil {
-				return dataframeerrors.Wrap(err, dataframeerrors.CodeOutputEncodingFailed, "")
-			}
-			if len(encoded) > limits.BatchBytes {
-				return fmt.Errorf("output %q row exceeds batch byte limit %d", output.Name, limits.BatchBytes)
-			}
-			batch = append(batch, row)
-			batchBytes += len(encoded)
-			stat.RowCount++
-			stat.ByteCount += int64(len(encoded))
-			if len(batch) >= limits.BatchRows || batchBytes >= limits.BatchBytes {
-				return flush()
-			}
-			return nil
-		})
+		streamed, err := streamPublicationOutput(ctx, tx, identity, output, limits, supportsObjects, qualityReports)
 		if err != nil {
-			evidenceErr := error(nil)
-			if quality != nil {
-				_, evidenceErr = quality.fail(err)
-			}
-			reports := qualityReportsFromError(qualityReports, evidenceErr)
-			if len(reports) > len(qualityReports) {
-				if evidenceErr := tx.SetQualityReports(context.WithoutCancel(ctx), reports); evidenceErr != nil {
-					err = errors.Join(err, fmt.Errorf("retain failed quality evidence: %w", evidenceErr))
-				}
-			}
-			if evidenceErr != nil {
-				err = errors.Join(err, evidenceErr)
-			}
-			return fail(fmt.Errorf("output %q stream: %w", output.Name, err))
+			return fail(err)
 		}
-		if err := flush(); err != nil {
-			return fail(fmt.Errorf("output %q final batch: %w", output.Name, err))
-		}
-		if quality != nil {
-			report, qualityErr := quality.complete()
-			if qualityErr != nil {
-				reports := append(CloneQualityReports(qualityReports), report)
-				if evidenceErr := tx.SetQualityReports(context.WithoutCancel(ctx), reports); evidenceErr != nil {
-					qualityErr = errors.Join(qualityErr, fmt.Errorf("retain failed quality evidence: %w", evidenceErr))
-				}
-				return fail(fmt.Errorf("output %q quality: %w", output.Name, qualityErr))
-			}
-			qualityReports = append(qualityReports, report)
-		}
-		elapsed := time.Since(outputStarted)
-		slog.InfoContext(ctx, "dataframe publication output processed",
-			"project", identity.Project, "generation", identity.DatasetGeneration,
-			"recipe", identity.Name, "output", output.Name, "rows", stat.RowCount,
-			"batches", batchCount, "write_ms", writeDuration.Milliseconds(),
-			"stream_and_processing_ms", (elapsed - writeDuration).Milliseconds())
-		stats[output.Name] = stat
+		stats[output.Name] = streamed.output
+		populated[output.Name] = streamed.populated
+		qualityReports = streamed.qualityReports
 	}
 	finalizeStarted := time.Now()
 	retained := make([]OutputSchema, 0, len(normalizedOutputs))
@@ -210,6 +118,109 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 	return Result{Outputs: published, QualityReports: qualityReports}, nil
 }
 
+type streamedOutput struct {
+	output         PublishedOutput
+	populated      map[string]bool
+	qualityReports []QualityReport
+}
+
+func streamPublicationOutput(ctx context.Context, tx Transaction, identity PublicationIdentity, output OutputStream, limits Limits, supportsObjects bool, qualityReports []QualityReport) (streamedOutput, error) {
+	outputStarted := time.Now()
+	var writeDuration time.Duration
+	batchCount := 0
+	stat := PublishedOutput{Name: output.Name}
+	quality := newQualityAccumulator(identity, output, limits.Quality)
+	batch := make([]map[string]any, 0, limits.BatchRows)
+	batchBytes := 0
+	populated := make(map[string]bool)
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		writeStarted := time.Now()
+		if err := tx.WriteBatch(ctx, output.Name, batch); err != nil {
+			return err
+		}
+		writeDuration += time.Since(writeStarted)
+		batchCount++
+		batch = batch[:0]
+		batchBytes = 0
+		return nil
+	}
+	err := output.Stream(ctx, func(row map[string]any) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := validateRow(output.Columns, row, supportsObjects); err != nil {
+			return dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidData, "")
+		}
+		if err := quality.observe(row); err != nil {
+			return err
+		}
+		for _, column := range output.Columns {
+			if column.Provenance != ColumnDiscovered || column.LoomOwned || column.IsIdentity {
+				continue
+			}
+			value, ok := row[column.Name]
+			if ok && populatedValue(column, value) {
+				populated[column.Name] = true
+			}
+		}
+		encoded, err := json.Marshal(row)
+		if err != nil {
+			return dataframeerrors.Wrap(err, dataframeerrors.CodeOutputEncodingFailed, "")
+		}
+		if len(encoded) > limits.BatchBytes {
+			return fmt.Errorf("output %q row exceeds batch byte limit %d", output.Name, limits.BatchBytes)
+		}
+		batch = append(batch, row)
+		batchBytes += len(encoded)
+		stat.RowCount++
+		stat.ByteCount += int64(len(encoded))
+		if len(batch) >= limits.BatchRows || batchBytes >= limits.BatchBytes {
+			return flush()
+		}
+		return nil
+	})
+	if err != nil {
+		evidenceErr := error(nil)
+		if quality != nil {
+			_, evidenceErr = quality.fail(err)
+		}
+		reports := qualityReportsFromError(qualityReports, evidenceErr)
+		if len(reports) > len(qualityReports) {
+			if evidenceErr := tx.SetQualityReports(context.WithoutCancel(ctx), reports); evidenceErr != nil {
+				err = errors.Join(err, fmt.Errorf("retain failed quality evidence: %w", evidenceErr))
+			}
+		}
+		if evidenceErr != nil {
+			err = errors.Join(err, evidenceErr)
+		}
+		return streamedOutput{}, fmt.Errorf("output %q stream: %w", output.Name, err)
+	}
+	if err := flush(); err != nil {
+		return streamedOutput{}, fmt.Errorf("output %q final batch: %w", output.Name, err)
+	}
+	if quality != nil {
+		report, qualityErr := quality.complete()
+		if qualityErr != nil {
+			reports := append(CloneQualityReports(qualityReports), report)
+			if evidenceErr := tx.SetQualityReports(context.WithoutCancel(ctx), reports); evidenceErr != nil {
+				qualityErr = errors.Join(qualityErr, fmt.Errorf("retain failed quality evidence: %w", evidenceErr))
+			}
+			return streamedOutput{}, fmt.Errorf("output %q quality: %w", output.Name, qualityErr)
+		}
+		qualityReports = append(qualityReports, report)
+	}
+	elapsed := time.Since(outputStarted)
+	slog.InfoContext(ctx, "dataframe publication output processed",
+		"project", identity.Project, "generation", identity.DatasetGeneration,
+		"recipe", identity.Name, "output", output.Name, "rows", stat.RowCount,
+		"batches", batchCount, "write_ms", writeDuration.Milliseconds(),
+		"stream_and_processing_ms", (elapsed - writeDuration).Milliseconds())
+	return streamedOutput{output: stat, populated: populated, qualityReports: qualityReports}, nil
+}
+
 func qualityReportsFromError(completed []QualityReport, err error) []QualityReport {
 	var incomplete *QualityIncompleteError
 	if errors.As(err, &incomplete) && len(incomplete.Reports) > 0 {
@@ -220,6 +231,19 @@ func qualityReportsFromError(completed []QualityReport, err error) []QualityRepo
 		return append(CloneQualityReports(completed), CloneQualityReports(failed.Reports)...)
 	}
 	return CloneQualityReports(completed)
+}
+
+func prepareOutputs(target Target, identity PublicationIdentity, outputs []OutputStream) ([]OutputStream, []OutputSchema, bool, error) {
+	normalizedOutputs, err := injectPublicationMetadata(identity, outputs)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	supportsObjects := target.SupportsObjectValues()
+	schemas, err := validateOutputs(normalizedOutputs, supportsObjects)
+	if err != nil {
+		return nil, nil, false, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidData, "")
+	}
+	return normalizedOutputs, schemas, supportsObjects, nil
 }
 
 func injectPublicationMetadata(identity PublicationIdentity, outputs []OutputStream) ([]OutputStream, error) {

@@ -10,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestProposeConstructionCascadesRemovedRelatedExpandDependencies(t *testing.T) {
@@ -44,7 +45,7 @@ func TestProposeConstructionCascadesRemovedRelatedExpandDependencies(t *testing.
 			candidate := constructionWithoutStep(construction, test.removeStepID)
 			candidateCompileCalls := 0
 			var candidateBinding *explorer.ConstructionProposalBinding
-			service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 				if request.ConstructionProposal != nil {
 					candidateCompileCalls++
 					candidateBinding = cloneConstructionProposalBinding(request.ConstructionProposal)
@@ -279,7 +280,7 @@ func TestProposeConstructionGroupEditCascadesMissingKeyFilterAndApplyBindsRemova
 	candidate.Steps[0].Outputs = []authoringv2.StageColumn{{ID: "row_count", Name: "row_count", Label: "Rows", Type: "integer"}}
 	candidateCompileCalls := 0
 	var candidateBinding *explorer.ConstructionProposalBinding
-	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		if request.ConstructionProposal != nil {
 			candidateCompileCalls++
 			candidateBinding = cloneConstructionProposalBinding(request.ConstructionProposal)

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
@@ -55,16 +56,16 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	var lastPreviewLimit int
 	var previewCell any = "p1"
 	previewSummary := dataframeexecution.PreviewSummary{RowCount: 1, Complete: true}
-	config := lifecycle.Config{Capability: lifecycle.CapabilityResolver{
+	config := lifecycle.Config{Capability: ports.CapabilityResolver{
 		Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
-		ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-			return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		},
-		ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-			return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		}, Catalog: authoringv2.CatalogFromCapability,
 	},
-		EditImportedRelationship: func(_ context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
+		EditImportedRelationship: func(_ context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document, change authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
 			edits++
 			if project != "project-a" || authorized.Snapshot.Token != snapshot.Token || change.Action != "ADD" || change.ParentOccurrenceID != "base" || change.EdgeID != "authorized-edge" || change.MatchMode != authoringv2.RouteMatchOptional {
 				t.Fatalf("transport retargeted intent: %#v", change)
@@ -73,7 +74,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 			document.ImportedSource = &plan
 			return document, nil
 		},
-		EditImportedSource: func(_ context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
+		EditImportedSource: func(_ context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
 			stepEdits++
 			if project != "project-a" || authorized.Snapshot.Token != snapshot.Token || change == nil || change.StepID != "fields" || !change.Remove {
 				t.Fatalf("source-step transport lost settings: %#v", change)
@@ -84,7 +85,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 			document.ImportedSource = &plan
 			return document, nil
 		},
-		EditImportedSources: func(_ context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, changes []authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
+		EditImportedSources: func(_ context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document, changes []authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
 			if project != "project-a" || authorized.Snapshot.Token != snapshot.Token || len(changes) != 2 {
 				t.Fatal("HTTP batch lost one owner/intent")
 			}
@@ -99,7 +100,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 			document.ImportedSource = &plan
 			return document, nil
 		},
-		AuthoringNetwork: func(_ context.Context, _ string, _ lifecycle.AuthorizedCapability, document authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
+		AuthoringNetwork: func(_ context.Context, _ string, _ ports.AuthorizedCapability, document authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
 			networks++
 			network := authoringv2.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
 			network.Occurrences = append(network.Occurrences, authoringv2.NetworkOccurrence{OccurrenceID: "base", ResourceType: "Patient", Label: "Patient", Enabled: true, PreservesRowIdentity: true})
@@ -108,7 +109,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 			}
 			return network, nil
 		},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			receipt, err := explorerfixtures.PersistTestNativeReceipt(ctx, t, service, request, snapshot)
 			if err != nil {
 				return nil, err

@@ -11,28 +11,23 @@ import (
 	"testing"
 	"time"
 
-	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
-
-	"github.com/calypr/loom/internal/testkit/explorerfixtures"
-
-	"github.com/calypr/loom/internal/testkit/constructionfixtures"
-
-	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
-
-	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
-
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
-
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
-
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -213,16 +208,16 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 	proposalPreviewCalls := 0
 	var proposalPreviewQueryRuntime time.Duration
 	config := lifecycle.Config{
-		Capability: lifecycle.CapabilityResolver{
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+		Capability: ports.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		ScanCategories: func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
@@ -480,16 +475,16 @@ func TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute(t *testing.T) {
 	}
 	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	config := lifecycle.Config{
-		Capability: lifecycle.CapabilityResolver{
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+		Capability: ports.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, engine, service, nil, nil)
 		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
@@ -640,24 +635,24 @@ func TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata
 		},
 	}
 
-	familyReference := catalog.SemanticInventoryFamilyReference{
-		BindingID: "binding_specimen_type", SourceKind: catalog.SemanticInventorySourceRetained,
+	familyReference := semanticinventory.FamilyReference{
+		BindingID: "binding_specimen_type", SourceKind: semanticinventory.SourceRetained,
 		ResourceType: "Specimen", SourcePath: "Specimen.type.coding[]", System: "urn:example:specimen-type",
 	}
-	familyReference.FamilyID = catalog.SemanticInventoryFamilyID(familyReference)
-	family := catalog.SemanticInventoryFamily{
-		SemanticInventoryFamilyReference: familyReference,
-		Source:                           catalog.SemanticObservationSource{Type: "Specimen", Path: "Specimen.type.coding[]"},
-		KeySelector:                      "type.coding[]",
-		Value: catalog.SemanticObservationValue{
+	familyReference.FamilyID = semanticinventory.FamilyID(familyReference)
+	family := semanticinventory.Family{
+		FamilyReference: familyReference,
+		Source:          codedconcept.Source{Type: "Specimen", Path: "Specimen.type.coding[]"},
+		KeySelector:     "type.coding[]",
+		Value: codedconcept.Value{
 			Selector: "type.coding[].display", Type: "string",
 			FallbackSelectors: []string{"type.coding[].code"}, FallbackOnBlankString: true,
 		},
-		LogicalType: "string", SchemaVersion: catalog.SemanticObservationSchemaVersion,
-		RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion), Completeness: catalog.SemanticComplete,
+		LogicalType: "string", SchemaVersion: codedconcept.ObservationSchemaVersion,
+		RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion), Completeness: codedconcept.Complete,
 		Status: "SUPPORTED", Population: 12,
 	}
-	buildID := catalog.SemanticInventoryBuildID("project-a", "generation-a")
+	buildID := semanticinventory.BuildID("project-a", "generation-a")
 
 	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
@@ -716,33 +711,33 @@ func TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata
 	}
 	previewCalls := 0
 	var previewContractErr error
-	var resolvedFamilyReferences []catalog.SemanticInventoryFamilyReference
+	var resolvedFamilyReferences []semanticinventory.FamilyReference
 	config := lifecycle.Config{
-		Capability: lifecycle.CapabilityResolver{
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capability: ports.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
-		SemanticInventory: func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
-			return catalog.SemanticInventoryPage{
-				State:    catalog.SemanticInventoryComplete,
-				Build:    catalog.SemanticInventoryBuild{BuildID: buildID, State: catalog.SemanticInventoryComplete},
-				Families: []catalog.SemanticInventoryFamily{family},
+		SemanticInventory: func(context.Context, semanticinventory.PageOptions) (semanticinventory.Page, error) {
+			return semanticinventory.Page{
+				State:    semanticinventory.Complete,
+				Build:    semanticinventory.Build{BuildID: buildID, State: semanticinventory.Complete},
+				Families: []semanticinventory.Family{family},
 			}, nil
 		},
-		ResolveSemanticInventorySelections: func(_ context.Context, options catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error) {
-			resolvedFamilyReferences = append([]catalog.SemanticInventoryFamilyReference(nil), options.FamilyReferences...)
-			return catalog.SemanticInventoryResolveResult{
-				State:    catalog.SemanticInventoryComplete,
-				Build:    catalog.SemanticInventoryBuild{BuildID: buildID, State: catalog.SemanticInventoryComplete},
-				Families: []catalog.SemanticInventoryFamily{family},
+		ResolveSemanticInventorySelections: func(_ context.Context, options semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
+			resolvedFamilyReferences = append([]semanticinventory.FamilyReference(nil), options.FamilyReferences...)
+			return semanticinventory.ResolveResult{
+				State:    semanticinventory.Complete,
+				Build:    semanticinventory.Build{BuildID: buildID, State: semanticinventory.Complete},
+				Families: []semanticinventory.Family{family},
 			}, nil
 		},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
@@ -943,20 +938,20 @@ func TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP(t *tes
 	previewCalls := 0
 	var previewContractErr error
 	config := lifecycle.Config{
-		Capability: lifecycle.CapabilityResolver{
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capability: ports.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
 		RowChoicePlanner: rowChoices,
-		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+		ConstructionSourceStage: func(ctx context.Context, request ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 			return receiptapi.CompileConstructionSourceStage(ctx, request, recipeEngine)
 		},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
@@ -1384,19 +1379,19 @@ func TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP(t *
 		t.Fatal(err)
 	}
 	config := lifecycle.Config{
-		Capability: lifecycle.CapabilityResolver{
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capability: ports.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
-		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+		ConstructionSourceStage: func(ctx context.Context, request ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 			return receiptapi.CompileConstructionSourceStage(ctx, request, recipeEngine)
 		},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
@@ -1816,16 +1811,16 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	config := lifecycle.Config{
 		SelectionMembersCollection: "loom_explorer_selection_members",
-		Capability: lifecycle.CapabilityResolver{
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+		Capability: ports.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
@@ -2028,15 +2023,15 @@ func TestBuilderHTTPSerializesEmptyConstructionStepsAsArray(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := lifecycle.Config{Capability: lifecycle.CapabilityResolver{
+	config := lifecycle.Config{Capability: ports.CapabilityResolver{
 		Current: func(context.Context, string, string, string) (capability.Snapshot, error) {
 			return snapshot, nil
 		},
-		ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-			return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 		},
 		Catalog: authoringv2.CatalogFromCapability,
-	}, ConstructionSourceStage: func(context.Context, lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+	}, ConstructionSourceStage: func(context.Context, ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 		return explorer.ReceiptConstructionStage{
 			ID: "source_projection", RowIdentityColumn: "__loom_row_id",
 			Columns: []explorer.ReceiptConstructionStageColumn{}, Capabilities: []explorer.ReceiptConstructionOperationChoice{},
@@ -2178,20 +2173,20 @@ func TestConstructionProposalCurrentCodingGroupSpecimenFocusObservationHTTP(t *t
 		t.Fatal(err)
 	}
 	config := lifecycle.Config{
-		Capability: lifecycle.CapabilityResolver{
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capability: ports.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
 		RowChoicePlanner: rowChoices,
-		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+		ConstructionSourceStage: func(ctx context.Context, request ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 			return receiptapi.CompileConstructionSourceStage(ctx, request, recipeEngine)
 		},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
@@ -2397,19 +2392,19 @@ func TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation(t *testing.
 	}
 	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	config := lifecycle.Config{
-		Capability: lifecycle.CapabilityResolver{
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+		Capability: ports.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
-		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+		ConstructionSourceStage: func(ctx context.Context, request ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 			return receiptapi.CompileConstructionSourceStage(ctx, request, recipeEngine)
 		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {

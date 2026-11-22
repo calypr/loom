@@ -2,10 +2,9 @@ package ir
 
 import (
 	"fmt"
+	"github.com/calypr/loom/internal/projectid"
 	"reflect"
 	"strings"
-
-	"github.com/calypr/loom/internal/projectid"
 )
 
 func (p PhysicalPlan) Validate() error {
@@ -17,354 +16,12 @@ func (p PhysicalPlan) Validate() error {
 			return fmt.Errorf("unsafe bind key %q", key)
 		}
 	}
-	switch p.Engine {
-	case "", PhysicalEngineAQL:
-		if p.ClickHouseCombine != nil || p.ClickHousePrefix != nil {
-			return fmt.Errorf("AQL physical plan cannot carry a ClickHouse combine payload")
-		}
-	case PhysicalEngineClickHouse:
-		if p.ClickHouseCombine == nil {
-			return fmt.Errorf("ClickHouse physical plan requires a typed combine payload")
-		}
-		if p.ClickHousePrefix == nil {
-			if len(p.Operations) != 0 || p.StageSequence != nil || len(p.DeferredExpressionLets) != 0 {
-				return fmt.Errorf("standalone ClickHouse combine cannot carry AQL operations or construction stages")
-			}
-			if err := p.ClickHouseCombine.Validate(); err != nil {
-				return fmt.Errorf("ClickHouse combine: %w", err)
-			}
-			return nil
-		}
-		if len(p.DeferredExpressionLets) != 0 || p.StageSequence == nil {
-			return fmt.Errorf("composite ClickHouse combine requires a typed AQL stage sequence and no deferred expressions")
-		}
-		if p.StageSequence.PreviewLimitBindKey != "" {
-			return fmt.Errorf("bounded AQL preview cannot feed a private ClickHouse artifact")
-		}
-		for _, operation := range p.Operations {
-			if operation.Kind == PhysicalLimitOp {
-				return fmt.Errorf("bounded AQL prefix cannot feed a private ClickHouse artifact")
-			}
-			if operation.Kind == PhysicalGroupRowsOp {
-				return fmt.Errorf("GROUP prefixes cannot feed a private ClickHouse Combine until authorization scope is preserved by grouping")
-			}
-		}
-		for _, stage := range p.StageSequence.Stages {
-			if stage.Kind == PhysicalStageGroupOp || stage.Kind == PhysicalStageCohortGroupOp {
-				return fmt.Errorf("%s prefixes cannot feed a private ClickHouse Combine until authorization scope is preserved by grouping", stage.Kind)
-			}
-		}
-		if err := p.ClickHouseCombine.ValidateWithPrivateStage(); err != nil {
-			return fmt.Errorf("composite ClickHouse combine: %w", err)
-		}
-		if err := p.ClickHousePrefix.Validate(p.StageSequence, p.BindVars); err != nil {
-			return fmt.Errorf("composite ClickHouse prefix: %w", err)
-		}
-		if p.StageSequence.OutputAuthResourcePathBindKey != p.ClickHousePrefix.AuthResourcePathBindKey {
-			return fmt.Errorf("composite ClickHouse prefix path bind does not match its typed stage sequence")
-		}
-		privateStageID := ""
-		for _, input := range p.ClickHouseCombine.Inputs {
-			if input.PrivateStageID == "" {
-				continue
-			}
-			privateStageID = input.PrivateStageID
-		}
-		if privateStageID != p.ClickHousePrefix.StageID {
-			return fmt.Errorf("composite ClickHouse input does not match the exact AQL prefix stage")
-		}
-	default:
-		return fmt.Errorf("unsupported physical engine %q", p.Engine)
+	standalone, err := p.validateEngine()
+	if err != nil || standalone {
+		return err
 	}
-	defined := map[string]bool{}
-	rootScans := 0
-	returns := 0
-	graphReturns := 0
-	groupRows := 0
-	tableReshapes := 0
-	reshapeOutputVariable := ""
-	reshapeWindowSortSeen := false
-	reshapeWindowLimitSeen := false
-	reshapeWindowClosed := false
-	reshapeIndex := -1
-	for index, operation := range p.Operations {
-		if operation.Kind == PhysicalGroupedPivotOp || operation.Kind == PhysicalUnpivotOp {
-			reshapeIndex = index
-			break
-		}
-	}
-	if reshapeIndex >= 0 {
-		for index := 0; index < reshapeIndex; index++ {
-			if p.Operations[index].Kind == PhysicalLimitOp {
-				return fmt.Errorf("operation %d: execution LIMIT cannot precede a terminal table reshape", index)
-			}
-		}
-	}
-	for i, operation := range p.Operations {
-		if returns+graphReturns > 0 {
-			return fmt.Errorf("operation %d appears after RETURN", i)
-		}
-		if tableReshapes > 0 {
-			if reshapeWindowSortSeen && !reshapeWindowLimitSeen && operation.Kind != PhysicalLimitOp {
-				reshapeWindowClosed = true
-			}
-			switch operation.Kind {
-			case PhysicalExpressionLetOp, PhysicalReturnOp, PhysicalCellTraceReturnOp:
-			case PhysicalSortOp:
-				if reshapeWindowSortSeen || reshapeWindowLimitSeen || reshapeWindowClosed {
-					return fmt.Errorf("operation %d: reshaped execution window can contain only one SORT", i)
-				}
-				if operation.Sort == nil || len(operation.Sort.Keys) != 1 {
-					return fmt.Errorf("operation %d: reshaped execution SORT must use the stable row identity", i)
-				}
-				key := operation.Sort.Keys[0]
-				if key.Variable != reshapeOutputVariable || key.BindKey != "" || len(key.Path) != 1 || key.Path[0] != "__loom_row_id" {
-					return fmt.Errorf("operation %d: reshaped execution SORT must use the stable row identity", i)
-				}
-				reshapeWindowSortSeen = true
-			case PhysicalLimitOp:
-				if !reshapeWindowSortSeen || reshapeWindowLimitSeen || reshapeWindowClosed {
-					return fmt.Errorf("operation %d: reshaped execution LIMIT requires an immediately preceding stable row SORT", i)
-				}
-				reshapeWindowLimitSeen = true
-			default:
-				return fmt.Errorf("operation %d (%s) appears after terminal table reshape", i, operation.Kind)
-			}
-		}
-		if err := operation.validatePayload(); err != nil {
-			return fmt.Errorf("operation %d (%s): %w", i, operation.Kind, err)
-		}
-		if operation.Kind == PhysicalKeySetLookupOp {
-			return fmt.Errorf("operation %d: KEY_SET_LOOKUP is only legal inside a typed subplan", i)
-		}
-		switch operation.Kind {
-		case PhysicalRootScanOp:
-			if hint := operation.RootScan.IndexHint; hint != "" && (!physicalPathPartPattern.MatchString(hint) || hint[0] == '_') {
-				return fmt.Errorf("operation %d: unsafe root index hint %q", i, hint)
-			}
-			if operation.RootScan.IndexHint != "" && (operation.RootScan.Population != nil || operation.RootScan.CohortSource != nil || operation.RootScan.PageCandidateSeed != nil) {
-				return fmt.Errorf("operation %d: root index hint requires a direct scan", i)
-			}
-			rootScans++
-			if rootScans > 1 {
-				return fmt.Errorf("operation %d: physical plan has multiple root scans", i)
-			}
-			if err := requireBind(p.BindVars, operation.RootScan.CollectionBindKey); err != nil {
-				return fmt.Errorf("operation %d: %w", i, err)
-			}
-			if err := requireCollectionBind(p.BindVars, operation.RootScan.CollectionBindKey); err != nil {
-				return fmt.Errorf("operation %d: %w", i, err)
-			}
-			if operation.RootScan.Population != nil {
-				if err := validatePhysicalPopulationRootSource(*operation.RootScan.Population, p.BindVars); err != nil {
-					return fmt.Errorf("operation %d population root source: %w", i, err)
-				}
-			}
-			if operation.RootScan.CohortSource != nil {
-				if operation.RootScan.Population != nil {
-					return fmt.Errorf("operation %d cannot combine population and cohort root sources", i)
-				}
-				if err := validatePhysicalCohortRootSource(*operation.RootScan.CohortSource, p.BindVars); err != nil {
-					return fmt.Errorf("operation %d cohort root source: %w", i, err)
-				}
-			}
-			if seed := operation.RootScan.PageCandidateSeed; seed != nil {
-				if operation.RootScan.Population != nil || operation.RootScan.CohortSource != nil {
-					return fmt.Errorf("operation %d root page candidate seed cannot be combined with population or cohort root sources", i)
-				}
-				if err := validatePhysicalUncorrelatedSubplan(seed.Subplan, p.BindVars); err != nil {
-					return fmt.Errorf("operation %d root page candidate seed: %w", i, err)
-				}
-			}
-			if err := definePhysicalVariable(defined, operation.RootScan.Variable); err != nil {
-				return fmt.Errorf("operation %d: %w", i, err)
-			}
-			if population := operation.RootScan.Population; population != nil && population.CollectMembersVariable != "" {
-				if err := definePhysicalVariable(defined, population.CollectMembersVariable); err != nil {
-					return fmt.Errorf("operation %d population member collection: %w", i, err)
-				}
-			}
-		case PhysicalTraversalOp:
-			if err := validateAndDefinePhysicalTraversal(*operation.Traversal, defined, p.BindVars); err != nil {
-				return fmt.Errorf("operation %d: %w", i, err)
-			}
-		case PhysicalFilterOp:
-			if err := validatePhysicalFilter(*operation.Filter, defined, p.BindVars); err != nil {
-				return fmt.Errorf("operation %d: %w", i, err)
-			}
-		case PhysicalDerivedLetOp:
-			derived := operation.DerivedLet
-			if err := validatePhysicalDerivedLet(*derived, defined, p.BindVars); err != nil {
-				return fmt.Errorf("operation %d: %w", i, err)
-			}
-			if err := definePhysicalVariable(defined, derived.Variable); err != nil {
-				return fmt.Errorf("operation %d: %w", i, err)
-			}
-		case PhysicalExpressionLetOp:
-			if operation.ExpressionLet == nil || strings.TrimSpace(operation.ExpressionLet.Variable) == "" {
-				return fmt.Errorf("operation %d: expression LET payload and variable are required", i)
-			}
-			if err := validatePhysicalExpression(operation.ExpressionLet.Expression, defined, p.BindVars); err != nil {
-				return fmt.Errorf("operation %d expression LET: %w", i, err)
-			}
-			if err := definePhysicalVariable(defined, operation.ExpressionLet.Variable); err != nil {
-				return fmt.Errorf("operation %d: %w", i, err)
-			}
-		case PhysicalSetOp:
-			set := operation.Set
-			if err := validatePhysicalSet(*set, defined, p.BindVars); err != nil {
-				return fmt.Errorf("operation %d set %q: %w", i, set.Variable, err)
-			}
-			if err := definePhysicalVariable(defined, set.Variable); err != nil {
-				return fmt.Errorf("operation %d: %w", i, err)
-			}
-			if set.Reduction != nil {
-				if err := definePhysicalVariable(defined, set.Reduction.Variable); err != nil {
-					return fmt.Errorf("operation %d set reduction: %w", i, err)
-				}
-			}
-			if set.Prepared != nil {
-				if err := definePhysicalVariable(defined, set.Prepared.Variable); err != nil {
-					return fmt.Errorf("operation %d prepared set: %w", i, err)
-				}
-			}
-		case PhysicalUnnestOp:
-			if err := validatePhysicalUnnest(*operation.Unnest, defined, p.BindVars); err != nil {
-				return fmt.Errorf("operation %d unnest: %w", i, err)
-			}
-			if err := definePhysicalUnnestVariables(*operation.Unnest, defined); err != nil {
-				return fmt.Errorf("operation %d unnest bindings: %w", i, err)
-			}
-		case PhysicalSortOp:
-			if len(operation.Sort.Keys) == 0 {
-				return fmt.Errorf("operation %d sort requires at least one key", i)
-			}
-			for keyIndex, key := range operation.Sort.Keys {
-				if err := validatePhysicalValue(key, defined, p.BindVars); err != nil {
-					return fmt.Errorf("operation %d sort key %d: %w", i, keyIndex, err)
-				}
-			}
-		case PhysicalLimitOp:
-			if err := requireBind(p.BindVars, operation.Limit.BindKey); err != nil {
-				return fmt.Errorf("operation %d: %w", i, err)
-			}
-			limit, ok := p.BindVars[operation.Limit.BindKey].(int)
-			if !ok || limit <= 0 {
-				return fmt.Errorf("operation %d: limit bind %q must be a positive int", i, operation.Limit.BindKey)
-			}
-		case PhysicalPathSeedOp:
-			seed := operation.PathSeed
-			if err := validatePhysicalPathNode(seed.Node, defined, p.BindVars); err != nil {
-				return fmt.Errorf("operation %d path seed: %w", i, err)
-			}
-			if err := definePhysicalVariable(defined, seed.Variable); err != nil {
-				return fmt.Errorf("operation %d: %w", i, err)
-			}
-		case PhysicalPathExtendOp:
-			extend := operation.PathExtend
-			if err := validatePhysicalPathExtend(*extend, defined, p.BindVars); err != nil {
-				return fmt.Errorf("operation %d path extend: %w", i, err)
-			}
-			if err := definePhysicalVariable(defined, extend.Variable); err != nil {
-				return fmt.Errorf("operation %d: %w", i, err)
-			}
-		case PhysicalGraphReturnOp:
-			if err := validatePhysicalGraphReturn(*operation.GraphReturn, defined, p.BindVars); err != nil {
-				return fmt.Errorf("operation %d graph return: %w", i, err)
-			}
-			graphReturns++
-		case PhysicalPopulationMappingReturnOp:
-			if err := validatePhysicalPopulationMappingReturn(*operation.PopulationMappingReturn, defined, p.BindVars); err != nil {
-				return fmt.Errorf("operation %d population mapping return: %w", i, err)
-			}
-			returns++
-		case PhysicalCellTraceReturnOp:
-			if err := validatePhysicalCellTraceReturn(*operation.CellTraceReturn, defined, p.BindVars); err != nil {
-				return fmt.Errorf("operation %d cell trace return: %w", i, err)
-			}
-			returns++
-		case PhysicalTableShapeExclusionReturnOp:
-			if err := validatePhysicalTableShapeExclusionReturn(*operation.TableShapeExclusionReturn, defined, p.BindVars); err != nil {
-				return fmt.Errorf("operation %d table-shape exclusion return: %w", i, err)
-			}
-			returns++
-		case PhysicalGroupRowsOp:
-			if i != len(p.Operations)-1 {
-				return fmt.Errorf("operation %d: GROUP_ROWS must be the terminal operation", i)
-			}
-			if err := validatePhysicalGroupRows(*operation.GroupRows, p.BindVars); err != nil {
-				return fmt.Errorf("operation %d group rows: %w", i, err)
-			}
-			groupRows++
-			returns++
-		case PhysicalGroupedPivotOp:
-			tableReshapes++
-			if tableReshapes > 1 {
-				return fmt.Errorf("operation %d: physical plan has multiple table reshapes", i)
-			}
-			if groupRows > 0 {
-				return fmt.Errorf("operation %d: grouped row sources cannot be combined with table reshapes", i)
-			}
-			if err := validatePhysicalGroupedPivot(*operation.GroupedPivot, defined, p.BindVars); err != nil {
-				return fmt.Errorf("operation %d grouped pivot: %w", i, err)
-			}
-			pivotVariables := []string{operation.GroupedPivot.InputRowVariable}
-			if !operation.GroupedPivot.OneInputRowPerGroup {
-				pivotVariables = append(pivotVariables, operation.GroupedPivot.GroupRowsVariable)
-			}
-			pivotVariables = append(pivotVariables, groupedPivotVariables(operation.GroupedPivot.GroupKeys)...)
-			for _, variable := range pivotVariables {
-				if err := definePhysicalVariable(defined, variable); err != nil {
-					return fmt.Errorf("operation %d grouped pivot: %w", i, err)
-				}
-			}
-			if err := definePhysicalVariable(defined, operation.GroupedPivot.OutputRowVariable); err != nil {
-				return fmt.Errorf("operation %d grouped pivot output row: %w", i, err)
-			}
-			reshapeOutputVariable = operation.GroupedPivot.OutputRowVariable
-		case PhysicalUnpivotOp:
-			tableReshapes++
-			if tableReshapes > 1 {
-				return fmt.Errorf("operation %d: physical plan has multiple table reshapes", i)
-			}
-			if groupRows > 0 {
-				return fmt.Errorf("operation %d: grouped row sources cannot be combined with table reshapes", i)
-			}
-			if err := validatePhysicalUnpivot(*operation.Unpivot, defined, p.BindVars); err != nil {
-				return fmt.Errorf("operation %d unpivot: %w", i, err)
-			}
-			for _, variable := range []string{operation.Unpivot.InputRowVariable, operation.Unpivot.SlotVariable, operation.Unpivot.OutputRowVariable} {
-				if err := definePhysicalVariable(defined, variable); err != nil {
-					return fmt.Errorf("operation %d unpivot: %w", i, err)
-				}
-			}
-			reshapeOutputVariable = operation.Unpivot.OutputRowVariable
-		case PhysicalReturnOp:
-			returns++
-			seenNames := map[string]bool{}
-			for _, projection := range operation.Return.Projections {
-				if strings.TrimSpace(projection.Name) == "" || seenNames[projection.Name] {
-					return fmt.Errorf("operation %d: return projection name %q is empty or duplicated", i, projection.Name)
-				}
-				seenNames[projection.Name] = true
-				if err := validatePhysicalProjection(projection, defined, p.BindVars); err != nil {
-					return fmt.Errorf("operation %d projection %q: %w", i, projection.Name, err)
-				}
-			}
-		}
-	}
-	if groupRows == 1 {
-		if rootScans != 0 || len(p.Operations) != 1 {
-			return fmt.Errorf("grouped physical plan cannot contain a root scan or other operations")
-		}
-	} else if rootScans != 1 {
-		return fmt.Errorf("physical plan requires exactly one root scan")
-	}
-	if groupRows > 0 && tableReshapes > 0 {
-		return fmt.Errorf("group rows cannot be combined with a table reshape")
-	}
-	if returns+graphReturns != 1 {
-		return fmt.Errorf("physical plan requires exactly one RETURN, GRAPH_RETURN, POPULATION_MAPPING_RETURN, CELL_TRACE_RETURN, or TABLE_SHAPE_EXCLUSION_RETURN")
+	if err := p.validateOperations(); err != nil {
+		return err
 	}
 	if p.StageSequence != nil {
 		if err := validatePhysicalStageSequence(*p.StageSequence, p.Operations, p.BindVars); err != nil {
@@ -375,6 +32,69 @@ func (p PhysicalPlan) Validate() error {
 		return err
 	}
 	return nil
+}
+
+func (p PhysicalPlan) validateEngine() (bool, error) {
+	switch p.Engine {
+	case "", PhysicalEngineAQL:
+		if p.ClickHouseCombine != nil || p.ClickHousePrefix != nil {
+			return false, fmt.Errorf("AQL physical plan cannot carry a ClickHouse combine payload")
+		}
+	case PhysicalEngineClickHouse:
+		if p.ClickHouseCombine == nil {
+			return false, fmt.Errorf("ClickHouse physical plan requires a typed combine payload")
+		}
+		if p.ClickHousePrefix == nil {
+			if len(p.Operations) != 0 || p.StageSequence != nil || len(p.DeferredExpressionLets) != 0 {
+				return false, fmt.Errorf("standalone ClickHouse combine cannot carry AQL operations or construction stages")
+			}
+			if err := p.ClickHouseCombine.Validate(); err != nil {
+				return false, fmt.Errorf("ClickHouse combine: %w", err)
+			}
+			return true, nil
+		}
+		if len(p.DeferredExpressionLets) != 0 || p.StageSequence == nil {
+			return false, fmt.Errorf("composite ClickHouse combine requires a typed AQL stage sequence and no deferred expressions")
+		}
+		if p.StageSequence.PreviewLimitBindKey != "" {
+			return false, fmt.Errorf("bounded AQL preview cannot feed a private ClickHouse artifact")
+		}
+		for _, operation := range p.Operations {
+			if operation.Kind == PhysicalLimitOp {
+				return false, fmt.Errorf("bounded AQL prefix cannot feed a private ClickHouse artifact")
+			}
+			if operation.Kind == PhysicalGroupRowsOp {
+				return false, fmt.Errorf("GROUP prefixes cannot feed a private ClickHouse Combine until authorization scope is preserved by grouping")
+			}
+		}
+		for _, stage := range p.StageSequence.Stages {
+			if stage.Kind == PhysicalStageGroupOp || stage.Kind == PhysicalStageCohortGroupOp {
+				return false, fmt.Errorf("%s prefixes cannot feed a private ClickHouse Combine until authorization scope is preserved by grouping", stage.Kind)
+			}
+		}
+		if err := p.ClickHouseCombine.ValidateWithPrivateStage(); err != nil {
+			return false, fmt.Errorf("composite ClickHouse combine: %w", err)
+		}
+		if err := p.ClickHousePrefix.Validate(p.StageSequence, p.BindVars); err != nil {
+			return false, fmt.Errorf("composite ClickHouse prefix: %w", err)
+		}
+		if p.StageSequence.OutputAuthResourcePathBindKey != p.ClickHousePrefix.AuthResourcePathBindKey {
+			return false, fmt.Errorf("composite ClickHouse prefix path bind does not match its typed stage sequence")
+		}
+		privateStageID := ""
+		for _, input := range p.ClickHouseCombine.Inputs {
+			if input.PrivateStageID == "" {
+				continue
+			}
+			privateStageID = input.PrivateStageID
+		}
+		if privateStageID != p.ClickHousePrefix.StageID {
+			return false, fmt.Errorf("composite ClickHouse input does not match the exact AQL prefix stage")
+		}
+	default:
+		return false, fmt.Errorf("unsupported physical engine %q", p.Engine)
+	}
+	return false, nil
 }
 
 func (p PhysicalPlan) ValidateForWorkspaceCompilation() error {
@@ -1548,31 +1268,6 @@ func validatePhysicalCellTraceReturn(terminal PhysicalCellTraceReturn, defined m
 		if err := validatePhysicalExpression(*terminal.ExplicitIdentity, defined, bindVars); err != nil {
 			return fmt.Errorf("trace explicit identity: %w", err)
 		}
-	}
-	return nil
-}
-
-func validatePhysicalTableShapeExclusionReturn(terminal PhysicalTableShapeExclusionReturn, defined map[string]bool, bindVars map[string]any) error {
-	if terminal.Pivot.UnlistedCategoryPolicy != PhysicalPivotUnlistedCategoryExcludeWithEvidence {
-		return fmt.Errorf("table-shape exclusions require EXCLUDE_WITH_EVIDENCE")
-	}
-	if err := validatePhysicalGroupedPivot(terminal.Pivot, defined, bindVars); err != nil {
-		return fmt.Errorf("exclusion pivot: %w", err)
-	}
-	if strings.TrimSpace(terminal.OffsetBindKey) == "" || strings.TrimSpace(terminal.LimitBindKey) == "" || strings.TrimSpace(terminal.FetchLimitBindKey) == "" {
-		return fmt.Errorf("exclusion offset, limit, and fetch-limit binds are required")
-	}
-	offset, ok := bindVars[terminal.OffsetBindKey].(int)
-	if !ok || offset < 0 {
-		return fmt.Errorf("exclusion offset bind %q must be a non-negative int", terminal.OffsetBindKey)
-	}
-	limit, ok := bindVars[terminal.LimitBindKey].(int)
-	if !ok || limit <= 0 {
-		return fmt.Errorf("exclusion limit bind %q must be a positive int", terminal.LimitBindKey)
-	}
-	fetchLimit, ok := bindVars[terminal.FetchLimitBindKey].(int)
-	if !ok || fetchLimit != limit+1 {
-		return fmt.Errorf("exclusion fetch-limit bind %q must be limit plus one", terminal.FetchLimitBindKey)
 	}
 	return nil
 }

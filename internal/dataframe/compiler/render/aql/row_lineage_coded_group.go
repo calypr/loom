@@ -7,7 +7,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-func (r *physicalPlanRenderer) renderCodedGroupRowLineage(
+func (r rowLineageRenderer) renderCodedGroupRowLineage(
 	sourceQuery string,
 	stage ir.PhysicalConstructionStage,
 	terminal ir.PhysicalRowLineageReturn,
@@ -19,10 +19,10 @@ func (r *physicalPlanRenderer) renderCodedGroupRowLineage(
 	if _, ok := r.collectionKeys[coded.RootCollectionBindKey]; !ok {
 		return RenderedPhysicalPlan{}, fmt.Errorf("root collection bind %q is not an authorized collection binding", coded.RootCollectionBindKey)
 	}
-	identity := r.newInternalVariable("row_lineage_coded_group_identity")
-	selected := r.newInternalVariable("row_lineage_coded_group_selected")
-	page := r.newInternalVariable("row_lineage_coded_group_page")
-	resourceTypeBind := r.newInternalBindKey("row_lineage_resource_type")
+	identity := r.core.navigation().newInternalVariable("row_lineage_coded_group_identity")
+	selected := r.core.navigation().newInternalVariable("row_lineage_coded_group_selected")
+	page := r.core.navigation().newInternalVariable("row_lineage_coded_group_page")
+	resourceTypeBind := r.core.newInternalBindKey("row_lineage_resource_type")
 	r.bindVars[resourceTypeBind] = terminal.ResourceType
 	requestedRowID := "@" + terminal.RowIDBindKey
 
@@ -30,7 +30,7 @@ func (r *physicalPlanRenderer) renderCodedGroupRowLineage(
 	if err != nil {
 		return RenderedPhysicalPlan{}, err
 	}
-	selectedTuple := r.newInternalVariable("row_lineage_coded_group_selected_tuple")
+	selectedTuple := r.core.navigation().newInternalVariable("row_lineage_coded_group_selected_tuple")
 	identityExpr := codedGroupIdentityExpression(coded, selectedTuple+".system", selectedTuple+".version", selectedTuple+".code")
 	lines := []string{
 		"LET " + selected + " = FIRST(",
@@ -45,9 +45,9 @@ func (r *physicalPlanRenderer) renderCodedGroupRowLineage(
 	if err != nil {
 		return RenderedPhysicalPlan{}, err
 	}
-	contributor := r.newInternalVariable("row_lineage_coded_group_contributor")
-	contributorKey := r.newInternalVariable("row_lineage_coded_group_contributor_key")
-	contributorDocument := r.newInternalVariable("row_lineage_coded_group_contributor_document")
+	contributor := r.core.navigation().newInternalVariable("row_lineage_coded_group_contributor")
+	contributorKey := r.core.navigation().newInternalVariable("row_lineage_coded_group_contributor_key")
+	contributorDocument := r.core.navigation().newInternalVariable("row_lineage_coded_group_contributor_document")
 	contributorRows := []string{
 		"FOR " + contributor + " IN (\n" + indentQuery(strings.Join(contributors, "\n"), "  ") + "\n)",
 		"FILTER " + selected + " != null",
@@ -78,25 +78,25 @@ func (r *physicalPlanRenderer) renderCodedGroupRowLineage(
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil
 }
 
-func (r *physicalPlanRenderer) codedGroupTupleRows(
+func (r rowLineageRenderer) codedGroupTupleRows(
 	stage ir.PhysicalConstructionStage,
 	sourceQuery string,
 ) ([]string, error) {
 	coded := stage.CodedGroup
-	input := r.newInternalVariable("row_lineage_coded_group_input")
-	document := r.newInternalVariable("row_lineage_coded_group_document")
-	rawCodings := r.newInternalVariable("row_lineage_coded_group_raw_codings")
-	candidate := r.newInternalVariable("row_lineage_coded_group_candidate")
-	valid := r.newInternalVariable("row_lineage_coded_group_valid")
-	missingCandidate := r.newInternalVariable("row_lineage_coded_group_missing_candidate")
-	sourceID := r.newInternalVariable("row_lineage_coded_group_source_id")
-	rawSystem := r.newInternalVariable("row_lineage_coded_group_raw_system")
-	rawVersion := r.newInternalVariable("row_lineage_coded_group_raw_version")
-	rawCode := r.newInternalVariable("row_lineage_coded_group_raw_code")
-	system := r.newInternalVariable("row_lineage_coded_group_system")
-	version := r.newInternalVariable("row_lineage_coded_group_version")
-	code := r.newInternalVariable("row_lineage_coded_group_code")
-	rootKeyBind := r.newInternalBindKeyWithValue("row_lineage_coded_group_source_key", coded.SourceIdentityColumn)
+	input := r.core.navigation().newInternalVariable("row_lineage_coded_group_input")
+	document := r.core.navigation().newInternalVariable("row_lineage_coded_group_document")
+	rawCodings := r.core.navigation().newInternalVariable("row_lineage_coded_group_raw_codings")
+	candidate := r.core.navigation().newInternalVariable("row_lineage_coded_group_candidate")
+	valid := r.core.navigation().newInternalVariable("row_lineage_coded_group_valid")
+	missingCandidate := r.core.navigation().newInternalVariable("row_lineage_coded_group_missing_candidate")
+	sourceID := r.core.navigation().newInternalVariable("row_lineage_coded_group_source_id")
+	rawSystem := r.core.navigation().newInternalVariable("row_lineage_coded_group_raw_system")
+	rawVersion := r.core.navigation().newInternalVariable("row_lineage_coded_group_raw_version")
+	rawCode := r.core.navigation().newInternalVariable("row_lineage_coded_group_raw_code")
+	system := r.core.navigation().newInternalVariable("row_lineage_coded_group_system")
+	version := r.core.navigation().newInternalVariable("row_lineage_coded_group_version")
+	code := r.core.navigation().newInternalVariable("row_lineage_coded_group_code")
+	rootKeyBind := r.core.newInternalBindKeyWithValue("row_lineage_coded_group_source_key", coded.SourceIdentityColumn)
 	lines := []string{
 		"FOR " + input + " IN (\n" + indentQuery(sourceQuery, "  ") + "\n)",
 		fmt.Sprintf("FILTER ASSERT(TYPENAME(%s[@%s]) == \"string\" AND %s[@%s] != \"\", \"CODED_GROUP_SOURCE_ID_MISSING\")",
@@ -114,7 +114,7 @@ func (r *physicalPlanRenderer) codedGroupTupleRows(
 			pathExpression = attribute
 			continue
 		}
-		item := r.newInternalVariable(fmt.Sprintf("row_lineage_coded_group_path_%d", index))
+		item := r.core.navigation().newInternalVariable(fmt.Sprintf("row_lineage_coded_group_path_%d", index))
 		lines = append(lines, fmt.Sprintf("  FOR %s IN (%s == null ? [] : (IS_ARRAY(%s) ? %s : []))", item, attribute, attribute, attribute))
 		pathExpression = item
 	}

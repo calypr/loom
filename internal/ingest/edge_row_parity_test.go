@@ -14,10 +14,10 @@ import (
 )
 
 type parityRowBuilder struct {
-	result rowBuildResult
+	result RowBuildResult
 }
 
-func (b parityRowBuilder) Build(string, []byte, map[string]float64) (rowBuildResult, rowErrorType, error) {
+func (b parityRowBuilder) Build(string, []byte, map[string]float64) (RowBuildResult, RowErrorType, error) {
 	return b.result, "", nil
 }
 
@@ -86,7 +86,7 @@ func compareEdgePaths(resourceType string, line []byte) error {
 				}
 				if sourceFile != "" {
 					result, _, sourceErr := (sourceFileOwnerRowBuilder{
-						delegate: parityRowBuilder{result: rowBuildResult{edges: want}},
+						delegate: parityRowBuilder{result: RowBuildResult{edges: want}},
 						owner:    sourceFile,
 					}).Build(resourceType, line, map[string]float64{})
 					if sourceErr != nil {

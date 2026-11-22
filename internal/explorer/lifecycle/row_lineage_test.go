@@ -9,6 +9,7 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestRowLineageBindsReceiptAndDefaultsToBoundedPage(t *testing.T) {
@@ -44,8 +45,8 @@ func TestRowLineageMapsMissingFinalRowToNotFound(t *testing.T) {
 	_, err := service.RowLineage(context.Background(), RowLineageRequest{
 		Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", RowID: "missing-row",
 	})
-	var lifecycleErr *Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassNotFound || lifecycleErr.Code != "PREVIEW_ROW_NOT_FOUND" {
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassNotFound || lifecycleErr.Code != "PREVIEW_ROW_NOT_FOUND" {
 		t.Fatalf("missing output row error = %v", err)
 	}
 }
@@ -63,8 +64,8 @@ func TestRowLineageMapsUnsupportedConstructionCapability(t *testing.T) {
 	_, err := service.RowLineage(context.Background(), RowLineageRequest{
 		Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", RowID: "row-7",
 	})
-	var lifecycleErr *Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassUnprocessable || lifecycleErr.Code != "ROW_LINEAGE_OPERATION_UNSUPPORTED" {
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnprocessable || lifecycleErr.Code != "ROW_LINEAGE_OPERATION_UNSUPPORTED" {
 		t.Fatalf("unsupported operation error = %v", err)
 	}
 }

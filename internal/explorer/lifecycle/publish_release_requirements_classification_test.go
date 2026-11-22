@@ -11,9 +11,10 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
-func publishIntoReleasePreparation(t *testing.T, prepareErr error) (*Error, *fakeStore, error) {
+func publishIntoReleasePreparation(t *testing.T, prepareErr error) (*ports.Error, *fakeStore, error) {
 	t.Helper()
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	receipt := nativeReceipt(snapshot)
@@ -23,12 +24,12 @@ func publishIntoReleasePreparation(t *testing.T, prepareErr error) (*Error, *fak
 	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
 		return dataset.ProjectRelease{}, 0, prepareErr
 	}
-	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
+	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 		return successfulTestExecution(receipt, "PUBLISHED"), nil
 	}
 	service := newTestService(t, store, config)
 	_, err := service.Publish(context.Background(), PublishRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID, Actor: "operator"})
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("publish did not surface a lifecycle error: %v", err)
 	}
@@ -43,8 +44,8 @@ func TestPublishPermanentRequirementsMissIsUnprocessableAndExplicitlyNonRetryabl
 		ErrorCode:  "PUBLISHED_ROW_COUNT_ZERO",
 	}}}
 	lifecycleErr, store, err := publishIntoReleasePreparation(t, miss)
-	if lifecycleErr.Class != ClassUnprocessable {
-		t.Fatalf("F-B14 RED: permanent requirements miss classified %q (want %q); indistinguishable from a transient outage", lifecycleErr.Class, ClassUnprocessable)
+	if lifecycleErr.Class != ports.ClassUnprocessable {
+		t.Fatalf("F-B14 RED: permanent requirements miss classified %q (want %q); indistinguishable from a transient outage", lifecycleErr.Class, ports.ClassUnprocessable)
 	}
 	if lifecycleErr.Code != "RELEASE_REQUIREMENTS_UNMET" {
 		t.Fatalf("permanent miss code = %q, want RELEASE_REQUIREMENTS_UNMET (distinct from MATERIALIZATION_ACTIVATION_FAILED)", lifecycleErr.Code)
@@ -66,8 +67,8 @@ func TestPublishPermanentRequirementsMissIsUnprocessableAndExplicitlyNonRetryabl
 
 func TestPublishGenuinePreparationFailureRemainsUnavailable(t *testing.T) {
 	lifecycleErr, store, _ := publishIntoReleasePreparation(t, errors.New("release preparation failed"))
-	if lifecycleErr.Class != ClassUnavailable {
-		t.Fatalf("genuine preparation failure classified %q, want %q", lifecycleErr.Class, ClassUnavailable)
+	if lifecycleErr.Class != ports.ClassUnavailable {
+		t.Fatalf("genuine preparation failure classified %q, want %q", lifecycleErr.Class, ports.ClassUnavailable)
 	}
 	if lifecycleErr.Code != "MATERIALIZATION_ACTIVATION_FAILED" {
 		t.Fatalf("genuine preparation failure code = %q, want MATERIALIZATION_ACTIVATION_FAILED", lifecycleErr.Code)
@@ -77,7 +78,7 @@ func TestPublishGenuinePreparationFailureRemainsUnavailable(t *testing.T) {
 	}
 }
 
-func repositoryPublishIntoActivation(t *testing.T, activateErr error) (*Error, *fakeStore, error) {
+func repositoryPublishIntoActivation(t *testing.T, activateErr error) (*ports.Error, *fakeStore, error) {
 	t.Helper()
 	visible := true
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
@@ -95,17 +96,19 @@ func repositoryPublishIntoActivation(t *testing.T, activateErr error) (*Error, *
 	store := &fakeStore{}
 	config := testConfig(snapshot)
 	config.Capability.Current = func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil }
-	config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
-	config.CompileReceipt = func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error) { return base, nil }
-	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
+	config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		return base, nil
+	}
+	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 		return successfulTestExecution(base, "PUBLISHED"), nil
 	}
 	config.ActivateRelease = func(context.Context, string, string, []dataset.DataframeSelector) error { return activateErr }
 	service := newTestService(t, store, config)
 	_, err := service.PublishRepository(context.Background(), RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: "commit-a", Actor: "alice"})
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("repository publish did not surface a lifecycle error: %v", err)
 	}
@@ -120,7 +123,7 @@ func TestRepositoryPublishRequirementsMissKeepsConflictNonRetryable(t *testing.T
 		ErrorCode:  "RELEASE_REQUIREMENTS_UNMET",
 	}}}
 	lifecycleErr, store, err := repositoryPublishIntoActivation(t, miss)
-	if lifecycleErr.Class != ClassConflict {
+	if lifecycleErr.Class != ports.ClassConflict {
 		t.Fatalf("requirements miss classified %q, want conflict per activation contract", lifecycleErr.Class)
 	}
 	if lifecycleErr.Code != "RELEASE_ACTIVATION_FAILED" {
@@ -141,7 +144,7 @@ func TestRepositoryPublishRequirementsMissKeepsConflictNonRetryable(t *testing.T
 func TestRepositoryPublishActivationFaultIsRetryableUnavailable(t *testing.T) {
 	fault := errors.New("arangodb: connection reset by peer")
 	lifecycleErr, store, err := repositoryPublishIntoActivation(t, fault)
-	if lifecycleErr.Class != ClassUnavailable {
+	if lifecycleErr.Class != ports.ClassUnavailable {
 		t.Fatalf("F-B14b RED: activation store fault classified %q (want unavailable); a conflict tells the client the request itself is wrong", lifecycleErr.Class)
 	}
 	if lifecycleErr.Code != "RELEASE_ACTIVATION_FAILED" {

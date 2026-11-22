@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -296,7 +297,7 @@ func TestFieldEnrichmentCoverageSeparatesLegacyUnknownFromIncomplete(t *testing.
 	}
 
 	truncatedClient := &evidenceClient{rows: map[string][]map[string]any{fieldEnrichmentAQL: {{
-		"record_type": catalog.FieldProfileStatusRecordType, "project": "p", "dataset_generation": "g", "resource_type": "Patient",
+		"record_type": fieldprofile.FieldProfileStatusRecordType, "project": "p", "dataset_generation": "g", "resource_type": "Patient",
 		"enrichment_complete": false, "enrichment_truncated": true,
 	}}}}
 	truncatedStore, _ := New(truncatedClient)

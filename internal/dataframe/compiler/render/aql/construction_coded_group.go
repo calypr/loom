@@ -16,20 +16,20 @@ func (r *physicalPlanRenderer) renderConstructionCodedGroupStage(stage ir.Physic
 	}
 	rootDocument := sourceRootVariable
 	if rootDocument == "" {
-		rootDocument = r.newInternalVariable("construction_coded_group_root")
+		rootDocument = r.navigation().newInternalVariable("construction_coded_group_root")
 	}
-	rawCodings := r.newInternalVariable("construction_coded_group_raw")
-	candidate := r.newInternalVariable("construction_coded_group_candidate")
-	valid := r.newInternalVariable("construction_coded_group_valid")
-	sourceTuples := r.newInternalVariable("construction_coded_group_source_tuples")
-	tuple := r.newInternalVariable("construction_coded_group_tuple")
+	rawCodings := r.navigation().newInternalVariable("construction_coded_group_raw")
+	candidate := r.navigation().newInternalVariable("construction_coded_group_candidate")
+	valid := r.navigation().newInternalVariable("construction_coded_group_valid")
+	sourceTuples := r.navigation().newInternalVariable("construction_coded_group_source_tuples")
+	tuple := r.navigation().newInternalVariable("construction_coded_group_tuple")
 	var rootKeyBind string
 	if sourceRootVariable == "" {
 		rootKeyBind = r.newInternalBindKeyWithValue("construction_coded_group_source_id", coded.SourceIdentityColumn)
 	}
-	systemKeyVariable := r.newInternalVariable("construction_coded_system")
-	versionKeyVariable := r.newInternalVariable("construction_coded_version")
-	codeKeyVariable := r.newInternalVariable("construction_coded_code")
+	systemKeyVariable := r.navigation().newInternalVariable("construction_coded_system")
+	versionKeyVariable := r.navigation().newInternalVariable("construction_coded_version")
+	codeKeyVariable := r.navigation().newInternalVariable("construction_coded_code")
 	rowValuesSource := stage.InputRowVariable
 	lines := make([]string, 0, 24)
 	if sourceRootVariable == "" {
@@ -48,7 +48,7 @@ func (r *physicalPlanRenderer) renderConstructionCodedGroupStage(stage ir.Physic
 		if err != nil {
 			return nil, fmt.Errorf("row value source projection: %w", err)
 		}
-		rowValuesSource = r.newInternalVariable("construction_coded_group_row_values_source")
+		rowValuesSource = r.navigation().newInternalVariable("construction_coded_group_row_values_source")
 		lines = append(lines, fmt.Sprintf("    LET %s = %s", rowValuesSource, projection))
 	}
 	lines = append(lines, fmt.Sprintf("    LET %s = (", rawCodings))
@@ -59,7 +59,7 @@ func (r *physicalPlanRenderer) renderConstructionCodedGroupStage(stage ir.Physic
 			pathExpression = attribute
 			continue
 		}
-		item := r.newInternalVariable(fmt.Sprintf("construction_coded_group_path_%d", index))
+		item := r.navigation().newInternalVariable(fmt.Sprintf("construction_coded_group_path_%d", index))
 		lines = append(lines,
 			fmt.Sprintf("      FOR %s IN (%s == null ? [] : (IS_ARRAY(%s) ? %s : []))", item, attribute, attribute, attribute),
 		)
@@ -69,7 +69,7 @@ func (r *physicalPlanRenderer) renderConstructionCodedGroupStage(stage ir.Physic
 		fmt.Sprintf("        RETURN %s", pathExpression),
 		"    )",
 	)
-	missingCandidates := r.newInternalVariable("construction_coded_group_missing_candidate")
+	missingCandidates := r.navigation().newInternalVariable("construction_coded_group_missing_candidate")
 	lines = append(lines,
 		fmt.Sprintf("    LET %s = (", sourceTuples),
 		fmt.Sprintf("      LET %s = (LENGTH(%s) == 0 ? [null] : %s)", missingCandidates, rawCodings, rawCodings),

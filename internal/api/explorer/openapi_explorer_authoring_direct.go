@@ -19,6 +19,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func directAuthoringJSON[T any](value any) (T, error) {
@@ -264,7 +265,7 @@ func authoringErrorForOpenAPI(ctx context.Context, operation string, err error) 
 	var details map[string]any
 	var cause error = err
 	typed := false
-	var lifecycleErr *lifecycle.Error
+	var lifecycleErr *ports.Error
 	var authoringErr *explorer.AuthoringError
 	hasLifecycleError := errors.As(err, &lifecycleErr)
 	hasAuthoringError := errors.As(err, &authoringErr)
@@ -327,19 +328,19 @@ func authoringErrorForOpenAPI(ctx context.Context, operation string, err error) 
 	return status, loomapi.ErrorResponse{Error: body, Diagnostics: &diagnostics}
 }
 
-func lifecycleErrorStatus(class lifecycle.ErrorClass) int {
+func lifecycleErrorStatus(class ports.ErrorClass) int {
 	switch class {
-	case lifecycle.ClassMalformed:
+	case ports.ClassMalformed:
 		return http.StatusBadRequest
-	case lifecycle.ClassForbidden:
+	case ports.ClassForbidden:
 		return http.StatusForbidden
-	case lifecycle.ClassNotFound:
+	case ports.ClassNotFound:
 		return http.StatusNotFound
-	case lifecycle.ClassConflict:
+	case ports.ClassConflict:
 		return http.StatusConflict
-	case lifecycle.ClassUnprocessable:
+	case ports.ClassUnprocessable:
 		return http.StatusUnprocessableEntity
-	case lifecycle.ClassUnavailable:
+	case ports.ClassUnavailable:
 		return http.StatusServiceUnavailable
 	default:
 		return http.StatusInternalServerError
@@ -359,47 +360,40 @@ func (r *Handlers) ApplyExplorerBuilderCommands(ctx context.Context, request loo
 		if err != nil {
 			return result, explorer.MalformedRouteError("commands", err)
 		}
-		if len(request.Commands) == 1 && request.Commands[0].Type == authoringv2.CommandApplyConstructionProposal {
-			var encoder *previewResponseEncoder
-			sinkFactory := func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
-				var err error
-				encoder, err = newPreviewResponseEncoder(receipt, request.Commands[0].OutputID, columns, maxExplorerPreviewResponseBytes)
-				if err != nil {
-					return nil, err
-				}
-				return encoder.Visit, nil
-			}
-			applied, err := h.application.ApplyCommandsWithConstructionPreview(ctx, project, explorerID, request, authscope.SubjectFromContext(ctx), sinkFactory)
+		var encoder *previewResponseEncoder
+		sinkFactory := func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
+			var err error
+			encoder, err = newPreviewResponseEncoder(receipt, request.Commands[0].OutputID, columns, maxExplorerPreviewResponseBytes)
 			if err != nil {
-				return result, err
+				return nil, err
 			}
-			if applied == nil || applied.Commands == nil {
-				return result, explorer.ExplorerUnavailable("commands", "AUTHORING_UNAVAILABLE", "construction Apply returned no command response")
-			}
-			result, err = directAuthoringJSON[loomapi.ApplyCommandsResponse](applied.Commands)
-			if err != nil {
-				return result, err
-			}
-			if applied.Accepted == nil || encoder == nil || applied.Accepted.Preview.Receipt == nil {
-				return result, nil
-			}
-			preview, err := previewResponseFromEncoder(encoder, applied.Accepted.Preview.Summary)
-			if err != nil {
-				return result, nil
-			}
-			receipt := v2ReceiptResponse(applied.Accepted.Preview.Receipt, applied.Commands.Workspace)
-			result.AcceptedConstruction = &loomapi.AcceptedConstruction{
-				Receipt:      acceptedConstructionReceiptResponse(receipt),
-				Preview:      preview,
-				PreviewLimit: applied.Accepted.PreviewLimit,
-			}
-			return result, nil
+			return encoder.Visit, nil
 		}
-		value, err := h.application.ApplyCommands(ctx, project, explorerID, request, authscope.SubjectFromContext(ctx))
+		applied, err := h.application.ApplyBuilderCommands(ctx, project, explorerID, request, authscope.SubjectFromContext(ctx), sinkFactory)
 		if err != nil {
 			return result, err
 		}
-		return directAuthoringJSON[loomapi.ApplyCommandsResponse](value)
+		if applied == nil || applied.Commands == nil {
+			return result, explorer.ExplorerUnavailable("commands", "AUTHORING_UNAVAILABLE", "construction Apply returned no command response")
+		}
+		result, err = directAuthoringJSON[loomapi.ApplyCommandsResponse](applied.Commands)
+		if err != nil {
+			return result, err
+		}
+		if applied.Accepted == nil || encoder == nil || applied.Accepted.Preview.Receipt == nil {
+			return result, nil
+		}
+		preview, err := previewResponseFromEncoder(encoder, applied.Accepted.Preview.Summary)
+		if err != nil {
+			return result, nil
+		}
+		receipt := v2ReceiptResponse(applied.Accepted.Preview.Receipt, applied.Commands.Workspace)
+		result.AcceptedConstruction = &loomapi.AcceptedConstruction{
+			Receipt:      acceptedConstructionReceiptResponse(receipt),
+			Preview:      preview,
+			PreviewLimit: applied.Accepted.PreviewLimit,
+		}
+		return result, nil
 	}(r, ctx, string(request.Project), string(request.ExplorerId), authResourcePathFromParam(request.Params.AuthResourcePath), request.Body)
 	if err == nil {
 		return loomapi.ApplyExplorerBuilderCommands200JSONResponse(value), nil
@@ -696,7 +690,7 @@ func (r *Handlers) PreviewInterpretationCandidate(ctx context.Context, request l
 			OutputID: body.OutputId, Column: body.Column, RevisionID: body.RevisionId, Limit: limit,
 		})
 		if err != nil {
-			var lifecycleErr *lifecycle.Error
+			var lifecycleErr *ports.Error
 			if errors.As(err, &lifecycleErr) {
 				return result, err
 			}

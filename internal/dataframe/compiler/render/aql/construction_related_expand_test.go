@@ -9,11 +9,11 @@ import (
 )
 
 func TestRelatedExpandEmptyErrorUsesStableConstructionCode(t *testing.T) {
-	renderer := &physicalPlanRenderer{
+	renderer := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       map[string]any{},
 		reservedVars:   map[string]struct{}{},
 		internalPrefix: "test_",
-	}
+	}}
 	stage := ir.PhysicalConstructionStage{
 		InputRowVariable:  "input_row",
 		OutputRowVariable: "output_row",
@@ -38,7 +38,7 @@ func TestRelatedExpandEmptyErrorUsesStableConstructionCode(t *testing.T) {
 		},
 	}
 
-	lines, err := renderer.renderConstructionRelatedExpandStage(stage, "")
+	lines, err := renderer.navigation().renderConstructionRelatedExpandStage(stage, "")
 	if err != nil {
 		t.Fatal(err)
 	}

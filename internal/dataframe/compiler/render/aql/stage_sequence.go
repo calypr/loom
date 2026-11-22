@@ -26,9 +26,10 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	sourcePlan := ir.ClonePhysicalPlan(plan)
 	sourcePlan.StageSequence = nil
 	sourcePlan.PreviewSourceWindowByRootID = sequence.PreviewSourceWindowByRootID && sequence.PreviewLimitBindKey != ""
-	inlineCodedGroupRoot := codedGroupSourceRootVariable(sourcePlan, sequence, stages, options)
-	inlineCodedPivotRoot := codedPivotSourceRootVariable(sourcePlan, sequence, stages, options)
-	inlineStreamingPivotRoot := streamingMissingCategoryPivotSourceRootVariable(sourcePlan, sequence, stages, options)
+	sourceRenderer := stageSourceRenderer{plan: sourcePlan, sequence: sequence, stages: stages, options: options}
+	inlineCodedGroupRoot := sourceRenderer.codedGroupSourceRootVariable()
+	inlineCodedPivotRoot := sourceRenderer.codedPivotSourceRootVariable()
+	inlineStreamingPivotRoot := sourceRenderer.streamingMissingCategoryPivotSourceRootVariable()
 	if options.streamingMissingCategoryPivotPreview && inlineStreamingPivotRoot == "" {
 		return RenderedPhysicalPlan{}, fmt.Errorf("streaming missing-category Pivot preview source proof failed")
 	}
@@ -49,7 +50,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			return RenderedPhysicalPlan{}, err
 		}
 	}
-	inlineGroupSourceRow := groupSourceRowVariable(sourcePlan, sequence, stages, options)
+	inlineGroupSourceRow := sourceRenderer.groupSourceRowVariable()
 	groupRowValueWindowPlan, groupRowValueWindowShape, hasGroupRowValueWindow := terminalGroupRowValuePreviewWindowFor(
 		plan, sourcePlan, sequence, options, hasRelatedGroupPreview,
 	)
@@ -131,18 +132,18 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		if !ok {
 			return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview requires one simple terminal Pivot")
 		}
-		allocator := physicalPlanRenderer{
+		allocator := physicalPlanRenderer{renderContext: renderContext{
 			bindVars:       runtimePhysicalBindVars(plan.BindVars, collectionKeys),
 			collectionKeys: collectionKeys,
 			reservedVars:   reservedVars,
 			internalPrefix: "construction_",
-		}
-		selectedGroupKeysVariable = allocator.newInternalVariable("reshape_preview_selected_group_keys")
-		groupKeySourceVariable = allocator.newInternalVariable("reshape_preview_key_row")
-		groupIdentityVariable = allocator.newInternalVariable("reshape_preview_identity")
+		}}
+		selectedGroupKeysVariable = allocator.navigation().newInternalVariable("reshape_preview_selected_group_keys")
+		groupKeySourceVariable = allocator.navigation().newInternalVariable("reshape_preview_key_row")
+		groupIdentityVariable = allocator.navigation().newInternalVariable("reshape_preview_identity")
 		groupKeyVariables = make([]string, len(pivot.GroupKeys))
 		for index := range groupKeyVariables {
-			groupKeyVariables[index] = allocator.newInternalVariable(fmt.Sprintf("reshape_preview_group_key_%d", index+1))
+			groupKeyVariables[index] = allocator.navigation().newInternalVariable(fmt.Sprintf("reshape_preview_group_key_%d", index+1))
 		}
 		keyPlan, keyErr := terminalPivotGroupKeySourcePlan(sourcePlan, pivot)
 		if keyErr != nil {
@@ -230,7 +231,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		}
 		presenceMarkerRows["__loom_construction_final_row"] = struct{}{}
 	}
-	renderer := physicalPlanRenderer{
+	renderer := physicalPlanRenderer{renderContext: renderContext{
 		bindVars:                             bindVars,
 		collectionKeys:                       collectionKeys,
 		setVariables:                         map[string]string{},
@@ -245,7 +246,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		projectionPresenceMarkerColumn:       options.projectionPresenceMarkerColumn,
 		projectionPresenceMarkerRows:         presenceMarkerRows,
 		previewGroupIdentityFilter:           options.previewGroupIdentityFilter,
-	}
+	}}
 	relatedExpandPreviewStageIndex, hasRelatedExpandPreviewStage := terminalRelatedExpandPreviewStage(sequence)
 	if options.omitTerminalRowSort || options.terminalProjectionColumn != "" || options.projectionPresenceMarkerColumn != "" ||
 		options.twoScanPivotPreview || options.dynamicPivotPreview || options.streamingMissingCategoryPivotPreview {
@@ -261,7 +262,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		}
 	}
 	if sequence.RowLineageReturn != nil {
-		return renderer.renderConstructionRowLineage(source.Query, stages, *sequence.RowLineageReturn)
+		return renderer.rowLineage().renderConstructionRowLineage(source.Query, stages, *sequence.RowLineageReturn)
 	}
 
 	lines := make([]string, 0, 16)
@@ -301,238 +302,20 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	} else {
 		priorRows = ""
 	}
-	for index, stage := range stages {
-		stageRows := fmt.Sprintf("__loom_construction_stage_%d", index+1)
-		lines = append(lines, fmt.Sprintf("LET %s = (", stageRows))
-		inlineCodedPivotStage := index == 0 && inlineCodedPivotRoot != "" && stage.Kind == ir.PhysicalStagePivotOp
-		inlineStreamingPivotStage := index == 0 && inlineStreamingPivotRoot != "" && stage.Kind == ir.PhysicalStagePivotOp
-		if inlineSourceIntoFirstStage && index == 0 {
-			for _, line := range strings.Split(strings.TrimSuffix(source.Query, "\n"), "\n") {
-				lines = append(lines, "  "+line)
-			}
-		}
-		if stage.Kind == ir.PhysicalStageGroupOp {
-			rendered, renderErr := renderer.renderConstructionGroupStage(stage, constructionGroupInput{
-				RowsVariable:     priorRows,
-				SourceRowInScope: inlineGroupSourceRow != "" && index == 0,
-			})
-			if renderErr != nil {
-				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q group: %w", stage.ID, renderErr)
-			}
-			lines = append(lines, rendered...)
-			lines = append(lines, ")")
-			priorRows = stageRows
-			continue
-		}
-		if stage.Kind == ir.PhysicalStageCodedGroupOp {
-			rootVariable := ""
-			if inlineCodedGroupRoot != "" && index == 0 {
-				rootVariable = inlineCodedGroupRoot
-			}
-			rendered, renderErr := renderer.renderConstructionCodedGroupStage(stage, priorRows, rootVariable)
-			if renderErr != nil {
-				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q coded group: %w", stage.ID, renderErr)
-			}
-			lines = append(lines, rendered...)
-			lines = append(lines, ")")
-			priorRows = stageRows
-			continue
-		}
-		if stage.Kind == ir.PhysicalStageCohortGroupOp {
-			rendered, renderErr := renderer.renderConstructionCohortGroupStage(stage, priorRows)
-			if renderErr != nil {
-				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q cohort group: %w", stage.ID, renderErr)
-			}
-			lines = append(lines, rendered...)
-			lines = append(lines, ")")
-			priorRows = stageRows
-			continue
-		}
-		if !inlineCodedPivotStage && !inlineStreamingPivotStage {
-			lines = append(lines, fmt.Sprintf("  FOR %s IN %s", stage.InputRowVariable, priorRows))
-		}
-		if hasRelatedGroupPreview && options.previewGroupIdentityFilter != nil &&
-			options.previewGroupIdentityFilter.StageIndex == index {
-			filter := options.previewGroupIdentityFilter
-			lines = append(lines, fmt.Sprintf(
-				"  FILTER !%s OR %s[@%s] IN %s", filter.BoundedVariable, stage.InputRowVariable,
-				filter.ColumnBindKey, filter.SelectedGroupIdentities,
-			))
-		}
-		switch stage.Kind {
-		case ir.PhysicalStagePivotOp:
-			if stage.GroupedPivot == nil {
-				return RenderedPhysicalPlan{}, fmt.Errorf("stage %q is missing grouped pivot payload", stage.ID)
-			}
-
-			previewLimitBindKey := ""
-			if sequence.PreviewTerminalPivotWindow && index == len(stages)-1 && !options.twoScanPivotPreview {
-				previewLimitBindKey = sequence.PreviewLimitBindKey
-			}
-			if inlineCodedPivotStage && stage.GroupedPivot.CodedSourceVariable != inlineCodedPivotRoot {
-				return RenderedPhysicalPlan{}, fmt.Errorf("coded Pivot source variable differs from the inlined root scan")
-			}
-			rendered, renderErr := renderer.renderGroupedTablePivot(*stage.GroupedPivot, !stage.GroupedPivot.OneInputRowPerGroup, previewLimitBindKey)
-			if renderErr != nil {
-				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q pivot: %w", stage.ID, renderErr)
-			}
-			lines = appendIndented(lines, rendered)
-			lines = append(lines, "  RETURN "+stage.OutputRowVariable)
-		case ir.PhysicalStageUnpivotOp:
-			if stage.Unpivot == nil {
-				return RenderedPhysicalPlan{}, fmt.Errorf("stage %q is missing unpivot payload", stage.ID)
-			}
-			rendered, renderErr := renderer.renderTableUnpivot(*stage.Unpivot)
-			if renderErr != nil {
-				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q unpivot: %w", stage.ID, renderErr)
-			}
-			lines = appendIndented(lines, rendered)
-			lines = append(lines, "  RETURN "+stage.OutputRowVariable)
-		case ir.PhysicalStageExpandOp:
-			rendered, renderErr := renderer.renderConstructionExpandStage(stage)
-			if renderErr != nil {
-				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q expand: %w", stage.ID, renderErr)
-			}
-			lines = appendIndented(lines, rendered)
-		case ir.PhysicalStageRelatedExpandOp:
-			previewLimitBindKey := ""
-			if index == relatedExpandPreviewStageIndex {
-				previewLimitBindKey = relatedExpandPreviewLimitBindKey
-			}
-			rendered, renderErr := renderer.renderConstructionRelatedExpandStage(stage, previewLimitBindKey)
-			if renderErr != nil {
-				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q related expansion: %w", stage.ID, renderErr)
-			}
-			lines = appendIndented(lines, rendered)
-		case ir.PhysicalStageDeriveOp, ir.PhysicalStageFilterOp, ir.PhysicalStageRelatedEligibilityOp, ir.PhysicalStageRelatedSourceOp, ir.PhysicalStageRelatedFieldOp:
-			for operationIndex, operation := range stage.DerivedLets {
-				if operation.Kind != ir.PhysicalExpressionLetOp {
-					return RenderedPhysicalPlan{}, fmt.Errorf("stage %q derived operation %d has kind %q", stage.ID, operationIndex, operation.Kind)
-				}
-				rendered, renderErr := renderer.renderExpressionLet(operation, "  ")
-				if renderErr != nil {
-					return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q derived operation %d: %w", stage.ID, operationIndex, renderErr)
-				}
-				lines = append(lines, rendered...)
-			}
-			if stage.Filter != nil {
-				rendered, renderErr := renderer.renderScopeOperation(ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: stage.Filter}, "  ")
-				if renderErr != nil {
-					return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q filter: %w", stage.ID, renderErr)
-				}
-				lines = append(lines, rendered...)
-			}
-			object, renderErr := renderer.renderReturn(ir.PhysicalReturn{Projections: stage.OutputProjections})
-			if renderErr != nil {
-				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q output row: %w", stage.ID, renderErr)
-			}
-			lines = append(lines, fmt.Sprintf("  LET %s = %s", stage.OutputRowVariable, object))
-			lines = append(lines, "  RETURN "+stage.OutputRowVariable)
-		default:
-			return RenderedPhysicalPlan{}, fmt.Errorf("stage %q has unsupported operation %q", stage.ID, stage.Kind)
-		}
-		lines = append(lines, ")")
-		priorRows = stageRows
+	render := stageSequenceRendering{
+		renderer: &renderer, sequence: sequence, stages: stages, options: options, source: source,
+		inlineSourceIntoFirstStage: inlineSourceIntoFirstStage, inlineCodedGroupRoot: inlineCodedGroupRoot,
+		inlineGroupSourceRow: inlineGroupSourceRow, inlineCodedPivotRoot: inlineCodedPivotRoot,
+		inlineStreamingPivotRoot: inlineStreamingPivotRoot, hasRelatedGroupPreview: hasRelatedGroupPreview,
+		relatedExpandPreviewStageIndex: relatedExpandPreviewStageIndex, relatedExpandPreviewLimitBindKey: relatedExpandPreviewLimitBindKey,
 	}
-	finalRow := "__loom_construction_final_row"
-	if hasRelatedGroupPreview && options.previewGroupIdentityFilter != nil && options.previewGroupIdentityFilter.StageIndex < 0 {
-		groupRows := renderer.newInternalVariable("related_group_preview_filtered_rows")
-		lines = append(lines, fmt.Sprintf("LET %s = (", groupRows))
-		lines = append(lines, fmt.Sprintf("  FOR %s IN %s", finalRow, priorRows))
-		filter := options.previewGroupIdentityFilter
-		lines = append(lines, fmt.Sprintf(
-			"  FILTER !%s OR %s[@%s] IN %s", filter.BoundedVariable, finalRow,
-			filter.ColumnBindKey, filter.SelectedGroupIdentities,
-		))
-		lines = append(lines, "  RETURN "+finalRow, ")")
-		priorRows = groupRows
-	}
-	lines = append(lines, fmt.Sprintf("FOR %s IN %s", finalRow, priorRows))
-	if !options.omitTerminalRowSort && (len(stages) == 0 || stages[len(stages)-1].Kind != ir.PhysicalStageGroupOp && stages[len(stages)-1].Kind != ir.PhysicalStageCohortGroupOp) {
-		lines = append(lines, fmt.Sprintf("SORT %s.%s ASC", finalRow, sequence.FinalRowIdentity))
-	}
-	if sequence.PreviewLimitBindKey != "" {
-		lines = append(lines, "LIMIT @"+sequence.PreviewLimitBindKey)
-	}
-	projectionCapacity := len(sequence.FinalColumns)
-	if options.terminalProjectionColumn != "" {
-		projectionCapacity = 1
-	}
-	projections := make([]ir.PhysicalProjection, 0, projectionCapacity)
-	for _, column := range sequence.FinalColumns {
-		if column.Name == sequence.OutputAuthResourcePathColumn {
-			continue
-		}
-		if options.terminalProjectionColumn != "" && column.Name != options.terminalProjectionColumn {
-			continue
-		}
-		if column.Name == "auth_resource_path" && sequence.OutputAuthResourcePathBindKey != "" {
-			return RenderedPhysicalPlan{}, fmt.Errorf("final stage already declares the reserved authorization path column")
-		}
-		projection := ir.PhysicalProjection{
-			Name: column.Name, Hidden: column.Internal,
-			Value: ir.PhysicalValue{Variable: finalRow, Path: []string{column.Name}},
-		}
-		if options.terminalProjectionColumn != "" {
-			projection.Presence = &ir.PhysicalProjectionPresence{
-				Source: ir.PhysicalValue{Variable: finalRow}, Paths: [][]string{{column.Name}},
-			}
-		}
-		projections = append(projections, projection)
-	}
-	if sequence.OutputAuthResourcePathBindKey != "" && options.terminalProjectionColumn == "" {
-		projections = append(projections, ir.PhysicalProjection{
-			Name: "auth_resource_path", Hidden: true,
-			Value: ir.PhysicalValue{BindKey: sequence.OutputAuthResourcePathBindKey},
-		})
-	}
-	if sequence.OutputAuthResourcePathColumn != "" && options.terminalProjectionColumn == "" {
-		projections = append(projections, ir.PhysicalProjection{Name: "auth_resource_path", Hidden: true, Value: ir.PhysicalValue{Variable: finalRow, Path: []string{sequence.OutputAuthResourcePathColumn}}})
-	}
-	returned, err := renderer.renderReturn(ir.PhysicalReturn{Projections: projections})
+	lines, priorRows, err = render.renderStages(lines, priorRows)
 	if err != nil {
-		return RenderedPhysicalPlan{}, fmt.Errorf("render final stage output: %w", err)
+		return RenderedPhysicalPlan{}, err
 	}
-	if sequence.PopulationMappingReturn != nil {
-		mappingLines := renderer.renderConstructionPopulationMappingReturn(*sequence.PopulationMappingReturn, constructionSourceVariable, finalRow)
-		lines = append(lines, mappingLines...)
-	} else if sequence.CellTraceReturn != nil {
-		terminal := *sequence.CellTraceReturn
-		terminal.Value = ir.PhysicalExpression{
-			Kind:  ir.PhysicalValueExpression,
-			Value: &ir.PhysicalValue{Variable: finalRow, Path: []string{terminal.Construction.OutputColumn}},
-		}
-		identity := ir.PhysicalExpression{
-			Kind:  ir.PhysicalValueExpression,
-			Value: &ir.PhysicalValue{Variable: finalRow, Path: []string{terminal.Construction.RowIdentityColumn}},
-		}
-		identityFields := terminal.Construction.RowIdentityFields
-		if len(identityFields) == 1 && identityFields[0] == terminal.Construction.RowIdentityColumn && terminal.Construction.RowIdentityColumn == "__loom_row_id" {
-			terminal.ExplicitIdentity = &identity
-			terminal.IdentityParts = nil
-		} else if len(identityFields) == 2 && identityFields[0] == "project" && identityFields[1] == "_key" && terminal.Construction.RowIdentityColumn == "_key" {
-			terminal.ExplicitIdentity = nil
-			terminal.IdentityParts = []ir.PhysicalPopulationMappingIdentityPart{
-				{Name: "project", Expression: ir.PhysicalExpression{
-					Kind: ir.PhysicalValueExpression, Value: &ir.PhysicalValue{BindKey: "project"},
-				}},
-				{Name: "_key", Expression: identity},
-			}
-		} else if len(identityFields) == 1 && identityFields[0] == terminal.Construction.RowIdentityColumn {
-			terminal.ExplicitIdentity = nil
-			terminal.IdentityParts = []ir.PhysicalPopulationMappingIdentityPart{{
-				Name: terminal.Construction.RowIdentityColumn, Expression: identity,
-			}}
-		} else {
-			return RenderedPhysicalPlan{}, fmt.Errorf("construction trace has an unsupported published row identity")
-		}
-		traceLines, traceErr := renderer.renderCellTraceReturn(terminal)
-		if traceErr != nil {
-			return RenderedPhysicalPlan{}, fmt.Errorf("render construction cell trace: %w", traceErr)
-		}
-		lines = append(lines, traceLines...)
-	} else {
-		lines = append(lines, "RETURN "+returned)
+	lines, err = render.renderFinal(lines, priorRows)
+	if err != nil {
+		return RenderedPhysicalPlan{}, err
 	}
 	query := strings.Join(lines, "\n") + "\n"
 	return RenderedPhysicalPlan{
@@ -541,7 +324,15 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	}, nil
 }
 
-func groupSourceRowVariable(sourcePlan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, stages []ir.PhysicalConstructionStage, options physicalRenderOptions) string {
+type stageSourceRenderer struct {
+	plan     ir.PhysicalPlan
+	sequence *ir.PhysicalStageSequence
+	stages   []ir.PhysicalConstructionStage
+	options  physicalRenderOptions
+}
+
+func (source stageSourceRenderer) groupSourceRowVariable() string {
+	sourcePlan, sequence, stages, options := source.plan, source.sequence, source.stages, source.options
 	if sequence == nil || len(stages) != 1 || sequence.RowLineageReturn != nil || sequence.CellTraceReturn != nil ||
 		sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow || sequence.OutputAuthResourcePathBindKey != "" ||
 		options.omitTerminalReturn || options.terminalReturnVariable != "" || options.terminalProjectionColumn != "" ||
@@ -604,7 +395,8 @@ func groupSourceRowVariable(sourcePlan ir.PhysicalPlan, sequence *ir.PhysicalSta
 	return stage.InputRowVariable
 }
 
-func codedGroupSourceRootVariable(sourcePlan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, stages []ir.PhysicalConstructionStage, options physicalRenderOptions) string {
+func (source stageSourceRenderer) codedGroupSourceRootVariable() string {
+	sourcePlan, sequence, stages, options := source.plan, source.sequence, source.stages, source.options
 	if sequence == nil || len(stages) == 0 || sequence.RowLineageReturn != nil || sequence.CellTraceReturn != nil ||
 		options.terminalProjectionColumn != "" || options.projectionPresenceMarkerColumn != "" ||
 		len(options.preserveProjectionPresenceNames) != 0 || options.twoScanPivotPreview ||
@@ -643,7 +435,8 @@ func codedGroupSourceRootVariable(sourcePlan ir.PhysicalPlan, sequence *ir.Physi
 	return root.Variable
 }
 
-func codedPivotSourceRootVariable(sourcePlan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, stages []ir.PhysicalConstructionStage, options physicalRenderOptions) string {
+func (source stageSourceRenderer) codedPivotSourceRootVariable() string {
+	sourcePlan, sequence, stages, options := source.plan, source.sequence, source.stages, source.options
 	if sequence == nil || len(stages) == 0 || sequence.RowLineageReturn != nil || sequence.CellTraceReturn != nil ||
 		options.terminalProjectionColumn != "" || options.projectionPresenceMarkerColumn != "" ||
 		len(options.preserveProjectionPresenceNames) != 0 || options.twoScanPivotPreview ||
@@ -684,7 +477,8 @@ func codedPivotSourceRootVariable(sourcePlan ir.PhysicalPlan, sequence *ir.Physi
 	return root.Variable
 }
 
-func streamingMissingCategoryPivotSourceRootVariable(sourcePlan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, stages []ir.PhysicalConstructionStage, options physicalRenderOptions) string {
+func (source stageSourceRenderer) streamingMissingCategoryPivotSourceRootVariable() string {
+	sourcePlan, sequence, stages, options := source.plan, source.sequence, source.stages, source.options
 	if sequence == nil || !options.streamingMissingCategoryPivotPreview || len(stages) != 1 ||
 		sequence.RowLineageReturn != nil || sequence.CellTraceReturn != nil || sequence.PopulationMappingReturn != nil ||
 		sequence.PreviewSourceWindowByRootID || sequence.OutputAuthResourcePathBindKey != "" ||
@@ -1380,14 +1174,14 @@ func renderTerminalPivotGroupIdentitySelection(sourceQuery string, pivot ir.Phys
 	}
 	groupKeyValues := make([]string, 0, len(pivot.GroupKeys))
 	collectKeys := make([]string, 0, len(pivot.GroupKeys))
-	renderer := physicalPlanRenderer{bindVars: bindVars, collectionKeys: collectionKeys, internalPrefix: "construction_"}
+	renderer := physicalPlanRenderer{renderContext: renderContext{bindVars: bindVars, collectionKeys: collectionKeys, internalPrefix: "construction_"}}
 	for index, key := range pivot.GroupKeys {
 		groupKeyValues = append(groupKeyValues, groupKeyVariables[index])
 		columnBind := renderer.newInternalBindKey("reshape_preview_group_column")
 		renderer.bindVars[columnBind] = key.Column
 		collectKeys = append(collectKeys, fmt.Sprintf("%s = %s[@%s]", groupKeyVariables[index], sourceVariable, columnBind))
 	}
-	identity, err := renderer.renderGroupedPivotIdentity(pivot, groupKeyValues)
+	identity, err := renderer.tableShape().renderGroupedPivotIdentity(pivot, groupKeyValues)
 	if err != nil {
 		return nil, fmt.Errorf("render terminal Pivot group identity selection: %w", err)
 	}

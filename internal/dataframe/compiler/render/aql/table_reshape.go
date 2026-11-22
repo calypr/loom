@@ -8,7 +8,16 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-func (r *physicalPlanRenderer) renderTableReshape(operation ir.PhysicalOperation) ([]string, error) {
+type tableShapeRenderer struct {
+	*renderContext
+	core *physicalPlanRenderer
+}
+
+func (r *physicalPlanRenderer) tableShape() tableShapeRenderer {
+	return tableShapeRenderer{renderContext: &r.renderContext, core: r}
+}
+
+func (r tableShapeRenderer) renderTableReshape(operation ir.PhysicalOperation) ([]string, error) {
 	switch operation.Kind {
 	case ir.PhysicalGroupedPivotOp:
 		if operation.GroupedPivot == nil {
@@ -25,7 +34,7 @@ func (r *physicalPlanRenderer) renderTableReshape(operation ir.PhysicalOperation
 	}
 }
 
-func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedPivot, sortGroups bool, previewLimitBindKey string) ([]string, error) {
+func (r tableShapeRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedPivot, sortGroups bool, previewLimitBindKey string) ([]string, error) {
 	var err error
 	var input string
 	var inputLines []string
@@ -37,7 +46,7 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		}
 	}
 	if scalarInputs == nil {
-		input, err = r.renderReturn(ir.PhysicalReturn{Projections: pivot.InputProjections})
+		input, err = r.core.renderReturn(ir.PhysicalReturn{Projections: pivot.InputProjections})
 		if err != nil {
 			return nil, err
 		}
@@ -48,9 +57,9 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	}
 	categoryColumnBind, valueColumnBind := "", ""
 	if pivot.CodedCorrelation == nil && scalarInputs == nil {
-		categoryColumnBind = r.newInternalBindKey("reshape_category_column")
+		categoryColumnBind = r.core.newInternalBindKey("reshape_category_column")
 		r.bindVars[categoryColumnBind] = pivot.CategoryColumn
-		valueColumnBind = r.newInternalBindKey("reshape_value_column")
+		valueColumnBind = r.core.newInternalBindKey("reshape_value_column")
 		r.bindVars[valueColumnBind] = pivot.ValueColumn
 	}
 	categoryTypeBind := ""
@@ -59,14 +68,14 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		if err != nil {
 			return nil, err
 		}
-		categoryTypeBind = r.newInternalBindKey("reshape_category_type")
+		categoryTypeBind = r.core.newInternalBindKey("reshape_category_type")
 		r.bindVars[categoryTypeBind] = categoryType
 	}
 	valueType, err := aqlTableScalarType(pivot.ValueType)
 	if err != nil {
 		return nil, err
 	}
-	valueTypeBind := r.newInternalBindKey("reshape_value_type")
+	valueTypeBind := r.core.newInternalBindKey("reshape_value_type")
 	r.bindVars[valueTypeBind] = valueType
 	categoryPresenceBind := ""
 	if pivot.CategoryPresence != nil && scalarInputs == nil {
@@ -74,12 +83,12 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		if err != nil {
 			return nil, fmt.Errorf("category presence: %w", err)
 		}
-		presenceNameBind := r.newInternalBindKey("reshape_category_presence_column")
+		presenceNameBind := r.core.newInternalBindKey("reshape_category_presence_column")
 		r.bindVars[presenceNameBind] = pivot.CategoryPresenceColumn
 		categoryPresenceBind = presenceNameBind
 		input = fmt.Sprintf("MERGE(%s, {[@%s]: %s})", input, presenceNameBind, presence)
 	} else if pivot.CategoryPresenceFromInput && scalarInputs == nil {
-		presenceNameBind := r.newInternalBindKey("reshape_category_presence_column")
+		presenceNameBind := r.core.newInternalBindKey("reshape_category_presence_column")
 		r.bindVars[presenceNameBind] = pivot.CategoryPresenceColumn
 		categoryPresenceBind = presenceNameBind
 	}
@@ -97,7 +106,7 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 			}
 			collect = append(collect, fmt.Sprintf("%s = %s", key.Variable, value))
 		} else {
-			columnBind := r.newInternalBindKey(fmt.Sprintf("reshape_group_column_%d", index))
+			columnBind := r.core.newInternalBindKey(fmt.Sprintf("reshape_group_column_%d", index))
 			r.bindVars[columnBind] = key.Column
 			collect = append(collect, fmt.Sprintf("%s = %s[@%s]", key.Variable, pivot.InputRowVariable, columnBind))
 			if pivot.OneInputRowPerGroup {
@@ -128,7 +137,7 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		if identityErr != nil {
 			return nil, identityErr
 		}
-		previewIdentityVariable = r.newInternalVariable("reshape_preview_identity")
+		previewIdentityVariable = r.core.navigation().newInternalVariable("reshape_preview_identity")
 		lines = append(lines,
 			fmt.Sprintf("  LET %s = %s", previewIdentityVariable, identity),
 			fmt.Sprintf("  SORT %s ASC", previewIdentityVariable),
@@ -142,15 +151,15 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	if pivot.OneInputRowPerGroup {
 		rowValueRows = "[" + pivot.InputRowVariable + "]"
 	}
-	rowValueLines, rowValueErr := r.renderConstructionRowValueLets(pivot.RowValues, rowValueRows, "")
+	rowValueLines, rowValueErr := r.core.renderConstructionRowValueLets(pivot.RowValues, rowValueRows, "")
 	if rowValueErr != nil {
 		return nil, rowValueErr
 	}
 	lines = append(lines, rowValueLines...)
 	if pivot.RootContributorInputColumn != "" {
-		columnBind := r.newInternalBindKey("pivot_root_contributor_column")
+		columnBind := r.core.newInternalBindKey("pivot_root_contributor_column")
 		r.bindVars[columnBind] = pivot.RootContributorInputColumn
-		contributorRows := r.newInternalVariable("pivot_root_contributor_row")
+		contributorRows := r.core.navigation().newInternalVariable("pivot_root_contributor_row")
 		contributorValue := fmt.Sprintf("%s[@%s]", contributorRows, columnBind)
 		if !pivot.RootContributorInputMany {
 			contributorValue = "[" + contributorValue + "]"
@@ -188,14 +197,14 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		})
 	}
 	for index, category := range pivot.Categories {
-		cellVariable := r.newInternalVariable(fmt.Sprintf("reshape_cell_%d", index))
-		valueVariable := r.newInternalVariable(fmt.Sprintf("reshape_cell_value_%d", index))
-		valuesVariable := r.newInternalVariable(fmt.Sprintf("reshape_values_%d", index))
-		typedValuesVariable := r.newInternalVariable(fmt.Sprintf("reshape_typed_values_%d", index))
+		cellVariable := r.core.navigation().newInternalVariable(fmt.Sprintf("reshape_cell_%d", index))
+		valueVariable := r.core.navigation().newInternalVariable(fmt.Sprintf("reshape_cell_value_%d", index))
+		valuesVariable := r.core.navigation().newInternalVariable(fmt.Sprintf("reshape_values_%d", index))
+		typedValuesVariable := r.core.navigation().newInternalVariable(fmt.Sprintf("reshape_typed_values_%d", index))
 		matchVariable := ""
 		matchRowVariable := cellVariable
 		if pivot.OneInputRowPerGroup {
-			matchVariable = r.newInternalVariable(fmt.Sprintf("reshape_category_match_%d", index))
+			matchVariable = r.core.navigation().newInternalVariable(fmt.Sprintf("reshape_category_match_%d", index))
 			matchRowVariable = pivot.InputRowVariable
 		}
 		match, err := groupedPivotCategoryMatchPredicate(category, matchRowVariable, categoryColumnBind, categoryPresenceBind, categoryTypeBind)
@@ -234,13 +243,13 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		default:
 			return nil, fmt.Errorf("unsupported grouped pivot duplicate policy %q", pivot.DuplicatePolicy)
 		}
-		cellValueVariable := r.newInternalVariable(fmt.Sprintf("reshape_cell_result_%d", index))
+		cellValueVariable := r.core.navigation().newInternalVariable(fmt.Sprintf("reshape_cell_result_%d", index))
 		lines = append(lines, fmt.Sprintf("  LET %s = %s", cellValueVariable, cellValue))
 		outputProjections = append(outputProjections, ir.PhysicalProjection{Name: category.Output, Value: ir.PhysicalValue{Variable: cellValueVariable}})
 	}
 	for index, category := range pivot.CodedCategories {
-		valuesVariable := r.newInternalVariable(fmt.Sprintf("reshape_coded_values_%d", index))
-		typedValuesVariable := r.newInternalVariable(fmt.Sprintf("reshape_coded_typed_values_%d", index))
+		valuesVariable := r.core.navigation().newInternalVariable(fmt.Sprintf("reshape_coded_values_%d", index))
+		typedValuesVariable := r.core.navigation().newInternalVariable(fmt.Sprintf("reshape_coded_typed_values_%d", index))
 		correlation := *pivot.CodedCorrelation
 		correlation.SystemBindKey, correlation.CodeBindKey = category.SystemBindKey, category.CodeBindKey
 		values, err := r.renderCodedPivotCategoryValues(correlation)
@@ -271,14 +280,14 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		default:
 			return nil, fmt.Errorf("unsupported coded Pivot duplicate policy %q", pivot.DuplicatePolicy)
 		}
-		cellValueVariable := r.newInternalVariable(fmt.Sprintf("reshape_coded_cell_result_%d", index))
+		cellValueVariable := r.core.navigation().newInternalVariable(fmt.Sprintf("reshape_coded_cell_result_%d", index))
 		lines = append(lines, fmt.Sprintf("  LET %s = %s", cellValueVariable, cellValue))
 		outputProjections = append(outputProjections, ir.PhysicalProjection{Name: category.Output, Value: ir.PhysicalValue{Variable: cellValueVariable}})
 	}
 
 	if pivot.UnlistedCategoryPolicy == "EXCLUDE_WITH_EVIDENCE" {
-		unlistedVariable := r.newInternalVariable("reshape_unlisted_count")
-		itemVariable := r.newInternalVariable("reshape_unlisted_item")
+		unlistedVariable := r.core.navigation().newInternalVariable("reshape_unlisted_count")
+		itemVariable := r.core.navigation().newInternalVariable("reshape_unlisted_item")
 		if pivot.OneInputRowPerGroup {
 			itemVariable = pivot.InputRowVariable
 		}
@@ -294,8 +303,8 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		}
 		outputProjections = append(outputProjections, ir.PhysicalProjection{Name: pivot.UnlistedEvidenceColumn, Value: ir.PhysicalValue{Variable: unlistedVariable}})
 	} else if pivot.UnlistedCategoryPolicy == "ERROR" {
-		unlistedVariable := r.newInternalVariable("reshape_unlisted_count")
-		itemVariable := r.newInternalVariable("reshape_unlisted_item")
+		unlistedVariable := r.core.navigation().newInternalVariable("reshape_unlisted_count")
+		itemVariable := r.core.navigation().newInternalVariable("reshape_unlisted_item")
 		if pivot.OneInputRowPerGroup {
 			itemVariable = pivot.InputRowVariable
 		}
@@ -323,11 +332,11 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		if identityErr != nil {
 			return nil, identityErr
 		}
-		identityVariable = r.newInternalVariable("reshape_identity")
+		identityVariable = r.core.navigation().newInternalVariable("reshape_identity")
 		lines = append(lines, fmt.Sprintf("  LET %s = %s", identityVariable, identity))
 	}
 	outputProjections = append(outputProjections, ir.PhysicalProjection{Name: "__loom_row_id", Value: ir.PhysicalValue{Variable: identityVariable}})
-	output, err := r.renderReturn(ir.PhysicalReturn{Projections: outputProjections})
+	output, err := r.core.renderReturn(ir.PhysicalReturn{Projections: outputProjections})
 	if err != nil {
 		return nil, err
 	}
@@ -335,37 +344,37 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	return lines, nil
 }
 
-func (r *physicalPlanRenderer) renderCodedPivotCategoryValues(correlation ir.PhysicalCorrelation) (string, error) {
+func (r tableShapeRenderer) renderCodedPivotCategoryValues(correlation ir.PhysicalCorrelation) (string, error) {
 	if correlation.SystemBindKey == "" || correlation.CodeBindKey == "" {
 		return "", fmt.Errorf("coded category requires system and code binds")
 	}
-	owners, err := r.renderCorrelationOwners(correlation.Source, correlation.OwnerSelector)
+	owners, err := r.core.renderCorrelationOwners(correlation.Source, correlation.OwnerSelector)
 	if err != nil {
 		return "", err
 	}
-	owner := r.newInternalVariable("coded_pivot_owner")
-	coding := r.newInternalVariable("coded_pivot_coding")
-	codings, err := r.renderSelectorArrayFromSource(owner, correlation.KeySelector, false, false)
+	owner := r.core.navigation().newInternalVariable("coded_pivot_owner")
+	coding := r.core.navigation().newInternalVariable("coded_pivot_coding")
+	codings, err := r.core.renderSelectorArrayFromSource(owner, correlation.KeySelector, false, false)
 	if err != nil {
 		return "", fmt.Errorf("correlation key selector: %w", err)
 	}
-	system, err := r.renderCorrelationScalar(coding, correlation.SystemSelector)
+	system, err := r.core.renderCorrelationScalar(coding, correlation.SystemSelector)
 	if err != nil {
 		return "", fmt.Errorf("correlation system selector: %w", err)
 	}
-	code, err := r.renderCorrelationScalar(coding, correlation.CodeSelector)
+	code, err := r.core.renderCorrelationScalar(coding, correlation.CodeSelector)
 	if err != nil {
 		return "", fmt.Errorf("correlation code selector: %w", err)
 	}
-	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks, correlation.FallbackOnBlankString)
+	values, err := r.core.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks, correlation.FallbackOnBlankString)
 	if err != nil {
 		return "", err
 	}
-	unsupported, err := r.renderCorrelationUnsupportedChoiceValues(owner, correlation)
+	unsupported, err := r.core.renderCorrelationUnsupportedChoiceValues(owner, correlation)
 	if err != nil {
 		return "", err
 	}
-	matched := r.newInternalVariable("coded_pivot_match")
+	matched := r.core.navigation().newInternalVariable("coded_pivot_match")
 	return fmt.Sprintf(`FLATTEN(
   FOR %s IN %s
     LET %s = LENGTH((
@@ -448,8 +457,8 @@ func groupedPivotCategoryMatchExpression(
 	}
 }
 
-func (r *physicalPlanRenderer) renderProjectionPresence(presence ir.PhysicalProjectionPresence) (string, error) {
-	source, err := r.renderValue(presence.Source)
+func (r tableShapeRenderer) renderProjectionPresence(presence ir.PhysicalProjectionPresence) (string, error) {
+	source, err := r.core.renderValue(presence.Source)
 	if err != nil {
 		return "", err
 	}
@@ -467,7 +476,7 @@ func (r *physicalPlanRenderer) renderProjectionPresence(presence ir.PhysicalProj
 	return "(" + strings.Join(paths, " OR ") + ")", nil
 }
 
-func (r *physicalPlanRenderer) renderProjectionPresenceOnStoredParent(presence ir.PhysicalProjectionPresence) (string, error) {
+func (r tableShapeRenderer) renderProjectionPresenceOnStoredParent(presence ir.PhysicalProjectionPresence) (string, error) {
 	if presence.Source.Variable != r.rootVariable || presence.Source.BindKey != "" || len(presence.Paths) != 1 || len(presence.Paths[0]) == 0 {
 		return "", fmt.Errorf("stored-parent presence requires one direct nested source path")
 	}
@@ -487,18 +496,18 @@ func (r *physicalPlanRenderer) renderProjectionPresenceOnStoredParent(presence i
 	if !reflect.DeepEqual(parentPath, r.storedPresenceParentPath) {
 		return "", fmt.Errorf("stored-parent presence path does not match its proven stored-value parent")
 	}
-	parent, err := r.renderValue(ir.PhysicalValue{Variable: presence.Source.Variable, Path: parentPath})
+	parent, err := r.core.renderValue(ir.PhysicalValue{Variable: presence.Source.Variable, Path: parentPath})
 	if err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("(IS_OBJECT(%s) ? HAS(%s, %q) : false)", parent, parent, path[len(path)-1]), nil
 }
 
-func (r *physicalPlanRenderer) renderPropertyPathPresence(source string, path []string) (string, error) {
+func (r tableShapeRenderer) renderPropertyPathPresence(source string, path []string) (string, error) {
 	if len(path) == 0 {
 		return "", fmt.Errorf("property-presence path is empty")
 	}
-	key := r.newInternalBindKey("reshape_presence_path")
+	key := r.core.newInternalBindKey("reshape_presence_path")
 	r.bindVars[key] = path[0]
 	object := "IS_OBJECT(" + source + ")"
 	has := fmt.Sprintf("HAS(%s, @%s)", source, key)
@@ -513,8 +522,8 @@ func (r *physicalPlanRenderer) renderPropertyPathPresence(source string, path []
 	return "(" + object + " ? (" + has + " ? " + remaining + " : false) : false)", nil
 }
 
-func (r *physicalPlanRenderer) renderTableUnpivot(unpivot ir.PhysicalUnpivot) ([]string, error) {
-	input, err := r.renderReturn(ir.PhysicalReturn{Projections: unpivot.InputProjections})
+func (r tableShapeRenderer) renderTableUnpivot(unpivot ir.PhysicalUnpivot) ([]string, error) {
+	input, err := r.core.renderReturn(ir.PhysicalReturn{Projections: unpivot.InputProjections})
 	if err != nil {
 		return nil, err
 	}
@@ -525,15 +534,15 @@ func (r *physicalPlanRenderer) renderTableUnpivot(unpivot ir.PhysicalUnpivot) ([
 	lines := []string{fmt.Sprintf("  LET %s = %s", unpivot.InputRowVariable, input)}
 	slots := make([]string, 0, len(unpivot.Inputs))
 	for index, selected := range unpivot.Inputs {
-		columnBind := r.newInternalBindKey(fmt.Sprintf("reshape_unpivot_column_%d", index))
+		columnBind := r.core.newInternalBindKey(fmt.Sprintf("reshape_unpivot_column_%d", index))
 		r.bindVars[columnBind] = selected.Column
 		slot := fmt.Sprintf("{key: @%s, value: %s[@%s]}", selected.KeyBindKey, unpivot.InputRowVariable, columnBind)
 		if r.traceReshapeApplies(unpivot.OutputRowVariable) {
 			presenceField, supported := r.traceUnpivotInput(selected.Column)
 			if supported {
-				presenceBind := r.newInternalBindKey("reshape_unpivot_trace_presence")
+				presenceBind := r.core.newInternalBindKey("reshape_unpivot_trace_presence")
 				r.bindVars[presenceBind] = presenceField
-				documentBind := r.newInternalBindKey("reshape_unpivot_trace_document")
+				documentBind := r.core.newInternalBindKey("reshape_unpivot_trace_document")
 				r.bindVars[documentBind] = ir.PhysicalCellTraceSourceDocumentField
 				slot = fmt.Sprintf("MERGE(%s, {sourceDocument: %s[@%s], sourcePresence: %s[@%s], sourceSupported: true})", slot, unpivot.InputRowVariable, documentBind, unpivot.InputRowVariable, presenceBind)
 			} else {
@@ -547,7 +556,7 @@ func (r *physicalPlanRenderer) renderTableUnpivot(unpivot ir.PhysicalUnpivot) ([
 	if err != nil {
 		return nil, err
 	}
-	valueTypeBind := r.newInternalBindKey("reshape_unpivot_value_type")
+	valueTypeBind := r.core.newInternalBindKey("reshape_unpivot_value_type")
 	r.bindVars[valueTypeBind] = valueType
 	lines = append(lines, fmt.Sprintf("  FILTER ASSERT(%s.value == null OR TYPENAME(%s.value) == @%s, \"TABLE_UNPIVOT_VALUE_TYPE_MISMATCH\")", unpivot.SlotVariable, unpivot.SlotVariable, valueTypeBind))
 	if unpivot.NullRowPolicy == "DROP" {
@@ -560,16 +569,16 @@ func (r *physicalPlanRenderer) renderTableUnpivot(unpivot ir.PhysicalUnpivot) ([
 	}
 	identityParts := make([]string, 0, len(unpivot.IdentityParts))
 	for index, part := range unpivot.IdentityParts {
-		value, err := r.renderValue(part.Value)
+		value, err := r.core.renderValue(part.Value)
 		if err != nil {
 			return nil, fmt.Errorf("identity part %q: %w", part.Name, err)
 		}
-		nameBind := r.newInternalBindKey(fmt.Sprintf("reshape_identity_name_%d", index))
+		nameBind := r.core.newInternalBindKey(fmt.Sprintf("reshape_identity_name_%d", index))
 		r.bindVars[nameBind] = part.Name
 		identityParts = append(identityParts, "[@"+nameBind+", "+value+"]")
 	}
 	identityParts = append(identityParts, "[@"+constructionBind+", \"TABLE_UNPIVOT\"]", "[\""+unpivot.Inputs[0].KeyKind+"\", "+unpivot.SlotVariable+".key]")
-	identityVariable := r.newInternalVariable("reshape_unpivot_identity")
+	identityVariable := r.core.navigation().newInternalVariable("reshape_unpivot_identity")
 	lines = append(lines, fmt.Sprintf("  LET %s = TO_STRING([%s])", identityVariable, strings.Join(identityParts, ", ")))
 
 	selected := make(map[string]bool, len(unpivot.Inputs))
@@ -589,7 +598,7 @@ func (r *physicalPlanRenderer) renderTableUnpivot(unpivot ir.PhysicalUnpivot) ([
 		if renamed, ok := preservedNames[projection.Name]; ok {
 			outputName = renamed
 		}
-		columnBind := r.newInternalBindKey("reshape_unpivot_preserved_column")
+		columnBind := r.core.newInternalBindKey("reshape_unpivot_preserved_column")
 		r.bindVars[columnBind] = projection.Name
 		lookup := ir.PhysicalExpression{Kind: ir.PhysicalObjectLookupExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
 			ObjectLookup: &ir.PhysicalObjectLookup{ObjectVariable: unpivot.InputRowVariable, KeyBindKey: columnBind}}
@@ -625,7 +634,7 @@ func (r *physicalPlanRenderer) renderTableUnpivot(unpivot ir.PhysicalUnpivot) ([
 			}
 		}
 	}
-	output, err := r.renderReturn(ir.PhysicalReturn{Projections: outputProjections})
+	output, err := r.core.renderReturn(ir.PhysicalReturn{Projections: outputProjections})
 	if err != nil {
 		return nil, err
 	}
@@ -633,14 +642,14 @@ func (r *physicalPlanRenderer) renderTableUnpivot(unpivot ir.PhysicalUnpivot) ([
 	return lines, nil
 }
 
-func (r *physicalPlanRenderer) traceReshapeApplies(outputVariable string) bool {
+func (r tableShapeRenderer) traceReshapeApplies(outputVariable string) bool {
 	if r.cellTrace != nil && r.cellTrace.Reshape != nil && r.cellTrace.Reshape.OutputVariable == outputVariable {
 		return true
 	}
 	return r.tableShapeExclusion != nil && r.tableShapeExclusion.Pivot.OutputRowVariable == outputVariable
 }
 
-func (r *physicalPlanRenderer) renderTraceSourceInput(input string, projections []ir.PhysicalProjection, outputVariable string) (string, error) {
+func (r tableShapeRenderer) renderTraceSourceInput(input string, projections []ir.PhysicalProjection, outputVariable string) (string, error) {
 	if !r.traceReshapeApplies(outputVariable) {
 		return input, nil
 	}
@@ -650,12 +659,12 @@ func (r *physicalPlanRenderer) renderTraceSourceInput(input string, projections 
 	if r.rootVariable == "" {
 		return "", fmt.Errorf("cell trace reshape source has no root resource variable")
 	}
-	document, err := r.renderValue(ir.PhysicalValue{Variable: r.rootVariable, Path: []string{"payload"}})
+	document, err := r.core.renderValue(ir.PhysicalValue{Variable: r.rootVariable, Path: []string{"payload"}})
 	if err != nil {
 		return "", fmt.Errorf("render trace source document: %w", err)
 	}
 	entries := []string{}
-	documentBind := r.newInternalBindKey("reshape_trace_document_field")
+	documentBind := r.core.newInternalBindKey("reshape_trace_document_field")
 	r.bindVars[documentBind] = ir.PhysicalCellTraceSourceDocumentField
 	entries = append(entries, fmt.Sprintf("[@%s]: %s", documentBind, document))
 	for index, projection := range projections {
@@ -666,7 +675,7 @@ func (r *physicalPlanRenderer) renderTraceSourceInput(input string, projections 
 		if err != nil {
 			return "", fmt.Errorf("render trace source presence for %q: %w", projection.Name, err)
 		}
-		keyBind := r.newInternalBindKey("reshape_trace_presence_field")
+		keyBind := r.core.newInternalBindKey("reshape_trace_presence_field")
 		r.bindVars[keyBind] = fmt.Sprintf("%s%d", ir.PhysicalCellTraceSourcePresencePrefix, index)
 		entries = append(entries, fmt.Sprintf("[@%s]: %s", keyBind, present))
 	}
@@ -682,7 +691,7 @@ func traceReshapeHasSupportedSource(lineage ir.PhysicalCellTraceReshape) bool {
 	return false
 }
 
-func (r *physicalPlanRenderer) traceUnpivotInput(column string) (string, bool) {
+func (r tableShapeRenderer) traceUnpivotInput(column string) (string, bool) {
 	if r.cellTrace == nil || r.cellTrace.Reshape == nil {
 		return "", false
 	}
@@ -694,8 +703,8 @@ func (r *physicalPlanRenderer) traceUnpivotInput(column string) (string, bool) {
 	return "", false
 }
 
-func (r *physicalPlanRenderer) traceLiteralProjection(name string, value any) ir.PhysicalProjection {
-	key := r.newInternalBindKey("unpivot_trace_literal")
+func (r tableShapeRenderer) traceLiteralProjection(name string, value any) ir.PhysicalProjection {
+	key := r.core.newInternalBindKey("unpivot_trace_literal")
 	r.bindVars[key] = value
 	expression := ir.PhysicalExpression{
 		Kind: ir.PhysicalLiteralExpression, Cardinality: ir.PhysicalScalarCardinality,

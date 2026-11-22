@@ -16,10 +16,11 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/sourceload"
 )
 
 type sourceLoadStoreFixture struct {
-	status       ingest.SourceLoadStatus
+	status       sourceload.SourceLoadStatus
 	beginCount   int
 	beginProject string
 	uploadCount  int
@@ -28,29 +29,29 @@ type sourceLoadStoreFixture struct {
 	uploadErr    error
 }
 
-func (f *sourceLoadStoreFixture) Begin(_ context.Context, project, _ string, _ ingest.SourceLoadPlan) (ingest.SourceLoadStatus, error) {
+func (f *sourceLoadStoreFixture) Begin(_ context.Context, project, _ string, _ sourceload.SourceLoadPlan) (sourceload.SourceLoadStatus, error) {
 	f.beginCount++
 	f.beginProject = project
 	return f.status, nil
 }
 
-func (f *sourceLoadStoreFixture) Status(context.Context, string, string) (ingest.SourceLoadStatus, error) {
+func (f *sourceLoadStoreFixture) Status(context.Context, string, string) (sourceload.SourceLoadStatus, error) {
 	return f.status, nil
 }
 
-func (f *sourceLoadStoreFixture) UploadFile(_ context.Context, _, _, _, path string) (ingest.SourceFileReceipt, error) {
+func (f *sourceLoadStoreFixture) UploadFile(_ context.Context, _, _, _, path string) (sourceload.SourceFileReceipt, error) {
 	f.uploadCount++
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return ingest.SourceFileReceipt{}, err
+		return sourceload.SourceFileReceipt{}, err
 	}
 	f.uploadedData = string(content)
-	return ingest.SourceFileReceipt{Path: "META/Patient.ndjson", ResourceType: "Patient", SHA256: "abc", Rows: 1, State: "READY"}, f.uploadErr
+	return sourceload.SourceFileReceipt{Path: "META/Patient.ndjson", ResourceType: "Patient", SHA256: "abc", Rows: 1, State: "READY"}, f.uploadErr
 }
 
-func (f *sourceLoadStoreFixture) Publish(context.Context, string, string) (ingest.SourcePublishReceipt, error) {
+func (f *sourceLoadStoreFixture) Publish(context.Context, string, string) (sourceload.SourcePublishReceipt, error) {
 	f.publishCount++
-	return ingest.SourcePublishReceipt{}, nil
+	return sourceload.SourcePublishReceipt{}, nil
 }
 
 type sourceLoadAuthorizerFixture struct {
@@ -109,7 +110,7 @@ func sourceLoadMultipart(t *testing.T, filenames ...string) ([]byte, string) {
 
 func TestSourceLoadRejectsMultipleFileParts(t *testing.T) {
 	bodyBytes, boundary := sourceLoadMultipart(t, "META/Patient.ndjson", "META/Observation.ndjson")
-	store := &sourceLoadStoreFixture{status: ingest.SourceLoadStatus{AuthResourcePath: "/project/data"}}
+	store := &sourceLoadStoreFixture{status: sourceload.SourceLoadStatus{AuthResourcePath: "/project/data"}}
 	authorizer := &sourceLoadAuthorizerFixture{}
 	handler := newSourceLoadTestHandler(t, store, authorizer, 1<<20)
 	_, err := handler.UploadSourceLoadFile(context.Background(), "project-a", "task-1", "Patient", multipart.NewReader(bytes.NewReader(bodyBytes), boundary), nil)
@@ -123,7 +124,7 @@ func TestSourceLoadRejectsMultipleFileParts(t *testing.T) {
 
 func TestSourceLoadRejectsNonCanonicalFilename(t *testing.T) {
 	bodyBytes, boundary := sourceLoadMultipart(t, "Patient.ndjson")
-	store := &sourceLoadStoreFixture{status: ingest.SourceLoadStatus{AuthResourcePath: "project/data"}}
+	store := &sourceLoadStoreFixture{status: sourceload.SourceLoadStatus{AuthResourcePath: "project/data"}}
 	handler := newSourceLoadTestHandler(t, store, &sourceLoadAuthorizerFixture{}, 1<<20)
 	_, err := handler.UploadSourceLoadFile(context.Background(), "project-a", "task-1", "Patient", multipart.NewReader(bytes.NewReader(bodyBytes), boundary), nil)
 	if err == nil || store.uploadCount != 0 {
@@ -136,7 +137,7 @@ func TestSourceLoadRejectsNonCanonicalFilename(t *testing.T) {
 
 func TestSourceLoadAuthorizesBeforeReadingMultipartBody(t *testing.T) {
 	reader := &sourceLoadCountingReader{reader: strings.NewReader("malformed multipart body")}
-	store := &sourceLoadStoreFixture{status: ingest.SourceLoadStatus{AuthResourcePath: " /project/data/ "}}
+	store := &sourceLoadStoreFixture{status: sourceload.SourceLoadStatus{AuthResourcePath: " /project/data/ "}}
 	authorizer := &sourceLoadAuthorizerFixture{err: authscope.ErrForbidden}
 	handler := newSourceLoadTestHandler(t, store, authorizer, 1<<20)
 	_, err := handler.UploadSourceLoadFile(context.Background(), "project-a", "task-1", "Patient", multipart.NewReader(reader, "boundary"), nil)
@@ -149,13 +150,13 @@ func TestSourceLoadAuthorizesBeforeReadingMultipartBody(t *testing.T) {
 }
 
 func TestSourceLoadBeginAndStatusAuthorizeUsingNormalizedScope(t *testing.T) {
-	store := &sourceLoadStoreFixture{status: ingest.SourceLoadStatus{AuthResourcePath: " /project/data/ "}}
+	store := &sourceLoadStoreFixture{status: sourceload.SourceLoadStatus{AuthResourcePath: " /project/data/ "}}
 	authorizer := &sourceLoadAuthorizerFixture{}
 	handler := newSourceLoadTestHandler(t, store, authorizer, 1<<20)
-	plan := ingest.SourceLoadPlan{
+	plan := sourceload.SourceLoadPlan{
 		Repository:       "https://github.com/example/source",
 		Commit:           "0123456789012345678901234567890123456789",
-		Files:            []ingest.SourceManifestFile{{Path: "META/Patient.ndjson"}},
+		Files:            []sourceload.SourceManifestFile{{Path: "META/Patient.ndjson"}},
 		AuthResourcePath: " /project/data/ ",
 	}
 	if _, err := handler.BeginSourceLoad(context.Background(), "project-a", "task-1", plan, nil); err != nil {
@@ -170,7 +171,7 @@ func TestSourceLoadBeginAndStatusAuthorizeUsingNormalizedScope(t *testing.T) {
 }
 
 func TestSourceLoadPublishAuthorizesBeforePublishing(t *testing.T) {
-	store := &sourceLoadStoreFixture{status: ingest.SourceLoadStatus{AuthResourcePath: "/project/data"}}
+	store := &sourceLoadStoreFixture{status: sourceload.SourceLoadStatus{AuthResourcePath: "/project/data"}}
 	authorizer := &sourceLoadAuthorizerFixture{err: authscope.ErrForbidden}
 	handler := newSourceLoadTestHandler(t, store, authorizer, 1<<20)
 	_, err := handler.PublishSourceLoad(context.Background(), "project-a", "task-1", nil)
@@ -187,9 +188,9 @@ func TestSourceLoadLifecycleErrorsHaveStableHTTPStatus(t *testing.T) {
 		code       string
 		retryable  bool
 	}{
-		{name: "not found", err: ingest.ErrSourceLoadNotFound, statusCode: http.StatusNotFound, code: "DATASET_NOT_FOUND"},
-		{name: "in progress", err: ingest.ErrSourceLoadInProgress, statusCode: http.StatusConflict, code: "PUBLICATION_IN_PROGRESS", retryable: true},
-		{name: "incomplete", err: ingest.ErrSourceLoadIncomplete, statusCode: http.StatusConflict, code: "PUBLICATION_CONFLICT", retryable: true},
+		{name: "not found", err: sourceload.ErrSourceLoadNotFound, statusCode: http.StatusNotFound, code: "DATASET_NOT_FOUND"},
+		{name: "in progress", err: sourceload.ErrSourceLoadInProgress, statusCode: http.StatusConflict, code: "PUBLICATION_IN_PROGRESS", retryable: true},
+		{name: "incomplete", err: sourceload.ErrSourceLoadIncomplete, statusCode: http.StatusConflict, code: "PUBLICATION_CONFLICT", retryable: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			mapped := httpapi.MapDataframeError(normalizeError(test.err), "source-state")
@@ -214,7 +215,7 @@ func TestSourceLoadEnforcesPerFileLimit(t *testing.T) {
 		t.Fatalf("close multipart writer: %v", err)
 	}
 	reader := &sourceLoadCountingReader{reader: bytes.NewReader(body.Bytes())}
-	store := &sourceLoadStoreFixture{status: ingest.SourceLoadStatus{AuthResourcePath: "project/data"}}
+	store := &sourceLoadStoreFixture{status: sourceload.SourceLoadStatus{AuthResourcePath: "project/data"}}
 	handler := newSourceLoadTestHandler(t, store, &sourceLoadAuthorizerFixture{}, 4)
 	_, err = handler.UploadSourceLoadFile(context.Background(), "project-a", "task-1", "Patient", multipart.NewReader(reader, writer.Boundary()), nil)
 	if err == nil || store.uploadCount != 0 {
@@ -231,7 +232,7 @@ func TestSourceLoadEnforcesPerFileLimit(t *testing.T) {
 
 func TestSourceLoadTruncatedMultipartIsInvalidRequest(t *testing.T) {
 	const truncated = "--b\r\nContent-Disposition: form-data; name=\"file\"; filename=\"META/Patient.ndjson\"\r\n\r\n{}"
-	store := &sourceLoadStoreFixture{status: ingest.SourceLoadStatus{AuthResourcePath: "project/data"}}
+	store := &sourceLoadStoreFixture{status: sourceload.SourceLoadStatus{AuthResourcePath: "project/data"}}
 	handler := newSourceLoadTestHandler(t, store, &sourceLoadAuthorizerFixture{}, 1<<20)
 	_, err := handler.UploadSourceLoadFile(context.Background(), "project-a", "task-1", "Patient", multipart.NewReader(strings.NewReader(truncated), "b"), nil)
 	if err == nil || store.uploadCount != 0 {
@@ -255,8 +256,8 @@ func TestSourceLoadValidationErrorUsesBoundedSafeDetails(t *testing.T) {
 		}
 	}
 	store := &sourceLoadStoreFixture{
-		status: ingest.SourceLoadStatus{AuthResourcePath: "project/data"},
-		uploadErr: &ingest.SourceFileValidationError{
+		status: sourceload.SourceLoadStatus{AuthResourcePath: "project/data"},
+		uploadErr: &sourceload.SourceFileValidationError{
 			Issues:      issues,
 			TotalErrors: 104,
 			Truncated:   true,
@@ -301,8 +302,8 @@ func TestSourceLoadPreservesPluginProjectIdentityForScopedPublication(t *testing
 	})
 	principal := &authscope.Principal{Subject: "publisher", AuthResourcePaths: []string{project}}
 	handler := newSourceLoadTestHandler(t, store, authscope.ScopeAuthorizer{Resolver: resolver}, 1<<20)
-	_, err := handler.BeginSourceLoad(context.Background(), project, "task", ingest.SourceLoadPlan{
-		Repository: "https://github.com/example/data", Commit: strings.Repeat("a", 40), AuthResourcePath: "/programs/HTAN_INT/projects/BForePC", Files: []ingest.SourceManifestFile{{Path: "META/Patient.ndjson"}},
+	_, err := handler.BeginSourceLoad(context.Background(), project, "task", sourceload.SourceLoadPlan{
+		Repository: "https://github.com/example/data", Commit: strings.Repeat("a", 40), AuthResourcePath: "/programs/HTAN_INT/projects/BForePC", Files: []sourceload.SourceManifestFile{{Path: "META/Patient.ndjson"}},
 	}, principal)
 	if err != nil {
 		t.Fatal(err)

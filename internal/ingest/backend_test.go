@@ -4,14 +4,14 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func TestBootstrapSpecAddsMergedIndexesForEveryFHIRCollection(t *testing.T) {
 	resources := []string{"Patient", "Specimen", "Observation", "DocumentReference"}
-	spec := bootstrapSpecWithReporter(resources, false, nil)
+	spec := BootstrapSpecWithReporter(resources, false, nil)
 	for _, resource := range resources {
 		collection, found := bootstrapCollection(spec, resource)
 		if !found {
@@ -29,7 +29,7 @@ func TestBootstrapSpecAddsMergedIndexesForEveryFHIRCollection(t *testing.T) {
 }
 
 func TestBootstrapSpecAddsGenerationScopedIndexesWithoutTraversalSpeculation(t *testing.T) {
-	spec := bootstrapSpecWithReporter([]string{"Patient"}, true, nil)
+	spec := BootstrapSpecWithReporter([]string{"Patient"}, true, nil)
 	patient, found := bootstrapCollection(spec, "Patient")
 	if !found {
 		t.Fatal("Patient bootstrap collection is missing")
@@ -83,7 +83,7 @@ func TestBootstrapSpecAddsGenerationScopedIndexesWithoutTraversalSpeculation(t *
 			t.Fatalf("relationship catalog indexes %#v do not include %#v", relationships.Indexes, required)
 		}
 	}
-	inventory, found := bootstrapCollection(spec, catalog.SemanticInventoryCollection)
+	inventory, found := bootstrapCollection(spec, semanticinventory.Collection)
 	if !found || inventory.Truncate {
 		t.Fatalf("semantic inventory collection = %#v found=%v, want persistent non-truncated collection", inventory, found)
 	}
@@ -98,7 +98,7 @@ func TestBootstrapSpecAddsGenerationScopedIndexesWithoutTraversalSpeculation(t *
 			t.Fatalf("semantic inventory indexes %#v do not include %#v", inventory.Indexes, required)
 		}
 	}
-	builds, found := bootstrapCollection(spec, catalog.SemanticInventoryBuildCollection)
+	builds, found := bootstrapCollection(spec, semanticinventory.BuildCollection)
 	if !found || builds.Truncate {
 		t.Fatalf("semantic inventory build collection = %#v found=%v, want persistent non-truncated collection", builds, found)
 	}
@@ -106,14 +106,14 @@ func TestBootstrapSpecAddsGenerationScopedIndexesWithoutTraversalSpeculation(t *
 }
 
 func TestBootstrapSpecDoesNotCreateOptionalSemanticCoverageCollection(t *testing.T) {
-	spec := bootstrapSpecWithReporter([]string{"Patient"}, true, nil)
+	spec := BootstrapSpecWithReporter([]string{"Patient"}, true, nil)
 	if _, found := bootstrapCollection(spec, catalogarango.SemanticCoverageCollection); found {
 		t.Fatal("normal generation bootstrap created the optional per-source semantic coverage collection")
 	}
 }
 
 func TestLifecycleBootstrapNeverTruncatesMetadata(t *testing.T) {
-	spec := lifecycleBootstrapSpecWithReporter(nil)
+	spec := LifecycleBootstrapSpecWithReporter(nil)
 	if len(spec.Collections) != 1 {
 		t.Fatalf("lifecycle collection count = %d, want 1", len(spec.Collections))
 	}

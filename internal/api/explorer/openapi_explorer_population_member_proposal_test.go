@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
@@ -91,12 +92,12 @@ func TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS(t *
 	}
 	config := lifecycle.Config{
 		SelectionMembersCollection: "loom_explorer_selection_members",
-		Capability: lifecycle.CapabilityResolver{
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capability: ports.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
@@ -111,7 +112,7 @@ func TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS(t *
 			}
 			return nil
 		},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {

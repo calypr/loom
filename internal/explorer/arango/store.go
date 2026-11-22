@@ -15,13 +15,49 @@ type client interface {
 	WithTransaction(context.Context, store.TransactionCollections, store.TransactionFunc) error
 }
 
-type Store struct{ client client }
+type ReceiptStore struct{ client client }
+
+type InterpretationStore struct{ client client }
+
+type ViewBuilderStore struct{ client client }
+
+type PublicationStore struct{ client client }
+
+type DraftStore struct{ client client }
+
+type SelectionStore struct{ client client }
+
+type ExplicitGroupStore struct {
+	client     client
+	selections SelectionStore
+}
+
+type Store struct {
+	DraftStore
+	SelectionStore
+	ExplicitGroupStore
+	ReceiptStore
+	InterpretationStore
+	ViewBuilderStore
+	PublicationStore
+	client client
+}
 
 func New(client client) (*Store, error) {
 	if client == nil {
 		return nil, fmt.Errorf("Explorer Arango client is required")
 	}
-	return &Store{client: client}, nil
+	selections := SelectionStore{client: client}
+	return &Store{
+		DraftStore:          DraftStore{client: client},
+		SelectionStore:      selections,
+		ExplicitGroupStore:  ExplicitGroupStore{client: client, selections: selections},
+		ReceiptStore:        ReceiptStore{client: client},
+		InterpretationStore: InterpretationStore{client: client},
+		ViewBuilderStore:    ViewBuilderStore{client: client},
+		PublicationStore:    PublicationStore{client: client},
+		client:              client,
+	}, nil
 }
 
 func key(parts ...string) string {

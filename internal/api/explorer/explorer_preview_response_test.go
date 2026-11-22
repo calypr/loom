@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
 func TestPreviewResponseEncoderProducesAtomicContract(t *testing.T) {
@@ -190,8 +190,8 @@ func TestPreviewErrorPreservesStableClassifications(t *testing.T) {
 }
 
 func TestNestedPreviewTimeoutKeepsGatewayTimeoutClassification(t *testing.T) {
-	lifecyclePreviewFailure := &lifecycle.Error{
-		Class: lifecycle.ClassUnprocessable, Stage: "preview", Code: string(dataframeerrors.CodePreviewTimeout),
+	lifecyclePreviewFailure := &ports.Error{
+		Class: ports.ClassUnprocessable, Stage: "preview", Code: string(dataframeerrors.CodePreviewTimeout),
 		Message: dataframeerrors.PublicMessage(dataframeerrors.NewError(dataframeerrors.CodePreviewTimeout, "")),
 		Cause:   dataframeerrors.Wrap(context.DeadlineExceeded, dataframeerrors.CodePreviewTimeout, "", dataframeerrors.WithRetryable(true)),
 	}
@@ -205,7 +205,7 @@ func TestAuthoringErrorAdapterPreservesOuterLifecycleClassification(t *testing.T
 	inner := &explorer.AuthoringError{Status: http.StatusUnauthorized, Diagnostic: explorer.AuthoringDiagnostic{
 		Code: "INNER_FAILURE", Stage: "source", Message: "inner failure",
 	}}
-	outer := &lifecycle.Error{Class: lifecycle.ClassForbidden, Code: "ACCESS_DENIED", Stage: "preview", Message: "access denied", Cause: inner}
+	outer := &ports.Error{Class: ports.ClassForbidden, Code: "ACCESS_DENIED", Stage: "preview", Message: "access denied", Cause: inner}
 	status, response := authoringErrorForOpenAPI(context.Background(), "preview", fmt.Errorf("wrapped: %w", outer))
 	if status != http.StatusForbidden || response.Error.Code != "ACCESS_DENIED" {
 		t.Fatalf("outer lifecycle failure lost its classification: %d/%q", status, response.Error.Code)

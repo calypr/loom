@@ -36,6 +36,10 @@ type ColumnSourceResponse struct {
 }
 
 func (s *Service) ColumnSource(ctx context.Context, request ColumnSourceRequest) (ColumnSourceResponse, error) {
+	return s.fieldBrowse().ColumnSource(ctx, request)
+}
+
+func (b *fieldBrowse) ColumnSource(ctx context.Context, request ColumnSourceRequest) (ColumnSourceResponse, error) {
 	result := ColumnSourceResponse{
 		SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, Column: request.Column,
 		Route: []ColumnSourceRouteStep{}, Facts: []capability.ConstructionChoiceFact{},
@@ -44,10 +48,10 @@ func (s *Service) ColumnSource(ctx context.Context, request ColumnSourceRequest)
 		strings.TrimSpace(request.SnapshotToken) == "" || strings.TrimSpace(request.OutputID) == "" || strings.TrimSpace(request.Column) == "" {
 		return result, malformed("column-source", "project, explorerId, snapshotToken, outputId, and column are required", nil)
 	}
-	if s.config.Capability.ForCompilation == nil {
+	if b.capability.ForCompilation == nil {
 		return result, unavailable("column-source", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 	}
-	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
+	authorized, err := b.capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
 	if err != nil || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil {
 		return result, conflict("column-source", "STALE_CATALOG_SNAPSHOT", "reload the Builder before inspecting this column", nil, err)
 	}
@@ -55,7 +59,7 @@ func (s *Service) ColumnSource(ctx context.Context, request ColumnSourceRequest)
 	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return result, conflict("column-source", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 	}
-	workspace, err := s.currentWorkspace(ctx, request.Project, request.ExplorerID)
+	workspace, err := b.currentWorkspace(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return result, err
 	}

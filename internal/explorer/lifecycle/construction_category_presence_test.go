@@ -17,6 +17,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -52,15 +53,15 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 
 	snapshot = categoryPresenceSnapshot(t, snapshot)
 	service.config.Capability.Token = func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil }
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
 	service.config.RowChoiceResolver = categoryPresenceRowChoiceResolver{}
 	categoryChoice := categoryPresenceRowChoice(t, snapshot, "gender")
 	valueChoice := categoryPresenceRowChoice(t, snapshot, "multipleBirthInteger")
 
 	compileReceipt := service.config.CompileReceipt
-	service.config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt, err := compileReceipt(ctx, request)
 		if err != nil {
 			return nil, err

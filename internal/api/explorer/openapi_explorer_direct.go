@@ -13,6 +13,7 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -46,23 +47,23 @@ func lifecycleLegacyFailure(err error) error {
 	if err == nil {
 		return nil
 	}
-	var value *lifecycle.Error
+	var value *ports.Error
 	if !errors.As(err, &value) {
 		return err
 	}
 	status := http.StatusInternalServerError
 	switch value.Class {
-	case lifecycle.ClassMalformed:
+	case ports.ClassMalformed:
 		status = http.StatusBadRequest
-	case lifecycle.ClassForbidden:
+	case ports.ClassForbidden:
 		status = http.StatusForbidden
-	case lifecycle.ClassNotFound:
+	case ports.ClassNotFound:
 		status = http.StatusNotFound
-	case lifecycle.ClassConflict:
+	case ports.ClassConflict:
 		status = http.StatusConflict
-	case lifecycle.ClassUnprocessable:
+	case ports.ClassUnprocessable:
 		status = http.StatusUnprocessableEntity
-	case lifecycle.ClassUnavailable:
+	case ports.ClassUnavailable:
 		status = http.StatusServiceUnavailable
 	}
 	return legacyOperationFailureDetails(status, value.Code, value.Message, value.Details, err)

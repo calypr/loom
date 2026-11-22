@@ -10,12 +10,12 @@ import (
 
 func TestGeneratedLoadCapabilityMatchesGeneratedFHIRMethods(t *testing.T) {
 	for _, resourceType := range []string{"Patient", "Specimen", "Observation", "DiagnosticReport", "Task"} {
-		if !supportsGeneratedLoad(resourceType) {
+		if !SupportsGeneratedLoad(resourceType) {
 			t.Fatalf("generated fast path unexpectedly unavailable for %s", resourceType)
 		}
 	}
 	for _, resourceType := range []string{"Unknown", "Resource"} {
-		if supportsGeneratedLoad(resourceType) {
+		if SupportsGeneratedLoad(resourceType) {
 			t.Fatalf("unknown root %s should use generic loader fallback", resourceType)
 		}
 	}
@@ -131,7 +131,7 @@ func TestGeneratedLoadRejectsUnknownAndUnsupportedResourceTypes(t *testing.T) {
 	for _, resourceType := range []string{"Unknown", "Resource"} {
 		t.Run(resourceType, func(t *testing.T) {
 			_, _, kind, err := loadRowGenerated(resourceType, []byte(`{}`), "project-1", map[string]float64{})
-			if kind != rowErrorGeneration || err == nil || !strings.Contains(err.Error(), "generated loader does not support") {
+			if kind != RowErrorGeneration || err == nil || !strings.Contains(err.Error(), "generated loader does not support") {
 				t.Fatalf("loadRowGenerated(%q) = kind %q err %v, want unsupported-resource generation error", resourceType, kind, err)
 			}
 		})
@@ -151,7 +151,16 @@ func TestGeneratedLoadRejectsMissingFHIRID(t *testing.T) {
   "status": "current",
   "content": [{"attachment": {}}]
 }`), "project-1", map[string]float64{})
-	if kind != rowErrorValidation || err == nil || !strings.Contains(err.Error(), "DocumentReference payload missing string id") {
+	if kind != RowErrorValidation || err == nil || !strings.Contains(err.Error(), "DocumentReference payload missing string id") {
 		t.Fatalf("loadRowGenerated() = kind %q err %v, want missing ID validation error", kind, err)
 	}
+}
+
+func loadRowGenerated(resourceType string, line []byte, project string, stageSeconds map[string]float64) (VertexDocument, []json.RawMessage, RowErrorType, error) {
+	vertex, documents, _, errorType, err := loadRowGeneratedInternal(resourceType, line, project, stageSeconds, false)
+	if err != nil {
+		return VertexDocument{}, nil, errorType, err
+	}
+	edges, err := marshalEdgeDocuments(documents)
+	return vertex, edges, errorType, err
 }

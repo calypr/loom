@@ -48,7 +48,7 @@ func run(endpoint, database, mode string, authorize bool) error {
 	}
 	defer client.Close(context.Background())
 	dryRun := mode == "dry-run"
-	report, err := client.MigratePreviewSupersededIndexes(ctx, dryRun)
+	report, err := client.PreviewIndexes().MigratePreviewSupersededIndexes(ctx, dryRun)
 	if err != nil {
 		return err
 	}

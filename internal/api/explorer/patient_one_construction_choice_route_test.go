@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
@@ -181,16 +182,16 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 	}
 	var previewResolutionErr error
 	config := lifecycle.Config{
-		Capability: lifecycle.CapabilityResolver{
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+		Capability: ports.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			receipt, err := receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 			if err != nil {
 				return nil, err

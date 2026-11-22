@@ -142,17 +142,14 @@ func lowerConstructionGroupRelatedScalarSource(
 	return column, projection, physicalSource, nil
 }
 
-func lowerConstructionGroupRelatedCodingKey(
-	plan *ir.PhysicalPlan,
+func (lowerer *constructionLowerer) lowerConstructionGroupRelatedCodingKey(
 	source recipe.ConstructionGroupFieldSource,
 	context *CompiledGroupFieldSourceContext,
 	output recipe.StageColumn,
 	missingPolicy recipe.ConstructionGroupMissingKeyPolicy,
-	usedVariables map[string]bool,
 	stepIndex, sourceIndex int,
 	stage *ir.PhysicalConstructionStage,
 	adapterSlot **ir.PhysicalStageGroupRelatedOccurrenceAdapter,
-	policy ir.PhysicalOptimizationPolicy,
 ) (ir.PhysicalStageGroupCodingKey, CompiledOutputColumn, ir.PhysicalProjection, CompiledOutputColumn, ir.PhysicalProjection, error) {
 	fail := func(err error) (ir.PhysicalStageGroupCodingKey, CompiledOutputColumn, ir.PhysicalProjection, CompiledOutputColumn, ir.PhysicalProjection, error) {
 		return ir.PhysicalStageGroupCodingKey{}, CompiledOutputColumn{}, ir.PhysicalProjection{}, CompiledOutputColumn{}, ir.PhysicalProjection{}, err
@@ -200,7 +197,7 @@ func lowerConstructionGroupRelatedCodingKey(
 	if !found {
 		return fail(fmt.Errorf("related selector %q is not advertised as a repeated Coding path", related.CodingSelector))
 	}
-	adapter, err := ensureGroupRelatedOccurrenceAdapter(plan, bound, context, stage, stepIndex, usedVariables, adapterSlot, policy)
+	adapter, err := ensureGroupRelatedOccurrenceAdapter(lowerer.plan, bound, context, stage, stepIndex, lowerer.usedVariables, adapterSlot, lowerer.policy)
 	if err != nil {
 		return fail(err)
 	}
@@ -229,9 +226,9 @@ func lowerConstructionGroupRelatedCodingKey(
 	if !ok {
 		return fail(fmt.Errorf("related Coding empty policy %q is unsupported", related.CodingEmptyPolicy))
 	}
-	ordinality := allocateConstructionVariable(usedVariables, "group_related_coding_ordinal", stepIndex)
-	codingItem := allocateConstructionVariable(usedVariables, "group_related_coding_item", stepIndex)
-	codingHasItem := allocateConstructionVariable(usedVariables, "group_related_coding_has_item", stepIndex)
+	ordinality := allocateConstructionVariable(lowerer.usedVariables, "group_related_coding_ordinal", stepIndex)
+	codingItem := allocateConstructionVariable(lowerer.usedVariables, "group_related_coding_item", stepIndex)
+	codingHasItem := allocateConstructionVariable(lowerer.usedVariables, "group_related_coding_has_item", stepIndex)
 	codingUnnest := &ir.PhysicalUnnest{
 		OutputVariable: codingItem, HasItemVariable: codingHasItem, Ordinality: ordinality,
 		EmptyPolicy: codingEmptyPolicy,
@@ -299,9 +296,9 @@ func lowerConstructionGroupRelatedCodingKey(
 	}
 	key := ir.PhysicalStageGroupCodingKey{
 		OutputColumn:       output.Name,
-		InputTupleVariable: allocateConstructionVariable(usedVariables, "group_coding_input_tuple", stepIndex),
-		TupleVariable:      allocateConstructionVariable(usedVariables, "group_coding_tuple", stepIndex),
-		LabelVariable:      allocateConstructionVariable(usedVariables, "group_coding_label", stepIndex),
+		InputTupleVariable: allocateConstructionVariable(lowerer.usedVariables, "group_coding_input_tuple", stepIndex),
+		TupleVariable:      allocateConstructionVariable(lowerer.usedVariables, "group_coding_tuple", stepIndex),
+		LabelVariable:      allocateConstructionVariable(lowerer.usedVariables, "group_coding_label", stepIndex),
 		MembershipColumn:   membershipColumn, SourceStageID: bound.SourceStageID,
 		SourceShapeID: bound.SourceShapeID, SourceOccurrenceKeyColumn: adapter.OccurrenceKeyColumn,
 		OwnerOccurrenceID: related.TargetOccurrenceID, OwnerResourceType: related.TargetResourceType,
@@ -396,10 +393,10 @@ func ensureGroupRelatedOccurrenceAdapter(
 	}
 	outputs := map[string]recipe.StageColumn{outputID: {ID: outputID, Name: outputID, Type: "string", Nullable: related.EmptyPolicy == recipe.ExpansionPreserveParent}}
 	syntheticStep := recipe.ConstructionStep{ID: fmt.Sprintf("group_related_%d", stepIndex)}
-	physical, _, _, err := lowerConstructionRelatedExpand(
-		plan, syntheticStep, relatedExpand, input, outputs, stage.InputRowVariable,
-		context.SourceIdentityColumn, context.RootResourceType,
-		policy, usedVariables, stepIndex,
+	lowerer := constructionLowerer{plan: plan, policy: policy, usedVariables: usedVariables}
+	physical, _, _, err := lowerer.lowerConstructionRelatedExpand(
+		syntheticStep, relatedExpand, input, outputs, stage.InputRowVariable,
+		context.SourceIdentityColumn, context.RootResourceType, stepIndex,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("lower Group related route: %w", err)

@@ -10,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestProposeConstructionChoiceCompilesExactBatchWithoutSavingDraft(t *testing.T) {
@@ -23,7 +24,7 @@ func TestProposeConstructionChoiceCompilesExactBatchWithoutSavingDraft(t *testin
 		t.Fatal(err)
 	}
 	choiceID := "command-choice-proposal"
-	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
 		if err != nil {
@@ -107,7 +108,7 @@ func TestProposeConstructionChoiceRejectsStaleDraftAndSnapshotChoice(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		store.receipt = receipt
 		return receipt, nil
@@ -118,7 +119,7 @@ func TestProposeConstructionChoiceRejectsStaleDraftAndSnapshotChoice(t *testing.
 		ConstructionChoices: []ConstructionChoiceProposalSelection{{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceValue}},
 	}
 	request.ExpectedDraftVersion++
-	if _, err := service.ProposeConstructionChoice(context.Background(), request); !proposalErrorIs(err, ClassConflict, "DRAFT_CONFLICT") {
+	if _, err := service.ProposeConstructionChoice(context.Background(), request); !proposalErrorIs(err, ports.ClassConflict, "DRAFT_CONFLICT") {
 		t.Fatalf("stale draft error = %v", err)
 	}
 	request.ExpectedDraftVersion = store.created.DraftVersion
@@ -127,7 +128,7 @@ func TestProposeConstructionChoiceRejectsStaleDraftAndSnapshotChoice(t *testing.
 		t.Fatal(err)
 	}
 	request.ConstructionChoices[0].ChoiceID = staleChoice.ChoiceID
-	if _, err := service.ProposeConstructionChoice(context.Background(), request); !proposalErrorIs(err, ClassConflict, "STALE_CONSTRUCTION_CHOICE") {
+	if _, err := service.ProposeConstructionChoice(context.Background(), request); !proposalErrorIs(err, ports.ClassConflict, "STALE_CONSTRUCTION_CHOICE") {
 		t.Fatalf("choice from different snapshot error = %v", err)
 	}
 	if store.saveDraftCalls != 0 {
@@ -137,7 +138,7 @@ func TestProposeConstructionChoiceRejectsStaleDraftAndSnapshotChoice(t *testing.
 
 func TestProposeSemanticConstructionChoiceUsesAuthorizedInventoryWithoutSavingDraft(t *testing.T) {
 	store, service, snapshot, _, choice := constructionSemanticChoiceFixture(t, nil, nil, "Observation")
-	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		var compileErr error
 		receipt.CompilationKey, compileErr = explorer.CompilationKey(*receipt)

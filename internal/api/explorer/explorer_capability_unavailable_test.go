@@ -2,6 +2,7 @@ package explorerapi
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 	"net/http"
 	"strings"
@@ -33,7 +34,7 @@ func TestBuilderUnavailableResponseExplainsResourceInventoryRebuild(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := lifecycle.Config{Capability: lifecycle.CapabilityResolver{
+	config := lifecycle.Config{Capability: ports.CapabilityResolver{
 		Current: func(ctx context.Context, project, _, generation string) (capability.Snapshot, error) {
 			return resolver.Resolve(ctx, project, generation)
 		},

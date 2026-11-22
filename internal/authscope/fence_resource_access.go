@@ -16,8 +16,6 @@ import (
 	"time"
 )
 
-const defaultFenceAccessCacheEntries = 1024
-
 type FenceUserAccessClient struct {
 	client          *http.Client
 	trustedIssuer   string
@@ -27,13 +25,6 @@ type FenceUserAccessClient struct {
 	mu              sync.Mutex
 	cache           map[string]cachedResourceAccess
 	accessSeq       uint64
-}
-
-type cachedResourceAccess struct {
-	snapshot  map[string][]resourceAccessRecord
-	expiresAt time.Time
-
-	seq uint64
 }
 
 func NewFenceUserAccessClientWithTrustedIssuer(client *http.Client, trustedIssuer string, cacheTTL time.Duration) (*FenceUserAccessClient, error) {
@@ -72,13 +63,6 @@ func newFenceUserAccessClientWithCachePolicy(client *http.Client, trustedIssuer 
 		now:             now,
 		cache:           make(map[string]cachedResourceAccess),
 	}
-}
-
-func (c *FenceUserAccessClient) currentTime() time.Time {
-	if c.now != nil {
-		return c.now()
-	}
-	return time.Now()
 }
 
 func ValidateTrustedFenceIssuer(issuer string) error {
@@ -199,49 +183,6 @@ func (c *FenceUserAccessClient) getResourceAccess(ctx context.Context, authoriza
 	return snapshot, nil
 }
 
-func (c *FenceUserAccessClient) storeResourceAccessLocked(key string, snapshot map[string][]resourceAccessRecord, now time.Time) {
-	c.cache[key] = cachedResourceAccess{snapshot: cloneResourceAccess(snapshot), expiresAt: now.Add(c.cacheTTL), seq: c.nextAccessSeqLocked()}
-	for token, entry := range c.cache {
-		if !now.Before(entry.expiresAt) {
-			delete(c.cache, token)
-		}
-	}
-	for len(c.cache) > c.maxCacheEntries {
-		victim, ok := c.leastRecentlyUsedCacheKeyLocked()
-		if !ok {
-			return
-		}
-		delete(c.cache, victim)
-	}
-}
-
-func (c *FenceUserAccessClient) nextAccessSeqLocked() uint64 {
-	c.accessSeq++
-	return c.accessSeq
-}
-
-func (c *FenceUserAccessClient) leastRecentlyUsedCacheKeyLocked() (string, bool) {
-	var victim string
-	var oldest uint64
-	found := false
-	for token, entry := range c.cache {
-		if !found || entry.seq < oldest {
-			victim = token
-			oldest = entry.seq
-			found = true
-		}
-	}
-	return victim, found
-}
-
-func cloneResourceAccess(in map[string][]resourceAccessRecord) map[string][]resourceAccessRecord {
-	out := make(map[string][]resourceAccessRecord, len(in))
-	for resource, records := range in {
-		out[resource] = append([]resourceAccessRecord(nil), records...)
-	}
-	return out
-}
-
 func parseResourceAccessSnapshot(payload map[string]any) (map[string][]resourceAccessRecord, error) {
 	resourceAccess, ok := payload["authz"].(map[string]any)
 	if !ok || len(resourceAccess) == 0 {
@@ -281,71 +222,6 @@ func resourceAccessAllows(records []resourceAccessRecord, method, service string
 	return false
 }
 
-func NormalizeAuthResourcePath(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-
-	if containsAuthPathControlChar(value) {
-		return ""
-	}
-	if key, ok := calyprProjectKeyFromResourcePath(value); ok {
-		return key
-	}
-	return strings.Trim(value, "/")
-}
-
-func authResourcePathsFromResources(resources []string) []string {
-	seen := make(map[string]struct{})
-	out := make([]string, 0, len(resources))
-	for _, resource := range resources {
-		if key, ok := calyprProjectKeyFromResourcePath(resource); ok {
-			if containsAuthPathControlChar(key) {
-				continue
-			}
-			if _, exists := seen[key]; exists {
-				continue
-			}
-			seen[key] = struct{}{}
-			out = append(out, key)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-func normalizeAuthResourcePathList(paths []string) []string {
-	if paths == nil {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(paths))
-	out := make([]string, 0, len(paths))
-	for _, path := range paths {
-		normalized := NormalizeAuthResourcePath(path)
-		if normalized == "" {
-			continue
-		}
-		if _, ok := seen[normalized]; ok {
-			continue
-		}
-		seen[normalized] = struct{}{}
-		out = append(out, normalized)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func firstHeaderValue(headers map[string][]string, key string) string {
-	for headerKey, values := range headers {
-		if !strings.EqualFold(headerKey, key) || len(values) == 0 {
-			continue
-		}
-		return values[0]
-	}
-	return ""
-}
-
 func cloneStrings(in []string) []string {
 	if in == nil {
 		return nil
@@ -353,32 +229,6 @@ func cloneStrings(in []string) []string {
 	out := make([]string, len(in))
 	copy(out, in)
 	return out
-}
-
-func subjectFromAuthorizationHeader(authHeader string) string {
-	token := cleanAccessToken(authHeader)
-	if token == "" {
-		return ""
-	}
-	parts := strings.Split(token, ".")
-	if len(parts) < 2 {
-		return ""
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return ""
-	}
-	var claims map[string]any
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return ""
-	}
-	if sub, _ := claims["sub"].(string); sub != "" {
-		return sub
-	}
-	if user, _ := claims["user_name"].(string); user != "" {
-		return user
-	}
-	return ""
 }
 
 func issuerFromAuthorizationHeader(authorizationHeader string) (string, error) {
@@ -424,52 +274,4 @@ func validateAuthorizationHeader(raw string) (string, error) {
 		return "", fmt.Errorf("authorization header must use bearer auth")
 	}
 	return header, nil
-}
-
-func cleanAccessToken(raw string) string {
-	token := strings.TrimSpace(raw)
-	if strings.HasPrefix(strings.ToLower(token), "bearer ") {
-		token = strings.TrimSpace(token[len("bearer "):])
-	}
-	return token
-}
-
-func calyprProjectKeyFromResourcePath(resource string) (string, bool) {
-	normalized := normalizeResourcePath(resource)
-	if containsAuthPathControlChar(normalized) {
-		return "", false
-	}
-	parts := strings.Split(normalized, "/")
-	if len(parts) < 5 {
-		return "", false
-	}
-	if parts[1] != "programs" || parts[3] != "projects" {
-		return "", false
-	}
-	if parts[2] == "" || parts[4] == "" {
-		return "", false
-	}
-	return parts[2] + "-" + parts[4], true
-}
-
-func normalizeResourcePath(resource string) string {
-	resource = strings.TrimSpace(resource)
-	if resource == "" {
-		return ""
-	}
-	resource = "/" + strings.Trim(resource, "/")
-	return strings.TrimSuffix(resource, "/")
-}
-
-func NormalizeAuthResourcePaths(paths []string) []string {
-	return normalizeAuthResourcePathList(paths)
-}
-
-func containsAuthPathControlChar(value string) bool {
-	for i := 0; i < len(value); i++ {
-		if value[i] < 0x20 || value[i] == 0x7f {
-			return true
-		}
-	}
-	return false
 }

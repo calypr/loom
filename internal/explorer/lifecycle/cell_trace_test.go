@@ -10,6 +10,7 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestCellTraceValidatesReceiptAndReturnsBoundEvidence(t *testing.T) {
@@ -49,8 +50,8 @@ func TestCellTraceMissingRowBecomesTypedNotFound(t *testing.T) {
 	}
 	service := newTestService(t, &fakeStore{receipt: receipt}, config)
 	_, err := service.CellTrace(context.Background(), CellTraceRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", RowID: "row-9", Column: "patient_id"})
-	var lifecycleErr *Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "PREVIEW_ROW_NOT_FOUND" || lifecycleErr.Class != ClassNotFound {
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "PREVIEW_ROW_NOT_FOUND" || lifecycleErr.Class != ports.ClassNotFound {
 		t.Fatalf("a mistyped rowId must present as a non-server-fault not-found, got %v (%T)", err, err)
 	}
 }
@@ -65,7 +66,7 @@ func TestCellTraceRejectsUnknownColumnBeforeExecution(t *testing.T) {
 	}
 	service := newTestService(t, &fakeStore{receipt: receipt}, config)
 	_, err := service.CellTrace(context.Background(), CellTraceRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", RowID: "row-7", Column: "not_a_column"})
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "UNKNOWN_OUTPUT_COLUMN" {
 		t.Fatalf("error = %v", err)
 	}

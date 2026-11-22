@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	recipetest "github.com/calypr/loom/internal/testkit/recipetest"
 
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
@@ -115,9 +116,9 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := lifecycle.CompileReceiptRequest{
+	request := ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
-		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 	}
 	receipt, err := Compile(context.Background(), request, nil, recipeEngine, service, nil, nil)
 	if err != nil {
@@ -240,14 +241,14 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := lifecycle.CompileReceiptRequest{
+	request := ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
 		SelectionMembersCollection: "loom_explorer_selection_members",
 		ResolvedInputs: explorercompilation.ResolvedInputs{Populations: []explorercompilation.ResolvedPopulation{{
 			OutputID: "specimens", SelectionRevisionID: "selection_fddd4c3ae159949b4c7f0c7c0e80b713739ae4f390d8d4ebc3944723f4060fc5", MembershipDigest: "sha256:selection-members-qa",
 			MemberCount: 2, ResourceType: "Specimen", Route: []authoringv2.PopulationRouteStep{},
 		}}},
-		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 	}
 	receipt, err := Compile(context.Background(), request, nil, recipeEngine, service, nil, nil)
 	if err != nil {
@@ -432,14 +433,14 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}
+	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}
 	application, err := lifecycle.New(service, lifecycle.Config{
-		Capability: lifecycle.CapabilityResolver{
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) { return authorized, nil },
-			ForExecution:   func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) { return authorized, nil },
+		Capability: ports.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil },
+			ForExecution:   func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil },
 			Catalog:        authoringv2.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		PreviewReceipt: func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
@@ -452,9 +453,9 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := lifecycle.CompileReceiptRequest{
+	request := ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
-		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope},
+		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope},
 	}
 	receipt, err := Compile(context.Background(), request, nil, recipeEngine, service, nil, nil)
 	if err != nil {
@@ -626,9 +627,9 @@ func TestCompileExplorerReceiptReconcilesTypedConstructionOutputs(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := lifecycle.CompileReceiptRequest{
+	request := ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
-		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 	}
 	receipt, err := Compile(context.Background(), request, nil, recipeEngine, service, nil, nil)
 	if err != nil {
@@ -682,12 +683,12 @@ func TestCompileExplorerReceiptBindsRowDefinitionProposalBeforeIdentity(t *testi
 		CandidateWorkspaceDigest: intentDigest,
 		SnapshotToken:            snapshot.Token,
 	}
-	receipt, err := Compile(context.Background(), lifecycle.CompileReceiptRequest{
+	receipt, err := Compile(context.Background(), ports.CompileReceiptRequest{
 		Project:               "project-a",
 		ExplorerID:            "custom",
 		Workspace:             workspace,
 		SnapshotToken:         snapshot.Token,
-		Authorized:            lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+		Authorized:            ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 		RowDefinitionProposal: binding,
 	}, nil, recipeEngine, service, nil, nil)
 	if err != nil {
@@ -1009,9 +1010,9 @@ func TestCompileExplorerReceiptAllowsEmptyConstructionTargetWithSiblingOutputs(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := Compile(context.Background(), lifecycle.CompileReceiptRequest{
+	receipt, err := Compile(context.Background(), ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
-		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 	}, nil, recipeEngine, service, nil, nil)
 	if err != nil {
 		t.Fatalf("compile and persist receipt for empty target with sibling inputs: %v", err)
@@ -1144,9 +1145,9 @@ func TestCompileExplorerReceiptReconcilesSparsePublishedAppendWithExactSourceSch
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := lifecycle.CompileReceiptRequest{
+	request := ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
-		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope},
+		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope},
 	}
 	receipt, err := Compile(context.Background(), request, nil, engine, service, nil, resolveSchemas)
 	if err != nil {

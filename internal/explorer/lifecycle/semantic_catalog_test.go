@@ -11,10 +11,13 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
@@ -38,12 +41,12 @@ func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
 			readyObservation.ExamplesTruncated = true
 			readyObservation.ObservedUnits = []string{"mg", "mcg"}
 			readyObservation.ObservedUnitsTruncated = true
-			readyObservation.Completeness = catalog.SemanticComplete
+			readyObservation.Completeness = codedconcept.Complete
 			service := &Service{config: Config{
-				Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-					return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+				Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+					return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 				}},
-				SemanticInventory: func(_ context.Context, opts catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
+				SemanticInventory: func(_ context.Context, opts semanticinventory.PageOptions) (semanticinventory.Page, error) {
 					calls++
 					if opts.Project != "project-a" || opts.DatasetGeneration != "generation-a" || opts.AuthResourcePathsUnrestricted == nil || *opts.AuthResourcePathsUnrestricted != (scope.Mode == authscope.ReadScopeUnrestricted) || len(opts.AuthResourcePaths) != len(scope.AuthResourcePaths) {
 						t.Fatalf("scope lost: %#v", opts)
@@ -51,15 +54,15 @@ func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
 					if opts.Cursor != "" && opts.Cursor != "inner-page" {
 						t.Fatalf("cursor was not unwrapped: %q", opts.Cursor)
 					}
-					return catalog.SemanticInventoryPage{State: catalog.SemanticInventoryComplete, Build: catalog.SemanticInventoryBuild{BuildID: buildID, SourceAvailability: catalog.SemanticInventorySourceAvailabilityUnproven, Checkpoint: "private", ScannedResources: 9000}, Entries: []catalog.SemanticInventoryEntry{
+					return semanticinventory.Page{State: semanticinventory.Complete, Build: semanticinventory.Build{BuildID: buildID, SourceAvailability: semanticinventory.SourceAvailabilityUnproven, Checkpoint: "private", ScannedResources: 9000}, Entries: []semanticinventory.Entry{
 						{ConceptID: "ready-concept", BindingID: "ready-binding", Observation: readyObservation},
-						{ConceptID: "unsupported-concept", BindingID: "unsupported-binding", Observation: catalog.SemanticObservation{Key: catalog.SemanticObservationKey{System: "system", Code: "code", Version: "v1"}, Population: 3}},
+						{ConceptID: "unsupported-concept", BindingID: "unsupported-binding", Observation: codedconcept.Observation{Key: codedconcept.Key{System: "system", Code: "code", Version: "v1"}, Population: 3}},
 					}, NextCursor: "inner-page"}, nil
 				},
 			}}
 			req := BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation", Limit: 50}
 			first, err := service.BrowseSemanticInventory(context.Background(), req)
-			if err != nil || len(first.Entries) != 2 || first.Entries[0].Occurrences != 3 || len(first.Entries[0].Examples) != 2 || !first.Entries[0].ExamplesTruncated || len(first.Entries[0].ObservedUnits) != 2 || !first.Entries[0].ObservedUnitsTruncated || first.Entries[0].Completeness != catalog.SemanticComplete || first.Entries[0].Readiness.Status != authoringv2.SemanticReadinessReady || first.Entries[0].Readiness.Code != "READY" || first.Entries[0].Readiness.Message == "" || first.Entries[0].ConstructionChoice == nil || first.Entries[1].Readiness.Status != authoringv2.SemanticReadinessUnsupported || first.Entries[1].Readiness.Code == "" || first.Entries[1].Readiness.Message == "" || first.Entries[1].ConstructionChoice != nil || first.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnproven || first.ContextToken == "" || first.NextCursor == "" {
+			if err != nil || len(first.Entries) != 2 || first.Entries[0].Occurrences != 3 || len(first.Entries[0].Examples) != 2 || !first.Entries[0].ExamplesTruncated || len(first.Entries[0].ObservedUnits) != 2 || !first.Entries[0].ObservedUnitsTruncated || first.Entries[0].Completeness != codedconcept.Complete || first.Entries[0].Readiness.Status != authoringv2.SemanticReadinessReady || first.Entries[0].Readiness.Code != "READY" || first.Entries[0].Readiness.Message == "" || first.Entries[0].ConstructionChoice == nil || first.Entries[1].Readiness.Status != authoringv2.SemanticReadinessUnsupported || first.Entries[1].Readiness.Code == "" || first.Entries[1].Readiness.Message == "" || first.Entries[1].ConstructionChoice != nil || first.SourceAvailability != semanticinventory.SourceAvailabilityUnproven || first.ContextToken == "" || first.NextCursor == "" {
 				t.Fatalf("first=%#v err=%v", first, err)
 			}
 			semanticSource, ok := first.Entries[0].ConstructionChoice.Source.(capability.SemanticBindingChoiceSource)
@@ -141,33 +144,33 @@ func TestBrowseSemanticInventoryOutputScopeKeepsOnlyCompilerProvenIdentifiers(t 
 			ProjectionModes: []capability.ProjectionMode{capability.ProjectionFirst, capability.ProjectionArray},
 		})
 	}
-	entries := make([]catalog.SemanticInventoryEntry, 0, 4)
+	entries := make([]semanticinventory.Entry, 0, 4)
 	for _, resourceType := range []string{"SubstanceDefinition", "Substance", "Observation", "Specimen"} {
-		entries = append(entries, catalog.SemanticInventoryEntry{
+		entries = append(entries, semanticinventory.Entry{
 			ConceptID: resourceType + "-identifier", BindingID: resourceType + "-system",
-			Observation: catalog.SemanticObservation{
-				SchemaVersion: catalog.SemanticObservationSchemaVersion,
-				Source:        catalog.SemanticObservationSource{Type: resourceType, Path: "identifier[]"},
-				Key:           catalog.SemanticObservationKey{Selector: "identifier[].system", System: "urn:example:" + resourceType, Display: resourceType + " identifier"},
-				Value:         catalog.SemanticObservationValue{Selector: "identifier[].value", Type: "string"},
-				OwningScope:   "identifier[]", LogicalType: "string", Completeness: catalog.SemanticComplete,
-				Status: "SUPPORTED", RuleHint: "IDENTIFIER_SYSTEM_VALUE", RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+			Observation: codedconcept.Observation{
+				SchemaVersion: codedconcept.ObservationSchemaVersion,
+				Source:        codedconcept.Source{Type: resourceType, Path: "identifier[]"},
+				Key:           codedconcept.Key{Selector: "identifier[].system", System: "urn:example:" + resourceType, Display: resourceType + " identifier"},
+				Value:         codedconcept.Value{Selector: "identifier[].value", Type: "string"},
+				OwningScope:   "identifier[]", LogicalType: "string", Completeness: codedconcept.Complete,
+				Status: "SUPPORTED", RuleHint: "IDENTIFIER_SYSTEM_VALUE", RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
 			},
 		})
 	}
-	buildID := catalog.SemanticInventoryBuildID("project-a", "generation-a")
+	buildID := semanticinventory.BuildID("project-a", "generation-a")
 	store := semanticAuthoringStore(t)
 	service := newTestService(t, store, Config{
-		Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		}},
-		SemanticInventory: func(_ context.Context, options catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
+		SemanticInventory: func(_ context.Context, options semanticinventory.PageOptions) (semanticinventory.Page, error) {
 			if options.Project != "project-a" || options.DatasetGeneration != "generation-a" || options.AuthResourcePathsUnrestricted == nil || *options.AuthResourcePathsUnrestricted || !reflect.DeepEqual(options.AuthResourcePaths, scope.AuthResourcePaths) {
 				t.Fatalf("output-scoped browse changed authorization scope: %#v", options)
 			}
-			return catalog.SemanticInventoryPage{
-				State:   catalog.SemanticInventoryComplete,
-				Build:   catalog.SemanticInventoryBuild{BuildID: buildID, State: catalog.SemanticInventoryComplete, SourceAvailability: catalog.SemanticInventorySourceAvailabilityVerified},
+			return semanticinventory.Page{
+				State:   semanticinventory.Complete,
+				Build:   semanticinventory.Build{BuildID: buildID, State: semanticinventory.Complete, SourceAvailability: semanticinventory.SourceAvailabilityVerified},
 				Entries: entries,
 			}, nil
 		},
@@ -210,14 +213,14 @@ func TestBrowseSemanticInventoryOutputScopeKeepsOnlyCompilerProvenIdentifiers(t 
 }
 
 func TestSemanticCandidateWithFallbackPreservesRepeatedCardinalityAndAuthorizationIdentity(t *testing.T) {
-	observation := catalog.SemanticObservation{
-		SchemaVersion: catalog.SemanticObservationSchemaVersion,
-		Source:        catalog.SemanticObservationSource{Type: "Observation", Canonical: "Observation.valueCodeableConcept", Path: "valueCodeableConcept"},
-		Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: "urn:study", Code: "stage"},
+	observation := codedconcept.Observation{
+		SchemaVersion: codedconcept.ObservationSchemaVersion,
+		Source:        codedconcept.Source{Type: "Observation", Canonical: "Observation.valueCodeableConcept", Path: "valueCodeableConcept"},
+		Key:           codedconcept.Key{Selector: "code.coding[]", System: "urn:study", Code: "stage"},
 		OwningScope:   "", ChoiceArm: "valueCodeableConcept", LogicalType: "string",
-		Completeness: catalog.SemanticComplete, Status: "SUPPORTED", RuleHint: catalog.SemanticRuleHintCodedValueV1,
-		RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
-		Value: catalog.SemanticObservationValue{
+		Completeness: codedconcept.Complete, Status: "SUPPORTED", RuleHint: codedconcept.RuleHintCodedValueV1,
+		RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
+		Value: codedconcept.Value{
 			Selector: "valueCodeableConcept.text", Type: "string",
 			FallbackSelectors: []string{"valueCodeableConcept.coding[].display"}, FallbackOnBlankString: true,
 		},
@@ -254,7 +257,7 @@ func TestSemanticCandidateWithFallbackPreservesRepeatedCardinalityAndAuthorizati
 		ValueFallbacks: []string{"valueCodeableConcept.coding[].display"}, FallbackOnBlankString: true,
 		ChoiceArms: []string{"valueCodeableConcept"}, LogicalType: "string", RuleVersion: "5", SchemaVersion: 4,
 	}
-	entry := catalog.SemanticInventoryEntry{ConceptID: "stage", BindingID: family.BindingID, Observation: observation}
+	entry := semanticinventory.Entry{ConceptID: "stage", BindingID: family.BindingID, Observation: observation}
 	plan := authoringv2.ResolveSemanticSelectionPlan(observation)
 	if !plan.Readiness.Addable() || !semanticEntryMatchesFrameFamily(entry, family) {
 		t.Fatalf("fallback frame family did not reauthorize against current binding: plan=%#v family=%#v", plan, family)
@@ -346,17 +349,17 @@ func TestBrowseSemanticInventoryUsesOutputToResolveDuplicateFrameIDs(t *testing.
 		t.Fatal(err)
 	}
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "explorer", DraftConfig: config}}
-	var browse catalog.SemanticInventoryPageOptions
+	var browse semanticinventory.PageOptions
 	service := newTestService(t, store, Config{
-		Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		}},
-		SemanticInventory: func(_ context.Context, options catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
+		SemanticInventory: func(_ context.Context, options semanticinventory.PageOptions) (semanticinventory.Page, error) {
 			browse = options
-			return catalog.SemanticInventoryPage{
-				State:   catalog.SemanticInventoryComplete,
-				Build:   catalog.SemanticInventoryBuild{BuildID: catalog.SemanticInventoryBuildID("project-a", "generation-a"), State: catalog.SemanticInventoryComplete},
-				Entries: []catalog.SemanticInventoryEntry{},
+			return semanticinventory.Page{
+				State:   semanticinventory.Complete,
+				Build:   semanticinventory.Build{BuildID: semanticinventory.BuildID("project-a", "generation-a"), State: semanticinventory.Complete},
+				Entries: []semanticinventory.Entry{},
 			}, nil
 		},
 	})
@@ -373,11 +376,11 @@ func TestBrowseSemanticInventoryUsesOutputToResolveDuplicateFrameIDs(t *testing.
 	_, err = service.BrowseSemanticInventory(context.Background(), BrowseSemanticInventoryRequest{
 		Project: "project-a", ExplorerID: "explorer", SnapshotToken: snapshot.Token, RowRoot: "Observation", FrameID: frame.ID,
 	})
-	assertLifecycleError(t, err, ClassMalformed, "MALFORMED_REQUEST")
+	assertLifecycleError(t, err, ports.ClassMalformed, "MALFORMED_REQUEST")
 }
 
 func TestBrowseSemanticInventoryAcceptsNestedSchemaDiscoveredCodedValue(t *testing.T) {
-	profiler := catalog.NewProfilerForGenerationWithLimits("project-a", "generation-a", "scope", "MedicationRequest", nil, catalog.DefaultProfileLimits())
+	profiler := fieldprofile.NewProfilerForGenerationWithLimits("project-a", "generation-a", "scope", "MedicationRequest", nil, fieldprofile.DefaultProfileLimits())
 	profiler.ObservePayload(map[string]any{
 		"resourceType": "MedicationRequest",
 		"dosageInstruction": []any{map[string]any{
@@ -389,10 +392,10 @@ func TestBrowseSemanticInventoryAcceptsNestedSchemaDiscoveredCodedValue(t *testi
 			}},
 		}},
 	}, map[string]float64{})
-	var observation catalog.SemanticObservation
+	var observation codedconcept.Observation
 	for _, document := range profiler.Documents() {
 		for _, candidate := range document.SemanticObservations {
-			if candidate.RuleHint == catalog.SemanticRuleHintCodedValueV1 && candidate.Key.Code == "daily-dose" {
+			if candidate.RuleHint == codedconcept.RuleHintCodedValueV1 && candidate.Key.Code == "daily-dose" {
 				observation = candidate
 			}
 		}
@@ -412,16 +415,16 @@ func TestBrowseSemanticInventoryAcceptsNestedSchemaDiscoveredCodedValue(t *testi
 		FieldPath: "dosageInstruction[].doseAndRate[].doseQuantity.value", Cardinality: "optional_many",
 		ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}, LogicalType: "decimal",
 	}}
-	buildID := catalog.SemanticInventoryBuildID("project-a", "generation-a")
+	buildID := semanticinventory.BuildID("project-a", "generation-a")
 	service := &Service{config: Config{
-		Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		}},
-		SemanticInventory: func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
-			return catalog.SemanticInventoryPage{
-				State:   catalog.SemanticInventoryComplete,
-				Build:   catalog.SemanticInventoryBuild{BuildID: buildID, State: catalog.SemanticInventoryComplete},
-				Entries: []catalog.SemanticInventoryEntry{{ConceptID: "daily-dose", BindingID: "dose-binding", Observation: observation}},
+		SemanticInventory: func(context.Context, semanticinventory.PageOptions) (semanticinventory.Page, error) {
+			return semanticinventory.Page{
+				State:   semanticinventory.Complete,
+				Build:   semanticinventory.Build{BuildID: buildID, State: semanticinventory.Complete},
+				Entries: []semanticinventory.Entry{{ConceptID: "daily-dose", BindingID: "dose-binding", Observation: observation}},
 			}, nil
 		},
 	}}
@@ -443,11 +446,11 @@ func TestBrowseSemanticInventoryMarksMissingCompilerProofUnsupported(t *testing.
 	snapshot.Nodes = []capability.Node{{ResourceType: "Observation", RowRootEligible: true}}
 	observation := semanticAuthoringEntry("concept", "binding", "system", "code", "").Observation
 	service := &Service{config: Config{
-		Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		}},
-		SemanticInventory: func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
-			return catalog.SemanticInventoryPage{Build: catalog.SemanticInventoryBuild{BuildID: "build"}, Entries: []catalog.SemanticInventoryEntry{{ConceptID: "concept", BindingID: "binding", Observation: observation}}}, nil
+		SemanticInventory: func(context.Context, semanticinventory.PageOptions) (semanticinventory.Page, error) {
+			return semanticinventory.Page{Build: semanticinventory.Build{BuildID: "build"}, Entries: []semanticinventory.Entry{{ConceptID: "concept", BindingID: "binding", Observation: observation}}}, nil
 		},
 	}}
 	result, err := service.BrowseSemanticInventory(context.Background(), BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation"})
@@ -468,11 +471,11 @@ func TestBrowseSemanticInventoryRejectsAmbiguousCompilerProof(t *testing.T) {
 	}
 	observation := semanticAuthoringEntry("concept", "binding", "system", "code", "").Observation
 	service := &Service{config: Config{
-		Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		}},
-		SemanticInventory: func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
-			return catalog.SemanticInventoryPage{Build: catalog.SemanticInventoryBuild{BuildID: "build"}, Entries: []catalog.SemanticInventoryEntry{{ConceptID: "concept", BindingID: "binding", Observation: observation}}}, nil
+		SemanticInventory: func(context.Context, semanticinventory.PageOptions) (semanticinventory.Page, error) {
+			return semanticinventory.Page{Build: semanticinventory.Build{BuildID: "build"}, Entries: []semanticinventory.Entry{{ConceptID: "concept", BindingID: "binding", Observation: observation}}}, nil
 		},
 	}}
 	result, err := service.BrowseSemanticInventory(context.Background(), BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation"})
@@ -486,16 +489,16 @@ func TestBrowseSemanticInventoryRejectsInvalidScopeBeforeRead(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", scope)
 	snapshot.Nodes = []capability.Node{{ResourceType: "Observation", RowRootEligible: true}}
 	service := &Service{config: Config{
-		Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 		}},
-		SemanticInventory: func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
+		SemanticInventory: func(context.Context, semanticinventory.PageOptions) (semanticinventory.Page, error) {
 			t.Fatal("inventory queried with mismatched scope")
-			return catalog.SemanticInventoryPage{}, nil
+			return semanticinventory.Page{}, nil
 		},
 	}}
 	_, err := service.BrowseSemanticInventory(context.Background(), BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation"})
-	var failure *Error
+	var failure *ports.Error
 	if !errors.As(err, &failure) || failure.Code != "STALE_AUTHORIZATION_SCOPE" {
 		t.Fatalf("error=%v", err)
 	}
@@ -506,15 +509,15 @@ func TestBrowseSemanticInventoryUnknownRemainsUnknown(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", scope)
 	snapshot.Nodes = []capability.Node{{ResourceType: "Observation", RowRootEligible: true}}
 	service := &Service{config: Config{
-		Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		}},
-		SemanticInventory: func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
-			return catalog.SemanticInventoryPage{State: catalog.SemanticInventoryUnknown}, nil
+		SemanticInventory: func(context.Context, semanticinventory.PageOptions) (semanticinventory.Page, error) {
+			return semanticinventory.Page{State: semanticinventory.Unknown}, nil
 		},
 	}}
 	result, err := service.BrowseSemanticInventory(context.Background(), BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation"})
-	if err != nil || result.State != catalog.SemanticInventoryUnknown || result.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnknown || result.Entries == nil || len(result.Entries) != 0 {
+	if err != nil || result.State != semanticinventory.Unknown || result.SourceAvailability != semanticinventory.SourceAvailabilityUnknown || result.Entries == nil || len(result.Entries) != 0 {
 		t.Fatalf("result=%#v error=%v", result, err)
 	}
 }

@@ -18,7 +18,7 @@ func interpretationRevisionKey(id explorer.InterpretationRevisionID) string {
 	return string(id)
 }
 
-func (s *Store) ListInterpretationLibraries(ctx context.Context, rawProject string) ([]explorer.InterpretationLibrary, error) {
+func (s *InterpretationStore) ListInterpretationLibraries(ctx context.Context, rawProject string) ([]explorer.InterpretationLibrary, error) {
 	project, err := explorer.CanonicalInterpretationProject(rawProject)
 	if err != nil {
 		return nil, err
@@ -43,7 +43,7 @@ func (s *Store) ListInterpretationLibraries(ctx context.Context, rawProject stri
 	return result, nil
 }
 
-func (s *Store) GetInterpretationRevision(ctx context.Context, rawProject string, id explorer.InterpretationRevisionID) (*explorer.InterpretationRevision, error) {
+func (s *InterpretationStore) GetInterpretationRevision(ctx context.Context, rawProject string, id explorer.InterpretationRevisionID) (*explorer.InterpretationRevision, error) {
 	project, err := explorer.CanonicalInterpretationProject(rawProject)
 	if err != nil {
 		return nil, err
@@ -74,7 +74,7 @@ func (s *Store) GetInterpretationRevision(ctx context.Context, rawProject string
 	return out, nil
 }
 
-func (s *Store) CreateInterpretationRevision(ctx context.Context, input explorer.InterpretationRevision, expectedParent *explorer.InterpretationRevisionID) (*explorer.InterpretationRevision, error) {
+func (s *InterpretationStore) CreateInterpretationRevision(ctx context.Context, input explorer.InterpretationRevision, expectedParent *explorer.InterpretationRevisionID) (*explorer.InterpretationRevision, error) {
 	revision, err := explorer.PrepareInterpretationRevision(input)
 	if err != nil {
 		return nil, err

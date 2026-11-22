@@ -5,6 +5,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -65,7 +66,7 @@ func (s *Service) Introspect(ctx context.Context, req IntrospectionRequest) (*In
 }
 
 func (s *Service) buildResourceHints(ctx context.Context, project, datasetGeneration string, scope authscope.ReadScope, resourceType string, traversals []catalog.PopulatedReference, includePivotOnlyFields bool) (ResourceHints, error) {
-	fields, err := s.discoverFields(ctx, catalog.PopulatedFieldOptions{
+	fields, err := s.discoverFields(ctx, fieldprofile.PopulatedFieldOptions{
 		Project:                       project,
 		DatasetGeneration:             datasetGeneration,
 		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(scope.Unrestricted()),
@@ -77,9 +78,9 @@ func (s *Service) buildResourceHints(ctx context.Context, project, datasetGenera
 		return ResourceHints{}, queryBackend(err)
 	}
 
-	pivotFields := []catalog.PopulatedField{}
+	pivotFields := []fieldprofile.PopulatedField{}
 	if includePivotOnlyFields {
-		pivotFields, err = s.discoverFields(ctx, catalog.PopulatedFieldOptions{
+		pivotFields, err = s.discoverFields(ctx, fieldprofile.PopulatedFieldOptions{
 			Project:                       project,
 			DatasetGeneration:             datasetGeneration,
 			AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(scope.Unrestricted()),
@@ -126,9 +127,9 @@ func (s *Service) buildRelatedResourceHints(ctx context.Context, project, datase
 	return out, nil
 }
 
-func normalizeFieldSlice(in []catalog.PopulatedField) []catalog.PopulatedField {
+func normalizeFieldSlice(in []fieldprofile.PopulatedField) []fieldprofile.PopulatedField {
 	if len(in) == 0 {
-		return []catalog.PopulatedField{}
+		return []fieldprofile.PopulatedField{}
 	}
 	for i := range in {
 		if in[i].DistinctValues == nil {

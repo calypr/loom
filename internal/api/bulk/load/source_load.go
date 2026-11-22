@@ -8,12 +8,10 @@ import (
 	"mime"
 	"mime/multipart"
 	"os"
-	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	"github.com/calypr/loom/internal/fhir/schema"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/sourceload"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -21,144 +19,49 @@ const defaultSourceLoadMaxFileBytes int64 = 1 << 30
 
 var errSourceLoadFileTooLarge = errors.New("source file exceeds the configured per-file limit")
 
-func (h *Handler) BeginSourceLoad(ctx context.Context, project, operationID string, plan ingest.SourceLoadPlan, principal *authscope.Principal) (ingest.SourceLoadStatus, error) {
-	project, operationID, err := normalizeSourceLoadIdentity(project, operationID)
-	if err != nil {
-		return ingest.SourceLoadStatus{}, err
-	}
-	if h.sourceLoader == nil {
-		return ingest.SourceLoadStatus{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	}
-	plan.AuthResourcePath, err = normalizeSourceLoadAuthPath(plan.AuthResourcePath)
-	if err != nil {
-		return ingest.SourceLoadStatus{}, err
-	}
-	if plan.ExpectedRevision != nil && *plan.ExpectedRevision < 0 {
-		return ingest.SourceLoadStatus{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-	}
-	if len(plan.Files) == 0 {
-		return ingest.SourceLoadStatus{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-	}
-	if err := h.authz.AuthorizeWrite(ctx, principal, project, plan.AuthResourcePath); err != nil {
-		return ingest.SourceLoadStatus{}, dataframeerrors.Wrap(err, dataframeerrors.CodeForbidden, "")
-	}
-	status, err := h.sourceLoader.Begin(ctx, project, operationID, plan)
-	if err != nil {
-		return ingest.SourceLoadStatus{}, normalizeError(err)
-	}
-	return status, nil
+func (h *Handler) sourceLoads() sourceLoadOperations {
+	return sourceLoadOperations{loader: h.sourceLoader, authorizer: h.authz}
 }
 
-func (h *Handler) GetSourceLoadStatus(ctx context.Context, project, operationID string, principal *authscope.Principal) (ingest.SourceLoadStatus, error) {
-	project, operationID, err := normalizeSourceLoadIdentity(project, operationID)
-	if err != nil {
-		return ingest.SourceLoadStatus{}, err
-	}
-	status, err := h.sourceLoadStatusForRequest(ctx, project, operationID, principal)
-	if err != nil {
-		return ingest.SourceLoadStatus{}, err
-	}
-	return status, nil
+func (h *Handler) BeginSourceLoad(ctx context.Context, project, operationID string, plan sourceload.SourceLoadPlan, principal *authscope.Principal) (sourceload.SourceLoadStatus, error) {
+	return h.sourceLoads().BeginSourceLoad(ctx, project, operationID, plan, principal)
 }
 
-func (h *Handler) UploadSourceLoadFile(ctx context.Context, project, operationID, resourceType string, body *multipart.Reader, principal *authscope.Principal) (ingest.SourceFileReceipt, error) {
-	project, operationID, err := normalizeSourceLoadIdentity(project, operationID)
-	if err != nil {
-		return ingest.SourceFileReceipt{}, err
-	}
-	resourceType, ok := schema.ConcreteResourceType(resourceType)
-	if !ok {
-		return ingest.SourceFileReceipt{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidResourceType, "")
-	}
-	if h.sourceLoader == nil {
-		return ingest.SourceFileReceipt{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	}
-	if _, err := h.sourceLoadStatusForRequest(ctx, project, operationID, principal); err != nil {
-		return ingest.SourceFileReceipt{}, err
-	}
+func (h *Handler) GetSourceLoadStatus(ctx context.Context, project, operationID string, principal *authscope.Principal) (sourceload.SourceLoadStatus, error) {
+	return h.sourceLoads().GetSourceLoadStatus(ctx, project, operationID, principal)
+}
+
+func (h *Handler) UploadSourceLoadFile(ctx context.Context, project, operationID, resourceType string, body *multipart.Reader, principal *authscope.Principal) (sourceload.SourceFileReceipt, error) {
+	return h.sourceLoads().UploadSourceLoadFile(ctx, project, operationID, resourceType, func(resourceType string) (string, error) {
+		return h.stageRequestedSourceFile(body, resourceType)
+	}, principal)
+}
+
+func (h *Handler) PublishSourceLoad(ctx context.Context, project, operationID string, principal *authscope.Principal) (sourceload.SourcePublishReceipt, error) {
+	return h.sourceLoads().PublishSourceLoad(ctx, project, operationID, principal)
+}
+
+func (h *Handler) stageRequestedSourceFile(body *multipart.Reader, resourceType string) (string, error) {
 	if body == nil {
-		return ingest.SourceFileReceipt{}, fiber.NewError(fiber.StatusUnsupportedMediaType)
+		return "", fiber.NewError(fiber.StatusUnsupportedMediaType)
 	}
 
 	filename := "META/" + resourceType + ".ndjson"
 	localPath, err := stageSourceLoadFile(body, filename, h.sourceLimits.MaxFileBytes)
 	if err != nil {
 		if errors.Is(err, errSourceLoadFileTooLarge) {
-			return ingest.SourceFileReceipt{}, dataframeerrors.NewError(dataframeerrors.CodeExportLimitExceeded, "",
+			return "", dataframeerrors.NewError(dataframeerrors.CodeExportLimitExceeded, "",
 				dataframeerrors.WithPublicMessage(fmt.Sprintf("The resource file exceeds Loom's per-file limit of %d bytes.", h.sourceLimits.MaxFileBytes)),
 				dataframeerrors.WithDetails(map[string]any{"limit": "resource file bytes", "maximum": h.sourceLimits.MaxFileBytes}))
 		}
 		var parseErr *multipartParseError
 		if errors.As(err, &parseErr) || errors.Is(err, errInvalidSourceLoadMultipart) {
-			return ingest.SourceFileReceipt{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+			return "", dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 		}
-		return ingest.SourceFileReceipt{}, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+		return "", dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
-	defer os.Remove(localPath)
-
-	receipt, err := h.sourceLoader.UploadFile(ctx, project, operationID, resourceType, localPath)
-	if err != nil {
-		return ingest.SourceFileReceipt{}, normalizeError(err)
-	}
-	return receipt, nil
+	return localPath, nil
 }
-
-func (h *Handler) PublishSourceLoad(ctx context.Context, project, operationID string, principal *authscope.Principal) (ingest.SourcePublishReceipt, error) {
-	project, operationID, err := normalizeSourceLoadIdentity(project, operationID)
-	if err != nil {
-		return ingest.SourcePublishReceipt{}, err
-	}
-	if _, err := h.sourceLoadStatusForRequest(ctx, project, operationID, principal); err != nil {
-		return ingest.SourcePublishReceipt{}, err
-	}
-	receipt, err := h.sourceLoader.Publish(ctx, project, operationID)
-	if err != nil {
-		return ingest.SourcePublishReceipt{}, normalizeError(err)
-	}
-	return receipt, nil
-}
-
-func (h *Handler) sourceLoadStatusForRequest(ctx context.Context, project, operationID string, principal *authscope.Principal) (ingest.SourceLoadStatus, error) {
-	if h.sourceLoader == nil {
-		return ingest.SourceLoadStatus{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-	}
-	status, err := h.sourceLoader.Status(ctx, project, operationID)
-	if err != nil {
-		return ingest.SourceLoadStatus{}, normalizeError(err)
-	}
-	authResourcePath, err := normalizeSourceLoadAuthPath(status.AuthResourcePath)
-	if err != nil {
-		return ingest.SourceLoadStatus{}, dataframeerrors.Wrap(err, dataframeerrors.CodeInternalError, "")
-	}
-	if err := h.authz.AuthorizeWrite(ctx, principal, project, authResourcePath); err != nil {
-		return ingest.SourceLoadStatus{}, dataframeerrors.Wrap(err, dataframeerrors.CodeForbidden, "")
-	}
-	return status, nil
-}
-
-func normalizeSourceLoadIdentity(project, operationID string) (string, string, error) {
-	project = strings.TrimSpace(project)
-	operationID = strings.TrimSpace(operationID)
-	if project == "" || strings.ContainsAny(project, "\r\n\x00") || operationID == "" || len(operationID) > 200 ||
-		strings.ContainsAny(operationID, "/\\\r\n\x00") {
-		return "", "", dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-	}
-	return project, operationID, nil
-}
-
-func normalizeSourceLoadAuthPath(value string) (string, error) {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return "", nil
-	}
-	normalized := authscope.NormalizeAuthResourcePath(trimmed)
-	if normalized == "" {
-		return "", dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
-	}
-	return normalized, nil
-}
-
-var errInvalidSourceLoadMultipart = errors.New("source file upload must contain exactly one canonical file part")
 
 type multipartReadTracker struct {
 	reader io.Reader

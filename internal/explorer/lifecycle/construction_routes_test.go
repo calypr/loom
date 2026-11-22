@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func inboundPatientObservationRouteFixture(t *testing.T) (*fakeStore, *Service, capability.Snapshot, authoringv2.CatalogSnapshot, capability.Candidate) {
@@ -49,9 +50,9 @@ func inboundPatientObservationRouteFixture(t *testing.T) (*fakeStore, *Service, 
 		}},
 	}
 	store := semanticAuthoringStore(t)
-	config := Config{Capability: CapabilityResolver{
-		ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	config := Config{Capability: ports.CapabilityResolver{
+		ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		},
 		Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog },
 	}}
@@ -157,15 +158,15 @@ func TestConstructionChoiceSearchExplainsUnsupportedObjectField(t *testing.T) {
 		FieldPath: "name[].text", LogicalType: "string", Cardinality: "optional_one",
 	}
 	snapshot.Candidates = []capability.Candidate{unsupported, child}
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
 
 	_, err := service.SearchConstructionChoices(context.Background(), ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
 		Source: ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: unsupported.ID},
 	})
-	apiErr, ok := err.(*Error)
+	apiErr, ok := err.(*ports.Error)
 	if !ok || apiErr.Code != "UNSUPPORTED_CONSTRUCTION_SOURCE_TYPE" ||
 		!strings.Contains(apiErr.Message, "Patient.name[]") || !strings.Contains(apiErr.Message, "Patient.name[].text") {
 		t.Fatalf("unsupported field error = %#v, want field and typed child guidance", err)
@@ -174,7 +175,7 @@ func TestConstructionChoiceSearchExplainsUnsupportedObjectField(t *testing.T) {
 
 func TestRelatedExpandChoiceSearchPinsRouteToCompilerSupportedStage(t *testing.T) {
 	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
-	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
 		if prepareErr != nil {
 			return nil, prepareErr
@@ -319,11 +320,11 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 		SourceResourceType: "Observation", TargetResourceType: "Specimen", Label: "specimen_Specimen", StorageDirection: "OUTBOUND",
 	})
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
 	service.config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog }
-	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		prepared, prepareErr := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, catalog)
 		if prepareErr != nil {
 			return nil, prepareErr
@@ -441,7 +442,7 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 			Value: &authoringv2.ContributorValue{Kind: authoringv2.ContributorString, String: &contributorValue},
 		}},
 	}
-	base := constructionBase{snapshot: snapshot, authorized: AuthorizedCapability{Snapshot: snapshot, Scope: scope}, catalog: catalog}
+	base := constructionBase{snapshot: snapshot, authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, catalog: catalog}
 	if err := reauthorizeRelatedExpandContributor(context.Background(), base, "Patient", repeatedRelated); err != nil {
 		t.Fatalf("repeated contributor signed choice reauthorization: %v", err)
 	}
@@ -512,7 +513,7 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 
 func TestRelatedExpandChoiceSearchRequiresCompilerSupportedSelectedStage(t *testing.T) {
 	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
-	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
 		if prepareErr != nil {
 			return nil, prepareErr
@@ -559,10 +560,10 @@ func TestRelatedExpandChoicesCanStartAtRootOrCurrentRelatedRecord(t *testing.T) 
 		SourceResourceType: "Observation", TargetResourceType: "Specimen", Label: "specimen_Specimen", StorageDirection: "OUTBOUND",
 	})
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
-	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
 		if prepareErr != nil {
 			return nil, prepareErr
@@ -663,10 +664,10 @@ func TestRelatedFieldChoicesAreStageBoundAndOnlyOfferLowerablePaths(t *testing.T
 	}
 	snapshot.Candidates = append(snapshot.Candidates, unsupported)
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
-	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
 		if prepareErr != nil {
 			return nil, prepareErr
@@ -759,7 +760,7 @@ func TestRelatedFieldChoicesAreStageBoundAndOnlyOfferLowerablePaths(t *testing.T
 
 func TestRelatedFieldChoicesRequireActiveStageIdentity(t *testing.T) {
 	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
-	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
 		if prepareErr != nil {
 			return nil, prepareErr
@@ -1026,8 +1027,8 @@ func TestConstructionChoiceSearchRejectsAmbiguousOccurrenceEdgeResolution(t *tes
 		ID: "subject-patient-parallel", FromNodeID: "patient", ToNodeID: "observation",
 		SourceResourceType: "Patient", TargetResourceType: "Observation", Label: "subject_Patient", StorageDirection: "INBOUND",
 	})
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
 	_, err := service.SearchConstructionChoices(context.Background(), ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", OccurrenceID: "ambiguous-observation",
@@ -1066,8 +1067,8 @@ func TestConstructionChoiceSearchRequiresCompleteRouteCompilerProof(t *testing.T
 	store, service, snapshot, catalog, candidate := inboundPatientObservationRouteFixture(t)
 	snapshot.Edges[0].Label = "not_a_fhir_relationship"
 	catalog.Edges[0].Label = snapshot.Edges[0].Label
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
 	service.config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog }
 	result, err := service.SearchConstructionChoices(context.Background(), ConstructionChoiceSearchRequest{
@@ -1306,8 +1307,8 @@ func addParallelObservationRoute(service *Service, snapshot capability.Snapshot,
 	catalogEdge.ID = edge.ID
 	catalog.Edges = append(catalog.Edges, catalogEdge)
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
 	service.config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot {
 		return catalog

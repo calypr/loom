@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
@@ -44,11 +45,11 @@ func TestColumnPolicyHTTPContractPreviewApplyAndClosedIntent(t *testing.T) {
 		t.Fatal(err)
 	}
 	previews := 0
-	config := lifecycle.Config{Capability: lifecycle.CapabilityResolver{Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil }, ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-		return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
-	}, ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-		return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
-	}, Catalog: authoringv2.CatalogFromCapability}, CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config := lifecycle.Config{Capability: ports.CapabilityResolver{Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil }, ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	}, ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	}, Catalog: authoringv2.CatalogFromCapability}, CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt, err := explorerfixtures.PersistTestNativeReceipt(ctx, t, service, request, snapshot)
 		if err != nil {
 			return nil, err

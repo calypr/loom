@@ -14,11 +14,11 @@ func TestRelatedOccurrenceGroupStreamsCodingAndPreservesRouteSentinel(t *testing
 		ir.PhysicalUnnestError,
 	} {
 		t.Run(string(policy), func(t *testing.T) {
-			renderer := &physicalPlanRenderer{
+			renderer := &physicalPlanRenderer{renderContext: renderContext{
 				bindVars:       map[string]any{"construction_id": "group"},
 				reservedVars:   map[string]struct{}{},
 				internalPrefix: "test_",
-			}
+			}}
 			stage := relatedOccurrenceGroupStage(policy)
 			lines, err := renderer.renderConstructionGroupStage(stage, constructionGroupInput{SourceRowInScope: true})
 			if err != nil {
@@ -114,12 +114,12 @@ func TestRelatedGroupAdapterRouteCollectionBindSurvivesRenderedBindPruning(t *te
 	if _, ok := collectionKeys[edgeCollectionBindKey]; !ok {
 		t.Fatalf("Group adapter route bind %q was omitted from collection keys: %#v", edgeCollectionBindKey, collectionKeys)
 	}
-	renderer := &physicalPlanRenderer{
+	renderer := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       runtimePhysicalBindVars(bindVars, collectionKeys),
 		collectionKeys: collectionKeys,
 		reservedVars:   map[string]struct{}{},
 		internalPrefix: "test_",
-	}
+	}}
 	lines, err := renderer.renderConstructionGroupStage(stage, constructionGroupInput{SourceRowInScope: true})
 	if err != nil {
 		t.Fatalf("render related Group adapter: %v", err)
@@ -137,11 +137,11 @@ func TestRelatedGroupAdapterRouteCollectionBindSurvivesRenderedBindPruning(t *te
 }
 
 func TestRelatedScalarGroupOmitsCodingExpansionAndRetainsNullOrdinalIdentity(t *testing.T) {
-	renderer := &physicalPlanRenderer{
+	renderer := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       map[string]any{"construction_id": "group"},
 		reservedVars:   map[string]struct{}{},
 		internalPrefix: "test_",
-	}
+	}}
 	stage := relatedOccurrenceGroupStage(ir.PhysicalUnnestPreserveParent)
 	stage.Group.CodingKey = nil
 	stage.Group.RelatedOccurrence.CodingSelector = ""

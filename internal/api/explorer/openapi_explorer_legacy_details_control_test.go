@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func marshalExplorerErrorBody(t *testing.T, err error) (map[string]any, int) {
@@ -31,7 +31,7 @@ func marshalExplorerErrorBody(t *testing.T, err error) (map[string]any, int) {
 
 func TestLegacyFailureCarriesExplicitRetryabilityForActivationMiss(t *testing.T) {
 
-	miss := &lifecycle.Error{Class: lifecycle.ClassConflict, Stage: "repository_publish", Code: "RELEASE_ACTIVATION_FAILED", Message: "activate published ExplorerConfigV2: requirements unmet", Details: map[string]any{"retryable": false}, Cause: errors.New("release requirements unmet")}
+	miss := &ports.Error{Class: ports.ClassConflict, Stage: "repository_publish", Code: "RELEASE_ACTIVATION_FAILED", Message: "activate published ExplorerConfigV2: requirements unmet", Details: map[string]any{"retryable": false}, Cause: errors.New("release requirements unmet")}
 	body, status := marshalExplorerErrorBody(t, lifecycleLegacyFailure(miss))
 	if status != http.StatusConflict {
 		t.Fatalf("activation miss status = %d, want 409", status)
@@ -40,7 +40,7 @@ func TestLegacyFailureCarriesExplicitRetryabilityForActivationMiss(t *testing.T)
 		t.Fatalf("Explorer body lost the lifecycle code: %v", body)
 	}
 	if retryBlock, ok := body["details"].(map[string]any); !ok || retryBlock["retryable"] != false {
-		t.Fatalf("F-B28 RED: explicit retryable=false from lifecycle.Error.Details never reached the client body: %v", body)
+		t.Fatalf("F-B28 RED: explicit retryable=false from the lifecycle error details never reached the client body: %v", body)
 	}
 }
 

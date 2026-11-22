@@ -17,14 +17,15 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/generation"
 	"github.com/gofiber/fiber/v3"
 )
 
 type fakeGenerationRunner struct{ req GenerationLoadRequest }
 
-func (r *fakeGenerationRunner) RunGeneration(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (ingest.LoadSummary, error) {
+func (r *fakeGenerationRunner) RunGeneration(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
 	r.req = req
-	return ingest.LoadSummary{Files: 2, VerticesInserted: 4}, nil
+	return generation.LoadSummary{Files: 2, VerticesInserted: 4}, nil
 }
 
 func TestCreateDatasetGenerationStagesCompleteBundle(t *testing.T) {
@@ -187,27 +188,27 @@ type recordingGenerationRunner struct {
 	err      error
 }
 
-func (r *recordingGenerationRunner) RunGeneration(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (ingest.LoadSummary, error) {
+func (r *recordingGenerationRunner) RunGeneration(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
 	r.req = req
 	r.calls++
 	r.contents = map[string]string{}
 	r.visible = nil
 	entries, err := os.ReadDir(req.StagedDir)
 	if err != nil {
-		return ingest.LoadSummary{}, fmt.Errorf("staged dir unreadable at load time: %w", err)
+		return generation.LoadSummary{}, fmt.Errorf("staged dir unreadable at load time: %w", err)
 	}
 	for _, entry := range entries {
 		data, err := os.ReadFile(filepath.Join(req.StagedDir, entry.Name()))
 		if err != nil {
-			return ingest.LoadSummary{}, fmt.Errorf("staged %s unreadable at load time: %w", entry.Name(), err)
+			return generation.LoadSummary{}, fmt.Errorf("staged %s unreadable at load time: %w", entry.Name(), err)
 		}
 		r.contents[entry.Name()] = string(data)
 		r.visible = append(r.visible, entry.Name())
 	}
 	if r.err != nil {
-		return ingest.LoadSummary{}, r.err
+		return generation.LoadSummary{}, r.err
 	}
-	return ingest.LoadSummary{Files: len(entries)}, nil
+	return generation.LoadSummary{Files: len(entries)}, nil
 }
 
 func allowAllHandler(t *testing.T, runner *recordingGenerationRunner) *Handler {

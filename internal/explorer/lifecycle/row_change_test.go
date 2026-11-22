@@ -19,6 +19,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -128,11 +129,11 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 	resolveForCompilation := config.Capability.ForCompilation
 	compilationCapabilityCalls := 0
 	rejectNextCompilationCapability := false
-	config.Capability.ForCompilation = func(ctx context.Context, project, token string) (AuthorizedCapability, error) {
+	config.Capability.ForCompilation = func(ctx context.Context, project, token string) (ports.AuthorizedCapability, error) {
 		compilationCapabilityCalls++
 		if rejectNextCompilationCapability {
 			rejectNextCompilationCapability = false
-			return AuthorizedCapability{}, capability.ErrStaleSnapshot
+			return ports.AuthorizedCapability{}, capability.ErrStaleSnapshot
 		}
 		return resolveForCompilation(ctx, project, token)
 	}
@@ -167,7 +168,7 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 		return catalog
 	}
 	var compiledWorkspaces []authoringv2.Workspace
-	config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		compiledWorkspaces = append(compiledWorkspaces, request.Workspace)
 		compiled, compileErr := compile(request.Workspace)
 		if compileErr != nil {
@@ -500,7 +501,7 @@ func TestSelectedReconcileValidatesFullWorkspaceCycleBeforeScoping(t *testing.T)
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: draft, DraftVersion: 2, DraftDigest: digest}}
 	config := testConfig(snapshot)
 	compileCalls := 0
-	config.CompileReceipt = func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		compileCalls++
 		return nil, errors.New("compile must not run for invalid full state")
 	}
@@ -543,7 +544,7 @@ func TestConstructionCapabilitiesValidateFullStateBeforeScopedCompile(t *testing
 	}
 	compileCalls := 0
 	compile := service.config.CompileReceipt
-	service.config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		compileCalls++
 		return compile(ctx, request)
 	}
@@ -594,7 +595,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 		}
 		return dataframeexecution.PreviewSummary{Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
 	}
-	config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		compileCalls++
 		compiledWorkspace = request.Workspace
 		receipt := nativeReceipt(snapshot)
@@ -704,7 +705,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, DraftVersion: 6, DraftDigest: digest,
 		OutputID: "patients", RootNodeID: "encounter",
 	})
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "DRAFT_CONFLICT" {
 		t.Fatalf("stale draft error=%v", err)
 	}
@@ -910,7 +911,7 @@ func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *test
 		return compiled, nil
 	}
 	var compiledWorkspace authoringv2.Workspace
-	config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		compiledWorkspace = request.Workspace
 		compiled, compileErr := compileCandidate(request.Workspace)
 		if compileErr != nil {
@@ -1042,7 +1043,7 @@ func TestAssessRowReplacementCandidateProjectsExplicitImportedDetachment(t *test
 		c.Candidates = append(c.Candidates, authoringv2.CatalogCandidate{ID: "study-id", NodeID: "study", FieldPath: "id", Cardinality: "optional_one", Label: "Study ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: lifecycleTestFieldChoice(snapshot.Token, "study-id", "study", "ResearchStudy", "id", "optional_one", capability.ProjectionScalar)})
 		return c
 	}
-	config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt, err := compileTraceReceipt(ctx, request, snapshot, config.Capability.Catalog(snapshot, request.ExplorerID))
 		if err != nil {
 			return nil, err

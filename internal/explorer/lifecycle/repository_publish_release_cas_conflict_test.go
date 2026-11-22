@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestRepositoryPublishReleaseCASConflictKeepsPriorPointerAndFailsLosingRevision(t *testing.T) {
@@ -32,11 +33,13 @@ func TestRepositoryPublishReleaseCASConflictKeepsPriorPointerAndFailsLosingRevis
 	store := &fakeStore{}
 	config := testConfig(snapshot)
 	config.Capability.Current = func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil }
-	config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
-	config.CompileReceipt = func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error) { return base, nil }
-	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
+	config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		return base, nil
+	}
+	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 		return successfulTestExecution(base, "PUBLISHED"), nil
 	}
 	activateErr := error(nil)
@@ -58,11 +61,11 @@ func TestRepositoryPublishReleaseCASConflictKeepsPriorPointerAndFailsLosingRevis
 
 	activateErr = fmt.Errorf("activate release: arango preconditions emptied: a stale expected revision never wins the CAS: %w", dataset.ErrReleaseActivationConflict)
 	_, err = publish("commit-conflict")
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("conflicted publish did not surface a lifecycle error: %v", err)
 	}
-	if lifecycleErr.Class != ClassConflict || lifecycleErr.Code != "PUBLICATION_ACTIVATION_CONFLICT" {
+	if lifecycleErr.Class != ports.ClassConflict || lifecycleErr.Code != "PUBLICATION_ACTIVATION_CONFLICT" {
 		t.Fatalf("conflicted publish classified %q/%q, want conflict/PUBLICATION_ACTIVATION_CONFLICT", lifecycleErr.Class, lifecycleErr.Code)
 	}
 

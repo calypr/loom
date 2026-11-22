@@ -217,21 +217,7 @@ func stageGenerationBundle(body *multipart.Reader) (*generationBundle, error) {
 			maxMemoryBytes -= n
 		}
 
-		stagedName := ""
-		stage := bundled && bundle.stagingErr == nil
-		if bundled {
-			var err error
-			stagedName, err = stagedFileName(filename)
-			if err != nil {
-				bundle.noteFault(err)
-				stage = false
-			} else if _, ok := seen[stagedName]; ok {
-				bundle.noteFault(os.ErrExist)
-				stage = false
-			} else {
-				seen[stagedName] = struct{}{}
-			}
-		}
+		stagedName, stage := bundle.validateFilePart(bundled, filename, seen)
 		if !stage {
 
 			if err := discard(part); err != nil {
@@ -278,6 +264,23 @@ func stageGenerationBundle(body *multipart.Reader) (*generationBundle, error) {
 		bundle.noteFault(err)
 	}
 	return bundle, nil
+}
+
+func (b *generationBundle) validateFilePart(bundled bool, filename string, seen map[string]struct{}) (string, bool) {
+	if !bundled {
+		return "", false
+	}
+	stagedName, err := stagedFileName(filename)
+	if err != nil {
+		b.noteFault(err)
+		return "", false
+	}
+	if _, ok := seen[stagedName]; ok {
+		b.noteFault(os.ErrExist)
+		return "", false
+	}
+	seen[stagedName] = struct{}{}
+	return stagedName, b.stagingErr == nil
 }
 
 func (b *generationBundle) create(name string) (*os.File, error) {

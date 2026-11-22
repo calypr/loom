@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 	"github.com/google/uuid"
 )
@@ -259,7 +260,7 @@ func normalizeExplicitGroupError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var typed *Error
+	var typed *ports.Error
 	if errors.As(err, &typed) {
 		return err
 	}

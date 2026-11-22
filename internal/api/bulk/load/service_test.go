@@ -12,12 +12,13 @@ import (
 	dataframepublication "github.com/calypr/loom/internal/dataframe/publication"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/generation"
 )
 
 type activationGenerationRunner struct{}
 
-func (activationGenerationRunner) RunGeneration(context.Context, GenerationLoadRequest, ingest.EventSink) (ingest.LoadSummary, error) {
-	return ingest.LoadSummary{}, nil
+func (activationGenerationRunner) RunGeneration(context.Context, GenerationLoadRequest, ingest.EventSink) (generation.LoadSummary, error) {
+	return generation.LoadSummary{}, nil
 }
 
 type activationManifestStore struct {
@@ -89,10 +90,10 @@ type activationCapturingRunner struct {
 	calls   int
 }
 
-func (r *activationCapturingRunner) RunGeneration(_ context.Context, request GenerationLoadRequest, _ ingest.EventSink) (ingest.LoadSummary, error) {
+func (r *activationCapturingRunner) RunGeneration(_ context.Context, request GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
 	r.calls++
 	r.request = request
-	return ingest.LoadSummary{}, nil
+	return generation.LoadSummary{}, nil
 }
 
 func TestRunGenerationReusesReadyManifest(t *testing.T) {

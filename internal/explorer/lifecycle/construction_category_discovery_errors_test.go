@@ -13,6 +13,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestDiscoverConstructionCategoriesClassifiesScanFailures(t *testing.T) {
@@ -20,7 +21,7 @@ func TestDiscoverConstructionCategoriesClassifiesScanFailures(t *testing.T) {
 	tests := []struct {
 		name      string
 		scanErr   error
-		wantClass ErrorClass
+		wantClass ports.ErrorClass
 		wantCode  string
 		wantCause error
 		wantRaw   bool
@@ -28,42 +29,42 @@ func TestDiscoverConstructionCategoriesClassifiesScanFailures(t *testing.T) {
 		{
 			name:      "wrapped compiler refusal",
 			scanErr:   fmt.Errorf("compile category query: %w", refusal),
-			wantClass: ClassUnprocessable,
+			wantClass: ports.ClassUnprocessable,
 			wantCode:  string(compiler.CategoryScanStageUnknown),
 			wantCause: refusal,
 		},
 		{
 			name:      "wrapped deadline",
 			scanErr:   fmt.Errorf("execute category query: %w", context.DeadlineExceeded),
-			wantClass: ClassUnavailable,
+			wantClass: ports.ClassUnavailable,
 			wantCode:  "CATEGORY_SCAN_TIMEOUT",
 			wantCause: context.DeadlineExceeded,
 		},
 		{
 			name:      "wrapped feature error",
 			scanErr:   wrappedCategoryUserError(t, dataframeerrors.CodeTablePivotCellCardinality, "private query details"),
-			wantClass: ClassUnprocessable,
+			wantClass: ports.ClassUnprocessable,
 			wantCode:  string(dataframeerrors.CodeTablePivotCellCardinality),
 			wantCause: categoryScanTestCause,
 		},
 		{
 			name:      "wrapped backend resource limit",
 			scanErr:   wrappedCategoryUserError(t, dataframeerrors.CodeQueryMemoryLimitExceeded, "private query details"),
-			wantClass: ClassUnavailable,
+			wantClass: ports.ClassUnavailable,
 			wantCode:  string(dataframeerrors.CodeQueryMemoryLimitExceeded),
 			wantCause: categoryScanTestCause,
 		},
 		{
 			name:      "wrapped receipt conflict",
 			scanErr:   wrappedCategoryUserError(t, dataframeerrors.CodeRecipeContractViolation, "private receipt details"),
-			wantClass: ClassConflict,
+			wantClass: ports.ClassConflict,
 			wantCode:  string(dataframeerrors.CodeRecipeContractViolation),
 			wantCause: categoryScanTestCause,
 		},
 		{
 			name:      "wrapped forbidden error",
 			scanErr:   wrappedCategoryUserError(t, dataframeerrors.CodeForbidden, "private authorization details"),
-			wantClass: ClassForbidden,
+			wantClass: ports.ClassForbidden,
 			wantCode:  string(dataframeerrors.CodeForbidden),
 			wantCause: categoryScanTestCause,
 		},
@@ -75,15 +76,15 @@ func TestDiscoverConstructionCategoriesClassifiesScanFailures(t *testing.T) {
 		},
 		{
 			name:      "preclassified lifecycle error",
-			scanErr:   &Error{Class: ClassNotFound, Stage: "receipt", Code: "COMPILE_RECEIPT_NOT_FOUND", Message: "receipt unavailable", Cause: categoryScanTestCause},
-			wantClass: ClassNotFound,
+			scanErr:   &ports.Error{Class: ports.ClassNotFound, Stage: "receipt", Code: "COMPILE_RECEIPT_NOT_FOUND", Message: "receipt unavailable", Cause: categoryScanTestCause},
+			wantClass: ports.ClassNotFound,
 			wantCode:  "COMPILE_RECEIPT_NOT_FOUND",
 			wantCause: categoryScanTestCause,
 		},
 		{
 			name:      "untyped execution failure",
 			scanErr:   fmt.Errorf("execute category query with secret-bind-value: %w", categoryScanTestCause),
-			wantClass: ClassInternal,
+			wantClass: ports.ClassInternal,
 			wantCode:  "CATEGORY_DISCOVERY_FAILED",
 			wantCause: categoryScanTestCause,
 		},
@@ -100,13 +101,13 @@ func TestDiscoverConstructionCategoriesClassifiesScanFailures(t *testing.T) {
 				t.Fatalf("error %v does not preserve cause %v", err, test.wantCause)
 			}
 			if test.wantRaw {
-				var lifecycleErr *Error
+				var lifecycleErr *ports.Error
 				if errors.As(err, &lifecycleErr) {
 					t.Fatalf("error = %#v, want cancellation to remain transport-classifiable", lifecycleErr)
 				}
 				return
 			}
-			var lifecycleErr *Error
+			var lifecycleErr *ports.Error
 			if !errors.As(err, &lifecycleErr) {
 				t.Fatalf("error = %T %v, want lifecycle.Error", err, err)
 			}
@@ -116,7 +117,7 @@ func TestDiscoverConstructionCategoriesClassifiesScanFailures(t *testing.T) {
 			if strings.Contains(lifecycleErr.Message, "private") || strings.Contains(lifecycleErr.Message, "secret-bind-value") {
 				t.Fatalf("public lifecycle message contains scan internals: %q", lifecycleErr.Message)
 			}
-			if test.wantClass == ClassInternal && lifecycleErr.Message != "category discovery failed unexpectedly while reading the catalog; inspect the server log for the request ID" {
+			if test.wantClass == ports.ClassInternal && lifecycleErr.Message != "category discovery failed unexpectedly while reading the catalog; inspect the server log for the request ID" {
 				t.Fatalf("internal error message = %q, want safe generic message", lifecycleErr.Message)
 			}
 		})

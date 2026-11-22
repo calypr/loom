@@ -127,14 +127,14 @@ func assertCategoryScanIndexExplain(t *testing.T, ctx context.Context, client *s
 	}
 	var provisionErr error
 	if len(index.StoredValues) != 0 {
-		provisionErr = client.EnsurePreviewCoveringIndexWithStoredValues(ctx, index.Collection, index.Name, index.Fields, index.StoredValues)
+		provisionErr = client.PreviewIndexes().EnsurePreviewCoveringIndexWithStoredValues(ctx, index.Collection, index.Name, index.Fields, index.StoredValues)
 	} else {
-		provisionErr = client.EnsurePreviewCoveringIndex(ctx, index.Collection, index.Name, index.Fields)
+		provisionErr = client.PreviewIndexes().EnsurePreviewCoveringIndex(ctx, index.Collection, index.Name, index.Fields)
 	}
 	if provisionErr != nil {
 		t.Fatalf("provision compiler-selected category index: %v", provisionErr)
 	}
-	indexes, err := client.ListPreviewCoveringIndexes(ctx, index.Collection)
+	indexes, err := client.PreviewIndexes().ListPreviewCoveringIndexes(ctx, index.Collection)
 	if err != nil {
 		t.Fatalf("list category indexes: %v", err)
 	}

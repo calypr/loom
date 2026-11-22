@@ -7,6 +7,7 @@ import (
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -18,7 +19,7 @@ import (
 
 type Service struct {
 	discoverReferencesFn   func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
-	discoverFieldsFn       func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
+	discoverFieldsFn       func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error)
 	dataframes             *dataframeexecution.Service
 	scopeResolver          *authscope.ScopeResolver
 	activeManifestResolver publication.ActiveResolver
@@ -29,7 +30,7 @@ type Service struct {
 
 type Config struct {
 	DiscoverReferences func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
-	DiscoverFields     func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
+	DiscoverFields     func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error)
 	Dataframes         *dataframeexecution.Service
 	ScopeResolver      *authscope.ScopeResolver
 
@@ -68,7 +69,7 @@ func (s *Service) clockNow() time.Time {
 	return time.Now()
 }
 
-func (s *Service) discoverFields(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+func (s *Service) discoverFields(ctx context.Context, opts fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 	if s == nil || s.discoverFieldsFn == nil {
 		return nil, catalogUnavailable()
 	}
@@ -103,6 +104,14 @@ func compileSingleQuery(resolved semantic.ResolvedRecipePlan, limit int) (datafr
 		return dataframeexecution.CompiledQuery{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	return queries[0], nil
+}
+
+func (s *Service) RunPreview(ctx context.Context, input dataframemodel.FhirDataframeInput, limit *int) (*dataframeexecution.Result, error) {
+	if limit == nil {
+		defaultLimit := 25
+		limit = &defaultLimit
+	}
+	return s.Run(ctx, input, limit)
 }
 
 func (s *Service) Run(ctx context.Context, input dataframemodel.FhirDataframeInput, limit *int) (*dataframeexecution.Result, error) {

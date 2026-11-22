@@ -29,10 +29,11 @@ func TestLowerSemanticGroupRejectsExpandedRootRows(t *testing.T) {
 			},
 		}},
 	}
-	_, _, _, err := lowerConstructionGroup(
-		plan, group, nil, []recipe.StageColumn{{ID: "category_id", Name: "category"}}, nil,
+	lowerer := constructionLowerer{plan: plan, policy: ir.DefaultPhysicalOptimizationPolicy(), usedVariables: map[string]bool{}}
+	_, _, _, err := lowerer.lowerConstructionGroup(
+		group, nil, []recipe.StageColumn{{ID: "category_id", Name: "category"}}, nil,
 		"_key", recipe.ConstructionSourceProjectionID, "Observation",
-		map[string]recipe.StageColumn{"category_id": {ID: "category_id", Name: "category"}}, map[string]bool{}, 0, nil, ir.DefaultPhysicalOptimizationPolicy(),
+		map[string]recipe.StageColumn{"category_id": {ID: "category_id", Name: "category"}}, 0, nil,
 	)
 	if err == nil || !strings.Contains(err.Error(), "UNNEST") {
 		t.Fatalf("lower semantic Group with expanded roots error = %v, want source-grain rejection for UNNEST", err)
@@ -678,8 +679,11 @@ func TestCodingIdentityGroupRejectsChangedRowValueSourceShape(t *testing.T) {
 }
 
 func TestOrdinaryGroupCannotReuseCodingIdentityDisplayAsScalarKey(t *testing.T) {
-	_, _, _, err := lowerConstructionGroup(
-		&ir.PhysicalPlan{BindVars: map[string]any{}},
+	lowerer := constructionLowerer{
+		plan: &ir.PhysicalPlan{BindVars: map[string]any{}}, policy: ir.DefaultPhysicalOptimizationPolicy(),
+		usedVariables: map[string]bool{},
+	}
+	_, _, _, err := lowerer.lowerConstructionGroup(
 		recipe.ConstructionGroup{
 			ConstructionID: "regroup", MissingKeyPolicy: recipe.ConstructionGroupMissingKeyGroup,
 			Keys:       []recipe.ConstructionGroupKey{{InputColumnID: "coding_label", OutputColumnID: "label_key"}},
@@ -695,7 +699,7 @@ func TestOrdinaryGroupCannotReuseCodingIdentityDisplayAsScalarKey(t *testing.T) 
 		map[string]recipe.StageColumn{
 			"label_key": {ID: "label_key", Name: "label_key", Type: "string"},
 			"rows":      {ID: "rows", Name: "rows", Type: "integer"},
-		}, map[string]bool{}, 1, nil, ir.DefaultPhysicalOptimizationPolicy(),
+		}, 1, nil,
 	)
 	if err == nil || !strings.Contains(err.Error(), "CODING_IDENTITY display label") {
 		t.Fatalf("ordinary Group accepted Coding identity display as scalar key: %v", err)

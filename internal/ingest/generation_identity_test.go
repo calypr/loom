@@ -13,7 +13,7 @@ import (
 )
 
 func TestNamespaceRowBuildResultKeepsLogicalFHIRIdentityAndQualifiesGraphIdentity(t *testing.T) {
-	result := rowBuildResult{
+	result := RowBuildResult{
 		vertex: json.RawMessage(`{"_key":"patient-1","id":"patient-1","project":"project-a","resourceType":"Patient","payload":{"resourceType":"Patient","id":"patient-1"}}`),
 		edges: []json.RawMessage{
 			json.RawMessage(`{"_key":"subject-edge","_from":"Observation/obs-1","_to":"Patient/patient-1","label":"subject_Patient","project":"project-a","from_type":"Observation","to_type":"Patient"}`),
@@ -29,10 +29,10 @@ func TestNamespaceRowBuildResultKeepsLogicalFHIRIdentityAndQualifiesGraphIdentit
 	if got, want := documentString(t, vertex, "id"), "patient-1"; got != want {
 		t.Fatalf("vertex id = %q, want %q", got, want)
 	}
-	if got, want := documentString(t, vertex, logicalKeyField), "patient-1"; got != want {
+	if got, want := documentString(t, vertex, LogicalKeyField), "patient-1"; got != want {
 		t.Fatalf("vertex logical key = %q, want %q", got, want)
 	}
-	if got, want := documentString(t, vertex, generationIdentityField), "generation-1"; got != want {
+	if got, want := documentString(t, vertex, GenerationIdentityField), "generation-1"; got != want {
 		t.Fatalf("vertex dataset generation = %q, want %q", got, want)
 	}
 	vertexKey := documentString(t, vertex, "_key")
@@ -47,10 +47,10 @@ func TestNamespaceRowBuildResultKeepsLogicalFHIRIdentityAndQualifiesGraphIdentit
 		t.Fatalf("edge count = %d, want %d", got, want)
 	}
 	edge := decodeIdentityDocument(t, namespaced.edges[0])
-	if got, want := documentString(t, edge, logicalKeyField), "subject-edge"; got != want {
+	if got, want := documentString(t, edge, LogicalKeyField), "subject-edge"; got != want {
 		t.Fatalf("edge logical key = %q, want %q", got, want)
 	}
-	if got, want := documentString(t, edge, generationIdentityField), "generation-1"; got != want {
+	if got, want := documentString(t, edge, GenerationIdentityField), "generation-1"; got != want {
 		t.Fatalf("edge dataset generation = %q, want %q", got, want)
 	}
 	if got, want := documentString(t, edge, "_from"), generationDocumentIDMust(t, "project-a", "generation-1", "Observation/obs-1"); got != want {
@@ -75,42 +75,11 @@ func TestGenerationIdentityFormatKeepsLegacyKeysAndUsesCompactKeys(t *testing.T)
 		logicalKey = "patient-1"
 	)
 
-	if got, want := generationDocumentKeyWithFormat(project, generation, resource, logicalKey, publication.IdentityFormatLegacy), "g_297a2d590f1d1a2b5f2380ad8e3d8bf21b7aed2e3270e25559ae489097b810a6"; got != want {
+	if got, want := GenerationDocumentKeyWithFormat(project, generation, resource, logicalKey, publication.IdentityFormatLegacy), "g_297a2d590f1d1a2b5f2380ad8e3d8bf21b7aed2e3270e25559ae489097b810a6"; got != want {
 		t.Fatalf("legacy key = %q, want %q", got, want)
 	}
-	if got, want := generationDocumentKeyWithFormat(project, generation, resource, logicalKey, publication.IdentityFormatCompact), "g2297a2d590f1d1a2b5f2380ad8e3d8bf2"; got != want {
+	if got, want := GenerationDocumentKeyWithFormat(project, generation, resource, logicalKey, publication.IdentityFormatCompact), "g2297a2d590f1d1a2b5f2380ad8e3d8bf2"; got != want {
 		t.Fatalf("compact key = %q, want %q", got, want)
-	}
-}
-
-func TestSourceCopyPreservesTheIdentityFormatOfAnInProgressManifest(t *testing.T) {
-	for _, format := range []struct {
-		name  string
-		value string
-	}{
-		{name: "legacy omitted manifest field", value: ""},
-		{name: "explicit legacy", value: publication.IdentityFormatLegacy},
-		{name: "compact", value: publication.IdentityFormatCompact},
-	} {
-		t.Run(format.name, func(t *testing.T) {
-			doc := map[string]any{
-				"_key": "old-physical-key", "logical_key": "patient-1", "project": "project-a",
-				"payload": map[string]any{"id": "patient-1"},
-			}
-			copied, err := copyVertexDocument("Patient", "project-a", "generation-a", format.value)(sourceCopyRow{Document: doc})
-			if err != nil {
-				t.Fatal(err)
-			}
-			decoded := decodeIdentityDocument(t, copied)
-			wantFormat := format.value
-			if wantFormat == "" {
-				wantFormat = publication.IdentityFormatLegacy
-			}
-			want := generationDocumentKeyWithFormat("project-a", "generation-a", "Patient", "patient-1", wantFormat)
-			if got := documentString(t, decoded, "_key"); got != want {
-				t.Fatalf("copied _key = %q, want %q", got, want)
-			}
-		})
 	}
 }
 
@@ -119,7 +88,7 @@ func TestGenerationRowBuilderUsesManifestIdentityFormat(t *testing.T) {
 	line := []byte(`{"resourceType":"Patient","id":"patient-1"}`)
 	for _, format := range []string{publication.IdentityFormatLegacy, publication.IdentityFormatCompact} {
 		t.Run(format, func(t *testing.T) {
-			builder, err := newGenerationRowBuilderWithFormat(NewGeneratedRowBuilder(project, ""), project, generation, format)
+			builder, err := NewGenerationRowBuilderWithFormat(NewGeneratedRowBuilder(project, ""), project, generation, format)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -128,7 +97,7 @@ func TestGenerationRowBuilderUsesManifestIdentityFormat(t *testing.T) {
 				t.Fatalf("Build() kind %q: %v", kind, err)
 			}
 			vertex := decodeIdentityDocument(t, result.vertex)
-			want := generationDocumentKeyWithFormat(project, generation, resourceType, logicalKey, format)
+			want := GenerationDocumentKeyWithFormat(project, generation, resourceType, logicalKey, format)
 			if got := documentString(t, vertex, "_key"); got != want {
 				t.Fatalf("vertex key = %q, want %q", got, want)
 			}
@@ -137,7 +106,7 @@ func TestGenerationRowBuilderUsesManifestIdentityFormat(t *testing.T) {
 }
 
 func TestNamespaceRowBuildResultSeparatesProjectsAndGenerationsWithSameFHIRID(t *testing.T) {
-	result := rowBuildResult{
+	result := RowBuildResult{
 		vertex:  json.RawMessage(`{"_key":"same-id","id":"same-id","project":"project-a","resourceType":"Patient"}`),
 		payload: map[string]any{"id": "same-id"},
 	}
@@ -168,19 +137,19 @@ func TestNamespaceRowBuildResultSeparatesProjectsAndGenerationsWithSameFHIRID(t 
 func TestNamespaceRowBuildResultRejectsMalformedOrCrossProjectDocuments(t *testing.T) {
 	tests := []struct {
 		name   string
-		result rowBuildResult
+		result RowBuildResult
 	}{
 		{
 			name:   "missing vertex key",
-			result: rowBuildResult{vertex: json.RawMessage(`{"project":"project-a"}`)},
+			result: RowBuildResult{vertex: json.RawMessage(`{"project":"project-a"}`)},
 		},
 		{
 			name:   "project mismatch",
-			result: rowBuildResult{vertex: json.RawMessage(`{"_key":"one","project":"project-b"}`)},
+			result: RowBuildResult{vertex: json.RawMessage(`{"_key":"one","project":"project-b"}`)},
 		},
 		{
 			name: "malformed edge endpoint",
-			result: rowBuildResult{
+			result: RowBuildResult{
 				vertex: json.RawMessage(`{"_key":"one","project":"project-a"}`),
 				edges:  []json.RawMessage{json.RawMessage(`{"_key":"edge","_from":"not-a-document-id","_to":"Patient/one","project":"project-a"}`)},
 			},
@@ -196,27 +165,27 @@ func TestNamespaceRowBuildResultRejectsMalformedOrCrossProjectDocuments(t *testi
 }
 
 func TestGenerationRowBuilderTurnsIdentityFailureIntoGenerationError(t *testing.T) {
-	delegate := rowBuilderFunc(func(resourceType string, line []byte, stageSeconds map[string]float64) (rowBuildResult, rowErrorType, error) {
-		return rowBuildResult{vertex: json.RawMessage(`{"project":"project-a"}`)}, "", nil
+	delegate := rowBuilderFunc(func(resourceType string, line []byte, stageSeconds map[string]float64) (RowBuildResult, RowErrorType, error) {
+		return RowBuildResult{vertex: json.RawMessage(`{"project":"project-a"}`)}, "", nil
 	})
-	builder, err := newGenerationRowBuilder(delegate, "project-a", "generation-a")
+	builder, err := NewGenerationRowBuilder(delegate, "project-a", "generation-a")
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, kind, err := builder.Build("Patient", []byte(`{}`), map[string]float64{})
-	if err == nil || kind != rowErrorGeneration {
+	if err == nil || kind != RowErrorGeneration {
 		t.Fatalf("Build() = kind %q err %v, want generation error", kind, err)
 	}
 }
 
 func TestGenerationRowBuilderRejectsInvalidUTF8Project(t *testing.T) {
 	const project = "p\xff"
-	builder, err := newGenerationRowBuilder(NewGeneratedRowBuilder(project, ""), project, "generation")
+	builder, err := NewGenerationRowBuilder(NewGeneratedRowBuilder(project, ""), project, "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, kind, err := builder.Build("Patient", []byte(`{"resourceType":"Patient","id":"a"}`), map[string]float64{})
-	if err == nil || kind != rowErrorGeneration {
+	if err == nil || kind != RowErrorGeneration {
 		t.Fatalf("expected generation error, got %q %v", kind, err)
 	}
 }
@@ -227,10 +196,10 @@ func TestGenerationRowBuilderFallbackKeepsSourceOwnerAndRecountsNamespacedEdges(
 	if err != nil {
 		t.Fatal(err)
 	}
-	delegate := rowBuilderFunc(func(string, []byte, map[string]float64) (rowBuildResult, rowErrorType, error) {
+	delegate := rowBuilderFunc(func(string, []byte, map[string]float64) (RowBuildResult, RowErrorType, error) {
 		return result, "", nil
 	})
-	builder, err := newGenerationRowBuilder(delegate, project, "generation-1")
+	builder, err := NewGenerationRowBuilder(delegate, project, "generation-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +217,7 @@ func TestGenerationRowBuilderFallbackKeepsSourceOwnerAndRecountsNamespacedEdges(
 	if got := edge["source_file"]; got != "ResearchSubject" {
 		t.Fatalf("source_file = %v, want ResearchSubject", got)
 	}
-	if got := edge[generationIdentityField]; got != "generation-1" {
+	if got := edge[GenerationIdentityField]; got != "generation-1" {
 		t.Fatalf("dataset_generation = %v, want generation-1", got)
 	}
 	if owned.relationships != nil {
@@ -268,9 +237,9 @@ func TestGenerationRowBuilderFallbackKeepsSourceOwnerAndRecountsNamespacedEdges(
 	}
 }
 
-type rowBuilderFunc func(string, []byte, map[string]float64) (rowBuildResult, rowErrorType, error)
+type rowBuilderFunc func(string, []byte, map[string]float64) (RowBuildResult, RowErrorType, error)
 
-func (f rowBuilderFunc) Build(resourceType string, line []byte, stageSeconds map[string]float64) (rowBuildResult, rowErrorType, error) {
+func (f rowBuilderFunc) Build(resourceType string, line []byte, stageSeconds map[string]float64) (RowBuildResult, RowErrorType, error) {
 	return f(resourceType, line, stageSeconds)
 }
 

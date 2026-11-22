@@ -17,15 +17,12 @@ func (e *RelatedEligibilityAnchorError) Error() string {
 	return fmt.Sprintf("related eligibility step %q has no compiler-proven exact resource identity", e.StepID)
 }
 
-func lowerConstructionRelatedEligibility(
-	plan *ir.PhysicalPlan,
+func (lowerer *constructionLowerer) lowerConstructionRelatedEligibility(
 	step recipe.ConstructionStep,
 	related recipe.ConstructionRelatedEligibility,
 	input map[string]CompiledOutputColumn,
 	outputs map[string]recipe.StageColumn,
 	inputRow, inputIdentity, rootResourceType string,
-	policy ir.PhysicalOptimizationPolicy,
-	usedVariables map[string]bool,
 	stepIndex int,
 ) (ir.PhysicalFilter, []ir.PhysicalOperation, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
 	if related.AnchorColumnID == "" || inputIdentity == "" || len(related.Route) == 0 {
@@ -38,13 +35,13 @@ func lowerConstructionRelatedEligibility(
 	anchorKind, anchorNodeID, anchorResourceType := "root", related.Route[0].FromNodeID, rootResourceType
 	if related.AnchorColumnID == "_key" {
 		if anchor.Name != "_key" || anchor.Cardinality != string(expression.RequiredOne) ||
-			anchor.RootContributorResourceType != rootResourceType || rootResourceType != plan.Source.ResourceType {
+			anchor.RootContributorResourceType != rootResourceType || rootResourceType != lowerer.plan.Source.ResourceType {
 			return ir.PhysicalFilter{}, nil, nil, nil, fmt.Errorf("related eligibility root anchor is not the compiler-proven root document key")
 		}
 	} else if related.AnchorColumnID == rootContributorSetColumn {
 		_, found := rootContributorSetFromMap(input, rootResourceType)
 		if !found || anchor.Name != rootContributorSetColumn || anchor.Cardinality != string(expression.Many) ||
-			anchor.RootContributorResourceType != rootResourceType || rootResourceType == "" || rootResourceType != plan.Source.ResourceType {
+			anchor.RootContributorResourceType != rootResourceType || rootResourceType == "" || rootResourceType != lowerer.plan.Source.ResourceType {
 			return ir.PhysicalFilter{}, nil, nil, nil, fmt.Errorf("related eligibility root-contributor anchor is not the compiler-owned root identity set")
 		}
 		anchorKind = "rootContributors"
@@ -86,7 +83,7 @@ func lowerConstructionRelatedEligibility(
 		return ir.PhysicalFilter{}, nil, nil, nil, fmt.Errorf("related eligibility route does not end at its exact target")
 	}
 
-	anchorVariable := allocateConstructionVariable(usedVariables, fmt.Sprintf("related_eligibility_%d_anchor", stepIndex), stepIndex)
+	anchorVariable := allocateConstructionVariable(lowerer.usedVariables, fmt.Sprintf("related_eligibility_%d_anchor", stepIndex), stepIndex)
 	anchorNode := semantic.SemanticNode{Alias: anchorNodeID, ResourceType: anchorResourceType}
 	subplan := ir.PhysicalSubplan{Captures: []string{inputRow}}
 	if anchorKind == "root" || anchorKind == "rootContributors" {
@@ -108,8 +105,8 @@ func lowerConstructionRelatedEligibility(
 			}},
 		})
 	} else {
-		collectionBind := nextTableReshapeBindKey(plan.BindVars, "related_eligibility_anchor_collection")
-		plan.BindVars[collectionBind] = anchorResourceType
+		collectionBind := nextTableReshapeBindKey(lowerer.plan.BindVars, "related_eligibility_anchor_collection")
+		lowerer.plan.BindVars[collectionBind] = anchorResourceType
 		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
 			Kind: ir.PhysicalDocumentLookupOp, Source: ir.PhysicalSource{SemanticNode: anchorNode.Alias, ResourceType: anchorResourceType, SemanticField: "_id"},
 			DocumentLookup: &ir.PhysicalDocumentLookup{
@@ -127,12 +124,12 @@ func lowerConstructionRelatedEligibility(
 	currentVariable := anchorVariable
 	for routeIndex, hop := range related.Route {
 		prefix := fmt.Sprintf("related_eligibility_%d_hop_%d", stepIndex, routeIndex+1)
-		targetVariable := allocateConstructionVariable(usedVariables, prefix+"_target", stepIndex)
-		edgeVariable := allocateConstructionVariable(usedVariables, prefix+"_edge", stepIndex)
+		targetVariable := allocateConstructionVariable(lowerer.usedVariables, prefix+"_target", stepIndex)
+		edgeVariable := allocateConstructionVariable(lowerer.usedVariables, prefix+"_edge", stepIndex)
 		traversal, err := BuildPhysicalTraversal(TraversalLoweringRequest{
 			FromType: hop.FromResourceType, EdgeLabel: hop.Relationship, ToType: hop.ToResourceType,
 			SourceVariable: currentVariable, TargetVariable: targetVariable, EdgeVariable: edgeVariable,
-			BindPrefix: prefix, Policy: policy,
+			BindPrefix: prefix, Policy: lowerer.policy,
 		})
 		if err != nil {
 			return ir.PhysicalFilter{}, nil, nil, nil, fmt.Errorf("related eligibility route hop %d: %w", routeIndex, err)
@@ -141,7 +138,7 @@ func lowerConstructionRelatedEligibility(
 			return ir.PhysicalFilter{}, nil, nil, nil, fmt.Errorf("related eligibility route hop %d storage direction changed", routeIndex)
 		}
 		for key, value := range traversal.BindVars {
-			plan.BindVars[key] = value
+			lowerer.plan.BindVars[key] = value
 		}
 		child := semantic.SemanticNode{Alias: hop.ToNodeID, ResourceType: hop.ToResourceType, EdgeLabel: hop.Relationship}
 		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
@@ -186,8 +183,8 @@ func lowerConstructionRelatedEligibility(
 				if err != nil {
 					return ir.PhysicalFilter{}, nil, nil, nil, fmt.Errorf("related eligibility predicate value: %w", err)
 				}
-				bindKey := nextTableReshapeBindKey(plan.BindVars, "related_eligibility_contributor_value")
-				plan.BindVars[bindKey] = literal
+				bindKey := nextTableReshapeBindKey(lowerer.plan.BindVars, "related_eligibility_contributor_value")
+				lowerer.plan.BindVars[bindKey] = literal
 				comparison.Right = &ir.PhysicalValue{BindKey: bindKey}
 				comparison.ValueKind = spec.FilterValueKind(predicate.Value.Kind)
 			}
@@ -215,9 +212,9 @@ func lowerConstructionRelatedEligibility(
 		}
 		subplan.Sort, subplan.Unique = &terminalID, true
 		subplan.Return = physicalValueExpression(terminalID)
-		countVariable := allocateConstructionVariable(usedVariables, fmt.Sprintf("related_eligibility_%d_distinct_count", stepIndex), stepIndex)
-		thresholdBind := nextTableReshapeBindKey(plan.BindVars, "related_eligibility_threshold")
-		plan.BindVars[thresholdBind] = *related.Threshold
+		countVariable := allocateConstructionVariable(lowerer.usedVariables, fmt.Sprintf("related_eligibility_%d_distinct_count", stepIndex), stepIndex)
+		thresholdBind := nextTableReshapeBindKey(lowerer.plan.BindVars, "related_eligibility_threshold")
+		lowerer.plan.BindVars[thresholdBind] = *related.Threshold
 		array := ir.PhysicalExpression{Kind: ir.PhysicalSubplanExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Subplan: &subplan}
 		count := ir.PhysicalExpression{
 			Kind: ir.PhysicalCallExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,

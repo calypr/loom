@@ -18,7 +18,7 @@ type streamingPivotCategoryAccumulator struct {
 	category      ir.PhysicalGroupedPivotCategory
 }
 
-func (r *physicalPlanRenderer) renderStreamingPivotDirectScalarInputs(
+func (r tableShapeRenderer) renderStreamingPivotDirectScalarInputs(
 	pivot ir.PhysicalGroupedPivot,
 ) ([]string, map[string]string, error) {
 	if r.rootVariable == "" || len(pivot.GroupKeys) == 0 || len(pivot.Categories) == 0 ||
@@ -84,13 +84,13 @@ func (r *physicalPlanRenderer) renderStreamingPivotDirectScalarInputs(
 			if _, usesParent := rebaseStreamingPivotProjectionToStoredParent(
 				projection, r.rootVariable, r.storedPresenceParentPath, "parent",
 			); usesParent {
-				parentValue, err := r.renderValue(ir.PhysicalValue{
+				parentValue, err := r.core.renderValue(ir.PhysicalValue{
 					Variable: r.rootVariable, Path: r.storedPresenceParentPath,
 				})
 				if err != nil {
 					return nil, nil, fmt.Errorf("streaming Pivot stored parent: %w", err)
 				}
-				parentAlias = r.newInternalVariable("reshape_stream_source_parent")
+				parentAlias = r.core.navigation().newInternalVariable("reshape_stream_source_parent")
 				lines = append(lines, fmt.Sprintf("  LET %s = %s", parentAlias, parentValue))
 				break
 			}
@@ -113,14 +113,14 @@ func (r *physicalPlanRenderer) renderStreamingPivotDirectScalarInputs(
 				value, err = r.renderProjectionPresence(*renderProjection.Presence)
 			}
 		} else if renderProjection.Expression != nil {
-			value, err = r.renderExpression(*renderProjection.Expression)
+			value, err = r.core.renderExpression(*renderProjection.Expression)
 		} else {
-			value, err = r.renderValue(renderProjection.Value)
+			value, err = r.core.renderValue(renderProjection.Value)
 		}
 		if err != nil {
 			return nil, nil, fmt.Errorf("streaming Pivot input projection %q: %w", projection.Name, err)
 		}
-		variable := r.newInternalVariable(fmt.Sprintf("reshape_stream_input_%d", index))
+		variable := r.core.navigation().newInternalVariable(fmt.Sprintf("reshape_stream_input_%d", index))
 		lines = append(lines, fmt.Sprintf("  LET %s = %s", variable, value))
 		columns[projection.Name] = variable
 	}
@@ -292,7 +292,7 @@ func groupedPivotDirectCategoryMatchPredicate(
 	return groupedPivotCategoryMatchExpression(category, categoryValue, presenceValue+" == true", categoryTypeBind, true)
 }
 
-func (r *physicalPlanRenderer) renderGroupedTablePivotStreamingMissingPreview(
+func (r tableShapeRenderer) renderGroupedTablePivotStreamingMissingPreview(
 	pivot ir.PhysicalGroupedPivot,
 	lines []string,
 	groupCollect []string,
@@ -348,12 +348,12 @@ func (r *physicalPlanRenderer) renderGroupedTablePivotStreamingMissingPreview(
 		if err != nil {
 			return nil, fmt.Errorf("category %q: %w", category.Output, err)
 		}
-		matchVariable := r.newInternalVariable(fmt.Sprintf("reshape_stream_category_match_%d", index))
-		valueVariable := r.newInternalVariable(fmt.Sprintf("reshape_stream_category_value_%d", index))
-		matchedCount := r.newInternalVariable(fmt.Sprintf("reshape_stream_category_count_%d", index))
-		nonNullCount := r.newInternalVariable(fmt.Sprintf("reshape_stream_category_value_count_%d", index))
-		reducedValue := r.newInternalVariable(fmt.Sprintf("reshape_stream_category_reduced_%d", index))
-		outputValue := r.newInternalVariable(fmt.Sprintf("reshape_stream_category_output_%d", index))
+		matchVariable := r.core.navigation().newInternalVariable(fmt.Sprintf("reshape_stream_category_match_%d", index))
+		valueVariable := r.core.navigation().newInternalVariable(fmt.Sprintf("reshape_stream_category_value_%d", index))
+		matchedCount := r.core.navigation().newInternalVariable(fmt.Sprintf("reshape_stream_category_count_%d", index))
+		nonNullCount := r.core.navigation().newInternalVariable(fmt.Sprintf("reshape_stream_category_value_count_%d", index))
+		reducedValue := r.core.navigation().newInternalVariable(fmt.Sprintf("reshape_stream_category_reduced_%d", index))
+		outputValue := r.core.navigation().newInternalVariable(fmt.Sprintf("reshape_stream_category_output_%d", index))
 		lines = append(lines,
 			fmt.Sprintf("  LET %s = %s", matchVariable, match),
 			fmt.Sprintf("  LET %s = (%s AND %s != null ? (ASSERT(TYPENAME(%s) == @%s, \"TABLE_PIVOT_VALUE_TYPE_MISMATCH\") ? %s : null) : null)",
@@ -382,9 +382,9 @@ func (r *physicalPlanRenderer) renderGroupedTablePivotStreamingMissingPreview(
 	unlistedCount := ""
 	if pivot.UnlistedCategoryPolicy == "ERROR" || pivot.UnlistedCategoryPolicy == "EXCLUDE_WITH_EVIDENCE" {
 		notListed := "NOT (" + strings.Join(matches, " OR ") + ")"
-		rowUnlisted := r.newInternalVariable("reshape_stream_row_unlisted")
+		rowUnlisted := r.core.navigation().newInternalVariable("reshape_stream_row_unlisted")
 		lines = append(lines, fmt.Sprintf("  LET %s = %s", rowUnlisted, notListed))
-		unlistedCount = r.newInternalVariable("reshape_stream_unlisted_count")
+		unlistedCount = r.core.navigation().newInternalVariable("reshape_stream_unlisted_count")
 		aggregateTerms = append(aggregateTerms, fmt.Sprintf("%s = SUM(%s ? 1 : 0)", unlistedCount, rowUnlisted))
 	} else {
 		return nil, fmt.Errorf("unsupported streaming Pivot unlisted-category policy %q", pivot.UnlistedCategoryPolicy)
@@ -418,7 +418,7 @@ func (r *physicalPlanRenderer) renderGroupedTablePivotStreamingMissingPreview(
 	if err != nil {
 		return nil, err
 	}
-	identityVariable := r.newInternalVariable("reshape_stream_identity")
+	identityVariable := r.core.navigation().newInternalVariable("reshape_stream_identity")
 	lines = append(lines, fmt.Sprintf("  LET %s = %s", identityVariable, identity))
 	if previewLimitBindKey != "" {
 		lines = append(lines, fmt.Sprintf("  SORT %s ASC", identityVariable), "  LIMIT @"+previewLimitBindKey)
@@ -460,17 +460,17 @@ func (r *physicalPlanRenderer) renderGroupedTablePivotStreamingMissingPreview(
 	baseProjections = append(baseProjections, ir.PhysicalProjection{
 		Name: "__loom_row_id", Value: ir.PhysicalValue{Variable: identityVariable},
 	})
-	baseObject, err := r.renderReturn(ir.PhysicalReturn{Projections: baseProjections})
+	baseObject, err := r.core.renderReturn(ir.PhysicalReturn{Projections: baseProjections})
 	if err != nil {
 		return nil, err
 	}
-	categoryObject, err := r.renderReturn(ir.PhysicalReturn{Projections: categoryProjections})
+	categoryObject, err := r.core.renderReturn(ir.PhysicalReturn{Projections: categoryProjections})
 	if err != nil {
 		return nil, err
 	}
-	categoryCells := r.newInternalVariable("reshape_stream_category_cells")
+	categoryCells := r.core.navigation().newInternalVariable("reshape_stream_category_cells")
 	lines = append(lines, fmt.Sprintf("  LET %s = %s", categoryCells, categoryObject))
-	output := r.newInternalVariable("reshape_stream_pivot_output")
+	output := r.core.navigation().newInternalVariable("reshape_stream_pivot_output")
 	lines = append(lines, fmt.Sprintf("  LET %s = MERGE(%s, %s)", output, baseObject, categoryCells))
 	lines = append(lines, fmt.Sprintf("  LET %s = %s", pivot.OutputRowVariable, output))
 	return lines, nil

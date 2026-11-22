@@ -14,6 +14,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestUpdateColumnRowValuePolicyFullStreamFailureLeavesDraftUnchanged(t *testing.T) {
@@ -36,8 +37,8 @@ func TestUpdateColumnRowValuePolicyFullStreamFailureLeavesDraftUnchanged(t *test
 	if !errors.Is(err, lateViolation) {
 		t.Fatalf("ApplyCommands error = %v, want late full-stream violation", err)
 	}
-	var lifecycleErr *Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassUnprocessable || lifecycleErr.Code != string(dataframeerrors.CodeConstructionRowValueMultipleValues) || lifecycleErr.Message != "This cohort has multiple distinct values for this field. Keep All unique values." {
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnprocessable || lifecycleErr.Code != string(dataframeerrors.CodeConstructionRowValueMultipleValues) || lifecycleErr.Message != "This cohort has multiple distinct values for this field. Keep All unique values." {
 		t.Fatalf("ApplyCommands error = %#v, want the stable actionable row-value diagnostic", err)
 	}
 	if strings.Contains(err.Error(), "AQL private detail") {
@@ -90,7 +91,7 @@ func TestUpdateColumnRowValuePolicyMustBeValidatedBeforeDraftSave(t *testing.T) 
 	service, store, _, request := rowValuePolicyApplyFixture(t)
 	service.config.ValidateReceiptStream = nil
 	_, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "ROW_VALUE_POLICY_VALIDATION_UNAVAILABLE" {
 		t.Fatalf("ApplyCommands error = %v, want validation-unavailable error", err)
 	}
@@ -132,7 +133,7 @@ func rowValuePolicyApplyFixture(t *testing.T) (*Service, *fakeStore, capability.
 	}}
 	config := testConfig(snapshot)
 	var receipt *explorer.CompilationReceipt
-	config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt = lifecycleConstructionReceipt(snapshot, request.Workspace)
 		return receipt, nil
 	}

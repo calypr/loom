@@ -11,13 +11,14 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func configureSnapshotConstructionCompilation(service *Service, store *fakeStore, snapshot capability.Snapshot, scope authscope.ReadScope, calls *int) {
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: scope.Clone()}, nil
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope.Clone()}, nil
 	}
-	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		*calls++
 		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{
@@ -52,7 +53,7 @@ func TestConstructionBaseCacheSkipsCompileForIdenticalRequest(t *testing.T) {
 	request := constructionCapabilitiesRequestFor(store.created, snapshot.Token, "patients")
 	forCompilation := service.config.Capability.ForCompilation
 	authorizationChecks := 0
-	service.config.Capability.ForCompilation = func(ctx context.Context, project, token string) (AuthorizedCapability, error) {
+	service.config.Capability.ForCompilation = func(ctx context.Context, project, token string) (ports.AuthorizedCapability, error) {
 		authorizationChecks++
 		return forCompilation(ctx, project, token)
 	}
@@ -189,7 +190,7 @@ func TestConstructionBaseCacheDoesNotCacheErrors(t *testing.T) {
 	calls := 0
 	configureSnapshotConstructionCompilation(service, store, snapshot, authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, &calls)
 	success := service.config.CompileReceipt
-	service.config.CompileReceipt = func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		return nil, errors.New("temporary compile failure")
 	}
 	request := constructionCapabilitiesRequestFor(store.created, snapshot.Token, "patients")

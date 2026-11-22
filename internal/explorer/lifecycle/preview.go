@@ -8,6 +8,7 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -65,12 +66,12 @@ func (s *Service) Preview(ctx context.Context, request PreviewRequest) (PreviewR
 	}
 	result.Summary, err = s.config.PreviewReceipt(ctx, receipt, bindings, sink)
 	if err != nil {
-		var typed *Error
+		var typed *ports.Error
 		if errors.As(err, &typed) {
 			return PreviewResult{}, typed
 		}
 		if userErr, ok := dataframeerrors.AsUserError(err); ok {
-			return PreviewResult{}, failureDetails(ClassUnprocessable, "preview", userErr.Code(), dataframeerrors.PublicMessage(err), userErr.Details(), err)
+			return PreviewResult{}, failureDetails(ports.ClassUnprocessable, "preview", userErr.Code(), dataframeerrors.PublicMessage(err), userErr.Details(), err)
 		}
 		return PreviewResult{}, err
 	}

@@ -11,13 +11,14 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/generation"
 )
 
 func TestFb22ScopedIngressDeniesControlByteAuthResourcePath(t *testing.T) {
 	var requests []GenerationLoadRequest
-	loader := func(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (ingest.LoadSummary, error) {
+	loader := func(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
 		requests = append(requests, req)
-		return ingest.LoadSummary{}, nil
+		return generation.LoadSummary{}, nil
 	}
 	handler := newTestHandler(t,
 		[]string{"p1"},
@@ -40,9 +41,9 @@ func TestFb22ScopedIngressDeniesControlByteAuthResourcePath(t *testing.T) {
 
 func TestFb22ScopedIngressDeniesEmptyAuthResourcePath(t *testing.T) {
 	var requests []GenerationLoadRequest
-	loader := func(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (ingest.LoadSummary, error) {
+	loader := func(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
 		requests = append(requests, req)
-		return ingest.LoadSummary{}, nil
+		return generation.LoadSummary{}, nil
 	}
 	handler := newTestHandler(t,
 		[]string{"p1"},
@@ -64,9 +65,9 @@ func TestFb22ScopedIngressDeniesEmptyAuthResourcePath(t *testing.T) {
 
 func TestFb22ScopedIngressAllowsLegitAuthResourcePath(t *testing.T) {
 	var requests []GenerationLoadRequest
-	loader := func(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (ingest.LoadSummary, error) {
+	loader := func(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
 		requests = append(requests, req)
-		return ingest.LoadSummary{}, nil
+		return generation.LoadSummary{}, nil
 	}
 	handler := newTestHandler(t,
 		[]string{"p1"},
@@ -90,9 +91,9 @@ func TestFb22ScopedIngressAllowsLegitAuthResourcePath(t *testing.T) {
 
 func TestFb22AllowAllIngressRejectsControlByteAuthResourcePath(t *testing.T) {
 	captured := []GenerationLoadRequest{}
-	handler := fb22AllowAllHandler(t, func(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (ingest.LoadSummary, error) {
+	handler := fb22AllowAllHandler(t, func(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
 		captured = append(captured, req)
-		return ingest.LoadSummary{}, nil
+		return generation.LoadSummary{}, nil
 	})
 
 	_, err := handler.CreateDatasetGeneration(context.Background(), "P1", "g1", multipartGenerationBodyOwner(t, "a\x00b"), fb22Principal())
@@ -116,9 +117,9 @@ func TestFb22AllowAllIngressRejectsControlByteAuthResourcePath(t *testing.T) {
 
 func TestFb22AllowAllIngressEmptyAuthResourcePathPosture(t *testing.T) {
 	captured := []GenerationLoadRequest{}
-	handler := fb22AllowAllHandler(t, func(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (ingest.LoadSummary, error) {
+	handler := fb22AllowAllHandler(t, func(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
 		captured = append(captured, req)
-		return ingest.LoadSummary{}, nil
+		return generation.LoadSummary{}, nil
 	})
 
 	_, err := handler.CreateDatasetGeneration(context.Background(), "P1", "g1", multipartGenerationBodyOwner(t, ""), fb22Principal())

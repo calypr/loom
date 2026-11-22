@@ -24,6 +24,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -1729,7 +1730,7 @@ func newBuilderFullUIHarness(fixture builderFullUICapabilityFixture, workspace a
 	}
 	config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return fixture.Catalog }
 	config.RowChoicePlanner, config.RowChoiceResolver = resolver, resolver
-	config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt, compileErr := compileTraceReceipt(ctx, request, fixture.Snapshot, fixture.Catalog)
 		if compileErr == nil {
 
@@ -2493,12 +2494,12 @@ func observeBuilderFullUIRequest(row builderFullUIInventoryRow, ui builderFullUI
 }
 
 type builderFullUIActualServiceError struct {
-	Class   ErrorClass      `json:"class"`
-	Stage   string          `json:"stage"`
-	Code    string          `json:"code"`
-	Path    string          `json:"path,omitempty"`
-	Message string          `json:"message"`
-	Details json.RawMessage `json:"details,omitempty"`
+	Class   ports.ErrorClass `json:"class"`
+	Stage   string           `json:"stage"`
+	Code    string           `json:"code"`
+	Path    string           `json:"path,omitempty"`
+	Message string           `json:"message"`
+	Details json.RawMessage  `json:"details,omitempty"`
 }
 
 type builderFullUIActualReceipt struct {
@@ -2553,12 +2554,12 @@ type builderFullUIFakeStoreObservation struct {
 }
 
 func lifecycleErrorObservation(err error) *builderFullUIActualServiceError {
-	var appErr *Error
+	var appErr *ports.Error
 	if errors.As(err, &appErr) {
 		details, _ := json.Marshal(appErr.Details)
 		return &builderFullUIActualServiceError{Class: appErr.Class, Stage: appErr.Stage, Code: appErr.Code, Path: appErr.Path, Message: appErr.Message, Details: details}
 	}
-	return &builderFullUIActualServiceError{Class: ClassInternal, Message: err.Error()}
+	return &builderFullUIActualServiceError{Class: ports.ClassInternal, Message: err.Error()}
 }
 
 func actualReceipt(receipt *explorer.CompilationReceipt) *builderFullUIActualReceipt {

@@ -19,6 +19,7 @@ import (
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/sourceload"
 	"github.com/gofiber/fiber/v3"
 	"github.com/valyala/fasthttp"
 )
@@ -28,18 +29,18 @@ type sourceLoadValidationLoader struct {
 	beginCalls  int
 }
 
-func (loader *sourceLoadValidationLoader) Begin(context.Context, string, string, ingest.SourceLoadPlan) (ingest.SourceLoadStatus, error) {
+func (loader *sourceLoadValidationLoader) Begin(context.Context, string, string, sourceload.SourceLoadPlan) (sourceload.SourceLoadStatus, error) {
 	loader.beginCalls++
-	return ingest.SourceLoadStatus{}, nil
+	return sourceload.SourceLoadStatus{}, nil
 }
 
-func (*sourceLoadValidationLoader) Status(context.Context, string, string) (ingest.SourceLoadStatus, error) {
-	return ingest.SourceLoadStatus{AuthResourcePath: "project/data"}, nil
+func (*sourceLoadValidationLoader) Status(context.Context, string, string) (sourceload.SourceLoadStatus, error) {
+	return sourceload.SourceLoadStatus{AuthResourcePath: "project/data"}, nil
 }
 
-func (loader *sourceLoadValidationLoader) UploadFile(context.Context, string, string, string, string) (ingest.SourceFileReceipt, error) {
+func (loader *sourceLoadValidationLoader) UploadFile(context.Context, string, string, string, string) (sourceload.SourceFileReceipt, error) {
 	loader.uploadCalls++
-	return ingest.SourceFileReceipt{}, &ingest.SourceFileValidationError{
+	return sourceload.SourceFileReceipt{}, &sourceload.SourceFileValidationError{
 		Issues: []ingest.RowErrorSample{{
 			File: "META/BodyStructure.ndjson", Line: 32, ResourceType: "BodyStructure", Category: "validation",
 			Message: `META/BodyStructure.ndjson row 32: required field "includedStructure" is missing from BodyStructure.`,
@@ -49,8 +50,8 @@ func (loader *sourceLoadValidationLoader) UploadFile(context.Context, string, st
 	}
 }
 
-func (*sourceLoadValidationLoader) Publish(context.Context, string, string) (ingest.SourcePublishReceipt, error) {
-	return ingest.SourcePublishReceipt{}, nil
+func (*sourceLoadValidationLoader) Publish(context.Context, string, string) (sourceload.SourcePublishReceipt, error) {
+	return sourceload.SourcePublishReceipt{}, nil
 }
 
 type sourceLoadDeniedAuthorizer struct{}
@@ -229,8 +230,8 @@ func TestGeneratedBeginRouteCapsPlanJSONBody(t *testing.T) {
 
 type sourceLoadSuccessfulLoader struct{ sourceLoadValidationLoader }
 
-func (*sourceLoadSuccessfulLoader) UploadFile(context.Context, string, string, string, string) (ingest.SourceFileReceipt, error) {
-	return ingest.SourceFileReceipt{}, nil
+func (*sourceLoadSuccessfulLoader) UploadFile(context.Context, string, string, string, string) (sourceload.SourceFileReceipt, error) {
+	return sourceload.SourceFileReceipt{}, nil
 }
 
 func TestChunkedSourceUploadKeepsNextRequestIntact(t *testing.T) {

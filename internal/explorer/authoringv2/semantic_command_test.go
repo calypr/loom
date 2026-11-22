@@ -4,43 +4,44 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestResolveSemanticSelectionPlanStatusesAndTypedSources(t *testing.T) {
-	identifier := catalog.SemanticObservation{
-		SchemaVersion: catalog.SemanticObservationSchemaVersion,
-		Source:        catalog.SemanticObservationSource{Type: "Patient", Path: "identifier[]"},
-		Key:           catalog.SemanticObservationKey{Selector: "identifier[].system", System: "urn:study:case-id", Display: "Case identifier"},
-		Value:         catalog.SemanticObservationValue{Selector: "identifier[].value", Type: "string"},
-		OwningScope:   "identifier[]", LogicalType: "string", Completeness: catalog.SemanticComplete,
-		Status: "SUPPORTED", RuleHint: "IDENTIFIER_SYSTEM_VALUE", RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+	identifier := codedconcept.Observation{
+		SchemaVersion: codedconcept.ObservationSchemaVersion,
+		Source:        codedconcept.Source{Type: "Patient", Path: "identifier[]"},
+		Key:           codedconcept.Key{Selector: "identifier[].system", System: "urn:study:case-id", Display: "Case identifier"},
+		Value:         codedconcept.Value{Selector: "identifier[].value", Type: "string"},
+		OwningScope:   "identifier[]", LogicalType: "string", Completeness: codedconcept.Complete,
+		Status: "SUPPORTED", RuleHint: "IDENTIFIER_SYSTEM_VALUE", RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
 	}
-	extension := catalog.SemanticObservation{
-		SchemaVersion: catalog.SemanticObservationSchemaVersion,
-		Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "extension[].extension[]"},
-		Key:           catalog.SemanticObservationKey{Selector: "extension[].extension[].url", Display: "Leaf"},
-		Value:         catalog.SemanticObservationValue{Selector: "extension[].extension[].valueString", Type: "string"},
+	extension := codedconcept.Observation{
+		SchemaVersion: codedconcept.ObservationSchemaVersion,
+		Source:        codedconcept.Source{Type: "Observation", Path: "extension[].extension[]"},
+		Key:           codedconcept.Key{Selector: "extension[].extension[].url", Display: "Leaf"},
+		Value:         codedconcept.Value{Selector: "extension[].extension[].valueString", Type: "string"},
 		OwningScope:   "extension[].extension[]", ExtensionURLPath: []string{"urn:parent", "urn:leaf"},
-		ChoiceArm: "valueString", LogicalType: "string", Completeness: catalog.SemanticComplete,
-		Status: "SUPPORTED", RuleHint: "EXTENSION_URL_VALUE", RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+		ChoiceArm: "valueString", LogicalType: "string", Completeness: codedconcept.Complete,
+		Status: "SUPPORTED", RuleHint: "EXTENSION_URL_VALUE", RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
 	}
-	observation := catalog.SemanticObservation{
-		SchemaVersion: catalog.SemanticObservationSchemaVersion,
-		Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "code"},
-		Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: "urn:study", Code: "height", Display: "Height"},
-		Value:         catalog.SemanticObservationValue{Selector: "valueQuantity.value", Type: "decimal"},
-		ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: catalog.SemanticComplete,
-		Status: "SUPPORTED", RuleHint: catalog.SemanticRuleHintCodedValueV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+	observation := codedconcept.Observation{
+		SchemaVersion: codedconcept.ObservationSchemaVersion,
+		Source:        codedconcept.Source{Type: "Observation", Path: "code"},
+		Key:           codedconcept.Key{Selector: "code.coding[]", System: "urn:study", Code: "height", Display: "Height"},
+		Value:         codedconcept.Value{Selector: "valueQuantity.value", Type: "decimal"},
+		ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: codedconcept.Complete,
+		Status: "SUPPORTED", RuleHint: codedconcept.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
 	}
-	medicationDose := catalog.SemanticObservation{
-		SchemaVersion: catalog.SemanticObservationSchemaVersion,
-		Source:        catalog.SemanticObservationSource{Type: "MedicationRequest", Path: "dosageInstruction[].doseAndRate[].type"},
-		Key:           catalog.SemanticObservationKey{Selector: "type.coding[]", System: "http://example.org/dose-types", Code: "daily-dose", Display: "Daily dose"},
-		Value:         catalog.SemanticObservationValue{Selector: "doseQuantity.value", Type: "decimal"},
-		OwningScope:   "dosageInstruction[].doseAndRate[]", ChoiceArm: "doseQuantity", LogicalType: "decimal", Completeness: catalog.SemanticComplete,
-		Status: "SUPPORTED", RuleHint: catalog.SemanticRuleHintCodedValueV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+	medicationDose := codedconcept.Observation{
+		SchemaVersion: codedconcept.ObservationSchemaVersion,
+		Source:        codedconcept.Source{Type: "MedicationRequest", Path: "dosageInstruction[].doseAndRate[].type"},
+		Key:           codedconcept.Key{Selector: "type.coding[]", System: "http://example.org/dose-types", Code: "daily-dose", Display: "Daily dose"},
+		Value:         codedconcept.Value{Selector: "doseQuantity.value", Type: "decimal"},
+		OwningScope:   "dosageInstruction[].doseAndRate[]", ChoiceArm: "doseQuantity", LogicalType: "decimal", Completeness: codedconcept.Complete,
+		Status: "SUPPORTED", RuleHint: codedconcept.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
 	}
 
 	identifierWithoutSystem := identifier
@@ -51,10 +52,10 @@ func TestResolveSemanticSelectionPlanStatusesAndTypedSources(t *testing.T) {
 	versioned.Key.Version = "2.77"
 
 	codingOnlyConcept := observation
-	codingOnlyConcept.Value = catalog.SemanticObservationValue{Selector: "valueCodeableConcept.text", Type: "string"}
+	codingOnlyConcept.Value = codedconcept.Value{Selector: "valueCodeableConcept.text", Type: "string"}
 	codingOnlyConcept.ChoiceArm = "valueCodeableConcept"
 	codingOnlyConcept.LogicalType = "string"
-	codingOnlyConcept.Status = catalog.SemanticStatusUnsupportedValueProjection
+	codingOnlyConcept.Status = codedconcept.StatusUnsupportedValueProjection
 
 	warning := observation
 	warning.Status = "DATA_QUALITY_WARNING"
@@ -64,7 +65,7 @@ func TestResolveSemanticSelectionPlanStatusesAndTypedSources(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		observation catalog.SemanticObservation
+		observation codedconcept.Observation
 		status      SemanticReadinessStatus
 		code        string
 		addable     bool

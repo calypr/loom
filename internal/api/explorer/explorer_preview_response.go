@@ -12,7 +12,8 @@ import (
 	loomapi "github.com/calypr/loom/api/loomapi"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 )
 
@@ -64,7 +65,7 @@ func previewRouteError(err error) error {
 			return previewInternalError(err)
 		}
 	}
-	var applicationError *lifecycle.Error
+	var applicationError *ports.Error
 	if errors.As(err, &applicationError) {
 		return err
 	}

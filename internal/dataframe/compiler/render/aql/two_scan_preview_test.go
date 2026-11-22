@@ -36,7 +36,7 @@ func TestTwoScanPivotPreviewBindsNonIdentifierGroupColumns(t *testing.T) {
 }
 
 func TestTwoScanPivotPreviewFiltersDirectSourceGroupTuples(t *testing.T) {
-	renderer := physicalPlanRenderer{bindVars: map[string]any{}, internalPrefix: "preview_"}
+	renderer := physicalPlanRenderer{renderContext: renderContext{bindVars: map[string]any{}, internalPrefix: "preview_"}}
 	filter := &pivotGroupTupleFilter{
 		SelectedGroupKeysVariable: "selected_groups",
 		SourcePaths: [][]string{
@@ -54,7 +54,7 @@ func TestTwoScanPivotPreviewFiltersDirectSourceGroupTuples(t *testing.T) {
 }
 
 func TestTwoScanPivotPreviewUsesScalarMembershipForOneGroupKey(t *testing.T) {
-	renderer := physicalPlanRenderer{bindVars: map[string]any{}}
+	renderer := physicalPlanRenderer{renderContext: renderContext{bindVars: map[string]any{}}}
 	query, err := renderer.renderPivotGroupTupleFilter(&pivotGroupTupleFilter{
 		SelectedGroupKeysVariable: "selected_groups",
 		SourcePaths:               [][]string{{"payload", "subject", "reference"}},

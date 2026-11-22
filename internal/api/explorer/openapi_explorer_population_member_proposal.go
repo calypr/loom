@@ -5,7 +5,7 @@ import (
 	"time"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
-	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
@@ -35,30 +35,26 @@ func (r *Handlers) ProposeExplorerPopulationMemberRemoval(ctx context.Context, r
 		if body.Limit != nil {
 			request.Limit = *body.Limit
 		}
-		value, err := h.application.ProposePopulationMemberRemoval(ctx, request)
-		if err != nil {
-			return result, err
-		}
-		if value.ProposalID == "" || value.BaseSelection == nil || value.CandidateSelection == nil || value.PreviewStatus != "PREVIEW_PENDING" {
-			return result, explorer.MalformedRouteError("population-member-proposal", nil)
-		}
-		result, err = directAuthoringJSON[loomapi.PopulationMemberRemovalProposalResponse](value)
-		if err != nil {
-			return result, err
-		}
-		limit := dataframeexecution.DefaultPreviewLimit
-		if body.Limit != nil {
-			limit = *body.Limit
-		}
-		started := time.Now()
-		preview, err := h.previewSavedReceipt(ctx, project, explorerID, &loomapi.PreviewExplorerJSONRequestBody{
-			ReceiptId: value.ProposalID, OutputId: body.OutputId, Limit: &limit,
+		var proposalID string
+		options, encoder := h.proposalPreviewOptions(project, body.OutputId, body.Limit, executionarango.ExplorerPreviewTimeout, false)
+		run, err := h.application.ProposePopulationMemberRemovalAndPreview(ctx, request, options, func(value lifecycle.PopulationMemberRemovalProposalResponse) error {
+			if value.ProposalID == "" || value.BaseSelection == nil || value.CandidateSelection == nil || value.PreviewStatus != "PREVIEW_PENDING" {
+				return explorer.MalformedRouteError("population-member-proposal", nil)
+			}
+			proposalID = value.ProposalID
+			var err error
+			result, err = directAuthoringJSON[loomapi.PopulationMemberRemovalProposalResponse](value)
+			return err
 		})
-		result.PreviewDurationMs = time.Since(started).Milliseconds()
+		if err != nil {
+			return result, proposalPreviewFailure(err)
+		}
+		preview, err := encoder.response(run)
+		result.PreviewDurationMs = time.Since(run.Started).Milliseconds()
 		if err != nil {
 			return result, err
 		}
-		if preview.ReceiptId != value.ProposalID || preview.OutputId != body.OutputId {
+		if preview.ReceiptId != proposalID || preview.OutputId != body.OutputId {
 			return result, explorer.MalformedRouteError("population-member-proposal", nil)
 		}
 		result.Preview = preview

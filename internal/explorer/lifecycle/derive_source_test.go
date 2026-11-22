@@ -13,6 +13,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -86,7 +87,7 @@ func deriveSourceBase(snapshot capability.Snapshot, construction authoringv2.Con
 		document:     deriveSourceDocument(),
 		construction: construction,
 		snapshot:     snapshot,
-		authorized:   AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+		authorized:   ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 		stages: []explorer.ReceiptConstructionStage{{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
 			Columns: []explorer.ReceiptConstructionStageColumn{
@@ -186,7 +187,7 @@ func deriveSourcePatientBase(snapshot capability.Snapshot, construction authorin
 		document:     deriveSourcePatientDocument(construction),
 		construction: construction,
 		snapshot:     snapshot,
-		authorized:   AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+		authorized:   ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 		stages: []explorer.ReceiptConstructionStage{{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
 			Columns: []explorer.ReceiptConstructionStageColumn{

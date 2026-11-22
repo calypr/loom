@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
@@ -137,16 +138,16 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 	var basePreviewSummary, candidatePreviewSummary dataframeexecution.PreviewSummary
 	var candidateReceipt *explorer.CompilationReceipt
 	config := lifecycle.Config{
-		Capability: lifecycle.CapabilityResolver{
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capability: ports.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
-			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			receipt, err := receiptapi.Compile(ctx, request, nil, engine, service, nil, nil)
 			if err == nil && request.RequestID == "row-definition-proposal-candidate" {
 				candidateReceipt = receipt

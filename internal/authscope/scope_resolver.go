@@ -100,23 +100,8 @@ type scopeCacheKey struct {
 	allGenerations bool
 }
 
-type BearerTokenAuthenticator struct{}
-
 type ScopeAuthorizer struct {
 	Resolver *ScopeResolver
-}
-
-func (a BearerTokenAuthenticator) Authenticate(ctx context.Context, headers map[string][]string) (*Principal, error) {
-	principal := &Principal{Subject: "anonymous"}
-	auth := firstHeaderValue(headers, "Authorization")
-	if auth == "" {
-		return principal, nil
-	}
-	principal.AuthorizationHeader = strings.TrimSpace(auth)
-	if sub := subjectFromAuthorizationHeader(auth); sub != "" {
-		principal.Subject = sub
-	}
-	return principal, nil
 }
 
 func NewScopeResolver(cfg ScopeResolverConfig) *ScopeResolver {

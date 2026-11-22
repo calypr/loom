@@ -9,7 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 )
 
 func TestNewFieldConstructionChoiceUsesCompilerProofsAndSafeDefaults(t *testing.T) {
@@ -489,7 +490,7 @@ func TestNewSemanticConstructionChoicePinsObservationAndCompilerSource(t *testin
 		ExtensionURLPath: []string{"http://example.org/ext", "nested"},
 		KeySelector:      "component[].code.coding[]", System: "http://loinc.org", Version: "2.77", Code: "8480-6",
 		ValueSelector: "valueQuantity.value", ChoiceArm: "Quantity",
-		LogicalType: "decimal", RuleHint: catalog.SemanticRuleHintCodedValueV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion), SchemaVersion: 1,
+		LogicalType: "decimal", RuleHint: codedconcept.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion), SchemaVersion: 1,
 	}
 	choice, err := NewSemanticConstructionChoice("snapshot-a", "context-a", "build-a", source, candidate)
 	if err != nil {
@@ -570,7 +571,7 @@ func TestSemanticConstructionChoiceAdvertisesOwnerRecordsOnlyAfterExactProof(t *
 		SourcePath: "component[].code", FieldPath: candidate.FieldPath, OwningScope: "component[]",
 		KeySelector: "component[].code.coding[]", System: "http://loinc.org", Code: "8480-6",
 		ValueSelector: "valueQuantity.value", ChoiceArm: "valueQuantity", LogicalType: "decimal",
-		RuleHint: catalog.SemanticRuleHintCodedValueV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion), SchemaVersion: 1,
+		RuleHint: codedconcept.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion), SchemaVersion: 1,
 	}
 
 	unproved, err := NewSemanticConstructionChoice("snapshot", "context", "build", source, candidate)
@@ -708,4 +709,8 @@ func constructionOption(t *testing.T, choice ConstructionChoice, form Constructi
 func choiceIDForPayload(payload []byte) string {
 	digest := sha256.Sum256(payload)
 	return "cc1." + base64.RawURLEncoding.EncodeToString(payload) + "." + hex.EncodeToString(digest[:])
+}
+
+func NewSemanticConstructionChoice(snapshotToken, semanticContextToken, buildID string, source SemanticBindingChoiceSource, candidate Candidate, ownerRecordsProved ...bool) (ConstructionChoice, error) {
+	return NewSemanticConstructionChoiceForRoute(snapshotToken, semanticContextToken, buildID, nil, source, candidate, ownerRecordsProved...)
 }

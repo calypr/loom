@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -12,7 +13,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
 func TestImportedSourceSchemaPreservesCompilerFacts(t *testing.T) {
@@ -63,7 +63,7 @@ func TestImportedSourceResolutionRejectsChangedPinsAndForeignScopes(t *testing.T
 	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
 	resolver := Sources{registry: registry, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	authorized := lifecycle.AuthorizedCapability{Snapshot: capability.Snapshot{Identity: capability.SnapshotIdentity{Project: "HTAN_INT/BForePC", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}}, Scope: scope}
+	authorized := ports.AuthorizedCapability{Snapshot: capability.Snapshot{Identity: capability.SnapshotIdentity{Project: "HTAN_INT/BForePC", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}}, Scope: scope}
 	if _, err := resolver.load(context.Background(), "HTAN_INT/other", bundle.Name, bundle.TranslationVersion, digest, authorized); err == nil {
 		t.Fatal("foreign project accepted")
 	}

@@ -8,7 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
@@ -25,9 +26,9 @@ func TestSemanticInventoryPagesAndResolvesCodedCategoryFamilies(t *testing.T) {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cleanupCancel()
 		for _, collection := range []string{
-			catalog.SemanticInventoryCollection,
-			catalog.SemanticInventoryEntryCollection,
-			catalog.SemanticInventoryBuildCollection,
+			semanticinventory.Collection,
+			semanticinventory.EntryCollection,
+			semanticinventory.BuildCollection,
 		} {
 			if err := deleteSemanticCategoryFixtureRows(cleanupCtx, client, collection, project, generation); err != nil {
 				t.Errorf("clean scoped %s fixture rows: %v", collection, err)
@@ -42,15 +43,15 @@ func TestSemanticInventoryPagesAndResolvesCodedCategoryFamilies(t *testing.T) {
 	if err := store.PrepareSemanticInventoryBackfill(ctx); err != nil {
 		t.Fatal(err)
 	}
-	build := catalog.NewSemanticInventoryBuild(project, generation, "")
-	build.SourceKind = catalog.SemanticInventorySourceRetained
-	build.SourceAvailability = catalog.SemanticInventorySourceAvailabilityVerified
+	build := semanticinventory.NewBuild(project, generation, "")
+	build.SourceKind = semanticinventory.SourceRetained
+	build.SourceAvailability = semanticinventory.SourceAvailabilityVerified
 	if err := store.BeginSemanticInventoryBuild(ctx, build); err != nil {
 		t.Fatal(err)
 	}
 
-	emitter := catalog.NewSemanticInventoryEmitter(project, generation)
-	contributions := make([]catalog.SemanticInventoryContribution, 0, 64)
+	emitter := semanticinventory.NewEmitter(project, generation)
+	contributions := make([]semanticinventory.Contribution, 0, 64)
 	addCategoryCode := func(scope, code, display, system, version string) {
 		t.Helper()
 		payload := map[string]any{
@@ -60,11 +61,11 @@ func TestSemanticInventoryPagesAndResolvesCodedCategoryFamilies(t *testing.T) {
 				"system": system, "version": version, "code": code, "display": display,
 			}}}},
 		}
-		observed := make([]catalog.SemanticInventoryContribution, 0, 1)
-		emitter.ObservePayload(payload, "Observation", scope, "retained:Observation/"+payload["id"].(string), func(contribution catalog.SemanticInventoryContribution) {
+		observed := make([]semanticinventory.Contribution, 0, 1)
+		emitter.ObservePayload(payload, "Observation", scope, "retained:Observation/"+payload["id"].(string), func(contribution semanticinventory.Contribution) {
 			observed = append(observed, contribution)
 		})
-		if len(observed) != 1 || observed[0].Observation.RuleHint != catalog.SemanticRuleHintCodedConceptV1 {
+		if len(observed) != 1 || observed[0].Observation.RuleHint != codedconcept.RuleHintCodedConceptV1 {
 			t.Fatalf("category %q emitted %#v; want one CODED_CONCEPT_V1 contribution", code, observed)
 		}
 		contributions = append(contributions, observed...)
@@ -102,11 +103,11 @@ func TestSemanticInventoryPagesAndResolvesCodedCategoryFamilies(t *testing.T) {
 		}}},
 		"valueQuantity": map[string]any{"value": float64(7), "unit": "mg"},
 	}
-	paired := make([]catalog.SemanticInventoryContribution, 0, 1)
-	emitter.ObservePayload(pairedPayload, "Observation", "scope-a", "retained:Observation/"+pairedPayload["id"].(string), func(contribution catalog.SemanticInventoryContribution) {
+	paired := make([]semanticinventory.Contribution, 0, 1)
+	emitter.ObservePayload(pairedPayload, "Observation", "scope-a", "retained:Observation/"+pairedPayload["id"].(string), func(contribution semanticinventory.Contribution) {
 		paired = append(paired, contribution)
 	})
-	if len(paired) != 1 || paired[0].Observation.RuleHint != catalog.SemanticRuleHintCodedValueV1 || paired[0].Observation.Key.Code != "paired-exact-code" {
+	if len(paired) != 1 || paired[0].Observation.RuleHint != codedconcept.RuleHintCodedValueV1 || paired[0].Observation.Key.Code != "paired-exact-code" {
 		t.Fatalf("paired CODED_VALUE emission = %#v; want exact paired code", paired)
 	}
 	contributions = append(contributions, paired...)
@@ -118,12 +119,12 @@ func TestSemanticInventoryPagesAndResolvesCodedCategoryFamilies(t *testing.T) {
 	}
 
 	unrestricted := false
-	options := catalog.SemanticInventoryPageOptions{
+	options := semanticinventory.PageOptions{
 		Project:                       project,
 		DatasetGeneration:             generation,
 		AuthResourcePathsUnrestricted: &unrestricted,
 		AuthResourcePaths:             []string{"scope-a"},
-		SelectionMode:                 catalog.SemanticInventorySystemVersionCategory,
+		SelectionMode:                 semanticinventory.SystemVersionCategory,
 		Limit:                         1,
 	}
 
@@ -140,8 +141,8 @@ func TestSemanticInventoryPagesAndResolvesCodedCategoryFamilies(t *testing.T) {
 	if largeFamily.System != largeSystem || largeFamily.Version != largeVersion || largeFamily.Population != largeCount {
 		t.Fatalf("late code-only query family = %+v; want full %s/%s population %d", largeFamily, largeSystem, largeVersion, largeCount)
 	}
-	if largeFamily.FamilyID == "" || largeFamily.FamilyID != catalog.SemanticInventoryFamilyID(largeFamily.SemanticInventoryFamilyReference) {
-		t.Fatalf("large family identity = %+v; want stable content-addressed family id", largeFamily.SemanticInventoryFamilyReference)
+	if largeFamily.FamilyID == "" || largeFamily.FamilyID != semanticinventory.FamilyID(largeFamily.FamilyReference) {
+		t.Fatalf("large family identity = %+v; want stable content-addressed family id", largeFamily.FamilyReference)
 	}
 
 	allRows := collectSemanticCategoryPages(t, ctx, store, options)
@@ -152,13 +153,13 @@ func TestSemanticInventoryPagesAndResolvesCodedCategoryFamilies(t *testing.T) {
 		t.Fatalf("category-mode exact entries = %d, want the paired CODED_VALUE row", len(allRows.entries))
 	}
 	pairedEntry := allRows.entries[0]
-	if pairedEntry.Observation.RuleHint != catalog.SemanticRuleHintCodedValueV1 ||
+	if pairedEntry.Observation.RuleHint != codedconcept.RuleHintCodedValueV1 ||
 		pairedEntry.Observation.Key.Code != "paired-exact-code" || pairedEntry.Observation.Key.System != "urn:c01:paired" ||
 		pairedEntry.Observation.Key.Version != "v7" {
 		t.Fatalf("category mode changed or grouped the paired CODED_VALUE row: %+v", pairedEntry)
 	}
 
-	familyBySystemVersion := make(map[string]catalog.SemanticInventoryFamily, len(allRows.families))
+	familyBySystemVersion := make(map[string]semanticinventory.Family, len(allRows.families))
 	for _, family := range allRows.families {
 		key := family.System + "\x00" + family.Version
 		if _, duplicate := familyBySystemVersion[key]; duplicate {
@@ -187,12 +188,12 @@ func TestSemanticInventoryPagesAndResolvesCodedCategoryFamilies(t *testing.T) {
 		t.Fatalf("category display/code fallback descriptor = %+v", smallRef)
 	}
 
-	resolved, err := store.ResolveSemanticInventorySelections(ctx, catalog.SemanticInventoryResolveOptions{
+	resolved, err := store.ResolveSemanticInventorySelections(ctx, semanticinventory.ResolveOptions{
 		Project:                       project,
 		DatasetGeneration:             generation,
 		AuthResourcePathsUnrestricted: &unrestricted,
 		AuthResourcePaths:             []string{"scope-a"},
-		FamilyReferences:              []catalog.SemanticInventoryFamilyReference{smallRef.SemanticInventoryFamilyReference},
+		FamilyReferences:              []semanticinventory.FamilyReference{smallRef.FamilyReference},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -206,24 +207,24 @@ func TestSemanticInventoryPagesAndResolvesCodedCategoryFamilies(t *testing.T) {
 	}
 
 	assertSemanticCategoryExamples(t, resolvedSmall, []string{smallDisplays[0]})
-	resolvedFallback, err := store.ResolveSemanticInventorySelections(ctx, catalog.SemanticInventoryResolveOptions{
+	resolvedFallback, err := store.ResolveSemanticInventorySelections(ctx, semanticinventory.ResolveOptions{
 		Project:                       project,
 		DatasetGeneration:             generation,
 		AuthResourcePathsUnrestricted: &unrestricted,
 		AuthResourcePaths:             []string{"scope-a"},
-		FamilyReferences:              []catalog.SemanticInventoryFamilyReference{fallbackRef.SemanticInventoryFamilyReference},
+		FamilyReferences:              []semanticinventory.FamilyReference{fallbackRef.FamilyReference},
 	})
 	if err != nil || len(resolvedFallback.Families) != 1 || resolvedFallback.Families[0].Population != 1 {
 		t.Fatalf("blank-display fallback family resolution = %+v err=%v; want one matching Coding", resolvedFallback, err)
 	}
 	assertSemanticCategoryExamples(t, resolvedFallback.Families[0], []string{"small-fallback-code"})
 
-	resolvedLarge, err := store.ResolveSemanticInventorySelections(ctx, catalog.SemanticInventoryResolveOptions{
+	resolvedLarge, err := store.ResolveSemanticInventorySelections(ctx, semanticinventory.ResolveOptions{
 		Project:                       project,
 		DatasetGeneration:             generation,
 		AuthResourcePathsUnrestricted: &unrestricted,
 		AuthResourcePaths:             []string{"scope-a"},
-		FamilyReferences:              []catalog.SemanticInventoryFamilyReference{largeRef.SemanticInventoryFamilyReference},
+		FamilyReferences:              []semanticinventory.FamilyReference{largeRef.FamilyReference},
 	})
 	if err != nil || len(resolvedLarge.Families) != 1 || resolvedLarge.Families[0].Population != largeCount {
 		t.Fatalf("restricted large family resolution = %+v err=%v; want all %d scope-a rows", resolvedLarge, err, largeCount)
@@ -234,15 +235,15 @@ func TestSemanticInventoryPagesAndResolvesCodedCategoryFamilies(t *testing.T) {
 }
 
 type semanticCategoryPageRows struct {
-	families []catalog.SemanticInventoryFamily
-	entries  []catalog.SemanticInventoryEntry
+	families []semanticinventory.Family
+	entries  []semanticinventory.Entry
 }
 
-func collectSemanticCategoryPages(t *testing.T, ctx context.Context, store *Store, options catalog.SemanticInventoryPageOptions) semanticCategoryPageRows {
+func collectSemanticCategoryPages(t *testing.T, ctx context.Context, store *Store, options semanticinventory.PageOptions) semanticCategoryPageRows {
 	t.Helper()
 	rows := semanticCategoryPageRows{
-		families: make([]catalog.SemanticInventoryFamily, 0),
-		entries:  make([]catalog.SemanticInventoryEntry, 0),
+		families: make([]semanticinventory.Family, 0),
+		entries:  make([]semanticinventory.Entry, 0),
 	}
 	options.Cursor = ""
 	for {
@@ -262,7 +263,7 @@ func collectSemanticCategoryPages(t *testing.T, ctx context.Context, store *Stor
 	}
 }
 
-func findSemanticCategoryFamily(t *testing.T, families []catalog.SemanticInventoryFamily, system, version string) catalog.SemanticInventoryFamily {
+func findSemanticCategoryFamily(t *testing.T, families []semanticinventory.Family, system, version string) semanticinventory.Family {
 	t.Helper()
 	for _, family := range families {
 		if family.System == system && family.Version == version {
@@ -270,10 +271,10 @@ func findSemanticCategoryFamily(t *testing.T, families []catalog.SemanticInvento
 		}
 	}
 	t.Fatalf("missing category family for system %q version %q in %#v", system, version, families)
-	return catalog.SemanticInventoryFamily{}
+	return semanticinventory.Family{}
 }
 
-func familyHasExample(family catalog.SemanticInventoryFamily, want string) bool {
+func familyHasExample(family semanticinventory.Family, want string) bool {
 	for _, example := range family.Examples {
 		if example == want {
 			return true
@@ -282,7 +283,7 @@ func familyHasExample(family catalog.SemanticInventoryFamily, want string) bool 
 	return false
 }
 
-func assertSemanticCategoryExamples(t *testing.T, family catalog.SemanticInventoryFamily, want []string) {
+func assertSemanticCategoryExamples(t *testing.T, family semanticinventory.Family, want []string) {
 	t.Helper()
 	got := append([]string(nil), family.Examples...)
 	expected := append([]string(nil), want...)

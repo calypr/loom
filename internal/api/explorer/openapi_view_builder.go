@@ -14,6 +14,7 @@ import (
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/viewbuilder"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -43,12 +44,26 @@ func (h *Handlers) authorizeViewBuilder(ctx context.Context, project, resource s
 }
 
 func (h *Handlers) authorizedViewBuilderState(ctx context.Context, project, resource string) (explorer.ViewBuilderState, error) {
-	if strings.TrimSpace(resource) == "" {
-		resource = projectid.Legacy(project)
-	}
 	value, err := h.views.ViewBuilderState(ctx, project)
 	if err != nil {
 		return value, viewBuilderFailure(err)
+	}
+	return h.checkViewBuilderState(ctx, project, resource, value)
+}
+
+func (h *Handlers) viewMutationAccess(project, resource string) viewbuilder.MutationAccess {
+	return viewbuilder.MutationAccess{
+		CheckState: func(ctx context.Context, value explorer.ViewBuilderState) (explorer.ViewBuilderState, error) {
+			return h.checkViewBuilderState(ctx, project, resource, value)
+		},
+		CheckExecution: h.authorizeViewBuilderExecution,
+		StorageError:   viewBuilderFailure,
+	}
+}
+
+func (h *Handlers) checkViewBuilderState(ctx context.Context, project, resource string, value explorer.ViewBuilderState) (explorer.ViewBuilderState, error) {
+	if strings.TrimSpace(resource) == "" {
+		resource = projectid.Legacy(project)
 	}
 
 	executionIDs := make(map[string]bool)
@@ -66,7 +81,7 @@ func (h *Handlers) authorizedViewBuilderState(ctx context.Context, project, reso
 		}
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
-	err = h.authorizer.AuthorizeWrite(ctx, principal, project, resource)
+	err := h.authorizer.AuthorizeWrite(ctx, principal, project, resource)
 	if err != nil && authorizerResponseStatus(err) == http.StatusServiceUnavailable {
 		return explorer.ViewBuilderState{}, legacyOperationFailure(http.StatusServiceUnavailable, "VIEW_BUILDER_UNAVAILABLE", "Project authorization is temporarily unavailable", err)
 	}
@@ -161,32 +176,7 @@ func (h *Handlers) AdoptProjectViewBuilder(ctx context.Context, request loomapi.
 	if err := h.authorizeViewBuilder(ctx, project, resource, true); err != nil {
 		return fail(err)
 	}
-	value, err := h.authorizedViewBuilderState(ctx, project, resource)
-	if err != nil {
-		return fail(err)
-	}
-
-	owners, err := h.views.List(ctx, project)
-	if err != nil {
-		return fail(viewBuilderFailure(err))
-	}
-	for _, owner := range owners {
-		if owner.ProjectConfig == nil || owner.ActiveRevisionID == "" {
-			continue
-		}
-		revision, err := h.views.GetRevision(ctx, owner.ActiveRevisionID)
-		if err != nil {
-			return fail(viewBuilderFailure(err))
-		}
-		if err := h.authorizeViewBuilderExecution(ctx, revision.Publication.ExecutionID); err != nil {
-			return fail(err)
-		}
-	}
-	_, err = h.views.AdoptViewBuilderCatalogs(ctx, project)
-	if err != nil {
-		return fail(viewBuilderFailure(err))
-	}
-	value, err = h.authorizedViewBuilderState(ctx, project, resource)
+	value, err := h.views.AdoptCatalogs(ctx, project, h.viewMutationAccess(project, resource))
 	if err != nil {
 		return fail(err)
 	}
@@ -207,19 +197,11 @@ func (h *Handlers) SaveProjectViewDefaults(ctx context.Context, request loomapi.
 	if err := h.authorizeViewBuilder(ctx, project, resource, true); err != nil {
 		return fail(err)
 	}
-	value, err := h.authorizedViewBuilderState(ctx, project, resource)
-	if err != nil {
-		return fail(err)
-	}
-	var body explorer.ViewBuilderDefaultsRequest
-	if err = decodeViewBuilderBody(request.Body, &body); err != nil {
-		return fail(err)
-	}
-	_, err = h.views.SaveViewBuilderDefaults(ctx, project, body)
-	if err != nil {
-		return fail(viewBuilderFailure(err))
-	}
-	value, err = h.authorizedViewBuilderState(ctx, project, resource)
+	value, err := h.views.SaveDefaults(ctx, project, func() (explorer.ViewBuilderDefaultsRequest, error) {
+		var body explorer.ViewBuilderDefaultsRequest
+		err := decodeViewBuilderBody(request.Body, &body)
+		return body, err
+	}, h.viewMutationAccess(project, resource))
 	if err != nil {
 		return fail(err)
 	}
@@ -240,19 +222,11 @@ func (h *Handlers) SaveProjectViewConfig(ctx context.Context, request loomapi.Sa
 	if err := h.authorizeViewBuilder(ctx, project, resource, true); err != nil {
 		return fail(err)
 	}
-	value, err := h.authorizedViewBuilderState(ctx, project, resource)
-	if err != nil {
-		return fail(err)
-	}
-	var body explorer.ViewBuilderSaveRequest
-	if err = decodeViewBuilderBody(request.Body, &body); err != nil {
-		return fail(err)
-	}
-	_, err = h.views.SaveViewBuilderConfig(ctx, project, string(request.ExplorerId), body, authscope.SubjectFromContext(ctx))
-	if err != nil {
-		return fail(viewBuilderFailure(err))
-	}
-	value, err = h.authorizedViewBuilderState(ctx, project, resource)
+	value, err := h.views.SaveConfig(ctx, project, string(request.ExplorerId), authscope.SubjectFromContext(ctx), func() (explorer.ViewBuilderSaveRequest, error) {
+		var body explorer.ViewBuilderSaveRequest
+		err := decodeViewBuilderBody(request.Body, &body)
+		return body, err
+	}, h.viewMutationAccess(project, resource))
 	if err != nil {
 		return fail(err)
 	}
@@ -273,15 +247,7 @@ func (h *Handlers) DeleteProjectViewConfig(ctx context.Context, request loomapi.
 	if err := h.authorizeViewBuilder(ctx, project, resource, true); err != nil {
 		return fail(err)
 	}
-	value, err := h.authorizedViewBuilderState(ctx, project, resource)
-	if err != nil {
-		return fail(err)
-	}
-	_, err = h.views.DeleteViewBuilderConfig(ctx, project, string(request.ExplorerId), request.Params.ExpectedRevisionId)
-	if err != nil {
-		return fail(viewBuilderFailure(err))
-	}
-	value, err = h.authorizedViewBuilderState(ctx, project, resource)
+	value, err := h.views.DeleteConfig(ctx, project, string(request.ExplorerId), request.Params.ExpectedRevisionId, h.viewMutationAccess(project, resource))
 	if err != nil {
 		return fail(err)
 	}

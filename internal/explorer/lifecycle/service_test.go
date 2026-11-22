@@ -22,6 +22,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -33,13 +34,13 @@ func TestCompileMapsPivotReducerTypeDiagnosticToUnprocessable(t *testing.T) {
 		Tabs:      []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 	}
 	config := testConfig(snapshot)
-	config.CompileReceipt = func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		return nil, &explorercompilation.Error{Stage: "construction", Code: "PIVOT_REDUCER_REQUIRES_NUMERIC", Message: "Choose a numeric value field for this Pivot duplicate rule, or choose Show an error."}
 	}
 	service := newTestService(t, &fakeStore{}, config)
 	_, err := service.compile(context.Background(), compileRequest{Project: "project-a", ExplorerID: "patients", Workspace: workspace, SnapshotToken: snapshot.Token})
-	var lifecycleErr *Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassUnprocessable || lifecycleErr.Code != "PIVOT_REDUCER_REQUIRES_NUMERIC" {
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnprocessable || lifecycleErr.Code != "PIVOT_REDUCER_REQUIRES_NUMERIC" {
 		t.Fatalf("compile error = %v, want unprocessable Pivot reducer diagnostic", err)
 	}
 }
@@ -303,13 +304,13 @@ func lifecycleTestFieldChoice(snapshotToken, candidateID, nodeID, resourceType, 
 
 func testConfig(snapshot capability.Snapshot) Config {
 	cursorCodec, _ := NewHMACPopulationMappingCursorCodec("population-mapping-test-secret")
-	return Config{Capability: CapabilityResolver{
+	return Config{Capability: ports.CapabilityResolver{
 		Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
-		ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 		},
-		ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 		},
 		Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot {
 			return authoringv2.CatalogSnapshot{APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: snapshot.Identity.Project, ExplorerID: "patients", SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true}, Nodes: []authoringv2.CatalogNode{{ID: "node", ResourceType: "Patient", RowRootEligible: true}}}
@@ -375,12 +376,12 @@ func nativeReceipt(snapshot capability.Snapshot) *explorer.CompilationReceipt {
 	return receipt
 }
 
-func successfulTestExecution(receipt *explorer.CompilationReceipt, state string) Execution {
+func successfulTestExecution(receipt *explorer.CompilationReceipt, state string) ports.Execution {
 	scopeDigest := "execution-scope"
-	outputs := make([]ExecutionOutput, 0, len(receipt.Bundle.Outputs))
+	outputs := make([]ports.ExecutionOutput, 0, len(receipt.Bundle.Outputs))
 	reports := make([]publication.QualityReport, 0, len(receipt.Bundle.Outputs))
 	for _, output := range receipt.Bundle.Outputs {
-		outputs = append(outputs, ExecutionOutput{Name: output.Name, State: state})
+		outputs = append(outputs, ports.ExecutionOutput{Name: output.Name, State: state})
 		reports = append(reports, publication.QualityReport{
 			ID: "quality-" + output.Name, ReceiptID: receipt.ID, Project: receipt.Project,
 			DatasetGeneration: receipt.SourceGeneration, ScopeDigest: scopeDigest,
@@ -388,7 +389,7 @@ func successfulTestExecution(receipt *explorer.CompilationReceipt, state string)
 			Completeness: publication.QualityComplete, Verdict: publication.QualityPassed,
 		})
 	}
-	return Execution{
+	return ports.Execution{
 		ID: "execution-a", Project: receipt.Project, SourceGeneration: receipt.SourceGeneration,
 		ScopeDigest: scopeDigest, Outputs: outputs, QualityReports: reports,
 	}
@@ -427,8 +428,8 @@ func TestApplyCommandsMapsCASFailures(t *testing.T) {
 			store := &fakeStore{applyErr: test.err}
 			service := newTestService(t, store, testConfig(snapshot))
 			_, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
-			var value *Error
-			if !errors.As(err, &value) || value.Class != ClassConflict || value.Code != test.code {
+			var value *ports.Error
+			if !errors.As(err, &value) || value.Class != ports.ClassConflict || value.Code != test.code {
 				t.Fatalf("err=%v, want conflict %s", err, test.code)
 			}
 		})
@@ -514,8 +515,8 @@ func TestPopulationLifecycleChecksSelectionBeforeDraftAndCompile(t *testing.T) {
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: explorer.ManagementInteractive, DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}, selection: completedTestSelection(snapshot, "Patient")}
 	config := testConfig(snapshot)
 	config.SelectionMembersCollection = "loom_explorer_selection_members"
-	config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
 	config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog }
 	service := newTestService(t, store, config)
@@ -538,8 +539,8 @@ func TestPopulationLifecycleChecksSelectionBeforeDraftAndCompile(t *testing.T) {
 		t.Fatalf("population draft = %#v persisted=%#v", response, store.created)
 	}
 
-	var compileRequestSeen CompileReceiptRequest
-	config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	var compileRequestSeen ports.CompileReceiptRequest
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		compileRequestSeen = request
 		receipt := nativeReceipt(snapshot)
 		store.receipt = receipt
@@ -587,8 +588,8 @@ func TestPopulationLifecycleRejectsIncompleteSelectionBeforeDraftWrite(t *testin
 	selection.Complete = false
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: explorer.ManagementInteractive, DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}, selection: selection}
 	config := testConfig(snapshot)
-	config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
 	config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog }
 	service := newTestService(t, store, config)
@@ -663,7 +664,7 @@ func TestApplyCommandsAfterStoredMigrationIsIdempotentWithoutReceiptMutation(t *
 	stale.CommandID = "stale-command"
 	stale.Commands = []authoringv2.Command{{Type: authoringv2.CommandRenameTable, OutputID: "patients", Title: "Stale"}}
 	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", stale, "alice")
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "DRAFT_CONFLICT" {
 		t.Fatalf("stale draft error = %v, want DRAFT_CONFLICT", err)
 	}
@@ -671,7 +672,7 @@ func TestApplyCommandsAfterStoredMigrationIsIdempotentWithoutReceiptMutation(t *
 	unsupported.CommandID = "unsupported-semantics"
 	unsupported.SemanticsVersion = authoringv2.CurrentSemanticsVersion - 1
 	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", unsupported, "alice")
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassConflict || lifecycleErr.Code != "UNSUPPORTED_SEMANTICS_VERSION" {
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassConflict || lifecycleErr.Code != "UNSUPPORTED_SEMANTICS_VERSION" {
 		t.Fatalf("unsupported semantics error = %v, want conflict UNSUPPORTED_SEMANTICS_VERSION", err)
 	}
 	newReceiptJSON, err := json.Marshal(store.receipt)
@@ -709,12 +710,12 @@ func TestCompileRejectsUnboundOrUnpersistedReceipt(t *testing.T) {
 			test.mutate(&receipt)
 			store := &fakeStore{}
 			config := testConfig(snapshot)
-			config.CompileReceipt = func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 				return &receipt, nil
 			}
 			service := newTestService(t, store, config)
 			_, err := service.compile(context.Background(), compileRequest{Project: "project-a", ExplorerID: "patients", Workspace: workspace, SnapshotToken: snapshot.Token})
-			var lifecycleErr *Error
+			var lifecycleErr *ports.Error
 			if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != test.code {
 				t.Fatalf("compile error = %v, want %s", err, test.code)
 			}
@@ -723,10 +724,12 @@ func TestCompileRejectsUnboundOrUnpersistedReceipt(t *testing.T) {
 
 	store := &fakeStore{}
 	config := testConfig(snapshot)
-	config.CompileReceipt = func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error) { return base, nil }
+	config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		return base, nil
+	}
 	service := newTestService(t, store, config)
 	_, err := service.compile(context.Background(), compileRequest{Project: "project-a", ExplorerID: "patients", Workspace: workspace, SnapshotToken: snapshot.Token})
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "COMPILATION_RECEIPT_NOT_PERSISTED" {
 		t.Fatalf("unpersisted compile error = %v, want COMPILATION_RECEIPT_NOT_PERSISTED", err)
 	}
@@ -766,11 +769,13 @@ func TestPublishRepositoryMarksActivationFailuresRetryable(t *testing.T) {
 			store := &fakeStore{activationErrors: append([]error(nil), test.activationErrors...)}
 			config := testConfig(snapshot)
 			config.Capability.Current = func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil }
-			config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-				return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+			config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 			}
-			config.CompileReceipt = func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error) { return base, nil }
-			config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
+			config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+				return base, nil
+			}
+			config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 				return successfulTestExecution(base, "PUBLISHED"), nil
 			}
 			releaseErrors := append([]error(nil), test.releaseErrors...)
@@ -822,7 +827,7 @@ func TestPreviewRejectsStaleGenerationAndScope(t *testing.T) {
 			}
 			service := newTestService(t, store, config)
 			_, err := service.Preview(context.Background(), PreviewRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10})
-			var value *Error
+			var value *ports.Error
 			if !errors.As(err, &value) || value.Code != test.wantCode {
 				t.Fatalf("err=%v, want %s", err, test.wantCode)
 			}
@@ -888,7 +893,7 @@ func TestValidateReceiptRouteAcceptsEquivalentProjectIdentities(t *testing.T) {
 	}
 
 	err := (&Service{}).validateReceiptRoute(receipt, "HTAN_INT/OtherProject", "patients")
-	var value *Error
+	var value *ports.Error
 	if !errors.As(err, &value) || value.Code != "COMPILE_RECEIPT_NOT_FOUND" {
 		t.Fatalf("different project error = %v, want COMPILE_RECEIPT_NOT_FOUND", err)
 	}
@@ -898,10 +903,10 @@ func TestAuthorizedReceiptExecutionPreservesRestrictedEmptyScope(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted}
 	snapshot := readySnapshot("project-a", "generation-a", "token", scope)
 	receipt := &explorer.CompilationReceipt{Project: "project-a", SnapshotToken: "token", SourceGeneration: "generation-a", CapabilitySchemaDigest: "schema", AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest}
-	if err := validateAuthorizedReceiptExecution(receipt, AuthorizedCapability{Snapshot: snapshot, Scope: scope}); err != nil {
+	if err := validateAuthorizedReceiptExecution(receipt, ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateAuthorizedReceiptExecution(receipt, AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{}}); err == nil {
+	if err := validateAuthorizedReceiptExecution(receipt, ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{}}); err == nil {
 		t.Fatal("empty scope mode widened restricted receipt")
 	}
 }
@@ -917,7 +922,7 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 		order = append(order, "prepare-release")
 		return dataset.ProjectRelease{ID: "release-a", Project: "project-a", Generation: "generation-a", GitCommit: "generation-a"}, 7, nil
 	}
-	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
+	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 		order = append(order, "materialize")
 		return successfulTestExecution(receipt, "READY"), nil
 	}
@@ -942,15 +947,15 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 
 	store.publishErr = errors.New("revision write failed")
 	_, err = service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
-	var persistenceFailure *Error
-	if !errors.As(err, &persistenceFailure) || persistenceFailure.Class != ClassUnavailable || persistenceFailure.Code != "PERSISTENCE_UNAVAILABLE" || !errors.Is(err, store.publishErr) {
+	var persistenceFailure *ports.Error
+	if !errors.As(err, &persistenceFailure) || persistenceFailure.Class != ports.ClassUnavailable || persistenceFailure.Code != "PERSISTENCE_UNAVAILABLE" || !errors.Is(err, store.publishErr) {
 		t.Fatalf("publish failure=%v, want unavailable PERSISTENCE_UNAVAILABLE", err)
 	}
 
 	store.publishErr = dataset.ErrReleaseActivationConflict
 	_, err = service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
-	var activationFailure *Error
-	if !errors.As(err, &activationFailure) || activationFailure.Class != ClassConflict || activationFailure.Code != "PUBLICATION_ACTIVATION_CONFLICT" {
+	var activationFailure *ports.Error
+	if !errors.As(err, &activationFailure) || activationFailure.Class != ports.ClassConflict || activationFailure.Code != "PUBLICATION_ACTIVATION_CONFLICT" {
 		t.Fatalf("activation failure=%#v, want PUBLICATION_ACTIVATION_CONFLICT", err)
 	}
 
@@ -961,7 +966,7 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 	}
 	service = newTestService(t, store, config)
 	_, err = service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
-	var writebackFailure *Error
+	var writebackFailure *ports.Error
 	if !errors.As(err, &writebackFailure) || writebackFailure.Code != "LOCAL_WORKSPACE_WRITEBACK_FAILED" || !store.published {
 		t.Fatalf("writeback failure published=%v, err=%v", store.published, err)
 	}
@@ -983,11 +988,13 @@ func TestPublishRejectsInvalidQualityEvidenceBeforeReleasePreparation(t *testing
 	receipt := nativeReceipt(snapshot)
 	for _, test := range []struct {
 		name   string
-		mutate func(*Execution)
+		mutate func(*ports.Execution)
 	}{
-		{name: "missing", mutate: func(execution *Execution) { execution.QualityReports = nil }},
-		{name: "incomplete", mutate: func(execution *Execution) { execution.QualityReports[0].Completeness = publication.QualityIncomplete }},
-		{name: "wrong receipt", mutate: func(execution *Execution) { execution.QualityReports[0].ReceiptID = "receipt-other" }},
+		{name: "missing", mutate: func(execution *ports.Execution) { execution.QualityReports = nil }},
+		{name: "incomplete", mutate: func(execution *ports.Execution) {
+			execution.QualityReports[0].Completeness = publication.QualityIncomplete
+		}},
+		{name: "wrong receipt", mutate: func(execution *ports.Execution) { execution.QualityReports[0].ReceiptID = "receipt-other" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := &fakeStore{receipt: receipt}
@@ -998,14 +1005,14 @@ func TestPublishRejectsInvalidQualityEvidenceBeforeReleasePreparation(t *testing
 				prepared = true
 				return dataset.ProjectRelease{}, 0, nil
 			}
-			config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
+			config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 				execution := successfulTestExecution(receipt, "PUBLISHED")
 				test.mutate(&execution)
 				return execution, nil
 			}
 			service := newTestService(t, store, config)
 			_, err := service.Publish(context.Background(), PublishRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ReceiptID: receipt.ID})
-			var lifecycleErr *Error
+			var lifecycleErr *ports.Error
 			if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "QUALITY_EVIDENCE_INVALID" {
 				t.Fatalf("quality gate error = %v", err)
 			}
@@ -1025,8 +1032,8 @@ func TestPublishPreservesPublicationInProgress(t *testing.T) {
 	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
 		return dataset.ProjectRelease{}, 0, nil
 	}
-	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
-		return Execution{}, dataframeerrors.NewError(
+	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
+		return ports.Execution{}, dataframeerrors.NewError(
 			dataframeerrors.CodePublicationInProgress,
 			"an identical publication is already in progress",
 			dataframeerrors.WithDetails(map[string]any{"executionId": "execution-a"}),
@@ -1036,11 +1043,11 @@ func TestPublishPreservesPublicationInProgress(t *testing.T) {
 	service := newTestService(t, store, config)
 
 	_, err := service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("Publish() error = %v, want lifecycle error", err)
 	}
-	if lifecycleErr.Class != ClassConflict || lifecycleErr.Code != "PUBLICATION_IN_PROGRESS" {
+	if lifecycleErr.Class != ports.ClassConflict || lifecycleErr.Code != "PUBLICATION_IN_PROGRESS" {
 		t.Fatalf("Publish() error = %#v, want conflict PUBLICATION_IN_PROGRESS", lifecycleErr)
 	}
 	if got := lifecycleErr.Details["executionId"]; got != "execution-a" {
@@ -1059,17 +1066,17 @@ func TestPublishKeepsMaterializationFailuresUnavailable(t *testing.T) {
 	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
 		return dataset.ProjectRelease{}, 0, nil
 	}
-	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
-		return Execution{}, errors.New("ClickHouse insert failed")
+	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
+		return ports.Execution{}, errors.New("ClickHouse insert failed")
 	}
 	service := newTestService(t, &fakeStore{receipt: receipt}, config)
 
 	_, err := service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("Publish() error = %v, want lifecycle error", err)
 	}
-	if lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "MATERIALIZATION_FAILED" {
+	if lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "MATERIALIZATION_FAILED" {
 		t.Fatalf("Publish() error = %#v, want unavailable MATERIALIZATION_FAILED", lifecycleErr)
 	}
 }
@@ -1083,8 +1090,8 @@ func TestPublishRejectsRelationshipCardinalityViolationWithoutPublishing(t *test
 	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
 		return dataset.ProjectRelease{}, 0, nil
 	}
-	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
-		return Execution{}, dataframeerrors.NewError(
+	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
+		return ports.Execution{}, dataframeerrors.NewError(
 			dataframeerrors.CodeRelationshipCardinalityViolation,
 			"related feature matched more than one value",
 			dataframeerrors.WithDetails(map[string]any{"feature": "height"}),
@@ -1093,11 +1100,11 @@ func TestPublishRejectsRelationshipCardinalityViolationWithoutPublishing(t *test
 	service := newTestService(t, store, config)
 
 	_, err := service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("Publish() error = %v, want lifecycle error", err)
 	}
-	if lifecycleErr.Class != ClassUnprocessable || lifecycleErr.Code != "RELATIONSHIP_CARDINALITY_VIOLATION" {
+	if lifecycleErr.Class != ports.ClassUnprocessable || lifecycleErr.Code != "RELATIONSHIP_CARDINALITY_VIOLATION" {
 		t.Fatalf("Publish() error = %#v, want unprocessable RELATIONSHIP_CARDINALITY_VIOLATION", lifecycleErr)
 	}
 	if got := lifecycleErr.Details["feature"]; got != "height" {
@@ -1118,8 +1125,8 @@ func TestClassifyMaterializationErrorPreservesTemporalResolutionFailures(t *test
 	} {
 		t.Run(string(code), func(t *testing.T) {
 			err := classifyMaterializationError("materialize", dataframeerrors.NewError(code, "private"))
-			var lifecycleErr *Error
-			if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassUnprocessable || lifecycleErr.Code != string(code) {
+			var lifecycleErr *ports.Error
+			if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnprocessable || lifecycleErr.Code != string(code) {
 				t.Fatalf("classified error = %#v, want unprocessable %s", lifecycleErr, code)
 			}
 			if !strings.Contains(lifecycleErr.Message, "active revision was retained") {
@@ -1148,8 +1155,8 @@ func TestPublishReportsQueryMemoryLimit(t *testing.T) {
 	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
 		return dataset.ProjectRelease{}, 0, nil
 	}
-	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
-		return Execution{}, dataframeerrors.NewError(
+	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
+		return ports.Execution{}, dataframeerrors.NewError(
 			dataframeerrors.CodeQueryMemoryLimitExceeded,
 			"",
 			dataframeerrors.WithDetails(map[string]any{"backend": "arangodb"}),
@@ -1158,11 +1165,11 @@ func TestPublishReportsQueryMemoryLimit(t *testing.T) {
 	service := newTestService(t, &fakeStore{receipt: receipt}, config)
 
 	_, err := service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("Publish() error = %v, want lifecycle error", err)
 	}
-	if lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "QUERY_MEMORY_LIMIT_EXCEEDED" {
+	if lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "QUERY_MEMORY_LIMIT_EXCEEDED" {
 		t.Fatalf("Publish() error = %#v, want unavailable QUERY_MEMORY_LIMIT_EXCEEDED", lifecycleErr)
 	}
 	if !strings.Contains(lifecycleErr.Message, "ArangoDB query memory limit") || !strings.Contains(lifecycleErr.Message, "active revision was retained") {
@@ -1181,11 +1188,11 @@ func TestMaterializationResourceErrorDistinguishesDatabaseOutOfMemory(t *testing
 	)
 
 	err := classifyMaterializationError("repository_publish", cause)
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("materializationMemoryError() = %v, want lifecycle error", err)
 	}
-	if lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "QUERY_BACKEND_OUT_OF_MEMORY" {
+	if lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "QUERY_BACKEND_OUT_OF_MEMORY" {
 		t.Fatalf("error = %#v, want unavailable QUERY_BACKEND_OUT_OF_MEMORY", lifecycleErr)
 	}
 	if !strings.Contains(lifecycleErr.Message, "ran out of memory") || strings.Contains(lifecycleErr.Message, "query-memory-limit") {
@@ -1197,7 +1204,7 @@ func TestMaterializationResourceErrorReportsOtherResourceLimitWithoutMemoryAdvic
 	cause := dataframeerrors.NewError(dataframeerrors.CodeQueryResourceLimitExceeded, "")
 
 	err := classifyMaterializationError("materialize", cause)
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "QUERY_RESOURCE_LIMIT_EXCEEDED" {
 		t.Fatalf("classifyMaterializationError() = %#v, want QUERY_RESOURCE_LIMIT_EXCEEDED", lifecycleErr)
 	}

@@ -15,6 +15,7 @@ import (
 	dataframepublication "github.com/calypr/loom/internal/dataframe/publication"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/generation"
 )
 
 type stubResourceAccess struct{ writePaths []string }
@@ -140,9 +141,9 @@ func multipartGenerationBody(t *testing.T) *multipart.Reader {
 
 func TestCrossProjectDatasetPublishGateIsProjectBound(t *testing.T) {
 	var requests []GenerationLoadRequest
-	loader := func(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (ingest.LoadSummary, error) {
+	loader := func(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
 		requests = append(requests, req)
-		return ingest.LoadSummary{}, nil
+		return generation.LoadSummary{}, nil
 	}
 	activator := &recordingActivator{existing: map[string]publication.Manifest{}}
 	handler := newTestHandler(t, []string{"/projA/data"}, map[string][]string{
@@ -169,9 +170,9 @@ func TestCrossProjectDatasetActivateGateIsProjectBound(t *testing.T) {
 	handler := newTestHandler(t, []string{"/projA/data"}, map[string][]string{
 		"projA": {"/projA/data"},
 		"projB": {"/projB/data"},
-	}, func(context.Context, GenerationLoadRequest, ingest.EventSink) (ingest.LoadSummary, error) {
+	}, func(context.Context, GenerationLoadRequest, ingest.EventSink) (generation.LoadSummary, error) {
 		t.Fatal("activate leg must not load generations")
-		return ingest.LoadSummary{}, nil
+		return generation.LoadSummary{}, nil
 	}, activator, stubReleases{execution: victimBundle("projB", "g1", "exec-victim")})
 
 	_, activationErr := handler.ActivateDatasetGeneration(context.Background(), "projB", "g1", "exec-victim", "/projA/data", attackerPrincipal())
@@ -190,9 +191,9 @@ func TestCrossProjectDatasetActivateGateIsProjectBound(t *testing.T) {
 
 func TestDatasetPublishControlsSameProjectOwnerAndEmptyGrant(t *testing.T) {
 	ownerLoaderCalls := 0
-	loader := func(_ context.Context, _ GenerationLoadRequest, _ ingest.EventSink) (ingest.LoadSummary, error) {
+	loader := func(_ context.Context, _ GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
 		ownerLoaderCalls++
-		return ingest.LoadSummary{}, nil
+		return generation.LoadSummary{}, nil
 	}
 	handler := newTestHandler(t, []string{"/projA/data"}, map[string][]string{
 		"projA": {"/projA/data"},
@@ -213,9 +214,9 @@ func TestDatasetPublishControlsSameProjectOwnerAndEmptyGrant(t *testing.T) {
 
 func TestDatasetPublishNewProjectBootstrapRemainsPossible(t *testing.T) {
 	loaderCalls := 0
-	loader := func(_ context.Context, _ GenerationLoadRequest, _ ingest.EventSink) (ingest.LoadSummary, error) {
+	loader := func(_ context.Context, _ GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
 		loaderCalls++
-		return ingest.LoadSummary{}, nil
+		return generation.LoadSummary{}, nil
 	}
 	handler := newTestHandler(t, []string{"/projA/data"}, map[string][]string{"projA": {"/projA/data"}},
 		loader, &recordingActivator{existing: map[string]publication.Manifest{}}, stubReleases{})

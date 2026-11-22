@@ -13,11 +13,13 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/artifactformat"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 type artifactBackend struct {
@@ -153,8 +155,8 @@ func TestPrepareArtifactCommitsExactOutputAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: CapabilityResolver{ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
 		t.Fatal(err)
@@ -199,8 +201,8 @@ func TestPrepareArtifactUsesJSONLWhenCSVWouldOmitRowIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: CapabilityResolver{ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
 		t.Fatal(err)
@@ -209,7 +211,7 @@ func TestPrepareArtifactUsesJSONLWhenCSVWouldOmitRowIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Record == nil || result.Record.Format != dataframepublished.ArtifactFormatJSONL {
+	if result.Record == nil || result.Record.Format != artifactformat.ArtifactFormatJSONL {
 		t.Fatalf("artifact record = %#v, want JSONL", result.Record)
 	}
 	archive, err := zip.NewReader(bytes.NewReader(artifacts.data[result.Record.ID]), int64(len(artifacts.data[result.Record.ID])))
@@ -266,14 +268,14 @@ func TestGroupArtifactDescriptorKeepsSyntheticMembershipWithoutSourceRow(t *test
 		map[string]any{"source_identity": map[string]any{"project": "project-a", "generation": "generation-a", "resource_type": "Observation", "id": "obs-b"}, "payload": nil},
 	}
 	var archive bytes.Buffer
-	_, err = dataframepublished.WriteArtifact(context.Background(), &archive, dataframepublished.ArtifactRequest{
-		Identity: dataframepublished.ArtifactIdentity{
+	_, err = artifactformat.WriteArtifact(context.Background(), &archive, artifactformat.ArtifactRequest{
+		Identity: artifactformat.ArtifactIdentity{
 			Project: "project-a", DatasetGeneration: "generation-a", ReceiptID: "receipt-a", ExecutionID: "execution-a",
 			OutputID: "groups", RevisionID: "revision-a", SchemaDigest: "published-schema", OutputContractDigest: "contract-digest",
 		},
 		Descriptor: descriptor, Columns: columns, SelectionMetadata: json.RawMessage(`{}`),
 		InterpretationMetadata: json.RawMessage(`[]`), Provenance: json.RawMessage(`{}`), Quality: json.RawMessage(`[]`),
-	}, func(visit dataframepublished.ArtifactRowVisitor) error {
+	}, func(visit artifactformat.ArtifactRowVisitor) error {
 		return visit(map[string]any{
 			"__loom_row_id": wantIdentity, "group_id": "group-a", "group_label": "Group A", "group_mean_weight": 71.5, "group_ordinal": int64(0), "members": wantMembers,
 		})
@@ -350,14 +352,14 @@ func TestArtifactDescriptorCarriesResultUnitIntoZipManifest(t *testing.T) {
 	}
 
 	var archive bytes.Buffer
-	_, err = dataframepublished.WriteArtifact(context.Background(), &archive, dataframepublished.ArtifactRequest{
-		Identity: dataframepublished.ArtifactIdentity{
+	_, err = artifactformat.WriteArtifact(context.Background(), &archive, artifactformat.ArtifactRequest{
+		Identity: artifactformat.ArtifactIdentity{
 			Project: "project-a", DatasetGeneration: "generation-a", ReceiptID: "receipt-a", ExecutionID: "execution-a",
 			OutputID: "patients", RevisionID: "revision-a", SchemaDigest: "published-schema", OutputContractDigest: "contract-digest",
 		},
-		Descriptor: descriptor, Columns: columns, Format: dataframepublished.ArtifactFormatJSONL,
+		Descriptor: descriptor, Columns: columns, Format: artifactformat.ArtifactFormatJSONL,
 		SelectionMetadata: json.RawMessage(`{}`), InterpretationMetadata: json.RawMessage(`[]`), Provenance: json.RawMessage(`{}`), Quality: json.RawMessage(`[]`),
-	}, func(visit dataframepublished.ArtifactRowVisitor) error {
+	}, func(visit artifactformat.ArtifactRowVisitor) error {
 		return visit(map[string]any{"__loom_row_id": "row-1", "mean_weight": 71.5, "bmi": 22.4, "patient_id": "patient-1"})
 	})
 	if err != nil {
@@ -384,8 +386,8 @@ func TestArtifactDescriptorCarriesResultUnitIntoZipManifest(t *testing.T) {
 		break
 	}
 	var manifest struct {
-		Version    int                                   `json:"version"`
-		Descriptor dataframepublished.ArtifactDescriptor `json:"descriptor"`
+		Version    int                               `json:"version"`
+		Descriptor artifactformat.ArtifactDescriptor `json:"descriptor"`
 	}
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		t.Fatalf("decode artifact manifest: %v", err)
@@ -450,14 +452,14 @@ func TestPrepareArtifactRejectsMaterializationFromBroaderScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: CapabilityResolver{ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = service.PrepareArtifact(context.Background(), ArtifactRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, RevisionID: "revision-a", OutputID: "patients", IdempotencyKey: "wrong-scope"})
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "MATERIALIZATION_IDENTITY_CHANGED" {
 		t.Fatalf("scope mismatch error = %v", err)
 	}
@@ -469,8 +471,8 @@ func TestPrepareArtifactAbortsAfterExactReaderFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: CapabilityResolver{ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
 		t.Fatal(err)
@@ -480,7 +482,7 @@ func TestPrepareArtifactAbortsAfterExactReaderFailure(t *testing.T) {
 	if err == nil || result.Record != nil {
 		t.Fatalf("result=%#v err=%v, want failed preparation", result, err)
 	}
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "EXECUTION_READ_PIN_LOST" {
 		t.Fatalf("err=%v, want pin-loss code", err)
 	}
@@ -493,7 +495,7 @@ func TestPrepareArtifactAbortsAfterExactReaderFailure(t *testing.T) {
 		t.Fatalf("failed artifact=%#v err=%v", record, getErr)
 	}
 	_, retryErr := service.PrepareArtifact(context.Background(), request)
-	var retryLifecycleErr *Error
+	var retryLifecycleErr *ports.Error
 	if !errors.As(retryErr, &retryLifecycleErr) || retryLifecycleErr.Code != "ARTIFACT_FAILED_RETRYABLE" {
 		t.Fatalf("retry err=%v, want retryable failed-artifact error", retryErr)
 	}
@@ -507,8 +509,8 @@ func TestOpenArtifactReauthorizesCurrentToken(t *testing.T) {
 	}
 	wrongSnapshot := snapshot
 	wrongSnapshot.Token = "wrong-token"
-	service, err := New(domain, Config{ArtifactStore: artifacts, Capability: CapabilityResolver{ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: wrongSnapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	service, err := New(domain, Config{ArtifactStore: artifacts, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: wrongSnapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
 		t.Fatal(err)
@@ -522,8 +524,8 @@ func TestOpenArtifactReauthorizesCurrentToken(t *testing.T) {
 	if reader != nil || err == nil {
 		t.Fatalf("reader=%v err=%v, want authorization failure", reader, err)
 	}
-	var lifecycleErr *Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassForbidden {
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassForbidden {
 		t.Fatalf("err=%v", err)
 	}
 }

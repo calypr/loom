@@ -10,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -19,7 +20,7 @@ func (s *Service) validateRowValuePolicyCandidate(
 	request authoringv2.ApplyCommandsRequest,
 	workspace authoringv2.Workspace,
 	snapshot capability.Snapshot,
-	compilationAuth AuthorizedCapability,
+	compilationAuth ports.AuthorizedCapability,
 	command authoringv2.Command,
 ) error {
 	if s.config.ValidateReceiptStream == nil || s.config.Capability.ForExecution == nil {
@@ -121,7 +122,7 @@ func validateRowValuePolicyReceiptSnapshot(receipt *explorer.CompilationReceipt,
 	return nil
 }
 
-func validateSameAuthorizedReceiptSnapshot(receipt *explorer.CompilationReceipt, authorized AuthorizedCapability) error {
+func validateSameAuthorizedReceiptSnapshot(receipt *explorer.CompilationReceipt, authorized ports.AuthorizedCapability) error {
 	if receipt == nil {
 		return fmt.Errorf("compilation receipt is required")
 	}

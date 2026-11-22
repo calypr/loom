@@ -13,7 +13,7 @@ import (
 func TestStreamingMissingCategoryPivotUsesDirectScalarInputs(t *testing.T) {
 	render := func(duplicatePolicy, missingCellPolicy, unlistedPolicy string) (string, physicalPlanRenderer) {
 		t.Helper()
-		renderer := physicalPlanRenderer{
+		renderer := physicalPlanRenderer{renderContext: renderContext{
 			bindVars: map[string]any{
 				"construction":   "pivot",
 				"limit":          10,
@@ -24,7 +24,7 @@ func TestStreamingMissingCategoryPivotUsesDirectScalarInputs(t *testing.T) {
 			rootVariable:                         "root",
 			storedPresenceParentPath:             []string{"payload", "valueQuantity"},
 			streamingMissingCategoryPivotPreview: true,
-		}
+		}}
 		pivot := ir.PhysicalGroupedPivot{
 			ConstructionID: "pivot", ConstructionIDBindKey: "construction",
 			InputRowVariable: "input", GroupRowsVariable: "group_rows", OutputRowVariable: "output_row",
@@ -52,7 +52,7 @@ func TestStreamingMissingCategoryPivotUsesDirectScalarInputs(t *testing.T) {
 			DuplicatePolicy: duplicatePolicy, MissingCellPolicy: missingCellPolicy,
 			UnlistedCategoryPolicy: unlistedPolicy, UnlistedEvidenceColumn: "unlisted_count",
 		}
-		lines, err := renderer.renderGroupedTablePivot(pivot, true, "limit")
+		lines, err := renderer.tableShape().renderGroupedTablePivot(pivot, true, "limit")
 		if err != nil {
 			t.Fatalf("render %s/%s/%s Pivot: %v", duplicatePolicy, missingCellPolicy, unlistedPolicy, err)
 		}
@@ -183,11 +183,11 @@ func TestStreamingMissingCategoryPivotFallsBackWithoutDirectScalarProof(t *testi
 			if categoryProjection.Name == "" {
 				categoryProjection = ir.PhysicalProjection{Name: "category_code", Value: ir.PhysicalValue{Variable: "root", Path: []string{"payload", "category_code"}}}
 			}
-			renderer := physicalPlanRenderer{
+			renderer := physicalPlanRenderer{renderContext: renderContext{
 				bindVars:       map[string]any{"construction": "pivot", "limit": 10},
 				collectionKeys: map[string]struct{}{}, reservedVars: map[string]struct{}{},
 				rootVariable: test.rootVariable, streamingMissingCategoryPivotPreview: true,
-			}
+			}}
 			pivot := ir.PhysicalGroupedPivot{
 				ConstructionID: "pivot", ConstructionIDBindKey: "construction",
 				InputRowVariable: "input", GroupRowsVariable: "group_rows", OutputRowVariable: "output_row",
@@ -210,14 +210,14 @@ func TestStreamingMissingCategoryPivotFallsBackWithoutDirectScalarProof(t *testi
 				Categories:      []ir.PhysicalGroupedPivotCategory{{Output: "missing_category", MatchKind: ir.PhysicalPivotCategoryMissingMatch}},
 				DuplicatePolicy: "SUM", MissingCellPolicy: "NULL", UnlistedCategoryPolicy: "ERROR",
 			}
-			scalarLines, scalarInputs, err := renderer.renderStreamingPivotDirectScalarInputs(pivot)
+			scalarLines, scalarInputs, err := renderer.tableShape().renderStreamingPivotDirectScalarInputs(pivot)
 			if err != nil {
 				t.Fatalf("check direct scalar eligibility: %v", err)
 			}
 			if len(scalarLines) != 0 || scalarInputs != nil {
 				t.Fatalf("ineligible projections selected the direct scalar path: lines=%v inputs=%v", scalarLines, scalarInputs)
 			}
-			lines, err := renderer.renderGroupedTablePivot(pivot, true, "limit")
+			lines, err := renderer.tableShape().renderGroupedTablePivot(pivot, true, "limit")
 			if err != nil {
 				t.Fatalf("render generic streaming fallback: %v", err)
 			}

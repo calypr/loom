@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
@@ -125,8 +126,8 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}
-	receipt, err := receiptapi.Compile(ctx, lifecycle.CompileReceiptRequest{Project: "project-a", ExplorerID: "published-rows", Workspace: workspace, SnapshotToken: snapshot.Token, Authorized: authorized}, nil, engine, service, nil, nil)
+	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}
+	receipt, err := receiptapi.Compile(ctx, ports.CompileReceiptRequest{Project: "project-a", ExplorerID: "published-rows", Workspace: workspace, SnapshotToken: snapshot.Token, Authorized: authorized}, nil, engine, service, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +159,7 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 		t.Fatalf("activate staged generation before authoring publication: %v", err)
 	}
 	release := dataset.ProjectRelease{ID: "published-rows-release", Project: "project-a", Generation: "generation-a"}
-	config := lifecycle.Config{Capability: lifecycle.CapabilityResolver{Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil }, ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) { return authorized, nil }}, ValidateReleaseGeneration: func(ctx context.Context, project, generation string) error {
+	config := lifecycle.Config{Capability: ports.CapabilityResolver{Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil }, ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil }}, ValidateReleaseGeneration: func(ctx context.Context, project, generation string) error {
 		m, err := releases.ReadManifest(ctx, dataset.Ref{Project: project, Generation: generation})
 		if err != nil {
 			return err

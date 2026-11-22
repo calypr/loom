@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
@@ -216,16 +217,16 @@ func publicationAgreementFixture(t *testing.T) (*fiber.App, *agreementPublicatio
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := receiptapi.Compile(context.Background(), lifecycle.CompileReceiptRequest{
+	receipt, err := receiptapi.Compile(context.Background(), ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "publication-agreement", Workspace: workspace, SnapshotToken: snapshot.Token,
-		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 	}, nil, engine, service, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	calls, badQuality := 0, false
 	config := lifecycle.Config{
-		Capability:                lifecycle.CapabilityResolver{Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil }},
+		Capability:                ports.CapabilityResolver{Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil }},
 		ValidateReleaseGeneration: func(context.Context, string, string) error { return nil },
 		PrepareRelease: func(_ context.Context, project, generation string, selectors []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
 			want := []dataset.DataframeSelector{{Recipe: receipt.Bundle.Name, TranslationVersion: receipt.Bundle.TranslationVersion, Output: "patients"}}
@@ -234,7 +235,7 @@ func publicationAgreementFixture(t *testing.T) (*fiber.App, *agreementPublicatio
 			}
 			return dataset.ProjectRelease{ID: "release-agreement", Project: project, Generation: generation}, 7, nil
 		},
-		MaterializeReceipt: func(_ context.Context, actual *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (lifecycle.Execution, error) {
+		MaterializeReceipt: func(_ context.Context, actual *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (ports.Execution, error) {
 			calls++
 			if actual.ID != receipt.ID || bindings.Project != "project-a" || bindings.DatasetGeneration != snapshot.Identity.Generation {
 				t.Fatalf("materializer received foreign receipt or generation: %#v %#v", actual, bindings)
@@ -243,8 +244,8 @@ func publicationAgreementFixture(t *testing.T) (*fiber.App, *agreementPublicatio
 			if badQuality {
 				quality.ReceiptID = "foreign-receipt"
 			}
-			return lifecycle.Execution{ID: "execution-agreement", Project: "project-a", SourceGeneration: snapshot.Identity.Generation, ScopeDigest: "scope-publication",
-				Outputs: []lifecycle.ExecutionOutput{{Name: "patients", State: "READY", Columns: []publication.PhysicalColumn{
+			return ports.Execution{ID: "execution-agreement", Project: "project-a", SourceGeneration: snapshot.Identity.Generation, ScopeDigest: "scope-publication",
+				Outputs: []ports.ExecutionOutput{{Name: "patients", State: "READY", Columns: []publication.PhysicalColumn{
 					{Name: "c_patient", LogicalType: "string", ClickHouse: "String"},
 					{Name: "patient_count", LogicalType: "integer", ClickHouse: "Int64"},
 				}}}, QualityReports: []publication.QualityReport{quality}}, nil

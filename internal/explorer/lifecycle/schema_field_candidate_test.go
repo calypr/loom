@@ -7,13 +7,14 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestSchemaFieldCandidateChoiceRecompilesWithoutObservedCatalogEntry(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := schemaFieldsTestSnapshot(scope, nil)
 	snapshot.Nodes[0].RowRootEligible = true
-	authorized := AuthorizedCapability{Snapshot: snapshot, Scope: scope}
+	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	candidate, ok := uniqueCapabilityCandidate(snapshot, schemaFieldCandidateID(snapshot.Token, "patient-node", "gender"))
 	if !ok {
 		t.Fatal("generated field identity was not resolved")

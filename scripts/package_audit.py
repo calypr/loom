@@ -70,16 +70,17 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
  'internal/api/http': 'Own shared Fiber server setup, middleware, request IDs, errors, health, and readiness behavior.',
  'internal/api/authpolicy': 'Centralize authorization-sentinel classification for transport operations while '
                             'preserving operation-specific concealment.',
- 'internal/api/columncapabilities': 'Derive transport-neutral filter, sort, and aggregate capabilities from published '
-                                    'ClickHouse column types.',
- 'internal/api/recipe': 'Adapt scoped catalog field discovery to recipe schema resolution for one-shot and stored '
-                        'recipes.',
  'internal/acceptance': 'Fetch and cache the locked FHIR fixture, drive the real-data acceptance scenario, and verify '
                         'its outputs and performance evidence.',
  'internal/authscope': 'Represent request principals and resolve authorized project, generation, and resource scopes.',
  'internal/catalog': 'Own persistence-neutral observed FHIR field, pivot, relationship, and capability facts.',
+ 'internal/catalog/codedconcept': 'Extract coded observations and their owners from FHIR payloads.',
+ 'internal/catalog/fieldprofile': 'Profile FHIR fields, retain shape plans and reconcile semantic evidence.',
+ 'internal/catalog/identity': 'Compute the stable length-prefixed digest used in catalog record keys.',
+ 'internal/catalog/semanticinventory': 'Build, aggregate, page and emit semantic inventory records.',
  'internal/catalog/arango': 'Persist and retrieve catalog facts in ArangoDB.',
  'internal/ci': 'Exercise repository-wide Go formatting and vet gates, including injected fault detection.',
+ 'internal/dataframe/artifactformat': 'Encode published dataframe rows and metadata as downloadable artifacts.',
  'internal/dataframe/columntransform': 'Define closed, backend-neutral transformations over one selected output column '
                                        'value.',
  'internal/dataframe/compiler': 'Orchestrate semantic planning, physical lowering, optimization, rendering, compiled '
@@ -141,6 +142,9 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
  'internal/explorer/constructioninputs': 'List authorized immutable published table revisions for Explorer construction.',
  'internal/explorer/lifecycle': 'Coordinate transport-neutral Explorer authoring, preview, publication, query, and '
                                 'policy operations.',
+ 'internal/explorer/lifecycle/ports': 'Define adapter contracts for Explorer capabilities, receipts, execution, and errors.',
+ 'internal/explorer/projectconfig': 'Prepare project configuration for publication and view building.',
+ 'internal/explorer/viewbuilder': 'Manage view-builder configuration, defaults and catalog adoption.',
  'internal/explorer/receipt': 'Compile, validate, preview, reconcile, and materialize Explorer receipts.',
  'internal/explorer/recipeimport': 'Translate imported recipe documents into authorized Explorer source plans and '
                                    'exact capability choices.',
@@ -148,6 +152,9 @@ RESPONSIBILITIES = {'internal/testkit': 'Resolve checked-in fixtures from packag
                          'metadata.',
  'internal/fhir/semantic': 'Walk generated FHIR definition indexes to enumerate typed referenced datatype occurrences.',
  'internal/ingest': 'Preflight and load FHIR NDJSON into generation-scoped Arango vertices, edges, and catalog facts.',
+ 'internal/ingest/backfill': 'Rebuild semantic inventory for an immutable retained dataset generation.',
+ 'internal/ingest/generation': 'Preflight, load and activate dataset generations within shared concurrency budgets.',
+ 'internal/ingest/sourceload': 'Stage, validate, copy and publish repository source files.',
  'internal/projectid': 'Define canonical and legacy-compatible public project identity normalization.',
  'internal/repositoryseed': 'Validate repository metadata and configuration, produce a source manifest, and refuse '
                             'unmaterialized inputs before launch.',

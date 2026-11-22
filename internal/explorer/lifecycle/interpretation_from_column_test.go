@@ -7,6 +7,7 @@ import (
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestCreateInterpretationRevisionFromColumnDerivesServerOwnedRule(t *testing.T) {
@@ -27,8 +28,8 @@ func TestCreateInterpretationRevisionFromColumnDerivesServerOwnedRule(t *testing
 	snapshot, scope := interpretationContextSnapshot()
 	service := newTestService(t, store, Config{
 		InterpretationRepository: repository,
-		Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		}},
 	})
 	request := CreateInterpretationRevisionFromColumnRequest{
@@ -92,8 +93,8 @@ func TestCreateInterpretationRevisionFromColumnRejectsPinnedAndUnavailableSource
 			repository := &libraryRepository{revisions: map[explorer.InterpretationRevisionID]explorer.InterpretationRevision{revision.ID: revision}}
 			service := newTestService(t, &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}}, Config{
 				InterpretationRepository: repository,
-				Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-					return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+				Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+					return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 				}},
 			})
 			_, err = service.CreateInterpretationRevisionFromColumn(context.Background(), CreateInterpretationRevisionFromColumnRequest{

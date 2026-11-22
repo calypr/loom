@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
@@ -35,9 +36,9 @@ func TestCellTraceRouteReturnsReceiptBoundTypedEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	config := lifecycle.Config{
-		Capability: lifecycle.CapabilityResolver{
-			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		Capability: ports.CapabilityResolver{
+			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 			},
 		},
 		ReceiptLookup: service.CompilationReceiptForExplorer,
@@ -55,9 +56,9 @@ func TestCellTraceRouteReturnsReceiptBoundTypedEvidence(t *testing.T) {
 			}, nil
 		},
 	}
-	receipt, err := explorerfixtures.PersistTestNativeReceipt(context.Background(), t, service, lifecycle.CompileReceiptRequest{
+	receipt, err := explorerfixtures.PersistTestNativeReceipt(context.Background(), t, service, ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
-		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 	}, snapshot)
 	if err != nil {
 		t.Fatal(err)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/explorer/capability"
 	"strconv"
 	"strings"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -98,7 +100,27 @@ const (
 	constructionCategoryDiscoveryNoValues           = "NO_VALUES"
 )
 
-func (s *Service) compileConstructionCategoryCandidate(
+type constructionScanFlow struct {
+	loadBase                   func(context.Context, string, string, string, int64, string, string) (constructionBase, error)
+	compile                    func(context.Context, compileRequest) (*explorer.CompilationReceipt, error)
+	verifyProposalReceipt      func(context.Context, string, *explorer.CompilationReceipt, string, string, string, capability.Snapshot, *authoringv2.Workspace) (authoringv2.Workspace, error)
+	withPivotSources           func(context.Context, constructionBase, ConstructionProposalRequest, authoringv2.Construction) (authoringv2.Construction, map[string]bool, error)
+	scanCategories             CategoryScanner
+	scanPopulation             ColumnPopulationScanner
+	selectionMembersCollection string
+	populationCache            *columnPopulationCache
+}
+
+func (s *Service) constructionScans() constructionScanFlow {
+	return constructionScanFlow{
+		loadBase: s.loadConstructionBase, compile: s.compile, verifyProposalReceipt: s.verifyProposalReceipt,
+		withPivotSources: s.constructionSources().constructionCandidateWithPivotSources, scanCategories: s.config.ScanCategories,
+		scanPopulation: s.config.ScanColumnPopulation, selectionMembersCollection: s.config.SelectionMembersCollection,
+		populationCache: s.columnPopulationCache,
+	}
+}
+
+func (s constructionScanFlow) compileConstructionCategoryCandidate(
 	ctx context.Context,
 	base constructionBase,
 	request ConstructionCategoryDiscoveryRequest,
@@ -161,7 +183,7 @@ func (s *Service) compileConstructionCategoryCandidate(
 		ChangedStepID: request.PivotStepID, CandidateConstruction: candidate,
 		PivotSources: append([]ConstructionPivotSourceSelection(nil), request.PivotSources...),
 	}
-	candidate, _, err = s.constructionCandidateWithPivotSources(ctx, base, proposalRequest, candidate)
+	candidate, _, err = s.withPivotSources(ctx, base, proposalRequest, candidate)
 	if err != nil {
 		return constructionBase{}, "", err
 	}
@@ -238,7 +260,7 @@ func (s *Service) compileConstructionCategoryCandidate(
 	}
 	workspace.Documents[documentIndex] = document
 	if _, err := workspace.Digest(); err != nil {
-		return constructionBase{}, "", failureDetails(ClassUnprocessable, "construction-category-discovery", "INVALID_CONSTRUCTION_CANDIDATE",
+		return constructionBase{}, "", failureDetails(ports.ClassUnprocessable, "construction-category-discovery", "INVALID_CONSTRUCTION_CANDIDATE",
 			"the temporary category input construction is invalid", nil, err)
 	}
 	receipt, err := s.compile(ctx, compileRequest{
@@ -347,17 +369,21 @@ func constructionProbeCategoryKey(typeName string) (authoringv2.TableScalar, err
 }
 
 func (s *Service) DiscoverConstructionCategories(ctx context.Context, request ConstructionCategoryDiscoveryRequest) (ConstructionCategoryDiscoveryResponse, error) {
+	return s.constructionScans().discoverConstructionCategories(ctx, request)
+}
+
+func (s constructionScanFlow) discoverConstructionCategories(ctx context.Context, request ConstructionCategoryDiscoveryRequest) (ConstructionCategoryDiscoveryResponse, error) {
 	if err := request.Validate(); err != nil {
 		return ConstructionCategoryDiscoveryResponse{}, malformed("construction-category-discovery", err.Error(), err)
 	}
-	base, err := s.loadConstructionBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken, request.ExpectedDraftVersion, request.ExpectedDraftDigest, request.OutputID)
+	base, err := s.loadBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken, request.ExpectedDraftVersion, request.ExpectedDraftDigest, request.OutputID)
 	if err != nil {
 		return ConstructionCategoryDiscoveryResponse{}, err
 	}
 	if base.receipt == nil {
 		return ConstructionCategoryDiscoveryResponse{}, conflict("construction-category-discovery", "STAGE_SCAN_UNAVAILABLE", "the exact compiled output is not available for category discovery", nil, nil)
 	}
-	if s.config.ScanCategories == nil {
+	if s.scanCategories == nil {
 		return ConstructionCategoryDiscoveryResponse{}, unavailable("construction-category-discovery", "CATEGORY_SCAN_UNAVAILABLE", "compiler-owned category discovery is not configured", nil)
 	}
 	responseStageID := request.StageID
@@ -405,11 +431,11 @@ func (s *Service) DiscoverConstructionCategories(ctx context.Context, request Co
 	}
 	bindings := recipe.RuntimeBindings{
 		Project: projectid.Legacy(base.catalog.Project), SelectionProject: base.catalog.Project,
-		DatasetGeneration: base.snapshot.Identity.Generation, SelectionMembersCollection: s.config.SelectionMembersCollection,
+		DatasetGeneration: base.snapshot.Identity.Generation, SelectionMembersCollection: s.selectionMembersCollection,
 		OutputNames: []string{request.OutputID},
 	}
 	applyAuthorizedScope(&bindings, base.authorized, false)
-	scan, err := s.config.ScanCategories(ctx, base.receipt, bindings, dataframeexecution.CategoryScanRequest{
+	scan, err := s.scanCategories(ctx, base.receipt, bindings, dataframeexecution.CategoryScanRequest{
 		Output: request.OutputID, StageID: request.StageID, ColumnID: request.CategoryColumnID,
 		ValueColumnID: request.ValueColumnID, MaxValues: compiler.MaxCategoryScanValues, RequireValue: true,
 	})
@@ -491,7 +517,7 @@ func classifyConstructionCategoryScanError(ctx context.Context, err error) error
 	if errors.Is(err, context.Canceled) || errors.Is(contextErr, context.Canceled) {
 		return cause
 	}
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if errors.As(err, &lifecycleErr) {
 		return err
 	}
@@ -510,7 +536,7 @@ func classifyConstructionCategoryScanError(ctx context.Context, err error) error
 		message := dataframeerrors.PublicMessage(err)
 		details := userErr.Details()
 		if dataframeerrors.IsFeatureResolutionCode(code) {
-			return failureDetails(ClassUnprocessable, stage, code, message, details, cause)
+			return failureDetails(ports.ClassUnprocessable, stage, code, message, details, cause)
 		}
 		switch dataframeerrors.ErrorCode(code) {
 		case dataframeerrors.CodeSchemaConflict,
@@ -521,20 +547,20 @@ func classifyConstructionCategoryScanError(ctx context.Context, err error) error
 			dataframeerrors.CodeGenerationActivationUnknown,
 			dataframeerrors.CodeRecipeContractViolation,
 			dataframeerrors.CodeDynamicSchemaDrift:
-			return failureDetails(ClassConflict, stage, code, message, details, cause)
+			return failureDetails(ports.ClassConflict, stage, code, message, details, cause)
 		case dataframeerrors.CodeForbidden, dataframeerrors.CodeUnauthorizedProject:
-			return failureDetails(ClassForbidden, stage, code, message, details, cause)
+			return failureDetails(ports.ClassForbidden, stage, code, message, details, cause)
 		case dataframeerrors.CodeDatasetNotFound,
 			dataframeerrors.CodeNoActiveGeneration,
 			dataframeerrors.CodeRecipeNotFound,
 			dataframeerrors.CodeRecipeExecutionNotFound:
-			return failureDetails(ClassNotFound, stage, code, message, details, cause)
+			return failureDetails(ports.ClassNotFound, stage, code, message, details, cause)
 		case dataframeerrors.CodeBackendUnavailable,
 			dataframeerrors.CodeReceiptStoreUnavailable,
 			dataframeerrors.CodeQueryMemoryLimitExceeded,
 			dataframeerrors.CodeQueryResourceLimitExceeded,
 			dataframeerrors.CodeQueryBackendOutOfMemory:
-			return failureDetails(ClassUnavailable, stage, code, message, details, cause)
+			return failureDetails(ports.ClassUnavailable, stage, code, message, details, cause)
 		case dataframeerrors.CodeClientCanceled,
 			dataframeerrors.CodePreviewTimeout,
 			dataframeerrors.CodePreviewResponseTooLarge,
@@ -544,7 +570,7 @@ func classifyConstructionCategoryScanError(ctx context.Context, err error) error
 			return err
 		}
 		if dataframeerrors.IsRetryableCode(dataframeerrors.ErrorCode(code)) {
-			return failureDetails(ClassUnavailable, stage, code, message, details, cause)
+			return failureDetails(ports.ClassUnavailable, stage, code, message, details, cause)
 		}
 
 		return err

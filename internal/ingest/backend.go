@@ -5,17 +5,18 @@ import (
 	"encoding/json"
 
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 const EdgeCollection = "fhir_edge"
 
-func openBackend(ctx context.Context, opts arangostore.ConnectionOptions) (*arangostore.Client, error) {
+func OpenBackend(ctx context.Context, opts arangostore.ConnectionOptions) (*arangostore.Client, error) {
 	return arangostore.Open(ctx, opts.URL, opts.Database)
 }
 
-func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter EventSink) arangostore.BootstrapSpec {
+func BootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter EventSink) arangostore.BootstrapSpec {
 	collections := make([]arangostore.CollectionSpec, 0, len(resourceTypes)+4)
 	for _, name := range resourceTypes {
 		indexes := [][]string{
@@ -66,7 +67,7 @@ func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter E
 			},
 		},
 		arangostore.CollectionSpec{
-			Name: catalog.SemanticInventoryCollection,
+			Name: semanticinventory.Collection,
 			Indexes: [][]string{
 				{"project", "dataset_generation", "build_id"},
 				{"project", "dataset_generation", "auth_resource_path", "resource_type", "binding_id", "concept_id"},
@@ -76,14 +77,14 @@ func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter E
 			},
 		},
 		arangostore.CollectionSpec{
-			Name: catalog.SemanticInventoryEntryCollection,
+			Name: semanticinventory.EntryCollection,
 			Indexes: [][]string{
 				{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
 				{"project", "dataset_generation", "build_id", "source_kind", "resource_type", "binding_id", "concept_id", "auth_resource_path"},
 			},
 		},
 		arangostore.CollectionSpec{
-			Name: catalog.SemanticInventoryBuildCollection,
+			Name: semanticinventory.BuildCollection,
 			Indexes: [][]string{
 				{"project", "dataset_generation"},
 			},
@@ -99,20 +100,20 @@ func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter E
 	return arangostore.BootstrapSpec{
 		Collections: collections,
 		Reporter: func(event string, fields map[string]any) {
-			emitEvent(reporter, event, fields)
+			EmitEvent(reporter, event, fields)
 		},
 	}
 }
 
-func lifecycleBootstrapSpecWithReporter(reporter EventSink) arangostore.BootstrapSpec {
+func LifecycleBootstrapSpecWithReporter(reporter EventSink) arangostore.BootstrapSpec {
 	return arangostore.BootstrapSpec{
 		Collections: publicationarango.CollectionSpecs(),
 		Reporter: func(event string, fields map[string]any) {
-			emitEvent(reporter, event, fields)
+			EmitEvent(reporter, event, fields)
 		},
 	}
 }
 
-func insertRawDocuments(ctx context.Context, backend *arangostore.Client, collection string, docs []json.RawMessage, overwrite bool, writeAPI string) error {
+func InsertRawDocuments(ctx context.Context, backend *arangostore.Client, collection string, docs []json.RawMessage, overwrite bool, writeAPI string) error {
 	return backend.InsertBatchRaw(ctx, collection, docs, overwrite, writeAPI)
 }

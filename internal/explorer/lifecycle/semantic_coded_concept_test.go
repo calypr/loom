@@ -7,9 +7,11 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(t *testing.T) {
@@ -21,18 +23,18 @@ func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := readySnapshot(project, generation, "snapshot-a", scope)
 	snapshot.Nodes = []capability.Node{{ID: "condition", ResourceType: "Condition", RowRootEligible: true}}
-	observation := catalog.SemanticObservation{
-		SchemaVersion: catalog.SemanticObservationSchemaVersion,
-		Source:        catalog.SemanticObservationSource{Type: "Condition", Path: "code"},
-		Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: "urn:example:condition", Version: "2024", Code: "C1", Display: "Condition one"},
-		Value: catalog.SemanticObservationValue{
+	observation := codedconcept.Observation{
+		SchemaVersion: codedconcept.ObservationSchemaVersion,
+		Source:        codedconcept.Source{Type: "Condition", Path: "code"},
+		Key:           codedconcept.Key{Selector: "code.coding[]", System: "urn:example:condition", Version: "2024", Code: "C1", Display: "Condition one"},
+		Value: codedconcept.Value{
 			Selector: "code.coding[].display", Type: "string",
 			FallbackSelectors: []string{"code.coding[].code"}, FallbackOnBlankString: true,
 		},
-		LogicalType: "string", Completeness: catalog.SemanticComplete, Status: "SUPPORTED",
-		RuleHint: catalog.SemanticRuleHintCodedConceptV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+		LogicalType: "string", Completeness: codedconcept.Complete, Status: "SUPPORTED",
+		RuleHint: codedconcept.RuleHintCodedConceptV1, RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
 	}
-	entry := catalog.SemanticInventoryEntry{ConceptID: "concept-c1", BindingID: "binding-condition-code", Observation: observation}
+	entry := semanticinventory.Entry{ConceptID: "concept-c1", BindingID: "binding-condition-code", Observation: observation}
 	displayCandidate := capability.Candidate{
 		ID: "condition-code-display", NodeID: "condition", ResourceType: "Condition",
 		FieldPath: "code.coding[].display", Label: "Condition code display", LogicalType: "string", Cardinality: "many",
@@ -59,7 +61,7 @@ func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(
 		t.Fatalf("standalone Coding plan lost same-item identity/value scope: %#v", plan.Source)
 	}
 
-	buildID := catalog.SemanticInventoryBuildID(project, generation)
+	buildID := semanticinventory.BuildID(project, generation)
 	contextToken, err := semanticInventoryContextToken(snapshot, explorerID, "Condition", buildID)
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +71,7 @@ func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(
 		t.Fatal(err)
 	}
 	choiceSource, ok := choice.Source.(capability.SemanticBindingChoiceSource)
-	if !ok || choiceSource.RuleHint != catalog.SemanticRuleHintCodedConceptV1 || choiceSource.ValueSelector != "code.coding[].display" {
+	if !ok || choiceSource.RuleHint != codedconcept.RuleHintCodedConceptV1 || choiceSource.ValueSelector != "code.coding[].display" {
 		t.Fatalf("standalone Coding choice source = %#v", choice.Source)
 	}
 	for _, option := range choice.Options {
@@ -77,7 +79,7 @@ func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(
 			t.Fatalf("standalone Coding choice must not expose enclosing-owner records: %#v", choice.Options)
 		}
 	}
-	if families := frameSourceFamilies(snapshot, []catalog.SemanticInventoryEntry{entry}); len(families) != 0 {
+	if families := frameSourceFamilies(snapshot, []semanticinventory.Entry{entry}); len(families) != 0 {
 		t.Fatalf("standalone Coding unexpectedly became a paired coded-Pivot frame: %#v", families)
 	}
 	if _, _, ok := semanticEntryForFrameFamily(entry, capability.SemanticFrameFamily{}); ok {
@@ -98,9 +100,9 @@ func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(
 		t.Fatal(err)
 	}
 	resolved, _, err := resolveSemanticConstructionChoice(
-		context.Background(), AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
+		context.Background(), ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 		explorerID, "Condition", contextToken, buildID, buildID,
-		map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
+		map[string]semanticinventory.Entry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
 		authoringv2.ConstructionChoiceSelection{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceAll},
 		identity, choiceSource,
 	)
@@ -116,16 +118,16 @@ func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(
 }
 
 func TestStandaloneCodedConceptSelectionKeepsUnversionedIdentityExplicit(t *testing.T) {
-	observation := catalog.SemanticObservation{
-		SchemaVersion: catalog.SemanticObservationSchemaVersion,
-		Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "meta.security[]"},
-		Key:           catalog.SemanticObservationKey{Selector: "meta.security[]", System: "urn:example:security", Code: "S1"},
-		Value: catalog.SemanticObservationValue{
+	observation := codedconcept.Observation{
+		SchemaVersion: codedconcept.ObservationSchemaVersion,
+		Source:        codedconcept.Source{Type: "Observation", Path: "meta.security[]"},
+		Key:           codedconcept.Key{Selector: "meta.security[]", System: "urn:example:security", Code: "S1"},
+		Value: codedconcept.Value{
 			Selector: "meta.security[].display", Type: "string",
 			FallbackSelectors: []string{"meta.security[].code"}, FallbackOnBlankString: true,
 		},
-		LogicalType: "string", Completeness: catalog.SemanticComplete, Status: "SUPPORTED",
-		RuleHint: catalog.SemanticRuleHintCodedConceptV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+		LogicalType: "string", Completeness: codedconcept.Complete, Status: "SUPPORTED",
+		RuleHint: codedconcept.RuleHintCodedConceptV1, RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
 	}
 	plan := authoringv2.ResolveSemanticSelectionPlan(observation)
 	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil {
@@ -192,11 +194,11 @@ func assertDirectCodingChoiceRoundTrip(t *testing.T, tc struct {
 	}
 	snapshot.Candidates = []capability.Candidate{displayCandidate, codeCandidate}
 
-	var entry catalog.SemanticInventoryEntry
-	emitter := catalog.NewSemanticInventoryEmitter(tc.project, generation)
-	emitter.ObservePayload(tc.payload, tc.resourceType, "scope", "resource-1", func(contribution catalog.SemanticInventoryContribution) {
-		if contribution.Observation.RuleHint == catalog.SemanticRuleHintCodedConceptV1 {
-			entry = catalog.SemanticInventoryEntry{ConceptID: contribution.ConceptID, BindingID: contribution.BindingID, Observation: contribution.Observation}
+	var entry semanticinventory.Entry
+	emitter := semanticinventory.NewEmitter(tc.project, generation)
+	emitter.ObservePayload(tc.payload, tc.resourceType, "scope", "resource-1", func(contribution semanticinventory.Contribution) {
+		if contribution.Observation.RuleHint == codedconcept.RuleHintCodedConceptV1 {
+			entry = semanticinventory.Entry{ConceptID: contribution.ConceptID, BindingID: contribution.BindingID, Observation: contribution.Observation}
 		}
 	})
 	if entry.ConceptID == "" || entry.BindingID == "" {
@@ -216,7 +218,7 @@ func assertDirectCodingChoiceRoundTrip(t *testing.T, tc struct {
 		t.Fatalf("Coding observation paths = %#v", entry.Observation)
 	}
 
-	buildID := catalog.SemanticInventoryBuildID(tc.project, generation)
+	buildID := semanticinventory.BuildID(tc.project, generation)
 	contextToken, err := semanticInventoryContextToken(snapshot, tc.explorerID, tc.resourceType, buildID)
 	if err != nil {
 		t.Fatal(err)
@@ -226,7 +228,7 @@ func assertDirectCodingChoiceRoundTrip(t *testing.T, tc struct {
 		t.Fatal(err)
 	}
 	choiceSource, ok := choice.Source.(capability.SemanticBindingChoiceSource)
-	if !ok || choiceSource.RuleHint != catalog.SemanticRuleHintCodedConceptV1 || choiceSource.ValueSelector != tc.valueFieldPath || choiceSource.Version != entry.Observation.Key.Version {
+	if !ok || choiceSource.RuleHint != codedconcept.RuleHintCodedConceptV1 || choiceSource.ValueSelector != tc.valueFieldPath || choiceSource.Version != entry.Observation.Key.Version {
 		t.Fatalf("Coding choice source = %#v", choice.Source)
 	}
 	for _, option := range choice.Options {
@@ -248,9 +250,9 @@ func assertDirectCodingChoiceRoundTrip(t *testing.T, tc struct {
 		t.Fatal(err)
 	}
 	resolved, _, err := resolveSemanticConstructionChoice(
-		context.Background(), AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
+		context.Background(), ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 		tc.explorerID, tc.resourceType, contextToken, buildID, buildID,
-		map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
+		map[string]semanticinventory.Entry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry}, nil,
 		authoringv2.ConstructionChoiceSelection{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceAll},
 		identity, choiceSource,
 	)
@@ -265,7 +267,7 @@ func assertDirectCodingChoiceRoundTrip(t *testing.T, tc struct {
 	}
 }
 
-func semanticCandidateWithFallbackMust(t *testing.T, snapshot capability.Snapshot, observation catalog.SemanticObservation, primary capability.Candidate) capability.Candidate {
+func semanticCandidateWithFallbackMust(t *testing.T, snapshot capability.Snapshot, observation codedconcept.Observation, primary capability.Candidate) capability.Candidate {
 	t.Helper()
 	candidate, ok := semanticCandidateWithFallback(snapshot, observation, primary)
 	if !ok {

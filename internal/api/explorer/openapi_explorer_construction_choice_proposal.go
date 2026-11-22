@@ -5,7 +5,7 @@ import (
 	"time"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
-	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
 	explorer "github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -44,26 +44,23 @@ func (r *Handlers) ProposeExplorerConstructionChoice(ctx context.Context, reques
 		if body.Limit != nil {
 			request.Limit = *body.Limit
 		}
-		value, err := h.application.ProposeConstructionChoice(ctx, request)
-		if err != nil {
-			return result, err
-		}
-		result, err = directAuthoringJSON[loomapi.ConstructionChoiceProposalResponse](value)
-		if err != nil {
-			return result, err
-		}
-		if value.PreviewReceiptID == "" || value.CandidateWorkspaceDigest == "" || len(value.CandidateColumnIDs) != len(value.ConstructionChoices) {
-			return result, explorer.MalformedRouteError("construction-choice-proposal", nil)
-		}
-		limit := dataframeexecution.DefaultPreviewLimit
-		if body.Limit != nil {
-			limit = *body.Limit
-		}
-		started := time.Now()
-		preview, err := h.previewSavedReceipt(ctx, project, explorerID, &loomapi.PreviewExplorerJSONRequestBody{
-			ReceiptId: value.PreviewReceiptID, OutputId: body.OutputId, Limit: &limit,
+		options, encoder := h.proposalPreviewOptions(project, body.OutputId, body.Limit, executionarango.ExplorerPreviewTimeout, false)
+		run, err := h.application.ProposeConstructionChoiceAndPreview(ctx, request, options, func(value lifecycle.ConstructionChoiceProposalResponse) error {
+			var err error
+			result, err = directAuthoringJSON[loomapi.ConstructionChoiceProposalResponse](value)
+			if err != nil {
+				return err
+			}
+			if value.PreviewReceiptID == "" || value.CandidateWorkspaceDigest == "" || len(value.CandidateColumnIDs) != len(value.ConstructionChoices) {
+				return explorer.MalformedRouteError("construction-choice-proposal", nil)
+			}
+			return nil
 		})
-		result.PreviewDurationMs = time.Since(started).Milliseconds()
+		if err != nil {
+			return result, proposalPreviewFailure(err)
+		}
+		preview, err := encoder.response(run)
+		result.PreviewDurationMs = time.Since(run.Started).Milliseconds()
 		if err != nil {
 			return result, err
 		}

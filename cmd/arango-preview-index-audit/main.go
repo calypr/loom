@@ -57,7 +57,7 @@ func run(endpoint, database string, timeout time.Duration) error {
 			return fmt.Errorf("workspace audit incomplete at collection %s: %w", collection, err)
 		}
 	}
-	previewIndexReport, err := client.AuditPreviewSupersededIndexes(ctx)
+	previewIndexReport, err := client.PreviewIndexes().AuditPreviewSupersededIndexes(ctx)
 	if err != nil {
 		return fmt.Errorf("preview-index audit incomplete: %w", err)
 	}

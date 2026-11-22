@@ -585,3 +585,232 @@ func groupedPivotVariables(keys []PhysicalGroupedPivotKey) []string {
 	}
 	return variables
 }
+
+type PhysicalTableShapeExclusionReturn struct {
+	Pivot             PhysicalGroupedPivot
+	OffsetBindKey     string
+	LimitBindKey      string
+	FetchLimitBindKey string
+}
+
+type PhysicalGroupedPivot struct {
+	ConstructionID    string
+	InputRowVariable  string
+	GroupRowsVariable string
+	OutputRowVariable string
+
+	OneInputRowPerGroup    bool
+	InputProjections       []PhysicalProjection
+	GroupKeys              []PhysicalGroupedPivotKey
+	CategoryColumn         string
+	CategoryPresenceColumn string
+	CategoryPresence       *PhysicalProjectionPresence
+
+	CategoryPresenceFromInput   bool
+	CategoryType                string
+	ValueColumn                 string
+	ValueType                   string
+	Categories                  []PhysicalGroupedPivotCategory
+	RowValues                   []PhysicalStageRowValue
+	RootContributorInputColumn  string
+	RootContributorInputMany    bool
+	RootContributorOutputColumn string
+	RootContributorVariable     string
+
+	CodedCorrelation *PhysicalCorrelation
+	CodedCategories  []PhysicalGroupedCodedPivotCategory
+
+	CodedSourceVariable    string
+	ConstructionIDBindKey  string
+	UnlistedEvidenceColumn string
+	DuplicatePolicy        string
+	MissingCellPolicy      string
+	UnlistedCategoryPolicy string
+}
+
+type PhysicalGroupedPivotKey struct {
+	Column string
+
+	Output   string
+	Variable string
+	Kind     string
+	Hidden   bool
+}
+
+type PhysicalGroupedPivotCategory struct {
+	Output       string
+	MatchKind    PhysicalPivotCategoryMatchKind
+	ValueBindKey string
+	ValueKind    string
+}
+
+type PhysicalGroupedCodedPivotCategory struct {
+	Output        string
+	SystemBindKey string
+	CodeBindKey   string
+}
+
+type PhysicalPivotCategoryMatchKind string
+
+const (
+	PhysicalPivotCategoryValueMatch   PhysicalPivotCategoryMatchKind = "VALUE"
+	PhysicalPivotCategoryNullMatch    PhysicalPivotCategoryMatchKind = "NULL"
+	PhysicalPivotCategoryMissingMatch PhysicalPivotCategoryMatchKind = "MISSING"
+)
+
+type PhysicalUnpivot struct {
+	ConstructionID        string
+	InputRowVariable      string
+	SlotVariable          string
+	OutputRowVariable     string
+	InputProjections      []PhysicalProjection
+	Inputs                []PhysicalUnpivotInput
+	PreservedOutputs      []PhysicalUnpivotOutput
+	KeyOutput             string
+	KeyType               string
+	ValueOutput           string
+	ValueType             string
+	IdentityParts         []PhysicalUnpivotIdentityPart
+	ConstructionIDBindKey string
+	NullRowPolicy         string
+}
+
+type PhysicalUnpivotOutput struct {
+	InputColumn  string
+	OutputColumn string
+}
+
+type PhysicalUnpivotInput struct {
+	Column     string
+	KeyBindKey string
+	KeyKind    string
+	ValueKind  string
+}
+
+type PhysicalUnpivotIdentityPart struct {
+	Name  string
+	Value PhysicalValue
+}
+
+func validatePhysicalTableShapeExclusionReturn(terminal PhysicalTableShapeExclusionReturn, defined map[string]bool, bindVars map[string]any) error {
+	if terminal.Pivot.UnlistedCategoryPolicy != PhysicalPivotUnlistedCategoryExcludeWithEvidence {
+		return fmt.Errorf("table-shape exclusions require EXCLUDE_WITH_EVIDENCE")
+	}
+	if err := validatePhysicalGroupedPivot(terminal.Pivot, defined, bindVars); err != nil {
+		return fmt.Errorf("exclusion pivot: %w", err)
+	}
+	if strings.TrimSpace(terminal.OffsetBindKey) == "" || strings.TrimSpace(terminal.LimitBindKey) == "" || strings.TrimSpace(terminal.FetchLimitBindKey) == "" {
+		return fmt.Errorf("exclusion offset, limit, and fetch-limit binds are required")
+	}
+	offset, ok := bindVars[terminal.OffsetBindKey].(int)
+	if !ok || offset < 0 {
+		return fmt.Errorf("exclusion offset bind %q must be a non-negative int", terminal.OffsetBindKey)
+	}
+	limit, ok := bindVars[terminal.LimitBindKey].(int)
+	if !ok || limit <= 0 {
+		return fmt.Errorf("exclusion limit bind %q must be a positive int", terminal.LimitBindKey)
+	}
+	fetchLimit, ok := bindVars[terminal.FetchLimitBindKey].(int)
+	if !ok || fetchLimit != limit+1 {
+		return fmt.Errorf("exclusion fetch-limit bind %q must be limit plus one", terminal.FetchLimitBindKey)
+	}
+	return nil
+}
+
+func groupedPivotOutputNames(pivot PhysicalGroupedPivot) []string {
+	columns := make([]string, 0, len(pivot.GroupKeys)+len(pivot.Categories)+len(pivot.CodedCategories)+len(pivot.RowValues)+2)
+	for _, key := range pivot.GroupKeys {
+		name := key.Output
+		if name == "" {
+			name = key.Column
+		}
+		columns = append(columns, name)
+	}
+	for _, category := range pivot.Categories {
+		columns = append(columns, category.Output)
+	}
+	for _, category := range pivot.CodedCategories {
+		columns = append(columns, category.Output)
+	}
+	for _, rowValue := range pivot.RowValues {
+		columns = append(columns, rowValue.Output)
+	}
+	if pivot.RootContributorOutputColumn != "" {
+		columns = append(columns, pivot.RootContributorOutputColumn)
+	}
+	if pivot.UnlistedEvidenceColumn != "" {
+		columns = append(columns, pivot.UnlistedEvidenceColumn)
+	}
+	columns = append(columns, "__loom_row_id")
+	return columns
+}
+
+func groupedPivotBaseOutputs(pivot PhysicalGroupedPivot) map[string]bool {
+	outputs := make(map[string]bool, len(pivot.GroupKeys)+len(pivot.Categories)+len(pivot.CodedCategories)+2)
+	for _, key := range pivot.GroupKeys {
+		name := key.Output
+		if name == "" {
+			name = key.Column
+		}
+		outputs[name] = true
+	}
+	for _, category := range pivot.Categories {
+		outputs[category.Output] = true
+	}
+	for _, category := range pivot.CodedCategories {
+		outputs[category.Output] = true
+	}
+	if pivot.RootContributorOutputColumn != "" {
+		outputs[pivot.RootContributorOutputColumn] = true
+	}
+	if pivot.UnlistedEvidenceColumn != "" {
+		outputs[pivot.UnlistedEvidenceColumn] = true
+	}
+	outputs["__loom_row_id"] = true
+	return outputs
+}
+
+func unpivotOutputNames(unpivot PhysicalUnpivot) []string {
+	selected := map[string]bool{}
+	for _, input := range unpivot.Inputs {
+		selected[input.Column] = true
+	}
+	preservedNames := map[string]string{}
+	for _, output := range unpivot.PreservedOutputs {
+		preservedNames[output.InputColumn] = output.OutputColumn
+	}
+	columns := make([]string, 0, len(unpivot.InputProjections)+2)
+	for _, projection := range unpivot.InputProjections {
+		if !selected[projection.Name] && projection.Name != "__loom_row_id" {
+			name := projection.Name
+			if renamed, ok := preservedNames[projection.Name]; ok {
+				name = renamed
+			}
+			columns = append(columns, name)
+		}
+	}
+	columns = append(columns, unpivot.KeyOutput, unpivot.ValueOutput, "__loom_row_id")
+	return columns
+}
+
+func validateShapeStageOutput(stage PhysicalConstructionStage, expected []string) error {
+	expectedNames := make(map[string]bool, len(expected))
+	for _, name := range expected {
+		expectedNames[name] = true
+	}
+	actual := make(map[string]PhysicalStageColumn, len(stage.OutputColumns))
+	for _, column := range stage.OutputColumns {
+		actual[column.Name] = column
+	}
+	for _, name := range expected {
+		if _, ok := actual[name]; !ok {
+			return fmt.Errorf("shape output schema is missing emitted column %q", name)
+		}
+	}
+	for name, column := range actual {
+		if !expectedNames[name] && !column.Internal {
+			return fmt.Errorf("shape output schema contains unexpected public column %q", name)
+		}
+	}
+	return nil
+}

@@ -10,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -32,7 +33,7 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 	if err != nil {
 		return RepositoryPublishResult{}, capabilityResolutionFailure("repository_publish", "repository V2 compilation could not be authorized", err)
 	}
-	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: "default", Workspace: request.Workspace, SnapshotToken: snapshot.Token, Authorized: authorized})
+	receipt, err := s.config.CompileReceipt(ctx, ports.CompileReceiptRequest{Project: request.Project, ExplorerID: "default", Workspace: request.Workspace, SnapshotToken: snapshot.Token, Authorized: authorized})
 	if err != nil || receipt == nil {
 		if err == nil {
 			return RepositoryPublishResult{}, unavailable("repository_publish", "COMPILATION_FAILED", "the compiler returned no receipt", nil)
@@ -55,7 +56,7 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 	}
 	execution, err := s.config.MaterializeReceipt(ctx, receipt, bindings)
 	if err != nil {
-		var typed *Error
+		var typed *ports.Error
 		if errors.As(err, &typed) {
 			return RepositoryPublishResult{}, typed
 		}
@@ -112,7 +113,7 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 }
 
 func classifyRepositoryCompilationError(err error) error {
-	var typed *Error
+	var typed *ports.Error
 	if errors.As(err, &typed) {
 		return typed
 	}
@@ -122,23 +123,23 @@ func classifyRepositoryCompilationError(err error) error {
 		if message == "" {
 			message = "the repository V2 workspace is invalid"
 		}
-		return failureDetails(ClassUnprocessable, "repository_publish", compilationErrorCode(compileErr.Code), message, compileErr.Details, err)
+		return failureDetails(ports.ClassUnprocessable, "repository_publish", compilationErrorCode(compileErr.Code), message, compileErr.Details, err)
 	}
 	var authoringErr *explorer.AuthoringError
 	if errors.As(err, &authoringErr) {
-		class := ClassUnprocessable
+		class := ports.ClassUnprocessable
 		switch authoringErr.Status {
 		case 401, 403:
-			class = ClassForbidden
+			class = ports.ClassForbidden
 		case 404:
-			class = ClassNotFound
+			class = ports.ClassNotFound
 		case 409:
-			class = ClassConflict
+			class = ports.ClassConflict
 		case 429:
-			class = ClassUnavailable
+			class = ports.ClassUnavailable
 		default:
 			if authoringErr.Status >= 500 {
-				class = ClassUnavailable
+				class = ports.ClassUnavailable
 			}
 		}
 		code := authoringErr.Diagnostic.Code

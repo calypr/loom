@@ -11,10 +11,10 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
-func PersistTestNativeReceipt(ctx context.Context, t *testing.T, service *explorer.Service, request lifecycle.CompileReceiptRequest, snapshot capability.Snapshot) (*explorer.CompilationReceipt, error) {
+func PersistTestNativeReceipt(ctx context.Context, t *testing.T, service *explorer.Service, request ports.CompileReceiptRequest, snapshot capability.Snapshot) (*explorer.CompilationReceipt, error) {
 	t.Helper()
 	workspace := request.Workspace
 	normalized, err := workspace.CanonicalJSON()

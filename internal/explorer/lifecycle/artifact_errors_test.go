@@ -10,6 +10,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 type faultArtifactStore struct {
@@ -70,8 +71,8 @@ func TestOpenArtifactStoreGetFailureIsUnavailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _, err = service.OpenArtifact(context.Background(), ArtifactOpenRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ArtifactID: "artifact-missing"})
-	var lifecycleErr *Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "ARTIFACT_STORE_UNAVAILABLE" {
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "ARTIFACT_STORE_UNAVAILABLE" {
 		t.Fatalf("store Get failure = %#v, want unavailable ARTIFACT_STORE_UNAVAILABLE", err)
 	}
 	if !errors.Is(err, cause) {
@@ -90,8 +91,8 @@ func TestOpenArtifactStoreGetNotFoundIsNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _, err = service.OpenArtifact(context.Background(), ArtifactOpenRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ArtifactID: "artifact-missing"})
-	var lifecycleErr *Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassNotFound || lifecycleErr.Code != "ARTIFACT_NOT_FOUND" {
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassNotFound || lifecycleErr.Code != "ARTIFACT_NOT_FOUND" {
 		t.Fatalf("store Get ErrNotFound = %#v, want not_found ARTIFACT_NOT_FOUND", err)
 	}
 	if !errors.Is(err, explorer.ErrNotFound) {
@@ -111,8 +112,8 @@ func TestOpenArtifactStoreGetMissingFileIsNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _, err = service.OpenArtifact(context.Background(), ArtifactOpenRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ArtifactID: "artifact-missing"})
-	var lifecycleErr *Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassNotFound || lifecycleErr.Code != "ARTIFACT_NOT_FOUND" {
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassNotFound || lifecycleErr.Code != "ARTIFACT_NOT_FOUND" {
 		t.Fatalf("store Get os.ErrNotExist = %#v, want not_found ARTIFACT_NOT_FOUND", err)
 	}
 }
@@ -127,15 +128,15 @@ func TestOpenArtifactRevisionLookupFailureIsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{ArtifactStore: store, Capability: CapabilityResolver{ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	service, err := New(domain, Config{ArtifactStore: store, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, _, err = service.OpenArtifact(context.Background(), ArtifactOpenRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ArtifactID: record.ID})
-	var lifecycleErr *Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "REVISION_STORE_UNAVAILABLE" {
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "REVISION_STORE_UNAVAILABLE" {
 		t.Fatalf("revision lookup failure = %#v, want unavailable REVISION_STORE_UNAVAILABLE", err)
 	}
 	if !errors.Is(err, cause) {
@@ -155,8 +156,8 @@ func TestPrepareArtifactRevisionLookupFailureIsUnavailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = service.PrepareArtifact(context.Background(), ArtifactRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, RevisionID: "revision-a", OutputID: "patients", IdempotencyKey: "revision-failure"})
-	var lifecycleErr *Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "REVISION_STORE_UNAVAILABLE" {
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "REVISION_STORE_UNAVAILABLE" {
 		t.Fatalf("revision lookup failure = %#v, want unavailable REVISION_STORE_UNAVAILABLE", err)
 	}
 	if !errors.Is(err, cause) {
@@ -175,15 +176,15 @@ func TestOpenArtifactStoreOpenFailureIsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{ArtifactStore: store, Capability: CapabilityResolver{ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	service, err := New(domain, Config{ArtifactStore: store, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, _, err = service.OpenArtifact(context.Background(), ArtifactOpenRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ArtifactID: record.ID})
-	var lifecycleErr *Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "ARTIFACT_STORE_UNAVAILABLE" {
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "ARTIFACT_STORE_UNAVAILABLE" {
 		t.Fatalf("store Open failure = %#v, want unavailable ARTIFACT_STORE_UNAVAILABLE", err)
 	}
 	if !errors.Is(err, cause) {
@@ -202,15 +203,15 @@ func TestOpenArtifactIncompleteOpenResultIsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(domain, Config{ArtifactStore: store, Capability: CapabilityResolver{ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	service, err := New(domain, Config{ArtifactStore: store, Capability: ports.CapabilityResolver{ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, _, err = service.OpenArtifact(context.Background(), ArtifactOpenRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, ArtifactID: record.ID})
-	var lifecycleErr *Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "ARTIFACT_UNAVAILABLE" {
+	var lifecycleErr *ports.Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnavailable || lifecycleErr.Code != "ARTIFACT_UNAVAILABLE" {
 		t.Fatalf("incomplete open result = %#v, want unavailable ARTIFACT_UNAVAILABLE", err)
 	}
 }

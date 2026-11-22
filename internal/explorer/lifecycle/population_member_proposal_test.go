@@ -16,6 +16,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 type populationProposalTestStore struct {
@@ -231,11 +232,11 @@ func populationMemberProposalFixture(t *testing.T) (*Service, *populationProposa
 		t.Fatal(err)
 	}
 	config := testConfig(snapshot)
-	config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
-	config.Capability.ForExecution = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	config.Capability.ForExecution = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
 	config.Capability.Catalog = func(snapshot capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
 		return lifecycleInterpretationCatalog(snapshot, explorerID)
@@ -248,7 +249,7 @@ func populationMemberProposalFixture(t *testing.T) (*Service, *populationProposa
 		}
 		return nil
 	}
-	config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt := nativeReceipt(snapshot)
 		receipt.IntentDigest, err = request.Workspace.Digest()
 		if err != nil {
@@ -364,13 +365,13 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 			{ID: "specimen-patient", FromNodeID: "specimen-node", ToNodeID: "patient-node", SourceResourceType: "Specimen", TargetResourceType: "Patient", Label: "subject_Patient", StorageDirection: "OUTBOUND"},
 			{ID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node", SourceResourceType: "Patient", TargetResourceType: "Observation", Label: "subject_Patient", StorageDirection: "INBOUND"},
 		}, nil, nil)
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
-	service.config.Capability.ForExecution = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	service.config.Capability.ForExecution = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
-	compilerScope := constructionCompilerScope(AuthorizedCapability{Snapshot: snapshot, Scope: scope})
+	compilerScope := constructionCompilerScope(ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope})
 	if compilerScope.AuthScopeMode != scope.Mode || !reflect.DeepEqual(compilerScope.AuthResourcePaths, scope.AuthResourcePaths) {
 		t.Fatalf("route proof compiler scope = %#v, want exact authorized scope %#v", compilerScope, scope)
 	}
@@ -382,7 +383,7 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 		previewBindings = bindings
 		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
 	}
-	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt := nativeReceipt(snapshot)
 		intentDigest, err := request.Workspace.Digest()
 		if err != nil {
@@ -510,7 +511,7 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.preparePopulationRouteChoices(context.Background(), "project-a", AuthorizedCapability{Snapshot: snapshot},
+	if _, err := service.preparePopulationRouteChoices(context.Background(), "project-a", ports.AuthorizedCapability{Snapshot: snapshot},
 		[]capability.PopulationRouteChoiceIdentity{choice}, currentWorkspace,
 		[]authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", SelectionRevisionID: proposal.CandidateSelection.ID, RouteChoiceID: binding.RouteChoiceID}}); err == nil {
 		t.Fatal("population route proof accepted a snapshot without its restricted authorized scope")
@@ -525,8 +526,8 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 	beforeRejectedDigest, beforeRejectedVersion := store.created.DraftDigest, store.created.DraftVersion
 	wrongScope := scope
 	wrongScope.AuthResourcePaths = []string{"/programs/beta"}
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: wrongScope}, nil
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: wrongScope}, nil
 	}
 	if _, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice"); err == nil {
 		t.Fatal("proposal Apply accepted a changed authorization scope")
@@ -534,8 +535,8 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 	if store.fakeStore.saveDraftCalls != 0 || store.created.DraftVersion != beforeRejectedVersion || store.created.DraftDigest != beforeRejectedDigest || string(store.created.DraftConfig) != string(beforeRejectedApply) {
 		t.Fatalf("changed-scope rejection mutated the saved draft: saves=%d version=%d/%d digest=%q/%q configEqual=%t", store.fakeStore.saveDraftCalls, store.created.DraftVersion, beforeRejectedVersion, store.created.DraftDigest, beforeRejectedDigest, string(store.created.DraftConfig) == string(beforeRejectedApply))
 	}
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
 	response, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
 	if err != nil {

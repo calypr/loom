@@ -9,6 +9,7 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -66,12 +67,12 @@ func (s *Service) RowLineage(ctx context.Context, request RowLineageRequest) (Ro
 			return RowLineageResult{}, unprocessable("rowLineage", unsupported.Capability.ReasonCode,
 				"row lineage is unavailable for this construction operation", err)
 		}
-		var typed *Error
+		var typed *ports.Error
 		if errors.As(err, &typed) {
 			return RowLineageResult{}, typed
 		}
 		if userErr, ok := dataframeerrors.AsUserError(err); ok {
-			return RowLineageResult{}, failureDetails(ClassUnprocessable, "rowLineage", userErr.Code(), dataframeerrors.PublicMessage(err), userErr.Details(), err)
+			return RowLineageResult{}, failureDetails(ports.ClassUnprocessable, "rowLineage", userErr.Code(), dataframeerrors.PublicMessage(err), userErr.Details(), err)
 		}
 		return RowLineageResult{}, err
 	}

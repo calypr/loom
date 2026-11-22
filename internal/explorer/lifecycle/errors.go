@@ -5,92 +5,54 @@ import (
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
-type ErrorClass string
-
-const (
-	ClassMalformed     ErrorClass = "malformed"
-	ClassForbidden     ErrorClass = "forbidden"
-	ClassNotFound      ErrorClass = "not_found"
-	ClassConflict      ErrorClass = "conflict"
-	ClassUnprocessable ErrorClass = "unprocessable"
-	ClassUnavailable   ErrorClass = "unavailable"
-	ClassInternal      ErrorClass = "internal"
-)
-
-type Error struct {
-	Class   ErrorClass
-	Stage   string
-	Code    string
-	Path    string
-	Message string
-	Details map[string]any
-	Cause   error
+func failure(class ports.ErrorClass, stage, code, message string, cause error) error {
+	return &ports.Error{Class: class, Stage: stage, Code: code, Message: message, Cause: cause}
 }
 
-func (e *Error) Error() string {
-	if e == nil {
-		return "Explorer lifecycle error"
-	}
-	if e.Code == "" {
-		return e.Message
-	}
-	return e.Code + ": " + e.Message
-}
-
-func (e *Error) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	return e.Cause
-}
-
-func failure(class ErrorClass, stage, code, message string, cause error) error {
-	return &Error{Class: class, Stage: stage, Code: code, Message: message, Cause: cause}
-}
-
-func failureDetails(class ErrorClass, stage, code, message string, details map[string]any, cause error) error {
-	return &Error{Class: class, Stage: stage, Code: code, Message: message, Details: details, Cause: cause}
+func failureDetails(class ports.ErrorClass, stage, code, message string, details map[string]any, cause error) error {
+	return &ports.Error{Class: class, Stage: stage, Code: code, Message: message, Details: details, Cause: cause}
 }
 
 func malformed(stage, message string, cause error) error {
-	return failure(ClassMalformed, stage, "MALFORMED_REQUEST", message, cause)
+	return failure(ports.ClassMalformed, stage, "MALFORMED_REQUEST", message, cause)
 }
 
 func unavailable(stage, code, message string, cause error) error {
-	return failure(ClassUnavailable, stage, code, message, cause)
+	return failure(ports.ClassUnavailable, stage, code, message, cause)
 }
 
 func conflict(stage, code, message string, details map[string]any, cause error) error {
 	if code == "STALE_CATALOG_SNAPSHOT" && cause != nil && !errors.Is(cause, capability.ErrStaleSnapshot) && !errors.Is(cause, capability.ErrSnapshotUnavailable) && !errors.Is(cause, capability.ErrNotFound) {
-		return failureDetails(ClassUnavailable, stage, "CAPABILITY_UNAVAILABLE", message, details, cause)
+		return failureDetails(ports.ClassUnavailable, stage, "CAPABILITY_UNAVAILABLE", message, details, cause)
 	}
-	var typed *Error
-	if errors.As(cause, &typed) && typed.Class == ClassUnavailable {
+	var typed *ports.Error
+	if errors.As(cause, &typed) && typed.Class == ports.ClassUnavailable {
 		return typed
 	}
-	return failureDetails(ClassConflict, stage, code, message, details, cause)
+	return failureDetails(ports.ClassConflict, stage, code, message, details, cause)
 }
 
 func forbidden(stage, message string, cause error) error {
-	return failure(ClassForbidden, stage, "FORBIDDEN", message, cause)
+	return failure(ports.ClassForbidden, stage, "FORBIDDEN", message, cause)
 }
 
 func notFound(stage, code, message string, cause error) error {
-	return failure(ClassNotFound, stage, code, message, cause)
+	return failure(ports.ClassNotFound, stage, code, message, cause)
 }
 
 func unprocessable(stage, code, message string, cause error) error {
-	return failure(ClassUnprocessable, stage, code, message, cause)
+	return failure(ports.ClassUnprocessable, stage, code, message, cause)
 }
 
 func internal(stage, code, message string, cause error) error {
-	return failure(ClassInternal, stage, code, message, cause)
+	return failure(ports.ClassInternal, stage, code, message, cause)
 }
 
 func persistenceFailure(stage, message string, err error) error {
-	var typed *Error
+	var typed *ports.Error
 	if errors.As(err, &typed) {
 		return typed
 	}

@@ -7,22 +7,18 @@ import (
 	"strings"
 	"testing"
 
-	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
-	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
-
-	recipeapi "github.com/calypr/loom/internal/api/recipe"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
-
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-
+	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/recipeimport"
 )
 
@@ -44,7 +40,7 @@ func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
 	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false,
 		[]capability.Node{{ID: "specimen", ResourceType: "Specimen", RowRootEligible: true}, {ID: "patient", ResourceType: "Patient", RowRootEligible: true}},
 		[]capability.Edge{{ID: "subject", FromNodeID: "specimen", ToNodeID: "patient", Label: "subject", StorageDirection: "OUTBOUND"}}, nil, nil)
-	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
+	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	source, err := resolver.load(ctx, "project-a", bundle.Name, bundle.TranslationVersion, digest, authorized)
 	if err != nil {
 		t.Fatal(err)
@@ -354,7 +350,7 @@ func TestImportedSourceAtomicExpansionAliasPreservesUUIDAndFieldDependencies(t *
 	resolver := Sources{registry: &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "group", ResourceType: "Group", RowRootEligible: true}}, nil, nil, nil)
-	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
+	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	source, err := resolver.load(ctx, "project-a", bundle.Name, bundle.TranslationVersion, digest, authorized)
 	if err != nil {
 		t.Fatal(err)
@@ -411,11 +407,11 @@ func TestImportedSourceDiscoveredCollisionPreservesWinnerIdentity(t *testing.T) 
 		t.Fatal(err)
 	}
 	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: registry, ScopeDigest: reciperuntime.ScopeDigest, ResolveBundle: recipeapi.RecipeSchemaResolver(func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: registry, ScopeDigest: reciperuntime.ScopeDigest, ResolveBundle: reciperuntime.RecipeSchemaResolver(func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 		if options.Project != "project-a" || options.DatasetGeneration != "generation-a" || options.ResourceType != "Specimen" {
 			t.Fatalf("discovery lost exact scope: %+v", options)
 		}
-		return []catalog.PopulatedField{{ResourceType: "Specimen", Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"shadowed"}}}, nil
+		return []fieldprofile.PopulatedField{{ResourceType: "Specimen", Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"shadowed"}}}, nil
 	}, nil), QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
 		t.Fatal("compile-only probe unexpectedly queried runtime")
 		return nil
@@ -426,7 +422,7 @@ func TestImportedSourceDiscoveredCollisionPreservesWinnerIdentity(t *testing.T) 
 	resolver := Sources{registry: registry, engine: engine, defaultName: bundle.Name}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "specimen", ResourceType: "Specimen", RowRootEligible: true}}, nil, nil, nil)
-	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
+	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	source, err := resolver.load(ctx, "project-a", bundle.Name, bundle.TranslationVersion, digest, authorized)
 	if err != nil {
 		t.Fatal(err)
@@ -506,12 +502,12 @@ func TestGeneratedNativeKeyRebindingRejectsAmbiguousContributorsAtomically(t *te
 
 type sourceIdentityFixture struct {
 	resolver   Sources
-	authorized lifecycle.AuthorizedCapability
+	authorized ports.AuthorizedCapability
 	snapshot   capability.Snapshot
 	workspace  authoringv2.Workspace
 }
 
-func newSourceIdentityFixture(t *testing.T, output recipe.Output, fields []catalog.PopulatedField) sourceIdentityFixture {
+func newSourceIdentityFixture(t *testing.T, output recipe.Output, fields []fieldprofile.PopulatedField) sourceIdentityFixture {
 	t.Helper()
 	ctx := context.Background()
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "default", TranslationVersion: "v1", Outputs: []recipe.Output{output}}
@@ -520,7 +516,7 @@ func newSourceIdentityFixture(t *testing.T, output recipe.Output, fields []catal
 		t.Fatal(err)
 	}
 	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: registry, ScopeDigest: reciperuntime.ScopeDigest, ResolveBundle: recipeapi.RecipeSchemaResolver(func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: registry, ScopeDigest: reciperuntime.ScopeDigest, ResolveBundle: reciperuntime.RecipeSchemaResolver(func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 		if options.Project != "project-a" || options.DatasetGeneration != "generation-a" || options.ResourceType != output.RootResourceType {
 			t.Fatal("native identity discovery escaped its exact authorized scope")
 		}
@@ -535,7 +531,7 @@ func newSourceIdentityFixture(t *testing.T, output recipe.Output, fields []catal
 	resolver := Sources{registry: registry, engine: engine, defaultName: bundle.Name}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "root", ResourceType: output.RootResourceType, RowRootEligible: true}}, nil, nil, nil)
-	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
+	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	source, err := resolver.load(ctx, "project-a", bundle.Name, bundle.TranslationVersion, digest, authorized)
 	if err != nil {
 		t.Fatal(err)
@@ -560,13 +556,13 @@ func TestImportedSourceGeneratedNamingPreservesNativeKeys(t *testing.T) {
 	cases := []struct {
 		name   string
 		output recipe.Output
-		fields []catalog.PopulatedField
+		fields []fieldprofile.PopulatedField
 		step   string
 		edit   func(*authoringv2.ImportedSourceParameters)
 	}{
-		{"dynamic family", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", DynamicColumns: []recipe.DynamicColumn{{Name: "identifiers", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.value"}, MaxColumns: 1}}}, []catalog.PopulatedField{{ResourceType: "Specimen", Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"system-key"}}}, "dynamicColumns[0]", func(p *authoringv2.ImportedSourceParameters) { p.Dynamic.Name = "project_identifiers" }},
-		{"typed extension family", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", ExtensionColumns: []recipe.ExtensionColumn{{Name: "typed_extensions", Source: recipe.Expression{Select: "root.extension[]"}, MaxColumns: 4}}}, []catalog.PopulatedField{{ResourceType: "Specimen", Path: "extension[].url", Kind: "scalar", ExtensionValues: []catalog.ExtensionValueObservation{{URL: "http://example.org/tag", SourcePath: "extension[]", ValuePath: "valueString", ValueType: "string"}}}}, "extensionColumns[0]", func(p *authoringv2.ImportedSourceParameters) { p.Extension.Name = "project_extensions" }},
-		{"catalog naming", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", CatalogProjections: []recipe.CatalogProjection{{Name: "populated_fields", IncludePaths: []string{"*"}, Kinds: []string{"scalar"}, Naming: recipe.ColumnNamingPath, MaxColumns: 4}}}, []catalog.PopulatedField{{ResourceType: "Specimen", Path: "type.text", Kind: "scalar"}}, "catalogProjections[0]", func(p *authoringv2.ImportedSourceParameters) {
+		{"dynamic family", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", DynamicColumns: []recipe.DynamicColumn{{Name: "identifiers", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.value"}, MaxColumns: 1}}}, []fieldprofile.PopulatedField{{ResourceType: "Specimen", Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"system-key"}}}, "dynamicColumns[0]", func(p *authoringv2.ImportedSourceParameters) { p.Dynamic.Name = "project_identifiers" }},
+		{"typed extension family", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", ExtensionColumns: []recipe.ExtensionColumn{{Name: "typed_extensions", Source: recipe.Expression{Select: "root.extension[]"}, MaxColumns: 4}}}, []fieldprofile.PopulatedField{{ResourceType: "Specimen", Path: "extension[].url", Kind: "scalar", ExtensionValues: []fieldprofile.ExtensionValueObservation{{URL: "http://example.org/tag", SourcePath: "extension[]", ValuePath: "valueString", ValueType: "string"}}}}, "extensionColumns[0]", func(p *authoringv2.ImportedSourceParameters) { p.Extension.Name = "project_extensions" }},
+		{"catalog naming", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", CatalogProjections: []recipe.CatalogProjection{{Name: "populated_fields", IncludePaths: []string{"*"}, Kinds: []string{"scalar"}, Naming: recipe.ColumnNamingPath, MaxColumns: 4}}}, []fieldprofile.PopulatedField{{ResourceType: "Specimen", Path: "type.text", Kind: "scalar"}}, "catalogProjections[0]", func(p *authoringv2.ImportedSourceParameters) {
 			p.Catalog.Name = "selected_fields"
 			p.Catalog.Naming = recipe.ColumnNamingPathSuffix
 		}},
@@ -607,7 +603,7 @@ func TestImportedSourceGeneratedNamingPreservesNativeKeys(t *testing.T) {
 func TestImportedSourceHiddenFieldEditPreservesBoundDownstreamWinner(t *testing.T) {
 	empty := ""
 	output := recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", CollisionPolicy: "overwrite", Fields: []recipe.Field{{Name: "shadowed", Expr: recipe.Expression{Select: "root.id"}}}, DynamicColumns: []recipe.DynamicColumn{{Name: "identifiers", ColumnPrefix: &empty, Source: recipe.Expression{Select: "root.identifier[]"}, Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.value"}, MaxColumns: 1}}}
-	f := newSourceIdentityFixture(t, output, []catalog.PopulatedField{{ResourceType: "Specimen", Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"shadowed"}}})
+	f := newSourceIdentityFixture(t, output, []fieldprofile.PopulatedField{{ResourceType: "Specimen", Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"shadowed"}}})
 	document := f.workspace.Documents[0]
 	if len(document.Columns) != 1 {
 		t.Fatal("fixture did not produce an actual shadowed field")
@@ -636,7 +632,7 @@ func TestImportedSourceHiddenFieldEditPreservesBoundDownstreamWinner(t *testing.
 func TestImportedSourceStepRemovalRetainsDiscoveredWinnerIdentity(t *testing.T) {
 	empty := ""
 	output := recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", CollisionPolicy: "overwrite", Fields: []recipe.Field{{Name: "shadowed", Expr: recipe.Expression{Select: "root.id"}}}, DynamicColumns: []recipe.DynamicColumn{{Name: "identifiers", ColumnPrefix: &empty, Source: recipe.Expression{Select: "root.identifier[]"}, Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.value"}, MaxColumns: 1}}}
-	f := newSourceIdentityFixture(t, output, []catalog.PopulatedField{{ResourceType: "Specimen", Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"shadowed"}}})
+	f := newSourceIdentityFixture(t, output, []fieldprofile.PopulatedField{{ResourceType: "Specimen", Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"shadowed"}}})
 	document := f.workspace.Documents[0]
 	if len(document.Columns) != 1 {
 		t.Fatal("fixture missing discovered winner")
@@ -754,20 +750,20 @@ func TestImportedSourceNewNativeKeysRemainStableAcrossNamingAndReload(t *testing
 	cases := []struct {
 		name           string
 		output         recipe.Output
-		fields         []catalog.PopulatedField
+		fields         []fieldprofile.PopulatedField
 		step           string
 		create, rename func(*authoringv2.ImportedSourceParameters)
 	}{
-		{"dynamic", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", DynamicColumns: []recipe.DynamicColumn{{Name: "values", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.value"}, MaxColumns: 4}}}, []catalog.PopulatedField{{ResourceType: "Specimen", Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"pinned-key"}}, {ResourceType: "Specimen", Path: "extension[].url", Kind: "scalar", DistinctValues: []string{"new-key"}}}, "dynamicColumns[0]", func(p *authoringv2.ImportedSourceParameters) {
+		{"dynamic", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", DynamicColumns: []recipe.DynamicColumn{{Name: "values", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.value"}, MaxColumns: 4}}}, []fieldprofile.PopulatedField{{ResourceType: "Specimen", Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"pinned-key"}}, {ResourceType: "Specimen", Path: "extension[].url", Kind: "scalar", DistinctValues: []string{"new-key"}}}, "dynamicColumns[0]", func(p *authoringv2.ImportedSourceParameters) {
 			p.Dynamic.Source = recipe.Expression{Select: "root.extension[]"}
 			p.Dynamic.Key = &recipe.Expression{Select: "item.url"}
 			p.Dynamic.Value = &recipe.Expression{Select: "item.valueString"}
 		}, func(p *authoringv2.ImportedSourceParameters) { p.Dynamic.Name = "renamed_values" }},
-		{"catalog", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", CatalogProjections: []recipe.CatalogProjection{{Name: "fields", IncludePaths: []string{"id"}, Kinds: []string{"scalar"}, Naming: recipe.ColumnNamingPath, MaxColumns: 4}}}, []catalog.PopulatedField{{ResourceType: "Specimen", Path: "id", Kind: "scalar"}, {ResourceType: "Specimen", Path: "type.text", Kind: "scalar"}}, "catalogProjections[0]", func(p *authoringv2.ImportedSourceParameters) { p.Catalog.IncludePaths = []string{"type.text"} }, func(p *authoringv2.ImportedSourceParameters) {
+		{"catalog", recipe.Output{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "specimen", CatalogProjections: []recipe.CatalogProjection{{Name: "fields", IncludePaths: []string{"id"}, Kinds: []string{"scalar"}, Naming: recipe.ColumnNamingPath, MaxColumns: 4}}}, []fieldprofile.PopulatedField{{ResourceType: "Specimen", Path: "id", Kind: "scalar"}, {ResourceType: "Specimen", Path: "type.text", Kind: "scalar"}}, "catalogProjections[0]", func(p *authoringv2.ImportedSourceParameters) { p.Catalog.IncludePaths = []string{"type.text"} }, func(p *authoringv2.ImportedSourceParameters) {
 			p.Catalog.Name = "renamed_fields"
 			p.Catalog.Naming = recipe.ColumnNamingPathSuffix
 		}},
-		{"typed extension", recipe.Output{Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "file", ExtensionColumns: []recipe.ExtensionColumn{{Name: "extensions", Source: recipe.Expression{Select: "root.extension[]"}, MaxColumns: 4}}}, []catalog.PopulatedField{{ResourceType: "DocumentReference", Path: "extension[].url", Kind: "scalar", ExtensionValues: []catalog.ExtensionValueObservation{{URL: "http://example.org/pinned", SourcePath: "extension[]", ValuePath: "valueString", ValueType: "string"}}}, {ResourceType: "DocumentReference", Path: "content[].attachment.extension[].url", Kind: "scalar", ExtensionValues: []catalog.ExtensionValueObservation{{URL: "http://example.org/new-leaf", SourcePath: "content[].attachment.extension[]", ValuePath: "valueString", ValueType: "string"}, {URL: "http://example.org/second-leaf", SourcePath: "content[].attachment.extension[]", ValuePath: "valueString", ValueType: "string"}}}}, "extensionColumns[0]", func(p *authoringv2.ImportedSourceParameters) {
+		{"typed extension", recipe.Output{Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "file", ExtensionColumns: []recipe.ExtensionColumn{{Name: "extensions", Source: recipe.Expression{Select: "root.extension[]"}, MaxColumns: 4}}}, []fieldprofile.PopulatedField{{ResourceType: "DocumentReference", Path: "extension[].url", Kind: "scalar", ExtensionValues: []fieldprofile.ExtensionValueObservation{{URL: "http://example.org/pinned", SourcePath: "extension[]", ValuePath: "valueString", ValueType: "string"}}}, {ResourceType: "DocumentReference", Path: "content[].attachment.extension[].url", Kind: "scalar", ExtensionValues: []fieldprofile.ExtensionValueObservation{{URL: "http://example.org/new-leaf", SourcePath: "content[].attachment.extension[]", ValuePath: "valueString", ValueType: "string"}, {URL: "http://example.org/second-leaf", SourcePath: "content[].attachment.extension[]", ValuePath: "valueString", ValueType: "string"}}}}, "extensionColumns[0]", func(p *authoringv2.ImportedSourceParameters) {
 			p.Extension.Source = recipe.Expression{Select: "root.content[].attachment.extension[]"}
 		}, func(p *authoringv2.ImportedSourceParameters) {
 			p.Extension.Name = "renamed_extensions"

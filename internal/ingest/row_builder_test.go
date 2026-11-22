@@ -105,9 +105,9 @@ func TestGeneratedRowBuilderPreservesPayloadIdentityAndEdges(t *testing.T) {
 		t.Fatalf("generated ResearchSubject edges missing study edge: %#v", result.edges)
 	}
 
-	generationBuilder, err := newGenerationRowBuilder(builder, project, "generation-1")
+	generationBuilder, err := NewGenerationRowBuilder(builder, project, "generation-1")
 	if err != nil {
-		t.Fatalf("newGenerationRowBuilder(): %v", err)
+		t.Fatalf("NewGenerationRowBuilder(): %v", err)
 	}
 	namespaced, errorType, err := generationBuilder.Build("ResearchSubject", line, map[string]float64{})
 	if err != nil {
@@ -117,10 +117,10 @@ func TestGeneratedRowBuilderPreservesPayloadIdentityAndEdges(t *testing.T) {
 	if err := json.Unmarshal(namespaced.vertex, &namespacedVertex); err != nil {
 		t.Fatalf("decode namespaced vertex: %v", err)
 	}
-	if got := documentString(t, namespacedVertex, logicalKeyField); got != "research-subject-1" {
+	if got := documentString(t, namespacedVertex, LogicalKeyField); got != "research-subject-1" {
 		t.Fatalf("namespaced vertex logical key = %q, want research-subject-1", got)
 	}
-	if got := documentString(t, namespacedVertex, generationIdentityField); got != "generation-1" {
+	if got := documentString(t, namespacedVertex, GenerationIdentityField); got != "generation-1" {
 		t.Fatalf("namespaced vertex generation = %q, want generation-1", got)
 	}
 	if got := documentString(t, namespacedVertex, "auth_resource_path"); got != authResourcePath {

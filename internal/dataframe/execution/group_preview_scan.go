@@ -25,7 +25,24 @@ const (
 	groupPreviewProjectionMaxSampleRows       = 512
 )
 
+type groupPreviewPlanner struct {
+	previewCoveringIndexes    func(context.Context, string) ([]arango.PreviewCoveringIndex, error)
+	previewCollectionRevision func(context.Context, string) (string, error)
+	previewExplainQuery       func(context.Context, string, map[string]any) (arango.ExplainResult, error)
+	previewCollectionCount    func(context.Context, string) (int64, error)
+	groupPreviewRowsCache     *groupPreviewRowsCache
+}
+
 func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.CompiledQuery, stream *OutputStream) error {
+	planner := groupPreviewPlanner{
+		previewCoveringIndexes: e.previewCoveringIndexes, previewCollectionRevision: e.previewCollectionRevision,
+		previewExplainQuery: e.previewExplainQuery, previewCollectionCount: e.previewCollectionCount,
+		groupPreviewRowsCache: &e.groupPreviewRowsCache,
+	}
+	return planner.chooseGroupPreviewScan(ctx, query, stream)
+}
+
+func (e groupPreviewPlanner) chooseGroupPreviewScan(ctx context.Context, query *compiler.CompiledQuery, stream *OutputStream) error {
 	if query == nil || stream == nil || stream.stream == nil ||
 		(query.PreviewGroupScan == nil && query.PreviewGroupProjection == nil) {
 		return contextError(ctx)
@@ -159,7 +176,7 @@ func scopeCountMatchesProjection(query *compiler.CompiledQuery) bool {
 		reflect.DeepEqual(query.PreviewGroupScan.ScopeCountBindVars, query.PreviewGroupProjection.ScopeCountBindVars)
 }
 
-func (e *Engine) selectGroupProjectionIndex(ctx context.Context, query *compiler.CompiledQuery, preferred *arango.PreviewCoveringIndex) (arango.PreviewCoveringIndex, bool) {
+func (e groupPreviewPlanner) selectGroupProjectionIndex(ctx context.Context, query *compiler.CompiledQuery, preferred *arango.PreviewCoveringIndex) (arango.PreviewCoveringIndex, bool) {
 	if query == nil || query.PreviewGroupProjection == nil || query.PreviewGroupProjection.ReadOnlyIndex == nil ||
 		query.PreviewGroupProjection.Collection == "" || query.PreviewGroupProjection.ScopeCountQuery == "" ||
 		e.previewExplainQuery == nil || ctx.Err() != nil {
@@ -319,7 +336,7 @@ func hasCoveringRootIndexNamed(result arango.ExplainResult, collection, indexNam
 	return rootIndexes == 1
 }
 
-func (e *Engine) chooseGroupProjectionFactorization(ctx context.Context, query *compiler.CompiledQuery, stream *OutputStream,
+func (e groupPreviewPlanner) chooseGroupProjectionFactorization(ctx context.Context, query *compiler.CompiledQuery, stream *OutputStream,
 	ordinaryQuery string, ordinaryBinds map[string]any, selectedIndex arango.PreviewCoveringIndex,
 	assessedScopeCount int64, assessedScopeCountKnown, assessedScopeCountAttempted bool) error {
 	spec := query.PreviewGroupProjection

@@ -26,9 +26,9 @@ func (a *QueryAdapter) ReadRows(ctx context.Context, query string, batch int, bi
 func (a *QueryAdapter) PreviewIndexPreparation() func(context.Context, compiler.PreviewCoveringIndexSpec) error {
 	return LoggedPreviewIndexPreparation(a.logger, func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
 		if len(spec.StoredValues) != 0 {
-			return a.client.EnsurePreviewCoveringIndexWithStoredValues(ctx, spec.Collection, spec.Name, spec.Fields, spec.StoredValues)
+			return a.client.PreviewIndexes().EnsurePreviewCoveringIndexWithStoredValues(ctx, spec.Collection, spec.Name, spec.Fields, spec.StoredValues)
 		}
-		return a.client.EnsurePreviewCoveringIndex(ctx, spec.Collection, spec.Name, spec.Fields)
+		return a.client.PreviewIndexes().EnsurePreviewCoveringIndex(ctx, spec.Collection, spec.Name, spec.Fields)
 	})
 }
 

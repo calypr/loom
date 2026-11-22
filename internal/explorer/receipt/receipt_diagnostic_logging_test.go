@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 	recipetest "github.com/calypr/loom/internal/testkit/recipetest"
@@ -25,7 +26,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
 func TestCompileExplorerReceiptLogsSafeStructuredSummary(t *testing.T) {
@@ -204,7 +204,7 @@ func TestConfiguredCategoryScannerReturnsTransportNeutralReceiptConflict(t *test
 	}
 }
 
-func diagnosticCompileFixture(t *testing.T, compileRole string) (lifecycle.CompileReceiptRequest, *dataframeexecution.Engine, *explorer.Service) {
+func diagnosticCompileFixture(t *testing.T, compileRole string) (ports.CompileReceiptRequest, *dataframeexecution.Engine, *explorer.Service) {
 	t.Helper()
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
@@ -224,9 +224,9 @@ func diagnosticCompileFixture(t *testing.T, compileRole string) (lifecycle.Compi
 	if err != nil {
 		t.Fatal(err)
 	}
-	return lifecycle.CompileReceiptRequest{
+	return ports.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: compileRole,
-		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+		Authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 	}, engine, service
 }
 

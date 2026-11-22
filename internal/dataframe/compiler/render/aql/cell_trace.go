@@ -8,8 +8,17 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-func (r *physicalPlanRenderer) renderCellTraceReturn(terminal ir.PhysicalCellTraceReturn) ([]string, error) {
-	value, err := r.renderExpression(terminal.Value)
+type cellTraceRenderer struct {
+	*renderContext
+	core *physicalPlanRenderer
+}
+
+func (r *physicalPlanRenderer) cellTraces() cellTraceRenderer {
+	return cellTraceRenderer{renderContext: &r.renderContext, core: r}
+}
+
+func (r cellTraceRenderer) renderCellTraceReturn(terminal ir.PhysicalCellTraceReturn) ([]string, error) {
+	value, err := r.core.renderExpression(terminal.Value)
 	if err != nil {
 		return nil, fmt.Errorf("trace value: %w", err)
 	}
@@ -24,14 +33,14 @@ func (r *physicalPlanRenderer) renderCellTraceReturn(terminal ir.PhysicalCellTra
 	identityValue := ""
 	if terminal.ExplicitIdentity != nil {
 		identityField = ir.PhysicalCellTraceExplicitIdentityField
-		identityValue, err = r.renderExpression(*terminal.ExplicitIdentity)
+		identityValue, err = r.core.renderExpression(*terminal.ExplicitIdentity)
 		if err != nil {
 			return nil, fmt.Errorf("trace explicit identity: %w", err)
 		}
 	} else {
 		parts := make([]string, 0, len(terminal.IdentityParts))
 		for _, part := range terminal.IdentityParts {
-			rendered, partErr := r.renderExpression(part.Expression)
+			rendered, partErr := r.core.renderExpression(part.Expression)
 			if partErr != nil {
 				return nil, fmt.Errorf("trace identity part %q: %w", part.Name, partErr)
 			}
@@ -40,7 +49,7 @@ func (r *physicalPlanRenderer) renderCellTraceReturn(terminal ir.PhysicalCellTra
 		identityValue = "[" + strings.Join(parts, ", ") + "]"
 	}
 	name := func(prefix, value string) string {
-		key := r.newInternalBindKey(prefix)
+		key := r.core.newInternalBindKey(prefix)
 		r.bindVars[key] = value
 		return "@" + key
 	}
@@ -50,8 +59,8 @@ func (r *physicalPlanRenderer) renderCellTraceReturn(terminal ir.PhysicalCellTra
 	statusName := name("trace_status_name", ir.PhysicalCellTraceStatusField)
 	hasMoreName := name("trace_has_more_name", ir.PhysicalCellTraceHasMoreField)
 	omissionName := name("trace_omission_name", ir.PhysicalCellTraceOmissionField)
-	statusVariable := r.newInternalVariable("trace_status_candidates")
-	pageVariable := r.newInternalVariable("trace_contribution_page")
+	statusVariable := r.core.navigation().newInternalVariable("trace_status_candidates")
+	pageVariable := r.core.navigation().newInternalVariable("trace_contribution_page")
 	status := fmt.Sprintf(`LENGTH(%s) == 0 ? "NO_MATCH" : %s == null ? "RECORDED_NULL" : "VALUE"`, statusVariable, value)
 	if terminal.RowExists {
 		status = fmt.Sprintf(`%s == null ? "RECORDED_NULL" : "VALUE"`, value)
@@ -71,7 +80,7 @@ func (r *physicalPlanRenderer) renderCellTraceReturn(terminal ir.PhysicalCellTra
 	}, nil
 }
 
-func (r *physicalPlanRenderer) renderTraceContributors(terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
+func (r cellTraceRenderer) renderTraceContributors(terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
 	if terminal.Construction != nil {
 		return r.renderConstructionTraceContributors(terminal, *terminal.Construction)
 	}
@@ -97,7 +106,7 @@ func (r *physicalPlanRenderer) renderTraceContributors(terminal ir.PhysicalCellT
 		if aggregate == nil {
 			return "[]", "[]", false, "TRACE_CONTRIBUTORS_UNAVAILABLE", nil
 		}
-		items, _, itemsErr := r.renderAggregateItems(aggregate)
+		items, _, itemsErr := r.core.renderAggregateItems(aggregate)
 		if itemsErr != nil {
 			return "", "", false, "", itemsErr
 		}
@@ -116,11 +125,11 @@ func (r *physicalPlanRenderer) renderTraceContributors(terminal ir.PhysicalCellT
 		}
 		return r.renderTraceContributorQueries(items, *aggregate.Value, terminal, lossy)
 	case ir.PhysicalOwnerRecordsExpression:
-		records, renderErr := r.renderExpression(expression)
+		records, renderErr := r.core.renderExpression(expression)
 		if renderErr != nil {
 			return "", "", false, "", renderErr
 		}
-		record := r.newInternalVariable("trace_owner_record")
+		record := r.core.navigation().newInternalVariable("trace_owner_record")
 		contribution := fmt.Sprintf(`{ resourceType: %s.source.resourceType, resourceId: %s.source.resourceId, value: %s }`, record, record, record)
 		page := fmt.Sprintf("(FOR %s IN %s LIMIT @%s, @%s RETURN %s)", record, records, terminal.OffsetBindKey, terminal.FetchLimitBindKey, contribution)
 		status := fmt.Sprintf("(FOR %s IN %s LIMIT 2 RETURN %s)", record, records, contribution)
@@ -137,7 +146,7 @@ func (r *physicalPlanRenderer) renderTraceContributors(terminal ir.PhysicalCellT
 	}
 }
 
-func (r *physicalPlanRenderer) renderConstructionTraceContributors(terminal ir.PhysicalCellTraceReturn, lineage ir.PhysicalCellTraceConstruction) (page, status string, lossy bool, omission string, err error) {
+func (r cellTraceRenderer) renderConstructionTraceContributors(terminal ir.PhysicalCellTraceReturn, lineage ir.PhysicalCellTraceConstruction) (page, status string, lossy bool, omission string, err error) {
 	if lineage.OmissionCode != "" {
 		return "[]", "[]", false, lineage.OmissionCode, nil
 	}
@@ -153,7 +162,7 @@ func (r *physicalPlanRenderer) renderConstructionTraceContributors(terminal ir.P
 	}
 	items := make([]string, 0, len(lineage.Inputs))
 	bind := func(prefix, value string) string {
-		key := r.newInternalBindKey(prefix)
+		key := r.core.newInternalBindKey(prefix)
 		r.bindVars[key] = value
 		return "@" + key
 	}
@@ -178,7 +187,7 @@ func (r *physicalPlanRenderer) renderConstructionTraceContributors(terminal ir.P
 	return page, array, false, "", nil
 }
 
-func (r *physicalPlanRenderer) renderRelatedSourceTraceContributors(finalRow string, construction ir.PhysicalCellTraceConstruction, terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
+func (r cellTraceRenderer) renderRelatedSourceTraceContributors(finalRow string, construction ir.PhysicalCellTraceConstruction, terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
 	lineage := construction.RelatedSource
 	if lineage == nil || lineage.InputRowVariable == "" || lineage.AnchorColumn != "_key" || lineage.ResourceType == "" || len(lineage.Subplan.Captures) != 1 || lineage.Subplan.Captures[0] != lineage.InputRowVariable {
 		return "", "", false, "", fmt.Errorf("related-source trace requires its exact captured root identity and route")
@@ -228,18 +237,18 @@ func (r *physicalPlanRenderer) renderRelatedSourceTraceContributors(finalRow str
 		Kind: ir.PhysicalObjectExpression, Cardinality: ir.PhysicalObjectCardinality,
 		Object: &ir.PhysicalObject{Fields: fields},
 	}
-	route, err := r.renderSubplan(subplan, "  ", false)
+	route, err := r.core.renderSubplan(subplan, "  ", false)
 	if err != nil {
 		return "", "", false, "", fmt.Errorf("render related-source trace route: %w", err)
 	}
-	item := r.newInternalVariable("trace_related_source")
+	item := r.core.navigation().newInternalVariable("trace_related_source")
 	page = fmt.Sprintf("(FOR %s IN %s LIMIT @%s, @%s RETURN %s)", item, route, terminal.OffsetBindKey, terminal.FetchLimitBindKey, item)
 	status = fmt.Sprintf("(FOR %s IN %s LIMIT 2 RETURN %s)", item, route, item)
 	return page, status, false, "", nil
 }
 
-func (r *physicalPlanRenderer) physicalTraceString(value string) ir.PhysicalExpression {
-	key := r.newInternalBindKey("trace_related_source_metadata")
+func (r cellTraceRenderer) physicalTraceString(value string) ir.PhysicalExpression {
+	key := r.core.newInternalBindKey("trace_related_source_metadata")
 	r.bindVars[key] = value
 	return ir.PhysicalExpression{
 		Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality,
@@ -254,7 +263,7 @@ func physicalTraceValue(variable, field string) ir.PhysicalExpression {
 	}
 }
 
-func (r *physicalPlanRenderer) renderReshapeTraceContributors(lineage ir.PhysicalCellTraceReshape, terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
+func (r cellTraceRenderer) renderReshapeTraceContributors(lineage ir.PhysicalCellTraceReshape, terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
 	queries := make([]string, 0, len(lineage.Sources))
 	omission = lineage.OmissionCode
 	for _, source := range lineage.Sources {
@@ -301,43 +310,43 @@ contributorsReady:
 	return page, status, false, omission, nil
 }
 
-func (r *physicalPlanRenderer) renderPivotGroupKeyTraceQuery(source ir.PhysicalCellTraceReshapeSource) (string, error) {
-	item := r.newInternalVariable("trace_pivot_group_key_source")
+func (r cellTraceRenderer) renderPivotGroupKeyTraceQuery(source ir.PhysicalCellTraceReshapeSource) (string, error) {
+	item := r.core.navigation().newInternalVariable("trace_pivot_group_key_source")
 	rows := source.GroupRowsVariable
 	if source.OneInputRowPerGroup {
 		rows = "[" + source.InputRowVariable + "]"
 	}
-	columnBind := r.newInternalBindKey("trace_pivot_group_key_column")
+	columnBind := r.core.newInternalBindKey("trace_pivot_group_key_column")
 	r.bindVars[columnBind] = source.SourceColumn
-	presenceBind := r.newInternalBindKey("trace_pivot_group_key_presence")
+	presenceBind := r.core.newInternalBindKey("trace_pivot_group_key_presence")
 	r.bindVars[presenceBind] = source.SourcePresenceField
-	documentBind := r.newInternalBindKey("trace_pivot_group_key_document")
+	documentBind := r.core.newInternalBindKey("trace_pivot_group_key_document")
 	r.bindVars[documentBind] = ir.PhysicalCellTraceSourceDocumentField
 	value := fmt.Sprintf("%s[@%s]", item, columnBind)
 	document := fmt.Sprintf("%s[@%s]", item, documentBind)
 	return fmt.Sprintf("(FOR %s IN %s FILTER %s[@%s] == true RETURN {resourceType: %s.resourceType, resourceId: %s.id, value: %s})", item, rows, item, presenceBind, document, document, value), nil
 }
 
-func (r *physicalPlanRenderer) renderPivotCellTraceQuery(source ir.PhysicalCellTraceReshapeSource, terminal ir.PhysicalCellTraceReturn) (string, error) {
+func (r cellTraceRenderer) renderPivotCellTraceQuery(source ir.PhysicalCellTraceReshapeSource, terminal ir.PhysicalCellTraceReturn) (string, error) {
 	if source.Category == nil {
 		return "", fmt.Errorf("pivot cell trace requires a category")
 	}
-	item := r.newInternalVariable("trace_pivot_cell_source")
+	item := r.core.navigation().newInternalVariable("trace_pivot_cell_source")
 	rows := source.GroupRowsVariable
 	if source.OneInputRowPerGroup {
 		rows = "[" + source.InputRowVariable + "]"
 	}
-	columnBind := r.newInternalBindKey("trace_pivot_cell_column")
+	columnBind := r.core.newInternalBindKey("trace_pivot_cell_column")
 	r.bindVars[columnBind] = source.SourceColumn
-	presenceBind := r.newInternalBindKey("trace_pivot_cell_presence")
+	presenceBind := r.core.newInternalBindKey("trace_pivot_cell_presence")
 	r.bindVars[presenceBind] = source.SourcePresenceField
-	documentBind := r.newInternalBindKey("trace_pivot_cell_document")
+	documentBind := r.core.newInternalBindKey("trace_pivot_cell_document")
 	r.bindVars[documentBind] = ir.PhysicalCellTraceSourceDocumentField
-	categoryColumnBind := r.newInternalBindKey("trace_pivot_category_column")
+	categoryColumnBind := r.core.newInternalBindKey("trace_pivot_category_column")
 	r.bindVars[categoryColumnBind] = source.CategoryColumn
 	categoryPresenceBind := ""
 	if source.CategoryPresenceField != "" {
-		categoryPresenceBind = r.newInternalBindKey("trace_pivot_category_presence")
+		categoryPresenceBind = r.core.newInternalBindKey("trace_pivot_category_presence")
 		r.bindVars[categoryPresenceBind] = source.CategoryPresenceField
 	}
 	categoryTypeBind := ""
@@ -346,7 +355,7 @@ func (r *physicalPlanRenderer) renderPivotCellTraceQuery(source ir.PhysicalCellT
 		if err != nil {
 			return "", err
 		}
-		categoryTypeBind = r.newInternalBindKey("trace_pivot_category_type")
+		categoryTypeBind = r.core.newInternalBindKey("trace_pivot_category_type")
 		r.bindVars[categoryTypeBind] = categoryType
 	}
 	match, err := groupedPivotCategoryMatchPredicate(*source.Category, item, categoryColumnBind, categoryPresenceBind, categoryTypeBind)
@@ -364,12 +373,12 @@ func (r *physicalPlanRenderer) renderPivotCellTraceQuery(source ir.PhysicalCellT
 		if typeErr != nil {
 			return "", typeErr
 		}
-		valueTypeBind = r.newInternalBindKey("trace_pivot_value_type")
+		valueTypeBind = r.core.newInternalBindKey("trace_pivot_value_type")
 		r.bindVars[valueTypeBind] = valueType
 		filters = append(filters, "FILTER "+value+" != null", "FILTER ASSERT(TYPENAME("+value+") == @"+valueTypeBind+", \"TABLE_PIVOT_VALUE_TYPE_MISMATCH\")")
 	}
 	if source.DuplicatePolicy == "MIN" || source.DuplicatePolicy == "MAX" {
-		result, renderErr := r.renderExpression(terminal.Value)
+		result, renderErr := r.core.renderExpression(terminal.Value)
 		if renderErr != nil {
 			return "", renderErr
 		}
@@ -379,8 +388,8 @@ func (r *physicalPlanRenderer) renderPivotCellTraceQuery(source ir.PhysicalCellT
 	return fmt.Sprintf("(FOR %s IN %s %s RETURN {resourceType: %s.resourceType, resourceId: %s.id, value: %s})", item, rows, strings.Join(filters, " "), document, document, value), nil
 }
 
-func (r *physicalPlanRenderer) renderUnpivotValueTraceQuery(outputVariable string, terminal ir.PhysicalCellTraceReturn) (string, error) {
-	item := r.newInternalVariable("trace_unpivot_value_source")
+func (r cellTraceRenderer) renderUnpivotValueTraceQuery(outputVariable string, terminal ir.PhysicalCellTraceReturn) (string, error) {
+	item := r.core.navigation().newInternalVariable("trace_unpivot_value_source")
 	documentField := ir.PhysicalCellTraceSourceDocumentField
 	presenceField := ir.PhysicalCellTraceSourcePresenceField
 	supportedField := ir.PhysicalCellTraceSourceSupportedField
@@ -393,14 +402,14 @@ func (r *physicalPlanRenderer) renderUnpivotValueTraceQuery(outputVariable strin
 		}
 	}
 	document := fmt.Sprintf("%s.%s", item, documentField)
-	value, err := r.renderExpression(terminal.Value)
+	value, err := r.core.renderExpression(terminal.Value)
 	if err != nil {
 		return "", fmt.Errorf("trace unpivot value: %w", err)
 	}
 	return fmt.Sprintf("(FOR %s IN [%s] FILTER %s.%s == true FILTER %s.%s == true RETURN {resourceType: %s.resourceType, resourceId: %s.id, value: %s})", item, outputVariable, item, supportedField, item, presenceField, document, document, value), nil
 }
 
-func (r *physicalPlanRenderer) categoryRecodeTraceSource(expression ir.PhysicalExpression) (ir.PhysicalExpression, bool) {
+func (r cellTraceRenderer) categoryRecodeTraceSource(expression ir.PhysicalExpression) (ir.PhysicalExpression, bool) {
 	call := expression.Call
 	if expression.Kind != ir.PhysicalCallExpression || call == nil || strings.ToLower(call.Name) != "case" || len(call.Args) < 5 || len(call.Args)%2 == 0 {
 		return ir.PhysicalExpression{}, false
@@ -444,7 +453,7 @@ func traceableCategoryRecodeSource(source ir.PhysicalExpression) bool {
 	}
 }
 
-func (r *physicalPlanRenderer) traceEquality(expression ir.PhysicalExpression) (ir.PhysicalExpression, any, bool) {
+func (r cellTraceRenderer) traceEquality(expression ir.PhysicalExpression) (ir.PhysicalExpression, any, bool) {
 	call := expression.Call
 	if expression.Kind != ir.PhysicalCallExpression || call == nil || strings.ToLower(call.Name) != "eq" || len(call.Args) != 2 {
 		return ir.PhysicalExpression{}, nil, false
@@ -456,7 +465,7 @@ func (r *physicalPlanRenderer) traceEquality(expression ir.PhysicalExpression) (
 	return call.Args[0], value, true
 }
 
-func (r *physicalPlanRenderer) traceLiteralValue(expression ir.PhysicalExpression) (any, bool) {
+func (r cellTraceRenderer) traceLiteralValue(expression ir.PhysicalExpression) (any, bool) {
 	if expression.Kind != ir.PhysicalLiteralExpression || expression.Literal == nil {
 		return nil, false
 	}
@@ -464,7 +473,7 @@ func (r *physicalPlanRenderer) traceLiteralValue(expression ir.PhysicalExpressio
 	return value, ok
 }
 
-func (r *physicalPlanRenderer) isCategoryRecodeErrorDefault(expression ir.PhysicalExpression) bool {
+func (r cellTraceRenderer) isCategoryRecodeErrorDefault(expression ir.PhysicalExpression) bool {
 	call := expression.Call
 	if expression.Kind != ir.PhysicalCallExpression || call == nil || strings.ToLower(call.Name) != "assert" || len(call.Args) != 2 {
 		return false
@@ -474,29 +483,29 @@ func (r *physicalPlanRenderer) isCategoryRecodeErrorDefault(expression ir.Physic
 	return conditionExists && condition == false && errorExists && errorCode == "CATEGORY_RECODE_UNKNOWN_VALUE"
 }
 
-func (r *physicalPlanRenderer) renderNumericAggregateTraceContributors(items string, valueExpression ir.PhysicalExpression, terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
-	item := r.newInternalVariable("trace_numeric_contributor")
-	value, err := r.renderAggregateItemValue(valueExpression, item)
+func (r cellTraceRenderer) renderNumericAggregateTraceContributors(items string, valueExpression ir.PhysicalExpression, terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
+	item := r.core.navigation().newInternalVariable("trace_numeric_contributor")
+	value, err := r.core.renderAggregateItemValue(valueExpression, item)
 	if err != nil {
 		return "", "", false, "", err
 	}
-	numeric := r.newInternalVariable("trace_numeric_value")
+	numeric := r.core.navigation().newInternalVariable("trace_numeric_value")
 	record := fmt.Sprintf(`{ resourceType: %s.resourceType, resourceId: %s.id, value: %s }`, item, item, numeric)
 	page = fmt.Sprintf("(FOR %s IN %s FOR %s IN FLATTEN([%s]) FILTER %s != null FILTER ASSERT(IS_NUMBER(%s), \"NUMERIC_AGGREGATE_NON_NUMERIC\") LIMIT @%s, @%s RETURN %s)", item, items, numeric, value, numeric, numeric, terminal.OffsetBindKey, terminal.FetchLimitBindKey, record)
 	status = fmt.Sprintf("(FOR %s IN %s FOR %s IN FLATTEN([%s]) FILTER %s != null FILTER ASSERT(IS_NUMBER(%s), \"NUMERIC_AGGREGATE_NON_NUMERIC\") LIMIT 2 RETURN %s)", item, items, numeric, value, numeric, numeric, record)
 	return page, status, false, "", nil
 }
 
-func (r *physicalPlanRenderer) renderScalarAggregateTraceContributors(items string, valueExpression ir.PhysicalExpression, operation ir.PhysicalAggregateOperation, terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
-	item := r.newInternalVariable("trace_contributor")
-	value, err := r.renderAggregateItemValue(valueExpression, item)
+func (r cellTraceRenderer) renderScalarAggregateTraceContributors(items string, valueExpression ir.PhysicalExpression, operation ir.PhysicalAggregateOperation, terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
+	item := r.core.navigation().newInternalVariable("trace_contributor")
+	value, err := r.core.renderAggregateItemValue(valueExpression, item)
 	if err != nil {
 		return "", "", false, "", err
 	}
-	scalar := r.newInternalVariable("trace_scalar_value")
+	scalar := r.core.navigation().newInternalVariable("trace_scalar_value")
 	filters := []string{"FILTER " + scalar + " != null"}
 	if operation == ir.PhysicalMinAggregate || operation == ir.PhysicalMaxAggregate {
-		result, resultErr := r.renderExpression(terminal.Value)
+		result, resultErr := r.core.renderExpression(terminal.Value)
 		if resultErr != nil {
 			return "", "", false, "", resultErr
 		}
@@ -509,21 +518,21 @@ func (r *physicalPlanRenderer) renderScalarAggregateTraceContributors(items stri
 	return page, status, false, "", nil
 }
 
-func (r *physicalPlanRenderer) renderFirstOrderedTraceContributors(aggregate *ir.PhysicalAggregate, items string, terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
-	selection, err := r.renderFirstOrderedSelection(aggregate, items)
+func (r cellTraceRenderer) renderFirstOrderedTraceContributors(aggregate *ir.PhysicalAggregate, items string, terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
+	selection, err := r.core.renderFirstOrderedSelection(aggregate, items)
 	if err != nil {
 		return "", "", false, "", err
 	}
-	selected := r.newInternalVariable("trace_temporal_selected")
+	selected := r.core.navigation().newInternalVariable("trace_temporal_selected")
 	contribution := fmt.Sprintf(`{ resourceType: %s.resourceType, resourceId: %s.resourceId, value: %s.value }`, selected, selected, selected)
 	page = fmt.Sprintf("(FOR %s IN [%s] FILTER %s != null LIMIT @%s, @%s RETURN %s)", selected, selection, selected, terminal.OffsetBindKey, terminal.FetchLimitBindKey, contribution)
 	status = fmt.Sprintf("(FOR %s IN [%s] FILTER %s != null LIMIT 2 RETURN %s)", selected, selection, selected, contribution)
 	return page, status, false, "", nil
 }
 
-func (r *physicalPlanRenderer) renderReducedSetTraceContributors(contribution ir.PhysicalCellTraceContribution, terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
-	item := r.newInternalVariable("trace_contributor")
-	value := r.newInternalVariable("trace_contributor_value")
+func (r cellTraceRenderer) renderReducedSetTraceContributors(contribution ir.PhysicalCellTraceContribution, terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
+	item := r.core.navigation().newInternalVariable("trace_contributor")
+	value := r.core.navigation().newInternalVariable("trace_contributor_value")
 	values := fmt.Sprintf("(%s.%s == null ? [null] : TO_ARRAY(%s.%s))", item, contribution.ValueField, item, contribution.ValueField)
 	record := fmt.Sprintf(`{ resourceType: %s.resourceType, resourceId: %s.id, value: %s }`, item, item, value)
 	page = fmt.Sprintf("(FOR %s IN %s FOR %s IN %s LIMIT @%s, @%s RETURN %s)", item, contribution.SetVariable, value, values, terminal.OffsetBindKey, terminal.FetchLimitBindKey, record)
@@ -531,14 +540,14 @@ func (r *physicalPlanRenderer) renderReducedSetTraceContributors(contribution ir
 	return page, status, contribution.Lossy, "", nil
 }
 
-func (r *physicalPlanRenderer) renderTraceContributorQueries(items string, valueExpression ir.PhysicalExpression, terminal ir.PhysicalCellTraceReturn, lossy bool) (page, status string, resultLossy bool, omission string, err error) {
-	item := r.newInternalVariable("trace_contributor")
+func (r cellTraceRenderer) renderTraceContributorQueries(items string, valueExpression ir.PhysicalExpression, terminal ir.PhysicalCellTraceReturn, lossy bool) (page, status string, resultLossy bool, omission string, err error) {
+	item := r.core.navigation().newInternalVariable("trace_contributor")
 	value := "null"
 	if valueExpression.Kind != "" {
 		if valueExpression.Kind != ir.PhysicalExtractExpression || valueExpression.Extract == nil {
 			return "[]", "[]", false, "TRACE_CONTRIBUTORS_UNAVAILABLE", nil
 		}
-		value, err = r.renderAggregateItemValue(valueExpression, item)
+		value, err = r.core.renderAggregateItemValue(valueExpression, item)
 		if err != nil {
 			return "", "", false, "", err
 		}

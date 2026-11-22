@@ -64,7 +64,7 @@ func TestGeneratedLoadNormalizesNumericFHIRInteger64(t *testing.T) {
 func TestGeneratedLoadRejectsCodingSystemWhitespace(t *testing.T) {
 	raw := []byte(`{"resourceType":"ImagingStudy","id":"study","status":"available","subject":{"reference":"Patient/p"},"series":[{"uid":"1.2.3","modality":{"coding":[{"system":" http://dicom.nema.org/resources/ontology/DCM","code":"CT"}]}}]}`)
 	_, _, _, kind, err := loadRowGeneratedWithPayload("ImagingStudy", raw, "test", map[string]float64{})
-	if kind != rowErrorValidation || err == nil || !strings.Contains(err.Error(), "field 'system' does not match its schema pattern") {
+	if kind != RowErrorValidation || err == nil || !strings.Contains(err.Error(), "field 'system' does not match its schema pattern") {
 		t.Fatalf("expected Coding.system validation error, got %v (%v)", err, kind)
 	}
 }

@@ -12,9 +12,10 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
-func repositoryPublishIntoGenerationActivation(t *testing.T, generationErr error) (*Error, *fakeStore, error) {
+func repositoryPublishIntoGenerationActivation(t *testing.T, generationErr error) (*ports.Error, *fakeStore, error) {
 	t.Helper()
 	visible := true
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
@@ -32,17 +33,19 @@ func repositoryPublishIntoGenerationActivation(t *testing.T, generationErr error
 	store := &fakeStore{activationErrors: []error{generationErr}}
 	config := testConfig(snapshot)
 	config.Capability.Current = func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil }
-	config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
-	config.CompileReceipt = func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error) { return base, nil }
-	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
+	config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		return base, nil
+	}
+	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (ports.Execution, error) {
 		return successfulTestExecution(base, "PUBLISHED"), nil
 	}
 	config.ActivateRelease = func(context.Context, string, string, []dataset.DataframeSelector) error { return nil }
 	service := newTestService(t, store, config)
 	_, err := service.PublishRepository(context.Background(), RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: "commit-a", Actor: "alice"})
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) {
 		t.Fatalf("repository publish did not surface a lifecycle error: %v", err)
 	}
@@ -52,7 +55,7 @@ func repositoryPublishIntoGenerationActivation(t *testing.T, generationErr error
 func TestRepositoryPublishGenerationActivationFaultStaysRetryableAndFixed(t *testing.T) {
 	fault := errors.New("activate generation: arangodb transaction aborted: dial tcp 127.0.0.1:8529: connect: connection refused")
 	lifecycleErr, store, err := repositoryPublishIntoGenerationActivation(t, fault)
-	if lifecycleErr.Class != ClassUnavailable {
+	if lifecycleErr.Class != ports.ClassUnavailable {
 		t.Fatalf("generation-activation store fault classified %q (want unavailable); a 409 on a transport fault tells the client the request itself is wrong and invites non-retryable handling", lifecycleErr.Class)
 	}
 	if lifecycleErr.Code != "GENERATION_ACTIVATION_FAILED" {
@@ -73,7 +76,7 @@ func TestRepositoryPublishGenerationActivationFaultStaysRetryableAndFixed(t *tes
 
 func TestRepositoryPublishGenerationActivationDraftConflictIsFixedTextConflict(t *testing.T) {
 	lifecycleErr, store, err := repositoryPublishIntoGenerationActivation(t, explorer.ErrDraftConflict)
-	if lifecycleErr.Class != ClassConflict {
+	if lifecycleErr.Class != ports.ClassConflict {
 		t.Fatalf("deterministic lost generation race classified %q (want conflict)", lifecycleErr.Class)
 	}
 	if lifecycleErr.Code != "GENERATION_ACTIVATION_FAILED" {

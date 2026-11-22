@@ -9,6 +9,7 @@ import (
 	dataframepublication "github.com/calypr/loom/internal/dataframe/publication"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/generation"
 )
 
 type GenerationLoadRequest struct {
@@ -21,13 +22,13 @@ type GenerationLoadRequest struct {
 }
 
 type GenerationLoadResult struct {
-	Project          string              `json:"project"`
-	Generation       string              `json:"generation"`
-	AuthResourcePath string              `json:"auth_resource_path,omitempty"`
-	SubmittedBy      string              `json:"submitted_by,omitempty"`
-	Summary          *ingest.LoadSummary `json:"summary,omitempty"`
-	Activated        bool                `json:"activated"`
-	Reused           bool                `json:"reused,omitempty"`
+	Project          string                  `json:"project"`
+	Generation       string                  `json:"generation"`
+	AuthResourcePath string                  `json:"auth_resource_path,omitempty"`
+	SubmittedBy      string                  `json:"submitted_by,omitempty"`
+	Summary          *generation.LoadSummary `json:"summary,omitempty"`
+	Activated        bool                    `json:"activated"`
+	Reused           bool                    `json:"reused,omitempty"`
 }
 
 type GenerationStatusResult struct {
@@ -54,16 +55,16 @@ type DataframeReleaseStore interface {
 	GetPointer(context.Context, string) (dataframepublication.BundlePointer, error)
 }
 
-type GenerationLoader func(context.Context, GenerationLoadRequest, ingest.EventSink) (ingest.LoadSummary, error)
+type GenerationLoader func(context.Context, GenerationLoadRequest, ingest.EventSink) (generation.LoadSummary, error)
 
 type IngestRunner struct {
-	BaseOptions ingest.LoadOptions
+	BaseOptions generation.LoadOptions
 }
 
-func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (ingest.LoadSummary, error) {
+func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (generation.LoadSummary, error) {
 	ref, err := publication.NewRef(req.Project, req.Generation)
 	if err != nil {
-		return ingest.LoadSummary{}, err
+		return generation.LoadSummary{}, err
 	}
 	opts := r.BaseOptions
 	opts.Project = req.Project
@@ -75,7 +76,7 @@ func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadReque
 	opts.EventSink = sink
 
 	opts.StageOnly = false
-	return ingest.Load(ctx, opts)
+	return generation.Load(ctx, opts)
 }
 
 type ServiceConfig struct {

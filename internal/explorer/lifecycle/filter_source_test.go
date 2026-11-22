@@ -15,6 +15,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -101,7 +102,7 @@ func filterSourceBase(snapshot capability.Snapshot, construction authoringv2.Con
 		document:     filterSourceDocument(),
 		construction: construction,
 		snapshot:     snapshot,
-		authorized:   AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+		authorized:   ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 		stages: []explorer.ReceiptConstructionStage{{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
 			Columns: []explorer.ReceiptConstructionStageColumn{
@@ -1104,12 +1105,12 @@ func newFilterSourceHarness(t *testing.T) *filterSourceHarness {
 	resolver := filterSourceResolver(t)
 	service.config.RowChoicePlanner, service.config.RowChoiceResolver = resolver, resolver
 	harness := &filterSourceHarness{service: service, store: store, snapshot: snapshot}
-	authorize := func() AuthorizedCapability {
-		return AuthorizedCapability{Snapshot: harness.snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}
+	authorize := func() ports.AuthorizedCapability {
+		return ports.AuthorizedCapability{Snapshot: harness.snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}
 	}
 	service.config.Capability.Token = func(context.Context, string, string) (capability.Snapshot, error) { return harness.snapshot, nil }
-	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) { return authorize(), nil }
-	service.config.Capability.ForExecution = func(context.Context, string, string) (AuthorizedCapability, error) { return authorize(), nil }
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorize(), nil }
+	service.config.Capability.ForExecution = func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorize(), nil }
 	service.config.Capability.Catalog = func(got capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
 		catalog := lifecycleInterpretationCatalog(got, explorerID)
 		for _, candidate := range harness.snapshot.Candidates {
@@ -1137,7 +1138,7 @@ func newFilterSourceHarness(t *testing.T) *filterSourceHarness {
 		}
 		return nil, explorer.ErrNotFound
 	}
-	service.config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt, err := compileTraceReceipt(ctx, request, harness.snapshot, harness.service.catalog(harness.snapshot, request.ExplorerID))
 		if err != nil {
 			return nil, err

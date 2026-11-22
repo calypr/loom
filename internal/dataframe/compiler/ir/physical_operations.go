@@ -120,13 +120,6 @@ type PhysicalCellTraceRelatedSource struct {
 	Subplan          PhysicalSubplan
 }
 
-type PhysicalTableShapeExclusionReturn struct {
-	Pivot             PhysicalGroupedPivot
-	OffsetBindKey     string
-	LimitBindKey      string
-	FetchLimitBindKey string
-}
-
 type PhysicalCellTraceReshape struct {
 	OutputVariable string
 	Sources        []PhysicalCellTraceReshapeSource
@@ -319,17 +312,6 @@ type PhysicalSetOutput struct {
 	Fields []PhysicalSetOutputField
 }
 
-type PhysicalSubplan struct {
-	Captures   []string
-	Operations []PhysicalOperation
-	Return     PhysicalExpression
-
-	Sort   *PhysicalValue
-	Unique bool
-
-	DistinctBy *PhysicalValue
-}
-
 type PhysicalCollectionScan struct {
 	Variable          string
 	CollectionBindKey string
@@ -419,105 +401,6 @@ type PhysicalProjectionPresence struct {
 
 type PhysicalReturn struct {
 	Projections []PhysicalProjection
-}
-
-type PhysicalGroupedPivot struct {
-	ConstructionID    string
-	InputRowVariable  string
-	GroupRowsVariable string
-	OutputRowVariable string
-
-	OneInputRowPerGroup    bool
-	InputProjections       []PhysicalProjection
-	GroupKeys              []PhysicalGroupedPivotKey
-	CategoryColumn         string
-	CategoryPresenceColumn string
-	CategoryPresence       *PhysicalProjectionPresence
-
-	CategoryPresenceFromInput   bool
-	CategoryType                string
-	ValueColumn                 string
-	ValueType                   string
-	Categories                  []PhysicalGroupedPivotCategory
-	RowValues                   []PhysicalStageRowValue
-	RootContributorInputColumn  string
-	RootContributorInputMany    bool
-	RootContributorOutputColumn string
-	RootContributorVariable     string
-
-	CodedCorrelation *PhysicalCorrelation
-	CodedCategories  []PhysicalGroupedCodedPivotCategory
-
-	CodedSourceVariable    string
-	ConstructionIDBindKey  string
-	UnlistedEvidenceColumn string
-	DuplicatePolicy        string
-	MissingCellPolicy      string
-	UnlistedCategoryPolicy string
-}
-
-type PhysicalGroupedPivotKey struct {
-	Column string
-
-	Output   string
-	Variable string
-	Kind     string
-	Hidden   bool
-}
-
-type PhysicalGroupedPivotCategory struct {
-	Output       string
-	MatchKind    PhysicalPivotCategoryMatchKind
-	ValueBindKey string
-	ValueKind    string
-}
-
-type PhysicalGroupedCodedPivotCategory struct {
-	Output        string
-	SystemBindKey string
-	CodeBindKey   string
-}
-
-type PhysicalPivotCategoryMatchKind string
-
-const (
-	PhysicalPivotCategoryValueMatch   PhysicalPivotCategoryMatchKind = "VALUE"
-	PhysicalPivotCategoryNullMatch    PhysicalPivotCategoryMatchKind = "NULL"
-	PhysicalPivotCategoryMissingMatch PhysicalPivotCategoryMatchKind = "MISSING"
-)
-
-type PhysicalUnpivot struct {
-	ConstructionID        string
-	InputRowVariable      string
-	SlotVariable          string
-	OutputRowVariable     string
-	InputProjections      []PhysicalProjection
-	Inputs                []PhysicalUnpivotInput
-	PreservedOutputs      []PhysicalUnpivotOutput
-	KeyOutput             string
-	KeyType               string
-	ValueOutput           string
-	ValueType             string
-	IdentityParts         []PhysicalUnpivotIdentityPart
-	ConstructionIDBindKey string
-	NullRowPolicy         string
-}
-
-type PhysicalUnpivotOutput struct {
-	InputColumn  string
-	OutputColumn string
-}
-
-type PhysicalUnpivotInput struct {
-	Column     string
-	KeyBindKey string
-	KeyKind    string
-	ValueKind  string
-}
-
-type PhysicalUnpivotIdentityPart struct {
-	Name  string
-	Value PhysicalValue
 }
 
 var (

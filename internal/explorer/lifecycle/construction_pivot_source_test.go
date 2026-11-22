@@ -11,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -77,7 +78,7 @@ func TestConstructionCandidateWithPivotSourcesPreservesPrefixForValueLabelEdit(t
 	}
 	base := constructionBase{
 		document: document, construction: construction, snapshot: snapshot,
-		authorized: AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+		authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 		stages:     stages,
 	}
 	selection, err := capability.NewConstructionRelatedFieldChoice(snapshot.Token, helperID, candidateSource)
@@ -93,7 +94,7 @@ func TestConstructionCandidateWithPivotSourcesPreservesPrefixForValueLabelEdit(t
 		PivotSources: []ConstructionPivotSourceSelection{{ChoiceID: selection.ChoiceID, ColumnID: "pivot-input"}},
 	}
 	service := &Service{}
-	prepared, _, err := service.constructionCandidateWithPivotSources(t.Context(), base, request, candidate)
+	prepared, _, err := service.constructionSources().constructionCandidateWithPivotSources(t.Context(), base, request, candidate)
 	if err != nil {
 		t.Fatalf("prepare related Pivot sources: %v", err)
 	}
@@ -333,7 +334,7 @@ func TestConstructionPivotSourceCapabilityReportsPreciseSkipClassReasonCodes(t *
 		t.Run(row.name, func(t *testing.T) {
 			base := filterSourceBase(row.snapshot, row.construction)
 			base.stages = append(base.stages, row.stages...)
-			result, err := row.service.constructionPivotSourceCapability(context.Background(), base, filterSourceOutput, row.stageID)
+			result, err := row.service.constructionSources().constructionPivotSourceCapability(context.Background(), base, filterSourceOutput, row.stageID)
 			if err != nil {
 				t.Fatalf("pivot source capability: %v", err)
 			}
@@ -411,7 +412,7 @@ func TestConstructionPivotSourceCapabilityNamesInventoryFailureDistinctly(t *tes
 	distinct := map[string]bool{}
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
-			result, err := row.service.constructionPivotSourceCapability(context.Background(),
+			result, err := row.service.constructionSources().constructionPivotSourceCapability(context.Background(),
 				filterSourceBase(row.snapshot, empty), filterSourceOutput, recipe.ConstructionSourceProjectionID)
 			if row.wantFail {
 				if err == nil {

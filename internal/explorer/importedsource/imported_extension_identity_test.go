@@ -6,6 +6,7 @@ import (
 
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -13,7 +14,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+
 	"github.com/calypr/loom/internal/explorer/recipeimport"
 )
 
@@ -36,7 +37,7 @@ func TestSavedExtensionIdentitiesSurviveCorrelatedCompiler(t *testing.T) {
 	}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: capabilityresolver.ScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "document", ResourceType: "DocumentReference", RowRootEligible: true}}, nil, nil, nil)
-	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
+	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	resolver := Sources{registry: &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
 	source, err := resolver.load(ctx, "project-a", bundle.Name, bundle.TranslationVersion, digest, authorized)
 	if err != nil {

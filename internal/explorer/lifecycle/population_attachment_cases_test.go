@@ -14,6 +14,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 type attachmentCase struct {
@@ -175,8 +176,8 @@ func attachmentObserve(t *testing.T, c attachmentCase) attachmentResult {
 	store.selections[decoy.ID] = decoy
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	config := oldService.config
-	config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
 	config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog }
 	domain, err := explorer.NewService(store)

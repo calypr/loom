@@ -11,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/recipeimport"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -27,13 +28,13 @@ func TestRemoveProjectedFieldResolvesAuthoredOwnerAndEnforcesDraftAndAuthorizati
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: raw, DraftVersion: 1, DraftDigest: digest}, copyGet: true}
 	config.AuthoringNetwork = projectedFieldNetwork
 	removeImportedCalls := 0
-	config.RemoveImportedField = func(context.Context, string, AuthorizedCapability, authoringv2.Document, string, string) (authoringv2.Document, error) {
+	config.RemoveImportedField = func(context.Context, string, ports.AuthorizedCapability, authoringv2.Document, string, string) (authoringv2.Document, error) {
 		removeImportedCalls++
 		return authoringv2.Document{}, errors.New("authored field must not be routed to pinned source editing")
 	}
 	compileCalls := 0
 	var candidate authoringv2.Workspace
-	config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		compileCalls++
 		candidate = request.Workspace
 		receipt := nativeReceipt(snapshot)
@@ -64,10 +65,10 @@ func TestRemoveProjectedFieldResolvesAuthoredOwnerAndEnforcesDraftAndAuthorizati
 	if _, err := service.ApplyCommands(ctx, "project-a", "patients", unknown, "tester"); err == nil || store.saveDraftCalls != 1 || compileCalls != 1 {
 		t.Fatalf("unknown column identity was accepted: err=%v saves=%d compiles=%d", err, store.saveDraftCalls, compileCalls)
 	}
-	config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
+	config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 		crossTenant := snapshot
 		crossTenant.Identity.Project = "project-b"
-		return AuthorizedCapability{Snapshot: crossTenant, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		return ports.AuthorizedCapability{Snapshot: crossTenant, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 	}
 	service = newTestService(t, store, config)
 	crossTenant := projectedFieldRemovalRequest("remove-cross-tenant", "patient-id", response.DraftDigest, response.DraftVersion, snapshot.Token)
@@ -92,7 +93,7 @@ func TestRemoveProjectedFieldDisablesExactLegacyPinnedSlotAndPreservesAuthoredCo
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: raw, DraftVersion: 1, DraftDigest: digest}, copyGet: true}
 	config.AuthoringNetwork = projectedFieldNetwork
 	var removedStep, removedField string
-	config.RemoveImportedField = func(_ context.Context, _ string, _ AuthorizedCapability, document authoringv2.Document, stepID, fieldID string) (authoringv2.Document, error) {
+	config.RemoveImportedField = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document authoringv2.Document, stepID, fieldID string) (authoringv2.Document, error) {
 		removedStep, removedField = stepID, fieldID
 		updated := cloneLifecycleDocument(t, document)
 		if updated.ImportedSource == nil {
@@ -127,7 +128,7 @@ func TestRemoveProjectedFieldDisablesExactLegacyPinnedSlotAndPreservesAuthoredCo
 	compileCalls := 0
 	failCompile := false
 	var compiledCandidate authoringv2.Workspace
-	config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		compileCalls++
 		compiledCandidate = request.Workspace
 		if failCompile {
@@ -190,7 +191,7 @@ func TestRemoveProjectedFieldDispatchesServerResolvedPinnedOutputKey(t *testing.
 	}
 	raw, _ := workspace.CanonicalJSON()
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: raw, DraftVersion: 1, DraftDigest: digest}, copyGet: true}
-	config.AuthoringNetwork = func(ctx context.Context, project string, authorized AuthorizedCapability, document authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
+	config.AuthoringNetwork = func(ctx context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
 		network, err := projectedFieldNetwork(ctx, project, authorized, document)
 		if err != nil {
 			return authoringv2.AuthoringNetwork{}, err
@@ -206,7 +207,7 @@ func TestRemoveProjectedFieldDispatchesServerResolvedPinnedOutputKey(t *testing.
 		return network, nil
 	}
 	var removedStep, removedKey string
-	config.RemoveImportedOutput = func(_ context.Context, _ string, _ AuthorizedCapability, document authoringv2.Document, stepID, outputKey string) (authoringv2.Document, error) {
+	config.RemoveImportedOutput = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document authoringv2.Document, stepID, outputKey string) (authoringv2.Document, error) {
 		removedStep, removedKey = stepID, outputKey
 		updated := cloneLifecycleDocument(t, document)
 		columns := updated.Columns[:0]
@@ -218,7 +219,7 @@ func TestRemoveProjectedFieldDispatchesServerResolvedPinnedOutputKey(t *testing.
 		updated.Columns = columns
 		return updated, nil
 	}
-	config.CompileReceipt = func(_ context.Context, _ CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(_ context.Context, _ ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt := nativeReceipt(snapshot)
 		store.receipt = receipt
 		return receipt, nil
@@ -281,7 +282,7 @@ func projectedFieldRemovalFixture(t *testing.T, snapshot capability.Snapshot) (a
 	return workspace, bundle, config
 }
 
-func projectedFieldNetwork(_ context.Context, _ string, _ AuthorizedCapability, document authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
+func projectedFieldNetwork(_ context.Context, _ string, _ ports.AuthorizedCapability, document authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
 	network := authoringv2.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
 	network.Bindings = []authoringv2.NetworkColumnBinding{
 		{ColumnID: "patient-id", OccurrenceID: authoringv2.RootOccurrenceID, SourceStepID: "fields", Status: "EXACT"},
@@ -340,7 +341,7 @@ func TestReviewProjectedRemovalCandidateCASFailure(t *testing.T) {
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: raw, DraftVersion: 1, DraftDigest: digest}, copyGet: true}
 	config.AuthoringNetwork = projectedFieldNetwork
 	compileCalls := 0
-	config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		compileCalls++
 		if len(request.Workspace.Documents) != 2 || findLifecycleColumn(request.Workspace.Documents[0], "project-id") {
 			t.Fatal("incorrect candidate workspace compiled")

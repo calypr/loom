@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 type lifecycleConstructionColumn struct {
@@ -56,14 +58,14 @@ func lifecycleConstructionReceipt(snapshot capability.Snapshot, workspace author
 }
 
 func lifecycleErrorCode(err error) string {
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if errors.As(err, &lifecycleErr) {
 		return lifecycleErr.Code
 	}
 	return ""
 }
 
-func proposalErrorIs(err error, class ErrorClass, code string) bool {
-	var lifecycleErr *Error
+func proposalErrorIs(err error, class ports.ErrorClass, code string) bool {
+	var lifecycleErr *ports.Error
 	return errors.As(err, &lifecycleErr) && lifecycleErr.Class == class && lifecycleErr.Code == code
 }

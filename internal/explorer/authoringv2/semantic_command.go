@@ -5,7 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -96,7 +97,7 @@ func applySemanticSelections(workspace *Workspace, catalogSnapshot CatalogSnapsh
 		}
 		if !found {
 			label := strings.TrimSpace(selection.Title)
-			if label == "" && observation.RuleHint == catalog.SemanticRuleHintCodedCategoryV1 {
+			if label == "" && observation.RuleHint == codedconcept.RuleHintCodedCategoryV1 {
 				label = semanticCategoryDefaultTitle(observation.Source.Type, observation.Source.Path, observation.Key.System)
 			}
 			if label == "" {
@@ -158,14 +159,14 @@ func semanticCategoryDefaultTitle(resourceType, sourcePath, system string) strin
 	return strings.TrimSpace(resourceType + " " + field)
 }
 
-func ResolveSemanticSelectionPlan(observation catalog.SemanticObservation) SemanticSelectionPlan {
-	if observation.SchemaVersion != catalog.SemanticObservationSchemaVersion || observation.RuleVersion != strconv.Itoa(catalog.SemanticObservationRuleVersion) {
+func ResolveSemanticSelectionPlan(observation codedconcept.Observation) SemanticSelectionPlan {
+	if observation.SchemaVersion != codedconcept.ObservationSchemaVersion || observation.RuleVersion != strconv.Itoa(semanticinventory.SemanticObservationRuleVersion) {
 		return semanticUnsupported("SEMANTIC_OBSERVATION_VERSION_UNSUPPORTED", "This catalog observation uses an unsupported schema or rule version.")
 	}
-	if observation.Completeness != catalog.SemanticComplete {
+	if observation.Completeness != codedconcept.Complete {
 		return semanticUnsupported("SEMANTIC_OBSERVATION_INCOMPLETE", "The catalog observation does not contain enough evidence to build a compiler source.")
 	}
-	if observation.Status == catalog.SemanticStatusUnsupportedValueProjection {
+	if observation.Status == codedconcept.StatusUnsupportedValueProjection {
 		return semanticUnsupported("VALUE_PROJECTION_UNSUPPORTED", "The observed value does not contain the scalar selected by the current projection.")
 	}
 	if observation.Status == "MIXED_CHOICE" {
@@ -177,18 +178,18 @@ func ResolveSemanticSelectionPlan(observation catalog.SemanticObservation) Seman
 		return resolveIdentifierSelectionPlan(observation)
 	case "EXTENSION_URL_VALUE":
 		return resolveExtensionSelectionPlan(observation)
-	case catalog.SemanticRuleHintCodedConceptV1:
+	case codedconcept.RuleHintCodedConceptV1:
 		return resolveCodedConceptSelectionPlan(observation)
-	case catalog.SemanticRuleHintCodedCategoryV1:
+	case codedconcept.RuleHintCodedCategoryV1:
 		return resolveCodedCategorySelectionPlan(observation)
-	case catalog.SemanticRuleHintCodedValueV1:
+	case codedconcept.RuleHintCodedValueV1:
 		return resolveCodedValueSelectionPlan(observation)
 	default:
 		return semanticUnsupported("SEMANTIC_RULE_UNSUPPORTED", "Loom does not have an authoring rule for this observed FHIR structure.")
 	}
 }
 
-func resolveIdentifierSelectionPlan(observation catalog.SemanticObservation) SemanticSelectionPlan {
+func resolveIdentifierSelectionPlan(observation codedconcept.Observation) SemanticSelectionPlan {
 	if observation.Status == "UNRESOLVED_SYSTEM" || strings.TrimSpace(observation.Key.System) == "" {
 		return semanticNeedsMapping("IDENTIFIER_SYSTEM_MISSING", "This Identifier has no system URI to select; it needs an explicit identifier namespace.")
 	}
@@ -217,7 +218,7 @@ func resolveIdentifierSelectionPlan(observation catalog.SemanticObservation) Sem
 	return semanticReadyPlan(source, logicalType, observation.Status)
 }
 
-func resolveExtensionSelectionPlan(observation catalog.SemanticObservation) SemanticSelectionPlan {
+func resolveExtensionSelectionPlan(observation codedconcept.Observation) SemanticSelectionPlan {
 	if observation.Status != "SUPPORTED" && observation.Status != "DATA_QUALITY_WARNING" {
 		return semanticStatusPlan(observation.Status)
 	}
@@ -262,7 +263,7 @@ func resolveExtensionSelectionPlan(observation catalog.SemanticObservation) Sema
 	return semanticReadyPlan(source, logicalType, observation.Status)
 }
 
-func resolveCodedValueSelectionPlan(observation catalog.SemanticObservation) SemanticSelectionPlan {
+func resolveCodedValueSelectionPlan(observation codedconcept.Observation) SemanticSelectionPlan {
 	if strings.TrimSpace(observation.Key.Version) != "" {
 		return semanticUnsupported("CODED_VALUE_VERSION_UNSUPPORTED", "Version-specific coding selections are not supported by the current compiler.")
 	}
@@ -316,15 +317,15 @@ func resolveCodedValueSelectionPlan(observation catalog.SemanticObservation) Sem
 	return semanticReadyPlan(source, checked.LogicalType, observation.Status)
 }
 
-func resolveCodedConceptSelectionPlan(observation catalog.SemanticObservation) SemanticSelectionPlan {
+func resolveCodedConceptSelectionPlan(observation codedconcept.Observation) SemanticSelectionPlan {
 	return resolveCodedCodingSelectionPlan(observation, false)
 }
 
-func resolveCodedCategorySelectionPlan(observation catalog.SemanticObservation) SemanticSelectionPlan {
+func resolveCodedCategorySelectionPlan(observation codedconcept.Observation) SemanticSelectionPlan {
 	return resolveCodedCodingSelectionPlan(observation, true)
 }
 
-func resolveCodedCodingSelectionPlan(observation catalog.SemanticObservation, category bool) SemanticSelectionPlan {
+func resolveCodedCodingSelectionPlan(observation codedconcept.Observation, category bool) SemanticSelectionPlan {
 	if observation.Status == "UNRESOLVED_SYSTEM" || strings.TrimSpace(observation.Key.System) == "" {
 		return semanticNeedsMapping("CODED_CONCEPT_SYSTEM_MISSING", "This Coding has no system URI to select; map its terminology identity before adding it.")
 	}

@@ -8,7 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
@@ -22,7 +23,7 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 
 	specimenA := semanticCoverageResourceContribution(identity, "Specimen", "Patient/scope-a", "retained:Specimen/physical-a/logical-shared", "type", "type.coding[].code", true)
 	specimenB := semanticCoverageResourceContribution(identity, "Specimen", "Patient/scope-b", "retained:Specimen/physical-b/logical-shared", "type", "type.coding[].code", false)
-	specimenContributions := []catalog.SemanticCoverageSourceContribution{specimenA, specimenB}
+	specimenContributions := []fieldprofile.SemanticCoverageSourceContribution{specimenA, specimenB}
 	if _, err := adapter.WriteSemanticCoverageContributions(ctx, identity.BuildID, specimenContributions, 2); err != nil {
 		t.Fatalf("write Specimen source contributions failed (%v)", err)
 	}
@@ -131,7 +132,7 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 	if oldKey, newKey := semanticCoverageSourceEnvelopeKey(specimenA.Identity, identity.BuildID), semanticCoverageSourceEnvelopeKey(replacedSpecimenA.Identity, identity.BuildID); oldKey != newKey {
 		t.Fatalf("auth-path drift changed the physical envelope key: before=%q after=%q", oldKey, newKey)
 	}
-	replayedContributions := []catalog.SemanticCoverageSourceContribution{replacedSpecimenA, specimenB}
+	replayedContributions := []fieldprofile.SemanticCoverageSourceContribution{replacedSpecimenA, specimenB}
 	firstReplay, err := adapter.WriteSemanticCoverageContributions(ctx, identity.BuildID, replayedContributions, 2)
 	if err != nil {
 		t.Fatalf("replace Specimen source envelope after auth-path drift failed (%v)", err)
@@ -184,7 +185,7 @@ func TestSemanticCoverageResourceArangoRejectsMismatchedSourceEnvelope(t *testin
 		t.Fatalf("begin mismatched-sentinel coverage build failed (%v)", err)
 	}
 	contribution := semanticCoverageResourceContribution(identity, "Specimen", "Patient/scope-a", "retained:Specimen/source-a", "type", "type.coding[].code", true)
-	if _, err := adapter.WriteSemanticCoverageContributions(ctx, identity.BuildID, []catalog.SemanticCoverageSourceContribution{contribution}, 2); err != nil {
+	if _, err := adapter.WriteSemanticCoverageContributions(ctx, identity.BuildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 2); err != nil {
 		t.Fatalf("write Specimen source envelope through the adapter failed (%v)", err)
 	}
 	const forgedSourceID = "retained:Specimen/forged-source"
@@ -223,7 +224,7 @@ FOR d IN fhir_semantic_coverage
 	if !mutatedEnvelopeFound {
 		t.Fatal("the adapter-written source envelope was not found for corruption")
 	}
-	expectation := semanticCoverageResourceExpectation(t, "Specimen", []catalog.SemanticCoverageSourceContribution{contribution})
+	expectation := semanticCoverageResourceExpectation(t, "Specimen", []fieldprofile.SemanticCoverageSourceContribution{contribution})
 	err := adapter.CompleteSemanticCoverageResource(ctx, identity, expectation, 2)
 	if !errors.Is(err, ErrSemanticCoverageSourceSetIncomplete) {
 		t.Fatalf("complete mismatched source envelope error = %v, want ErrSemanticCoverageSourceSetIncomplete", err)
@@ -261,8 +262,8 @@ func openSemanticCoverageResourceIntegration(t *testing.T) (context.Context, *ar
 	generation := strings.ReplaceAll(uuid.NewString(), "-", "")
 	identity := SemanticCoverageBuildIdentity{
 		Project: project, DatasetGeneration: generation,
-		BuildID:        catalog.SemanticInventoryBuildID(project, generation),
-		SchemaIdentity: strings.Repeat("b", 64), SourceKind: catalog.SemanticInventorySourceRetained,
+		BuildID:        semanticinventory.BuildID(project, generation),
+		SchemaIdentity: strings.Repeat("b", 64), SourceKind: semanticinventory.SourceRetained,
 	}
 	t.Cleanup(func() {
 		cleanup := `FOR d IN fhir_semantic_coverage
@@ -292,7 +293,7 @@ func openSemanticCoverageResourceIntegration(t *testing.T) (context.Context, *ar
 func semanticCoverageResourceExpectation(
 	t *testing.T,
 	resourceType string,
-	contributions []catalog.SemanticCoverageSourceContribution,
+	contributions []fieldprofile.SemanticCoverageSourceContribution,
 ) SemanticCoverageResourceExpectation {
 	t.Helper()
 	accumulator := NewSemanticCoverageSourceSetAccumulator(resourceType, true)
@@ -313,7 +314,7 @@ func assertSemanticCoverageEnvelopes(
 	ctx context.Context,
 	client *arangostore.Client,
 	identity SemanticCoverageBuildIdentity,
-	contributions []catalog.SemanticCoverageSourceContribution,
+	contributions []fieldprofile.SemanticCoverageSourceContribution,
 ) {
 	t.Helper()
 	keys := make([]string, 0, len(contributions))
@@ -363,37 +364,37 @@ func semanticCoverageResourceContribution(
 	identity SemanticCoverageBuildIdentity,
 	resourceType, authPath, sourceID, ownerPath, candidatePath string,
 	groupable bool,
-) catalog.SemanticCoverageSourceContribution {
-	disposition := catalog.SemanticCoverageSemanticDisposition
-	var reason catalog.SemanticCoverageReason
-	var references []catalog.SemanticCoverageReference
+) fieldprofile.SemanticCoverageSourceContribution {
+	disposition := fieldprofile.SemanticCoverageSemanticDisposition
+	var reason fieldprofile.SemanticCoverageReason
+	var references []fieldprofile.SemanticCoverageReference
 	if groupable {
-		references = []catalog.SemanticCoverageReference{{
-			Kind: catalog.SemanticCoverageExactReference, ConceptID: "concept-" + strings.ToLower(resourceType),
+		references = []fieldprofile.SemanticCoverageReference{{
+			Kind: fieldprofile.SemanticCoverageExactReference, ConceptID: "concept-" + strings.ToLower(resourceType),
 			BindingID: "binding-" + strings.ToLower(resourceType), CandidatePath: candidatePath, ResourceType: resourceType,
 		}}
 	} else {
-		disposition = catalog.SemanticCoverageRawRetainedDisposition
-		reason = catalog.SemanticCoverageReasonUnsupportedSelector
+		disposition = fieldprofile.SemanticCoverageRawRetainedDisposition
+		reason = fieldprofile.SemanticCoverageReasonUnsupportedSelector
 	}
-	return catalog.SemanticCoverageSourceContribution{
-		Identity: catalog.SemanticCoverageSourceIdentity{
+	return fieldprofile.SemanticCoverageSourceContribution{
+		Identity: fieldprofile.SemanticCoverageSourceIdentity{
 			Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, AuthResourcePath: authPath,
 			SchemaIdentity: identity.SchemaIdentity, SourceKind: identity.SourceKind, SourceID: sourceID, ResourceType: resourceType,
 		},
 		BuildID: identity.BuildID, SourceRecordCount: 1, Complete: true,
-		Counts: catalog.SemanticCoverageCounts{
+		Counts: fieldprofile.SemanticCoverageCounts{
 			CodeableConceptOwners: 1, PopulatedCodeableConceptValues: 1,
 			CodingOccurrences: 1, PopulatedCodingValues: 1,
 		},
-		Paths: []catalog.SemanticCoveragePathAggregate{{
-			CanonicalPath: ownerPath, Kind: catalog.SemanticCoverageCodeableConcept, Disposition: disposition, Reason: reason,
+		Paths: []fieldprofile.SemanticCoveragePathAggregate{{
+			CanonicalPath: ownerPath, Kind: fieldprofile.SemanticCoverageCodeableConcept, Disposition: disposition, Reason: reason,
 			OccurrenceCount: 1, OwnerCount: 1, CodingCount: 1,
-			PresenceCounts: map[catalog.SemanticCoveragePresence]int64{catalog.SemanticCoveragePopulated: 1},
+			PresenceCounts: map[fieldprofile.SemanticCoveragePresence]int64{fieldprofile.SemanticCoveragePopulated: 1},
 			References:     references,
-			Facets: []catalog.SemanticCoverageFacetAggregate{{
+			Facets: []fieldprofile.SemanticCoverageFacetAggregate{{
 				Path: candidatePath, Kind: "code", Disposition: disposition, Reason: reason, OccurrenceCount: 1,
-				PresenceCounts: map[catalog.SemanticCoveragePresence]int64{catalog.SemanticCoveragePopulated: 1},
+				PresenceCounts: map[fieldprofile.SemanticCoveragePresence]int64{fieldprofile.SemanticCoveragePopulated: 1},
 				References:     references,
 			}},
 		}},

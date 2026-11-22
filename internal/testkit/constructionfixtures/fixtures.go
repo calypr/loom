@@ -15,7 +15,8 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/capability/resolver"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+
 	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 )
 
@@ -86,7 +87,7 @@ type Fixture struct {
 	Catalog      *BundleCatalog
 	Explorers    Explorers
 	Revisions    *Revisions
-	Capabilities lifecycle.CapabilityResolver
+	Capabilities ports.CapabilityResolver
 	Snapshot     capability.Snapshot
 	Digest       string
 }
@@ -110,8 +111,8 @@ func New(scope authscope.ReadScope) (Fixture, error) {
 		Catalog:   &BundleCatalog{Pointers: map[string]publication.BundlePointer{}},
 		Explorers: Explorers{Value: &explorer.Explorer{Project: "project-a", ExplorerID: "builder-a", DraftVersion: 1, DraftDigest: digest, DraftConfig: draft}},
 		Revisions: &Revisions{Values: map[string]*explorer.Revision{}},
-		Capabilities: lifecycle.CapabilityResolver{ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-			return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capabilities: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		}},
 		Snapshot: snapshot,
 		Digest:   digest,

@@ -7,6 +7,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
 	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -15,12 +16,12 @@ import (
 func TestCapabilityEvidencePreservesConceptIdentityAndUnresolvedStatus(t *testing.T) {
 	input := catalog.CapabilityEvidence{FieldEnrichment: catalog.FieldEnrichmentResult{Values: []catalog.FieldEnrichmentObservation{{
 		ResourceType: "Observation", Path: "component[]", Kind: "array", DocCount: 2,
-		SemanticObservations: []catalog.SemanticObservation{{
-			Source:      catalog.SemanticObservationSource{Type: "Observation", Path: "component[].code"},
-			OwningScope: "component[]", Key: catalog.SemanticObservationKey{Selector: "code.coding[]", Code: "shared"},
-			Value:     catalog.SemanticObservationValue{Selector: "valueQuantity.value"},
+		SemanticObservations: []codedconcept.Observation{{
+			Source:      codedconcept.Source{Type: "Observation", Path: "component[].code"},
+			OwningScope: "component[]", Key: codedconcept.Key{Selector: "code.coding[]", Code: "shared"},
+			Value:     codedconcept.Value{Selector: "valueQuantity.value"},
 			ChoiceArm: "valueQuantity", LogicalType: "decimal", ObservedUnits: []string{"cm"},
-			ExtensionURLPath: []string{"urn:parent", "urn:leaf"}, Completeness: catalog.SemanticPartial,
+			ExtensionURLPath: []string{"urn:parent", "urn:leaf"}, Completeness: codedconcept.Partial,
 			Status: "UNRESOLVED_SYSTEM", Population: 2, Examples: []string{"333"},
 		}},
 	}, {
@@ -56,13 +57,13 @@ func TestCapabilityEvidencePreservesConceptIdentityAndUnresolvedStatus(t *testin
 }
 
 func TestCapabilityConceptsSurviveBuilderProofOnScalarValuePath(t *testing.T) {
-	concept := func(system, code, status string, population int64) catalog.SemanticObservation {
-		return catalog.SemanticObservation{
-			Source:      catalog.SemanticObservationSource{Type: "Observation", Canonical: "Observation.component", Path: "component[]"},
+	concept := func(system, code, status string, population int64) codedconcept.Observation {
+		return codedconcept.Observation{
+			Source:      codedconcept.Source{Type: "Observation", Canonical: "Observation.component", Path: "component[]"},
 			OwningScope: "component[]",
-			Key:         catalog.SemanticObservationKey{Selector: "code.coding[]", System: system, Code: code},
-			Value:       catalog.SemanticObservationValue{Selector: "valueQuantity.value", Type: "decimal"},
-			ChoiceArm:   "valueQuantity", LogicalType: "decimal", Completeness: catalog.SemanticComplete,
+			Key:         codedconcept.Key{Selector: "code.coding[]", System: system, Code: code},
+			Value:       codedconcept.Value{Selector: "valueQuantity.value", Type: "decimal"},
+			ChoiceArm:   "valueQuantity", LogicalType: "decimal", Completeness: codedconcept.Complete,
 			Status: status, Population: population, Examples: []string{code},
 		}
 	}
@@ -71,7 +72,7 @@ func TestCapabilityConceptsSurviveBuilderProofOnScalarValuePath(t *testing.T) {
 		Relationships:     catalog.RelationshipObservationResult{Available: true, Complete: true},
 		FieldEnrichment: catalog.FieldEnrichmentResult{Available: true, Complete: true, Values: []catalog.FieldEnrichmentObservation{{
 			ResourceType: "Observation", Path: "component[]", Kind: "array", DocCount: 3,
-			SemanticObservations: []catalog.SemanticObservation{
+			SemanticObservations: []codedconcept.Observation{
 				concept("urn:study:A", "shared", "SUPPORTED", 1),
 				concept("urn:study:B", "shared", "SUPPORTED", 1),
 				concept("", "shared", "UNRESOLVED_SYSTEM", 1),

@@ -4,11 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 )
 
 func TestDiscoveredFieldHintsUseDefaultRefsOnly(t *testing.T) {
-	fields := []catalog.PopulatedField{
+	fields := []fieldprofile.PopulatedField{
 		{ResourceType: "Patient", Path: "identifier[].value", Kind: "scalar"},
 	}
 	hints := discoveredFieldHints("Patient", fields)
@@ -27,7 +27,7 @@ func TestDiscoveredFieldHintsUseDefaultRefsOnly(t *testing.T) {
 }
 
 func TestResolveFieldRefAcceptsDefaultGeneratedRefs(t *testing.T) {
-	discovered := []catalog.PopulatedField{
+	discovered := []fieldprofile.PopulatedField{
 		{ResourceType: "Patient", Path: "identifier[].value"},
 	}
 	selector, err := resolveFieldRef("Patient", discovered, "Patient.identifier_value")
@@ -40,7 +40,7 @@ func TestResolveFieldRefAcceptsDefaultGeneratedRefs(t *testing.T) {
 }
 
 func TestResolveFieldRefRejectsCuratedAlias(t *testing.T) {
-	discovered := []catalog.PopulatedField{
+	discovered := []fieldprofile.PopulatedField{
 		{ResourceType: "Patient", Path: "extension[].valueCode"},
 	}
 	_, err := resolveFieldRef("Patient", discovered, "Patient.birth_sex")
@@ -50,7 +50,7 @@ func TestResolveFieldRefRejectsCuratedAlias(t *testing.T) {
 }
 
 func TestResolvePivotFieldRefRejectsCuratedAlias(t *testing.T) {
-	discovered := []catalog.PopulatedField{
+	discovered := []fieldprofile.PopulatedField{
 		{ResourceType: "Patient", Path: "extension[].valueCode"},
 	}
 	_, err := resolvePivotFieldRef("Patient", discovered, "Patient.birth_sex")

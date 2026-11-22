@@ -10,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 type explicitGroupSelectionFixture struct {
@@ -202,7 +203,7 @@ func TestCreateExplicitGroupRevisionRejectsForeignMembersBeforeStaging(t *testin
 	request := explicitGroupCreateFixtureRequest(selectionStore.header.ID)
 	request.Groups[0].MemberIDs = []string{"member-a", "not-a-source-member"}
 	_, err := service.CreateExplicitGroupRevision(context.Background(), request)
-	var typed *Error
+	var typed *ports.Error
 	if !errors.As(err, &typed) || typed.Code != "EXPLICIT_GROUP_FOREIGN_MEMBER" {
 		t.Fatalf("foreign member error = %v", err)
 	}
@@ -244,11 +245,11 @@ func explicitGroupServiceFixture(t *testing.T) (*Service, *explicitGroupSelectio
 	}
 	repository := &explicitGroupRepositoryFixture{}
 	service, err := New(persistence, Config{
-		Capability: CapabilityResolver{ForCompilation: func(_ context.Context, project, token string) (AuthorizedCapability, error) {
+		Capability: ports.CapabilityResolver{ForCompilation: func(_ context.Context, project, token string) (ports.AuthorizedCapability, error) {
 			if project != "project" || token != "snapshot-token" {
-				return AuthorizedCapability{}, capability.ErrStaleSnapshot
+				return ports.AuthorizedCapability{}, capability.ErrStaleSnapshot
 			}
-			return AuthorizedCapability{Snapshot: capabilitySnapshot(token, "generation-a", digest), Scope: scope}, nil
+			return ports.AuthorizedCapability{Snapshot: capabilitySnapshot(token, "generation-a", digest), Scope: scope}, nil
 		}},
 		ExplicitGroupRepository: repository,
 		Now:                     func() time.Time { return completedAt.Add(time.Minute) },

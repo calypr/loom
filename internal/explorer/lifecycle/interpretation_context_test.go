@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 type interpretationContextRepository struct {
@@ -67,8 +68,8 @@ func TestConfiguredColumnContextProjectsServerOwnedResolutionWithoutMutation(t *
 	snapshot, scope := interpretationContextSnapshot()
 	service := newTestService(t, store, Config{
 		InterpretationRepository: repository,
-		Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		}},
 	})
 
@@ -128,8 +129,8 @@ func TestConfiguredColumnContextRejectsStaleDraftAndScope(t *testing.T) {
 	t.Run("draft", func(t *testing.T) {
 		service := newTestService(t, &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: draft, DraftVersion: 8, DraftDigest: digest}}, Config{
 			InterpretationRepository: repository,
-			Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-				return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+			Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			}},
 		})
 		_, err := service.ConfiguredColumnContext(context.Background(), request)
@@ -139,8 +140,8 @@ func TestConfiguredColumnContextRejectsStaleDraftAndScope(t *testing.T) {
 	t.Run("authorization scope", func(t *testing.T) {
 		service := newTestService(t, &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: draft, DraftVersion: 7, DraftDigest: digest}}, Config{
 			InterpretationRepository: repository,
-			Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-				return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeRestricted}}, nil
+			Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeRestricted}}, nil
 			}},
 		})
 		_, err := service.ConfiguredColumnContext(context.Background(), request)
@@ -150,8 +151,8 @@ func TestConfiguredColumnContextRejectsStaleDraftAndScope(t *testing.T) {
 	t.Run("snapshot", func(t *testing.T) {
 		service := newTestService(t, &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: draft, DraftVersion: 7, DraftDigest: digest}}, Config{
 			InterpretationRepository: repository,
-			Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-				return AuthorizedCapability{}, capability.ErrStaleSnapshot
+			Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{}, capability.ErrStaleSnapshot
 			}},
 		})
 		_, err := service.ConfiguredColumnContext(context.Background(), request)
@@ -176,8 +177,8 @@ func TestConfiguredColumnContextRejectsInvalidRoute(t *testing.T) {
 	repository := &interpretationContextRepository{revisions: map[explorer.InterpretationRevisionID]explorer.InterpretationRevision{revision.ID: revision}}
 	service := newTestService(t, &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}}, Config{
 		InterpretationRepository: repository,
-		Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		}},
 	})
 	_, err = service.ConfiguredColumnContext(context.Background(), ConfiguredColumnContextRequest{
@@ -188,8 +189,8 @@ func TestConfiguredColumnContextRejectsInvalidRoute(t *testing.T) {
 
 func TestConfiguredColumnContextRejectsWorkAboveExplicitLimits(t *testing.T) {
 	snapshot, scope := interpretationContextSnapshot()
-	capabilityResolver := CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-		return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	capabilityResolver := ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}}
 
 	t.Run("columns", func(t *testing.T) {
@@ -254,7 +255,7 @@ func interpretationContextSnapshot() (capability.Snapshot, authscope.ReadScope) 
 
 func assertLifecycleCode(t *testing.T, err error, code string) {
 	t.Helper()
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != code {
 		t.Fatalf("error = %v, want lifecycle code %s", err, code)
 	}
@@ -300,8 +301,8 @@ func TestConfiguredColumnContextKeepsOrdinaryMappingsAlongsideLargeImportedSourc
 	snapshot, scope := interpretationContextSnapshot()
 	service := newTestService(t, store, Config{
 		InterpretationRepository: repository,
-		Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		}},
 	})
 

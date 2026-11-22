@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const defaultPreflightSampleRows = 10
+const DefaultPreflightSampleRows = 10
 
 type IngestionMode string
 
@@ -55,12 +55,12 @@ func (e *PreflightError) Error() string {
 	return fmt.Sprintf("ingestion preflight failed: %s", issue.Message)
 }
 
-func PreflightFiles(files []string, schema *runtimeFHIRSchema, sampleRows int) (PreflightReport, error) {
+func PreflightFiles(files []string, schema *RuntimeFHIRSchema, sampleRows int) (PreflightReport, error) {
 	if schema == nil {
 		return PreflightReport{}, fmt.Errorf("FHIR schema is required")
 	}
 	if sampleRows <= 0 {
-		sampleRows = defaultPreflightSampleRows
+		sampleRows = DefaultPreflightSampleRows
 	}
 
 	grouped := make(map[string][]string, len(files))
@@ -82,7 +82,7 @@ func PreflightFiles(files []string, schema *runtimeFHIRSchema, sampleRows int) (
 		resourceFiles := append([]string(nil), grouped[resourceType]...)
 		sort.Strings(resourceFiles)
 		classSupported := schema.HasClass(resourceType)
-		generatedSupported := supportsGeneratedLoad(resourceType)
+		generatedSupported := SupportsGeneratedLoad(resourceType)
 		mode := IngestionModeUnsupported
 		if classSupported && generatedSupported {
 			mode = IngestionModeGenerated

@@ -10,6 +10,7 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -65,12 +66,12 @@ func (s *Service) CellTrace(ctx context.Context, request CellTraceRequest) (Cell
 		if errors.Is(err, dataframeexecution.ErrCellTraceRowNotFound) {
 			return CellTraceResult{}, notFound("cellTrace", "PREVIEW_ROW_NOT_FOUND", "rowId does not exist in the receipt output", err)
 		}
-		var typed *Error
+		var typed *ports.Error
 		if errors.As(err, &typed) {
 			return CellTraceResult{}, typed
 		}
 		if userErr, ok := dataframeerrors.AsUserError(err); ok {
-			return CellTraceResult{}, failureDetails(ClassUnprocessable, "cellTrace", userErr.Code(), dataframeerrors.PublicMessage(err), userErr.Details(), err)
+			return CellTraceResult{}, failureDetails(ports.ClassUnprocessable, "cellTrace", userErr.Code(), dataframeerrors.PublicMessage(err), userErr.Details(), err)
 		}
 		return CellTraceResult{}, err
 	}

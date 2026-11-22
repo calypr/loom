@@ -11,7 +11,16 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-func (s *Service) constructionGroupSourceCapability(ctx context.Context, base constructionBase, outputID, stageID string) (ConstructionGroupSourceCapability, error) {
+type constructionRowSources struct {
+	planner  RowChoicePlanner
+	resolver RowChoiceResolver
+}
+
+func (s *Service) constructionSources() constructionRowSources {
+	return constructionRowSources{planner: s.config.RowChoicePlanner, resolver: s.config.RowChoiceResolver}
+}
+
+func (s constructionRowSources) constructionGroupSourceCapability(ctx context.Context, base constructionBase, outputID, stageID string) (ConstructionGroupSourceCapability, error) {
 	result := ConstructionGroupSourceCapability{StageID: stageID, Choices: []ConstructionGroupSourceChoice{}}
 	if importedSourceChoiceUnavailable(base.document) {
 		result.Supported = true
@@ -22,12 +31,12 @@ func (s *Service) constructionGroupSourceCapability(ctx context.Context, base co
 		result.Reason = "scalar source inputs are currently available only at the direct source stage"
 		return result, nil
 	}
-	if s.config.RowChoicePlanner == nil {
+	if s.planner == nil {
 		result.ReasonCode = "ROW_CHOICE_UNAVAILABLE"
 		result.Reason = "authorized scalar source choices are not configured"
 		return result, nil
 	}
-	choices, err := s.config.RowChoicePlanner.ListRowChoices(ctx, base.snapshot.Clone(), base.document)
+	choices, err := s.planner.ListRowChoices(ctx, base.snapshot.Clone(), base.document)
 	if err != nil {
 		return result, fmt.Errorf("list authorized row choices for output %q: %w", outputID, err)
 	}
@@ -55,7 +64,7 @@ func (s *Service) constructionGroupSourceCapability(ctx context.Context, base co
 	return result, nil
 }
 
-func (s *Service) constructionCandidateWithGroupSource(ctx context.Context, base constructionBase, request ConstructionProposalRequest) (authoringv2.Construction, error) {
+func (s constructionRowSources) constructionCandidateWithGroupSource(ctx context.Context, base constructionBase, request ConstructionProposalRequest) (authoringv2.Construction, error) {
 	candidate := request.CandidateConstruction
 	if request.GroupSource == nil && request.GroupSources == nil {
 		candidate.SourceProjections = append([]authoringv2.ConstructionSourceProjection(nil), base.construction.SourceProjections...)
@@ -105,11 +114,11 @@ func (s *Service) constructionCandidateWithGroupSource(ctx context.Context, base
 	return candidate, nil
 }
 
-func (s *Service) resolveConstructionGroupSource(ctx context.Context, base constructionBase, request ConstructionProposalRequest, columnID string) (authoringv2.ConstructionSourceProjection, error) {
-	if s.config.RowChoiceResolver == nil {
+func (s constructionRowSources) resolveConstructionGroupSource(ctx context.Context, base constructionBase, request ConstructionProposalRequest, columnID string) (authoringv2.ConstructionSourceProjection, error) {
+	if s.resolver == nil {
 		return authoringv2.ConstructionSourceProjection{}, unavailable("construction-proposal", "ROW_CHOICE_UNAVAILABLE", "authorized scalar source choice resolution is not configured", nil)
 	}
-	resolved, err := s.config.RowChoiceResolver.ResolveRowChoiceID(ctx, RowChoiceResolveRequest{
+	resolved, err := s.resolver.ResolveRowChoiceID(ctx, RowChoiceResolveRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, OutputID: request.OutputID,
 		Snapshot: base.snapshot.Clone(), Route: base.document.Route,
 		RowChoiceID: request.GroupSource.RowChoiceID, ExpectedKind: RowChoiceFieldGroup,

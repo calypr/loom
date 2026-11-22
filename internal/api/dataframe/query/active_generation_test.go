@@ -7,6 +7,7 @@ import (
 
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	publication "github.com/calypr/loom/internal/dataset"
 )
@@ -57,24 +58,24 @@ func TestActiveGenerationPropagatesThroughBuilderCatalogEntrypoints(t *testing.T
 	const project = "project-a"
 	const generation = "generation-a"
 	active := &builderActiveManifestResolver{manifest: builderReadyManifest(t, project, generation)}
-	var fieldCalls []catalog.PopulatedFieldOptions
+	var fieldCalls []fieldprofile.PopulatedFieldOptions
 	var referenceCalls []catalog.PopulatedReferenceOptions
 
-	discoverFields := func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+	discoverFields := func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 		fieldCalls = append(fieldCalls, options)
 		if options.PivotOnly {
-			return []catalog.PopulatedField{}, nil
+			return []fieldprofile.PopulatedField{}, nil
 		}
 		switch options.ResourceType {
 		case "", "Patient":
-			return []catalog.PopulatedField{{
+			return []fieldprofile.PopulatedField{{
 				Project: project, ResourceType: "Patient", Path: "gender", Kind: "scalar", DocCount: 2,
 				DistinctValues: []string{"female", "male"},
 			}}, nil
 		case "Specimen":
-			return []catalog.PopulatedField{{Project: project, ResourceType: "Specimen", Path: "id", Kind: "scalar", DocCount: 1}}, nil
+			return []fieldprofile.PopulatedField{{Project: project, ResourceType: "Specimen", Path: "id", Kind: "scalar", DocCount: 1}}, nil
 		default:
-			return []catalog.PopulatedField{}, nil
+			return []fieldprofile.PopulatedField{}, nil
 		}
 	}
 	discoverReferences := func(_ context.Context, options catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {

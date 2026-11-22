@@ -7,9 +7,9 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-func (r *physicalPlanRenderer) renderTableShapeExclusionReturn(terminal ir.PhysicalTableShapeExclusionReturn) ([]string, error) {
+func (r tableShapeRenderer) renderTableShapeExclusionReturn(terminal ir.PhysicalTableShapeExclusionReturn) ([]string, error) {
 	pivot := terminal.Pivot
-	input, err := r.renderReturn(ir.PhysicalReturn{Projections: pivot.InputProjections})
+	input, err := r.core.renderReturn(ir.PhysicalReturn{Projections: pivot.InputProjections})
 	if err != nil {
 		return nil, fmt.Errorf("render exclusion pivot inputs: %w", err)
 	}
@@ -18,11 +18,11 @@ func (r *physicalPlanRenderer) renderTableShapeExclusionReturn(terminal ir.Physi
 		return nil, fmt.Errorf("render exclusion source identity: %w", err)
 	}
 
-	categoryColumnBind := r.newInternalBindKey("exclusion_category_column")
+	categoryColumnBind := r.core.newInternalBindKey("exclusion_category_column")
 	r.bindVars[categoryColumnBind] = pivot.CategoryColumn
 	categoryPresenceBind := ""
 	if pivot.CategoryPresenceFromInput {
-		categoryPresenceBind = r.newInternalBindKey("exclusion_category_presence_column")
+		categoryPresenceBind = r.core.newInternalBindKey("exclusion_category_presence_column")
 		r.bindVars[categoryPresenceBind] = pivot.CategoryPresenceColumn
 	}
 	if pivot.CategoryPresence != nil {
@@ -30,7 +30,7 @@ func (r *physicalPlanRenderer) renderTableShapeExclusionReturn(terminal ir.Physi
 		if presenceErr != nil {
 			return nil, fmt.Errorf("render exclusion category presence: %w", presenceErr)
 		}
-		presenceNameBind := r.newInternalBindKey("exclusion_category_presence_column")
+		presenceNameBind := r.core.newInternalBindKey("exclusion_category_presence_column")
 		r.bindVars[presenceNameBind] = pivot.CategoryPresenceColumn
 		categoryPresenceBind = presenceNameBind
 		input = fmt.Sprintf("MERGE(%s, {[@%s]: %s})", input, presenceNameBind, presence)
@@ -42,12 +42,12 @@ func (r *physicalPlanRenderer) renderTableShapeExclusionReturn(terminal ir.Physi
 	categoryTypeBind := ""
 	for _, category := range pivot.Categories {
 		if category.MatchKind == ir.PhysicalPivotCategoryValueMatch {
-			categoryTypeBind = r.newInternalBindKey("exclusion_category_type")
+			categoryTypeBind = r.core.newInternalBindKey("exclusion_category_type")
 			r.bindVars[categoryTypeBind] = categoryType
 			break
 		}
 	}
-	categoryKindBind := r.newInternalBindKey("exclusion_category_kind")
+	categoryKindBind := r.core.newInternalBindKey("exclusion_category_kind")
 	r.bindVars[categoryKindBind] = pivot.CategoryType
 
 	inputVariable := pivot.InputRowVariable
@@ -62,7 +62,7 @@ func (r *physicalPlanRenderer) renderTableShapeExclusionReturn(terminal ir.Physi
 
 	groupValues := make([]string, 0, len(pivot.GroupKeys))
 	for index, key := range pivot.GroupKeys {
-		columnBind := r.newInternalBindKey(fmt.Sprintf("exclusion_group_column_%d", index))
+		columnBind := r.core.newInternalBindKey(fmt.Sprintf("exclusion_group_column_%d", index))
 		r.bindVars[columnBind] = key.Column
 		groupValues = append(groupValues, fmt.Sprintf("%s[@%s]", inputVariable, columnBind))
 	}
@@ -70,22 +70,22 @@ func (r *physicalPlanRenderer) renderTableShapeExclusionReturn(terminal ir.Physi
 	if err != nil {
 		return nil, err
 	}
-	rowIdentityVariable := r.newInternalVariable("exclusion_output_row_id")
+	rowIdentityVariable := r.core.navigation().newInternalVariable("exclusion_output_row_id")
 	lines = append(lines, fmt.Sprintf("LET %s = %s", rowIdentityVariable, rowIdentity))
 
-	documentFieldBind := r.newInternalBindKey("exclusion_source_document_field")
+	documentFieldBind := r.core.newInternalBindKey("exclusion_source_document_field")
 	r.bindVars[documentFieldBind] = ir.PhysicalCellTraceSourceDocumentField
-	documentVariable := r.newInternalVariable("exclusion_source_document")
+	documentVariable := r.core.navigation().newInternalVariable("exclusion_source_document")
 	lines = append(lines, fmt.Sprintf("LET %s = %s[@%s]", documentVariable, inputVariable, documentFieldBind))
-	identityAvailable := r.newInternalVariable("exclusion_identity_available")
+	identityAvailable := r.core.navigation().newInternalVariable("exclusion_identity_available")
 	lines = append(lines, fmt.Sprintf("LET %s = IS_OBJECT(%s) AND IS_STRING(%s.resourceType) AND %s.resourceType != \"\" AND IS_STRING(%s.id) AND %s.id != \"\"", identityAvailable, documentVariable, documentVariable, documentVariable, documentVariable, documentVariable))
 
 	categoryPresent := "HAS(" + inputVariable + ", @" + categoryColumnBind + ")"
 	if categoryPresenceBind != "" {
 		categoryPresent = fmt.Sprintf("%s[@%s] == true", inputVariable, categoryPresenceBind)
 	}
-	categoryPresentVariable := r.newInternalVariable("exclusion_category_present")
-	categoryValueVariable := r.newInternalVariable("exclusion_category_value")
+	categoryPresentVariable := r.core.navigation().newInternalVariable("exclusion_category_present")
+	categoryValueVariable := r.core.navigation().newInternalVariable("exclusion_category_value")
 	stableRowColumn := ""
 	for _, projection := range pivot.InputProjections {
 		if projection.Name == "__loom_row_id" {
@@ -99,7 +99,7 @@ func (r *physicalPlanRenderer) renderTableShapeExclusionReturn(terminal ir.Physi
 	if stableRowColumn == "" {
 		return nil, fmt.Errorf("table-shape exclusion input has no stable row tie-breaker")
 	}
-	stableRowColumnBind := r.newInternalBindKey("exclusion_stable_row_column")
+	stableRowColumnBind := r.core.newInternalBindKey("exclusion_stable_row_column")
 	r.bindVars[stableRowColumnBind] = stableRowColumn
 	lines = append(lines,
 		fmt.Sprintf("LET %s = %s", categoryPresentVariable, categoryPresent),
@@ -109,7 +109,7 @@ func (r *physicalPlanRenderer) renderTableShapeExclusionReturn(terminal ir.Physi
 	)
 
 	field := func(prefix, name string) string {
-		key := r.newInternalBindKey(prefix)
+		key := r.core.newInternalBindKey(prefix)
 		r.bindVars[key] = name
 		return key
 	}
@@ -140,7 +140,7 @@ func (r *physicalPlanRenderer) renderTableShapeExclusionReturn(terminal ir.Physi
 	return lines, nil
 }
 
-func (r *physicalPlanRenderer) renderGroupedPivotIdentity(pivot ir.PhysicalGroupedPivot, keyValues []string) (string, error) {
+func (r tableShapeRenderer) renderGroupedPivotIdentity(pivot ir.PhysicalGroupedPivot, keyValues []string) (string, error) {
 	if len(keyValues) != len(pivot.GroupKeys) {
 		return "", fmt.Errorf("grouped pivot identity has %d key values, want %d", len(keyValues), len(pivot.GroupKeys))
 	}

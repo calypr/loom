@@ -34,3 +34,11 @@ func (e *RowError) PublicMessage() string {
 	return fmt.Sprintf("%s row %d failed %s for resource type %s. Check this row against the configured FHIR schema.",
 		e.File, e.Row, e.Category, e.ResourceType)
 }
+
+type RowErrorSample struct {
+	File         string `json:"file"`
+	Line         int    `json:"line"`
+	ResourceType string `json:"resource_type"`
+	Category     string `json:"category"`
+	Message      string `json:"message"`
+}

@@ -7,7 +7,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-func (r *physicalPlanRenderer) renderComposedRelatedRowLineage(
+func (r rowLineageRenderer) renderComposedRelatedRowLineage(
 	sourceQuery string,
 	stages []ir.PhysicalConstructionStage,
 	terminal ir.PhysicalRowLineageReturn,
@@ -49,14 +49,14 @@ func (r *physicalPlanRenderer) renderComposedRelatedRowLineage(
 		matches[match.StageID] = match
 	}
 
-	rootSource := r.newInternalVariable("row_lineage_root_source")
-	rootKeyColumnBind := r.newInternalBindKey("row_lineage_root_key_column")
+	rootSource := r.core.navigation().newInternalVariable("row_lineage_root_source")
+	rootKeyColumnBind := r.core.newInternalBindKey("row_lineage_root_key_column")
 	r.bindVars[rootKeyColumnBind] = terminal.OccurrenceKeyColumn
-	rootIDColumnBind := r.newInternalBindKey("row_lineage_root_resource_id_column")
+	rootIDColumnBind := r.core.newInternalBindKey("row_lineage_root_resource_id_column")
 	r.bindVars[rootIDColumnBind] = terminal.ResourceIDColumn
-	rootTypeBind := r.newInternalBindKey("row_lineage_root_resource_type")
+	rootTypeBind := r.core.newInternalBindKey("row_lineage_root_resource_type")
 	r.bindVars[rootTypeBind] = terminal.ResourceType
-	states := r.newInternalVariable("row_lineage_composed_source_rows")
+	states := r.core.navigation().newInternalVariable("row_lineage_composed_source_rows")
 	lines := []string{
 		"LET " + states + " = (",
 		"  FOR " + rootSource + " IN (\n" + indentQuery(sourceQuery, "    ") + "\n  )",
@@ -81,7 +81,7 @@ func (r *physicalPlanRenderer) renderComposedRelatedRowLineage(
 				return RenderedPhysicalPlan{}, fmt.Errorf("composed row lineage related stage %q has no typed payload", stage.ID)
 			}
 			traceIndex++
-			field := r.newInternalVariable("row_lineage_stage_witness")
+			field := r.core.navigation().newInternalVariable("row_lineage_stage_witness")
 			previousFields := append([]string(nil), witnessFields...)
 			witnessFields = append(witnessFields, field)
 			stageRows, stageLines, err := r.renderComposedRelatedLineageStage(states, stage, match, field, previousFields)
@@ -106,9 +106,9 @@ func (r *physicalPlanRenderer) renderComposedRelatedRowLineage(
 		return RenderedPhysicalPlan{}, fmt.Errorf("composed row lineage trace contains a stage outside the construction sequence")
 	}
 
-	finalState := r.newInternalVariable("row_lineage_composed_final_state")
-	finalCandidate := r.newInternalVariable("row_lineage_composed_final_candidate")
-	finalIdentityColumnBind := r.newInternalBindKey("row_lineage_final_identity_column")
+	finalState := r.core.navigation().newInternalVariable("row_lineage_composed_final_state")
+	finalCandidate := r.core.navigation().newInternalVariable("row_lineage_composed_final_candidate")
+	finalIdentityColumnBind := r.core.newInternalBindKey("row_lineage_final_identity_column")
 	r.bindVars[finalIdentityColumnBind] = stages[len(stages)-1].RowIdentityColumn
 	lines = append(lines,
 		"LET "+finalState+" = FIRST(",
@@ -118,9 +118,9 @@ func (r *physicalPlanRenderer) renderComposedRelatedRowLineage(
 		")",
 	)
 
-	page := r.newInternalVariable("row_lineage_composed_page")
-	ordinal := r.newInternalVariable("row_lineage_composed_ordinal")
-	contributor := r.newInternalVariable("row_lineage_composed_contributor")
+	page := r.core.navigation().newInternalVariable("row_lineage_composed_page")
+	ordinal := r.core.navigation().newInternalVariable("row_lineage_composed_ordinal")
+	contributor := r.core.navigation().newInternalVariable("row_lineage_composed_contributor")
 	selected := make([]string, 0, len(witnessFields)+1)
 	selected = append(selected, finalState+".root")
 	for _, field := range witnessFields {
@@ -154,33 +154,33 @@ func composedLineageIdentityPreservingStage(kind ir.PhysicalStageOperationKind) 
 	}
 }
 
-func (r *physicalPlanRenderer) renderComposedLineageProjectionStage(
+func (r rowLineageRenderer) renderComposedLineageProjectionStage(
 	priorRows string,
 	stage ir.PhysicalConstructionStage,
 	witnessFields []string,
 ) (string, []string, error) {
-	states := r.newInternalVariable("row_lineage_composed_projection_rows")
-	state := r.newInternalVariable("row_lineage_composed_projection_state")
+	states := r.core.navigation().newInternalVariable("row_lineage_composed_projection_rows")
+	state := r.core.navigation().newInternalVariable("row_lineage_composed_projection_state")
 	lines := []string{"LET " + states + " = (", "  FOR " + state + " IN " + priorRows,
 		"  LET " + stage.InputRowVariable + " = " + state + ".row"}
 	for index, operation := range stage.DerivedLets {
 		if operation.Kind != ir.PhysicalExpressionLetOp {
 			return "", nil, fmt.Errorf("derived operation %d has kind %q", index, operation.Kind)
 		}
-		rendered, err := r.renderExpressionLet(operation, "  ")
+		rendered, err := r.core.renderExpressionLet(operation, "  ")
 		if err != nil {
 			return "", nil, fmt.Errorf("render derived operation %d: %w", index, err)
 		}
 		lines = append(lines, rendered...)
 	}
 	if stage.Filter != nil {
-		rendered, err := r.renderScopeOperation(ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: stage.Filter}, "  ")
+		rendered, err := r.core.renderScopeOperation(ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: stage.Filter}, "  ")
 		if err != nil {
 			return "", nil, fmt.Errorf("render filter: %w", err)
 		}
 		lines = append(lines, rendered...)
 	}
-	output, err := r.renderReturn(ir.PhysicalReturn{Projections: stage.OutputProjections})
+	output, err := r.core.renderReturn(ir.PhysicalReturn{Projections: stage.OutputProjections})
 	if err != nil {
 		return "", nil, fmt.Errorf("render output row: %w", err)
 	}
@@ -193,7 +193,7 @@ func (r *physicalPlanRenderer) renderComposedLineageProjectionStage(
 	return states, lines, nil
 }
 
-func (r *physicalPlanRenderer) renderComposedRelatedLineageStage(
+func (r rowLineageRenderer) renderComposedRelatedLineageStage(
 	priorRows string,
 	stage ir.PhysicalConstructionStage,
 	match ir.PhysicalRowLineageStageMatch,
@@ -205,8 +205,8 @@ func (r *physicalPlanRenderer) renderComposedRelatedLineageStage(
 		return "", nil, fmt.Errorf("empty identity requires PRESERVE_PARENT")
 	}
 	input := stage.InputRowVariable
-	state := r.newInternalVariable("row_lineage_composed_related_state")
-	rows := r.newInternalVariable("row_lineage_composed_related_rows")
+	state := r.core.navigation().newInternalVariable("row_lineage_composed_related_state")
+	rows := r.core.navigation().newInternalVariable("row_lineage_composed_related_rows")
 	item := related.ItemVariable
 	if item == "" || related.IdentityVariable == "" || related.ParentIdentityColumn == "" {
 		return "", nil, fmt.Errorf("related stage is missing identity variables")
@@ -234,7 +234,7 @@ func (r *physicalPlanRenderer) renderComposedRelatedLineageStage(
 		})
 		subplan.Operations = operations
 	}
-	route, err := r.renderSubplan(subplan, "  ", true)
+	route, err := r.core.renderSubplan(subplan, "  ", true)
 	if err != nil {
 		return "", nil, fmt.Errorf("render exact authorized route: %w", err)
 	}
@@ -247,10 +247,10 @@ func (r *physicalPlanRenderer) renderComposedRelatedLineageStage(
 	} else {
 		lines = append(lines, "  FILTER "+item+" != null")
 	}
-	parentIdentityColumnBind := r.newInternalBindKey("row_lineage_related_parent_identity_column")
+	parentIdentityColumnBind := r.core.newInternalBindKey("row_lineage_related_parent_identity_column")
 	r.bindVars[parentIdentityColumnBind] = related.ParentIdentityColumn
 	identity := constructionRelatedExpandIdentityExpression(input, parentIdentityColumnBind, related.ConstructionIDBindKey, item)
-	output, err := r.renderReturn(ir.PhysicalReturn{Projections: stage.OutputProjections})
+	output, err := r.core.renderReturn(ir.PhysicalReturn{Projections: stage.OutputProjections})
 	if err != nil {
 		return "", nil, fmt.Errorf("render related output row: %w", err)
 	}
@@ -258,12 +258,12 @@ func (r *physicalPlanRenderer) renderComposedRelatedLineageStage(
 		"  LET "+related.IdentityVariable+" = "+identity,
 		"  LET "+stage.OutputRowVariable+" = "+output,
 	)
-	rowIdentityColumnBind := r.newInternalBindKey("row_lineage_related_stage_identity_column")
+	rowIdentityColumnBind := r.core.newInternalBindKey("row_lineage_related_stage_identity_column")
 	r.bindVars[rowIdentityColumnBind] = stage.RowIdentityColumn
 	lines = append(lines, "  FILTER "+stage.OutputRowVariable+"[@"+rowIdentityColumnBind+"] == @"+match.StageRowIDBindKey)
 	witness := "null"
 	if match.RelatedRowKind == "RELATED" {
-		targetTypeBind := r.newInternalBindKey("row_lineage_related_resource_type")
+		targetTypeBind := r.core.newInternalBindKey("row_lineage_related_resource_type")
 		r.bindVars[targetTypeBind] = related.TargetResourceType
 		witness = "{resourceType: @" + targetTypeBind + ", resourceId: " + item + ".resource_id, occurrenceKey: PARSE_IDENTIFIER(" + item + ".terminal_id).key}"
 	}

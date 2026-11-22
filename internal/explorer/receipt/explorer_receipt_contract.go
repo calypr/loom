@@ -13,6 +13,7 @@ import (
 	"time"
 
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -25,20 +26,20 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+
 	"github.com/calypr/loom/internal/projectid"
 )
 
-func CompileConstructionSourceStage(ctx context.Context, request lifecycle.ConstructionSourceStageRequest, recipeEngine *dataframeexecution.Engine, importedSources ...lifecycle.ConstructionSourceStageCompiler) (explorer.ReceiptConstructionStage, error) {
+func CompileConstructionSourceStage(ctx context.Context, request ports.ConstructionSourceStageRequest, recipeEngine *dataframeexecution.Engine, importedSources ...ports.ConstructionSourceStageCompiler) (explorer.ReceiptConstructionStage, error) {
 	if recipeEngine == nil {
-		return explorer.ReceiptConstructionStage{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "construction-capabilities", Code: "CAPABILITY_UNAVAILABLE", Message: "the construction source compiler is not configured"}
+		return explorer.ReceiptConstructionStage{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "construction-capabilities", Code: "CAPABILITY_UNAVAILABLE", Message: "the construction source compiler is not configured"}
 	}
 	if request.Document.Output.ID != request.OutputID {
 		return explorer.ReceiptConstructionStage{}, fmt.Errorf("source-stage document output does not match requested output")
 	}
 	if request.Document.ImportedRecipe != nil {
 		if len(importedSources) == 0 {
-			return explorer.ReceiptConstructionStage{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "construction-capabilities", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported dataframe source resolution is unavailable"}
+			return explorer.ReceiptConstructionStage{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "construction-capabilities", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported dataframe source resolution is unavailable"}
 		}
 		return importedSources[0](ctx, request)
 	}
@@ -59,7 +60,7 @@ func CompileConstructionSourceStage(ctx context.Context, request lifecycle.Const
 	}
 	resolved, err := recipeEngine.CompileResolvedBundle(ctx, translated.Bundle, bindings)
 	if err != nil {
-		return explorer.ReceiptConstructionStage{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "construction-capabilities", Code: "CAPABILITY_UNAVAILABLE", Message: "the source projection could not be compiled", Cause: err}
+		return explorer.ReceiptConstructionStage{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "construction-capabilities", Code: "CAPABILITY_UNAVAILABLE", Message: "the source projection could not be compiled", Cause: err}
 	}
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name != request.OutputID {
@@ -107,10 +108,10 @@ func ContractFailure(err error) error {
 }
 
 type ImportedRecipeResolver interface {
-	Resolve(context.Context, string, authoringv2.Workspace, lifecycle.AuthorizedCapability) ([]explorercompilation.ResolvedImportedRecipe, error)
+	Resolve(context.Context, string, authoringv2.Workspace, ports.AuthorizedCapability) ([]explorercompilation.ResolvedImportedRecipe, error)
 }
 
-func Compile(ctx context.Context, request lifecycle.CompileReceiptRequest, capabilityResolver *capabilityresolver.Resolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger, combineResolver CombineInputSchemaResolver, importedSources ...ImportedRecipeResolver) (result *explorer.CompilationReceipt, retErr error) {
+func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilityResolver *capabilityresolver.Resolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger, combineResolver CombineInputSchemaResolver, importedSources ...ImportedRecipeResolver) (result *explorer.CompilationReceipt, retErr error) {
 	started := time.Now()
 	var outputIDs, stageIDs, columnIDs []string
 	var prepareDuration, compileWorkspaceDuration, compileResolvedDuration, contractBuildDuration, validatePersistDuration time.Duration
@@ -134,11 +135,11 @@ func Compile(ctx context.Context, request lifecycle.CompileReceiptRequest, capab
 		var err error
 		authorized, err = capabilityResolver.ResolveForCompilation(ctx, request.Project, request.SnapshotToken)
 		if err != nil {
-			var typed *lifecycle.Error
+			var typed *ports.Error
 			if errors.As(err, &typed) {
 				return nil, typed
 			}
-			return nil, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "compile", Code: "CAPABILITY_UNAVAILABLE", Message: "the capability snapshot could not be resolved", Cause: err}
+			return nil, &ports.Error{Class: ports.ClassUnavailable, Stage: "compile", Code: "CAPABILITY_UNAVAILABLE", Message: "the capability snapshot could not be resolved", Cause: err}
 		}
 	} else if authorized.Snapshot.Identity.Project != projectid.Canonical(request.Project) || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil {
 		return nil, capability.ErrStaleSnapshot
@@ -169,11 +170,11 @@ func Compile(ctx context.Context, request lifecycle.CompileReceiptRequest, capab
 	if len(importedSources) > 0 {
 		sources, resolveErr := importedSources[0].Resolve(ctx, request.Project, workspace, authorized)
 		if resolveErr != nil {
-			var typed *lifecycle.Error
+			var typed *ports.Error
 			if errors.As(resolveErr, &typed) {
 				return nil, typed
 			}
-			return nil, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "compile", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported recipe sources could not be resolved", Cause: resolveErr}
+			return nil, &ports.Error{Class: ports.ClassUnavailable, Stage: "compile", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported recipe sources could not be resolved", Cause: resolveErr}
 		}
 		request.ResolvedInputs.ImportedRecipes = sources
 	}
@@ -215,15 +216,15 @@ func Compile(ctx context.Context, request lifecycle.CompileReceiptRequest, capab
 			continue
 		}
 		if combineResolver == nil {
-			return nil, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "compile", Code: "COMBINE_INPUT_UNAVAILABLE", Message: "published Combine inputs are not configured"}
+			return nil, &ports.Error{Class: ports.ClassUnavailable, Stage: "compile", Code: "COMBINE_INPUT_UNAVAILABLE", Message: "published Combine inputs are not configured"}
 		}
 		inputSchemas, err := combineResolver(ctx, output, bindings)
 		if err != nil {
-			var typed *lifecycle.Error
+			var typed *ports.Error
 			if errors.As(err, &typed) {
 				return nil, typed
 			}
-			return nil, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "compile", Code: "COMBINE_INPUT_UNAVAILABLE", Message: fmt.Sprintf("published Combine inputs for output %q could not be resolved", output.Name), Cause: err}
+			return nil, &ports.Error{Class: ports.ClassUnavailable, Stage: "compile", Code: "COMBINE_INPUT_UNAVAILABLE", Message: fmt.Sprintf("published Combine inputs for output %q could not be resolved", output.Name), Cause: err}
 		}
 		combineInputSchemas[output.Name] = inputSchemas
 	}
@@ -300,7 +301,7 @@ func Compile(ctx context.Context, request lifecycle.CompileReceiptRequest, capab
 		if errors.Is(err, explorer.ErrCorruptReceipt) {
 			return nil, err
 		}
-		return nil, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "compile", Code: "RECEIPT_STORE_UNAVAILABLE", Message: "the compilation receipt could not be stored", Cause: err}
+		return nil, &ports.Error{Class: ports.ClassUnavailable, Stage: "compile", Code: "RECEIPT_STORE_UNAVAILABLE", Message: "the compilation receipt could not be stored", Cause: err}
 	}
 	validatePersistDuration = time.Since(validatePersistStarted)
 	if raw, marshalErr := json.Marshal(stored); marshalErr == nil {

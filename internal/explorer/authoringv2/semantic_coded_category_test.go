@@ -4,7 +4,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -35,7 +36,7 @@ func TestResolveCodedCategoryRejectsAnExactCodeAndLegacyExactPlanRemainsExact(t 
 	}
 
 	exact := category
-	exact.RuleHint = catalog.SemanticRuleHintCodedConceptV1
+	exact.RuleHint = codedconcept.RuleHintCodedConceptV1
 	exact.Key.Code = "CARBOXYAMIDOTRIAZOLE"
 	plan := ResolveSemanticSelectionPlan(exact)
 	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil {
@@ -46,18 +47,18 @@ func TestResolveCodedCategoryRejectsAnExactCodeAndLegacyExactPlanRemainsExact(t 
 	}
 }
 
-func standaloneCodingCategoryObservation(version string) catalog.SemanticObservation {
-	return catalog.SemanticObservation{
-		SchemaVersion: catalog.SemanticObservationSchemaVersion,
-		Source:        catalog.SemanticObservationSource{Type: "Medication", Path: "Medication.code.coding[]"},
-		Key: catalog.SemanticObservationKey{
+func standaloneCodingCategoryObservation(version string) codedconcept.Observation {
+	return codedconcept.Observation{
+		SchemaVersion: codedconcept.ObservationSchemaVersion,
+		Source:        codedconcept.Source{Type: "Medication", Path: "Medication.code.coding[]"},
+		Key: codedconcept.Key{
 			Selector: "code.coding[]", System: "https://www.ebi.ac.uk/chembl/compound_name", Version: version,
 		},
-		Value: catalog.SemanticObservationValue{
+		Value: codedconcept.Value{
 			Selector: "code.coding[].display", Type: "string", FallbackSelectors: []string{"code.coding[].code"}, FallbackOnBlankString: true,
 		},
-		LogicalType: "string", Completeness: catalog.SemanticComplete, Status: "SUPPORTED",
-		RuleHint: catalog.SemanticRuleHintCodedCategoryV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+		LogicalType: "string", Completeness: codedconcept.Complete, Status: "SUPPORTED",
+		RuleHint: codedconcept.RuleHintCodedCategoryV1, RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
 	}
 }
 

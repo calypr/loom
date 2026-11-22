@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 )
 
 func TestCatalogGenerationResultContractsExposeGeneration(t *testing.T) {
-	fields, err := json.Marshal(PopulatedField{DatasetGeneration: "generation-a", ResourceType: "Patient", Path: "id"})
+	fields, err := json.Marshal(fieldprofile.PopulatedField{DatasetGeneration: "generation-a", ResourceType: "Patient", Path: "id"})
 	if err != nil {
 		t.Fatal(err)
 	}

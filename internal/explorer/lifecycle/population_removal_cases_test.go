@@ -15,6 +15,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 type formalRemovalCase struct {
@@ -139,7 +140,7 @@ func formalRemovalObserve(t *testing.T, c formalRemovalCase) formalRemovalResult
 			t.Fatal(authErr)
 		}
 		authorized.Scope = authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/foreign"}}
-		service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) { return authorized, nil }
+		service.config.Capability.ForCompilation = func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil }
 	}
 	previewCalls := 0
 	service.config.PreviewReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
@@ -175,7 +176,7 @@ func formalRemovalObserve(t *testing.T, c formalRemovalCase) formalRemovalResult
 	result := formalRemovalResult{ID: c.ID, Accepted: applyErr == nil, PreviewCalls: previewCalls, SaveAttempts: store.attempts, SuccessfulSaves: store.writes, PreservedHead: preserved, ExactCandidate: exact}
 	if applyErr != nil {
 		result.Error = applyErr.Error()
-		var lifecycleErr *Error
+		var lifecycleErr *ports.Error
 		result.Conflict = errors.As(applyErr, &lifecycleErr) && lifecycleErr.Code == "DRAFT_CONFLICT"
 	}
 	return result

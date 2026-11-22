@@ -10,7 +10,7 @@ import (
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
-func (s *Store) PublishAuthoring(ctx context.Context, receipt explorer.CompilationReceipt, revision explorer.Revision, release dataset.ProjectRelease, expectedReleaseRevision int64) (*explorer.Revision, error) {
+func (s *PublicationStore) PublishAuthoring(ctx context.Context, receipt explorer.CompilationReceipt, revision explorer.Revision, release dataset.ProjectRelease, expectedReleaseRevision int64) (*explorer.Revision, error) {
 	if err := validateReceipt(receipt); err != nil {
 		return nil, err
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func columnPolicyService(t *testing.T) (*Service, *fakeStore, capability.Snapshot) {
@@ -29,7 +30,7 @@ func columnPolicyService(t *testing.T) (*Service, *fakeStore, capability.Snapsho
 		catalog.Candidates[0].ProjectionModes = []string{"VALUE", "INDEXED", "FIRST", "ALL", "DISTINCT"}
 		return catalog
 	}
-	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		prepared, err := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, service.config.Capability.Catalog(snapshot, request.ExplorerID))
 		if err != nil {
 			return nil, err
@@ -132,7 +133,7 @@ func TestColumnPolicyProposalRejectsCompilePreviewAndCatalogFailuresWithoutSavin
 			request := columnPolicyRequest(store, snapshot)
 			switch failure {
 			case "compile":
-				service.config.CompileReceipt = func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+				service.config.CompileReceipt = func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 					return nil, errors.New("downstream schema is incompatible")
 				}
 			case "preview":

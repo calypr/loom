@@ -5,9 +5,10 @@ import (
 	"errors"
 
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
-func (s *Service) prepareImportedSource(ctx context.Context, project, explorerID string, authorized AuthorizedCapability, workspace authoringv2.Workspace, catalog authoringv2.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) prepareImportedSource(ctx context.Context, project, explorerID string, authorized ports.AuthorizedCapability, workspace authoringv2.Workspace, catalog authoringv2.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 	if s.config.EditImportedSource == nil {
 		return nil, unavailable("commands", "IMPORTED_SOURCE_UNAVAILABLE", "source editing is unavailable", nil)
 	}
@@ -24,7 +25,7 @@ func (s *Service) prepareImportedSource(ctx context.Context, project, explorerID
 	}
 	updated, err := s.config.EditImportedSource(ctx, project, authorized, *document, command.SourceStep)
 	if err != nil {
-		var typed *Error
+		var typed *ports.Error
 		if errors.As(err, &typed) {
 			return nil, typed
 		}

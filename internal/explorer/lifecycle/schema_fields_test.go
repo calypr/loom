@@ -11,6 +11,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestSearchSchemaFieldsIncludesMissingNullableGeneratedField(t *testing.T) {
@@ -97,9 +98,9 @@ func TestSearchSchemaFieldsRejectsCursorAfterAuthorizationScopeChange(t *testing
 	initialScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := schemaFieldsTestSnapshot(initialScope, nil)
 	currentScope := initialScope
-	service := &Service{config: Config{Capability: CapabilityResolver{
-		ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: currentScope}, nil
+	service := &Service{config: Config{Capability: ports.CapabilityResolver{
+		ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: currentScope}, nil
 		},
 	}}}
 	first, err := service.SearchSchemaFields(context.Background(), SearchSchemaFieldsRequest{
@@ -194,14 +195,14 @@ func schemaFieldsTestSnapshot(scope authscope.ReadScope, candidates []capability
 }
 
 func schemaFieldsTestService(snapshot capability.Snapshot, scope authscope.ReadScope) *Service {
-	return &Service{config: Config{Capability: CapabilityResolver{
-		ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	return &Service{config: Config{Capability: ports.CapabilityResolver{
+		ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		},
 	}}}
 }
 
 func schemaFieldsErrorCode(err error, code string) bool {
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	return errors.As(err, &lifecycleErr) && lifecycleErr.Code == code
 }

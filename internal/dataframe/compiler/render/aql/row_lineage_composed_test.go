@@ -44,10 +44,10 @@ func TestComposedRelatedRowLineageReplaysArbitraryChainAndPagesAuthoredStages(t 
 		RowIDBindKey: "row_id", OffsetBindKey: "offset", LimitBindKey: "limit", FetchLimitBindKey: "fetch",
 		ResourceType: "Patient", ResourceIDColumn: "__root_id", OccurrenceKeyColumn: "__root_key", Trace: trace,
 	}
-	renderer := &physicalPlanRenderer{
+	renderer := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars: bindVars, reservedVars: map[string]struct{}{}, internalPrefix: "composed_lineage_test_",
-	}
-	plan, err := renderer.renderConstructionRowLineage(
+	}}
+	plan, err := renderer.rowLineage().renderConstructionRowLineage(
 		"FOR root IN @@roots\nFILTER root._key == @root_key\nRETURN {row_identity: root._key, __root_id: root.payload.id, __root_key: root._key}",
 		stages, terminal,
 	)
@@ -211,8 +211,8 @@ func TestComposedReplayRendersRelatedSourceEligibilityAndFieldOperations(t *test
 			for key, value := range test.binds {
 				bindVars[key] = value
 			}
-			renderer := &physicalPlanRenderer{bindVars: bindVars, reservedVars: map[string]struct{}{}, internalPrefix: "related_identity_replay_test_"}
-			_, lines, err := renderer.renderComposedLineageProjectionStage("prior_rows", test.stage, nil)
+			renderer := &physicalPlanRenderer{renderContext: renderContext{bindVars: bindVars, reservedVars: map[string]struct{}{}, internalPrefix: "related_identity_replay_test_"}}
+			_, lines, err := renderer.rowLineage().renderComposedLineageProjectionStage("prior_rows", test.stage, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

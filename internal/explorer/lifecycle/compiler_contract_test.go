@@ -7,6 +7,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestPreviousDynamicInventoryCompilerReceiptCannotExecute(t *testing.T) {
@@ -25,12 +26,12 @@ func TestPreviousDynamicInventoryCompilerReceiptCannotExecute(t *testing.T) {
 	if err = receipt.Validate(); err != nil {
 		t.Fatalf("historical generic receipt must remain readable: %v", err)
 	}
-	service := &Service{config: Config{CompileReceipt: func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service := &Service{config: Config{CompileReceipt: func(context.Context, ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		t.Fatal("must reject without recompiling")
 		return nil, nil
 	}}}
 	err = service.validateReceiptRoute(receipt, "project-a", "patients")
-	var typed *Error
+	var typed *ports.Error
 	if !errors.As(err, &typed) || typed.Code != "RECEIPT_RECOMPILE_REQUIRED" {
 		t.Fatalf("historical compiler receipt was executable: %v", err)
 	}

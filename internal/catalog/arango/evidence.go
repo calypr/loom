@@ -8,13 +8,13 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-func (s *Store) ReadResourceInventory(ctx context.Context, opts catalog.ResourceInventoryOptions) (catalog.ResourceInventoryResult, error) {
+func (s *ResourceStore) ReadResourceInventory(ctx context.Context, opts catalog.ResourceInventoryOptions) (catalog.ResourceInventoryResult, error) {
 	return s.DiscoverResourceInventory(ctx, opts)
 }
-func (s *Store) ReadRelationshipObservations(ctx context.Context, opts catalog.RelationshipObservationOptions) (catalog.RelationshipObservationResult, error) {
+func (s *RelationshipStore) ReadRelationshipObservations(ctx context.Context, opts catalog.RelationshipObservationOptions) (catalog.RelationshipObservationResult, error) {
 	return s.DiscoverRelationshipObservations(ctx, opts)
 }
-func (s *Store) ReadFieldEnrichment(ctx context.Context, opts catalog.FieldEnrichmentOptions) (catalog.FieldEnrichmentResult, error) {
+func (s *FieldStore) ReadFieldEnrichment(ctx context.Context, opts catalog.FieldEnrichmentOptions) (catalog.FieldEnrichmentResult, error) {
 	return s.DiscoverFieldEnrichment(ctx, opts)
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 type rowProposalChoiceResolver struct{}
@@ -281,7 +282,7 @@ func TestExplicitGroupPolicyEditPreservesAnchorAndMemberValues(t *testing.T) {
 	request.Selection = RowDefinitionSelection{Kind: RowDefinitionSelectionExplicitGroup, ExplicitGroup: &ExplicitGroupSelection{
 		RevisionID: "group-revision-1", UnassignedMemberPolicy: authoringv2.UnassignedMemberExclude,
 	}}
-	rows, _, err := service.resolveRowDefinitionSelection(context.Background(), request, snapshot, *document)
+	rows, _, err := service.rowProposals().resolveRowDefinitionSelection(context.Background(), request, snapshot, *document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +376,7 @@ func TestProposeRowDefinitionBindsCandidateReceiptWithoutSavingDraft(t *testing.
 	beforeVersion, beforeDigest := store.created.DraftVersion, store.created.DraftDigest
 	compileBindings := make([]*explorer.RowDefinitionProposalBinding, 0, 2)
 	compile := service.config.CompileReceipt
-	service.config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		compileBindings = append(compileBindings, cloneRowDefinitionProposalBinding(request.RowDefinitionProposal))
 		return compile(ctx, request)
 	}
@@ -419,7 +420,7 @@ func TestProposeRowDefinitionRequiresPreviewConfiguration(t *testing.T) {
 			}
 			compileCalls := 0
 			compile := service.config.CompileReceipt
-			service.config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 				compileCalls++
 				return compile(ctx, request)
 			}
@@ -443,8 +444,8 @@ func TestCompareRowDefinitionReceiptsRejectsMissingOutputContract(t *testing.T) 
 	request.OutputID = "missing-output"
 	base, candidate := nativeReceipt(snapshot), nativeReceipt(snapshot)
 	_, err := service.compareRowDefinitionReceipts(context.Background(), request, snapshot, base, candidate, 25)
-	var lifecycleErr *Error
-	if lifecycleErrorCode(err) != "PREVIEW_OUTPUT_INVALID" || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassInternal || lifecycleErr.Cause == nil {
+	var lifecycleErr *ports.Error
+	if lifecycleErrorCode(err) != "PREVIEW_OUTPUT_INVALID" || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassInternal || lifecycleErr.Cause == nil {
 		t.Fatalf("missing output contract error = %v, want caused internal receipt failure", err)
 	}
 }
@@ -508,8 +509,8 @@ func TestProposeRowDefinitionPreviewFailuresPropagate(t *testing.T) {
 			if proposal.ProposalID != "" {
 				t.Fatalf("preview failure issued proposal %q", proposal.ProposalID)
 			}
-			var lifecycleErr *Error
-			if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassInternal || lifecycleErr.Cause == nil {
+			var lifecycleErr *ports.Error
+			if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassInternal || lifecycleErr.Cause == nil {
 				t.Fatalf("preview failure did not preserve its cause: %#v", err)
 			}
 			if test.wantCause && !errors.Is(err, executorFailure) {
@@ -556,8 +557,8 @@ func TestProposeExpandedEmptyCollectionErrorReturnsValidationError(t *testing.T)
 	request := rowProposalRequest(store.created, snapshot)
 	request.Selection.Expanded.EmptyCollectionPolicy = authoringv2.EmptyCollectionError
 	_, err := service.ProposeRowDefinition(context.Background(), request)
-	var lifecycleErr *Error
-	if lifecycleErrorCode(err) != "EMPTY_COLLECTION_ERROR" || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassUnprocessable || !errors.Is(err, emptyCollection) || !errors.Is(err, driverDiagnostic) {
+	var lifecycleErr *ports.Error
+	if lifecycleErrorCode(err) != "EMPTY_COLLECTION_ERROR" || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnprocessable || !errors.Is(err, emptyCollection) || !errors.Is(err, driverDiagnostic) {
 		t.Fatalf("ERROR expansion failure = %v, want a caused EMPTY_COLLECTION_ERROR validation failure", err)
 	}
 	if lifecycleErr.Message != "Some records have no values for this field. Choose \"Leave out records with no values\" or \"Keep records with no values as one empty row\", or choose another field." {
@@ -593,8 +594,8 @@ func TestProposeExpandedGenericBackendUnavailableIsNotValidationError(t *testing
 	before := append([]byte(nil), store.created.DraftConfig...)
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
 	proposal, err := service.ProposeRowDefinition(context.Background(), request)
-	var lifecycleErr *Error
-	if proposal.ProposalID != "" || lifecycleErrorCode(err) != "CANDIDATE_PREVIEW_FAILED" || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassInternal || !errors.Is(err, backendFailure) {
+	var lifecycleErr *ports.Error
+	if proposal.ProposalID != "" || lifecycleErrorCode(err) != "CANDIDATE_PREVIEW_FAILED" || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassInternal || !errors.Is(err, backendFailure) {
 		t.Fatalf("generic backend error = proposal %#v, error %v; want caused internal preview failure", proposal, err)
 	}
 	if store.saveDraftCalls != 0 || store.created.DraftVersion != version || store.created.DraftDigest != digest || string(before) != string(store.created.DraftConfig) {
@@ -625,8 +626,8 @@ func TestProposeRowDefinitionCandidateFeatureErrorReturnsValidationError(t *test
 	before := append([]byte(nil), store.created.DraftConfig...)
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
 	proposal, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
-	var lifecycleErr *Error
-	if proposal.ProposalID != "" || lifecycleErrorCode(err) != string(dataframeerrors.CodeConstructionRowValueMultipleValues) || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassUnprocessable || lifecycleErr.Message != dataframeerrors.PublicMessage(featureFailure) || !errors.Is(err, featureFailure) {
+	var lifecycleErr *ports.Error
+	if proposal.ProposalID != "" || lifecycleErrorCode(err) != string(dataframeerrors.CodeConstructionRowValueMultipleValues) || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnprocessable || lifecycleErr.Message != dataframeerrors.PublicMessage(featureFailure) || !errors.Is(err, featureFailure) {
 		t.Fatalf("candidate feature error = proposal %#v, error %v; want caused unprocessable feature error", proposal, err)
 	}
 	if store.saveDraftCalls != 0 || store.created.DraftVersion != version || store.created.DraftDigest != digest || string(before) != string(store.created.DraftConfig) {
@@ -665,9 +666,9 @@ func TestProposeExplicitGroupUnassignedErrorReturnsValidationError(t *testing.T)
 	before := append([]byte(nil), store.created.DraftConfig...)
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
 	_, err := service.ProposeRowDefinition(context.Background(), request)
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	wantMessage := "Some records do not belong to a group. Choose \"Leave out records without a group\" or \"Put records without a group in their own group\", or assign them to a group."
-	if lifecycleErrorCode(err) != "EXPLICIT_GROUP_UNASSIGNED_MEMBER" || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassUnprocessable || !errors.Is(err, unassigned) || !errors.Is(err, driverDiagnostic) || lifecycleErr.Message != wantMessage {
+	if lifecycleErrorCode(err) != "EXPLICIT_GROUP_UNASSIGNED_MEMBER" || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassUnprocessable || !errors.Is(err, unassigned) || !errors.Is(err, driverDiagnostic) || lifecycleErr.Message != wantMessage {
 		t.Fatalf("unassigned explicit-group preview error = %v, want caused actionable validation failure", err)
 	}
 	if store.saveDraftCalls != 0 || store.created.DraftVersion != version || store.created.DraftDigest != digest || string(before) != string(store.created.DraftConfig) {
@@ -908,7 +909,7 @@ func rowProposalService(t *testing.T) (*Service, *fakeStore, capability.Snapshot
 	}
 	config.RowChoiceResolver = rowProposalChoiceResolver{}
 	config.RowChoicePlanner = rowProposalChoicePlanner{}
-	config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		prepared, prepareErr := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, config.Capability.Catalog(snapshot, request.ExplorerID))
 		if prepareErr != nil {
 			return nil, prepareErr

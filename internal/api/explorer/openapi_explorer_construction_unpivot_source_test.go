@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
@@ -176,21 +177,21 @@ func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(
 	}
 	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	config := lifecycle.Config{
-		Capability: lifecycle.CapabilityResolver{
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+		Capability: ports.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
-		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+		ConstructionSourceStage: func(ctx context.Context, request ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 			return receiptapi.CompileConstructionSourceStage(ctx, request, recipeEngine)
 		},
 		RowChoicePlanner:  rowChoices,
 		RowChoiceResolver: rowChoices,
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		PreviewReceipt: func(previewCtx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
@@ -509,23 +510,23 @@ func newUnpivotMeltFirstEnvWithCandidates(t *testing.T, extra ...capability.Cand
 	}
 	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	config := lifecycle.Config{
-		Capability: lifecycle.CapabilityResolver{
+		Capability: ports.CapabilityResolver{
 			Current: func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil },
 			Token:   func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
-			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+			ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
-		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+		ConstructionSourceStage: func(ctx context.Context, request ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 			return receiptapi.CompileConstructionSourceStage(ctx, request, recipeEngine)
 		},
 		RowChoicePlanner:  rowChoices,
 		RowChoiceResolver: rowChoices,
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		PreviewReceipt: func(previewCtx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {

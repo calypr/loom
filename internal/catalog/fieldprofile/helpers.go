@@ -1,0 +1,214 @@
+package fieldprofile
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/calypr/loom/internal/catalog/identity"
+)
+
+func stringValue(value any) string {
+	if s, ok := value.(string); ok {
+		return s
+	}
+	return ""
+}
+
+func fieldCatalogKey(project, authResourcePath, resourceType, path string) string {
+	return sanitizeCollectionKey(project + "::" + authResourcePath + "::" + resourceType + "::" + path)
+}
+
+const generationFieldCatalogKeyPrefix = "gfc_"
+
+func fieldCatalogKeyForGeneration(project, datasetGeneration, authResourcePath, resourceType, path string) string {
+	datasetGeneration = strings.TrimSpace(datasetGeneration)
+	if datasetGeneration == "" {
+		return fieldCatalogKey(project, authResourcePath, resourceType, path)
+	}
+	return generationFieldCatalogKeyPrefix + identity.Digest(
+		"field-catalog/v1",
+		project,
+		datasetGeneration,
+		authResourcePath,
+		resourceType,
+		path,
+	)
+}
+
+func sanitizeCollectionKey(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "_"
+	}
+	var b strings.Builder
+	b.Grow(len(value))
+	for _, r := range value {
+		switch {
+		case r >= 'A' && r <= 'Z',
+			r >= 'a' && r <= 'z',
+			r >= '0' && r <= '9',
+			strings.ContainsRune("_-:.@()+,=;$!*'", r):
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
+}
+
+func appendPath(prefix, key string, array bool) string {
+	if prefix == "" {
+		if array {
+			return key + "[]"
+		}
+		return key
+	}
+	if array {
+		return prefix + "." + key + "[]"
+	}
+	return prefix + "." + key
+}
+
+func appendAccessor(accessor []pathStep, step pathStep) []pathStep {
+	out := append([]pathStep(nil), accessor...)
+	out = append(out, step)
+	return out
+}
+
+func extractAccessorValues(root any, accessor []pathStep) ([]any, bool) {
+	nodes := []any{root}
+	for _, step := range accessor {
+		next := make([]any, 0, len(nodes))
+		for _, node := range nodes {
+			obj, ok := node.(map[string]any)
+			if !ok {
+				continue
+			}
+			value, ok := obj[step.field]
+			if !ok || value == nil {
+				continue
+			}
+			if step.iterateArray {
+				items, ok := value.([]any)
+				if !ok {
+					continue
+				}
+				next = append(next, items...)
+				continue
+			}
+			next = append(next, value)
+		}
+		if len(next) == 0 {
+			return nil, false
+		}
+		nodes = next
+	}
+	if len(nodes) == 0 {
+		return nil, false
+	}
+	return nodes, true
+}
+
+func scalarStringValue(value any) (string, bool) {
+	switch typed := value.(type) {
+	case string:
+		return typed, true
+	case bool:
+		if typed {
+			return "true", true
+		}
+		return "false", true
+	case float64:
+		return fmt.Sprintf("%v", typed), true
+	case float32:
+		return fmt.Sprintf("%v", typed), true
+	case int:
+		return fmt.Sprintf("%d", typed), true
+	case int64:
+		return fmt.Sprintf("%d", typed), true
+	case int32:
+		return fmt.Sprintf("%d", typed), true
+	default:
+		return "", false
+	}
+}
+
+func codeableConceptColumns(value map[string]any) []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0, 4)
+	appendValue := func(text string) {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return
+		}
+		if _, ok := seen[text]; ok {
+			return
+		}
+		seen[text] = struct{}{}
+		out = append(out, text)
+	}
+	if text, ok := value["text"].(string); ok {
+		appendValue(text)
+	}
+	if codingValues, ok := value["coding"].([]any); ok {
+		for _, raw := range codingValues {
+			coding, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			if display, ok := coding["display"].(string); ok {
+				appendValue(display)
+				continue
+			}
+			if code, ok := coding["code"].(string); ok {
+				appendValue(code)
+			}
+		}
+	}
+	return out
+}
+
+func sortedKeys(value map[string]any) []string {
+	keys := make([]string, 0, len(value))
+	for key := range value {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func shapeFingerprintForValue(value any) string {
+	switch typed := value.(type) {
+	case map[string]any:
+		keys := sortedKeys(typed)
+		parts := make([]string, 0, len(keys))
+		for _, key := range keys {
+			parts = append(parts, key+":"+shapeFingerprintForValue(typed[key]))
+		}
+		return "{" + strings.Join(parts, ",") + "}"
+	case []any:
+		childPrints := make([]string, 0, len(typed))
+		seen := make(map[string]struct{})
+		for _, item := range typed {
+			fingerprint := shapeFingerprintForValue(item)
+			if _, ok := seen[fingerprint]; ok {
+				continue
+			}
+			seen[fingerprint] = struct{}{}
+			childPrints = append(childPrints, fingerprint)
+		}
+		sort.Strings(childPrints)
+		return "[" + strings.Join(childPrints, "|") + "]"
+	case string:
+		return "s"
+	case bool:
+		return "b"
+	case float64, float32, int, int32, int64:
+		return "n"
+	case nil:
+		return "0"
+	default:
+		return fmt.Sprintf("%T", value)
+	}
+}

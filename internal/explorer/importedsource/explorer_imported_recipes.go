@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -19,7 +20,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+
 	"github.com/calypr/loom/internal/explorer/recipeimport"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -43,9 +44,9 @@ type importedRecipeResolution struct {
 	pinnedSchemas map[string][]lower.CompiledOutputColumn
 }
 
-func (r Sources) load(ctx context.Context, project, name, version, digest string, authorized lifecycle.AuthorizedCapability, documents ...authoringv2.Document) (importedRecipeResolution, error) {
+func (r Sources) load(ctx context.Context, project, name, version, digest string, authorized ports.AuthorizedCapability, documents ...authoringv2.Document) (importedRecipeResolution, error) {
 	if r.registry == nil || r.engine == nil || name == "" || name != r.defaultName {
-		return importedRecipeResolution{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported source recipes are not configured"}
+		return importedRecipeResolution{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported source recipes are not configured"}
 	}
 	if projectid.Canonical(project) != projectid.Canonical(authorized.Snapshot.Identity.Project) {
 		return importedRecipeResolution{}, capability.ErrStaleSnapshot
@@ -55,7 +56,7 @@ func (r Sources) load(ctx context.Context, project, name, version, digest string
 	}
 	entry, err := r.registry.LoadRecipeVersion(ctx, name, version)
 	if err != nil {
-		return importedRecipeResolution{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the pinned dataframe recipe could not be loaded", Cause: err}
+		return importedRecipeResolution{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the pinned dataframe recipe could not be loaded", Cause: err}
 	}
 	bundle, err := entry.Bundle.CanonicalBundle()
 	if err != nil {
@@ -87,7 +88,7 @@ func (r Sources) load(ctx context.Context, project, name, version, digest string
 		}
 		pristine, err := r.engine.ResolveBundle(ctx, bundle, bindings)
 		if err != nil {
-			return importedRecipeResolution{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the pinned dataframe projection could not be compiled", Cause: err}
+			return importedRecipeResolution{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the pinned dataframe projection could not be compiled", Cause: err}
 		}
 		pinnedSchemas = map[string][]lower.CompiledOutputColumn{}
 		for _, output := range pristine.Compiled.Outputs {
@@ -143,7 +144,7 @@ func (r Sources) load(ctx context.Context, project, name, version, digest string
 	}
 	resolved, err := r.engine.ResolveBundle(ctx, effective, bindings)
 	if err != nil {
-		return importedRecipeResolution{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the imported dataframe source could not be compiled", Cause: err}
+		return importedRecipeResolution{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the imported dataframe source could not be compiled", Cause: err}
 	}
 	resolved.Compiled.Outputs = append([]lower.CompiledRecipeOutput(nil), resolved.Compiled.Outputs...)
 	for i := range resolved.Compiled.Outputs {
@@ -211,7 +212,7 @@ func (r Sources) DefaultWorkspace(ctx context.Context, project string, snapshot 
 	return workspace, nil
 }
 
-func (r Sources) Resolve(ctx context.Context, project string, workspace authoringv2.Workspace, authorized lifecycle.AuthorizedCapability) ([]explorercompilation.ResolvedImportedRecipe, error) {
+func (r Sources) Resolve(ctx context.Context, project string, workspace authoringv2.Workspace, authorized ports.AuthorizedCapability) ([]explorercompilation.ResolvedImportedRecipe, error) {
 	var result []explorercompilation.ResolvedImportedRecipe
 	cache := map[string]importedRecipeResolution{}
 	for _, document := range workspace.Documents {
@@ -285,7 +286,7 @@ func importedSourceSchema(columns []lower.CompiledOutputColumn) ([]explorercompi
 	return result, nil
 }
 
-func (r Sources) SourceStage(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+func (r Sources) SourceStage(ctx context.Context, request ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 	if request.Document.ImportedRecipe == nil {
 		return explorer.ReceiptConstructionStage{}, fmt.Errorf("an imported recipe reference is required")
 	}

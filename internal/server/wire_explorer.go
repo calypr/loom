@@ -19,6 +19,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/constructioninputs"
 	"github.com/calypr/loom/internal/explorer/importedsource"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -86,7 +87,7 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 	if err != nil {
 		return lifecycle.Config{}, fmt.Errorf("configure population mapping cursor signing: %w", err)
 	}
-	var artifactPublishedReader lifecycle.ArtifactPublishedReader
+	var artifactPublishedReader ports.ArtifactPublishedReader
 	if materializationReader != nil {
 		artifactPublishedReader = materializationReader
 		if serverConfig.Server.DevArtifactRowDelay > 0 {
@@ -134,7 +135,7 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 		ScanColumnPopulation:               receiptRuntime.ScanColumnPopulation,
 		CompileReceipt:                     compileReceipt,
 		ConstructionSourceStage:            receiptRuntime.ConstructionSourceStage,
-		Capability: lifecycle.CapabilityResolver{
+		Capability: ports.CapabilityResolver{
 			Current: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {
 				return capabilityResolver.Resolve(ctx, project, generation)
 			},

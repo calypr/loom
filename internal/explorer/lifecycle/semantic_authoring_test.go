@@ -9,10 +9,12 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
 func TestApplySemanticSelectionsPersistsAuthorizedFactsAndPreservesWorkspace(t *testing.T) {
@@ -21,13 +23,13 @@ func TestApplySemanticSelectionsPersistsAuthorizedFactsAndPreservesWorkspace(t *
 	entry := semanticAuthoringEntry("concept-a", "binding-a", "urn:system:a", "code-a", "")
 	resolverCalls := 0
 	store := semanticAuthoringStore(t)
-	service := semanticAuthoringService(t, store, snapshot, scope, func(_ context.Context, opts catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error) {
+	service := semanticAuthoringService(t, store, snapshot, scope, func(_ context.Context, opts semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
 		resolverCalls++
-		if opts.Project != "project-a" || opts.DatasetGeneration != "generation-a" || opts.AuthResourcePathsUnrestricted == nil || *opts.AuthResourcePathsUnrestricted || !reflect.DeepEqual(opts.AuthResourcePaths, []string{"/allowed"}) || !reflect.DeepEqual(opts.References, []catalog.SemanticInventoryReference{{ConceptID: "concept-a", BindingID: "binding-a"}}) {
+		if opts.Project != "project-a" || opts.DatasetGeneration != "generation-a" || opts.AuthResourcePathsUnrestricted == nil || *opts.AuthResourcePathsUnrestricted || !reflect.DeepEqual(opts.AuthResourcePaths, []string{"/allowed"}) || !reflect.DeepEqual(opts.References, []semanticinventory.Reference{{ConceptID: "concept-a", BindingID: "binding-a"}}) {
 			t.Fatalf("semantic lookup did not preserve authorized exact selection: %+v", opts)
 		}
-		result := semanticAuthoringInventory(snapshot, []catalog.SemanticInventoryEntry{*entry})
-		result.Build.SourceAvailability = catalog.SemanticInventorySourceAvailabilityUnproven
+		result := semanticAuthoringInventory(snapshot, []semanticinventory.Entry{*entry})
+		result.Build.SourceAvailability = semanticinventory.SourceAvailabilityUnproven
 		return result, nil
 	})
 	request := semanticAuthoringRequest(snapshot, "add-a", "concept-a", "binding-a", "VALUE")
@@ -55,12 +57,12 @@ func TestApplySemanticSelectionsRejectsStaleScopeAndInventoryContext(t *testing.
 		snapshot := semanticAuthoringSnapshot(scope)
 		store := semanticAuthoringStore(t)
 		resolverCalls := 0
-		service := semanticAuthoringServiceWithResolverScope(t, store, snapshot, badScope, func(context.Context, catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error) {
+		service := semanticAuthoringServiceWithResolverScope(t, store, snapshot, badScope, func(context.Context, semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
 			resolverCalls++
-			return catalog.SemanticInventoryResolveResult{}, nil
+			return semanticinventory.ResolveResult{}, nil
 		})
 		_, err := service.ApplyCommands(context.Background(), "project-a", "patients", semanticAuthoringRequest(snapshot, "scope-mismatch", "concept-a", "binding-a", "VALUE"), "alice")
-		assertLifecycleError(t, err, ClassConflict, "STALE_AUTHORIZATION_SCOPE")
+		assertLifecycleError(t, err, ports.ClassConflict, "STALE_AUTHORIZATION_SCOPE")
 		if resolverCalls != 0 || store.saveDraftCalls != 0 {
 			t.Fatalf("scope mismatch reached inventory or draft save: resolver=%d saves=%d", resolverCalls, store.saveDraftCalls)
 		}
@@ -69,13 +71,13 @@ func TestApplySemanticSelectionsRejectsStaleScopeAndInventoryContext(t *testing.
 		scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 		snapshot := semanticAuthoringSnapshot(scope)
 		store := semanticAuthoringStore(t)
-		service := semanticAuthoringService(t, store, snapshot, scope, func(context.Context, catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error) {
-			return semanticAuthoringInventory(snapshot, []catalog.SemanticInventoryEntry{*semanticAuthoringEntry("concept-a", "binding-a", "urn:system", "code", "")}), nil
+		service := semanticAuthoringService(t, store, snapshot, scope, func(context.Context, semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
+			return semanticAuthoringInventory(snapshot, []semanticinventory.Entry{*semanticAuthoringEntry("concept-a", "binding-a", "urn:system", "code", "")}), nil
 		})
 		request := semanticAuthoringRequest(snapshot, "stale-context", "concept-a", "binding-a", "VALUE")
 		request.Commands[0].ContextToken = "old-context-token"
 		_, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
-		assertLifecycleError(t, err, ClassConflict, "STALE_SEMANTIC_CONTEXT")
+		assertLifecycleError(t, err, ports.ClassConflict, "STALE_SEMANTIC_CONTEXT")
 		if store.saveDraftCalls != 0 {
 			t.Fatal("stale semantic context reached draft save")
 		}
@@ -84,11 +86,11 @@ func TestApplySemanticSelectionsRejectsStaleScopeAndInventoryContext(t *testing.
 		scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 		snapshot := semanticAuthoringSnapshot(scope)
 		store := semanticAuthoringStore(t)
-		service := semanticAuthoringService(t, store, snapshot, scope, func(context.Context, catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error) {
-			return catalog.SemanticInventoryResolveResult{State: catalog.SemanticInventoryUnknown, Entries: []catalog.SemanticInventoryEntry{}}, nil
+		service := semanticAuthoringService(t, store, snapshot, scope, func(context.Context, semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
+			return semanticinventory.ResolveResult{State: semanticinventory.Unknown, Entries: []semanticinventory.Entry{}}, nil
 		})
 		_, err := service.ApplyCommands(context.Background(), "project-a", "patients", semanticAuthoringRequest(snapshot, "unknown-build", "concept-a", "binding-a", "VALUE"), "alice")
-		assertLifecycleError(t, err, ClassConflict, "SEMANTIC_INVENTORY_UNAVAILABLE")
+		assertLifecycleError(t, err, ports.ClassConflict, "SEMANTIC_INVENTORY_UNAVAILABLE")
 		if store.saveDraftCalls != 0 {
 			t.Fatal("unknown inventory reached draft save")
 		}
@@ -98,17 +100,17 @@ func TestApplySemanticSelectionsRejectsStaleScopeAndInventoryContext(t *testing.
 func TestApplySemanticSelectionsRejectsUnavailableAndUnsupportedRowsAtomically(t *testing.T) {
 	for _, test := range []struct {
 		name    string
-		entries []catalog.SemanticInventoryEntry
+		entries []semanticinventory.Entry
 		want    string
 	}{
-		{name: "selection outside scope", entries: []catalog.SemanticInventoryEntry{}, want: "INVALID_SEMANTIC_SELECTION"},
-		{name: "version-specific binding", entries: []catalog.SemanticInventoryEntry{*semanticAuthoringEntry("concept-a", "binding-a", "urn:system", "code", "v1")}, want: "version-specific"},
+		{name: "selection outside scope", entries: []semanticinventory.Entry{}, want: "INVALID_SEMANTIC_SELECTION"},
+		{name: "version-specific binding", entries: []semanticinventory.Entry{*semanticAuthoringEntry("concept-a", "binding-a", "urn:system", "code", "v1")}, want: "version-specific"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 			snapshot := semanticAuthoringSnapshot(scope)
 			store := semanticAuthoringStore(t)
-			service := semanticAuthoringService(t, store, snapshot, scope, func(context.Context, catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error) {
+			service := semanticAuthoringService(t, store, snapshot, scope, func(context.Context, semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
 				return semanticAuthoringInventory(snapshot, test.entries), nil
 			})
 			_, err := service.ApplyCommands(context.Background(), "project-a", "patients", semanticAuthoringRequest(snapshot, "invalid-row", "concept-a", "binding-a", "VALUE"), "alice")
@@ -128,9 +130,9 @@ func TestApplySemanticSelectionsReplaysAndDeduplicatesByIntent(t *testing.T) {
 	entry := semanticAuthoringEntry("concept-a", "binding-a", "urn:system", "code", "")
 	resolverCalls := 0
 	store := semanticAuthoringStore(t)
-	service := semanticAuthoringService(t, store, snapshot, scope, func(_ context.Context, opts catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error) {
+	service := semanticAuthoringService(t, store, snapshot, scope, func(_ context.Context, opts semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
 		resolverCalls++
-		return semanticAuthoringInventory(snapshot, []catalog.SemanticInventoryEntry{*entry}), nil
+		return semanticAuthoringInventory(snapshot, []semanticinventory.Entry{*entry}), nil
 	})
 	request := semanticAuthoringRequest(snapshot, "semantic-command", "concept-a", "binding-a", "VALUE")
 	first, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
@@ -149,7 +151,7 @@ func TestApplySemanticSelectionsReplaysAndDeduplicatesByIntent(t *testing.T) {
 	changedBody.Commands[0].SemanticSelections = append([]authoringv2.SemanticSelection(nil), request.Commands[0].SemanticSelections...)
 	changedBody.Commands[0].SemanticSelections[0].Title = "different display"
 	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", changedBody, "alice")
-	assertLifecycleError(t, err, ClassConflict, "COMMAND_ID_CONFLICT")
+	assertLifecycleError(t, err, ports.ClassConflict, "COMMAND_ID_CONFLICT")
 
 	secondRequest := semanticAuthoringRequest(snapshot, "second-semantic-command", "concept-a", "binding-a", "VALUE")
 	secondRequest.ExpectedDraftVersion = first.DraftVersion
@@ -168,8 +170,8 @@ func TestApplySemanticSelectionsReturnsCASConflictAfterConcurrentWrite(t *testin
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := semanticAuthoringSnapshot(scope)
 	store := semanticAuthoringStore(t)
-	service := semanticAuthoringService(t, store, snapshot, scope, func(context.Context, catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error) {
-		return semanticAuthoringInventory(snapshot, []catalog.SemanticInventoryEntry{*semanticAuthoringEntry("concept-a", "binding-a", "urn:system", "code", "")}), nil
+	service := semanticAuthoringService(t, store, snapshot, scope, func(context.Context, semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
+		return semanticAuthoringInventory(snapshot, []semanticinventory.Entry{*semanticAuthoringEntry("concept-a", "binding-a", "urn:system", "code", "")}), nil
 	})
 	store.copyGet = true
 	baseline := semanticAuthoringStore(t).created
@@ -184,7 +186,7 @@ func TestApplySemanticSelectionsReturnsCASConflictAfterConcurrentWrite(t *testin
 		return explorer.ErrDraftConflict
 	}
 	response, err := service.ApplyCommands(context.Background(), "project-a", "patients", semanticAuthoringRequest(snapshot, "losing-semantic-write", "concept-a", "binding-a", "VALUE"), "alice")
-	assertLifecycleError(t, err, ClassConflict, "DRAFT_CONFLICT")
+	assertLifecycleError(t, err, ports.ClassConflict, "DRAFT_CONFLICT")
 	if response != nil || store.created.DraftVersion != 2 || store.created.LastAuthoringCommandID != "concurrent-write" {
 		t.Fatalf("CAS loser returned or persisted its selections: response=%#v owner=%#v", response, store.created)
 	}
@@ -195,9 +197,9 @@ func TestApplySemanticSelectionsRejectsMoreThanOneHundredBeforeLookup(t *testing
 	snapshot := semanticAuthoringSnapshot(scope)
 	store := semanticAuthoringStore(t)
 	resolverCalls := 0
-	service := semanticAuthoringService(t, store, snapshot, scope, func(context.Context, catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error) {
+	service := semanticAuthoringService(t, store, snapshot, scope, func(context.Context, semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
 		resolverCalls++
-		return catalog.SemanticInventoryResolveResult{}, nil
+		return semanticinventory.ResolveResult{}, nil
 	})
 	request := semanticAuthoringRequest(snapshot, "too-many", "concept-0", "binding", "VALUE")
 	for index := 1; index < 101; index++ {
@@ -209,19 +211,19 @@ func TestApplySemanticSelectionsRejectsMoreThanOneHundredBeforeLookup(t *testing
 	}
 }
 
-func semanticAuthoringService(t *testing.T, store *fakeStore, snapshot capability.Snapshot, scope authscope.ReadScope, resolver func(context.Context, catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error)) *Service {
+func semanticAuthoringService(t *testing.T, store *fakeStore, snapshot capability.Snapshot, scope authscope.ReadScope, resolver func(context.Context, semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error)) *Service {
 	return semanticAuthoringServiceWithResolverScope(t, store, snapshot, scope, resolver)
 }
 
-func semanticAuthoringServiceWithResolverScope(t *testing.T, store *fakeStore, snapshot capability.Snapshot, resolverScope authscope.ReadScope, resolver func(context.Context, catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error)) *Service {
+func semanticAuthoringServiceWithResolverScope(t *testing.T, store *fakeStore, snapshot capability.Snapshot, resolverScope authscope.ReadScope, resolver func(context.Context, semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error)) *Service {
 	t.Helper()
 	snapshot.Nodes = []capability.Node{{ResourceType: "Patient", RowRootEligible: true}, {ResourceType: "Observation"}}
 	catalogSnapshot := semanticAuthoringCatalog(snapshot)
 	return newTestService(t, store, Config{
-		Capability: CapabilityResolver{
+		Capability: ports.CapabilityResolver{
 			Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
-			ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-				return AuthorizedCapability{Snapshot: snapshot, Scope: resolverScope}, nil
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: resolverScope}, nil
 			},
 			Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot },
 		},
@@ -269,7 +271,7 @@ func semanticAuthoringStore(t *testing.T) *fakeStore {
 }
 
 func semanticAuthoringRequest(snapshot capability.Snapshot, commandID, conceptID, bindingID, projectionMode string) authoringv2.ApplyCommandsRequest {
-	buildID := catalog.SemanticInventoryBuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
+	buildID := semanticinventory.BuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
 	contextToken, err := semanticInventoryContextToken(snapshot, "patients", "Patient", buildID)
 	if err != nil {
 		panic(err)
@@ -280,26 +282,26 @@ func semanticAuthoringRequest(snapshot capability.Snapshot, commandID, conceptID
 	}
 }
 
-func semanticAuthoringEntry(conceptID, bindingID, system, code, version string) *catalog.SemanticInventoryEntry {
-	return &catalog.SemanticInventoryEntry{ConceptID: conceptID, BindingID: bindingID, Observation: catalog.SemanticObservation{
-		SchemaVersion: catalog.SemanticObservationSchemaVersion,
-		Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "code"},
-		Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: system, Version: version, Code: code, Display: "Observed label"},
-		Value:         catalog.SemanticObservationValue{Selector: "valueQuantity.value", Type: "decimal"},
-		ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: catalog.SemanticComplete, Status: "SUPPORTED", RuleHint: catalog.SemanticRuleHintCodedValueV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+func semanticAuthoringEntry(conceptID, bindingID, system, code, version string) *semanticinventory.Entry {
+	return &semanticinventory.Entry{ConceptID: conceptID, BindingID: bindingID, Observation: codedconcept.Observation{
+		SchemaVersion: codedconcept.ObservationSchemaVersion,
+		Source:        codedconcept.Source{Type: "Observation", Path: "code"},
+		Key:           codedconcept.Key{Selector: "code.coding[]", System: system, Version: version, Code: code, Display: "Observed label"},
+		Value:         codedconcept.Value{Selector: "valueQuantity.value", Type: "decimal"},
+		ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: codedconcept.Complete, Status: "SUPPORTED", RuleHint: codedconcept.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
 	}}
 }
 
-func semanticAuthoringInventory(snapshot capability.Snapshot, entries []catalog.SemanticInventoryEntry) catalog.SemanticInventoryResolveResult {
-	build := catalog.NewSemanticInventoryBuild(snapshot.Identity.Project, snapshot.Identity.Generation, "")
-	build.State = catalog.SemanticInventoryComplete
-	build.SourceAvailability = catalog.SemanticInventorySourceAvailabilityVerified
-	return catalog.SemanticInventoryResolveResult{Build: build, State: catalog.SemanticInventoryComplete, Entries: entries}
+func semanticAuthoringInventory(snapshot capability.Snapshot, entries []semanticinventory.Entry) semanticinventory.ResolveResult {
+	build := semanticinventory.NewBuild(snapshot.Identity.Project, snapshot.Identity.Generation, "")
+	build.State = semanticinventory.Complete
+	build.SourceAvailability = semanticinventory.SourceAvailabilityVerified
+	return semanticinventory.ResolveResult{Build: build, State: semanticinventory.Complete, Entries: entries}
 }
 
-func assertLifecycleError(t *testing.T, err error, class ErrorClass, code string) {
+func assertLifecycleError(t *testing.T, err error, class ports.ErrorClass, code string) {
 	t.Helper()
-	var lifecycleErr *Error
+	var lifecycleErr *ports.Error
 	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != class || lifecycleErr.Code != code {
 		t.Fatalf("error=%v, want %s %s", err, class, code)
 	}

@@ -27,7 +27,7 @@ type indexUsageContract struct {
 
 func TestBootstrapIndexesMatchUsageContract(t *testing.T) {
 	contract := readIndexUsageContract(t)
-	spec := bootstrapSpecWithReporter([]string{"Patient", "Observation"}, false, nil)
+	spec := BootstrapSpecWithReporter([]string{"Patient", "Observation"}, false, nil)
 	want := make(map[string]int)
 	for _, entry := range contract {
 		if entry.provisioning != "bootstrap" {
@@ -63,7 +63,7 @@ func TestBootstrapIndexExplainContractAgainstArango(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	client := owned.Client
-	if err := client.Bootstrap(ctx, bootstrapSpecWithReporter([]string{"Patient", "Observation"}, false, nil)); err != nil {
+	if err := client.Bootstrap(ctx, BootstrapSpecWithReporter([]string{"Patient", "Observation"}, false, nil)); err != nil {
 		t.Fatal(err)
 	}
 	project := "index-contract-" + strings.ReplaceAll(uuid.NewString(), "-", "")

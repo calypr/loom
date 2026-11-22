@@ -15,12 +15,12 @@ func renderGraphPhysicalPlan(plan ir.PhysicalPlan, collectionKeys map[string]str
 	if last.Kind != ir.PhysicalGraphReturnOp || last.GraphReturn == nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("graph renderer requires GRAPH_RETURN as final operation")
 	}
-	r := &physicalPlanRenderer{
+	r := &physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       runtimePhysicalBindVars(plan.BindVars, collectionKeys),
 		collectionKeys: collectionKeys,
 		setVariables:   map[string]string{},
 		reservedVars:   physicalPlanVariableNames(plan),
-	}
+	}}
 	root := plan.Operations[0].RootScan
 	inner := []string{fmt.Sprintf("FOR %s IN @@%s", root.Variable, root.CollectionBindKey)}
 	pathStart := 1
@@ -59,7 +59,7 @@ func renderGraphPhysicalPlan(plan ir.PhysicalPlan, collectionKeys map[string]str
 		rowFields[i] = fmt.Sprintf("s%d: %s", i, set)
 	}
 	inner = append(inner, "  RETURN { "+strings.Join(rowFields, ", ")+" }", ")")
-	rows := r.newInternalVariable("graph_rows")
+	rows := r.navigation().newInternalVariable("graph_rows")
 	lines := []string{fmt.Sprintf("LET %s = (", rows)}
 	for _, line := range inner {
 		lines = append(lines, "  "+line)
@@ -88,8 +88,8 @@ func (r *physicalPlanRenderer) renderPathExtend(extend ir.PhysicalPathExtend, in
 	if !ok {
 		return nil, fmt.Errorf("source path set %q has not been rendered", extend.SourceVariable)
 	}
-	parent := r.newInternalVariable(fmt.Sprintf("path_parent_%d", index))
-	current := r.newInternalVariable(fmt.Sprintf("path_current_%d", index))
+	parent := r.navigation().newInternalVariable(fmt.Sprintf("path_parent_%d", index))
+	current := r.navigation().newInternalVariable(fmt.Sprintf("path_current_%d", index))
 	indent := "    "
 	lines := []string{fmt.Sprintf("  LET %s = (", extend.Variable), fmt.Sprintf("    FOR %s IN %s", parent, parentSet)}
 	if len(extend.SourcePath) == 0 {
@@ -123,7 +123,7 @@ func (r *physicalPlanRenderer) renderPathExtend(extend ir.PhysicalPathExtend, in
 			fmt.Sprintf("%sFOR %s, %s IN 1..1 %s %s @@%s", indent, target, edge, tr.Direction, current, tr.EdgeCollectionBindKey),
 			fmt.Sprintf("%s  FILTER %s.label == @%s", indent, edge, tr.EdgeLabelBindKey),
 		)
-		lines = append(lines, r.renderTraversalTypeFilters(&tr, indent)...)
+		lines = append(lines, r.navigation().renderTraversalTypeFilters(&tr, indent)...)
 	}
 	for scopeIndex, operation := range extend.Scope {
 		rendered, err := r.renderScopeOperation(operation, indent+"  ")
@@ -146,10 +146,10 @@ func (r *physicalPlanRenderer) renderPathExtend(extend ir.PhysicalPathExtend, in
 }
 
 func (r *physicalPlanRenderer) renderGraphReturn(graph ir.PhysicalGraphReturn, rows string) ([]string, error) {
-	all := r.newInternalVariable("all_paths")
-	path := r.newInternalVariable("path")
-	group := r.newInternalVariable("path_group")
-	row := r.newInternalVariable("path_row")
+	all := r.navigation().newInternalVariable("all_paths")
+	path := r.navigation().newInternalVariable("path")
+	group := r.navigation().newInternalVariable("path_group")
+	row := r.navigation().newInternalVariable("path_row")
 	rowSets := make([]string, len(graph.PathSets))
 	for index := range graph.PathSets {
 		rowSets[index] = fmt.Sprintf("%s[*].s%d", rows, index)

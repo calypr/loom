@@ -28,6 +28,14 @@ func NewService(store Store) (*Service, error) {
 	}
 	return &Service{store: store, now: func() time.Time { return time.Now().UTC() }}, nil
 }
+func (s *Service) ViewBuilderStorage() ViewBuilderRepository {
+	if s == nil {
+		return nil
+	}
+	repository, _ := s.store.(ViewBuilderRepository)
+	return repository
+}
+
 func (s *Service) List(ctx context.Context, project string) ([]Explorer, error) {
 	return s.store.List(ctx, projectid.Legacy(project))
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -78,7 +79,7 @@ func TestResolveConstructionGroupFieldSourcesRejectsChoiceFromChangedSourceShape
 	}
 	base := constructionBase{
 		snapshot:   snapshot,
-		authorized: AuthorizedCapability{Snapshot: snapshot, Scope: scope},
+		authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope},
 		document: authoringv2.Document{
 			RootResourceType: "Observation",
 			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"}, Rows: authoringv2.RecordsRowDefinition(),
@@ -255,7 +256,7 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 			SourceResourceType: "Patient", TargetResourceType: "Specimen", Label: "subject_Patient", StorageDirection: "INBOUND",
 		}}, candidates, nil)
 	base := constructionBase{
-		snapshot: snapshot, authorized: AuthorizedCapability{Snapshot: snapshot, Scope: scope},
+		snapshot: snapshot, authorized: ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope},
 		document: authoringv2.Document{
 			RootResourceType: "Patient",
 			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition(),

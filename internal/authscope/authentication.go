@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -59,4 +60,63 @@ func (CalyprAuthenticator) Authenticate(_ context.Context, headers map[string][]
 		principal.Subject = sub
 	}
 	return principal, nil
+}
+
+type BearerTokenAuthenticator struct{}
+
+func (a BearerTokenAuthenticator) Authenticate(ctx context.Context, headers map[string][]string) (*Principal, error) {
+	principal := &Principal{Subject: "anonymous"}
+	auth := firstHeaderValue(headers, "Authorization")
+	if auth == "" {
+		return principal, nil
+	}
+	principal.AuthorizationHeader = strings.TrimSpace(auth)
+	if sub := subjectFromAuthorizationHeader(auth); sub != "" {
+		principal.Subject = sub
+	}
+	return principal, nil
+}
+
+func firstHeaderValue(headers map[string][]string, key string) string {
+	for headerKey, values := range headers {
+		if !strings.EqualFold(headerKey, key) || len(values) == 0 {
+			continue
+		}
+		return values[0]
+	}
+	return ""
+}
+
+func subjectFromAuthorizationHeader(authHeader string) string {
+	token := cleanAccessToken(authHeader)
+	if token == "" {
+		return ""
+	}
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+	if sub, _ := claims["sub"].(string); sub != "" {
+		return sub
+	}
+	if user, _ := claims["user_name"].(string); user != "" {
+		return user
+	}
+	return ""
+}
+
+func cleanAccessToken(raw string) string {
+	token := strings.TrimSpace(raw)
+	if strings.HasPrefix(strings.ToLower(token), "bearer ") {
+		token = strings.TrimSpace(token[len("bearer "):])
+	}
+	return token
 }

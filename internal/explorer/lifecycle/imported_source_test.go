@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/recipeimport"
 )
 
@@ -33,7 +34,7 @@ func TestImportedSourceRefreshSavesReloadsAndRejectsStaleOrInvalidEdit(t *testin
 	}
 	digest, _ := workspace.Digest()
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: raw, DraftVersion: 1, DraftDigest: digest}, copyGet: true}
-	config.EditImportedSource = func(_ context.Context, _ string, _ AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
+	config.EditImportedSource = func(_ context.Context, _ string, _ ports.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
 		plan := recipeimport.SourcePlan(output)
 		if change != nil {
 			edited, err := recipeimport.EditPlan(output, plan, authoringv2.CatalogSnapshot{}, recipeimport.PlanEdit{
@@ -48,7 +49,7 @@ func TestImportedSourceRefreshSavesReloadsAndRejectsStaleOrInvalidEdit(t *testin
 		return document, nil
 	}
 	compileFailure := false
-	config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		if compileFailure {
 			return nil, errors.New("downstream column would be missing")
 		}

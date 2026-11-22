@@ -23,7 +23,7 @@ func renderRelatedEligibilityCountRows(plan ir.PhysicalPlan, sequence *ir.Physic
 	}
 	renderer, lines, frontier := reverse.renderer, reverse.lines, reverse.frontier
 
-	grouped := renderer.newInternalVariable("grouped_rows")
+	grouped := renderer.navigation().newInternalVariable("grouped_rows")
 	lines = append(lines, fmt.Sprintf("LET %s = (", grouped))
 	groupLines, err := renderer.renderConstructionGroupStage(sequence.Stages[1], constructionGroupInput{RowsVariable: frontier})
 	if err != nil {
@@ -92,18 +92,18 @@ func buildRelatedEligibilityReverseFrontier(plan ir.PhysicalPlan, stage ir.Physi
 	}
 	bindValues[terminalCollectionBind] = terminalType
 	collectionKeys[terminalCollectionBind] = struct{}{}
-	renderer := physicalPlanRenderer{
+	renderer := physicalPlanRenderer{renderContext: renderContext{
 		bindVars:       runtimePhysicalBindVars(bindValues, collectionKeys),
 		collectionKeys: collectionKeys,
 		setVariables:   map[string]string{},
 		reservedVars:   stageSequenceVariableNames(plan),
 		internalPrefix: internalPrefix,
-	}
+	}}
 
 	lines := make([]string, 0, 16+len(traversals)*14)
-	frontier := renderer.newInternalVariable("terminal_frontier")
-	terminalDoc := renderer.newInternalVariable("terminal")
-	terminalAuth := renderer.newInternalVariable("terminal_scope_allowed")
+	frontier := renderer.navigation().newInternalVariable("terminal_frontier")
+	terminalDoc := renderer.navigation().newInternalVariable("terminal")
+	terminalAuth := renderer.navigation().newInternalVariable("terminal_scope_allowed")
 	lines = append(lines,
 		fmt.Sprintf("LET %s = (", frontier),
 		fmt.Sprintf("  FOR %s IN @@%s", terminalDoc, terminalCollectionBind),
@@ -128,9 +128,9 @@ func buildRelatedEligibilityReverseFrontier(plan ir.PhysicalPlan, stage ir.Physi
 		if inverseEndpoint == "" || previousEndpoint == "" {
 			return relatedEligibilityReverseFrontier{}, false, nil
 		}
-		nextFrontier := renderer.newInternalVariable(fmt.Sprintf("route_frontier_%d", index+1))
-		current := renderer.newInternalVariable(fmt.Sprintf("route_target_%d", index+1))
-		edgeAuth := renderer.newInternalVariable(fmt.Sprintf("route_edge_scope_allowed_%d", index+1))
+		nextFrontier := renderer.navigation().newInternalVariable(fmt.Sprintf("route_frontier_%d", index+1))
+		current := renderer.navigation().newInternalVariable(fmt.Sprintf("route_target_%d", index+1))
+		edgeAuth := renderer.navigation().newInternalVariable(fmt.Sprintf("route_edge_scope_allowed_%d", index+1))
 		previous := traversal.SourceVariable
 		lines = append(lines,
 			fmt.Sprintf("LET %s = (", nextFrontier),
@@ -150,7 +150,7 @@ func buildRelatedEligibilityReverseFrontier(plan ir.PhysicalPlan, stage ir.Physi
 			fmt.Sprintf("    FILTER %s.project == @project", previous),
 			fmt.Sprintf("    FILTER %s.dataset_generation == @dataset_generation", previous),
 		)
-		previousAuth := renderer.newInternalVariable(fmt.Sprintf("route_source_scope_allowed_%d", index+1))
+		previousAuth := renderer.navigation().newInternalVariable(fmt.Sprintf("route_source_scope_allowed_%d", index+1))
 		lines = append(lines,
 			fmt.Sprintf("    LET %s = @auth_resource_paths_unrestricted == true OR %s.auth_resource_path IN @auth_resource_paths", previousAuth, previous),
 			fmt.Sprintf("    FILTER %s == @scope_allowed", previousAuth),
@@ -295,15 +295,15 @@ func renderRelatedEligibilityCategoryScan(plan ir.PhysicalPlan, sequence *ir.Phy
 		return RenderedPhysicalPlan{}, false, err
 	}
 	renderer, lines, frontier := reverse.renderer, reverse.lines, reverse.frontier
-	rootFrontier := renderer.newInternalVariable("category_root_frontier")
-	rootDocument := renderer.newInternalVariable("category_root")
-	rootAuth := renderer.newInternalVariable("category_root_scope_allowed")
-	categoryPresent := renderer.newInternalVariable("category_present")
-	categoryValue := renderer.newInternalVariable("category_value")
-	groupPresent := renderer.newInternalVariable("group_present")
-	groupValue := renderer.newInternalVariable("group_value")
-	categoryRows := renderer.newInternalVariable("category_rows")
-	categoryResult := renderer.newInternalVariable("category_result")
+	rootFrontier := renderer.navigation().newInternalVariable("category_root_frontier")
+	rootDocument := renderer.navigation().newInternalVariable("category_root")
+	rootAuth := renderer.navigation().newInternalVariable("category_root_scope_allowed")
+	categoryPresent := renderer.navigation().newInternalVariable("category_present")
+	categoryValue := renderer.navigation().newInternalVariable("category_value")
+	groupPresent := renderer.navigation().newInternalVariable("group_present")
+	groupValue := renderer.navigation().newInternalVariable("group_value")
+	categoryRows := renderer.navigation().newInternalVariable("category_rows")
+	categoryResult := renderer.navigation().newInternalVariable("category_result")
 	categoryNameBind := renderer.newInternalBindKey("category_column_name")
 	renderer.bindVars[categoryNameBind] = options.terminalProjectionColumn
 	categoryName := fmt.Sprintf("[@%s]", categoryNameBind)
@@ -330,7 +330,7 @@ func renderRelatedEligibilityCategoryScan(plan ir.PhysicalPlan, sequence *ir.Phy
 	if sourceProjection.Presence != nil {
 		presence := *sourceProjection.Presence
 		presence.Source.Variable = rootDocument
-		presentExpression, err = renderer.renderProjectionPresence(presence)
+		presentExpression, err = renderer.tableShape().renderProjectionPresence(presence)
 		if err != nil {
 			return RenderedPhysicalPlan{}, false, fmt.Errorf("render direct root category presence: %w", err)
 		}
@@ -380,10 +380,10 @@ func RenderRelatedEligibilityCategoryOverflowWitness(plan ir.PhysicalPlan, colum
 	if err != nil {
 		return RenderedPhysicalPlan{}, false, err
 	}
-	renderer := physicalPlanRenderer{
+	renderer := physicalPlanRenderer{renderContext: renderContext{
 		bindVars: runtimePhysicalBindVars(plan.BindVars, collectionKeys), collectionKeys: collectionKeys,
 		setVariables: map[string]string{}, reservedVars: stageSequenceVariableNames(plan), internalPrefix: "category_witness_",
-	}
+	}}
 	lines := []string{fmt.Sprintf("FOR %s IN @@root_collection", root)}
 	for _, operation := range plan.Operations[1:5] {
 		scope, err := renderer.renderScopeOperation(operation, "  ")
@@ -413,13 +413,13 @@ func RenderRelatedEligibilityCategoryOverflowWitness(plan ir.PhysicalPlan, colum
 	}
 	presenceExpression := "true"
 	if projection.Presence != nil {
-		presenceExpression, err = renderer.renderProjectionPresence(*projection.Presence)
+		presenceExpression, err = renderer.tableShape().renderProjectionPresence(*projection.Presence)
 		if err != nil {
 			return RenderedPhysicalPlan{}, false, fmt.Errorf("render category witness presence: %w", err)
 		}
 	}
-	present := renderer.newInternalVariable("present")
-	value := renderer.newInternalVariable("value")
+	present := renderer.navigation().newInternalVariable("present")
+	value := renderer.navigation().newInternalVariable("value")
 	lines = append(lines,
 		fmt.Sprintf("LET %s = %s", present, presenceExpression),
 		fmt.Sprintf("LET %s = %s ? (%s) : null", value, present, valueExpression),

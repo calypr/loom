@@ -16,16 +16,16 @@ func (r *physicalPlanRenderer) renderOwnerRecords(expression ir.PhysicalExpressi
 	if err != nil {
 		return "", err
 	}
-	source := r.newInternalVariable("owner_record_source")
+	source := r.navigation().newInternalVariable("owner_record_source")
 	payload := source + ".payload"
 	owners, err := r.renderSelectorArrayFromSource(payload, correlation.OwnerSelector, false, false)
 	if err != nil {
 		return "", fmt.Errorf("owner records owner selector: %w", err)
 	}
-	ownerList := r.newInternalVariable("owner_record_owners")
-	ordinal := r.newInternalVariable("owner_record_ordinal")
-	owner := r.newInternalVariable("owner_record_owner")
-	coding := r.newInternalVariable("owner_record_coding")
+	ownerList := r.navigation().newInternalVariable("owner_record_owners")
+	ordinal := r.navigation().newInternalVariable("owner_record_ordinal")
+	owner := r.navigation().newInternalVariable("owner_record_owner")
+	coding := r.navigation().newInternalVariable("owner_record_coding")
 	codings, err := r.renderSelectorArrayFromSource(owner, correlation.KeySelector, false, false)
 	if err != nil {
 		return "", fmt.Errorf("owner records coding selector: %w", err)
@@ -54,11 +54,11 @@ func (r *physicalPlanRenderer) renderOwnerRecords(expression ir.PhysicalExpressi
 		}
 		unit = "FIRST(FLATTEN(" + units + "))"
 	}
-	matchingCodings := r.newInternalVariable("owner_record_matching_codings")
-	flatValues := r.newInternalVariable("owner_record_values")
-	unsupportedValues := r.newInternalVariable("owner_record_unsupported_values")
-	status := r.newInternalVariable("owner_record_status")
-	value := r.newInternalVariable("owner_record_value")
+	matchingCodings := r.navigation().newInternalVariable("owner_record_matching_codings")
+	flatValues := r.navigation().newInternalVariable("owner_record_values")
+	unsupportedValues := r.navigation().newInternalVariable("owner_record_unsupported_values")
+	status := r.navigation().newInternalVariable("owner_record_status")
+	value := r.navigation().newInternalVariable("owner_record_value")
 	return fmt.Sprintf(`(
   FOR %s IN %s
     LET %s = FLATTEN(%s)

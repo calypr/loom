@@ -18,7 +18,7 @@ const (
 	compilationReceiptConflictRetryDelay = 5 * time.Millisecond
 )
 
-func (s *Store) InsertCompilationReceipt(ctx context.Context, receipt explorer.CompilationReceipt) (*explorer.CompilationReceipt, error) {
+func (s *ReceiptStore) InsertCompilationReceipt(ctx context.Context, receipt explorer.CompilationReceipt) (*explorer.CompilationReceipt, error) {
 	if err := validateReceipt(receipt); err != nil {
 		return nil, err
 	}
@@ -52,7 +52,7 @@ func (s *Store) InsertCompilationReceipt(ctx context.Context, receipt explorer.C
 	return nil, errors.New("unreachable compilation receipt insert state")
 }
 
-func (s *Store) getVerifiedCompilationReceipt(ctx context.Context, receipt explorer.CompilationReceipt) (*explorer.CompilationReceipt, error) {
+func (s *ReceiptStore) getVerifiedCompilationReceipt(ctx context.Context, receipt explorer.CompilationReceipt) (*explorer.CompilationReceipt, error) {
 	stored, err := s.GetCompilationReceiptForExplorer(ctx, receipt.Project, receipt.ExplorerID, receipt.ID)
 	if err != nil {
 		return nil, err
@@ -82,11 +82,11 @@ func waitForCompilationReceiptRetry(ctx context.Context, delay time.Duration) er
 	}
 }
 
-func (s *Store) GetCompilationReceiptForExplorer(ctx context.Context, project, explorerID, id string) (*explorer.CompilationReceipt, error) {
+func (s *ReceiptStore) GetCompilationReceiptForExplorer(ctx context.Context, project, explorerID, id string) (*explorer.CompilationReceipt, error) {
 	return s.readCompilationReceipt(ctx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project AND d.explorerId == @explorerId RETURN d`, map[string]any{"@c": CompilationReceiptsCollection, "key": id, "project": project, "explorerId": explorerID})
 }
 
-func (s *Store) readCompilationReceipt(ctx context.Context, query string, binds map[string]any) (*explorer.CompilationReceipt, error) {
+func (s *ReceiptStore) readCompilationReceipt(ctx context.Context, query string, binds map[string]any) (*explorer.CompilationReceipt, error) {
 	var out *explorer.CompilationReceipt
 	err := s.client.QueryRows(ctx, migrationJSONQuery(query, true), 1, binds, func(row map[string]any) error {
 		value, decodeErr := decodeMigrationJSON[explorer.CompilationReceipt](row["migrationJSON"])

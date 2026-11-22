@@ -9,6 +9,7 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -93,7 +94,7 @@ func (s *Service) PopulationMapping(ctx context.Context, request PopulationMappi
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return PopulationMappingResult{Report: incompletePopulationReport(receipt, request.OutputID, selection)}, nil
 		}
-		var typed *Error
+		var typed *ports.Error
 		if errors.As(err, &typed) {
 			return PopulationMappingResult{}, typed
 		}
@@ -157,7 +158,7 @@ func populationOutput(receipt *explorer.CompilationReceipt, outputID string) *re
 	return nil
 }
 
-func validatePopulationMappingSelection(receipt *explorer.CompilationReceipt, authorized AuthorizedCapability, selection *explorer.SelectionRevision, population recipe.PopulationConstraint) error {
+func validatePopulationMappingSelection(receipt *explorer.CompilationReceipt, authorized ports.AuthorizedCapability, selection *explorer.SelectionRevision, population recipe.PopulationConstraint) error {
 	if selection.ID != population.SelectionRevisionID || selection.MembershipDigest != population.MembershipDigest || selection.MemberCount != population.MemberCount {
 		return fmt.Errorf("selection identity does not match receipt population")
 	}

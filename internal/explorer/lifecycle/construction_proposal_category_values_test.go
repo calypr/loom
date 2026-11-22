@@ -438,3 +438,11 @@ func constructionProposalPivotRequest(
 		},
 	}
 }
+
+func (s *Service) verifyConstructionProposalPivotCategories(
+	ctx context.Context,
+	request ConstructionProposalRequest,
+	candidate authoringv2.Construction,
+) ([]ConstructionProposalDiagnostic, error) {
+	return s.verifyConstructionProposalPivotCategoriesExcept(ctx, request, candidate, nil, nil)
+}

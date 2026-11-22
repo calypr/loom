@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 )
 
 const (
@@ -50,7 +51,7 @@ type semanticCoverageEnvelopeDiagnostic struct {
 	Reason        string `json:"reason,omitempty"`
 }
 
-func EncodeSemanticCoverageSourceEnvelope(buildID string, contribution catalog.SemanticCoverageSourceContribution) (json.RawMessage, error) {
+func EncodeSemanticCoverageSourceEnvelope(buildID string, contribution fieldprofile.SemanticCoverageSourceContribution) (json.RawMessage, error) {
 	if err := validateSemanticCoverageContribution(buildID, contribution); err != nil {
 		return nil, err
 	}
@@ -58,7 +59,7 @@ func EncodeSemanticCoverageSourceEnvelope(buildID string, contribution catalog.S
 	document := semanticCoverageSourceEnvelope{
 		Key:                          semanticCoverageSourceEnvelopeKey(identity, buildID),
 		RecordKind:                   semanticCoverageEnvelopeRecordKind,
-		CoverageStorageFormatVersion: catalog.SemanticCoverageStorageFormatVersion,
+		CoverageStorageFormatVersion: fieldprofile.SemanticCoverageStorageFormatVersion,
 		Project:                      identity.Project,
 		DatasetGeneration:            catalog.NormalizeDatasetGeneration(identity.DatasetGeneration),
 		BuildID:                      buildID,
@@ -79,7 +80,7 @@ func EncodeSemanticCoverageSourceEnvelope(buildID string, contribution catalog.S
 		DiagnosticLocatorsTruncated:  contribution.DiagnosticLocatorsTruncated,
 	}
 
-	paths := append([]catalog.SemanticCoveragePathAggregate(nil), contribution.Paths...)
+	paths := append([]fieldprofile.SemanticCoveragePathAggregate(nil), contribution.Paths...)
 	sort.Slice(paths, func(i, j int) bool {
 		return semanticCoverageEnvelopeAggregateKey(paths[i]) < semanticCoverageEnvelopeAggregateKey(paths[j])
 	})
@@ -135,14 +136,14 @@ func EncodeSemanticCoverageSourceEnvelope(buildID string, contribution catalog.S
 	return encoded, nil
 }
 
-func semanticCoverageEnvelopeAggregateKey(path catalog.SemanticCoveragePathAggregate) string {
+func semanticCoverageEnvelopeAggregateKey(path fieldprofile.SemanticCoveragePathAggregate) string {
 	return semanticCoverageDocumentKey(path.CanonicalPath, path.ResourceBoundarySignature, string(path.Kind), string(path.Disposition), string(path.Reason))
 }
 
-func semanticCoverageSourceEnvelopeKey(identity catalog.SemanticCoverageSourceIdentity, buildID string) string {
+func semanticCoverageSourceEnvelopeKey(identity fieldprofile.SemanticCoverageSourceIdentity, buildID string) string {
 	return semanticCoverageDocumentKey(
 		"semantic-coverage-source-envelope",
-		fmt.Sprint(catalog.SemanticCoverageStorageFormatVersion),
+		fmt.Sprint(fieldprofile.SemanticCoverageStorageFormatVersion),
 		identity.Project,
 		catalog.NormalizeDatasetGeneration(identity.DatasetGeneration),
 		buildID,
@@ -153,10 +154,10 @@ func semanticCoverageSourceEnvelopeKey(identity catalog.SemanticCoverageSourceId
 	)
 }
 
-func coverageEnvelopePathGroupable(contribution catalog.SemanticCoverageSourceContribution, path catalog.SemanticCoveragePathAggregate) bool {
+func coverageEnvelopePathGroupable(contribution fieldprofile.SemanticCoverageSourceContribution, path fieldprofile.SemanticCoveragePathAggregate) bool {
 	return contribution.Complete && contribution.Identity.SchemaIdentity != "" &&
 		!contribution.CountsTruncated && !contribution.FacetsTruncated && !contribution.ReferencesTruncated &&
 		!contribution.ReconciliationTruncated && len(contribution.IncompleteGaps) == 0 &&
 		path.ResourceBoundarySignature == "" && !path.CountsTruncated && !path.FacetsTruncated &&
-		!path.ReferencesTruncated && path.Disposition == catalog.SemanticCoverageSemanticDisposition
+		!path.ReferencesTruncated && path.Disposition == fieldprofile.SemanticCoverageSemanticDisposition
 }

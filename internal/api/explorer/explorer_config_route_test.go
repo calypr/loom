@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
@@ -31,11 +32,11 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 		t.Fatal(err)
 	}
 	snapshot := testAuthoringV2CapabilitySnapshot()
-	materialize := func(_ context.Context, bundle recipe.Bundle, _ recipe.RuntimeBindings) (lifecycle.Execution, error) {
+	materialize := func(_ context.Context, bundle recipe.Bundle, _ recipe.RuntimeBindings) (ports.Execution, error) {
 		if bundle.Name != "native-test" {
 			t.Fatalf("materialized identity = %s/%s", bundle.Name, bundle.TranslationVersion)
 		}
-		return lifecycle.Execution{ID: "execution-a", SourceGeneration: "generation-a", State: "PUBLISHED", Outputs: []lifecycle.ExecutionOutput{{Name: "patients", State: "PUBLISHED", Columns: []publication.PhysicalColumn{{Name: "c_patient", LogicalType: "string", ClickHouse: "String"}}}}}, nil
+		return ports.Execution{ID: "execution-a", SourceGeneration: "generation-a", State: "PUBLISHED", Outputs: []ports.ExecutionOutput{{Name: "patients", State: "PUBLISHED", Columns: []publication.PhysicalColumn{{Name: "c_patient", LogicalType: "string", ClickHouse: "String"}}}}}, nil
 	}
 	activationCount := 0
 	activateRelease := func(_ context.Context, project, generation string, selectors []dataset.DataframeSelector) error {
@@ -47,21 +48,21 @@ func TestRepositoryDeploymentPersistsExecutableDataframeSelectors(t *testing.T) 
 	}
 	app := fiber.New()
 	config := lifecycle.Config{
-		Capability: lifecycle.CapabilityResolver{
+		Capability: ports.CapabilityResolver{
 			Current: func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil },
 			Token:   func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+				return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return explorerfixtures.PersistTestNativeReceipt(ctx, t, service, request, snapshot)
 		},
-		MaterializeReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (lifecycle.Execution, error) {
+		MaterializeReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (ports.Execution, error) {
 			execution, err := materialize(ctx, receipt.Bundle, bindings)
 			if err != nil {
-				return lifecycle.Execution{}, err
+				return ports.Execution{}, err
 			}
 			execution.Project = receipt.Project
 			execution.ScopeDigest = "execution-scope"

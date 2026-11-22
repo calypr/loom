@@ -9,6 +9,7 @@ import (
 	"time"
 
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 	"github.com/calypr/loom/internal/testkit/recipetest"
 
@@ -67,7 +68,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 	}
 	snapshot := capability.NewSnapshot(baseSnapshot.Identity, baseSnapshot.Policy, capability.StatusReady, true, false, nodes, edges, nil, nil)
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
+	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 
 	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
@@ -145,15 +146,15 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 	previewCalls := 0
 	service, err := lifecycle.New(domain, lifecycle.Config{
 		SelectionMembersCollection: "loom_explorer_selection_members",
-		Capability: lifecycle.CapabilityResolver{
-			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) { return authorized, nil },
-			ForExecution:   func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) { return authorized, nil },
+		Capability: ports.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil },
+			ForExecution:   func(context.Context, string, string) (ports.AuthorizedCapability, error) { return authorized, nil },
 			Catalog:        authoringv2.CatalogFromCapability,
 		},
-		ConstructionSourceStage: func(context.Context, lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+		ConstructionSourceStage: func(context.Context, ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 			return sourceStage, nil
 		},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return receiptapi.Compile(ctx, request, nil, engine, domain, nil, nil)
 		},
 		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
@@ -242,7 +243,7 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 	if _, err := service.ApplyCommands(context.Background(), "project-a", "custom", staleRequest, "wave104-test"); err == nil {
 		t.Fatal("stale draft digest applied the zero-column candidate")
 	} else {
-		var lifecycleErr *lifecycle.Error
+		var lifecycleErr *ports.Error
 		if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "DRAFT_CONFLICT" {
 			t.Fatalf("stale proposal apply error = %v, want DRAFT_CONFLICT", err)
 		}

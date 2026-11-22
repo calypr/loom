@@ -4,17 +4,19 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
 )
 
 func TestCacheDiscoverFieldsCachesAndInvalidatesByProject(t *testing.T) {
 	cache := NewCache()
 	calls := 0
-	discover := cache.DiscoverFields(func(ctx context.Context, opts PopulatedFieldOptions) ([]PopulatedField, error) {
+	discover := cache.DiscoverFields(func(ctx context.Context, opts fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 		calls++
-		return []PopulatedField{{ResourceType: opts.ResourceType, Path: "gender"}}, nil
+		return []fieldprofile.PopulatedField{{ResourceType: opts.ResourceType, Path: "gender"}}, nil
 	})
 
-	opts := PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}
+	opts := fieldprofile.PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}
 	if _, err := discover(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
@@ -44,16 +46,16 @@ func TestCacheDiscoverFieldsCachesAndInvalidatesByProject(t *testing.T) {
 
 func TestCacheClonesExtensionObservations(t *testing.T) {
 	cache := NewCache()
-	value := PopulatedField{ResourceType: "DocumentReference", Path: "extension[].url", ExtensionValues: []ExtensionValueObservation{{URL: "u", SourcePath: "extension[]", ValuePath: "valueString", ValueType: "string"}}}
-	discover := cache.DiscoverFields(func(context.Context, PopulatedFieldOptions) ([]PopulatedField, error) {
-		return []PopulatedField{value}, nil
+	value := fieldprofile.PopulatedField{ResourceType: "DocumentReference", Path: "extension[].url", ExtensionValues: []fieldprofile.ExtensionValueObservation{{URL: "u", SourcePath: "extension[]", ValuePath: "valueString", ValueType: "string"}}}
+	discover := cache.DiscoverFields(func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
+		return []fieldprofile.PopulatedField{value}, nil
 	})
-	first, err := discover(context.Background(), PopulatedFieldOptions{Project: "P1", ResourceType: "DocumentReference"})
+	first, err := discover(context.Background(), fieldprofile.PopulatedFieldOptions{Project: "P1", ResourceType: "DocumentReference"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	first[0].ExtensionValues[0].URL = "mutated"
-	second, err := discover(context.Background(), PopulatedFieldOptions{Project: "P1", ResourceType: "DocumentReference"})
+	second, err := discover(context.Background(), fieldprofile.PopulatedFieldOptions{Project: "P1", ResourceType: "DocumentReference"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,13 +118,13 @@ func TestCacheDiscoverReferencesSeparatesActiveFiltersByMode(t *testing.T) {
 func TestCacheSeparatesRestrictedEmptyScopeFromUnrestrictedScope(t *testing.T) {
 	cache := NewCache()
 	calls := 0
-	discover := cache.DiscoverFields(func(context.Context, PopulatedFieldOptions) ([]PopulatedField, error) {
+	discover := cache.DiscoverFields(func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 		calls++
-		return []PopulatedField{{ResourceType: "Patient", Path: "gender"}}, nil
+		return []fieldprofile.PopulatedField{{ResourceType: "Patient", Path: "gender"}}, nil
 	})
 
-	unrestricted := PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}
-	restrictedEmpty := PopulatedFieldOptions{
+	unrestricted := fieldprofile.PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}
+	restrictedEmpty := fieldprofile.PopulatedFieldOptions{
 		Project:                       "P1",
 		ResourceType:                  "Patient",
 		AuthResourcePathsUnrestricted: ExplicitAuthResourcePathsUnrestricted(false),
@@ -143,9 +145,9 @@ func TestCacheSeparatesRestrictedEmptyScopeFromUnrestrictedScope(t *testing.T) {
 func TestCacheSeparatesDatasetGenerationNamespaces(t *testing.T) {
 	cache := NewCache()
 	fieldCalls := 0
-	discoverFields := cache.DiscoverFields(func(context.Context, PopulatedFieldOptions) ([]PopulatedField, error) {
+	discoverFields := cache.DiscoverFields(func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 		fieldCalls++
-		return []PopulatedField{{ResourceType: "Patient", Path: "gender"}}, nil
+		return []fieldprofile.PopulatedField{{ResourceType: "Patient", Path: "gender"}}, nil
 	})
 	referenceCalls := 0
 	discoverReferences := cache.DiscoverReferences(func(context.Context, PopulatedReferenceOptions) ([]PopulatedReference, error) {
@@ -153,7 +155,7 @@ func TestCacheSeparatesDatasetGenerationNamespaces(t *testing.T) {
 		return []PopulatedReference{{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen"}}, nil
 	})
 
-	fieldBase := PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}
+	fieldBase := fieldprofile.PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}
 	referenceBase := PopulatedReferenceOptions{Project: "P1", NodeType: "Patient", Mode: TraversalModeBuilder}
 	for _, generation := range []string{"", "generation-a", " generation-a ", "generation-b"} {
 		fields := fieldBase
@@ -178,25 +180,25 @@ func TestCacheSeparatesDatasetGenerationNamespaces(t *testing.T) {
 func TestCacheBoundsEntriesAcrossFieldsAndReferences(t *testing.T) {
 	cache := NewCacheWithOptions(CacheOptions{MaxEntries: 2, MaxBytes: 1 << 20})
 	fieldCalls, referenceCalls := 0, 0
-	discoverFields := cache.DiscoverFields(func(context.Context, PopulatedFieldOptions) ([]PopulatedField, error) {
+	discoverFields := cache.DiscoverFields(func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 		fieldCalls++
-		return []PopulatedField{{Path: "field"}}, nil
+		return []fieldprofile.PopulatedField{{Path: "field"}}, nil
 	})
 	discoverReferences := cache.DiscoverReferences(func(context.Context, PopulatedReferenceOptions) ([]PopulatedReference, error) {
 		referenceCalls++
 		return []PopulatedReference{{FromType: "Patient", ToType: "Observation"}}, nil
 	})
 
-	if _, err := discoverFields(context.Background(), PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}); err != nil {
+	if _, err := discoverFields(context.Background(), fieldprofile.PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := discoverReferences(context.Background(), PopulatedReferenceOptions{Project: "P1", FromType: "Patient"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := discoverFields(context.Background(), PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}); err != nil {
+	if _, err := discoverFields(context.Background(), fieldprofile.PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := discoverFields(context.Background(), PopulatedFieldOptions{Project: "P2", ResourceType: "Patient"}); err != nil {
+	if _, err := discoverFields(context.Background(), fieldprofile.PopulatedFieldOptions{Project: "P2", ResourceType: "Patient"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := discoverReferences(context.Background(), PopulatedReferenceOptions{Project: "P1", FromType: "Patient"}); err != nil {
@@ -215,11 +217,11 @@ func TestCacheBoundsEntriesAcrossFieldsAndReferences(t *testing.T) {
 func TestCacheRejectsValueOverConfiguredByteWeight(t *testing.T) {
 	cache := NewCacheWithOptions(CacheOptions{MaxEntries: 4, MaxBytes: 32})
 	calls := 0
-	discover := cache.DiscoverFields(func(context.Context, PopulatedFieldOptions) ([]PopulatedField, error) {
+	discover := cache.DiscoverFields(func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
 		calls++
-		return []PopulatedField{{Path: strings.Repeat("long", 16)}}, nil
+		return []fieldprofile.PopulatedField{{Path: strings.Repeat("long", 16)}}, nil
 	})
-	opts := PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}
+	opts := fieldprofile.PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}
 	if _, err := discover(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
@@ -232,4 +234,16 @@ func TestCacheRejectsValueOverConfiguredByteWeight(t *testing.T) {
 	if stats := cache.Stats(); stats.Entries != 0 || stats.Bytes != 0 {
 		t.Fatalf("oversized value cache stats = %#v, want empty cache", stats)
 	}
+}
+
+type CacheStats struct {
+	Entries   int
+	Bytes     int
+	Evictions uint64
+}
+
+func (c *Cache) Stats() CacheStats {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return CacheStats{Entries: len(c.entries), Bytes: c.bytes, Evictions: c.evictions}
 }

@@ -11,12 +11,13 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+
 	"github.com/calypr/loom/internal/explorer/recipeimport"
 	"github.com/calypr/loom/internal/projectid"
 )
 
-func (r Sources) Network(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
+func (r Sources) Network(ctx context.Context, project string, authorized ports.AuthorizedCapability, document authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
 	catalog := authoringv2.CatalogFromCapability(authorized.Snapshot, "")
 	if document.ImportedRecipe == nil {
 		return authoringv2.NetworkForDocument(document, catalog)
@@ -58,7 +59,7 @@ func (r Sources) Network(ctx context.Context, project string, authorized lifecyc
 func (r Sources) RemoveOutput(
 	ctx context.Context,
 	project string,
-	authorized lifecycle.AuthorizedCapability,
+	authorized ports.AuthorizedCapability,
 	document authoringv2.Document,
 	sourceStepID string,
 	outputKey string,
@@ -280,7 +281,7 @@ func disablePivotOutput(parameters *authoringv2.ImportedPivotParameters, key str
 func (r Sources) RemoveField(
 	ctx context.Context,
 	project string,
-	authorized lifecycle.AuthorizedCapability,
+	authorized ports.AuthorizedCapability,
 	document authoringv2.Document,
 	sourceStepID string,
 	sourceFieldID string,
@@ -293,7 +294,7 @@ func (r Sources) RemoveField(
 		return authoringv2.Document{}, err
 	}
 	if r.registry == nil || r.engine == nil || ref.Name != r.defaultName {
-		return authoringv2.Document{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported source recipes are not configured"}
+		return authoringv2.Document{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported source recipes are not configured"}
 	}
 	if projectid.Canonical(project) != projectid.Canonical(authorized.Snapshot.Identity.Project) {
 		return authoringv2.Document{}, capability.ErrStaleSnapshot
@@ -303,7 +304,7 @@ func (r Sources) RemoveField(
 	}
 	entry, err := r.registry.LoadRecipeVersion(ctx, ref.Name, ref.TranslationVersion)
 	if err != nil {
-		return authoringv2.Document{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the pinned dataframe recipe could not be loaded", Cause: err}
+		return authoringv2.Document{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the pinned dataframe recipe could not be loaded", Cause: err}
 	}
 	bundle, err := entry.Bundle.CanonicalBundle()
 	if err != nil {

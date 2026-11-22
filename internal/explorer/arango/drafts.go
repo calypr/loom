@@ -14,7 +14,7 @@ import (
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
-func (s *Store) SaveDraft(ctx context.Context, e explorer.Explorer, expected int64, expectedDigest ...string) (*explorer.Explorer, error) {
+func (s *DraftStore) SaveDraft(ctx context.Context, e explorer.Explorer, expected int64, expectedDigest ...string) (*explorer.Explorer, error) {
 	return s.saveDraft(ctx, e, expected, expectedDigest, nil)
 }
 
@@ -24,7 +24,7 @@ type draftMigrationWrite struct {
 	beforeHistory func(context.Context, store.RowQueryer, explorer.Explorer, explorer.DraftRevision) error
 }
 
-func (s *Store) saveDraft(ctx context.Context, e explorer.Explorer, expected int64, expectedDigest []string, migration *draftMigrationWrite) (*explorer.Explorer, error) {
+func (s *DraftStore) saveDraft(ctx context.Context, e explorer.Explorer, expected int64, expectedDigest []string, migration *draftMigrationWrite) (*explorer.Explorer, error) {
 	e.UpdatedAt = time.Now().UTC()
 	draftPatch, err := draftPatchDocument(e)
 	if err != nil {
@@ -163,7 +163,7 @@ UPDATE d WITH MERGE(base, @doc, {
 	return out, nil
 }
 
-func (s *Store) GetDraftRevision(ctx context.Context, project, explorerID, revisionID string) (*explorer.DraftRevision, error) {
+func (s *DraftStore) GetDraftRevision(ctx context.Context, project, explorerID, revisionID string) (*explorer.DraftRevision, error) {
 	project = strings.TrimSpace(project)
 	explorerID = strings.TrimSpace(explorerID)
 	revisionID = strings.TrimSpace(revisionID)

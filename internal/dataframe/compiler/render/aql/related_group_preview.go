@@ -392,10 +392,10 @@ func renderRelatedGroupPreviewFrontier(
 		keys[key] = struct{}{}
 	}
 	key := runtimePhysicalBindVars(bindVars, keys)
-	renderer := physicalPlanRenderer{
+	renderer := physicalPlanRenderer{renderContext: renderContext{
 		bindVars: key, collectionKeys: keys,
 		reservedVars: stageSequenceVariableNames(plan), internalPrefix: "related_group_preview_",
-	}
+	}}
 	targetCollectionBind := renderer.newInternalBindKey("target_collection")
 	renderer.collectionKeys[targetCollectionBind] = struct{}{}
 	renderer.bindVars["@"+targetCollectionBind] = shape.targetResourceType
@@ -408,30 +408,30 @@ func renderRelatedGroupPreviewFrontier(
 	keyTypeBind := renderer.newInternalBindKey("group_key_type")
 	renderer.bindVars[keyTypeBind] = shape.groupKeyType
 
-	selectedGroups := renderer.newInternalVariable("selected_groups")
-	candidateGroups := renderer.newInternalVariable("candidate_groups")
-	patient := renderer.newInternalVariable("candidate_patient")
-	patientFHIRID := renderer.newInternalVariable("candidate_patient_fhir_id")
-	groupIdentity := renderer.newInternalVariable("candidate_group_identity")
-	candidateIdentity := renderer.newInternalVariable("candidate_identity")
-	patientDocs := renderer.newInternalVariable("candidate_patient_docs")
-	candidate := renderer.newInternalVariable("candidate_group")
-	patientDoc := renderer.newInternalVariable("candidate_patient_doc")
-	edge := renderer.newInternalVariable("candidate_edge")
-	root := renderer.newInternalVariable("candidate_root")
-	edgeScope := renderer.newInternalVariable("candidate_edge_scope_allowed")
-	patientScope := renderer.newInternalVariable("candidate_patient_scope_allowed")
-	candidateRootScope := renderer.newInternalVariable("candidate_root_scope_allowed")
-	selectedDocID := renderer.newInternalVariable("candidate_patient_doc_id")
-	selectedPatientID := renderer.newInternalVariable("selected_patient_id")
-	selectedGroup := renderer.newInternalVariable("selected_group")
-	rootEdge := renderer.newInternalVariable("selected_root_edge")
-	selectedRoot := renderer.newInternalVariable("selected_root")
-	selectedEdgeScope := renderer.newInternalVariable("selected_edge_scope_allowed")
-	selectedRootScope := renderer.newInternalVariable("selected_root_scope_allowed")
-	bounded := renderer.newInternalVariable("bounded")
-	rootKeys := renderer.newInternalVariable("root_keys")
-	groupIdentities := renderer.newInternalVariable("group_identities")
+	selectedGroups := renderer.navigation().newInternalVariable("selected_groups")
+	candidateGroups := renderer.navigation().newInternalVariable("candidate_groups")
+	patient := renderer.navigation().newInternalVariable("candidate_patient")
+	patientFHIRID := renderer.navigation().newInternalVariable("candidate_patient_fhir_id")
+	groupIdentity := renderer.navigation().newInternalVariable("candidate_group_identity")
+	candidateIdentity := renderer.navigation().newInternalVariable("candidate_identity")
+	patientDocs := renderer.navigation().newInternalVariable("candidate_patient_docs")
+	candidate := renderer.navigation().newInternalVariable("candidate_group")
+	patientDoc := renderer.navigation().newInternalVariable("candidate_patient_doc")
+	edge := renderer.navigation().newInternalVariable("candidate_edge")
+	root := renderer.navigation().newInternalVariable("candidate_root")
+	edgeScope := renderer.navigation().newInternalVariable("candidate_edge_scope_allowed")
+	patientScope := renderer.navigation().newInternalVariable("candidate_patient_scope_allowed")
+	candidateRootScope := renderer.navigation().newInternalVariable("candidate_root_scope_allowed")
+	selectedDocID := renderer.navigation().newInternalVariable("candidate_patient_doc_id")
+	selectedPatientID := renderer.navigation().newInternalVariable("selected_patient_id")
+	selectedGroup := renderer.navigation().newInternalVariable("selected_group")
+	rootEdge := renderer.navigation().newInternalVariable("selected_root_edge")
+	selectedRoot := renderer.navigation().newInternalVariable("selected_root")
+	selectedEdgeScope := renderer.navigation().newInternalVariable("selected_edge_scope_allowed")
+	selectedRootScope := renderer.navigation().newInternalVariable("selected_root_scope_allowed")
+	bounded := renderer.navigation().newInternalVariable("bounded")
+	rootKeys := renderer.navigation().newInternalVariable("root_keys")
+	groupIdentities := renderer.navigation().newInternalVariable("group_identities")
 
 	traversal := shape.firstHop
 	rootEndpoint, targetEndpoint := traversal.EndpointField, traversal.EndpointJoinField

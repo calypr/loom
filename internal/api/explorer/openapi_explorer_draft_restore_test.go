@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
@@ -73,11 +74,11 @@ func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 		t.Fatal(err)
 	}
 	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	config := lifecycle.Config{Capability: lifecycle.CapabilityResolver{
+	config := lifecycle.Config{Capability: ports.CapabilityResolver{
 		Current: func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil },
 		Token:   func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
-		ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-			return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+		ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
 		},
 		Catalog: authoringv2.CatalogFromCapability,
 	}}

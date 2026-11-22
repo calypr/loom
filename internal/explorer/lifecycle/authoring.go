@@ -9,11 +9,12 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -23,6 +24,13 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 		return nil, err
 	}
 	return response.Commands, nil
+}
+
+func (s *Service) ApplyBuilderCommands(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, sinkFactory PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
+	if len(request.Commands) != 1 || request.Commands[0].Type != authoringv2.CommandApplyConstructionProposal {
+		sinkFactory = nil
+	}
+	return s.applyCommandsWithConstructionPreview(ctx, project, explorerID, request, actor, sinkFactory)
 }
 
 func (s *Service) ApplyCommandsWithConstructionPreview(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, sinkFactory PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
@@ -39,85 +47,21 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 		}
 		return nil, malformed("commands", err.Error(), err)
 	}
-	constructionChoiceCommand := request.Commands[0].Type == authoringv2.CommandApplyConstructionChoice
-	frameSourceCommand := request.Commands[0].Type == authoringv2.CommandSetFrameSource || request.Commands[0].Type == authoringv2.CommandReplaceFrameSource
-	columnPolicyProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyColumnPolicyProposal
-	rowDefinitionProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyRowDefinitionProposal
-	rowChangeReplacementCommand := request.Commands[0].Type == authoringv2.CommandApplyTableRootRebase && request.Commands[0].RowChange != nil && request.Commands[0].RowChange.Mode == authoringv2.RowChangeModeReplace
-	var rowDefinitionCandidate *explorer.CompilationReceipt
-	constructionProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyConstructionProposal
-	populationMemberProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyPopulationMemberProposal
-	restoreDraftRevisionCommand := request.Commands[0].Type == authoringv2.CommandRestoreDraftRevision
-	rowValuePolicyCommand := request.Commands[0].Type == authoringv2.CommandUpdateColumnRowValuePolicy
-	importedSourceCommand := authoringv2.IsImportedSourceCommand(request.Commands[0].Type)
-	projectedFieldRemovalCommand := request.Commands[0].Type == authoringv2.CommandRemoveProjectedField
-	for _, command := range request.Commands {
-		if command.Type == authoringv2.CommandUpdateColumnRowValuePolicy && len(request.Commands) != 1 {
-			return nil, malformed("commands", "UPDATE_COLUMN_ROW_VALUE_POLICY must be the only command in its atomic request", nil)
-		}
+	intents, err := parseAuthoringCommandIntents(request)
+	if err != nil {
+		return nil, err
 	}
+	var rowDefinitionCandidate *explorer.CompilationReceipt
 	var constructionCandidate *explorer.CompilationReceipt
 	var acceptedConstruction *AcceptedConstruction
 	var populationMemberCandidate *explorer.CompilationReceipt
 	var rowChangeReplacementCandidate *explorer.CompilationReceipt
-	constructionIdentities := make([]capability.ConstructionChoiceIdentity, len(request.Commands))
-	var frameSourceIdentity capability.ConstructionChoiceIdentity
-	if frameSourceCommand {
-		identity, decodeErr := capability.DecodeConstructionChoiceID(request.Commands[0].FrameChoiceID)
-		if decodeErr != nil || identity.Kind != capability.ConstructionChoiceSourceSemanticFrame {
-			return nil, malformed("commands", "frameChoiceId is invalid", decodeErr)
-		}
-		if identity.SnapshotToken != request.SnapshotToken {
-			return nil, conflict("commands", "STALE_FRAME_SOURCE", "the frame source belongs to a different catalog snapshot", nil, nil)
-		}
-		frameSourceIdentity = identity
-	}
-	populationRouteCount := 0
-	for _, command := range request.Commands {
-		if command.Type == authoringv2.CommandSetTablePopulation {
-			populationRouteCount++
-		}
-	}
-	populationRouteCommand := populationRouteCount > 0
-	populationRouteIdentities := make([]capability.PopulationRouteChoiceIdentity, len(request.Commands))
-	if populationRouteCommand {
-		for index, command := range request.Commands {
-			if command.Type != authoringv2.CommandSetTablePopulation || command.RouteChoiceID == "" || len(command.EdgeIDs) != 0 {
-				return nil, malformed("commands", "population route choices require only SET_TABLE_POPULATION routeChoiceId commands", nil)
-			}
-			identity, decodeErr := capability.DecodePopulationRouteChoiceID(command.RouteChoiceID)
-			if decodeErr != nil {
-				return nil, malformed("commands", fmt.Sprintf("commands[%d].routeChoiceId is invalid", index), decodeErr)
-			}
-			if identity.SnapshotToken != request.SnapshotToken || identity.OutputID != command.OutputID || identity.SelectionRevisionID != command.SelectionRevisionID {
-				return nil, conflict("commands", "STALE_POPULATION_ROUTE", "a population route belongs to another table, selection, or snapshot", nil, nil)
-			}
-			populationRouteIdentities[index] = identity
-		}
-		if populationRouteCount != len(request.Commands) {
-			return nil, malformed("commands", "population route choices must form the entire atomic request", nil)
-		}
-	}
-	if constructionChoiceCommand {
-		for index, command := range request.Commands {
-			identity, decodeErr := capability.DecodeConstructionChoiceID(command.ConstructionChoice.ChoiceID)
-			if decodeErr != nil {
-				return nil, malformed("commands", fmt.Sprintf("commands[%d].constructionChoice.choiceId is invalid", index), decodeErr)
-			}
-			if identity.SnapshotToken != request.SnapshotToken {
-				return nil, conflict("commands", "STALE_CONSTRUCTION_CHOICE", "a construction choice belongs to a different catalog snapshot", nil, nil)
-			}
-			constructionIdentities[index] = identity
-		}
-	}
 	if s.config.Capability.Catalog == nil {
 		return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "Explorer capability lookup is not configured", nil)
 	}
-	semanticCommand := request.Commands[0].Type == authoringv2.CommandAddSemanticSelections
 	var snapshot capability.Snapshot
-	var authorized AuthorizedCapability
-	var err error
-	if semanticCommand || constructionChoiceCommand || populationRouteCommand || constructionProposalCommand || populationMemberProposalCommand || restoreDraftRevisionCommand || frameSourceCommand || rowValuePolicyCommand || rowChangeReplacementCommand || importedSourceCommand || columnPolicyProposalCommand || projectedFieldRemovalCommand {
+	var authorized ports.AuthorizedCapability
+	if intents.requiresAuthorizedScope() {
 		if s.config.Capability.ForCompilation == nil {
 			return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 		}
@@ -134,7 +78,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 		}
 		snapshot, err = s.config.Capability.Token(ctx, project, request.SnapshotToken)
 	}
-	if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil || (constructionChoiceCommand && !constructionChoicesMatchSnapshot(constructionIdentities, snapshot.Token)) {
+	if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil || (intents.constructionChoiceCommand && !constructionChoicesMatchSnapshot(intents.constructionIdentities, snapshot.Token)) {
 		return nil, conflict("commands", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
 	}
 	if projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(project) || snapshot.Identity.Generation == "" {
@@ -147,7 +91,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 		}); sourceErr != nil {
 			return nil, conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the authorized source context is incomplete", nil, sourceErr)
 		}
-	} else if restoreDraftRevisionCommand {
+	} else if intents.restoreDraftRevisionCommand {
 		return nil, conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the authorized source context is incomplete", nil, nil)
 	}
 	catalog := s.config.Capability.Catalog(snapshot, explorerID)
@@ -157,64 +101,64 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 		}
 	}
 	var prepare func(context.Context, authoringv2.Workspace, []authoringv2.Command) ([]authoringv2.Command, error)
-	if columnPolicyProposalCommand {
+	if intents.columnPolicyProposalCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			return s.prepareColumnPolicyProposal(ctx, project, explorerID, request, authorized, workspace, commands)
 		}
-	} else if projectedFieldRemovalCommand {
+	} else if intents.projectedFieldRemovalCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			return s.prepareProjectedFieldRemoval(ctx, project, explorerID, request, authorized, workspace, catalog, commands)
 		}
-	} else if importedSourceCommand {
+	} else if intents.importedSourceCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			if commands[0].Type == authoringv2.CommandApplyImportedRelationshipProposal {
 				return s.prepareImportedRelationshipProposal(ctx, project, explorerID, request, authorized, workspace, commands)
 			}
 			return s.prepareImportedSource(ctx, project, explorerID, authorized, workspace, catalog, commands)
 		}
-	} else if semanticCommand {
+	} else if intents.semanticCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			return s.prepareSemanticSelections(ctx, project, explorerID, authorized, workspace, catalog, commands)
 		}
-	} else if constructionChoiceCommand {
+	} else if intents.constructionChoiceCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
-			return s.prepareConstructionChoice(ctx, project, explorerID, authorized, constructionIdentities, workspace, catalog, commands)
+			return s.prepareConstructionChoice(ctx, project, explorerID, authorized, intents.constructionIdentities, workspace, catalog, commands)
 		}
-	} else if populationRouteCommand {
+	} else if intents.populationRouteCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
-			return s.preparePopulationRouteChoices(ctx, project, authorized, populationRouteIdentities, workspace, commands)
+			return s.preparePopulationRouteChoices(ctx, project, authorized, intents.populationRouteIdentities, workspace, commands)
 		}
-	} else if rowDefinitionProposalCommand {
+	} else if intents.rowDefinitionProposalCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
-			prepared, receipt, prepareErr := s.prepareRowDefinitionProposal(ctx, project, explorerID, request, snapshot, workspace, commands)
+			prepared, receipt, prepareErr := s.rowProposals().prepareRowDefinitionProposal(ctx, project, explorerID, request, snapshot, workspace, commands)
 			rowDefinitionCandidate = receipt
 			return prepared, prepareErr
 		}
-	} else if constructionProposalCommand {
+	} else if intents.constructionProposalCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			prepared, receipt, accepted, prepareErr := s.prepareConstructionProposal(ctx, project, explorerID, request, snapshot, workspace, commands, previewSinkFactory)
 			constructionCandidate = receipt
 			acceptedConstruction = accepted
 			return prepared, prepareErr
 		}
-	} else if populationMemberProposalCommand {
+	} else if intents.populationMemberProposalCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			prepared, receipt, prepareErr := s.preparePopulationMemberRemovalProposal(ctx, project, explorerID, request, authorized, workspace, commands)
 			populationMemberCandidate = receipt
 			return prepared, prepareErr
 		}
-	} else if restoreDraftRevisionCommand {
+	} else if intents.restoreDraftRevisionCommand {
 		prepare = func(ctx context.Context, _ authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			return s.prepareDraftRevisionRestore(ctx, project, explorerID, request, snapshot, commands)
 		}
-	} else if frameSourceCommand {
+	} else if intents.frameSourceCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			if len(commands) != 1 {
 				return nil, malformed("commands", "frame source changes must contain exactly one command", nil)
 			}
-			return s.prepareFrameSourceCommand(ctx, project, explorerID, authorized, workspace, catalog, commands[0], frameSourceIdentity)
+			return s.prepareFrameSourceCommand(ctx, project, explorerID, authorized, workspace, catalog, commands[0], intents.frameSourceIdentity)
 		}
-	} else if rowChangeReplacementCommand {
+	} else if intents.rowChangeReplacementCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			if len(commands) != 1 || commands[0].RowChange == nil {
 				return nil, malformed("commands", "row replacement must be the only command", nil)
@@ -258,22 +202,22 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 		if err := s.validateInterpretationCandidateCommands(ctx, project, explorerID, request, workspace, snapshot); err != nil {
 			return err
 		}
-		if rowDefinitionProposalCommand {
-			return s.checkRowDefinitionProposalResult(workspace, rowDefinitionCandidate)
+		if intents.rowDefinitionProposalCommand {
+			return checkRowDefinitionProposalResult(workspace, rowDefinitionCandidate)
 		}
-		if constructionProposalCommand {
+		if intents.constructionProposalCommand {
 			return checkConstructionProposalResult(workspace, constructionCandidate)
 		}
-		if populationMemberProposalCommand {
+		if intents.populationMemberProposalCommand {
 			if err := checkPopulationMemberRemovalProposalResult(workspace, populationMemberCandidate); err != nil {
 				return err
 			}
 			return previewPopulationMemberRemovalProposal(ctx, s, project, explorerID, populationMemberCandidate)
 		}
-		if rowChangeReplacementCommand {
+		if intents.rowChangeReplacementCommand {
 			return checkRowChangeReplacementResult(workspace, rowChangeReplacementCandidate, request.Commands[0].RowChange.OutputID)
 		}
-		if rowValuePolicyCommand {
+		if intents.rowValuePolicyCommand {
 			return s.validateRowValuePolicyCandidate(ctx, project, explorerID, request, workspace, snapshot, authorized, request.Commands[0])
 		}
 		return nil
@@ -284,7 +228,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	case errors.Is(err, explorer.ErrAuthoringCommandConflict):
 		return nil, conflict("commands", "COMMAND_ID_CONFLICT", "commandId was already used for different intent", nil, err)
 	case err != nil:
-		var lifecycleErr *Error
+		var lifecycleErr *ports.Error
 		if errors.As(err, &lifecycleErr) {
 			return nil, lifecycleErr
 		}
@@ -352,7 +296,7 @@ func checkRowChangeReplacementResult(workspace authoringv2.Workspace, receipt *e
 	return conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the applied row replacement removed its output", nil, nil)
 }
 
-func (s *Service) prepareSemanticSelections(ctx context.Context, project, explorerID string, authorized AuthorizedCapability, workspace authoringv2.Workspace, catalogSnapshot authoringv2.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+func (s *Service) prepareSemanticSelections(ctx context.Context, project, explorerID string, authorized ports.AuthorizedCapability, workspace authoringv2.Workspace, catalogSnapshot authoringv2.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 	if s.config.ResolveSemanticInventorySelections == nil {
 		return nil, unavailable("commands", "CATALOG_UNAVAILABLE", "semantic inventory resolution is not configured", nil)
 	}
@@ -372,7 +316,7 @@ func (s *Service) prepareSemanticSelections(ctx context.Context, project, explor
 		return nil, conflict("commands", "STALE_SEMANTIC_CONTEXT", "the selected row root is not available in the current catalog snapshot", nil, nil)
 	}
 	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
-	references := make([]catalog.SemanticInventoryReference, 0, len(command.SemanticSelections))
+	references := make([]semanticinventory.Reference, 0, len(command.SemanticSelections))
 	seen := make(map[string]struct{}, len(command.SemanticSelections))
 	for _, selection := range command.SemanticSelections {
 		identity := selection.BindingID + "\x00" + selection.ConceptID
@@ -380,9 +324,9 @@ func (s *Service) prepareSemanticSelections(ctx context.Context, project, explor
 			continue
 		}
 		seen[identity] = struct{}{}
-		references = append(references, catalog.SemanticInventoryReference{ConceptID: selection.ConceptID, BindingID: selection.BindingID})
+		references = append(references, semanticinventory.Reference{ConceptID: selection.ConceptID, BindingID: selection.BindingID})
 	}
-	resolved, err := s.config.ResolveSemanticInventorySelections(ctx, catalog.SemanticInventoryResolveOptions{
+	resolved, err := s.config.ResolveSemanticInventorySelections(ctx, semanticinventory.ResolveOptions{
 		Project:                       projectid.Legacy(authorized.Snapshot.Identity.Project),
 		DatasetGeneration:             authorized.Snapshot.Identity.Generation,
 		AuthResourcePathsUnrestricted: &unrestricted,
@@ -392,8 +336,8 @@ func (s *Service) prepareSemanticSelections(ctx context.Context, project, explor
 	if err != nil {
 		return nil, unavailable("catalog", "CATALOG_UNAVAILABLE", "the selected semantic inventory could not be resolved", err)
 	}
-	expectedBuildID := catalog.SemanticInventoryBuildID(projectid.Legacy(authorized.Snapshot.Identity.Project), authorized.Snapshot.Identity.Generation)
-	if resolved.State != catalog.SemanticInventoryComplete || resolved.Build.State != catalog.SemanticInventoryComplete || resolved.Build.BuildID != expectedBuildID {
+	expectedBuildID := semanticinventory.BuildID(projectid.Legacy(authorized.Snapshot.Identity.Project), authorized.Snapshot.Identity.Generation)
+	if resolved.State != semanticinventory.Complete || resolved.Build.State != semanticinventory.Complete || resolved.Build.BuildID != expectedBuildID {
 		return nil, conflict("catalog", "SEMANTIC_INVENTORY_UNAVAILABLE", "the current generation does not have a complete semantic inventory", nil, nil)
 	}
 	expectedContext, err := semanticInventoryContextToken(authorized.Snapshot, explorerID, document.RootResourceType, expectedBuildID)
@@ -403,7 +347,7 @@ func (s *Service) prepareSemanticSelections(ctx context.Context, project, explor
 	if command.ContextToken != expectedContext {
 		return nil, conflict("catalog", "STALE_SEMANTIC_CONTEXT", "reload the selected concepts before applying them", nil, nil)
 	}
-	byIdentity := make(map[string]catalog.SemanticInventoryEntry, len(resolved.Entries))
+	byIdentity := make(map[string]semanticinventory.Entry, len(resolved.Entries))
 	for _, entry := range resolved.Entries {
 		identity := entry.BindingID + "\x00" + entry.ConceptID
 		if _, exists := byIdentity[identity]; exists {
@@ -443,7 +387,7 @@ func (s *Service) compile(ctx context.Context, request compileRequest) (*explore
 	return s.compileAuthorized(ctx, request, authorized)
 }
 
-func (s *Service) compileAuthorized(ctx context.Context, request compileRequest, authorized AuthorizedCapability) (*explorer.CompilationReceipt, error) {
+func (s *Service) compileAuthorized(ctx context.Context, request compileRequest, authorized ports.AuthorizedCapability) (*explorer.CompilationReceipt, error) {
 	if s.config.CompileReceipt == nil {
 		return nil, unavailable("compile", "CAPABILITY_UNAVAILABLE", "Explorer V2 compiler is not configured", nil)
 	}
@@ -459,7 +403,7 @@ func (s *Service) compileAuthorized(ctx context.Context, request compileRequest,
 	}
 	resolvedInputs, err := s.resolveWorkspacePopulations(ctx, request.Project, workspace, snapshot, snapshot.Identity.AuthorizationScopeDigest)
 	if err != nil {
-		var typed *Error
+		var typed *ports.Error
 		if errors.As(err, &typed) {
 			return nil, typed
 		}
@@ -467,20 +411,20 @@ func (s *Service) compileAuthorized(ctx context.Context, request compileRequest,
 	}
 	resolvedInterpretations, err := s.resolveWorkspaceInterpretations(ctx, request.Project, workspace, snapshot)
 	if err != nil {
-		var typed *Error
+		var typed *ports.Error
 		if errors.As(err, &typed) {
 			return nil, typed
 		}
 		return nil, unprocessable("interpretation", "INVALID_INTERPRETATION", err.Error(), err)
 	}
 	resolvedInputs.Interpretations = resolvedInterpretations.Interpretations
-	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection, ColumnPolicyProposal: cloneColumnPolicyProposalBinding(request.ColumnPolicyProposal), SourceRelationshipProposal: cloneSourceRelationshipProposalBinding(request.SourceRelationshipProposal), RowDefinitionProposal: cloneRowDefinitionProposalBinding(request.RowDefinitionProposal), ConstructionProposal: cloneConstructionProposalBinding(request.ConstructionProposal), PopulationMemberRemovalProposal: clonePopulationMemberRemovalProposalBinding(request.PopulationMemberRemovalProposal)})
+	receipt, err := s.config.CompileReceipt(ctx, ports.CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection, ColumnPolicyProposal: cloneColumnPolicyProposalBinding(request.ColumnPolicyProposal), SourceRelationshipProposal: cloneSourceRelationshipProposalBinding(request.SourceRelationshipProposal), RowDefinitionProposal: cloneRowDefinitionProposalBinding(request.RowDefinitionProposal), ConstructionProposal: cloneConstructionProposalBinding(request.ConstructionProposal), PopulationMemberRemovalProposal: clonePopulationMemberRemovalProposalBinding(request.PopulationMemberRemovalProposal)})
 	if err != nil {
 		var compileErr *explorercompilation.Error
 		if errors.As(err, &compileErr) {
-			return nil, &Error{Class: ClassUnprocessable, Stage: compileErr.Stage, Code: compilationErrorCode(compileErr.Code), Message: compileErr.Message, Details: compileErr.Details, Cause: err}
+			return nil, &ports.Error{Class: ports.ClassUnprocessable, Stage: compileErr.Stage, Code: compilationErrorCode(compileErr.Code), Message: compileErr.Message, Details: compileErr.Details, Cause: err}
 		}
-		var typed *Error
+		var typed *ports.Error
 		if errors.As(err, &typed) {
 			return nil, typed
 		}
@@ -495,7 +439,7 @@ func (s *Service) compileAuthorized(ctx context.Context, request compileRequest,
 	return receipt, nil
 }
 
-func (s *Service) validateCompiledReceipt(ctx context.Context, request compileRequest, authorized AuthorizedCapability, receipt *explorer.CompilationReceipt) error {
+func (s *Service) validateCompiledReceipt(ctx context.Context, request compileRequest, authorized ports.AuthorizedCapability, receipt *explorer.CompilationReceipt) error {
 	if receipt == nil {
 		return unprocessable("compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt is required", nil)
 	}
@@ -515,23 +459,23 @@ func (s *Service) validateCompiledReceipt(ctx context.Context, request compileRe
 	}
 	for _, check := range identityChecks {
 		if check.got != check.want {
-			return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt identity does not match the request capability", map[string]any{"field": check.name, "expected": check.want, "actual": check.got}, nil)
+			return failureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt identity does not match the request capability", map[string]any{"field": check.name, "expected": check.want, "actual": check.got}, nil)
 		}
 	}
 	if !reflect.DeepEqual(request.ColumnPolicyProposal, receipt.ColumnPolicyProposal) {
-		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled column policy proposal binding does not match the request", nil, nil)
+		return failureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled column policy proposal binding does not match the request", nil, nil)
 	}
 	if !reflect.DeepEqual(request.SourceRelationshipProposal, receipt.SourceRelationshipProposal) {
-		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled source relationship proposal binding does not match the request", nil, nil)
+		return failureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled source relationship proposal binding does not match the request", nil, nil)
 	}
 	if !sameRowDefinitionProposalBinding(request.RowDefinitionProposal, receipt.RowDefinitionProposal) {
-		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt row-definition proposal binding does not match the request", nil, nil)
+		return failureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt row-definition proposal binding does not match the request", nil, nil)
 	}
 	if !sameConstructionProposalBinding(request.ConstructionProposal, receipt.ConstructionProposal) {
-		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt construction proposal binding does not match the request", nil, nil)
+		return failureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt construction proposal binding does not match the request", nil, nil)
 	}
 	if !samePopulationMemberRemovalProposalBinding(request.PopulationMemberRemovalProposal, receipt.PopulationMemberRemovalProposal) {
-		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt population member proposal binding does not match the request", nil, nil)
+		return failureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt population member proposal binding does not match the request", nil, nil)
 	}
 	if authorized.Scope.Mode != "" {
 		if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
@@ -539,7 +483,7 @@ func (s *Service) validateCompiledReceipt(ctx context.Context, request compileRe
 		}
 	}
 	if err := receipt.Validate(); err != nil {
-		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt failed integrity validation", nil, err)
+		return failureDetails(ports.ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt failed integrity validation", nil, err)
 	}
 	persisted, err := s.lookupReceipt(ctx, request.Project, request.ExplorerID, receipt.ID)
 	if err != nil {
@@ -727,13 +671,13 @@ func (s *Service) catalog(snapshot capability.Snapshot, explorerID string) autho
 	return s.config.Capability.Catalog(snapshot, explorerID)
 }
 
-func (s *Service) resolveCompilationCapability(ctx context.Context, project, token string) (AuthorizedCapability, capability.Snapshot, error) {
+func (s *Service) resolveCompilationCapability(ctx context.Context, project, token string) (ports.AuthorizedCapability, capability.Snapshot, error) {
 	if s.config.Capability.ForCompilation != nil {
 		authorized, err := s.config.Capability.ForCompilation(ctx, project, token)
 		return authorized, authorized.Snapshot, err
 	}
 	snapshot, err := s.config.Capability.Token(ctx, project, token)
-	return AuthorizedCapability{Snapshot: snapshot}, snapshot, err
+	return ports.AuthorizedCapability{Snapshot: snapshot}, snapshot, err
 }
 
 func cloneSourceRelationshipProposalBinding(binding *explorer.SourceRelationshipProposalBinding) *explorer.SourceRelationshipProposalBinding {

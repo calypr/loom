@@ -153,9 +153,26 @@ type memberWalkLimits struct {
 }
 
 type memberWalkState struct {
+	index        *schema.Index
+	root         schema.DefinitionName
+	visit        func(MemberFact) error
 	options      memberWalkOptions
+	diagnostics  []WalkDiagnostic
 	visitedFacts int
 	limitErr     *WalkLimitError
+}
+
+type memberWalkFrame struct {
+	declaringType   schema.DefinitionName
+	referencedType  schema.DefinitionName
+	elements        schema.ElementListView
+	requiredNames   []string
+	object          memberObject
+	canonicalPrefix string
+	ownerPrefix     string
+	repeated        []RepeatedBoundary
+	resources       []ResourceBoundary
+	depth           int
 }
 
 type memberScopeCacheKey struct {
@@ -249,51 +266,44 @@ func walkMemberTree(
 	if !ok {
 		return nil, fmt.Errorf("walk FHIR members for %q: definition is not in the schema index", root)
 	}
-	diagnostics := make([]WalkDiagnostic, 0)
-	state := &memberWalkState{options: options}
-	err := walkMemberScope(
-		index, root, root, definition.Elements(), definition.RequiredElements(),
-		object, "", "", nil, nil, 0, visit, &diagnostics, state,
-	)
+	state := &memberWalkState{
+		index:       index,
+		root:        root,
+		visit:       visit,
+		options:     options,
+		diagnostics: make([]WalkDiagnostic, 0),
+	}
+	frame := memberWalkFrame{
+		declaringType: root,
+		elements:      definition.Elements(),
+		requiredNames: definition.RequiredElements(),
+		object:        object,
+	}
+	err := walkMemberScope(state, frame)
 	if err != nil {
 		if state.limitErr != nil && err == state.limitErr {
-			return diagnostics, err
+			return state.diagnostics, err
 		}
 		return nil, err
 	}
-	return diagnostics, nil
+	return state.diagnostics, nil
 }
 
-func walkMemberScope(
-	index *schema.Index,
-	root schema.DefinitionName,
-	declaringType schema.DefinitionName,
-	elements schema.ElementListView,
-	requiredNames []string,
-	object memberObject,
-	canonicalPrefix string,
-	ownerPrefix string,
-	repeated []RepeatedBoundary,
-	resources []ResourceBoundary,
-	depth int,
-	visit func(MemberFact) error,
-	diagnostics *[]WalkDiagnostic,
-	state *memberWalkState,
-) error {
-	if state.options.limits != nil && depth > state.options.limits.maxDepth {
+func walkMemberScope(state *memberWalkState, frame memberWalkFrame) error {
+	if state.options.limits != nil && frame.depth > state.options.limits.maxDepth {
 		return state.newLimitError(WalkLimitDepth, state.options.limits.maxDepth)
 	}
-	plan, err := cachedMemberScopePlan(elements, requiredNames, root)
+	plan, err := cachedMemberScopePlan(frame.elements, frame.requiredNames, state.root)
 	if err != nil {
 		return err
 	}
 
-	unknown := unknownMemberNames(object, plan.declared, len(*diagnostics), state)
+	unknown := unknownMemberNames(frame.object, plan.declared, len(state.diagnostics), state)
 	for _, name := range unknown {
-		if err := appendWalkDiagnostic(diagnostics, WalkDiagnostic{
+		if err := appendWalkDiagnostic(&state.diagnostics, WalkDiagnostic{
 			Code:          WalkUnknownMember,
-			CanonicalPath: joinPath(canonicalPrefix, name),
-			OwnerPath:     joinPath(ownerPrefix, name),
+			CanonicalPath: joinPath(frame.canonicalPrefix, name),
+			OwnerPath:     joinPath(frame.ownerPrefix, name),
 			Member:        name,
 		}, state); err != nil {
 			return err
@@ -301,18 +311,18 @@ func walkMemberScope(
 	}
 
 	for _, name := range plan.requiredOrder {
-		value, ok := object.member(name)
-		if ok && !value.isNull() || !ok && depth == 0 && name == "resourceType" {
+		value, ok := frame.object.member(name)
+		if ok && !value.isNull() || !ok && frame.depth == 0 && name == "resourceType" {
 			continue
 		}
-		canonicalPath := joinPath(canonicalPrefix, name)
+		canonicalPath := joinPath(frame.canonicalPrefix, name)
 		if element, found := plan.declared[name]; found && element.JSONType() == schema.JSONTypeArray {
 			canonicalPath += "[]"
 		}
-		if err := appendWalkDiagnostic(diagnostics, WalkDiagnostic{
+		if err := appendWalkDiagnostic(&state.diagnostics, WalkDiagnostic{
 			Code:          WalkMissingRequiredElement,
 			CanonicalPath: canonicalPath,
-			OwnerPath:     joinPath(ownerPrefix, name),
+			OwnerPath:     joinPath(frame.ownerPrefix, name),
 			Member:        name,
 		}, state); err != nil {
 			return err
@@ -321,21 +331,21 @@ func walkMemberScope(
 	for _, group := range plan.choiceOrder {
 		present := false
 		for _, arm := range plan.choiceGroups[group] {
-			if value, ok := object.member(arm); ok && !value.isNull() {
+			if value, ok := frame.object.member(arm); ok && !value.isNull() {
 				present = true
 				break
 			}
 		}
 		if !present {
-			path := canonicalPrefix
+			path := frame.canonicalPrefix
 			if path == "" {
 				path = "$"
 			}
-			owner := ownerPrefix
+			owner := frame.ownerPrefix
 			if owner == "" {
 				owner = "root"
 			}
-			if err := appendWalkDiagnostic(diagnostics, WalkDiagnostic{
+			if err := appendWalkDiagnostic(&state.diagnostics, WalkDiagnostic{
 				Code:          WalkMissingRequiredChoice,
 				CanonicalPath: path,
 				OwnerPath:     owner,
@@ -346,13 +356,13 @@ func walkMemberScope(
 		}
 	}
 
-	for elementIndex := 0; elementIndex < elements.Len(); elementIndex++ {
-		element, _ := elements.At(elementIndex)
-		value, exists := object.member(element.Name())
+	for elementIndex := 0; elementIndex < frame.elements.Len(); elementIndex++ {
+		element, _ := frame.elements.At(elementIndex)
+		value, exists := frame.object.member(element.Name())
 		if !exists {
 			continue
 		}
-		if err := visitMemberValue(index, root, declaringType, element, value, canonicalPrefix, ownerPrefix, repeated, resources, depth, visit, diagnostics, state); err != nil {
+		if err := visitMemberValue(state, frame, element, value); err != nil {
 			return err
 		}
 	}
@@ -438,41 +448,27 @@ func requiredNamesIdentity(names []string) string {
 	}
 }
 
-func visitMemberValue(
-	index *schema.Index,
-	root schema.DefinitionName,
-	declaringType schema.DefinitionName,
-	element schema.ElementView,
-	value memberValue,
-	canonicalPrefix string,
-	ownerPrefix string,
-	repeated []RepeatedBoundary,
-	resources []ResourceBoundary,
-	depth int,
-	visit func(MemberFact) error,
-	diagnostics *[]WalkDiagnostic,
-	state *memberWalkState,
-) error {
+func visitMemberValue(state *memberWalkState, frame memberWalkFrame, element schema.ElementView, value memberValue) error {
 	metadata := element.Snapshot()
-	memberPath := joinPath(canonicalPrefix, element.Name())
-	ownerPath := joinPath(ownerPrefix, element.Name())
+	memberPath := joinPath(frame.canonicalPrefix, element.Name())
+	ownerPath := joinPath(frame.ownerPrefix, element.Name())
 	if element.JSONType() != schema.JSONTypeArray {
-		fact := memberFact(root, declaringType, element.ReferencedType(), memberPath, ownerPath, repeated, metadata, value)
-		fact.ResourceBoundaries = cloneResourceBoundaries(resources)
+		fact := memberFact(state.root, frame.declaringType, element.ReferencedType(), memberPath, ownerPath, frame.repeated, metadata, value)
+		fact.ResourceBoundaries = cloneResourceBoundaries(frame.resources)
 		referencedType := element.ReferencedType()
 		if !fact.Null && resourceUnion(referencedType) && state.options.allowedResourceTypes != nil {
-			selectedType, boundary, resolved, err := resolveResourceType(index, value, memberPath, ownerPath, state.options.allowedResourceTypes)
+			selectedType, boundary, resolved, err := resolveResourceType(state.index, value, memberPath, ownerPath, state.options.allowedResourceTypes)
 			if err != nil {
 				return err
 			}
 			if resolved {
-				fact.ResourceBoundaries = appendResourceBoundary(resources, boundary)
+				fact.ResourceBoundaries = appendResourceBoundary(frame.resources, boundary)
 				referencedType = schema.DefinitionName(selectedType)
-			} else if err := appendUnresolvedResourceDiagnostic(diagnostics, memberPath, ownerPath, state); err != nil {
+			} else if err := appendUnresolvedResourceDiagnostic(&state.diagnostics, memberPath, ownerPath, state); err != nil {
 				return err
 			}
 		}
-		if err := visitMemberFact(fact, visit, state); err != nil {
+		if err := visitMemberFact(fact, state.visit, state); err != nil {
 			return err
 		}
 		if fact.Null || !memberIsObject(element) {
@@ -482,14 +478,25 @@ func visitMemberValue(
 		if err != nil {
 			return err
 		}
-		return walkObjectMembers(index, root, declaringType, referencedType, element.Elements(), metadata.RequiredChildren, object, memberPath, ownerPath, repeated, fact.ResourceBoundaries, depth+1, visit, diagnostics, state)
+		return walkObjectMembers(state, memberWalkFrame{
+			declaringType:   frame.declaringType,
+			referencedType:  referencedType,
+			elements:        element.Elements(),
+			requiredNames:   metadata.RequiredChildren,
+			object:          object,
+			canonicalPrefix: memberPath,
+			ownerPrefix:     ownerPath,
+			repeated:        frame.repeated,
+			resources:       fact.ResourceBoundaries,
+			depth:           frame.depth + 1,
+		})
 	}
 
 	canonicalPath := memberPath + "[]"
-	container := memberFact(root, declaringType, element.ArrayElementType(), canonicalPath, ownerPath, repeated, metadata, value)
+	container := memberFact(state.root, frame.declaringType, element.ArrayElementType(), canonicalPath, ownerPath, frame.repeated, metadata, value)
 	container.Repeated = true
-	container.ResourceBoundaries = cloneResourceBoundaries(resources)
-	if err := visitMemberFact(container, visit, state); err != nil {
+	container.ResourceBoundaries = cloneResourceBoundaries(frame.resources)
+	if err := visitMemberFact(container, state.visit, state); err != nil {
 		return err
 	}
 	if container.Null {
@@ -501,31 +508,31 @@ func visitMemberValue(
 	}
 	for itemIndex, item := range items {
 		itemOwnerPath := ownerPath + "[" + fmt.Sprint(itemIndex) + "]"
-		boundaries := appendRepeatedBoundary(repeated, RepeatedBoundary{
+		boundaries := appendRepeatedBoundary(frame.repeated, RepeatedBoundary{
 			CanonicalPath: canonicalPath,
 			OwnerPath:     itemOwnerPath,
 			Index:         itemIndex,
 		})
 		indexCopy := itemIndex
-		fact := memberFact(root, declaringType, element.ArrayElementType(), canonicalPath, itemOwnerPath, boundaries, metadata, item)
+		fact := memberFact(state.root, frame.declaringType, element.ArrayElementType(), canonicalPath, itemOwnerPath, boundaries, metadata, item)
 		fact.Repeated = true
 		fact.ArrayItem = true
 		fact.ItemIndex = &indexCopy
-		fact.ResourceBoundaries = cloneResourceBoundaries(resources)
+		fact.ResourceBoundaries = cloneResourceBoundaries(frame.resources)
 		itemType := element.ArrayElementType()
 		if !fact.Null && resourceUnion(itemType) && state.options.allowedResourceTypes != nil {
-			selectedType, boundary, resolved, err := resolveResourceType(index, item, canonicalPath, itemOwnerPath, state.options.allowedResourceTypes)
+			selectedType, boundary, resolved, err := resolveResourceType(state.index, item, canonicalPath, itemOwnerPath, state.options.allowedResourceTypes)
 			if err != nil {
 				return err
 			}
 			if resolved {
-				fact.ResourceBoundaries = appendResourceBoundary(resources, boundary)
+				fact.ResourceBoundaries = appendResourceBoundary(frame.resources, boundary)
 				itemType = schema.DefinitionName(selectedType)
-			} else if err := appendUnresolvedResourceDiagnostic(diagnostics, canonicalPath, itemOwnerPath, state); err != nil {
+			} else if err := appendUnresolvedResourceDiagnostic(&state.diagnostics, canonicalPath, itemOwnerPath, state); err != nil {
 				return err
 			}
 		}
-		if err := visitMemberFact(fact, visit, state); err != nil {
+		if err := visitMemberFact(fact, state.visit, state); err != nil {
 			return err
 		}
 		if fact.Null || !memberArrayItemIsObject(element) {
@@ -535,7 +542,18 @@ func visitMemberValue(
 		if err != nil {
 			return err
 		}
-		if err := walkObjectMembers(index, root, declaringType, itemType, element.ArrayElements(), metadata.RequiredChildren, object, canonicalPath, itemOwnerPath, boundaries, fact.ResourceBoundaries, depth+1, visit, diagnostics, state); err != nil {
+		if err := walkObjectMembers(state, memberWalkFrame{
+			declaringType:   frame.declaringType,
+			referencedType:  itemType,
+			elements:        element.ArrayElements(),
+			requiredNames:   metadata.RequiredChildren,
+			object:          object,
+			canonicalPrefix: canonicalPath,
+			ownerPrefix:     itemOwnerPath,
+			repeated:        boundaries,
+			resources:       fact.ResourceBoundaries,
+			depth:           frame.depth + 1,
+		}); err != nil {
 			return err
 		}
 	}
@@ -546,36 +564,18 @@ func resourceUnion(name schema.DefinitionName) bool {
 	return name == "ResourceList" || name == "Resource"
 }
 
-func walkObjectMembers(
-	index *schema.Index,
-	root schema.DefinitionName,
-	parentDeclaringType schema.DefinitionName,
-	referencedType schema.DefinitionName,
-	inlineElements schema.ElementListView,
-	requiredChildren []string,
-	object memberObject,
-	canonicalPrefix string,
-	ownerPrefix string,
-	repeated []RepeatedBoundary,
-	resources []ResourceBoundary,
-	depth int,
-	visit func(MemberFact) error,
-	diagnostics *[]WalkDiagnostic,
-	state *memberWalkState,
-) error {
-	declaringType := parentDeclaringType
-	elements := inlineElements
-	required := append([]string(nil), requiredChildren...)
-	if referencedType != "" {
-		definition, ok := index.ReadDefinition(referencedType)
+func walkObjectMembers(state *memberWalkState, frame memberWalkFrame) error {
+	frame.requiredNames = append([]string(nil), frame.requiredNames...)
+	if frame.referencedType != "" {
+		definition, ok := state.index.ReadDefinition(frame.referencedType)
 		if !ok {
-			return fmt.Errorf("walk FHIR path %q: referenced definition %q is missing from the schema index", ownerPrefix, referencedType)
+			return fmt.Errorf("walk FHIR path %q: referenced definition %q is missing from the schema index", frame.ownerPrefix, frame.referencedType)
 		}
-		declaringType = referencedType
-		elements = definition.Elements()
-		required = append(required, definition.RequiredElements()...)
+		frame.declaringType = frame.referencedType
+		frame.elements = definition.Elements()
+		frame.requiredNames = append(frame.requiredNames, definition.RequiredElements()...)
 	}
-	return walkMemberScope(index, root, declaringType, elements, required, object, canonicalPrefix, ownerPrefix, repeated, resources, depth, visit, diagnostics, state)
+	return walkMemberScope(state, frame)
 }
 
 func memberFact(

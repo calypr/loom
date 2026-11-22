@@ -15,7 +15,6 @@ import (
 	queryapi "github.com/calypr/loom/internal/api/dataframe/query"
 
 	"github.com/calypr/loom/internal/api/authpolicy"
-	"github.com/calypr/loom/internal/api/columncapabilities"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/publication"
@@ -135,12 +134,7 @@ func (r *Handlers) run(ctx context.Context, project string, body *loomapi.FhirDa
 	}
 	input := body.Input
 	input.Project = project
-	limit := body.Limit
-	if limit == nil {
-		defaultLimit := 25
-		limit = &defaultLimit
-	}
-	result, err := r.query.Run(ctx, input, limit)
+	result, err := r.query.RunPreview(ctx, input, body.Limit)
 	if err != nil {
 		return dataframemodel.FhirDataframeResult{}, err
 	}
@@ -178,7 +172,7 @@ func recipeExecutionResponse(execution publication.BundleExecution) loomapi.Reci
 	for _, output := range execution.Outputs {
 		columns := make([]loomapi.RecipeExecutionColumn, 0, len(output.Columns))
 		for _, column := range output.Columns {
-			capabilities := columncapabilities.Resolve(column.ClickHouse, column.LogicalType, column.Nullable, column.Repeated)
+			capabilities := publication.ResolveColumnCapabilities(column.ClickHouse, column.LogicalType, column.Nullable, column.Repeated)
 			columns = append(columns, loomapi.RecipeExecutionColumn{
 				Name:           column.Name,
 				SemanticPath:   column.SemanticPath,

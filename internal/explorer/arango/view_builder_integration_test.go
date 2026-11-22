@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/projectconfig"
 )
 
 func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *testing.T) {
@@ -87,7 +88,7 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 	}
 
 	updatedDefinition := projectConfigTestDefinition("default", "recipe-a", "Edited Default")
-	prepared, err := explorer.PrepareViewBuilderConfig(updatedDefinition, *catalogSnapshot, "editor@example.test")
+	prepared, err := projectconfig.PrepareViewBuilderConfig(updatedDefinition, *catalogSnapshot, "editor@example.test")
 	if err != nil {
 		t.Fatalf("prepare view edit against exact catalog snapshot: %v", err)
 	}
@@ -98,7 +99,7 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 		t.Fatalf("save view edit: %v", err)
 	}
 	differentDefinition := projectConfigTestDefinition("default", "recipe-a", "A different title")
-	alternate, err := explorer.PrepareViewBuilderConfig(differentDefinition, *catalogSnapshot, "editor@example.test")
+	alternate, err := projectconfig.PrepareViewBuilderConfig(differentDefinition, *catalogSnapshot, "editor@example.test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +139,7 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 	}
 
 	filesDefinition := projectConfigTestDefinition("files", "recipe-a", "Edited Files")
-	filesPrepared, err := explorer.PrepareViewBuilderConfig(filesDefinition, *catalogSnapshot, "editor@example.test")
+	filesPrepared, err := projectconfig.PrepareViewBuilderConfig(filesDefinition, *catalogSnapshot, "editor@example.test")
 	if err != nil {
 		t.Fatalf("prepare second view edit: %v", err)
 	}
@@ -221,7 +222,7 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 		t.Fatalf("source publication did not preserve the saved view definition: %+v, %v", reboundFiles, err)
 	}
 
-	staleSave, err := explorer.PrepareViewBuilderConfig(filesDefinition, *catalogSnapshot, "editor@example.test")
+	staleSave, err := projectconfig.PrepareViewBuilderConfig(filesDefinition, *catalogSnapshot, "editor@example.test")
 	if err != nil {
 		t.Fatal(err)
 	}

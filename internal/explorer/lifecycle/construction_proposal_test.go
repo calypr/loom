@@ -15,13 +15,14 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func constructionProposalService(t *testing.T) (*Service, *fakeStore, capability.Snapshot) {
 	t.Helper()
 	service, store, snapshot, _ := rowProposalService(t)
-	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
 		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{
@@ -328,7 +329,7 @@ func TestProposeConstructionReauthorizesNewRelatedSourceWithOmittedChangedStepHi
 
 func TestProposeConstructionReauthorizesRelatedExpandRouteChoice(t *testing.T) {
 	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
-	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+	service.config.CompileReceipt = func(_ context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt, prepareErr := constructionRouteTestReceipt(service, snapshot, request.Workspace)
 		if prepareErr != nil {
 			return nil, prepareErr
@@ -496,7 +497,7 @@ func TestConstructionCapabilitiesAfterStoredV9MigrationPreserveOwnerAndVerifyRec
 			originalConfig, originalVersion, originalDigest := string(draft), store.created.DraftVersion, digest
 			compileReceipt := service.config.CompileReceipt
 			catalog := service.config.Capability.Catalog(snapshot, store.created.ExplorerID)
-			service.config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			service.config.CompileReceipt = func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 				prepared, migrateErr := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, catalog)
 				if migrateErr != nil {
 					return nil, migrateErr
@@ -604,7 +605,7 @@ func TestConstructionGroupSourceExposesPopulatedGeneratedScalarWhenObserved(t *t
 			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "BodyStructure"}, Rows: authoringv2.RecordsRowDefinition(),
 		},
 	}
-	capability, err := service.constructionGroupSourceCapability(context.Background(), base, "body-structures", recipe.ConstructionSourceProjectionID)
+	capability, err := service.constructionSources().constructionGroupSourceCapability(context.Background(), base, "body-structures", recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -616,7 +617,7 @@ func TestConstructionGroupSourceExposesPopulatedGeneratedScalarWhenObserved(t *t
 		choice.LogicalType != "boolean" || choice.ValueType != "BOOLEAN" || choice.IsIdentifier || choice.IsReference || !choice.IsPopulated {
 		t.Fatalf("BodyStructure active choice = %#v", choice)
 	}
-	transformed, err := service.constructionGroupSourceCapability(context.Background(), base, "body-structures", "group-step")
+	transformed, err := service.constructionSources().constructionGroupSourceCapability(context.Background(), base, "body-structures", "group-step")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -665,14 +666,14 @@ func TestConstructionGroupSourceChoicesExcludeConstantResourceTypeMetadata(t *te
 	}
 	service := &Service{config: Config{RowChoicePlanner: resolver, RowChoiceResolver: resolver}}
 	base := constructionBase{snapshot: snapshot, document: document}
-	sourceInput, err := service.constructionGroupSourceCapability(context.Background(), base, "body-structures", recipe.ConstructionSourceProjectionID)
+	sourceInput, err := service.constructionSources().constructionGroupSourceCapability(context.Background(), base, "body-structures", recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if sourceInput.Supported || sourceInput.ReasonCode != "NO_ELIGIBLE_POPULATED_SCALAR_GROUP_FIELDS" || len(sourceInput.Choices) != 0 {
 		t.Fatalf("constant resourceType was offered as a useful source group: %#v", sourceInput)
 	}
-	_, err = service.resolveConstructionGroupSource(context.Background(), base, ConstructionProposalRequest{
+	_, err = service.constructionSources().resolveConstructionGroupSource(context.Background(), base, ConstructionProposalRequest{
 		Project: "project-a", ExplorerID: "explorer-a", OutputID: "body-structures",
 		GroupSource: &ConstructionGroupSourceSelection{RowChoiceID: rowChoices[0].ChoiceID, ColumnID: "source_resource_type"},
 	}, "source_resource_type")
@@ -1015,7 +1016,7 @@ func TestConstructionGroupEditCannotIntroduceUnsignedSourceProjection(t *testing
 	forged := authoringv2.ConstructionSourceProjection{ColumnID: "forged", FieldPath: "secret", OwnerStepID: "group"}
 	base := constructionBase{construction: authoringv2.Construction{SourceProjections: []authoringv2.ConstructionSourceProjection{accepted}}}
 	service := &Service{}
-	candidate, err := service.constructionCandidateWithGroupSource(context.Background(), base, ConstructionProposalRequest{CandidateConstruction: authoringv2.Construction{SourceProjections: []authoringv2.ConstructionSourceProjection{forged}}})
+	candidate, err := service.constructionSources().constructionCandidateWithGroupSource(context.Background(), base, ConstructionProposalRequest{CandidateConstruction: authoringv2.Construction{SourceProjections: []authoringv2.ConstructionSourceProjection{forged}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1163,7 +1164,7 @@ func TestConstructionCapabilitiesRejectStaleDraftBeforeWorkspaceSchemaProjection
 
 func TestApplyAppendProposalPreservesExplicitlyEmptyTargetColumns(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
-	service.config.ConstructionSourceStage = func(_ context.Context, _ ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+	service.config.ConstructionSourceStage = func(_ context.Context, _ ports.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 		return explorer.ReceiptConstructionStage{
 			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
 			Columns: []explorer.ReceiptConstructionStageColumn{},

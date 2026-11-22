@@ -398,10 +398,6 @@ func newWorkspaceProjection(source explorer.WorkspaceArtifact, migrated authorin
 	return projection
 }
 
-func insertWorkspaceProjection(ctx context.Context, query store.RowQueryer, projection explorer.WorkspaceProjection) error {
-	return insertWorkspaceProjectionFor(ctx, query, projection, workspaceEncodingTarget)
-}
-
 func insertWorkspaceProjectionFor(ctx context.Context, query store.RowQueryer, projection explorer.WorkspaceProjection, target workspaceMigrationTarget) error {
 	if err := target.validateProjection(projection, projection.Source); err != nil {
 		return err

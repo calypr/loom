@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/catalog/fieldprofile"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -95,7 +98,7 @@ func TestStoreUsesInjectedClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fields, err := adapter.DiscoverFields(context.Background(), catalog.PopulatedFieldOptions{Project: "p"})
+	fields, err := adapter.DiscoverFields(context.Background(), fieldprofile.PopulatedFieldOptions{Project: "p"})
 	if err != nil || len(fields) != 1 || fields[0].Path != "id" {
 		t.Fatalf("fields=%#v err=%v", fields, err)
 	}
@@ -117,7 +120,7 @@ func TestStorePreservesFieldMetadataAndRejectsMalformedRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fields, err := adapter.DiscoverFields(context.Background(), catalog.PopulatedFieldOptions{Project: "p"})
+	fields, err := adapter.DiscoverFields(context.Background(), fieldprofile.PopulatedFieldOptions{Project: "p"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +130,7 @@ func TestStorePreservesFieldMetadataAndRejectsMalformedRows(t *testing.T) {
 	}
 
 	client.row["doc_count"] = "bad"
-	if _, err := adapter.DiscoverFields(context.Background(), catalog.PopulatedFieldOptions{Project: "p"}); err == nil {
+	if _, err := adapter.DiscoverFields(context.Background(), fieldprofile.PopulatedFieldOptions{Project: "p"}); err == nil {
 		t.Fatal("malformed numeric field row was accepted")
 	}
 }
@@ -182,27 +185,27 @@ func TestReadRetainedSemanticInventoryPageUsesScopedKeysetAndPreservesAuthPath(t
 }
 
 func TestResolveSemanticInventorySelectionsUsesIndexedScopedRows(t *testing.T) {
-	build := catalog.NewSemanticInventoryBuild("project", "generation", "")
-	build.State = catalog.SemanticInventoryComplete
-	build.SourceAvailability = catalog.SemanticInventorySourceAvailabilityUnproven
-	build.EntryIndexVersion = catalog.SemanticInventoryEntryIndexVersion
+	build := semanticinventory.NewBuild("project", "generation", "")
+	build.State = semanticinventory.Complete
+	build.SourceAvailability = semanticinventory.SourceAvailabilityUnproven
+	build.EntryIndexVersion = semanticinventory.EntryIndexVersion
 	buildRow := semanticInventoryTestRow(t, build)
-	observation := catalog.SemanticObservation{
-		SchemaVersion: catalog.SemanticObservationSchemaVersion,
-		Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "code"},
-		Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: "urn:system", Code: "code", Display: "Label"},
-		Value: catalog.SemanticObservationValue{
+	observation := codedconcept.Observation{
+		SchemaVersion: codedconcept.ObservationSchemaVersion,
+		Source:        codedconcept.Source{Type: "Observation", Path: "code"},
+		Key:           codedconcept.Key{Selector: "code.coding[]", System: "urn:system", Code: "code", Display: "Label"},
+		Value: codedconcept.Value{
 			Selector: "valueCodeableConcept.text", Type: "string",
 			FallbackSelectors: []string{"valueCodeableConcept.coding[].display"}, FallbackOnBlankString: true,
 		},
 		LogicalType:  "string",
 		Population:   2,
-		Completeness: catalog.SemanticComplete,
+		Completeness: codedconcept.Complete,
 		Status:       "SUPPORTED",
 		RuleHint:     "OBSERVATION_CODE_VALUE",
-		RuleVersion:  strconv.Itoa(catalog.SemanticObservationRuleVersion),
+		RuleVersion:  strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
 	}
-	entryRow := semanticInventoryTestRow(t, catalog.SemanticInventoryEntry{ConceptID: "concept-a", BindingID: "binding-a", Observation: observation})
+	entryRow := semanticInventoryTestRow(t, semanticinventory.Entry{ConceptID: "concept-a", BindingID: "binding-a", Observation: observation})
 	client := &evidenceClient{
 		rows: map[string][]map[string]any{
 			semanticInventoryBuildByKeyAQL:               {buildRow},
@@ -214,15 +217,15 @@ func TestResolveSemanticInventorySelectionsUsesIndexedScopedRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	unrestricted := false
-	result, err := adapter.ResolveSemanticInventorySelections(context.Background(), catalog.SemanticInventoryResolveOptions{
+	result, err := adapter.ResolveSemanticInventorySelections(context.Background(), semanticinventory.ResolveOptions{
 		Project: "project", DatasetGeneration: "generation", AuthResourcePathsUnrestricted: &unrestricted,
 		AuthResourcePaths: []string{"/scope-a"},
-		References:        []catalog.SemanticInventoryReference{{ConceptID: "concept-a", BindingID: "binding-a"}},
+		References:        []semanticinventory.Reference{{ConceptID: "concept-a", BindingID: "binding-a"}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.State != catalog.SemanticInventoryComplete || len(result.Entries) != 1 || result.Entries[0].ConceptID != "concept-a" || result.Entries[0].Observation.Population != 2 {
+	if result.State != semanticinventory.Complete || len(result.Entries) != 1 || result.Entries[0].ConceptID != "concept-a" || result.Entries[0].Observation.Population != 2 {
 		t.Fatalf("resolved inventory = %#v", result)
 	}
 	resolvedValue := result.Entries[0].Observation.Value
@@ -286,11 +289,11 @@ func TestSemanticInventoryMaterializationAndPageQueriesPreserveValueFallbackPoli
 }
 
 func TestResolveSemanticInventorySelectionsFallsBackForLegacyBuild(t *testing.T) {
-	build := catalog.NewSemanticInventoryBuild("project", "generation", "")
-	build.State = catalog.SemanticInventoryComplete
-	build.SourceAvailability = catalog.SemanticInventorySourceAvailabilityVerified
+	build := semanticinventory.NewBuild("project", "generation", "")
+	build.State = semanticinventory.Complete
+	build.SourceAvailability = semanticinventory.SourceAvailabilityVerified
 	buildRow := semanticInventoryTestRow(t, build)
-	entry := catalog.SemanticInventoryEntry{ConceptID: "concept-a", BindingID: "binding-a", Observation: catalog.SemanticObservation{SchemaVersion: catalog.SemanticObservationSchemaVersion}}
+	entry := semanticinventory.Entry{ConceptID: "concept-a", BindingID: "binding-a", Observation: codedconcept.Observation{SchemaVersion: codedconcept.ObservationSchemaVersion}}
 	entryRow := semanticInventoryTestRow(t, entry)
 	client := &evidenceClient{
 		rows: map[string][]map[string]any{
@@ -303,9 +306,9 @@ func TestResolveSemanticInventorySelectionsFallsBackForLegacyBuild(t *testing.T)
 		t.Fatal(err)
 	}
 	unrestricted := true
-	_, err = adapter.ResolveSemanticInventorySelections(context.Background(), catalog.SemanticInventoryResolveOptions{
+	_, err = adapter.ResolveSemanticInventorySelections(context.Background(), semanticinventory.ResolveOptions{
 		Project: "project", DatasetGeneration: "generation", AuthResourcePathsUnrestricted: &unrestricted,
-		References: []catalog.SemanticInventoryReference{{ConceptID: "concept-a", BindingID: "binding-a"}},
+		References: []semanticinventory.Reference{{ConceptID: "concept-a", BindingID: "binding-a"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -342,7 +345,7 @@ func TestReadMissingRetainedSourceCollectionDoesNotQueryOrCreateIt(t *testing.T)
 
 func TestReadMissingRetainedSourceFailsWhenGenerationFieldProfileProvesPopulation(t *testing.T) {
 	client := &evidenceClient{
-		collections: map[string]bool{"Observation": false, catalog.FieldCatalogCollection: true},
+		collections: map[string]bool{"Observation": false, fieldprofile.FieldCatalogCollection: true},
 		rows: map[string][]map[string]any{
 			retainedSemanticInventoryFieldProfileAQL: {{"doc_count": 1}},
 		},
@@ -362,7 +365,7 @@ func TestReadMissingRetainedSourceFailsWhenGenerationFieldProfileProvesPopulatio
 
 func TestReadEmptyInitialRetainedSourceFailsWhenGenerationFieldProfileProvesPopulation(t *testing.T) {
 	client := &evidenceClient{
-		collections: map[string]bool{"Observation": true, catalog.FieldCatalogCollection: true},
+		collections: map[string]bool{"Observation": true, fieldprofile.FieldCatalogCollection: true},
 		rows: map[string][]map[string]any{
 			retainedSemanticInventoryFieldProfileAQL: {{"doc_count": 12}},
 		},
@@ -382,7 +385,7 @@ func TestReadEmptyInitialRetainedSourceFailsWhenGenerationFieldProfileProvesPopu
 
 func TestReadEmptyRetainedSourceWithoutProfileEvidenceIsGenuinelyEmpty(t *testing.T) {
 	client := &evidenceClient{
-		collections: map[string]bool{"Observation": true, catalog.FieldCatalogCollection: true},
+		collections: map[string]bool{"Observation": true, fieldprofile.FieldCatalogCollection: true},
 	}
 	adapter, err := New(client)
 	if err != nil {
@@ -399,7 +402,7 @@ func TestReadEmptyRetainedSourceWithoutProfileEvidenceIsGenuinelyEmpty(t *testin
 
 func TestReadExhaustedRetainedSourceDoesNotTreatPositiveProfileAsMissing(t *testing.T) {
 	client := &evidenceClient{
-		collections: map[string]bool{"Observation": true, catalog.FieldCatalogCollection: true},
+		collections: map[string]bool{"Observation": true, fieldprofile.FieldCatalogCollection: true},
 		rows: map[string][]map[string]any{
 			retainedSemanticInventoryFieldProfileAQL: {{"doc_count": 12}},
 		},
@@ -418,11 +421,11 @@ func TestReadExhaustedRetainedSourceDoesNotTreatPositiveProfileAsMissing(t *test
 }
 
 func TestSemanticInventoryBackfillMutationQueriesBindOnlyUsedVariables(t *testing.T) {
-	build := catalog.NewSemanticInventoryBuild("project", "generation", "")
-	build.SourceKind = catalog.SemanticInventorySourceRetained
-	build.SourceAvailability = catalog.SemanticInventorySourceAvailabilityVerified
+	build := semanticinventory.NewBuild("project", "generation", "")
+	build.SourceKind = semanticinventory.SourceRetained
+	build.SourceAvailability = semanticinventory.SourceAvailabilityVerified
 	build.LeaseToken = "owner"
-	build.SourceCheckpoint = catalog.SemanticInventoryCheckpoint{Collection: "Observation", Key: "a"}
+	build.SourceCheckpoint = semanticinventory.Checkpoint{Collection: "Observation", Key: "a"}
 	encoded, err := json.Marshal(build)
 	if err != nil {
 		t.Fatal(err)
@@ -441,7 +444,7 @@ func TestSemanticInventoryBackfillMutationQueriesBindOnlyUsedVariables(t *testin
 			name:  "advance",
 			query: advanceSemanticInventoryBackfillAQL,
 			call: func(adapter *Store) error {
-				_, err := adapter.AdvanceSemanticInventoryBackfill(context.Background(), build, "owner", build.SourceCheckpoint, catalog.SemanticInventoryCheckpoint{Collection: "Observation", Key: "b"}, 7, time.Minute)
+				_, err := adapter.AdvanceSemanticInventoryBackfill(context.Background(), build, "owner", build.SourceCheckpoint, semanticinventory.Checkpoint{Collection: "Observation", Key: "b"}, 7, time.Minute)
 				return err
 			},
 			want: []string{"expected_collection", "expected_key", "key", "lease_expires_at", "next_collection", "next_key", "now", "scanned_resources", "source_availability", "token"},
@@ -629,7 +632,7 @@ func TestCapabilityEvidenceFieldEnrichmentPreservesSemanticObservations(t *testi
 	client := &evidenceClient{rows: map[string][]map[string]any{fieldEnrichmentAQL: {{
 		"project": "p", "resource_type": "Observation", "path": "component[]", "kind": "array", "doc_count": int64(2), "sample_count": int64(2),
 		"semantic_observations": []any{map[string]any{
-			"schema_version": int64(catalog.SemanticObservationSchemaVersion), "owning_scope": "component[]", "choice_arm": "valueCodeableConcept", "logical_type": "string",
+			"schema_version": int64(codedconcept.ObservationSchemaVersion), "owning_scope": "component[]", "choice_arm": "valueCodeableConcept", "logical_type": "string",
 			"completeness": "complete", "status": "supported", "population": int64(2), "examples": []any{"Stage I", "Stage II"},
 			"source": map[string]any{"canonical": "Observation.component", "type": "Observation", "profile": "http://hl7.org/fhir/StructureDefinition/Observation", "path": "component"},
 			"key":    map[string]any{"selector": "code.coding[]", "system": "urn:study:A", "code": "shared", "display": "Shared"},
@@ -664,10 +667,10 @@ func TestPageSemanticInventoryTreatsMissingCollectionsAsUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := adapter.PageSemanticInventory(context.Background(), catalog.SemanticInventoryPageOptions{
+	page, err := adapter.PageSemanticInventory(context.Background(), semanticinventory.PageOptions{
 		Project: "p", DatasetGeneration: "legacy-generation",
 	})
-	if err != nil || page.State != catalog.SemanticInventoryUnknown || len(page.Entries) != 0 {
+	if err != nil || page.State != semanticinventory.Unknown || len(page.Entries) != 0 {
 		t.Fatalf("page = %#v err=%v, want unknown empty inventory", page, err)
 	}
 	if len(client.queries) != 0 {

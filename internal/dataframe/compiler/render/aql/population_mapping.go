@@ -12,7 +12,7 @@ func (r *physicalPlanRenderer) renderPopulationMappingReturn(terminal ir.Physica
 	if err != nil {
 		return nil, fmt.Errorf("mapping members: %w", err)
 	}
-	memberVariable := r.newInternalVariable("population_mapping_member")
+	memberVariable := r.navigation().newInternalVariable("population_mapping_member")
 	memberNameKey := r.newInternalBindKey("population_mapping_member_name")
 	identityNameKey := r.newInternalBindKey("population_mapping_identity_name")
 	r.bindVars[memberNameKey] = ir.PhysicalPopulationMappingMemberField
@@ -67,11 +67,11 @@ func (r *physicalPlanRenderer) renderConstructionPopulationMappingReturn(termina
 	} else {
 		contributorValues = fmt.Sprintf("(%s == null ? [] : [%s])", contributorValues, contributorValues)
 	}
-	rootKeys := r.newInternalVariable("population_mapping_root_keys")
-	sourceRow := r.newInternalVariable("population_mapping_source_row")
-	memberValue := r.newInternalVariable("population_mapping_source_member")
-	selectedMember := r.newInternalVariable("population_mapping_selected_member")
-	selectedIdentity := r.newInternalVariable("population_mapping_selected_identity")
+	rootKeys := r.navigation().newInternalVariable("population_mapping_root_keys")
+	sourceRow := r.navigation().newInternalVariable("population_mapping_source_row")
+	memberValue := r.navigation().newInternalVariable("population_mapping_source_member")
+	selectedMember := r.navigation().newInternalVariable("population_mapping_selected_member")
+	selectedIdentity := r.navigation().newInternalVariable("population_mapping_selected_identity")
 	return []string{
 		fmt.Sprintf("LET %s = %s", rootKeys, contributorValues),
 		fmt.Sprintf("FOR %s IN %s", sourceRow, sourceRows),

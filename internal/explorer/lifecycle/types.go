@@ -5,77 +5,24 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
-	"github.com/calypr/loom/internal/dataframe/publication"
-	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 )
 
-type CapabilityResolver struct {
-	Current           func(context.Context, string, string, string) (capability.Snapshot, error)
-	Token             func(context.Context, string, string) (capability.Snapshot, error)
-	ForCompilation    func(context.Context, string, string) (AuthorizedCapability, error)
-	ForExecution      func(context.Context, string, string) (AuthorizedCapability, error)
-	Catalog           func(capability.Snapshot, string) authoringv2.CatalogSnapshot
-	ValidateReadScope func(authscope.ReadScope, string) error
-}
-
-type AuthorizedCapability struct {
-	Snapshot capability.Snapshot
-	Scope    authscope.ReadScope
-}
-
-func (a AuthorizedCapability) Clone() AuthorizedCapability {
-	return AuthorizedCapability{Snapshot: a.Snapshot.Clone(), Scope: a.Scope.Clone()}
-}
-
-type CompileReceiptRequest struct {
-	Project                         string
-	ExplorerID                      string
-	Workspace                       authoringv2.Workspace
-	SnapshotToken                   string
-	RequestID                       string
-	Authorized                      AuthorizedCapability
-	ResolvedInputs                  explorercompilation.ResolvedInputs
-	SelectionMembersCollection      string
-	ColumnPolicyProposal            *explorer.ColumnPolicyProposalBinding
-	SourceRelationshipProposal      *explorer.SourceRelationshipProposalBinding
-	RowDefinitionProposal           *explorer.RowDefinitionProposalBinding
-	ConstructionProposal            *explorer.ConstructionProposalBinding
-	PopulationMemberRemovalProposal *explorer.PopulationMemberRemovalProposalBinding
-}
-
-type ReceiptCompiler func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error)
 type ReceiptReader func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
 type ReceiptPreviewer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error)
 type ReceiptStreamValidator func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) error
 
-type ConstructionSourceStageCompiler func(context.Context, ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error)
-
-type ConstructionSourceStageRequest struct {
-	Project                    string
-	ExplorerID                 string
-	OutputID                   string
-	Document                   authoringv2.Document
-	Authorized                 AuthorizedCapability
-	SelectionMembersCollection string
-}
-
 type CategoryScanner func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error)
 
 type ColumnPopulationScanner func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.ColumnPopulationRequest) (dataframeexecution.ColumnPopulationResult, error)
-
-type ArtifactPublishedReader interface {
-	ExactExecutionMaterialization(context.Context, string, string) (dataframepublished.Materialization, error)
-	StreamExactExport(context.Context, dataframepublished.ExactExportRequest, dataframepublished.ExactExportVisitor) (dataframepublished.ExactExportResult, error)
-}
 
 type PopulationMappingExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, string, []string, string, int) (dataframeexecution.PopulationMappingResult, error)
 
@@ -85,46 +32,25 @@ type RowLineageExecutor func(context.Context, *explorer.CompilationReceipt, reci
 
 type SelectionReferenceValidator func(context.Context, string, string, authscope.ReadScope, []explorer.ResourceRef) error
 
-type Execution struct {
-	ID                   string
-	Name                 string
-	Project              string
-	RecipeDigest         string
-	ResolvedSchemaDigest string
-	SourceGeneration     string
-	ScopeDigest          string
-	State                string
-	Outputs              []ExecutionOutput
-	QualityReports       []publication.QualityReport
-}
-
-type ExecutionOutput struct {
-	Name     string
-	State    string
-	RowCount *int
-	Columns  []publication.PhysicalColumn
-}
-
-type ReceiptMaterializer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error)
 type GenerationValidator func(context.Context, string, string) error
 type ReleaseActivator func(context.Context, string, string, []dataset.DataframeSelector) error
 type ReleasePreparer func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error)
 
 type Config struct {
 	DefaultDataframeWorkspace func(context.Context, string, capability.Snapshot, authoringv2.CatalogSnapshot) (authoringv2.Workspace, error)
-	AuthoringNetwork          func(context.Context, string, AuthorizedCapability, authoringv2.Document) (authoringv2.AuthoringNetwork, error)
-	EditImportedRelationship  func(context.Context, string, AuthorizedCapability, authoringv2.Document, authoringv2.ImportedRelationshipChange) (authoringv2.Document, error)
-	CreateImportedSourceRule  func(context.Context, string, AuthorizedCapability, authoringv2.Document, authoringv2.SourceRuleCreate) (authoringv2.Document, error)
-	EditImportedSource        func(context.Context, string, AuthorizedCapability, authoringv2.Document, *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
-	EditImportedSources       func(context.Context, string, AuthorizedCapability, authoringv2.Document, []authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
-	RemoveImportedField       func(context.Context, string, AuthorizedCapability, authoringv2.Document, string, string) (authoringv2.Document, error)
-	RemoveImportedOutput      func(context.Context, string, AuthorizedCapability, authoringv2.Document, string, string) (authoringv2.Document, error)
+	AuthoringNetwork          func(context.Context, string, ports.AuthorizedCapability, authoringv2.Document) (authoringv2.AuthoringNetwork, error)
+	EditImportedRelationship  func(context.Context, string, ports.AuthorizedCapability, authoringv2.Document, authoringv2.ImportedRelationshipChange) (authoringv2.Document, error)
+	CreateImportedSourceRule  func(context.Context, string, ports.AuthorizedCapability, authoringv2.Document, authoringv2.SourceRuleCreate) (authoringv2.Document, error)
+	EditImportedSource        func(context.Context, string, ports.AuthorizedCapability, authoringv2.Document, *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
+	EditImportedSources       func(context.Context, string, ports.AuthorizedCapability, authoringv2.Document, []authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
+	RemoveImportedField       func(context.Context, string, ports.AuthorizedCapability, authoringv2.Document, string, string) (authoringv2.Document, error)
+	RemoveImportedOutput      func(context.Context, string, ports.AuthorizedCapability, authoringv2.Document, string, string) (authoringv2.Document, error)
 
 	SelectionMembersCollection         string
-	Capability                         CapabilityResolver
-	SemanticInventory                  func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error)
+	Capability                         ports.CapabilityResolver
+	SemanticInventory                  func(context.Context, semanticinventory.PageOptions) (semanticinventory.Page, error)
 	SemanticCoverage                   func(context.Context, catalogarango.SemanticCoverageLookupOptions) (catalogarango.SemanticCoverageLookupResult, error)
-	ResolveSemanticInventorySelections func(context.Context, catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error)
+	ResolveSemanticInventorySelections func(context.Context, semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error)
 
 	InterpretationRepository explorer.InterpretationRepository
 
@@ -135,8 +61,8 @@ type Config struct {
 	ExplicitGroupResolver       ExplicitGroupRevisionResolver
 	ExplicitGroupRepository     explorer.ExplicitGroupRepository
 
-	CompileReceipt               ReceiptCompiler
-	ConstructionSourceStage      ConstructionSourceStageCompiler
+	CompileReceipt               ports.ReceiptCompiler
+	ConstructionSourceStage      ports.ConstructionSourceStageCompiler
 	PreviewReceipt               ReceiptPreviewer
 	ValidateReceiptStream        ReceiptStreamValidator
 	ScanCategories               CategoryScanner
@@ -145,10 +71,10 @@ type Config struct {
 	PopulationMappingCursorCodec PopulationMappingCursorCodec
 	CellTrace                    CellTraceExecutor
 	RowLineage                   RowLineageExecutor
-	MaterializeReceipt           ReceiptMaterializer
+	MaterializeReceipt           ports.ReceiptMaterializer
 	ReceiptLookup                ReceiptReader
 	ArtifactStore                explorer.ArtifactStore
-	PublishedReader              ArtifactPublishedReader
+	PublishedReader              ports.ArtifactPublishedReader
 
 	ArtifactTTL      time.Duration
 	ArtifactMaxRows  int64
@@ -473,7 +399,7 @@ type PublishRequest struct {
 type PublishResult struct {
 	Receipt   *explorer.CompilationReceipt
 	Revision  *explorer.Revision
-	Execution Execution
+	Execution ports.Execution
 }
 
 type RepositoryPublishRequest struct {
@@ -488,7 +414,7 @@ type RepositoryPublishResult struct {
 	Receipt          *explorer.CompilationReceipt
 	Owner            *explorer.Explorer
 	Revision         *explorer.Revision
-	Execution        Execution
+	Execution        ports.Execution
 	Materializations []explorer.Materialization
 	Dataset          explorer.DatasetMetadata
 	Publication      explorer.PublicationMetadata

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataset"
-
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/generation"
 )
 
 func TestNormalizeIngestionFailures(t *testing.T) {
@@ -21,13 +21,13 @@ func TestNormalizeIngestionFailures(t *testing.T) {
 		t.Fatal("preflight parser message leaked into details")
 	}
 
-	incomplete := &ingest.GenerationLoadIncompleteError{ValidationErrors: 2, GenerationErrors: 1, EdgeErrors: 3}
+	incomplete := &generation.GenerationLoadIncompleteError{ValidationErrors: 2, GenerationErrors: 1, EdgeErrors: 3}
 	userErr, ok = dataframeerrors.AsUserError(normalizeError(incomplete))
 	if !ok || userErr.Code() != "GENERATION_LOAD_INCOMPLETE" || userErr.Details()["edgeErrors"] != 3 {
 		t.Fatalf("incomplete normalized = %#v", userErr)
 	}
 
-	activation := &ingest.ActivationOutcomeError{Err: errors.New("pointer storage timeout")}
+	activation := &generation.ActivationOutcomeError{Err: errors.New("pointer storage timeout")}
 	userErr, ok = dataframeerrors.AsUserError(normalizeError(activation))
 	if !ok || userErr.Code() != "GENERATION_ACTIVATION_UNKNOWN" || userErr.Retryable() {
 		t.Fatalf("activation normalized = %#v", userErr)

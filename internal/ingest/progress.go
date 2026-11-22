@@ -9,7 +9,7 @@ import (
 
 type EventSink func(event string, fields map[string]any)
 
-func emitEvent(sink EventSink, event string, fields map[string]any) {
+func EmitEvent(sink EventSink, event string, fields map[string]any) {
 	if sink != nil {
 		sink(event, fields)
 		return

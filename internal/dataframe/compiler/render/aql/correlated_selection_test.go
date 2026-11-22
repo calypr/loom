@@ -27,10 +27,10 @@ func TestRenderSystemVersionSelectionKeepsCodesTogetherAndExcludesOtherScopes(t 
 				map[string]any{"system": "urn:other", "version": version, "code": "normal", "display": "Wrong system"},
 				map[string]any{"system": "urn:selected", "version": "other-version", "code": "tumor", "display": "Wrong version"},
 			}}}
-			renderer := &physicalPlanRenderer{
+			renderer := &physicalPlanRenderer{renderContext: renderContext{
 				bindVars:       map[string]any{"fixture": fixture, "selected_system": "urn:selected", "selected_version": version, "columns": []string{"category"}},
 				collectionKeys: map[string]struct{}{}, setVariables: map[string]string{}, reservedVars: map[string]struct{}{},
-			}
+			}}
 			projection, err := renderer.renderCorrelatedPivot(correlation, "columns", false, false, "DISTINCT")
 			if err != nil {
 				t.Fatal(err)

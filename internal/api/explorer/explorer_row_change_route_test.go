@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
@@ -58,17 +59,17 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := lifecycle.Config{Capability: lifecycle.CapabilityResolver{
+	config := lifecycle.Config{Capability: ports.CapabilityResolver{
 		Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
-		ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-			return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 		},
-		ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
-			return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		ForExecution: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
+			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 		},
 		Catalog: authoringv2.CatalogFromCapability,
 	},
-		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return explorerfixtures.PersistTestNativeReceipt(ctx, t, domain, request, snapshot)
 		},
 		PreviewReceipt: func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
