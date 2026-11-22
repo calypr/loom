@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/cmd/loom-repository/seed"
 	"github.com/calypr/loom/internal/projectid"
-	"github.com/calypr/loom/internal/repositoryseed"
 )
 
 func TestLaunchOptionsDeriveComposeAndPublicEndpoints(t *testing.T) {
@@ -68,7 +68,7 @@ func TestLaunchOptionsProbeMatchingLoopbackFamiliesForWildcardBindings(t *testin
 }
 
 func TestRepositoryURLsUseStorageAndPublicProjectIdentities(t *testing.T) {
-	manifest := repositoryseed.Manifest{Project: "HTAN_INT/BForePC", Generation: "repo-0123456789abcdef"}
+	manifest := seed.Manifest{Project: "HTAN_INT/BForePC", Generation: "repo-0123456789abcdef"}
 
 	load := uploadURL("http://127.0.0.1:8080", manifest)
 	if !strings.Contains(load, "/api/v1/datasets/HTAN_INT-BForePC/generations/") {
@@ -87,14 +87,14 @@ func TestRepositoryURLsUseStorageAndPublicProjectIdentities(t *testing.T) {
 }
 
 func TestRepositoryURLsDoNotChangeOpaqueProjectIDs(t *testing.T) {
-	manifest := repositoryseed.Manifest{Project: "NCPI_ACCEPTANCE", Generation: "repo-0123456789abcdef"}
+	manifest := seed.Manifest{Project: "NCPI_ACCEPTANCE", Generation: "repo-0123456789abcdef"}
 	if got := uploadURL("http://127.0.0.1:8080", manifest); !strings.Contains(got, "/datasets/NCPI_ACCEPTANCE/") {
 		t.Fatalf("opaque upload URL = %q", got)
 	}
 }
 
 func TestPublicProjectPathEscapesCanonicalSlash(t *testing.T) {
-	manifest := repositoryseed.Manifest{Project: "HTAN_INT/BForePC", Generation: "repo-0123456789abcdef"}
+	manifest := seed.Manifest{Project: "HTAN_INT/BForePC", Generation: "repo-0123456789abcdef"}
 	for _, path := range []string{publishURL("http://127.0.0.1:8080", manifest), viewerURL("http://127.0.0.1:8080", manifest)} {
 		if strings.Contains(path, "/HTAN_INT/BForePC/") {
 			t.Fatalf("unescaped canonical slash in URL %q", path)
@@ -119,7 +119,7 @@ func TestLaunchStopsUIBeforeInfrastructure(t *testing.T) {
 }
 
 func TestLoadRepositoryMetaSkipsUploadForReusableGeneration(t *testing.T) {
-	manifest := repositoryseed.Manifest{Project: "NCPI_ACCEPTANCE", Generation: "repo-0123456789abcdef"}
+	manifest := seed.Manifest{Project: "NCPI_ACCEPTANCE", Generation: "repo-0123456789abcdef"}
 	var methods []string
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		methods = append(methods, request.Method)
@@ -145,7 +145,7 @@ func TestLoadRepositoryMetaSkipsUploadForReusableGeneration(t *testing.T) {
 }
 
 func TestLoadRepositoryMetaRejectsExistingNonReusableGeneration(t *testing.T) {
-	manifest := repositoryseed.Manifest{Project: "NCPI_ACCEPTANCE", Generation: "repo-0123456789abcdef"}
+	manifest := seed.Manifest{Project: "NCPI_ACCEPTANCE", Generation: "repo-0123456789abcdef"}
 	var methods []string
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		methods = append(methods, request.Method)
@@ -165,7 +165,7 @@ func TestLoadRepositoryMetaRejectsExistingNonReusableGeneration(t *testing.T) {
 }
 
 func TestLoadRepositoryMetaUploadsGenerationAfterNotFound(t *testing.T) {
-	manifest := repositoryseed.Manifest{Project: "NCPI_ACCEPTANCE", Generation: "repo-0123456789abcdef"}
+	manifest := seed.Manifest{Project: "NCPI_ACCEPTANCE", Generation: "repo-0123456789abcdef"}
 	var methods []string
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		methods = append(methods, request.Method)
@@ -194,7 +194,7 @@ func TestLoadRepositoryMetaUploadsGenerationAfterNotFound(t *testing.T) {
 }
 
 func TestLoadRepositoryMetaDoesNotUploadAfterStatusFailure(t *testing.T) {
-	manifest := repositoryseed.Manifest{Project: "NCPI_ACCEPTANCE", Generation: "repo-0123456789abcdef"}
+	manifest := seed.Manifest{Project: "NCPI_ACCEPTANCE", Generation: "repo-0123456789abcdef"}
 	var methods []string
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		methods = append(methods, request.Method)

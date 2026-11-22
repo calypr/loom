@@ -117,11 +117,11 @@ func TestNodeVetCliSmoke(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Fatalf("environment blocker: node is not on PATH, so the scripts/ci/vet.mjs CLI cannot be exercised (not a code fault): %v", err)
 	}
-	cmd := exec.Command("node", "scripts/ci/vet.mjs", "--packages=./internal/ci/...")
+	cmd := exec.Command("node", "scripts/ci/vet.mjs", "--packages=./tests/ci/...")
 	cmd.Dir = repoRoot(t)
 	out, runErr := cmd.CombinedOutput()
 	if runErr != nil {
-		t.Fatalf("node scripts/ci/vet.mjs --packages=./internal/ci/... must exit 0:\n%v\n%s", runErr, out)
+		t.Fatalf("node scripts/ci/vet.mjs --packages=./tests/ci/... must exit 0:\n%v\n%s", runErr, out)
 	}
 	if !strings.Contains(string(out), "VET-GATE PASS") {
 		t.Fatalf("vet CLI must print VET-GATE PASS on success; got:\n%s", out)

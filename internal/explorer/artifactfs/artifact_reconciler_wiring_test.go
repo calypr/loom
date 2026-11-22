@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/calypr/loom/internal/explorer/reconcile"
 	"log/slog"
 	"testing"
 	"time"
@@ -75,7 +76,7 @@ func TestFilesystemReconcilerLoopUsesFilesystemArtifactLabel(t *testing.T) {
 		<-time.After(50 * time.Millisecond)
 		cancel()
 	}()
-	runReconcilerLoop(ctx, sweep, ticks, slog.New(slog.NewJSONHandler(buffer, nil)), "filesystem artifact")
+	reconcile.Loop(ctx, sweep, ticks, slog.New(slog.NewJSONHandler(buffer, nil)), "filesystem artifact")
 	<-done
 	if sweeps == 0 {
 		t.Fatal("sweep never ran")

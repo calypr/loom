@@ -2,13 +2,9 @@ package lifecycle
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"sort"
 	"strings"
 
-	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
@@ -211,26 +207,6 @@ func validateAuthorizedReceiptExecution(receipt *explorer.CompilationReceipt, au
 		return fmt.Errorf("capability scope digest changed")
 	}
 	return validateAuthorizedReadScope(authorized.Scope, receipt.AuthorizationScopeDigest)
-}
-
-func validateAuthorizedReadScope(scope authscope.ReadScope, expectedDigest string) error {
-	switch scope.Mode {
-	case authscope.ReadScopeUnrestricted:
-		if len(scope.AuthResourcePaths) != 0 {
-			return fmt.Errorf("unrestricted scope must not carry resource paths")
-		}
-	case authscope.ReadScopeRestricted:
-
-	default:
-		return fmt.Errorf("authorization scope mode is missing or invalid")
-	}
-	paths := append([]string(nil), scope.AuthResourcePaths...)
-	sort.Strings(paths)
-	sum := sha256.Sum256([]byte(string(scope.Mode) + "\x00" + strings.Join(paths, "\x00")))
-	if hex.EncodeToString(sum[:]) != expectedDigest {
-		return fmt.Errorf("authorized scope does not match receipt scope digest")
-	}
-	return nil
 }
 
 func validateReceiptOutputContract(receipt *explorer.CompilationReceipt, outputID string) error {

@@ -2,6 +2,7 @@ package artifactfs
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/explorer/reconcile"
 	"log/slog"
 	"time"
 )
@@ -47,7 +48,7 @@ func startTickerReconciler(ctx context.Context, sweep func(context.Context) erro
 		defer close(done)
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		runReconcilerLoop(ctx, sweep, ticker.C, logger, label)
+		reconcile.Loop(ctx, sweep, ticker.C, logger, label)
 	}()
 	return done
 }
@@ -59,35 +60,5 @@ func runPrivateArtifactReconciler(ctx context.Context, manager privateArtifactRe
 	sweep := func(sweepCtx context.Context) error {
 		return manager.Reconcile(sweepCtx, time.Now().UTC(), privateArtifactReconcileLimit)
 	}
-	runReconcilerLoop(ctx, sweep, ticks, logger, "private ClickHouse artifact")
-}
-
-func runReconcilerLoop(ctx context.Context, sweep func(context.Context) error, ticks <-chan time.Time, logger *slog.Logger, label string) {
-	if ctx == nil || sweep == nil {
-		return
-	}
-	reconcile := func() {
-		sweepCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		if err := sweep(sweepCtx); err != nil && ctx.Err() == nil && logger != nil {
-			logger.Error(label+" reconciliation failed", "error", err)
-		}
-	}
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-		reconcile()
-		if ctx.Err() != nil {
-			return
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case _, ok := <-ticks:
-			if !ok {
-				return
-			}
-		}
-	}
+	reconcile.Loop(ctx, sweep, ticks, logger, "private ClickHouse artifact")
 }

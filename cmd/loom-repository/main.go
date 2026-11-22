@@ -21,8 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/cmd/loom-repository/seed"
 	"github.com/calypr/loom/internal/projectid"
-	"github.com/calypr/loom/internal/repositoryseed"
 )
 
 func main() {
@@ -57,7 +57,7 @@ type launchOptions struct {
 
 var composeProjectPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
-func flagsAndPrepare(name string, args []string) (repositoryseed.Manifest, string, launchOptions) {
+func flagsAndPrepare(name string, args []string) (seed.Manifest, string, launchOptions) {
 	composeProjectDefault := ""
 	apiHostDefault, apiPortDefault := "127.0.0.1", 8080
 	uiHostDefault, uiPortDefault := "127.0.0.1", 3080
@@ -79,7 +79,7 @@ func flagsAndPrepare(name string, args []string) (repositoryseed.Manifest, strin
 	uiHost := fs.String("ui-host", uiHostDefault, "host address for the Loom UI")
 	uiPort := fs.Int("ui-port", uiPortDefault, "host port for the Loom UI")
 	_ = fs.Parse(args)
-	manifest, err := repositoryseed.Prepare(repositoryseed.Options{Repository: *repository, Config: *config, Project: *project})
+	manifest, err := seed.Prepare(seed.Options{Repository: *repository, Config: *config, Project: *project})
 	if err != nil {
 		fatalf("repository preflight failed: %v", err)
 	}
@@ -170,7 +170,7 @@ func envPort(name string, fallback int) int {
 	return port
 }
 
-func launch(ctx context.Context, loomRoot string, manifest repositoryseed.Manifest, options launchOptions) error {
+func launch(ctx context.Context, loomRoot string, manifest seed.Manifest, options launchOptions) error {
 	compose := options.composeArgs(loomRoot)
 	environment := append(os.Environ(),
 		"LOOM_REPOSITORY_CONFIG_DIR="+manifest.ConfigDir,
@@ -247,7 +247,7 @@ func stopStaleUI(runDocker func(...string) error) error {
 	return runDocker("stop", "loom-ui")
 }
 
-func loadRepositoryMeta(ctx context.Context, client *http.Client, base string, manifest repositoryseed.Manifest) (map[string]any, error) {
+func loadRepositoryMeta(ctx context.Context, client *http.Client, base string, manifest seed.Manifest) (map[string]any, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, generationStatusURL(base, manifest), nil)
 	if err != nil {
 		return nil, err
@@ -289,7 +289,7 @@ func loadRepositoryMeta(ctx context.Context, client *http.Client, base string, m
 	}
 }
 
-func upload(ctx context.Context, client *http.Client, base string, manifest repositoryseed.Manifest) (map[string]any, error) {
+func upload(ctx context.Context, client *http.Client, base string, manifest seed.Manifest) (map[string]any, error) {
 	reader, writer := io.Pipe()
 	multipartWriter := multipart.NewWriter(writer)
 	done := make(chan error, 1)
@@ -340,7 +340,7 @@ func upload(ctx context.Context, client *http.Client, base string, manifest repo
 	return value, nil
 }
 
-func publish(ctx context.Context, client *http.Client, base string, manifest repositoryseed.Manifest) (map[string]any, error) {
+func publish(ctx context.Context, client *http.Client, base string, manifest seed.Manifest) (map[string]any, error) {
 	path := publishURL(base, manifest)
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, path, bytes.NewReader(manifest.Workspace))
 	if err != nil {
@@ -355,19 +355,19 @@ func publish(ctx context.Context, client *http.Client, base string, manifest rep
 	return value, nil
 }
 
-func uploadURL(base string, manifest repositoryseed.Manifest) string {
+func uploadURL(base string, manifest seed.Manifest) string {
 	return strings.TrimRight(base, "/") + "/api/v1/datasets/" + url.PathEscape(projectid.Legacy(manifest.Project)) + "/generations/" + url.PathEscape(manifest.Generation)
 }
 
-func generationStatusURL(base string, manifest repositoryseed.Manifest) string {
+func generationStatusURL(base string, manifest seed.Manifest) string {
 	return uploadURL(base, manifest)
 }
 
-func publishURL(base string, manifest repositoryseed.Manifest) string {
+func publishURL(base string, manifest seed.Manifest) string {
 	return strings.TrimRight(base, "/") + "/api/v1/projects/" + url.PathEscape(projectid.Canonical(manifest.Project)) + "/generations/" + url.PathEscape(manifest.Generation) + "/explorer-config"
 }
 
-func viewerURL(base string, manifest repositoryseed.Manifest) string {
+func viewerURL(base string, manifest seed.Manifest) string {
 	return strings.TrimRight(base, "/") + "/api/v1/projects/" + url.PathEscape(projectid.Canonical(manifest.Project)) + "/explorers/default"
 }
 

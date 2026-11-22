@@ -115,13 +115,6 @@ func (s RowDefinitionSelection) Validate() error {
 	}
 }
 
-func requireExactIdentity(value, name string) error {
-	if strings.TrimSpace(value) == "" || value != strings.TrimSpace(value) {
-		return fmt.Errorf("%s must be an exact non-empty token", name)
-	}
-	return nil
-}
-
 type RowDefinitionProposalRequest struct {
 	Project              string
 	ExplorerID           string

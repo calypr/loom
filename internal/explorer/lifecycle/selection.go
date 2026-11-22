@@ -425,15 +425,6 @@ func canonicalSelectionRefs(values []explorerselection.ResourceRef, project, gen
 	return result, resourceType, nil
 }
 
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
 func refKey(ref explorerselection.ResourceRef) string {
 	ref = ref.Canonical()
 	return ref.Project + "\x00" + ref.Generation + "\x00" + ref.ResourceType + "\x00" + ref.ID

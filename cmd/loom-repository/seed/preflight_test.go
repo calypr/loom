@@ -1,4 +1,4 @@
-package repositoryseed
+package seed
 
 import (
 	"errors"
