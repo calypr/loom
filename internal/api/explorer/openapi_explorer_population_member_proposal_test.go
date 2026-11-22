@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"net/http"
 	"reflect"
 	"testing"
@@ -61,23 +62,23 @@ func TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS(t *
 	}
 
 	store := &explorerfixtures.SelectionStore{
-		Store: explorerfixtures.NewStore(), Selections: map[string]explorer.SelectionRevision{}, Members: map[string][]explorer.SelectionMember{},
+		Store: explorerfixtures.NewStore(), Selections: map[string]explorerselection.SelectionRevision{}, Members: map[string][]explorerselection.SelectionMember{},
 	}
 	if _, err := store.Create(context.Background(), explorer.Explorer{Project: project, ExplorerID: explorerID, Title: "Patients", DraftConfig: rawDraft, DraftVersion: 7, DraftDigest: draftDigest}); err != nil {
 		t.Fatal(err)
 	}
-	members := []explorer.SelectionMember{
-		{Ref: explorer.ResourceRef{Project: project, Generation: snapshot.Identity.Generation, ResourceType: "Patient", ID: "patient-1"}},
-		{Ref: explorer.ResourceRef{Project: project, Generation: snapshot.Identity.Generation, ResourceType: "Patient", ID: "patient-2"}},
+	members := []explorerselection.SelectionMember{
+		{Ref: explorerselection.ResourceRef{Project: project, Generation: snapshot.Identity.Generation, ResourceType: "Patient", ID: "patient-1"}},
+		{Ref: explorerselection.ResourceRef{Project: project, Generation: snapshot.Identity.Generation, ResourceType: "Patient", ID: "patient-2"}},
 	}
 	completedAt := time.Now().UTC()
-	store.Selections["selection-base"] = explorer.SelectionRevision{
+	store.Selections["selection-base"] = explorerselection.SelectionRevision{
 		ID: "selection-base", Project: project, Generation: snapshot.Identity.Generation, ResourceType: "Patient",
-		Rule: explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit}, Source: explorer.SelectionSource{Kind: explorer.SelectionSourceExplicit},
-		ScopeDigest: snapshot.Identity.AuthorizationScopeDigest, RuleDigest: "base-rule", MembershipDigest: explorer.MembershipDigest(members),
+		Rule: explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleExplicit}, Source: explorerselection.SelectionSource{Kind: explorerselection.SelectionSourceExplicit},
+		ScopeDigest: snapshot.Identity.AuthorizationScopeDigest, RuleDigest: "base-rule", MembershipDigest: explorerselection.MembershipDigest(members),
 		MemberCount: int64(len(members)), MemberBytes: 256, Complete: true, CreatedAt: completedAt, CompletedAt: &completedAt,
 	}
-	store.Members["selection-base"] = append([]explorer.SelectionMember(nil), members...)
+	store.Members["selection-base"] = append([]explorerselection.SelectionMember(nil), members...)
 
 	domain, err := explorer.NewService(store)
 	if err != nil {
@@ -101,7 +102,7 @@ func TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS(t *
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
-		SelectionReferenceValidator: func(_ context.Context, gotProject, generation string, gotScope authscope.ReadScope, refs []explorer.ResourceRef) error {
+		SelectionReferenceValidator: func(_ context.Context, gotProject, generation string, gotScope authscope.ReadScope, refs []explorerselection.ResourceRef) error {
 			if gotProject != project || generation != snapshot.Identity.Generation || gotScope.Mode != scope.Mode || !reflect.DeepEqual(gotScope.AuthResourcePaths, scope.AuthResourcePaths) {
 				t.Fatalf("selection validation lost authorized scope: project=%q generation=%q scope=%#v", gotProject, generation, gotScope)
 			}
@@ -153,7 +154,7 @@ func TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS(t *
 		t.Fatalf("proposal did not produce an unattached exact removal: base=%#v candidate=%#v saves=%d", proposal.BaseSelection, proposal.CandidateSelection, store.SaveCalls)
 	}
 	var candidateIDs []string
-	if _, err := store.VisitSelectionMembers(context.Background(), project, proposal.CandidateSelection.Id, "", 100, func(member explorer.SelectionMember) error {
+	if _, err := store.VisitSelectionMembers(context.Background(), project, proposal.CandidateSelection.Id, "", 100, func(member explorerselection.SelectionMember) error {
 		candidateIDs = append(candidateIDs, member.Ref.ID)
 		return nil
 	}); err != nil {

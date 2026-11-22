@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -11,7 +12,7 @@ import (
 
 type explicitGroupRevisionStore interface {
 	explorer.ExplicitGroupRepository
-	GetSelection(context.Context, string, string) (*explorer.SelectionRevision, error)
+	GetSelection(context.Context, string, string) (*explorerselection.SelectionRevision, error)
 }
 
 type repositoryExplicitGroupRevisionResolver struct {

@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/discoverycache"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 	publicationcontract "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer/artifactfs"
@@ -67,7 +67,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return err
 	}
-	discoveryCache := catalog.NewCache()
+	discoveryCache := discoverycache.NewCache()
 	auth, err := wireAuth(serverConfig, serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated, storage.catalog.DiscoverExistingAuthResourcePaths)
 	if err != nil {
 		return fmt.Errorf("configure authentication: %w", err)

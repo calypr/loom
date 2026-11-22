@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"os"
 	"reflect"
 	"sort"
@@ -199,8 +200,8 @@ FOR d IN Patient
 
 	proposalStore := &explorerfixtures.SelectionStore{
 		Store:      newTestExplorerStore(),
-		Selections: map[string]explorer.SelectionRevision{},
-		Members:    map[string][]explorer.SelectionMember{},
+		Selections: map[string]explorerselection.SelectionRevision{},
+		Members:    map[string][]explorerselection.SelectionMember{},
 	}
 	domain, err := explorer.NewService(proposalStore)
 	if err != nil {

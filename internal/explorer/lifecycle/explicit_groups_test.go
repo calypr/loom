@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"reflect"
 	"testing"
 	"time"
@@ -15,13 +16,13 @@ import (
 
 type explicitGroupSelectionFixture struct {
 	explorer.Store
-	header  explorer.SelectionRevision
-	members []explorer.SelectionMember
+	header  explorerselection.SelectionRevision
+	members []explorerselection.SelectionMember
 }
 
-func (s *explicitGroupSelectionFixture) GetSelection(_ context.Context, project, id string) (*explorer.SelectionRevision, error) {
+func (s *explicitGroupSelectionFixture) GetSelection(_ context.Context, project, id string) (*explorerselection.SelectionRevision, error) {
 	if id != s.header.ID || project != s.header.Project {
-		return nil, explorer.ErrSelectionNotFound
+		return nil, explorerselection.ErrSelectionNotFound
 	}
 	value := s.header
 	return &value, nil
@@ -29,16 +30,16 @@ func (s *explicitGroupSelectionFixture) GetSelection(_ context.Context, project,
 
 func (s *explicitGroupSelectionFixture) DigestSelectionMembers(_ context.Context, project, id string) (string, int64, int64, error) {
 	if id != s.header.ID || project != s.header.Project {
-		return "", 0, 0, explorer.ErrSelectionNotFound
+		return "", 0, 0, explorerselection.ErrSelectionNotFound
 	}
-	return explorer.MembershipDigest(s.members), int64(len(s.members)), int64(len(s.members)), nil
+	return explorerselection.MembershipDigest(s.members), int64(len(s.members)), int64(len(s.members)), nil
 }
 
-func (s *explicitGroupSelectionFixture) VisitSelectionMembers(_ context.Context, project, id, after string, limit int, visit func(explorer.SelectionMember) error) (string, error) {
+func (s *explicitGroupSelectionFixture) VisitSelectionMembers(_ context.Context, project, id, after string, limit int, visit func(explorerselection.SelectionMember) error) (string, error) {
 	if id != s.header.ID || project != s.header.Project {
-		return "", explorer.ErrSelectionNotFound
+		return "", explorerselection.ErrSelectionNotFound
 	}
-	values := append([]explorer.SelectionMember(nil), s.members...)
+	values := append([]explorerselection.SelectionMember(nil), s.members...)
 	sortSelectionMembers(values)
 	if limit <= 0 {
 		limit = len(values)
@@ -61,7 +62,7 @@ func (s *explicitGroupSelectionFixture) VisitSelectionMembers(_ context.Context,
 	return last, nil
 }
 
-func sortSelectionMembers(members []explorer.SelectionMember) {
+func sortSelectionMembers(members []explorerselection.SelectionMember) {
 	for i := 1; i < len(members); i++ {
 		for j := i; j > 0 && members[j].MemberKey < members[j-1].MemberKey; j-- {
 			members[j], members[j-1] = members[j-1], members[j]
@@ -81,7 +82,7 @@ type explicitGroupRepositoryFixture struct {
 	completeCalls int
 }
 
-func (r *explicitGroupRepositoryFixture) BeginExplicitGroupRevision(_ context.Context, header explorer.ExplicitGroupRevision, source explorer.SelectionRevision, writer string) (*explorer.ExplicitGroupRevision, error) {
+func (r *explicitGroupRepositoryFixture) BeginExplicitGroupRevision(_ context.Context, header explorer.ExplicitGroupRevision, source explorerselection.SelectionRevision, writer string) (*explorer.ExplicitGroupRevision, error) {
 	r.beginCalls++
 	if err := header.ValidateSourceSelection(source); err != nil {
 		return nil, err
@@ -226,18 +227,18 @@ func explicitGroupServiceFixture(t *testing.T) (*Service, *explicitGroupSelectio
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	digest := scopeDigest(scope)
 	completedAt := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
-	selection := explorer.SelectionRevision{
+	selection := explorerselection.SelectionRevision{
 		ID: "selection-source", Project: "project", Generation: "generation-a", ResourceType: "OpaqueResource",
-		Rule: explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit}, Source: explorer.SelectionSource{Kind: explorer.SelectionSourceExplicit},
+		Rule: explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleExplicit}, Source: explorerselection.SelectionSource{Kind: explorerselection.SelectionSourceExplicit},
 		ScopeDigest: digest, RuleDigest: "selection-rule", MembershipDigest: "", MemberCount: 3, MemberBytes: 3,
 		Complete: true, CreatedAt: completedAt, CompletedAt: &completedAt,
 	}
-	members := []explorer.SelectionMember{
-		{Ref: explorer.ResourceRef{Project: "project", Generation: "generation-a", ResourceType: "OpaqueResource", ID: "record-a"}, MemberKey: "member-a"},
-		{Ref: explorer.ResourceRef{Project: "project", Generation: "generation-a", ResourceType: "OpaqueResource", ID: "record-b"}, MemberKey: "member-b"},
-		{Ref: explorer.ResourceRef{Project: "project", Generation: "generation-a", ResourceType: "OpaqueResource", ID: "record-c"}, MemberKey: "member-c"},
+	members := []explorerselection.SelectionMember{
+		{Ref: explorerselection.ResourceRef{Project: "project", Generation: "generation-a", ResourceType: "OpaqueResource", ID: "record-a"}, MemberKey: "member-a"},
+		{Ref: explorerselection.ResourceRef{Project: "project", Generation: "generation-a", ResourceType: "OpaqueResource", ID: "record-b"}, MemberKey: "member-b"},
+		{Ref: explorerselection.ResourceRef{Project: "project", Generation: "generation-a", ResourceType: "OpaqueResource", ID: "record-c"}, MemberKey: "member-c"},
 	}
-	selection.MembershipDigest = explorer.MembershipDigest(members)
+	selection.MembershipDigest = explorerselection.MembershipDigest(members)
 	selectionStore := &explicitGroupSelectionFixture{header: selection, members: members}
 	persistence, err := explorer.NewService(selectionStore)
 	if err != nil {

@@ -3,13 +3,13 @@ package fielddiscovery
 import (
 	"context"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/discoverycache"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/schema"
 )
 
-func RecipeSchemaResolver(read func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error), cache *catalog.Cache) func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error) {
+func RecipeSchemaResolver(read func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error), cache *discoverycache.Cache) func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error) {
 	if cache != nil {
 		read = cache.DiscoverFields(read)
 	}

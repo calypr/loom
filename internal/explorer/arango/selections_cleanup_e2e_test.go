@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"net/http"
 	"net/url"
 	"os"
@@ -12,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
@@ -147,11 +147,11 @@ RETURN {count: LENGTH(FOR id IN ids FILTER DOCUMENT(@@headers, id) == null RETUR
 	}
 }
 
-func selectionCleanupHeader(project, selectionID, idempotencyKey string, createdAt time.Time) explorer.SelectionRevision {
-	return explorer.SelectionRevision{
+func selectionCleanupHeader(project, selectionID, idempotencyKey string, createdAt time.Time) explorerselection.SelectionRevision {
+	return explorerselection.SelectionRevision{
 		ID: selectionID, Project: project, Generation: "generation-a", ResourceType: "DocumentReference",
-		Rule:           explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit},
-		Source:         explorer.SelectionSource{Kind: explorer.SelectionSourceExplicit},
+		Rule:           explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleExplicit},
+		Source:         explorerselection.SelectionSource{Kind: explorerselection.SelectionSourceExplicit},
 		ScopeDigest:    "cleanup-scope",
 		RuleDigest:     "cleanup-rule",
 		IdempotencyKey: idempotencyKey,
@@ -159,10 +159,10 @@ func selectionCleanupHeader(project, selectionID, idempotencyKey string, created
 	}
 }
 
-func selectionCleanupMembers(project, generation, resourceType, prefix string, count int) []explorer.SelectionMember {
-	members := make([]explorer.SelectionMember, count)
+func selectionCleanupMembers(project, generation, resourceType, prefix string, count int) []explorerselection.SelectionMember {
+	members := make([]explorerselection.SelectionMember, count)
 	for i := range members {
-		members[i] = explorer.SelectionMember{Ref: explorer.ResourceRef{
+		members[i] = explorerselection.SelectionMember{Ref: explorerselection.ResourceRef{
 			Project: project, Generation: generation, ResourceType: resourceType,
 			ID: fmt.Sprintf("%s-%03d", prefix, i),
 		}}
@@ -248,7 +248,7 @@ func TestSelectionCleanupStagingReapsLeaseLapsedWriterMidDigest(t *testing.T) {
 	completeOutcome, completeErr := persistence.CompleteSelection(ctx, idleID, idleToken, idleDigest, idleCount, 0, time.Now().UTC())
 	if completeErr != nil {
 		t.Logf("SELECTION_CLEANUP_H3A_COMPLETE_OUTCOME error=%v notFound=%t incomplete=%t conflict=%t",
-			completeErr, errors.Is(completeErr, explorer.ErrSelectionNotFound), errors.Is(completeErr, explorer.ErrSelectionIncomplete), errors.Is(completeErr, explorer.ErrSelectionConflict))
+			completeErr, errors.Is(completeErr, explorerselection.ErrSelectionNotFound), errors.Is(completeErr, explorerselection.ErrSelectionIncomplete), errors.Is(completeErr, explorerselection.ErrSelectionConflict))
 	} else {
 		t.Logf("SELECTION_CLEANUP_H3A_COMPLETE_OUTCOME ok complete=%t memberCount=%d digest=%s", completeOutcome.Complete, completeOutcome.MemberCount, completeOutcome.MembershipDigest)
 	}
@@ -335,8 +335,8 @@ func TestSelectionCleanupStagingDestroysCompletedStagingHeader(t *testing.T) {
 		"project":          project,
 		"generation":       "generation-a",
 		"resourceType":     "DocumentReference",
-		"rule":             map[string]any{"kind": string(explorer.SelectionRuleExplicit)},
-		"source":           map[string]any{"kind": string(explorer.SelectionSourceExplicit)},
+		"rule":             map[string]any{"kind": string(explorerselection.SelectionRuleExplicit)},
+		"source":           map[string]any{"kind": string(explorerselection.SelectionSourceExplicit)},
 		"scopeDigest":      "cleanup-scope",
 		"ruleDigest":       "cleanup-rule",
 		"membershipDigest": strings.Repeat("b", 64),
@@ -380,7 +380,7 @@ func TestSelectionCleanupStagingDestroysCompletedStagingHeader(t *testing.T) {
 		t.Errorf("AbortSelection destroyed a complete=true document despite its guard: %#v", afterAbort)
 	}
 	_, completeErr := persistence.CompleteSelection(ctx, guardedID, guardedToken, strings.Repeat("b", 64), 2, 96, time.Now().UTC())
-	t.Logf("SELECTION_CLEANUP_H3B_COMPLETE error=%v incomplete=%t conflict=%t", completeErr, errors.Is(completeErr, explorer.ErrSelectionIncomplete), errors.Is(completeErr, explorer.ErrSelectionConflict))
+	t.Logf("SELECTION_CLEANUP_H3B_COMPLETE error=%v incomplete=%t conflict=%t", completeErr, errors.Is(completeErr, explorerselection.ErrSelectionIncomplete), errors.Is(completeErr, explorerselection.ErrSelectionConflict))
 	afterComplete := selectionCleanupInspect(t, ctx, client, guardedID)
 	if !afterComplete.exists || afterComplete.memberCount != 2 {
 		t.Errorf("CompleteSelection destroyed a complete=true document despite its guard: %#v", afterComplete)
@@ -422,9 +422,9 @@ func selectionCleanupScaleRun(t *testing.T, ctx context.Context, persistence *St
 	if _, err := persistence.BeginSelection(ctx, header, writerToken); err != nil {
 		t.Fatalf("scale begin: %v", err)
 	}
-	members := make([]explorer.SelectionMember, size)
+	members := make([]explorerselection.SelectionMember, size)
 	for i := range members {
-		members[i] = explorer.SelectionMember{Ref: explorer.ResourceRef{Project: project, Generation: generation, ResourceType: resourceType, ID: fmt.Sprintf("scale-%07d", i)}}
+		members[i] = explorerselection.SelectionMember{Ref: explorerselection.ResourceRef{Project: project, Generation: generation, ResourceType: resourceType, ID: fmt.Sprintf("scale-%07d", i)}}
 	}
 	appendStart := time.Now()
 	batches := 0
@@ -449,7 +449,7 @@ func selectionCleanupScaleRun(t *testing.T, ctx context.Context, persistence *St
 	if count != int64(size) {
 		t.Fatalf("scale digest count=%d want=%d", count, size)
 	}
-	if want := explorer.MembershipDigest(members); digest != want {
+	if want := explorerselection.MembershipDigest(members); digest != want {
 		t.Fatalf("scale digest = %s want %s", digest, want)
 	}
 	if _, err := persistence.CompleteSelection(ctx, selectionID, writerToken, digest, count, bytes, time.Now().UTC()); err != nil {

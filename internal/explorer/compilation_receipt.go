@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"strings"
 	"time"
 
@@ -169,21 +170,21 @@ func validateDraftProposalDigests(kind, candidateWorkspaceDigest, bindingSnapsho
 }
 
 type PopulationMemberRemovalProposalBinding struct {
-	DraftVersion                 int64       `json:"draftVersion"`
-	DraftDigest                  string      `json:"draftDigest"`
-	OutputID                     string      `json:"outputId"`
-	BaseDocumentDigest           string      `json:"baseDocumentDigest"`
-	BaseSelectionRevisionID      string      `json:"baseSelectionRevisionId"`
-	BaseMembershipDigest         string      `json:"baseMembershipDigest"`
-	BaseMemberCount              int64       `json:"baseMemberCount"`
-	CandidateSelectionRevisionID string      `json:"candidateSelectionRevisionId"`
-	CandidateMembershipDigest    string      `json:"candidateMembershipDigest"`
-	CandidateMemberCount         int64       `json:"candidateMemberCount"`
-	RemovedMember                ResourceRef `json:"removedMember"`
-	RouteChoiceID                string      `json:"routeChoiceId"`
-	CandidateWorkspaceDigest     string      `json:"candidateWorkspaceDigest"`
-	SnapshotToken                string      `json:"snapshotToken"`
-	PreviewLimit                 int         `json:"previewLimit"`
+	DraftVersion                 int64                         `json:"draftVersion"`
+	DraftDigest                  string                        `json:"draftDigest"`
+	OutputID                     string                        `json:"outputId"`
+	BaseDocumentDigest           string                        `json:"baseDocumentDigest"`
+	BaseSelectionRevisionID      string                        `json:"baseSelectionRevisionId"`
+	BaseMembershipDigest         string                        `json:"baseMembershipDigest"`
+	BaseMemberCount              int64                         `json:"baseMemberCount"`
+	CandidateSelectionRevisionID string                        `json:"candidateSelectionRevisionId"`
+	CandidateMembershipDigest    string                        `json:"candidateMembershipDigest"`
+	CandidateMemberCount         int64                         `json:"candidateMemberCount"`
+	RemovedMember                explorerselection.ResourceRef `json:"removedMember"`
+	RouteChoiceID                string                        `json:"routeChoiceId"`
+	CandidateWorkspaceDigest     string                        `json:"candidateWorkspaceDigest"`
+	SnapshotToken                string                        `json:"snapshotToken"`
+	PreviewLimit                 int                           `json:"previewLimit"`
 }
 
 func (b PopulationMemberRemovalProposalBinding) Validate(intentDigest, snapshotToken, project, generation string) error {

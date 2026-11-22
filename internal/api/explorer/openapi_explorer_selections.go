@@ -3,6 +3,7 @@ package explorerapi
 import (
 	"context"
 	"errors"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	authscope "github.com/calypr/loom/internal/authscope"
 
@@ -12,10 +13,10 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
-func selectionRefs(refs []loomapi.SelectionResourceRef) []explorer.ResourceRef {
-	result := make([]explorer.ResourceRef, len(refs))
+func selectionRefs(refs []loomapi.SelectionResourceRef) []explorerselection.ResourceRef {
+	result := make([]explorerselection.ResourceRef, len(refs))
 	for i, ref := range refs {
-		result[i] = explorer.ResourceRef{Project: ref.Project, Generation: ref.Generation, ResourceType: ref.ResourceType, ID: ref.Id}
+		result[i] = explorerselection.ResourceRef{Project: ref.Project, Generation: ref.Generation, ResourceType: ref.ResourceType, ID: ref.Id}
 	}
 	return result
 }

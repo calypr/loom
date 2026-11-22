@@ -3,11 +3,11 @@ package arango
 import (
 	"context"
 	"fmt"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/explorer"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -41,10 +41,10 @@ func TestSelectionStorageScaleAgainstArango(t *testing.T) {
 	for _, size := range []int{100, 10_000, 100_000} {
 		selectionID := "selection-scale-" + runID + "-" + fmt.Sprint(size)
 		writerToken := uuid.NewString()
-		header := explorer.SelectionRevision{
+		header := explorerselection.SelectionRevision{
 			ID: selectionID, Project: project, Generation: generation, ResourceType: resourceType,
-			Rule:        explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit},
-			Source:      explorer.SelectionSource{Kind: explorer.SelectionSourceExplicit},
+			Rule:        explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleExplicit},
+			Source:      explorerselection.SelectionSource{Kind: explorerselection.SelectionSourceExplicit},
 			ScopeDigest: "scale-scope", RuleDigest: "scale-rule-" + fmt.Sprint(size),
 			IdempotencyKey: "scale-" + runID + "-" + fmt.Sprint(size), CreatedAt: time.Now().UTC(),
 		}
@@ -52,9 +52,9 @@ func TestSelectionStorageScaleAgainstArango(t *testing.T) {
 		if _, err := persistence.BeginSelection(ctx, header, writerToken); err != nil {
 			t.Fatalf("rows=%d begin: %v", size, err)
 		}
-		refs := make([]explorer.SelectionMember, size)
+		refs := make([]explorerselection.SelectionMember, size)
 		for i := range refs {
-			refs[i] = explorer.SelectionMember{Ref: explorer.ResourceRef{
+			refs[i] = explorerselection.SelectionMember{Ref: explorerselection.ResourceRef{
 				Project: project, Generation: generation, ResourceType: resourceType,
 				ID: fmt.Sprintf("scale-%s-%06d", runID, i),
 			}}
@@ -74,7 +74,7 @@ func TestSelectionStorageScaleAgainstArango(t *testing.T) {
 		if err != nil {
 			t.Fatalf("rows=%d digest: %v", size, err)
 		}
-		wantDigest := explorer.MembershipDigest(refs)
+		wantDigest := explorerselection.MembershipDigest(refs)
 		if count != int64(size) || digest != wantDigest {
 			t.Fatalf("rows=%d digest/count = %s/%d, want %s/%d", size, digest, count, wantDigest, size)
 		}

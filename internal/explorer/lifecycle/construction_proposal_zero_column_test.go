@@ -3,6 +3,7 @@ package lifecycle_test
 import (
 	"context"
 	"errors"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"runtime/debug"
 	"strings"
 	"testing"
@@ -99,8 +100,8 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 
 	store := &explorerfixtures.SelectionStore{
 		Store:      explorerfixtures.NewStore(),
-		Selections: map[string]explorer.SelectionRevision{},
-		Members:    map[string][]explorer.SelectionMember{},
+		Selections: map[string]explorerselection.SelectionRevision{},
+		Members:    map[string][]explorerselection.SelectionMember{},
 	}
 	if _, err := store.Create(context.Background(), explorer.Explorer{
 		Project: "project-a", ExplorerID: "custom", Title: "Specimens",
@@ -108,16 +109,16 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 	}); err != nil {
 		t.Fatal(err)
 	}
-	members := []explorer.SelectionMember{
-		{Ref: explorer.ResourceRef{Project: "project-a", Generation: snapshot.Identity.Generation, ResourceType: "Specimen", ID: "root-a"}},
-		{Ref: explorer.ResourceRef{Project: "project-a", Generation: snapshot.Identity.Generation, ResourceType: "Specimen", ID: "root-b"}},
+	members := []explorerselection.SelectionMember{
+		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: snapshot.Identity.Generation, ResourceType: "Specimen", ID: "root-a"}},
+		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: snapshot.Identity.Generation, ResourceType: "Specimen", ID: "root-b"}},
 	}
 	completedAt := time.Now().UTC()
-	store.Selections["selection-zero-column"] = explorer.SelectionRevision{
+	store.Selections["selection-zero-column"] = explorerselection.SelectionRevision{
 		ID: "selection-zero-column", Project: "project-a", Generation: snapshot.Identity.Generation, ResourceType: "Specimen",
-		Rule: explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit}, Source: explorer.SelectionSource{Kind: explorer.SelectionSourceExplicit},
+		Rule: explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleExplicit}, Source: explorerselection.SelectionSource{Kind: explorerselection.SelectionSourceExplicit},
 		ScopeDigest: snapshot.Identity.AuthorizationScopeDigest, RuleDigest: "wave104-rule",
-		MembershipDigest: explorer.MembershipDigest(members), MemberCount: int64(len(members)), MemberBytes: 256,
+		MembershipDigest: explorerselection.MembershipDigest(members), MemberCount: int64(len(members)), MemberBytes: 256,
 		Complete: true, CreatedAt: completedAt, CompletedAt: &completedAt,
 	}
 	store.Members["selection-zero-column"] = members

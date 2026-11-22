@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"log/slog"
 	"net/http"
 	"reflect"
@@ -415,7 +416,7 @@ func CompiledWorkspaceConfigV2(project, explorerID string, compiled explorercomp
 	}
 	tabs := append([]authoringv2.Tab(nil), compiled.Workspace.Tabs...)
 	sort.SliceStable(tabs, func(i, j int) bool { return tabs[i].Order < tabs[j].Order })
-	views := make([]explorer.ConfigView, 0, len(tabs))
+	views := make([]explorerconfig.ConfigView, 0, len(tabs))
 	for _, tab := range tabs {
 		if !tab.Visible {
 			continue
@@ -432,7 +433,7 @@ func CompiledWorkspaceConfigV2(project, explorerID string, compiled explorercomp
 			return columns[i].PhysicalOrder < columns[j].PhysicalOrder
 		})
 		document, found := SemanticWorkspaceDocument(compiled.Workspace, tab.OutputID)
-		view := explorer.ConfigView{ID: tab.ID, Title: tab.Title, Output: tab.OutputID, Table: explorer.ConfigTable{Columns: []explorer.ConfigColumn{}}}
+		view := explorerconfig.ConfigView{ID: tab.ID, Title: tab.Title, Output: tab.OutputID, Table: explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{}}}
 		if found {
 			view.RowLabel = document.Output.RowLabel
 		}
@@ -441,7 +442,7 @@ func CompiledWorkspaceConfigV2(project, explorerID string, compiled explorercomp
 			if authored, ok := semanticWorkspaceColumn(document, column.PublicColumn); ok && authored.Table != nil {
 				cellRenderer = authored.Table.CellRenderer
 			}
-			view.Table.Columns = append(view.Table.Columns, explorer.ConfigColumn{Column: column.PublicColumn, Label: column.Label, Visible: column.Visible, Pinned: column.Pinned, CellRenderer: cellRenderer})
+			view.Table.Columns = append(view.Table.Columns, explorerconfig.ConfigColumn{Column: column.PublicColumn, Label: column.Label, Visible: column.Visible, Pinned: column.Pinned, CellRenderer: cellRenderer})
 		}
 		filterColumns := append([]explorercompilation.PresentationColumn(nil), presentation.Columns...)
 		sort.SliceStable(filterColumns, func(i, j int) bool {
@@ -449,7 +450,7 @@ func CompiledWorkspaceConfigV2(project, explorerID string, compiled explorercomp
 		})
 		for _, column := range filterColumns {
 			if column.FilterLabel != "" {
-				view.Filters = append(view.Filters, explorer.ConfigFilter{Column: column.PublicColumn, Label: column.FilterLabel})
+				view.Filters = append(view.Filters, explorerconfig.ConfigFilter{Column: column.PublicColumn, Label: column.FilterLabel})
 			}
 		}
 		chartColumns := append([]explorercompilation.PresentationColumn(nil), presentation.Columns...)
@@ -458,7 +459,7 @@ func CompiledWorkspaceConfigV2(project, explorerID string, compiled explorercomp
 		})
 		for _, column := range chartColumns {
 			if column.ChartType != "" {
-				view.Charts = append(view.Charts, explorer.ConfigChart{Column: column.PublicColumn, Type: column.ChartType, Title: column.ChartTitle})
+				view.Charts = append(view.Charts, explorerconfig.ConfigChart{Column: column.PublicColumn, Type: column.ChartType, Title: column.ChartTitle})
 			}
 		}
 		if found {
@@ -469,7 +470,7 @@ func CompiledWorkspaceConfigV2(project, explorerID string, compiled explorercomp
 				view.FixedFilters[fixed.Column] = append([]string(nil), fixed.Values...)
 			}
 			for _, action := range document.Actions {
-				compiledAction := explorer.ConfigAction{Type: action.Type, Title: action.Title, FileName: action.FileName, Output: document.Output.ID}
+				compiledAction := explorerconfig.ConfigAction{Type: action.Type, Title: action.Title, FileName: action.FileName, Output: document.Output.ID}
 				for _, binding := range action.Columns {
 					compiledAction.Columns = append(compiledAction.Columns, binding.Column)
 					if binding.ExportHeader != "" {
@@ -488,18 +489,18 @@ func CompiledWorkspaceConfigV2(project, explorerID string, compiled explorercomp
 	if len(tabs) > 0 {
 		title = firstNonEmptyWorkspaceTitle(compiled.Workspace.Explorer.Title, tabs[0].Title, explorerID)
 	}
-	shared := map[string][]explorer.SharedFilter{}
+	shared := map[string][]explorerconfig.SharedFilter{}
 	for name, bindings := range compiled.Workspace.SharedFilters {
 		for _, binding := range bindings {
-			shared[name] = append(shared[name], explorer.SharedFilter{Output: binding.OutputID, Column: binding.Column})
+			shared[name] = append(shared[name], explorerconfig.SharedFilter{Output: binding.OutputID, Column: binding.Column})
 		}
 	}
-	fileActions := explorer.FileActions{}
+	fileActions := explorerconfig.FileActions{}
 	if compiled.Workspace.FileActions != nil {
 		fileActions.Extensions = compiled.Workspace.FileActions.Extensions
 		fileActions.Actions = compiled.Workspace.FileActions.Actions
 	}
-	config := explorer.ConfigV2{APIVersion: explorer.ConfigV2APIVersion, Kind: "ExplorerConfig", Project: projectid.Canonical(project), Explorer: explorer.ConfigExplorer{ID: explorerID, Title: title, Description: compiled.Workspace.Explorer.Description, Management: explorer.ConfigManagementForID(explorerID)}, Recipe: recipeJSON, Views: views, SharedFilters: shared, FileActions: fileActions}
+	config := explorerconfig.ConfigV2{APIVersion: explorerconfig.ConfigV2APIVersion, Kind: "ExplorerConfig", Project: projectid.Canonical(project), Explorer: explorerconfig.ConfigExplorer{ID: explorerID, Title: title, Description: compiled.Workspace.Explorer.Description, Management: explorerconfig.ConfigManagementForID(explorerID)}, Recipe: recipeJSON, Views: views, SharedFilters: shared, FileActions: fileActions}
 	return json.Marshal(config)
 }
 

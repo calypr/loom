@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"net/url"
 	"strings"
 	"time"
@@ -352,11 +353,11 @@ func (s *Service) StoreCompilationReceipt(ctx context.Context, receipt Compilati
 	return s.store.InsertCompilationReceipt(ctx, receipt)
 }
 
-func (s *Service) BeginSelection(ctx context.Context, selection SelectionRevision, writerToken string) (*SelectionRevision, error) {
+func (s *Service) BeginSelection(ctx context.Context, selection explorerselection.SelectionRevision, writerToken string) (*explorerselection.SelectionRevision, error) {
 	return s.store.BeginSelection(ctx, selection, writerToken)
 }
 
-func (s *Service) AppendSelectionMembers(ctx context.Context, selectionID, writerToken string, members []SelectionMember) ([]SelectionMember, error) {
+func (s *Service) AppendSelectionMembers(ctx context.Context, selectionID, writerToken string, members []explorerselection.SelectionMember) ([]explorerselection.SelectionMember, error) {
 	return s.store.AppendSelectionMembers(ctx, selectionID, writerToken, members)
 }
 
@@ -364,7 +365,7 @@ func (s *Service) DigestSelectionMembers(ctx context.Context, project, selection
 	return s.store.DigestSelectionMembers(ctx, projectid.Canonical(project), selectionID)
 }
 
-func (s *Service) CompleteSelection(ctx context.Context, selectionID, writerToken, digest string, count, bytes int64, completedAt time.Time) (*SelectionRevision, error) {
+func (s *Service) CompleteSelection(ctx context.Context, selectionID, writerToken, digest string, count, bytes int64, completedAt time.Time) (*explorerselection.SelectionRevision, error) {
 	return s.store.CompleteSelection(ctx, selectionID, writerToken, digest, count, bytes, completedAt)
 }
 
@@ -376,7 +377,7 @@ func (s *Service) CleanupSelectionStaging(ctx context.Context, before time.Time,
 	return s.store.CleanupSelectionStaging(ctx, before, limit)
 }
 
-func (s *Service) GetSelection(ctx context.Context, project, selectionID string) (*SelectionRevision, error) {
+func (s *Service) GetSelection(ctx context.Context, project, selectionID string) (*explorerselection.SelectionRevision, error) {
 	return s.store.GetSelection(ctx, projectid.Canonical(project), selectionID)
 }
 
@@ -392,7 +393,7 @@ func (s *Service) GetDraftRevision(ctx context.Context, project, explorerID, rev
 	return reader.GetDraftRevision(ctx, projectid.Legacy(project), strings.TrimSpace(explorerID), strings.TrimSpace(revisionID))
 }
 
-func (s *Service) VisitSelectionMembers(ctx context.Context, project, selectionID, after string, pageSize int, visit func(SelectionMember) error) (string, error) {
+func (s *Service) VisitSelectionMembers(ctx context.Context, project, selectionID, after string, pageSize int, visit func(explorerselection.SelectionMember) error) (string, error) {
 	return s.store.VisitSelectionMembers(ctx, projectid.Canonical(project), selectionID, after, pageSize, visit)
 }
 

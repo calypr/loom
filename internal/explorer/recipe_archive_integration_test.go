@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"strings"
 	"testing"
 )
@@ -87,7 +88,7 @@ func TestArchivedRecipeReceiptPreservesFullContractAuthentication(t *testing.T) 
 }
 func TestArchivedRecipeViewerUsesFrozenMetadata(t *testing.T) {
 	b := integrationArchiveBundle(t)
-	config := ConfigV2{APIVersion: ConfigV2APIVersion, Kind: "ExplorerConfig", Recipe: json.RawMessage(archiveIntegrationRecipe), Views: []ConfigView{{ID: "patients", Output: "patients", Title: "Frozen"}}}
+	config := explorerconfig.ConfigV2{APIVersion: explorerconfig.ConfigV2APIVersion, Kind: "ExplorerConfig", Recipe: json.RawMessage(archiveIntegrationRecipe), Views: []explorerconfig.ConfigView{{ID: "patients", Output: "patients", Title: "Frozen"}}}
 	raw, err := json.Marshal(config)
 	if err != nil {
 		t.Fatal(err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"net/http"
 	"reflect"
 	"sort"
@@ -75,26 +76,26 @@ func TestPopulationMappingRouteUsesReceiptBoundAuthoredFilterConstruction(t *tes
 	const project, explorerID = "project-a", "custom"
 	store := &explorerfixtures.SelectionStore{
 		Store:      explorerfixtures.NewStore(),
-		Selections: map[string]explorer.SelectionRevision{},
-		Members:    map[string][]explorer.SelectionMember{},
+		Selections: map[string]explorerselection.SelectionRevision{},
+		Members:    map[string][]explorerselection.SelectionMember{},
 	}
 	if _, err := store.Create(context.Background(), explorer.Explorer{Project: project, ExplorerID: explorerID, Title: "Patients", DraftConfig: rawDraft, DraftVersion: 1, DraftDigest: draftDigest}); err != nil {
 		t.Fatal(err)
 	}
-	members := []explorer.SelectionMember{
-		{Ref: explorer.ResourceRef{Project: project, Generation: snapshot.Identity.Generation, ResourceType: "Patient", ID: "patient-1"}},
-		{Ref: explorer.ResourceRef{Project: project, Generation: snapshot.Identity.Generation, ResourceType: "Patient", ID: "patient-2"}},
-		{Ref: explorer.ResourceRef{Project: project, Generation: snapshot.Identity.Generation, ResourceType: "Patient", ID: "patient-3"}},
+	members := []explorerselection.SelectionMember{
+		{Ref: explorerselection.ResourceRef{Project: project, Generation: snapshot.Identity.Generation, ResourceType: "Patient", ID: "patient-1"}},
+		{Ref: explorerselection.ResourceRef{Project: project, Generation: snapshot.Identity.Generation, ResourceType: "Patient", ID: "patient-2"}},
+		{Ref: explorerselection.ResourceRef{Project: project, Generation: snapshot.Identity.Generation, ResourceType: "Patient", ID: "patient-3"}},
 	}
 	completedAt := time.Now().UTC()
-	store.Selections[selectionID] = explorer.SelectionRevision{
+	store.Selections[selectionID] = explorerselection.SelectionRevision{
 		ID: selectionID, Project: project, Generation: snapshot.Identity.Generation, ResourceType: "Patient",
-		Rule: explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit}, Source: explorer.SelectionSource{Kind: explorer.SelectionSourceExplicit},
+		Rule: explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleExplicit}, Source: explorerselection.SelectionSource{Kind: explorerselection.SelectionSourceExplicit},
 		ScopeDigest: snapshot.Identity.AuthorizationScopeDigest, RuleDigest: "explicit-membership-rule",
-		MembershipDigest: explorer.MembershipDigest(members), MemberCount: int64(len(members)), MemberBytes: 256,
+		MembershipDigest: explorerselection.MembershipDigest(members), MemberCount: int64(len(members)), MemberBytes: 256,
 		Complete: true, CreatedAt: completedAt, CompletedAt: &completedAt,
 	}
-	store.Members[selectionID] = append([]explorer.SelectionMember(nil), members...)
+	store.Members[selectionID] = append([]explorerselection.SelectionMember(nil), members...)
 
 	domain, err := explorer.NewService(store)
 	if err != nil {

@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 
 type cohortRecoveryStore struct {
 	explorer.ExplicitGroupRepository
-	selection explorer.SelectionRevision
+	selection explorerselection.SelectionRevision
 	recent    []explorer.ExplicitGroupRevision
 	pinned    explorer.ExplicitGroupRevision
 	lookups   int
@@ -27,7 +28,7 @@ func (s *cohortRecoveryStore) GetExplicitGroupRevision(_ context.Context, projec
 	return &value, nil
 }
 
-func (s *cohortRecoveryStore) GetSelection(_ context.Context, _, _ string) (*explorer.SelectionRevision, error) {
+func (s *cohortRecoveryStore) GetSelection(_ context.Context, _, _ string) (*explorerselection.SelectionRevision, error) {
 	value := s.selection
 	return &value, nil
 }
@@ -35,10 +36,10 @@ func (s *cohortRecoveryStore) GetSelection(_ context.Context, _, _ string) (*exp
 func TestCohortSelectionRecoveryLooksUpPinnedRevisionOutsideRecentList(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "cohort-recovery", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	at := time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)
-	selection := explorer.SelectionRevision{
+	selection := explorerselection.SelectionRevision{
 		ID: "selection-source", Project: "project-a", Generation: "generation-a", ResourceType: "Patient",
 		ScopeDigest: snapshot.Identity.AuthorizationScopeDigest, RuleDigest: "rule", MembershipDigest: "members",
-		Rule: explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit}, Source: explorer.SelectionSource{Kind: explorer.SelectionSourceExplicit},
+		Rule: explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleExplicit}, Source: explorerselection.SelectionSource{Kind: explorerselection.SelectionSourceExplicit},
 		Complete: true, CreatedAt: at, CompletedAt: &at,
 	}
 	pinned := explorer.ExplicitGroupRevision{

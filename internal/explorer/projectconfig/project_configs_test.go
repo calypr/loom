@@ -2,6 +2,7 @@ package projectconfig
 
 import (
 	"github.com/calypr/loom/internal/explorer"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"reflect"
 	"testing"
 
@@ -61,15 +62,15 @@ func TestProjectConfigsForSourcePublicationSeedsActualOutputsOnce(t *testing.T) 
 func TestProjectConfigsForSourcePublicationPreservesStoredDefinitions(t *testing.T) {
 	saved := explorer.ProjectConfig{
 		ID: "my-view", Title: "My view", RecipeRef: explorer.ProjectConfigRecipeRef{Name: "metadata-v1"},
-		SharedFilters: map[string][]explorer.SharedFilter{
+		SharedFilters: map[string][]explorerconfig.SharedFilter{
 			"status": {{Output: "Metadata", Column: "status"}},
 		},
-		Views: []explorer.ConfigView{
+		Views: []explorerconfig.ConfigView{
 			{
 				ID: "metadata-tab", Title: "Chosen fields", Output: "Metadata",
-				Table:        explorer.ConfigTable{Columns: []explorer.ConfigColumn{{Column: "status", Label: "Current status", Visible: true, Pinned: true}}},
-				Filters:      []explorer.ConfigFilter{{Column: "status", Label: "Status filter"}},
-				Charts:       []explorer.ConfigChart{{Column: "status", Type: "pie", Title: "Status"}},
+				Table:        explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{{Column: "status", Label: "Current status", Visible: true, Pinned: true}}},
+				Filters:      []explorerconfig.ConfigFilter{{Column: "status", Label: "Status filter"}},
+				Charts:       []explorerconfig.ConfigChart{{Column: "status", Type: "pie", Title: "Status"}},
 				FixedFilters: map[string][]string{"status": {"active"}},
 			},
 			{ID: "files-tab", Title: "My files", Output: "Files"},

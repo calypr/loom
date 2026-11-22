@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"reflect"
 	"strings"
 	"time"
@@ -44,7 +45,7 @@ func explicitGroupStorageKey(parts ...string) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-func (s *ExplicitGroupStore) BeginExplicitGroupRevision(ctx context.Context, revision explorer.ExplicitGroupRevision, source explorer.SelectionRevision, writerToken string) (*explorer.ExplicitGroupRevision, error) {
+func (s *ExplicitGroupStore) BeginExplicitGroupRevision(ctx context.Context, revision explorer.ExplicitGroupRevision, source explorerselection.SelectionRevision, writerToken string) (*explorer.ExplicitGroupRevision, error) {
 	revision = revision.Canonical()
 	writerToken = strings.TrimSpace(writerToken)
 	if writerToken == "" {
@@ -430,12 +431,12 @@ RETURN NEW`
 	return result, err
 }
 
-func readExplicitGroupSourceSelection(ctx context.Context, queryer store.RowQueryer, header explorer.ExplicitGroupRevision) (*explorer.SelectionRevision, error) {
-	var source *explorer.SelectionRevision
+func readExplicitGroupSourceSelection(ctx context.Context, queryer store.RowQueryer, header explorer.ExplicitGroupRevision) (*explorerselection.SelectionRevision, error) {
+	var source *explorerselection.SelectionRevision
 	err := queryer.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project RETURN d`, 1, map[string]any{
 		"@c": SelectionsCollection, "key": header.SourceSelectionRevisionID, "project": header.Project,
 	}, func(row map[string]any) error {
-		value, err := decode[explorer.SelectionRevision](row)
+		value, err := decode[explorerselection.SelectionRevision](row)
 		if err != nil {
 			return err
 		}
@@ -454,7 +455,7 @@ func readExplicitGroupSourceSelection(ctx context.Context, queryer store.RowQuer
 	return source, nil
 }
 
-func validateExplicitGroupSourceMemberships(ctx context.Context, queryer store.RowQueryer, header explorer.ExplicitGroupRevision, source explorer.SelectionRevision, memberships []explorer.ExplicitGroupMembership) error {
+func validateExplicitGroupSourceMemberships(ctx context.Context, queryer store.RowQueryer, header explorer.ExplicitGroupRevision, source explorerselection.SelectionRevision, memberships []explorer.ExplicitGroupMembership) error {
 	if err := header.ValidateSourceSelection(source); err != nil {
 		return err
 	}
@@ -465,7 +466,7 @@ func validateExplicitGroupSourceMemberships(ctx context.Context, queryer store.R
 		}
 		batch := memberships[start:end]
 		keys := make([]string, 0, len(batch))
-		want := make(map[string]explorer.ResourceRef, len(batch))
+		want := make(map[string]explorerselection.ResourceRef, len(batch))
 		for _, membership := range batch {
 			membership = membership.Canonical()
 			key := selectionMemberKey(header.SourceSelectionRevisionID, membership.Ref)
@@ -478,7 +479,7 @@ FILTER m._key IN @keys AND m.selectionId == @selectionId AND m.project == @proje
 RETURN m`, len(keys), map[string]any{
 			"@c": SelectionMembersCollection, "keys": keys, "selectionId": header.SourceSelectionRevisionID, "project": header.Project,
 		}, func(row map[string]any) error {
-			member, err := decode[explorer.SelectionMember](row)
+			member, err := decode[explorerselection.SelectionMember](row)
 			if err != nil {
 				return err
 			}

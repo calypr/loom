@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"regexp"
 	"strings"
 
@@ -22,12 +23,12 @@ type ProjectConfigRecipeRef struct {
 }
 
 type ProjectConfig struct {
-	ID            string                    `json:"id"`
-	Title         string                    `json:"title"`
-	RecipeRef     ProjectConfigRecipeRef    `json:"recipeRef"`
-	Views         []ConfigView              `json:"views"`
-	SharedFilters map[string][]SharedFilter `json:"sharedFilters,omitempty"`
-	FileActions   FileActions               `json:"fileActions,omitempty"`
+	ID            string                                   `json:"id"`
+	Title         string                                   `json:"title"`
+	RecipeRef     ProjectConfigRecipeRef                   `json:"recipeRef"`
+	Views         []explorerconfig.ConfigView              `json:"views"`
+	SharedFilters map[string][]explorerconfig.SharedFilter `json:"sharedFilters,omitempty"`
+	FileActions   explorerconfig.FileActions               `json:"fileActions,omitempty"`
 }
 
 type ProjectConfigPublication struct {
@@ -144,7 +145,7 @@ func (config ProjectConfig) Validate() error {
 	return nil
 }
 
-func validateProjectConfigView(view ConfigView, path string) error {
+func validateProjectConfigView(view explorerconfig.ConfigView, path string) error {
 	seenTable := make(map[string]struct{}, len(view.Table.Columns))
 	for index, column := range view.Table.Columns {
 		if strings.TrimSpace(column.Column) == "" {
@@ -215,37 +216,37 @@ func supportedProjectConfigChartType(chartType string) bool {
 
 func normalizeProjectConfig(config ProjectConfig) ProjectConfig {
 	if config.Views == nil {
-		config.Views = []ConfigView{}
+		config.Views = []explorerconfig.ConfigView{}
 	}
 	config.Views = copyProjectConfigSlice(config.Views)
 	for index := range config.Views {
 		view := &config.Views[index]
 		if view.Table.Columns == nil {
-			view.Table.Columns = []ConfigColumn{}
+			view.Table.Columns = []explorerconfig.ConfigColumn{}
 		} else {
 			view.Table.Columns = copyProjectConfigSlice(view.Table.Columns)
 		}
 		if view.Filters == nil {
-			view.Filters = []ConfigFilter{}
+			view.Filters = []explorerconfig.ConfigFilter{}
 		} else {
 			view.Filters = copyProjectConfigSlice(view.Filters)
 		}
 		if view.Charts == nil {
-			view.Charts = []ConfigChart{}
+			view.Charts = []explorerconfig.ConfigChart{}
 		} else {
 			view.Charts = copyProjectConfigSlice(view.Charts)
 		}
 		if view.Actions == nil {
-			view.Actions = []ConfigAction{}
+			view.Actions = []explorerconfig.ConfigAction{}
 		} else {
 			view.Actions = copyProjectConfigSlice(view.Actions)
 		}
 	}
 	if config.SharedFilters != nil {
-		filtersByName := make(map[string][]SharedFilter, len(config.SharedFilters))
+		filtersByName := make(map[string][]explorerconfig.SharedFilter, len(config.SharedFilters))
 		for name, filters := range config.SharedFilters {
 			if filters == nil {
-				filtersByName[name] = []SharedFilter{}
+				filtersByName[name] = []explorerconfig.SharedFilter{}
 			} else {
 				filtersByName[name] = copyProjectConfigSlice(filters)
 			}

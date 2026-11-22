@@ -2,6 +2,7 @@ package explorerapi
 
 import (
 	"context"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"time"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
@@ -23,7 +24,7 @@ func (r *Handlers) ProposeExplorerPopulationMemberRemoval(ctx context.Context, r
 		if body == nil {
 			return result, explorer.MalformedRouteError("population-member-proposal", nil)
 		}
-		removedMember, err := directAuthoringJSON[explorer.ResourceRef](body.RemovedMember)
+		removedMember, err := directAuthoringJSON[explorerselection.ResourceRef](body.RemovedMember)
 		if err != nil {
 			return result, explorer.MalformedRouteError("population-member-proposal", err)
 		}

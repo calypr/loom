@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"strings"
 	"time"
 
@@ -111,7 +112,7 @@ func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request Expli
 		return result, normalizeExplicitGroupError(err)
 	}
 	if source == nil || !source.Complete {
-		return result, conflict("explicit-groups", "EXPLICIT_GROUP_SOURCE_INCOMPLETE", "the source selection is not complete", nil, explorer.ErrSelectionIncomplete)
+		return result, conflict("explicit-groups", "EXPLICIT_GROUP_SOURCE_INCOMPLETE", "the source selection is not complete", nil, explorerselection.ErrSelectionIncomplete)
 	}
 	if err := source.Validate(); err != nil {
 		return result, conflict("explicit-groups", "EXPLICIT_GROUP_SOURCE_CORRUPT", "the source selection is incomplete or corrupt", nil, err)
@@ -126,12 +127,12 @@ func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request Expli
 		return result, conflict("explicit-groups", "EXPLICIT_GROUP_SOURCE_CORRUPT", "the source selection membership no longer matches its immutable header", nil, explorer.ErrExplicitGroupRevisionStaleSource)
 	}
 
-	refsByKey := make(map[string]explorer.ResourceRef, len(requestedByKey))
+	refsByKey := make(map[string]explorerselection.ResourceRef, len(requestedByKey))
 	after := ""
 	var visited int64
 	for {
 		pageCount := 0
-		next, visitErr := s.store.VisitSelectionMembers(ctx, project, selectionID, after, 1000, func(member explorer.SelectionMember) error {
+		next, visitErr := s.store.VisitSelectionMembers(ctx, project, selectionID, after, 1000, func(member explorerselection.SelectionMember) error {
 			pageCount++
 			visited++
 			member = member.Canonical()
@@ -267,13 +268,13 @@ func normalizeExplicitGroupError(err error) error {
 	switch {
 	case errors.Is(err, explorer.ErrExplicitGroupRevisionConflict):
 		return conflict("explicit-groups", "EXPLICIT_GROUP_CONFLICT", "explicit group revision conflicts with existing immutable intent", nil, err)
-	case errors.Is(err, explorer.ErrExplicitGroupRevisionIncomplete), errors.Is(err, explorer.ErrSelectionIncomplete):
+	case errors.Is(err, explorer.ErrExplicitGroupRevisionIncomplete), errors.Is(err, explorerselection.ErrSelectionIncomplete):
 		return conflict("explicit-groups", "EXPLICIT_GROUP_INCOMPLETE", "explicit group or source selection is incomplete", nil, err)
-	case errors.Is(err, explorer.ErrExplicitGroupRevisionStaleSource), errors.Is(err, explorer.ErrSelectionStaleScope), errors.Is(err, explorer.ErrResourceRefScopeMismatch):
+	case errors.Is(err, explorer.ErrExplicitGroupRevisionStaleSource), errors.Is(err, explorerselection.ErrSelectionStaleScope), errors.Is(err, explorerselection.ErrResourceRefScopeMismatch):
 		return conflict("explicit-groups", "EXPLICIT_GROUP_STALE_SOURCE", "explicit group source selection is stale or mismatched", nil, err)
 	case errors.Is(err, explorer.ErrExplicitGroupMemberNotInSelection):
 		return conflict("explicit-groups", "EXPLICIT_GROUP_FOREIGN_MEMBER", "every group member must belong to the exact source selection", nil, err)
-	case errors.Is(err, explorer.ErrSelectionNotFound):
+	case errors.Is(err, explorerselection.ErrSelectionNotFound):
 		return notFound("explicit-groups", "EXPLICIT_GROUP_SOURCE_NOT_FOUND", "source selection was not found", err)
 	case errors.Is(err, explorer.ErrExplicitGroupRevisionNotFound):
 		return notFound("explicit-groups", "EXPLICIT_GROUP_NOT_FOUND", "explicit group revision was not found", err)

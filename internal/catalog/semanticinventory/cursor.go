@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/calypr/loom/internal/catalog/identity"
+	"github.com/calypr/loom/internal/catalog/internal/digest"
 )
 
 type semanticInventoryCursor struct {
@@ -41,7 +41,7 @@ func PageDigest(opts PageOptions, buildID string, limit int) string {
 		parts[0] = "semantic-inventory-page/" + string(opts.SelectionMode) + "/v1"
 	}
 	parts = append(parts, paths...)
-	return identity.Digest(parts...)
+	return digest.Digest(parts...)
 }
 
 func EncodeCursor(opts PageOptions, buildID, bindingID, conceptID string) string {

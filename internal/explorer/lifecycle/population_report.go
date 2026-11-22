@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"strings"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -80,7 +81,7 @@ func (s *Service) PopulationMapping(ctx context.Context, request PopulationMappi
 		return PopulationMappingResult{}, unavailable("populationMapping", "POPULATION_MAPPING_UNAVAILABLE", "the selected-resource membership could not be loaded", err)
 	}
 	if selection == nil || !selection.Complete {
-		return PopulationMappingResult{}, conflict("populationMapping", "SELECTION_NOT_COMPLETE", "the selected-resource membership is not complete", nil, explorer.ErrSelectionIncomplete)
+		return PopulationMappingResult{}, conflict("populationMapping", "SELECTION_NOT_COMPLETE", "the selected-resource membership is not complete", nil, explorerselection.ErrSelectionIncomplete)
 	}
 	if err := validatePopulationMappingSelection(receipt, authorized, selection, *population); err != nil {
 		return PopulationMappingResult{}, conflict("populationMapping", "POPULATION_MAPPING_STALE", "the receipt's selected-resource identity is stale", nil, err)
@@ -123,7 +124,7 @@ func (s *Service) PopulationMapping(ctx context.Context, request PopulationMappi
 		Binding:  populationMappingBinding(receipt, request.OutputID, selection),
 		Status:   dataframeexecution.PopulationMappingComplete,
 		Counts:   &PopulationMappingCounts{Selected: executed.SelectedCount, Mapped: executed.MappedCount, Unmapped: executed.UnmappedCount, EmittedRows: executed.EmittedRows},
-		Unmapped: make([]explorer.ResourceRef, 0, len(executed.UnmappedMemberIDs)),
+		Unmapped: make([]explorerselection.ResourceRef, 0, len(executed.UnmappedMemberIDs)),
 	}
 	for _, id := range executed.UnmappedMemberIDs {
 		ref, ok := refs[id]
@@ -158,7 +159,7 @@ func populationOutput(receipt *explorer.CompilationReceipt, outputID string) *re
 	return nil
 }
 
-func validatePopulationMappingSelection(receipt *explorer.CompilationReceipt, authorized ports.AuthorizedCapability, selection *explorer.SelectionRevision, population recipe.PopulationConstraint) error {
+func validatePopulationMappingSelection(receipt *explorer.CompilationReceipt, authorized ports.AuthorizedCapability, selection *explorerselection.SelectionRevision, population recipe.PopulationConstraint) error {
 	if selection.ID != population.SelectionRevisionID || selection.MembershipDigest != population.MembershipDigest || selection.MemberCount != population.MemberCount {
 		return fmt.Errorf("selection identity does not match receipt population")
 	}
@@ -171,12 +172,12 @@ func validatePopulationMappingSelection(receipt *explorer.CompilationReceipt, au
 	return nil
 }
 
-func (s *Service) readPopulationMembers(ctx context.Context, selection *explorer.SelectionRevision, project string) (map[string]explorer.ResourceRef, []string, error) {
-	refs := make(map[string]explorer.ResourceRef, selection.MemberCount)
+func (s *Service) readPopulationMembers(ctx context.Context, selection *explorerselection.SelectionRevision, project string) (map[string]explorerselection.ResourceRef, []string, error) {
+	refs := make(map[string]explorerselection.ResourceRef, selection.MemberCount)
 	after := ""
 	for {
 		pageCount := 0
-		next, err := s.store.VisitSelectionMembers(ctx, projectid.Canonical(project), selection.ID, after, selectionBatchSize, func(member explorer.SelectionMember) error {
+		next, err := s.store.VisitSelectionMembers(ctx, projectid.Canonical(project), selection.ID, after, selectionBatchSize, func(member explorerselection.SelectionMember) error {
 			member = member.Canonical()
 			if err := member.Validate(selection.Project, selection.Generation, selection.ResourceType); err != nil {
 				return err
@@ -207,14 +208,14 @@ func (s *Service) readPopulationMembers(ctx context.Context, selection *explorer
 	return refs, ids, nil
 }
 
-func populationMappingBinding(receipt *explorer.CompilationReceipt, outputID string, selection *explorer.SelectionRevision) PopulationMappingBinding {
+func populationMappingBinding(receipt *explorer.CompilationReceipt, outputID string, selection *explorerselection.SelectionRevision) PopulationMappingBinding {
 	return PopulationMappingBinding{ReceiptID: receipt.ID, OutputID: outputID, Project: projectid.Canonical(receipt.Project), ExplorerID: receipt.ExplorerID, Generation: receipt.SourceGeneration, ScopeDigest: receipt.AuthorizationScopeDigest, SelectionRevisionID: selection.ID, MembershipDigest: selection.MembershipDigest, ResourceType: selection.ResourceType}
 }
 
-func incompletePopulationReport(receipt *explorer.CompilationReceipt, outputID string, selection *explorer.SelectionRevision) PopulationMappingReport {
+func incompletePopulationReport(receipt *explorer.CompilationReceipt, outputID string, selection *explorerselection.SelectionRevision) PopulationMappingReport {
 	return PopulationMappingReport{Binding: populationMappingBinding(receipt, outputID, selection), Status: dataframeexecution.PopulationMappingIncomplete, Diagnostics: []PopulationMappingDiagnostic{{Code: "INCOMPLETE", Message: "population mapping did not finish within the request limits"}}}
 }
 
-func populationCursorMatches(cursor PopulationMappingCursor, receipt *explorer.CompilationReceipt, selection *explorer.SelectionRevision) bool {
+func populationCursorMatches(cursor PopulationMappingCursor, receipt *explorer.CompilationReceipt, selection *explorerselection.SelectionRevision) bool {
 	return cursor.ReceiptID == receipt.ID && cursor.OutputID != "" && cursor.Project == projectid.Canonical(receipt.Project) && cursor.ExplorerID == receipt.ExplorerID && cursor.MembershipDigest == selection.MembershipDigest && cursor.SelectionRevisionID == selection.ID && cursor.Generation == selection.Generation && cursor.ScopeDigest == selection.ScopeDigest && cursor.ResourceType == selection.ResourceType
 }

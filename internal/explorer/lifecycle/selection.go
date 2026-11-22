@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"strings"
 	"time"
 
@@ -36,16 +37,16 @@ type selectionCreateRequest struct {
 	ResourceType    string
 	Scope           authscope.ReadScope
 	ScopeDigest     string
-	Rule            explorer.SelectionRule
-	Members         []explorer.ResourceRef
-	Source          explorer.SelectionSource
-	Exclusions      []explorer.ResourceRef
+	Rule            explorerselection.SelectionRule
+	Members         []explorerselection.ResourceRef
+	Source          explorerselection.SelectionSource
+	Exclusions      []explorerselection.ResourceRef
 	BaseSelectionID string
 }
 
 type SelectionSourceIntent struct {
 	Kind                string
-	Resources           []explorer.ResourceRef
+	Resources           []explorerselection.ResourceRef
 	PublishedOutput     *PublishedOutputIntent
 	SelectionRevisionID string
 }
@@ -70,7 +71,7 @@ type SelectionIntentCreateRequest struct {
 	IdempotencyKey string
 	ResourceType   string
 	Source         SelectionSourceIntent
-	Exclusions     []explorer.ResourceRef
+	Exclusions     []explorerselection.ResourceRef
 }
 
 type SelectionSourceResolver interface {
@@ -95,7 +96,7 @@ func (r materializationSelectionReader) StreamExactExecution(ctx context.Context
 }
 
 type SelectionCreateResult struct {
-	Header *explorer.SelectionRevision
+	Header *explorerselection.SelectionRevision
 }
 
 type selectionReadRequest struct {
@@ -118,8 +119,8 @@ type SelectionReadIntentRequest struct {
 }
 
 type SelectionReadResult struct {
-	Header     *explorer.SelectionRevision
-	Members    []explorer.SelectionMember
+	Header     *explorerselection.SelectionRevision
+	Members    []explorerselection.SelectionMember
 	NextCursor string
 }
 
@@ -141,7 +142,7 @@ type selectionCursor struct {
 }
 
 func (s *Service) createSelectionResolved(ctx context.Context, req selectionCreateRequest) (SelectionCreateResult, error) {
-	if req.Rule.Kind == explorer.SelectionRuleAllMatching {
+	if req.Rule.Kind == explorerselection.SelectionRuleAllMatching {
 		return SelectionCreateResult{}, fmt.Errorf("all-matching selections require an exact published reader")
 	}
 	return s.createSelection(ctx, req, nil)
@@ -178,8 +179,8 @@ func (s *Service) createSelectionIntent(ctx context.Context, req SelectionIntent
 		if req.Source.PublishedOutput != nil {
 			return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("resources source cannot include published output payload"))
 		}
-		resolved.Rule = explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit}
-		resolved.Source = explorer.SelectionSource{Kind: explorer.SelectionSourceExplicit}
+		resolved.Rule = explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleExplicit}
+		resolved.Source = explorerselection.SelectionSource{Kind: explorerselection.SelectionSourceExplicit}
 		var err error
 		resolved.Members, resolved.ResourceType, err = canonicalSelectionRefs(req.Source.Resources, project, generation, resolved.ResourceType)
 		if err != nil {
@@ -192,7 +193,7 @@ func (s *Service) createSelectionIntent(ctx context.Context, req SelectionIntent
 		if s.config.SelectionReferenceValidator == nil {
 			return SelectionCreateResult{}, fmt.Errorf("selection reference validator is required")
 		}
-		refs := append(append([]explorer.ResourceRef(nil), resolved.Members...), resolved.Exclusions...)
+		refs := append(append([]explorerselection.ResourceRef(nil), resolved.Members...), resolved.Exclusions...)
 		if err := s.config.SelectionReferenceValidator(ctx, project, generation, authorized.Scope, refs); err != nil {
 			return SelectionCreateResult{}, err
 		}
@@ -240,7 +241,7 @@ func (s *Service) createSelectionIntent(ctx context.Context, req SelectionIntent
 			return SelectionCreateResult{}, selectionStale(fmt.Errorf("published selection source identity changed"))
 		}
 		if materialization.SourceRow == nil || !materialization.SourceRow.Valid() {
-			return SelectionCreateResult{}, explorer.ErrSelectionNotAddressable
+			return SelectionCreateResult{}, explorerselection.ErrSelectionNotAddressable
 		}
 		if revision.CompilationReceiptID != "" && materialization.ReceiptID != revision.CompilationReceiptID {
 			return SelectionCreateResult{}, selectionStale(fmt.Errorf("published selection receipt changed"))
@@ -249,10 +250,10 @@ func (s *Service) createSelectionIntent(ctx context.Context, req SelectionIntent
 			resolved.ResourceType = materialization.SourceRow.ResourceType
 		}
 		if resolved.ResourceType != materialization.SourceRow.ResourceType || materialization.Revision == "" || materialization.ReceiptID == "" || materialization.SchemaDigest == "" {
-			return SelectionCreateResult{}, explorer.ErrSelectionNotAddressable
+			return SelectionCreateResult{}, explorerselection.ErrSelectionNotAddressable
 		}
-		resolved.Rule = explorer.SelectionRule{Kind: explorer.SelectionRuleAllMatching, Filters: append([]published.Filter(nil), intent.Filters...)}
-		resolved.Source = explorer.SelectionSource{Kind: explorer.SelectionSourcePublished, RevisionID: intent.RevisionID, ReceiptID: materialization.ReceiptID, ExecutionID: materialization.Revision, OutputID: intent.OutputID, SchemaDigest: materialization.SchemaDigest, Generation: materialization.DatasetGeneration, ResourceType: materialization.SourceRow.ResourceType, SourceIDColumn: materialization.SourceRow.IDColumn}
+		resolved.Rule = explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleAllMatching, Filters: append([]published.Filter(nil), intent.Filters...)}
+		resolved.Source = explorerselection.SelectionSource{Kind: explorerselection.SelectionSourcePublished, RevisionID: intent.RevisionID, ReceiptID: materialization.ReceiptID, ExecutionID: materialization.Revision, OutputID: intent.OutputID, SchemaDigest: materialization.SchemaDigest, Generation: materialization.DatasetGeneration, ResourceType: materialization.SourceRow.ResourceType, SourceIDColumn: materialization.SourceRow.IDColumn}
 		resolved.Exclusions, resolved.ResourceType, err = canonicalSelectionRefs(req.Exclusions, project, generation, resolved.ResourceType)
 		if err != nil {
 			return SelectionCreateResult{}, err
@@ -267,14 +268,14 @@ func (s *Service) createSelectionIntent(ctx context.Context, req SelectionIntent
 			return SelectionCreateResult{}, err
 		}
 		if base == nil || !base.Complete {
-			return SelectionCreateResult{}, explorer.ErrSelectionIncomplete
+			return SelectionCreateResult{}, explorerselection.ErrSelectionIncomplete
 		}
 		if base.Generation != generation || base.ScopeDigest != scopeDigest {
 			return SelectionCreateResult{}, selectionStale(fmt.Errorf("base selection is outside the active generation or authorization scope"))
 		}
 		resolved.ResourceType = base.ResourceType
-		resolved.Rule = explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit}
-		resolved.Source = explorer.SelectionSource{Kind: explorer.SelectionSourceRevision, RevisionID: base.ID, Generation: base.Generation, ResourceType: base.ResourceType, MembershipDigest: base.MembershipDigest}
+		resolved.Rule = explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleExplicit}
+		resolved.Source = explorerselection.SelectionSource{Kind: explorerselection.SelectionSourceRevision, RevisionID: base.ID, Generation: base.Generation, ResourceType: base.ResourceType, MembershipDigest: base.MembershipDigest}
 		resolved.BaseSelectionID = base.ID
 		resolved.Exclusions, resolved.ResourceType, err = canonicalSelectionRefs(req.Exclusions, project, generation, resolved.ResourceType)
 		if err != nil {
@@ -355,23 +356,23 @@ func normalizeSelectionError(err error) error {
 		return err
 	}
 	switch {
-	case errors.Is(err, explorer.ErrSelectionNotAddressable):
+	case errors.Is(err, explorerselection.ErrSelectionNotAddressable):
 		return unprocessable("selection", "SELECTION_SOURCE_NOT_ADDRESSABLE", "published output cannot be mapped to source resources", err)
-	case errors.Is(err, explorer.ErrSelectionLimit), errors.Is(err, context.DeadlineExceeded):
+	case errors.Is(err, explorerselection.ErrSelectionLimit), errors.Is(err, context.DeadlineExceeded):
 		return unprocessable("selection", "SELECTION_LIMIT_EXCEEDED", "selection exceeded configured row, byte, or duration limits", err)
-	case errors.Is(err, explorer.ErrSelectionConflict):
+	case errors.Is(err, explorerselection.ErrSelectionConflict):
 		return conflict("selection", "SELECTION_IDEMPOTENCY_CONFLICT", "selection idempotency key is bound to different immutable intent", nil, err)
-	case errors.Is(err, explorer.ErrSelectionIncomplete):
+	case errors.Is(err, explorerselection.ErrSelectionIncomplete):
 		return conflict("selection", "SELECTION_NOT_COMPLETE", "selection membership is not complete", nil, err)
-	case errors.Is(err, explorer.ErrSelectionStaleScope):
+	case errors.Is(err, explorerselection.ErrSelectionStaleScope):
 		return conflict("selection", "SELECTION_STALE_SCOPE", "selection authorization or immutable source identity changed", nil, err)
 	case errors.Is(err, bundlepublication.ErrSelectionSourceIdentityChanged):
 		return conflict("selection", "SELECTION_STALE_SCOPE", "selection authorization or immutable source identity changed", nil, err)
-	case errors.Is(err, explorer.ErrResourceRefScopeMismatch):
+	case errors.Is(err, explorerselection.ErrResourceRefScopeMismatch):
 		return conflict("selection", "SELECTION_STALE_SCOPE", "selection references are outside the authorized snapshot", nil, err)
-	case errors.Is(err, explorer.ErrSelectionMalformed):
+	case errors.Is(err, explorerselection.ErrSelectionMalformed):
 		return malformed("selection", "selection request is malformed", err)
-	case errors.Is(err, explorer.ErrNotFound), errors.Is(err, explorer.ErrSelectionNotFound), errors.Is(err, bundlepublication.ErrBundleNotFound):
+	case errors.Is(err, explorer.ErrNotFound), errors.Is(err, explorerselection.ErrSelectionNotFound), errors.Is(err, bundlepublication.ErrBundleNotFound):
 		return notFound("selection", "SELECTION_NOT_FOUND", "selection source or revision was not found", err)
 	default:
 		return persistenceFailure("selection", "the selection operation could not be completed", err)
@@ -380,19 +381,19 @@ func normalizeSelectionError(err error) error {
 
 func selectionMalformed(err error) error {
 	if err == nil {
-		return explorer.ErrSelectionMalformed
+		return explorerselection.ErrSelectionMalformed
 	}
-	return fmt.Errorf("%w: %v", explorer.ErrSelectionMalformed, err)
+	return fmt.Errorf("%w: %v", explorerselection.ErrSelectionMalformed, err)
 }
 
 func selectionStale(err error) error {
 	if err == nil {
-		return explorer.ErrSelectionStaleScope
+		return explorerselection.ErrSelectionStaleScope
 	}
-	return fmt.Errorf("%w: %v", explorer.ErrSelectionStaleScope, err)
+	return fmt.Errorf("%w: %v", explorerselection.ErrSelectionStaleScope, err)
 }
 
-func exclusionSet(values []explorer.ResourceRef) map[string]struct{} {
+func exclusionSet(values []explorerselection.ResourceRef) map[string]struct{} {
 	result := make(map[string]struct{}, len(values))
 	for _, value := range values {
 		result[refKey(value)] = struct{}{}
@@ -400,12 +401,12 @@ func exclusionSet(values []explorer.ResourceRef) map[string]struct{} {
 	return result
 }
 
-func canonicalSelectionRefs(values []explorer.ResourceRef, project, generation, resourceType string) ([]explorer.ResourceRef, string, error) {
-	result := make([]explorer.ResourceRef, len(values))
+func canonicalSelectionRefs(values []explorerselection.ResourceRef, project, generation, resourceType string) ([]explorerselection.ResourceRef, string, error) {
+	result := make([]explorerselection.ResourceRef, len(values))
 	for i, raw := range values {
 		ref := raw.Canonical()
 		if err := ref.Validate(project, generation, ""); err != nil {
-			if errors.Is(err, explorer.ErrResourceRefScopeMismatch) {
+			if errors.Is(err, explorerselection.ErrResourceRefScopeMismatch) {
 				return nil, resourceType, selectionStale(err)
 			}
 			return nil, resourceType, selectionMalformed(err)
@@ -433,7 +434,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func refKey(ref explorer.ResourceRef) string {
+func refKey(ref explorerselection.ResourceRef) string {
 	ref = ref.Canonical()
 	return ref.Project + "\x00" + ref.Generation + "\x00" + ref.ResourceType + "\x00" + ref.ID
 }

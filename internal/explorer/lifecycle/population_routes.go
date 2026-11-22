@@ -3,11 +3,11 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"strings"
 
 	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
 	"github.com/calypr/loom/internal/dataframe/spec"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -131,7 +131,7 @@ func (s *Service) SearchPopulationRoutes(ctx context.Context, request Population
 	return result, nil
 }
 
-func (s *Service) getAuthorizedPopulationSelection(ctx context.Context, project, selectionID string, snapshot capability.Snapshot) (*explorer.SelectionRevision, error) {
+func (s *Service) getAuthorizedPopulationSelection(ctx context.Context, project, selectionID string, snapshot capability.Snapshot) (*explorerselection.SelectionRevision, error) {
 	selection, err := s.store.GetSelection(ctx, projectid.Canonical(project), strings.TrimSpace(selectionID))
 	if err != nil {
 		return nil, unavailable("population-routes", "POPULATION_SOURCE_UNAVAILABLE", "the selected resource set could not be loaded", err)

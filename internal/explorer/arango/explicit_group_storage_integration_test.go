@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"os"
 	"reflect"
 	"sync"
@@ -91,8 +92,8 @@ func TestExplicitGroupStorageAgainstArango(t *testing.T) {
 		t.Fatalf("changed definition retry = %v", err)
 	}
 
-	sharedRef := explorer.ResourceRef{Project: project, Generation: source.Generation, ResourceType: source.ResourceType, ID: "patient-1"}
-	onlyARef := explorer.ResourceRef{Project: project, Generation: source.Generation, ResourceType: source.ResourceType, ID: "patient-2"}
+	sharedRef := explorerselection.ResourceRef{Project: project, Generation: source.Generation, ResourceType: source.ResourceType, ID: "patient-1"}
+	onlyARef := explorerselection.ResourceRef{Project: project, Generation: source.Generation, ResourceType: source.ResourceType, ID: "patient-2"}
 	memberships := []explorer.ExplicitGroupMembership{
 		{GroupID: "group-a", Ref: sharedRef},
 		{GroupID: "group-a", Ref: sharedRef},
@@ -100,13 +101,13 @@ func TestExplicitGroupStorageAgainstArango(t *testing.T) {
 		{GroupID: "group-a", Ref: onlyARef},
 	}
 	wrongScopeBatch := append([]explorer.ExplicitGroupMembership(nil), memberships[:1]...)
-	wrongScopeBatch = append(wrongScopeBatch, explorer.ExplicitGroupMembership{GroupID: "group-b", Ref: explorer.ResourceRef{Project: "another-project", Generation: source.Generation, ResourceType: source.ResourceType, ID: "patient-3"}})
-	if _, err := persistence.AppendExplicitGroupMemberships(ctx, header.ID, writer, wrongScopeBatch); !errors.Is(err, explorer.ErrResourceRefScopeMismatch) {
+	wrongScopeBatch = append(wrongScopeBatch, explorer.ExplicitGroupMembership{GroupID: "group-b", Ref: explorerselection.ResourceRef{Project: "another-project", Generation: source.Generation, ResourceType: source.ResourceType, ID: "patient-3"}})
+	if _, err := persistence.AppendExplicitGroupMemberships(ctx, header.ID, writer, wrongScopeBatch); !errors.Is(err, explorerselection.ErrResourceRefScopeMismatch) {
 		t.Fatalf("cross-project append = %v", err)
 	}
 	foreignBatch := []explorer.ExplicitGroupMembership{
 		{GroupID: "group-a", Ref: sharedRef},
-		{GroupID: "group-b", Ref: explorer.ResourceRef{Project: project, Generation: source.Generation, ResourceType: source.ResourceType, ID: "not-in-source-selection"}},
+		{GroupID: "group-b", Ref: explorerselection.ResourceRef{Project: project, Generation: source.Generation, ResourceType: source.ResourceType, ID: "not-in-source-selection"}},
 	}
 	if _, err := persistence.AppendExplicitGroupMemberships(ctx, header.ID, writer, foreignBatch); !errors.Is(err, explorer.ErrExplicitGroupMemberNotInSelection) {
 		t.Fatalf("foreign source member append = %v", err)
@@ -206,7 +207,7 @@ func TestExplicitGroupStorageAgainstArango(t *testing.T) {
 	testExplicitGroupCleanup(ctx, t, client, persistence, source)
 }
 
-func testExplicitGroupConcurrentBegin(ctx context.Context, t *testing.T, repository explorer.ExplicitGroupRepository, revision explorer.ExplicitGroupRevision, source explorer.SelectionRevision) {
+func testExplicitGroupConcurrentBegin(ctx context.Context, t *testing.T, repository explorer.ExplicitGroupRepository, revision explorer.ExplicitGroupRevision, source explorerselection.SelectionRevision) {
 	t.Helper()
 	tokens := []string{uuid.NewString(), uuid.NewString()}
 	errs := make([]error, len(tokens))
@@ -242,7 +243,7 @@ func testExplicitGroupConcurrentBegin(ctx context.Context, t *testing.T, reposit
 	}
 }
 
-func testExplicitGroupCleanup(ctx context.Context, t *testing.T, client *store.Client, repository explorer.ExplicitGroupRepository, source explorer.SelectionRevision) {
+func testExplicitGroupCleanup(ctx context.Context, t *testing.T, client *store.Client, repository explorer.ExplicitGroupRepository, source explorerselection.SelectionRevision) {
 	t.Helper()
 	revision := explicitGroupTestRevision(source, "cleanup")
 	revision.CreatedAt = time.Now().UTC().Add(-time.Hour)
@@ -254,7 +255,7 @@ func testExplicitGroupCleanup(ctx context.Context, t *testing.T, client *store.C
 	if err := repository.PutExplicitGroupDefinitions(ctx, revision.ID, writer, groups); err != nil {
 		t.Fatal(err)
 	}
-	membership := explorer.ExplicitGroupMembership{GroupID: "group-a", Ref: explorer.ResourceRef{Project: revision.Project, Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-3"}}
+	membership := explorer.ExplicitGroupMembership{GroupID: "group-a", Ref: explorerselection.ResourceRef{Project: revision.Project, Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-3"}}
 	if _, err := repository.AppendExplicitGroupMemberships(ctx, revision.ID, writer, []explorer.ExplicitGroupMembership{membership}); err != nil {
 		t.Fatal(err)
 	}
@@ -283,41 +284,41 @@ func testExplicitGroupCleanup(ctx context.Context, t *testing.T, client *store.C
 	}
 }
 
-func explicitGroupTestSelection(project string) explorer.SelectionRevision {
-	return explorer.SelectionRevision{
+func explicitGroupTestSelection(project string) explorerselection.SelectionRevision {
+	return explorerselection.SelectionRevision{
 		ID: "selection-" + uuid.NewString(), Project: project, Generation: "generation-a", ResourceType: "Patient",
-		Rule: explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit}, Source: explorer.SelectionSource{Kind: explorer.SelectionSourceExplicit},
+		Rule: explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleExplicit}, Source: explorerselection.SelectionSource{Kind: explorerselection.SelectionSourceExplicit},
 		ScopeDigest: "scope-a", RuleDigest: "selection-rule", IdempotencyKey: uuid.NewString(), CreatedAt: time.Now().UTC(),
 	}
 }
 
-func persistExplicitGroupTestSelection(ctx context.Context, t *testing.T, persistence *Store, project string) (explorer.SelectionRevision, string, error) {
+func persistExplicitGroupTestSelection(ctx context.Context, t *testing.T, persistence *Store, project string) (explorerselection.SelectionRevision, string, error) {
 	t.Helper()
 	selection := explicitGroupTestSelection(project)
 	writer := uuid.NewString()
 	if _, err := persistence.BeginSelection(ctx, selection, writer); err != nil {
-		return explorer.SelectionRevision{}, writer, err
+		return explorerselection.SelectionRevision{}, writer, err
 	}
-	members := []explorer.SelectionMember{
-		{Ref: explorer.ResourceRef{Project: project, Generation: selection.Generation, ResourceType: selection.ResourceType, ID: "patient-1"}},
-		{Ref: explorer.ResourceRef{Project: project, Generation: selection.Generation, ResourceType: selection.ResourceType, ID: "patient-2"}},
-		{Ref: explorer.ResourceRef{Project: project, Generation: selection.Generation, ResourceType: selection.ResourceType, ID: "patient-3"}},
+	members := []explorerselection.SelectionMember{
+		{Ref: explorerselection.ResourceRef{Project: project, Generation: selection.Generation, ResourceType: selection.ResourceType, ID: "patient-1"}},
+		{Ref: explorerselection.ResourceRef{Project: project, Generation: selection.Generation, ResourceType: selection.ResourceType, ID: "patient-2"}},
+		{Ref: explorerselection.ResourceRef{Project: project, Generation: selection.Generation, ResourceType: selection.ResourceType, ID: "patient-3"}},
 	}
 	if _, err := persistence.AppendSelectionMembers(ctx, selection.ID, writer, members); err != nil {
-		return explorer.SelectionRevision{}, writer, err
+		return explorerselection.SelectionRevision{}, writer, err
 	}
 	digest, count, bytes, err := persistence.DigestSelectionMembers(ctx, project, selection.ID)
 	if err != nil {
-		return explorer.SelectionRevision{}, writer, err
+		return explorerselection.SelectionRevision{}, writer, err
 	}
 	completed, err := persistence.CompleteSelection(ctx, selection.ID, writer, digest, count, bytes, time.Now().UTC())
 	if err != nil {
-		return explorer.SelectionRevision{}, writer, err
+		return explorerselection.SelectionRevision{}, writer, err
 	}
 	return *completed, writer, nil
 }
 
-func explicitGroupTestRevision(source explorer.SelectionRevision, key string) explorer.ExplicitGroupRevision {
+func explicitGroupTestRevision(source explorerselection.SelectionRevision, key string) explorer.ExplicitGroupRevision {
 	createdAt := time.Now().UTC()
 	idempotencyKey := fmt.Sprintf("%s-%s", key, uuid.NewString())
 	return explorer.ExplicitGroupRevision{

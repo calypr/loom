@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"net/http"
 	"net/url"
 	"os"
@@ -273,11 +274,11 @@ func projectConfigTestBundle(name, translation string) recipe.Bundle {
 func projectConfigTestDefinition(id, recipeName, title string) explorer.ProjectConfig {
 	return explorer.ProjectConfig{
 		ID: id, Title: title, RecipeRef: explorer.ProjectConfigRecipeRef{Name: recipeName},
-		Views: []explorer.ConfigView{{
+		Views: []explorerconfig.ConfigView{{
 			ID: "view", Title: title, Output: "output",
-			Table:   explorer.ConfigTable{Columns: []explorer.ConfigColumn{{Column: "extension_code", Visible: true}}},
-			Filters: []explorer.ConfigFilter{{Column: "extension_code"}},
-			Charts:  []explorer.ConfigChart{{Column: "extension_code", Type: "pie", Title: "Extension codes"}},
+			Table:   explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{{Column: "extension_code", Visible: true}}},
+			Filters: []explorerconfig.ConfigFilter{{Column: "extension_code"}},
+			Charts:  []explorerconfig.ConfigChart{{Column: "extension_code", Type: "pie", Title: "Extension codes"}},
 		}},
 	}
 }
@@ -304,11 +305,11 @@ func projectConfigPublication(t *testing.T, project, id, recipeName, title, revi
 	if err != nil {
 		t.Fatal(err)
 	}
-	explorerJSON, err := json.Marshal(explorer.ConfigExplorer{ID: id, Title: title, Management: "repository"})
+	explorerJSON, err := json.Marshal(explorerconfig.ConfigExplorer{ID: id, Title: title, Management: "repository"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	configJSON := json.RawMessage(fmt.Sprintf(`{ "views": %s, "project": %q, "kind": "ExplorerConfig", "explorer": %s, "apiVersion": %q }`, viewsJSON, project, explorerJSON, explorer.ConfigV2APIVersion))
+	configJSON := json.RawMessage(fmt.Sprintf(`{ "views": %s, "project": %q, "kind": "ExplorerConfig", "explorer": %s, "apiVersion": %q }`, viewsJSON, project, explorerJSON, explorerconfig.ConfigV2APIVersion))
 	contractJSON := json.RawMessage(`{
   "outputs": [{
     "columns": [{

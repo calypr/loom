@@ -3,11 +3,11 @@ package arango
 import (
 	"context"
 	"errors"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/explorer"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -38,9 +38,9 @@ func TestSelectionStorageAgainstArango(t *testing.T) {
 	}
 	selectionID := "selection-storage-" + uuid.NewString()
 	writerToken := uuid.NewString()
-	header := explorer.SelectionRevision{
+	header := explorerselection.SelectionRevision{
 		ID: selectionID, Project: "loom_selection_test", Generation: "generation-a", ResourceType: "DocumentReference",
-		Rule: explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit}, Source: explorer.SelectionSource{Kind: explorer.SelectionSourceExplicit},
+		Rule: explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleExplicit}, Source: explorerselection.SelectionSource{Kind: explorerselection.SelectionSourceExplicit},
 		ScopeDigest: "scope", RuleDigest: "rule", IdempotencyKey: uuid.NewString(), CreatedAt: time.Now().UTC(),
 	}
 	defer func() { _ = persistence.AbortSelection(context.Background(), selectionID, writerToken) }()
@@ -48,7 +48,7 @@ func TestSelectionStorageAgainstArango(t *testing.T) {
 	if err != nil || started.ID != selectionID {
 		t.Fatalf("begin = %#v err=%v", started, err)
 	}
-	refs := []explorer.SelectionMember{{Ref: explorer.ResourceRef{Project: header.Project, Generation: header.Generation, ResourceType: header.ResourceType, ID: "files001"}}, {Ref: explorer.ResourceRef{Project: header.Project, Generation: header.Generation, ResourceType: header.ResourceType, ID: "files002"}}, {Ref: explorer.ResourceRef{Project: header.Project, Generation: header.Generation, ResourceType: header.ResourceType, ID: "files001"}}}
+	refs := []explorerselection.SelectionMember{{Ref: explorerselection.ResourceRef{Project: header.Project, Generation: header.Generation, ResourceType: header.ResourceType, ID: "files001"}}, {Ref: explorerselection.ResourceRef{Project: header.Project, Generation: header.Generation, ResourceType: header.ResourceType, ID: "files002"}}, {Ref: explorerselection.ResourceRef{Project: header.Project, Generation: header.Generation, ResourceType: header.ResourceType, ID: "files001"}}}
 
 	expiredEmptyID := "selection-expired-empty-" + uuid.NewString()
 	expiredEmpty := header
@@ -95,7 +95,7 @@ func TestSelectionStorageAgainstArango(t *testing.T) {
 	if _, err := persistence.BeginSelection(ctx, active, activeOwner); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := persistence.BeginSelection(ctx, active, uuid.NewString()); !errors.Is(err, explorer.ErrSelectionConflict) {
+	if _, err := persistence.BeginSelection(ctx, active, uuid.NewString()); !errors.Is(err, explorerselection.ErrSelectionConflict) {
 		t.Fatalf("active lease was reclaimed: %v", err)
 	}
 	if err := persistence.AbortSelection(ctx, activeID, activeOwner); err != nil {
@@ -105,7 +105,7 @@ func TestSelectionStorageAgainstArango(t *testing.T) {
 	if err != nil || len(inserted) != 2 {
 		t.Fatalf("first append = %d err=%v", len(inserted), err)
 	}
-	if _, err := persistence.AppendSelectionMembers(ctx, selectionID, uuid.NewString(), refs[:1]); !errors.Is(err, explorer.ErrSelectionConflict) {
+	if _, err := persistence.AppendSelectionMembers(ctx, selectionID, uuid.NewString(), refs[:1]); !errors.Is(err, explorerselection.ErrSelectionConflict) {
 		t.Fatalf("foreign writer append err=%v", err)
 	}
 	inserted, err = persistence.AppendSelectionMembers(ctx, selectionID, writerToken, refs)
@@ -113,14 +113,14 @@ func TestSelectionStorageAgainstArango(t *testing.T) {
 		t.Fatalf("retry append = %d err=%v", len(inserted), err)
 	}
 	digest, count, _, err := persistence.DigestSelectionMembers(ctx, header.Project, selectionID)
-	if err != nil || count != 2 || digest != explorer.MembershipDigest(refs[:2]) {
+	if err != nil || count != 2 || digest != explorerselection.MembershipDigest(refs[:2]) {
 		t.Fatalf("digest = %s count=%d err=%v", digest, count, err)
 	}
 	completed, err := persistence.CompleteSelection(ctx, selectionID, writerToken, digest, count, 0, time.Now().UTC())
 	if err != nil || !completed.Complete {
 		t.Fatalf("complete = %#v err=%v", completed, err)
 	}
-	if _, err := persistence.AppendSelectionMembers(ctx, selectionID, writerToken, refs[:1]); !errors.Is(err, explorer.ErrSelectionConflict) {
+	if _, err := persistence.AppendSelectionMembers(ctx, selectionID, writerToken, refs[:1]); !errors.Is(err, explorerselection.ErrSelectionConflict) {
 		t.Fatalf("append after complete err=%v", err)
 	}
 	retry, err := persistence.BeginSelection(ctx, header, uuid.NewString())
@@ -129,7 +129,7 @@ func TestSelectionStorageAgainstArango(t *testing.T) {
 	}
 	changed := header
 	changed.RuleDigest = "different-intent"
-	if _, err := persistence.BeginSelection(ctx, changed, uuid.NewString()); !errors.Is(err, explorer.ErrSelectionConflict) {
+	if _, err := persistence.BeginSelection(ctx, changed, uuid.NewString()); !errors.Is(err, explorerselection.ErrSelectionConflict) {
 		t.Fatalf("changed idempotency intent err=%v", err)
 	}
 
@@ -145,7 +145,7 @@ func TestSelectionStorageAgainstArango(t *testing.T) {
 		var appendErr, abortErr error
 		done := make(chan struct{}, 2)
 		go func() {
-			_, appendErr = persistence.AppendSelectionMembers(ctx, raceID, owner, []explorer.SelectionMember{refs[0]})
+			_, appendErr = persistence.AppendSelectionMembers(ctx, raceID, owner, []explorerselection.SelectionMember{refs[0]})
 			done <- struct{}{}
 		}()
 		go func() {
@@ -176,7 +176,7 @@ func TestSelectionStorageAgainstArango(t *testing.T) {
 	if _, err := persistence.BeginSelection(ctx, partial, partialWriter); err != nil {
 		t.Fatal(err)
 	}
-	_, err = persistence.AppendSelectionMembers(ctx, partialID, partialWriter, []explorer.SelectionMember{refs[0], {Ref: explorer.ResourceRef{Project: "other", Generation: header.Generation, ResourceType: header.ResourceType, ID: "files003"}}})
+	_, err = persistence.AppendSelectionMembers(ctx, partialID, partialWriter, []explorerselection.SelectionMember{refs[0], {Ref: explorerselection.ResourceRef{Project: "other", Generation: header.Generation, ResourceType: header.ResourceType, ID: "files003"}}})
 	if err == nil {
 		t.Fatal("mixed-project append unexpectedly succeeded")
 	}
@@ -187,7 +187,7 @@ func TestSelectionStorageAgainstArango(t *testing.T) {
 	if err := persistence.AbortSelection(ctx, partialID, partialWriter); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := persistence.GetSelection(ctx, partial.Project, partialID); !errors.Is(err, explorer.ErrSelectionNotFound) {
+	if _, err := persistence.GetSelection(ctx, partial.Project, partialID); !errors.Is(err, explorerselection.ErrSelectionNotFound) {
 		t.Fatalf("zero-member abort left header: %v", err)
 	}
 
@@ -204,7 +204,7 @@ func TestSelectionStorageAgainstArango(t *testing.T) {
 	if err := persistence.AbortSelection(ctx, multiID, multiWriter); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := persistence.GetSelection(ctx, multi.Project, multiID); !errors.Is(err, explorer.ErrSelectionNotFound) {
+	if _, err := persistence.GetSelection(ctx, multi.Project, multiID); !errors.Is(err, explorerselection.ErrSelectionNotFound) {
 		t.Fatalf("multi-member abort left header: %v", err)
 	}
 }

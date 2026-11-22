@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"reflect"
 	"strings"
 	"testing"
@@ -950,7 +951,7 @@ func TestCompiledExplorerWorkspaceConfigPreservesSemanticOrderForPresentationTie
 	if err != nil {
 		t.Fatal(err)
 	}
-	var config explorer.ConfigV2
+	var config explorerconfig.ConfigV2
 	if err := json.Unmarshal(raw, &config); err != nil {
 		t.Fatal(err)
 	}

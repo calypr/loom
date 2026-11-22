@@ -6,7 +6,7 @@ import (
 	"sort"
 
 	"github.com/bytedance/sonic"
-	"github.com/calypr/loom/internal/catalog/identity"
+	"github.com/calypr/loom/internal/catalog/internal/digest"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -91,7 +91,7 @@ func RelationshipCatalogDocuments(counts map[RelationshipKey]int64) []Relationsh
 }
 
 func relationshipCatalogKey(key RelationshipKey) string {
-	return relationshipCatalogKeyPrefix + identity.Digest(
+	return relationshipCatalogKeyPrefix + digest.Digest(
 		"relationship-catalog/v1",
 		key.Project,
 		NormalizeDatasetGeneration(key.DatasetGeneration),

@@ -2,6 +2,7 @@ package receipt
 
 import (
 	"context"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"reflect"
 	"testing"
 
@@ -125,7 +126,7 @@ func TestCompileExplorerReceiptBindsPopulationRemovalWithGroupedRelatedSummary(t
 		DraftVersion: 7, DraftDigest: "sha256:base-draft", OutputID: "patients", BaseDocumentDigest: "sha256:base-document",
 		BaseSelectionRevisionID: "selection-base", BaseMembershipDigest: "sha256:base-members", BaseMemberCount: 2,
 		CandidateSelectionRevisionID: "selection-candidate", CandidateMembershipDigest: "sha256:candidate-members", CandidateMemberCount: 1,
-		RemovedMember: explorer.ResourceRef{Project: "project-a", Generation: snapshot.Identity.Generation, ResourceType: "Patient", ID: "patient-2"},
+		RemovedMember: explorerselection.ResourceRef{Project: "project-a", Generation: snapshot.Identity.Generation, ResourceType: "Patient", ID: "patient-2"},
 		RouteChoiceID: routeChoiceID, CandidateWorkspaceDigest: intentDigest, SnapshotToken: snapshot.Token, PreviewLimit: 25,
 	}
 	readScope := scope

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/calypr/loom/internal/catalog/identity"
+	"github.com/calypr/loom/internal/catalog/internal/digest"
 	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -221,7 +221,7 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 	enrichmentComplete := !enrichmentTruncated
 	if len(paths) == 0 && enrichmentTruncated {
 		return []FieldCatalogDocument{{
-			Key:        "fpe_" + identity.Digest("field-profile-status/v1", p.project, datasetGeneration, p.authResourcePath, p.resourceType),
+			Key:        "fpe_" + digest.Digest("field-profile-status/v1", p.project, datasetGeneration, p.authResourcePath, p.resourceType),
 			RecordType: FieldProfileStatusRecordType, Project: p.project, DatasetGeneration: datasetGeneration,
 			AuthResourcePath: p.authResourcePath, ResourceType: p.resourceType,
 			EnrichmentComplete: &enrichmentComplete, EnrichmentTruncated: true,

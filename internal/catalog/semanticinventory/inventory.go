@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/catalog/codedconcept"
-	"github.com/calypr/loom/internal/catalog/identity"
+	"github.com/calypr/loom/internal/catalog/internal/digest"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -90,7 +90,7 @@ type Contribution struct {
 }
 
 func fileContributionKey(project, datasetGeneration, authResourcePath, resourceType, buildID, sourceID string, ordinal int) string {
-	return identity.Digest("semantic-inventory-contribution/v1", project, datasetGeneration,
+	return digest.Digest("semantic-inventory-contribution/v1", project, datasetGeneration,
 		authResourcePath, resourceType, buildID, sourceID, strconv.Itoa(ordinal))
 }
 
@@ -139,7 +139,7 @@ type Family struct {
 }
 
 func FamilyID(reference FamilyReference) string {
-	return identity.Digest("semantic-inventory-family/v1", reference.BindingID,
+	return digest.Digest("semantic-inventory-family/v1", reference.BindingID,
 		reference.SourceKind, reference.ResourceType, reference.SourcePath, reference.System, reference.Version)
 }
 
@@ -188,7 +188,7 @@ type Page struct {
 type ObservationSink func(Contribution)
 
 func BuildID(project, datasetGeneration string) string {
-	return identity.Digest(
+	return digest.Digest(
 		"semantic-inventory-build/v1",
 		project,
 		strings.TrimSpace(datasetGeneration),
@@ -200,7 +200,7 @@ func BuildID(project, datasetGeneration string) string {
 }
 
 func BuildKey(project, datasetGeneration string) string {
-	return "sib_" + identity.Digest(
+	return "sib_" + digest.Digest(
 		"semantic-inventory-build-key/v1",
 		project,
 		strings.TrimSpace(datasetGeneration),
@@ -319,7 +319,7 @@ func (source ContributionSource) Contribution(sourceID string, ordinal int, obse
 		keyParts = append(keyParts, source.Kind)
 	}
 	return Contribution{
-		Key: identity.Digest(
+		Key: digest.Digest(
 			keyParts...,
 		),
 		Project:           source.Project,
@@ -339,7 +339,7 @@ func (source ContributionSource) Contribution(sourceID string, ordinal int, obse
 
 func ConceptID(observation codedconcept.Observation) string {
 	if observation.Key.Code != "" {
-		return identity.Digest(
+		return digest.Digest(
 			"semantic-concept/coding/v1",
 			observation.Key.System,
 			observation.Key.Code,
@@ -354,7 +354,7 @@ func ConceptID(observation codedconcept.Observation) string {
 		observation.Key.System,
 	}
 	parts = append(parts, observation.ExtensionURLPath...)
-	return identity.Digest(parts...)
+	return digest.Digest(parts...)
 }
 
 func BindingID(observation codedconcept.Observation) string {
@@ -376,7 +376,7 @@ func BindingID(observation codedconcept.Observation) string {
 		observation.RuleVersion,
 	}
 	parts = append(parts, observation.ExtensionURLPath...)
-	return identity.Digest(parts...)
+	return digest.Digest(parts...)
 }
 
 func LegacySemanticBindingIDV1(observation codedconcept.Observation) string {
@@ -396,7 +396,7 @@ func LegacySemanticBindingIDV1(observation codedconcept.Observation) string {
 		strconv.Itoa(SemanticObservationLegacyV1RuleVersion),
 	}
 	parts = append(parts, observation.ExtensionURLPath...)
-	return identity.Digest(parts...)
+	return digest.Digest(parts...)
 }
 
 func ValidateBuild(build Build) error {

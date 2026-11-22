@@ -10,7 +10,7 @@ import (
 	queryapi "github.com/calypr/loom/internal/api/dataframe/query"
 	explorerapi "github.com/calypr/loom/internal/api/explorer"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/discoverycache"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
@@ -43,7 +43,7 @@ type dataframeComponents struct {
 	degradation error
 }
 
-func wireDataframe(ctx context.Context, serverConfig Config, logger *slog.Logger, lifecycleClient *arangostore.Client, storage storageComponents, discoveryCache *catalog.Cache, scopeResolver *authscope.ScopeResolver) (_ dataframeComponents, err error) {
+func wireDataframe(ctx context.Context, serverConfig Config, logger *slog.Logger, lifecycleClient *arangostore.Client, storage storageComponents, discoveryCache *discoverycache.Cache, scopeResolver *authscope.ScopeResolver) (_ dataframeComponents, err error) {
 	catalogStore, recipeRegistry, lifecycleStore := storage.catalog, storage.recipes, storage.lifecycle
 	activeManifestResolver := publicationcontract.ActiveResolver(lifecycleStore)
 	degradation := storage.degradation
@@ -151,7 +151,7 @@ func wireDataframe(ctx context.Context, serverConfig Config, logger *slog.Logger
 	}, nil
 }
 
-func wireDataframeReads(logger *slog.Logger, lifecycleClient *arangostore.Client, storage storageComponents, dataframe dataframeComponents, discoveryCache *catalog.Cache, scopeResolver *authscope.ScopeResolver) dataframeReadRoutes {
+func wireDataframeReads(logger *slog.Logger, lifecycleClient *arangostore.Client, storage storageComponents, dataframe dataframeComponents, discoveryCache *discoverycache.Cache, scopeResolver *authscope.ScopeResolver) dataframeReadRoutes {
 	discoverFields := discoveryCache.DiscoverFields(storage.catalog.DiscoverFields)
 	discoverReferences := discoveryCache.DiscoverReferences(storage.catalog.DiscoverReferences)
 	activeManifestResolver := publicationcontract.ActiveResolver(storage.lifecycle)

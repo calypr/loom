@@ -3,6 +3,7 @@ package explorer
 import (
 	"encoding/json"
 	"errors"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"testing"
 	"time"
 
@@ -758,7 +759,7 @@ func TestPopulationMemberRemovalBindingIsContentAddressedAndScopeBound(t *testin
 		DraftVersion: 4, DraftDigest: "sha256:draft", OutputID: "out", BaseDocumentDigest: "sha256:document",
 		BaseSelectionRevisionID: "selection-base", BaseMembershipDigest: "sha256:base-members", BaseMemberCount: 2,
 		CandidateSelectionRevisionID: "selection-candidate", CandidateMembershipDigest: "sha256:candidate-members", CandidateMemberCount: 1,
-		RemovedMember: ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"},
+		RemovedMember: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"},
 		RouteChoiceID: "route-choice", CandidateWorkspaceDigest: base.IntentDigest, SnapshotToken: base.SnapshotToken, PreviewLimit: 25,
 	}
 	if err := base.PopulationMemberRemovalProposal.Validate(base.IntentDigest, base.SnapshotToken, base.Project, base.SourceGeneration); err != nil {

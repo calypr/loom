@@ -2,6 +2,7 @@ package explorer
 
 import (
 	"encoding/json"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/publication"
@@ -77,7 +78,7 @@ type ExplorerRuntimeV1 struct {
 	Schema         ExplorerRuntimeSchemaV1               `json:"schema,omitempty"`
 	Outputs        []ExplorerRuntimeOutputV1             `json:"outputs"`
 	SharedFilters  map[string][]ExplorerRuntimeBindingV1 `json:"sharedFilters"`
-	FileActions    FileActions                           `json:"fileActions,omitempty"`
+	FileActions    explorerconfig.FileActions            `json:"fileActions,omitempty"`
 	QualityReports []publication.QualityReport           `json:"qualityReports,omitempty"`
 	Diagnostics    []Diagnostic                          `json:"diagnostics"`
 }
@@ -88,18 +89,18 @@ type ExplorerRuntimeSchemaV1 struct {
 }
 
 type ExplorerRuntimeOutputV1 struct {
-	OutputID        string                     `json:"outputId"`
-	Name            string                     `json:"name"`
-	Title           string                     `json:"title"`
-	RowLabel        string                     `json:"rowLabel"`
-	Selector        dataset.DataframeSelector  `json:"selector"`
-	Columns         []ExplorerRuntimeColumnV1  `json:"columns"`
-	Table           ExplorerRuntimeTableV1     `json:"table"`
-	Filters         []ExplorerRuntimeBindingV1 `json:"filters"`
-	Charts          []ExplorerRuntimeBindingV1 `json:"charts"`
-	FixedFilters    map[string][]string        `json:"fixedFilters"`
-	Actions         []ConfigAction             `json:"actions,omitempty"`
-	Materialization *Materialization           `json:"materialization,omitempty"`
+	OutputID        string                        `json:"outputId"`
+	Name            string                        `json:"name"`
+	Title           string                        `json:"title"`
+	RowLabel        string                        `json:"rowLabel"`
+	Selector        dataset.DataframeSelector     `json:"selector"`
+	Columns         []ExplorerRuntimeColumnV1     `json:"columns"`
+	Table           ExplorerRuntimeTableV1        `json:"table"`
+	Filters         []ExplorerRuntimeBindingV1    `json:"filters"`
+	Charts          []ExplorerRuntimeBindingV1    `json:"charts"`
+	FixedFilters    map[string][]string           `json:"fixedFilters"`
+	Actions         []explorerconfig.ConfigAction `json:"actions,omitempty"`
+	Materialization *Materialization              `json:"materialization,omitempty"`
 }
 
 type ExplorerRuntimeColumnV1 struct {

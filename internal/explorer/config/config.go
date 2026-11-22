@@ -1,4 +1,4 @@
-package explorer
+package config
 
 import (
 	"encoding/json"

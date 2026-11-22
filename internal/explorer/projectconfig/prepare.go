@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"sort"
 	"strings"
 
@@ -494,36 +495,36 @@ func validateProjectConfigBindings(config explorer.ProjectConfig, public map[str
 }
 
 func projectConfigPresentationJSON(config explorer.ProjectConfig, project string, emitted []explorer.EmittedColumn) (json.RawMessage, error) {
-	views := append([]explorer.ConfigView(nil), config.Views...)
+	views := append([]explorerconfig.ConfigView(nil), config.Views...)
 	for index := range views {
 		if len(views[index].Table.Columns) == 0 {
 			continue
 		}
-		configured := make(map[string]explorer.ConfigColumn, len(views[index].Table.Columns))
+		configured := make(map[string]explorerconfig.ConfigColumn, len(views[index].Table.Columns))
 		for _, column := range views[index].Table.Columns {
 			configured[column.Column] = column
 		}
-		columns := make([]explorer.ConfigColumn, 0, len(configured))
+		columns := make([]explorerconfig.ConfigColumn, 0, len(configured))
 		for _, column := range emitted {
 			if column.OutputID != views[index].Output {
 				continue
 			}
 			binding, ok := configured[column.PublicColumn]
 			if !ok {
-				binding = explorer.ConfigColumn{Column: column.PublicColumn, Visible: false}
+				binding = explorerconfig.ConfigColumn{Column: column.PublicColumn, Visible: false}
 			}
 			columns = append(columns, binding)
 		}
 		views[index].Table.Columns = columns
 	}
-	configV2 := explorer.ConfigV2{
-		APIVersion: explorer.ConfigV2APIVersion, Kind: "ExplorerConfig", Project: projectid.Canonical(project),
-		Explorer: explorer.ConfigExplorer{ID: config.ID, Title: config.Title, Management: "repository"},
+	configV2 := explorerconfig.ConfigV2{
+		APIVersion: explorerconfig.ConfigV2APIVersion, Kind: "ExplorerConfig", Project: projectid.Canonical(project),
+		Explorer: explorerconfig.ConfigExplorer{ID: config.ID, Title: config.Title, Management: "repository"},
 		Views:    views, SharedFilters: config.SharedFilters, FileActions: config.FileActions,
 	}
 
 	type presentationConfig struct {
-		explorer.ConfigV2
+		explorerconfig.ConfigV2
 		Recipe json.RawMessage `json:"recipe,omitempty"`
 	}
 	raw, err := json.Marshal(presentationConfig{ConfigV2: configV2})

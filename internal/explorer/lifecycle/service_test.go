@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"sort"
 	"strings"
 	"testing"
@@ -64,8 +65,8 @@ type fakeStore struct {
 	saveDraftHook      func(explorer.Explorer) error
 	copyGet            bool
 	order              *[]string
-	selection          *explorer.SelectionRevision
-	selectionMembers   []explorer.SelectionMember
+	selection          *explorerselection.SelectionRevision
+	selectionMembers   []explorerselection.SelectionMember
 	memberVisits       int
 	draftRevisions     map[string]explorer.DraftRevision
 }
@@ -176,15 +177,15 @@ func (f *fakeStore) GetCompilationReceiptForExplorer(context.Context, string, st
 	return f.receipt, nil
 }
 
-func (f *fakeStore) GetSelection(context.Context, string, string) (*explorer.SelectionRevision, error) {
+func (f *fakeStore) GetSelection(context.Context, string, string) (*explorerselection.SelectionRevision, error) {
 	if f.selection == nil {
-		return nil, explorer.ErrSelectionNotFound
+		return nil, explorerselection.ErrSelectionNotFound
 	}
 	selection := *f.selection
 	return &selection, nil
 }
 
-func (f *fakeStore) VisitSelectionMembers(_ context.Context, _, _ string, after string, limit int, visit func(explorer.SelectionMember) error) (string, error) {
+func (f *fakeStore) VisitSelectionMembers(_ context.Context, _, _ string, after string, limit int, visit func(explorerselection.SelectionMember) error) (string, error) {
 	f.memberVisits++
 	if limit <= 0 {
 		limit = len(f.selectionMembers)
@@ -318,11 +319,11 @@ func testConfig(snapshot capability.Snapshot) Config {
 	}, PopulationMappingCursorCodec: cursorCodec}
 }
 
-func completedTestSelection(snapshot capability.Snapshot, resourceType string) *explorer.SelectionRevision {
+func completedTestSelection(snapshot capability.Snapshot, resourceType string) *explorerselection.SelectionRevision {
 	completedAt := time.Now().UTC()
-	return &explorer.SelectionRevision{
+	return &explorerselection.SelectionRevision{
 		ID: "selection-1", Project: snapshot.Identity.Project, Generation: snapshot.Identity.Generation, ResourceType: resourceType,
-		Rule: explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit}, Source: explorer.SelectionSource{Kind: explorer.SelectionSourceExplicit},
+		Rule: explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleExplicit}, Source: explorerselection.SelectionSource{Kind: explorerselection.SelectionSourceExplicit},
 		ScopeDigest: snapshot.Identity.AuthorizationScopeDigest, RuleDigest: "rule-digest", MembershipDigest: "membership-digest", MemberCount: 1, MemberBytes: 1,
 		Complete: true, CreatedAt: completedAt, CompletedAt: &completedAt,
 	}

@@ -6,7 +6,7 @@ import (
 
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/discoverycache"
 	publicationcontract "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest/generation"
 	"github.com/calypr/loom/internal/ingest/sourceload"
@@ -14,7 +14,7 @@ import (
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
-func wireLoad(serverConfig Config, logger *slog.Logger, connOpts arangostore.ConnectionOptions, lifecycleClient *arangostore.Client, storage storageComponents, dataframe dataframeComponents, discoveryCache *catalog.Cache, scopeResolver *authscope.ScopeResolver, releaseService *publicationcontract.ReleaseService) (*loadapi.Service, loadapi.SourceLoader, loadapi.SourceLoadLimits, error) {
+func wireLoad(serverConfig Config, logger *slog.Logger, connOpts arangostore.ConnectionOptions, lifecycleClient *arangostore.Client, storage storageComponents, dataframe dataframeComponents, discoveryCache *discoverycache.Cache, scopeResolver *authscope.ScopeResolver, releaseService *publicationcontract.ReleaseService) (*loadapi.Service, loadapi.SourceLoader, loadapi.SourceLoadLimits, error) {
 	lifecycleStore, explorerStore := storage.lifecycle, storage.explorer
 	configuredRecipeName := storage.recipeName
 	bundleTarget, recipeEngine, publishedRegistry := dataframe.target, dataframe.engine, dataframe.registry

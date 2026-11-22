@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -30,7 +31,7 @@ type CellTraceExecutor func(context.Context, *explorer.CompilationReceipt, recip
 
 type RowLineageExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error)
 
-type SelectionReferenceValidator func(context.Context, string, string, authscope.ReadScope, []explorer.ResourceRef) error
+type SelectionReferenceValidator func(context.Context, string, string, authscope.ReadScope, []explorerselection.ResourceRef) error
 
 type GenerationValidator func(context.Context, string, string) error
 type ReleaseActivator func(context.Context, string, string, []dataset.DataframeSelector) error
@@ -318,7 +319,7 @@ type PopulationMappingReport struct {
 	Binding     PopulationMappingBinding
 	Status      dataframeexecution.PopulationMappingStatus
 	Counts      *PopulationMappingCounts
-	Unmapped    []explorer.ResourceRef
+	Unmapped    []explorerselection.ResourceRef
 	NextCursor  string
 	Diagnostics []PopulationMappingDiagnostic
 }

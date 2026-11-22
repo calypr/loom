@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"io"
 	"sort"
 	"strings"
@@ -162,7 +163,7 @@ func buildViewerProjection(revision *Revision, saved *ProjectConfig) (*ExplorerR
 		Status:         status,
 		Generation:     firstNonEmptyString(revision.Dataset.Generation, revision.SourceGeneration, revision.Publication.Generation),
 		Publication:    publicationState,
-		Schema:         ExplorerRuntimeSchemaV1{Digest: firstNonEmptyString(revision.Dataset.SchemaDigest, revision.ResolvedSchemaDigest), Version: ConfigV2APIVersion},
+		Schema:         ExplorerRuntimeSchemaV1{Digest: firstNonEmptyString(revision.Dataset.SchemaDigest, revision.ResolvedSchemaDigest), Version: explorerconfig.ConfigV2APIVersion},
 		Outputs:        []ExplorerRuntimeOutputV1{},
 		SharedFilters:  map[string][]ExplorerRuntimeBindingV1{},
 		FileActions:    config.FileActions,
@@ -258,7 +259,7 @@ func buildViewerProjection(revision *Revision, saved *ProjectConfig) (*ExplorerR
 		}
 
 		table := ExplorerRuntimeTableV1{Columns: []ExplorerRuntimeTableColumnV1{}}
-		configuredBindings := make(map[string]ConfigColumn, len(view.Table.Columns))
+		configuredBindings := make(map[string]explorerconfig.ConfigColumn, len(view.Table.Columns))
 		for _, binding := range view.Table.Columns {
 			configuredBindings[binding.Column] = binding
 		}
@@ -301,7 +302,7 @@ func buildViewerProjection(revision *Revision, saved *ProjectConfig) (*ExplorerR
 			columns = append(columns, column)
 		}
 
-		bindings := func(values []ConfigFilter) []ExplorerRuntimeBindingV1 {
+		bindings := func(values []explorerconfig.ConfigFilter) []ExplorerRuntimeBindingV1 {
 			result := []ExplorerRuntimeBindingV1{}
 			for _, binding := range values {
 				if column, ok := ensureColumn(binding.Column); ok {
@@ -333,7 +334,7 @@ func buildViewerProjection(revision *Revision, saved *ProjectConfig) (*ExplorerR
 			Filters:      bindings(view.Filters),
 			Charts:       charts,
 			FixedFilters: fixed,
-			Actions:      append([]ConfigAction(nil), view.Actions...),
+			Actions:      append([]explorerconfig.ConfigAction(nil), view.Actions...),
 		}
 		if materialization, ok := materializations[view.Output]; ok {
 			copy := materialization
@@ -369,32 +370,32 @@ func projectConfigUnavailableViewIDs(diagnostics []Diagnostic) map[string]struct
 	return ids
 }
 
-func decodeProjectionConfig(raw json.RawMessage) (ConfigV2, bool, error) {
+func decodeProjectionConfig(raw json.RawMessage) (explorerconfig.ConfigV2, bool, error) {
 	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "" {
-		return ConfigV2{}, false, nil
+		return explorerconfig.ConfigV2{}, false, nil
 	}
-	var config ConfigV2
+	var config explorerconfig.ConfigV2
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&config); err != nil {
-		return ConfigV2{}, true, viewerProjectionIntegrity("config", err)
+		return explorerconfig.ConfigV2{}, true, viewerProjectionIntegrity("config", err)
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); err == nil {
-		return ConfigV2{}, true, viewerProjectionIntegrity("config", fmt.Errorf("trailing JSON value"))
+		return explorerconfig.ConfigV2{}, true, viewerProjectionIntegrity("config", fmt.Errorf("trailing JSON value"))
 	} else if !errors.Is(err, io.EOF) {
-		return ConfigV2{}, true, viewerProjectionIntegrity("config", err)
+		return explorerconfig.ConfigV2{}, true, viewerProjectionIntegrity("config", err)
 	}
-	if config.APIVersion != ConfigV2APIVersion || config.Kind != "ExplorerConfig" {
-		return ConfigV2{}, true, viewerProjectionIntegrity("config", fmt.Errorf("unsupported apiVersion/kind %q/%q", config.APIVersion, config.Kind))
+	if config.APIVersion != explorerconfig.ConfigV2APIVersion || config.Kind != "ExplorerConfig" {
+		return explorerconfig.ConfigV2{}, true, viewerProjectionIntegrity("config", fmt.Errorf("unsupported apiVersion/kind %q/%q", config.APIVersion, config.Kind))
 	}
 	return config, true, nil
 }
 
-func defaultProjectionViews(bundle recipe.ArchivedMetadata) []ConfigView {
-	views := make([]ConfigView, 0, len(bundle.Outputs))
+func defaultProjectionViews(bundle recipe.ArchivedMetadata) []explorerconfig.ConfigView {
+	views := make([]explorerconfig.ConfigView, 0, len(bundle.Outputs))
 	for _, output := range bundle.Outputs {
-		views = append(views, ConfigView{ID: output.Name, Title: output.Name, Output: output.Name})
+		views = append(views, explorerconfig.ConfigView{ID: output.Name, Title: output.Name, Output: output.Name})
 	}
 	return views
 }

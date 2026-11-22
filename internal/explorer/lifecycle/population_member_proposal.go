@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer"
@@ -21,7 +22,7 @@ type PopulationMemberRemovalProposalRequest struct {
 	ExpectedDraftDigest  string
 	OutputID             string
 	BaseSelectionID      string
-	RemovedMember        explorer.ResourceRef
+	RemovedMember        explorerselection.ResourceRef
 	Limit                int
 }
 
@@ -51,17 +52,17 @@ func (r PopulationMemberRemovalProposalRequest) Validate() error {
 }
 
 type PopulationMemberRemovalProposalResponse struct {
-	ProposalID               string                      `json:"proposalId,omitempty"`
-	OutputID                 string                      `json:"outputId"`
-	SnapshotToken            string                      `json:"snapshotToken"`
-	DraftVersion             int64                       `json:"draftVersion"`
-	DraftDigest              string                      `json:"draftDigest"`
-	BaseDocumentDigest       string                      `json:"baseDocumentDigest"`
-	CandidateWorkspaceDigest string                      `json:"candidateWorkspaceDigest"`
-	BaseSelection            *explorer.SelectionRevision `json:"baseSelection,omitempty"`
-	CandidateSelection       *explorer.SelectionRevision `json:"candidateSelection,omitempty"`
-	RemovedMember            explorer.ResourceRef        `json:"removedMember"`
-	PreviewStatus            string                      `json:"previewStatus"`
+	ProposalID               string                               `json:"proposalId,omitempty"`
+	OutputID                 string                               `json:"outputId"`
+	SnapshotToken            string                               `json:"snapshotToken"`
+	DraftVersion             int64                                `json:"draftVersion"`
+	DraftDigest              string                               `json:"draftDigest"`
+	BaseDocumentDigest       string                               `json:"baseDocumentDigest"`
+	CandidateWorkspaceDigest string                               `json:"candidateWorkspaceDigest"`
+	BaseSelection            *explorerselection.SelectionRevision `json:"baseSelection,omitempty"`
+	CandidateSelection       *explorerselection.SelectionRevision `json:"candidateSelection,omitempty"`
+	RemovedMember            explorerselection.ResourceRef        `json:"removedMember"`
+	PreviewStatus            string                               `json:"previewStatus"`
 }
 
 func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request PopulationMemberRemovalProposalRequest) (PopulationMemberRemovalProposalResponse, error) {
@@ -137,7 +138,7 @@ func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request Po
 		Project: request.Project, ExplorerID: request.ExplorerID, SnapshotToken: request.SnapshotToken,
 		IdempotencyKey: "population-member-removal-" + uuid.NewString(),
 		Source:         SelectionSourceIntent{Kind: SelectionSourceSelectionRevision, SelectionRevisionID: baseSelection.ID},
-		Exclusions:     []explorer.ResourceRef{request.RemovedMember},
+		Exclusions:     []explorerselection.ResourceRef{request.RemovedMember},
 	})
 	if err != nil {
 		return PopulationMemberRemovalProposalResponse{}, err
@@ -199,16 +200,16 @@ func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request Po
 }
 
 type selectionMemberReader interface {
-	VisitSelectionMembers(context.Context, string, string, string, int, func(explorer.SelectionMember) error) (string, error)
+	VisitSelectionMembers(context.Context, string, string, string, int, func(explorerselection.SelectionMember) error) (string, error)
 }
 
-func selectionContainsExactMember(ctx context.Context, store selectionMemberReader, project, selectionID string, target explorer.ResourceRef) (bool, error) {
+func selectionContainsExactMember(ctx context.Context, store selectionMemberReader, project, selectionID string, target explorerselection.ResourceRef) (bool, error) {
 	target = target.Canonical()
 	after := ""
 	maxPages := int((DefaultSelectionMaxRows+selectionBatchSize-1)/selectionBatchSize) + 1
 	for page := 0; page < maxPages; page++ {
 		found := false
-		next, err := store.VisitSelectionMembers(ctx, project, selectionID, after, selectionBatchSize, func(member explorer.SelectionMember) error {
+		next, err := store.VisitSelectionMembers(ctx, project, selectionID, after, selectionBatchSize, func(member explorerselection.SelectionMember) error {
 			if member.Ref.Canonical() == target {
 				found = true
 			}
@@ -231,7 +232,7 @@ func selectionContainsExactMember(ctx context.Context, store selectionMemberRead
 	return false, fmt.Errorf("selection member lookup exceeded the immutable selection size bound")
 }
 
-func validatePopulationRemovalSelection(base, candidate *explorer.SelectionRevision, removed explorer.ResourceRef, snapshot capability.Snapshot) error {
+func validatePopulationRemovalSelection(base, candidate *explorerselection.SelectionRevision, removed explorerselection.ResourceRef, snapshot capability.Snapshot) error {
 	if base == nil || candidate == nil {
 		return fmt.Errorf("base and candidate selection headers are required")
 	}
@@ -242,7 +243,7 @@ func validatePopulationRemovalSelection(base, candidate *explorer.SelectionRevis
 		return err
 	}
 	project, generation, scope := projectid.Canonical(snapshot.Identity.Project), snapshot.Identity.Generation, snapshot.Identity.AuthorizationScopeDigest
-	for name, selection := range map[string]*explorer.SelectionRevision{"base": base, "candidate": candidate} {
+	for name, selection := range map[string]*explorerselection.SelectionRevision{"base": base, "candidate": candidate} {
 		if !selection.Complete || projectid.Canonical(selection.Project) != project || selection.Generation != generation || selection.ScopeDigest != scope {
 			return fmt.Errorf("%s selection is incomplete or outside the authorized project, generation, or scope", name)
 		}
@@ -258,15 +259,15 @@ func validatePopulationRemovalSelection(base, candidate *explorer.SelectionRevis
 	if base.MemberCount < 1 || candidate.MemberCount != base.MemberCount-1 {
 		return fmt.Errorf("candidate selection does not remove exactly one member")
 	}
-	if candidate.Source.Kind != explorer.SelectionSourceRevision || candidate.Source.RevisionID != base.ID || candidate.Source.Generation != base.Generation ||
+	if candidate.Source.Kind != explorerselection.SelectionSourceRevision || candidate.Source.RevisionID != base.ID || candidate.Source.Generation != base.Generation ||
 		candidate.Source.ResourceType != base.ResourceType || candidate.Source.MembershipDigest != base.MembershipDigest ||
-		candidate.Rule.Kind != explorer.SelectionRuleExplicit || len(candidate.Exclusions) != 1 || candidate.Exclusions[0].Canonical() != removed {
+		candidate.Rule.Kind != explorerselection.SelectionRuleExplicit || len(candidate.Exclusions) != 1 || candidate.Exclusions[0].Canonical() != removed {
 		return fmt.Errorf("candidate selection provenance does not identify the exact base-minus-member derivation")
 	}
 	return nil
 }
 
-func cloneSelectionHeader(selection *explorer.SelectionRevision) *explorer.SelectionRevision {
+func cloneSelectionHeader(selection *explorerselection.SelectionRevision) *explorerselection.SelectionRevision {
 	if selection == nil {
 		return nil
 	}

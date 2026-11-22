@@ -1,4 +1,4 @@
-package explorer
+package selection
 
 import (
 	"testing"

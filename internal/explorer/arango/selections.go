@@ -5,10 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"strings"
 	"time"
 
-	"github.com/calypr/loom/internal/explorer"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -18,15 +18,15 @@ const (
 	selectionCleanupLimit = 100
 )
 
-func selectionMemberKey(selectionID string, ref explorer.ResourceRef) string {
+func selectionMemberKey(selectionID string, ref explorerselection.ResourceRef) string {
 	return selectionID + "_" + key(ref.Project, ref.Generation, ref.ResourceType, ref.ID)
 }
 
-func (s *SelectionStore) BeginSelection(ctx context.Context, selection explorer.SelectionRevision, writerToken string) (*explorer.SelectionRevision, error) {
+func (s *SelectionStore) BeginSelection(ctx context.Context, selection explorerselection.SelectionRevision, writerToken string) (*explorerselection.SelectionRevision, error) {
 	selection = selection.Canonical()
 	writerToken = strings.TrimSpace(writerToken)
 	if writerToken == "" {
-		return nil, explorer.ErrSelectionConflict
+		return nil, explorerselection.ErrSelectionConflict
 	}
 	if err := selection.Validate(); err != nil {
 		return nil, err
@@ -53,7 +53,7 @@ func (s *SelectionStore) BeginSelection(ctx context.Context, selection explorer.
 		return nil, err
 	}
 	if existingID != "" && existingID != selection.ID {
-		return nil, explorer.ErrSelectionConflict
+		return nil, explorerselection.ErrSelectionConflict
 	}
 	if err := s.client.QueryRows(ctx, `INSERT @doc INTO @@c OPTIONS { overwriteMode: "ignore" } RETURN NEW`, 1, map[string]any{"@c": SelectionsCollection, "doc": doc}, func(map[string]any) error { return nil }); err != nil {
 		return nil, err
@@ -63,7 +63,7 @@ func (s *SelectionStore) BeginSelection(ctx context.Context, selection explorer.
 		return nil, err
 	}
 	if stored.Project != selection.Project || stored.Generation != selection.Generation || stored.ResourceType != selection.ResourceType || stored.RuleDigest != selection.RuleDigest || stored.ScopeDigest != selection.ScopeDigest || stored.IdempotencyKey != selection.IdempotencyKey {
-		return nil, explorer.ErrSelectionConflict
+		return nil, explorerselection.ErrSelectionConflict
 	}
 	if !stored.Complete {
 		storedWriterToken := ""
@@ -74,32 +74,32 @@ func (s *SelectionStore) BeginSelection(ctx context.Context, selection explorer.
 			return nil, err
 		}
 		if strings.TrimSpace(storedWriterToken) != writerToken {
-			return nil, explorer.ErrSelectionConflict
+			return nil, explorerselection.ErrSelectionConflict
 		}
 	}
 	return stored, nil
 }
 
-func (s *SelectionStore) AppendSelectionMembers(ctx context.Context, selectionID, writerToken string, members []explorer.SelectionMember) ([]explorer.SelectionMember, error) {
+func (s *SelectionStore) AppendSelectionMembers(ctx context.Context, selectionID, writerToken string, members []explorerselection.SelectionMember) ([]explorerselection.SelectionMember, error) {
 	selectionID = strings.TrimSpace(selectionID)
 	writerToken = strings.TrimSpace(writerToken)
 	if selectionID == "" {
 		return nil, fmt.Errorf("selection id is required")
 	}
 	if writerToken == "" {
-		return nil, explorer.ErrSelectionConflict
+		return nil, explorerselection.ErrSelectionConflict
 	}
 	if len(members) == 0 {
 		return nil, nil
 	}
 
-	inserted := make([]explorer.SelectionMember, 0, len(members))
+	inserted := make([]explorerselection.SelectionMember, 0, len(members))
 	err := s.client.WithTransaction(ctx, store.TransactionCollections{Write: []string{SelectionsCollection, SelectionMembersCollection}}, func(txCtx context.Context, tx store.RowQueryer) error {
-		var header *explorer.SelectionRevision
+		var header *explorerselection.SelectionRevision
 		storedWriterToken := ""
 		state := ""
 		if err := tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": SelectionsCollection, "key": selectionID}, func(row map[string]any) error {
-			value, err := decode[explorer.SelectionRevision](row)
+			value, err := decode[explorerselection.SelectionRevision](row)
 			if err != nil {
 				return err
 			}
@@ -111,21 +111,21 @@ func (s *SelectionStore) AppendSelectionMembers(ctx context.Context, selectionID
 			return err
 		}
 		if header == nil {
-			return explorer.ErrSelectionNotFound
+			return explorerselection.ErrSelectionNotFound
 		}
 		if strings.TrimSpace(storedWriterToken) != writerToken {
-			return explorer.ErrSelectionConflict
+			return explorerselection.ErrSelectionConflict
 		}
 		if header.Complete || (state != "" && state != selectionStagingState) {
-			return explorer.ErrSelectionConflict
+			return explorerselection.ErrSelectionConflict
 		}
 		docs := make([]map[string]any, 0, len(members))
-		byKey := make(map[string]explorer.SelectionMember, len(members))
+		byKey := make(map[string]explorerselection.SelectionMember, len(members))
 		for _, raw := range members {
 			member := raw.Canonical()
 			expectedMemberKey := selectionMemberKey(selectionID, member.Ref)
 			if member.MemberKey != "" && member.MemberKey != expectedMemberKey {
-				return explorer.ErrSelectionConflict
+				return explorerselection.ErrSelectionConflict
 			}
 			member.MemberKey = expectedMemberKey
 			if err := member.Ref.Validate(header.Project, header.Generation, header.ResourceType); err != nil {
@@ -175,7 +175,7 @@ func (s *SelectionStore) DigestSelectionMembers(ctx context.Context, project, se
 	selectionID = strings.TrimSpace(selectionID)
 	project = strings.TrimSpace(project)
 	if selectionID == "" || project == "" {
-		return "", 0, 0, explorer.ErrSelectionNotFound
+		return "", 0, 0, explorerselection.ErrSelectionNotFound
 	}
 	header, err := s.GetSelection(ctx, project, selectionID)
 	if err != nil {
@@ -195,12 +195,12 @@ func (s *SelectionStore) DigestSelectionMembers(ctx context.Context, project, se
 	SORT m.id ASC
 	LIMIT @limit
 	RETURN m`, 1000, map[string]any{"@c": SelectionMembersCollection, "selectionId": selectionID, "project": project, "generation": header.Generation, "resourceType": header.ResourceType, "afterID": afterID, "limit": 1000}, func(row map[string]any) error {
-			member, decodeErr := decode[explorer.SelectionMember](row)
+			member, decodeErr := decode[explorerselection.SelectionMember](row)
 			if decodeErr != nil {
 				return decodeErr
 			}
 			member = member.Canonical()
-			explorer.WriteMembershipFrame(hash, member.Ref)
+			explorerselection.WriteMembershipFrame(hash, member.Ref)
 			for _, value := range []string{member.Ref.Project, member.Ref.Generation, member.Ref.ResourceType, member.Ref.ID} {
 				bytes += int64(8 + len(value))
 			}
@@ -219,14 +219,14 @@ func (s *SelectionStore) DigestSelectionMembers(ctx context.Context, project, se
 	return hex.EncodeToString(hash.Sum(nil)), count, bytes, nil
 }
 
-func (s *SelectionStore) CompleteSelection(ctx context.Context, selectionID, writerToken, digest string, count, bytes int64, completedAt time.Time) (*explorer.SelectionRevision, error) {
+func (s *SelectionStore) CompleteSelection(ctx context.Context, selectionID, writerToken, digest string, count, bytes int64, completedAt time.Time) (*explorerselection.SelectionRevision, error) {
 	selectionID = strings.TrimSpace(selectionID)
 	writerToken = strings.TrimSpace(writerToken)
 	if selectionID == "" || strings.TrimSpace(digest) == "" || count < 0 || bytes < 0 {
-		return nil, explorer.ErrSelectionIncomplete
+		return nil, explorerselection.ErrSelectionIncomplete
 	}
 	if writerToken == "" {
-		return nil, explorer.ErrSelectionConflict
+		return nil, explorerselection.ErrSelectionConflict
 	}
 	if completedAt.IsZero() {
 		completedAt = time.Now().UTC()
@@ -251,7 +251,7 @@ UPDATE d WITH {complete: true, state: "COMPLETE", membershipDigest: @digest, mem
 	}
 	if stored.Complete {
 		if stored.MembershipDigest != digest || stored.MemberCount != count || stored.MemberBytes != bytes {
-			return nil, explorer.ErrSelectionConflict
+			return nil, explorerselection.ErrSelectionConflict
 		}
 		return stored, nil
 	}
@@ -264,9 +264,9 @@ UPDATE d WITH {complete: true, state: "COMPLETE", membershipDigest: @digest, mem
 			return nil, err
 		}
 		if strings.TrimSpace(storedWriterToken) != writerToken {
-			return nil, explorer.ErrSelectionConflict
+			return nil, explorerselection.ErrSelectionConflict
 		}
-		return nil, explorer.ErrSelectionIncomplete
+		return nil, explorerselection.ErrSelectionIncomplete
 	}
 	return stored, nil
 }
@@ -278,7 +278,7 @@ func (s *SelectionStore) AbortSelection(ctx context.Context, selectionID, writer
 		return nil
 	}
 	if writerToken == "" {
-		return explorer.ErrSelectionConflict
+		return explorerselection.ErrSelectionConflict
 	}
 	ownerExpr := `header != null AND header.complete != true AND header.writerToken == @writerToken`
 	binds := map[string]any{"@members": SelectionMembersCollection, "@headers": SelectionsCollection, "selectionId": selectionID, "writerToken": writerToken}
@@ -300,11 +300,11 @@ RETURN {removed: LENGTH(removedHeaders) > 0}`
 	return s.client.QueryRows(ctx, query, 1, binds, func(map[string]any) error { return nil })
 }
 
-func (s *SelectionStore) GetSelection(ctx context.Context, project, selectionID string) (*explorer.SelectionRevision, error) {
+func (s *SelectionStore) GetSelection(ctx context.Context, project, selectionID string) (*explorerselection.SelectionRevision, error) {
 	return s.readSelection(ctx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project RETURN d`, map[string]any{"@c": SelectionsCollection, "key": strings.TrimSpace(selectionID), "project": strings.TrimSpace(project)})
 }
 
-func (s *SelectionStore) VisitSelectionMembers(ctx context.Context, project, selectionID, after string, pageSize int, visit func(explorer.SelectionMember) error) (string, error) {
+func (s *SelectionStore) VisitSelectionMembers(ctx context.Context, project, selectionID, after string, pageSize int, visit func(explorerselection.SelectionMember) error) (string, error) {
 	if visit == nil {
 		return "", fmt.Errorf("selection member visitor is required")
 	}
@@ -313,19 +313,19 @@ func (s *SelectionStore) VisitSelectionMembers(ctx context.Context, project, sel
 		return "", err
 	}
 	if !header.Complete {
-		return "", explorer.ErrSelectionIncomplete
+		return "", explorerselection.ErrSelectionIncomplete
 	}
 	if pageSize <= 0 {
 		pageSize = 1000
 	}
-	page := make([]explorer.SelectionMember, 0, pageSize)
+	page := make([]explorerselection.SelectionMember, 0, pageSize)
 	last := strings.TrimSpace(after)
 	err = s.client.QueryRows(ctx, `FOR m IN @@c
 FILTER m.selectionId == @selectionId AND m.project == @project AND m._key > @after
 SORT m._key ASC
 LIMIT @limit
 RETURN m`, pageSize, map[string]any{"@c": SelectionMembersCollection, "selectionId": selectionID, "project": strings.TrimSpace(project), "after": last, "limit": pageSize}, func(row map[string]any) error {
-		member, decodeErr := decode[explorer.SelectionMember](row)
+		member, decodeErr := decode[explorerselection.SelectionMember](row)
 		if decodeErr != nil {
 			return decodeErr
 		}
@@ -347,10 +347,10 @@ RETURN m`, pageSize, map[string]any{"@c": SelectionMembersCollection, "selection
 	return last, nil
 }
 
-func (s *SelectionStore) readSelection(ctx context.Context, query string, binds map[string]any) (*explorer.SelectionRevision, error) {
-	var result *explorer.SelectionRevision
+func (s *SelectionStore) readSelection(ctx context.Context, query string, binds map[string]any) (*explorerselection.SelectionRevision, error) {
+	var result *explorerselection.SelectionRevision
 	err := s.client.QueryRows(ctx, query, 1, binds, func(row map[string]any) error {
-		value, err := decode[explorer.SelectionRevision](row)
+		value, err := decode[explorerselection.SelectionRevision](row)
 		if err != nil {
 			return err
 		}
@@ -361,7 +361,7 @@ func (s *SelectionStore) readSelection(ctx context.Context, query string, binds 
 		return nil, err
 	}
 	if result == nil {
-		return nil, explorer.ErrSelectionNotFound
+		return nil, explorerselection.ErrSelectionNotFound
 	}
 	if result.Complete {
 		if err := result.Validate(); err != nil {

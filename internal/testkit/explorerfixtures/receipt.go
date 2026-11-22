@@ -3,6 +3,7 @@ package explorerfixtures
 import (
 	"context"
 	"encoding/json"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"testing"
 	"time"
 
@@ -42,7 +43,7 @@ func PersistTestNativeReceipt(ctx context.Context, t *testing.T, service *explor
 		ShapeDigest:      snapshot.Identity.ShapeDigest,
 		SourceGeneration: snapshot.Identity.Generation, RecipeDigest: bundleDigest, ResolvedRecipeDigest: bundleDigest,
 		ResolvedSchemaDigest: "resolved-schema", OutputContractDigest: contractDigest,
-		NormalizedBundle: normalized, Bundle: bundle, CompiledConfig: json.RawMessage(`{"apiVersion":"` + explorer.ConfigV2APIVersion + `","kind":"ExplorerConfig"}`), PublicOutputContract: contract,
+		NormalizedBundle: normalized, Bundle: bundle, CompiledConfig: json.RawMessage(`{"apiVersion":"` + explorerconfig.ConfigV2APIVersion + `","kind":"ExplorerConfig"}`), PublicOutputContract: contract,
 		RowDefinitionProposal: request.RowDefinitionProposal,
 		ConstructionProposal:  request.ConstructionProposal,
 		EmittedColumns:        []explorer.EmittedColumn{{EmissionID: "em_patient", OutputID: "patients", CandidateID: "c_patient_id", OccurrenceID: authoringv2.RootOccurrenceID, ProjectionMode: "FIRST", PublicColumn: "c_patient", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: true}},

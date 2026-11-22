@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/calypr/loom/internal/catalog/identity"
+	"github.com/calypr/loom/internal/catalog/internal/digest"
 )
 
 func stringValue(value any) string {
@@ -26,7 +26,7 @@ func fieldCatalogKeyForGeneration(project, datasetGeneration, authResourcePath, 
 	if datasetGeneration == "" {
 		return fieldCatalogKey(project, authResourcePath, resourceType, path)
 	}
-	return generationFieldCatalogKeyPrefix + identity.Digest(
+	return generationFieldCatalogKeyPrefix + digest.Digest(
 		"field-catalog/v1",
 		project,
 		datasetGeneration,

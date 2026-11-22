@@ -3,6 +3,7 @@ package projectconfig
 import (
 	"context"
 	"errors"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"strings"
 	"testing"
 	"time"
@@ -88,7 +89,7 @@ func TestViewBuilderServiceSavesPresentationAgainstExactCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := New(explorers)
-	config := explorer.ProjectConfig{ID: "custom", Title: "Custom", RecipeRef: explorer.ProjectConfigRecipeRef{Name: resolved.Bundle.Name}, Views: []explorer.ConfigView{{ID: "documents", Title: "Documents", Output: "Documents", Table: explorer.ConfigTable{Columns: []explorer.ConfigColumn{{Column: "document_reference_id", Visible: true, Label: "My ID"}}}}}}
+	config := explorer.ProjectConfig{ID: "custom", Title: "Custom", RecipeRef: explorer.ProjectConfigRecipeRef{Name: resolved.Bundle.Name}, Views: []explorerconfig.ConfigView{{ID: "documents", Title: "Documents", Output: "Documents", Table: explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{{Column: "document_reference_id", Visible: true, Label: "My ID"}}}}}}
 	request := explorer.ViewBuilderSaveRequest{CatalogRevisionID: snapshot.ID, Config: config}
 	state, err := service.SaveViewBuilderConfig(context.Background(), "HTAN_INT/BForePC", config.ID, request, "editor")
 	if err != nil {

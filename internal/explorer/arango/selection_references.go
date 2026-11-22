@@ -3,17 +3,17 @@ package arango
 import (
 	"context"
 	"fmt"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"sort"
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/projectid"
 )
 
 const selectionReferenceBatchSize = 1000
 
-func (s *Store) ValidateSelectionReferences(ctx context.Context, project, generation string, scope authscope.ReadScope, refs []explorer.ResourceRef) error {
+func (s *Store) ValidateSelectionReferences(ctx context.Context, project, generation string, scope authscope.ReadScope, refs []explorerselection.ResourceRef) error {
 	project = projectid.Canonical(project)
 	generation = strings.TrimSpace(generation)
 	if project == "" || generation == "" {
@@ -77,9 +77,9 @@ func (s *Store) ValidateSelectionReferences(ctx context.Context, project, genera
 			}
 
 			if !scope.Unrestricted() {
-				return fmt.Errorf("%w: resource reference is unavailable in the authorized scope", explorer.ErrResourceRefScopeMismatch)
+				return fmt.Errorf("%w: resource reference is unavailable in the authorized scope", explorerselection.ErrResourceRefScopeMismatch)
 			}
-			return fmt.Errorf("%w: resource reference %s/%s was not found", explorer.ErrSelectionNotFound, group.resourceType, id)
+			return fmt.Errorf("%w: resource reference %s/%s was not found", explorerselection.ErrSelectionNotFound, group.resourceType, id)
 		}
 	}
 	return nil

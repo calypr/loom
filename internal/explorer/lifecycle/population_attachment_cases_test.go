@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"io"
 	"os"
 	"reflect"
@@ -61,14 +62,14 @@ type attachmentResult struct {
 }
 type attachmentStore struct {
 	*fakeStore
-	selections       map[string]explorer.SelectionRevision
+	selections       map[string]explorerselection.SelectionRevision
 	attempts, writes int
 }
 
-func (s *attachmentStore) GetSelection(_ context.Context, _, id string) (*explorer.SelectionRevision, error) {
+func (s *attachmentStore) GetSelection(_ context.Context, _, id string) (*explorerselection.SelectionRevision, error) {
 	value, ok := s.selections[id]
 	if !ok {
-		return nil, explorer.ErrSelectionNotFound
+		return nil, explorerselection.ErrSelectionNotFound
 	}
 	return &value, nil
 }
@@ -150,7 +151,7 @@ func attachmentObserve(t *testing.T, c attachmentCase) attachmentResult {
 		t.Fatal(setupErr)
 	}
 	base.copyGet = true
-	store := &attachmentStore{fakeStore: base, selections: map[string]explorer.SelectionRevision{}}
+	store := &attachmentStore{fakeStore: base, selections: map[string]explorerselection.SelectionRevision{}}
 	resourceType := "Observation"
 	if c.Edge == "zero" {
 		resourceType = "Patient"

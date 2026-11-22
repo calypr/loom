@@ -2,6 +2,7 @@ package explorer
 
 import (
 	"context"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"time"
 )
 
@@ -11,7 +12,7 @@ type ExplicitGroupMembershipCursor struct {
 }
 
 type ExplicitGroupRepository interface {
-	BeginExplicitGroupRevision(context.Context, ExplicitGroupRevision, SelectionRevision, string) (*ExplicitGroupRevision, error)
+	BeginExplicitGroupRevision(context.Context, ExplicitGroupRevision, explorerselection.SelectionRevision, string) (*ExplicitGroupRevision, error)
 	PutExplicitGroupDefinitions(context.Context, ExplicitGroupRevisionID, string, []ExplicitGroupDefinition) error
 	AppendExplicitGroupMemberships(context.Context, ExplicitGroupRevisionID, string, []ExplicitGroupMembership) ([]ExplicitGroupMembership, error)
 	DigestExplicitGroupRevision(context.Context, string, ExplicitGroupRevisionID) (string, string, int64, int64, error)

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/discoverycache"
 	"github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -32,7 +32,7 @@ type SourcePublicationAdapterConfig struct {
 	PublishedRegistry      publication.BundleCatalog
 	Explorer               sourcePublicationExplorer
 	ReleaseService         *dataset.ReleaseService
-	DiscoveryCache         *catalog.Cache
+	DiscoveryCache         *discoverycache.Cache
 	ScopeResolver          *authscope.ScopeResolver
 	BatchRows              int
 	BatchBytes             int

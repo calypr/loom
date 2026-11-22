@@ -2,6 +2,7 @@ package explorerfixtures
 
 import (
 	"context"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"sort"
 	"sync"
 	"time"
@@ -12,8 +13,8 @@ import (
 type SelectionStore struct {
 	*Store
 	SelectionMu sync.Mutex
-	Selections  map[string]explorer.SelectionRevision
-	Members     map[string][]explorer.SelectionMember
+	Selections  map[string]explorerselection.SelectionRevision
+	Members     map[string][]explorerselection.SelectionMember
 	SaveCalls   int
 }
 
@@ -22,25 +23,25 @@ func (s *SelectionStore) SaveDraft(ctx context.Context, value explorer.Explorer,
 	return s.Store.SaveDraft(ctx, value, expected, expectedDigest...)
 }
 
-func (s *SelectionStore) GetSelection(_ context.Context, project, id string) (*explorer.SelectionRevision, error) {
+func (s *SelectionStore) GetSelection(_ context.Context, project, id string) (*explorerselection.SelectionRevision, error) {
 	s.SelectionMu.Lock()
 	defer s.SelectionMu.Unlock()
 	header, ok := s.Selections[id]
 	if !ok || header.Project != project {
-		return nil, explorer.ErrSelectionNotFound
+		return nil, explorerselection.ErrSelectionNotFound
 	}
 	copy := header.Canonical()
 	return &copy, nil
 }
 
-func (s *SelectionStore) VisitSelectionMembers(_ context.Context, project, id, after string, limit int, visit func(explorer.SelectionMember) error) (string, error) {
+func (s *SelectionStore) VisitSelectionMembers(_ context.Context, project, id, after string, limit int, visit func(explorerselection.SelectionMember) error) (string, error) {
 	s.SelectionMu.Lock()
 	members, ok := s.Members[id]
 	if !ok || s.Selections[id].Project != project {
 		s.SelectionMu.Unlock()
-		return "", explorer.ErrSelectionNotFound
+		return "", explorerselection.ErrSelectionNotFound
 	}
-	ordered := append([]explorer.SelectionMember(nil), members...)
+	ordered := append([]explorerselection.SelectionMember(nil), members...)
 	s.SelectionMu.Unlock()
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Ref.ID < ordered[j].Ref.ID })
 	start := 0
@@ -65,7 +66,7 @@ func (s *SelectionStore) VisitSelectionMembers(_ context.Context, project, id, a
 	return ordered[end-1].Ref.ID, nil
 }
 
-func (s *SelectionStore) BeginSelection(_ context.Context, header explorer.SelectionRevision, _ string) (*explorer.SelectionRevision, error) {
+func (s *SelectionStore) BeginSelection(_ context.Context, header explorerselection.SelectionRevision, _ string) (*explorerselection.SelectionRevision, error) {
 	s.SelectionMu.Lock()
 	defer s.SelectionMu.Unlock()
 	if current, ok := s.Selections[header.ID]; ok && current.Complete {
@@ -74,18 +75,18 @@ func (s *SelectionStore) BeginSelection(_ context.Context, header explorer.Selec
 	}
 	header = header.Canonical()
 	s.Selections[header.ID] = header
-	s.Members[header.ID] = []explorer.SelectionMember{}
+	s.Members[header.ID] = []explorerselection.SelectionMember{}
 	copy := header.Canonical()
 	return &copy, nil
 }
 
-func (s *SelectionStore) AppendSelectionMembers(_ context.Context, id, _ string, members []explorer.SelectionMember) ([]explorer.SelectionMember, error) {
+func (s *SelectionStore) AppendSelectionMembers(_ context.Context, id, _ string, members []explorerselection.SelectionMember) ([]explorerselection.SelectionMember, error) {
 	s.SelectionMu.Lock()
 	defer s.SelectionMu.Unlock()
 	if _, ok := s.Selections[id]; !ok {
-		return nil, explorer.ErrSelectionNotFound
+		return nil, explorerselection.ErrSelectionNotFound
 	}
-	added := make([]explorer.SelectionMember, 0, len(members))
+	added := make([]explorerselection.SelectionMember, 0, len(members))
 	for _, member := range members {
 		member = member.Canonical()
 		duplicate := false
@@ -108,7 +109,7 @@ func (s *SelectionStore) DigestSelectionMembers(_ context.Context, project, id s
 	defer s.SelectionMu.Unlock()
 	members, ok := s.Members[id]
 	if !ok || s.Selections[id].Project != project {
-		return "", 0, 0, explorer.ErrSelectionNotFound
+		return "", 0, 0, explorerselection.ErrSelectionNotFound
 	}
 	var bytes int64
 	for _, member := range members {
@@ -117,15 +118,15 @@ func (s *SelectionStore) DigestSelectionMembers(_ context.Context, project, id s
 			bytes += int64(8 + len(value))
 		}
 	}
-	return explorer.MembershipDigest(members), int64(len(members)), bytes, nil
+	return explorerselection.MembershipDigest(members), int64(len(members)), bytes, nil
 }
 
-func (s *SelectionStore) CompleteSelection(_ context.Context, id, _ string, digest string, count, bytes int64, completedAt time.Time) (*explorer.SelectionRevision, error) {
+func (s *SelectionStore) CompleteSelection(_ context.Context, id, _ string, digest string, count, bytes int64, completedAt time.Time) (*explorerselection.SelectionRevision, error) {
 	s.SelectionMu.Lock()
 	defer s.SelectionMu.Unlock()
 	header, ok := s.Selections[id]
 	if !ok {
-		return nil, explorer.ErrSelectionNotFound
+		return nil, explorerselection.ErrSelectionNotFound
 	}
 	header.MembershipDigest, header.MemberCount, header.MemberBytes = digest, count, bytes
 	header.Complete, header.CompletedAt = true, &completedAt

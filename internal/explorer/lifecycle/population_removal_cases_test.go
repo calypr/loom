@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"io"
 	"os"
 	"reflect"
@@ -85,7 +86,7 @@ func formalRemovalObserve(t *testing.T, c formalRemovalCase) formalRemovalResult
 	if err != nil {
 		t.Fatal(err)
 	}
-	removed := explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
+	removed := explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
 	proposal, err := service.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(base, snapshot, removed))
 	if err != nil {
 		t.Fatal(err)

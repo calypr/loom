@@ -1,10 +1,11 @@
-package catalog
+package discoverycache
 
 import (
 	"context"
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 )
 
@@ -67,12 +68,12 @@ func TestCacheClonesExtensionObservations(t *testing.T) {
 func TestCacheDiscoverReferencesSeparatesAuthScopes(t *testing.T) {
 	cache := NewCache()
 	calls := 0
-	discover := cache.DiscoverReferences(func(ctx context.Context, opts PopulatedReferenceOptions) ([]PopulatedReference, error) {
+	discover := cache.DiscoverReferences(func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 		calls++
-		return []PopulatedReference{{FromType: opts.NodeType, Label: "subject_Patient", ToType: "Specimen"}}, nil
+		return []catalog.PopulatedReference{{FromType: opts.NodeType, Label: "subject_Patient", ToType: "Specimen"}}, nil
 	})
 
-	base := PopulatedReferenceOptions{Project: "P1", NodeType: "Patient", Mode: TraversalModeBuilder}
+	base := catalog.PopulatedReferenceOptions{Project: "P1", NodeType: "Patient", Mode: catalog.TraversalModeBuilder}
 	withA := base
 	withA.AuthResourcePaths = []string{"a"}
 	withB := base
@@ -95,16 +96,16 @@ func TestCacheDiscoverReferencesSeparatesAuthScopes(t *testing.T) {
 func TestCacheDiscoverReferencesSeparatesActiveFiltersByMode(t *testing.T) {
 	cache := NewCache()
 	calls := 0
-	discover := cache.DiscoverReferences(func(_ context.Context, opts PopulatedReferenceOptions) ([]PopulatedReference, error) {
+	discover := cache.DiscoverReferences(func(_ context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 		calls++
-		return []PopulatedReference{{FromType: opts.FromType, ToType: opts.NodeType}}, nil
+		return []catalog.PopulatedReference{{FromType: opts.FromType, ToType: opts.NodeType}}, nil
 	})
 
-	for _, opts := range []PopulatedReferenceOptions{
-		{Project: "P1", Mode: TraversalModeStorage, FromType: "Patient"},
-		{Project: "P1", Mode: TraversalModeStorage, FromType: "Observation"},
-		{Project: "P1", Mode: TraversalModeBuilder, NodeType: "Patient"},
-		{Project: "P1", Mode: TraversalModeBuilder, NodeType: "Observation"},
+	for _, opts := range []catalog.PopulatedReferenceOptions{
+		{Project: "P1", Mode: catalog.TraversalModeStorage, FromType: "Patient"},
+		{Project: "P1", Mode: catalog.TraversalModeStorage, FromType: "Observation"},
+		{Project: "P1", Mode: catalog.TraversalModeBuilder, NodeType: "Patient"},
+		{Project: "P1", Mode: catalog.TraversalModeBuilder, NodeType: "Observation"},
 	} {
 		if _, err := discover(context.Background(), opts); err != nil {
 			t.Fatal(err)
@@ -127,7 +128,7 @@ func TestCacheSeparatesRestrictedEmptyScopeFromUnrestrictedScope(t *testing.T) {
 	restrictedEmpty := fieldprofile.PopulatedFieldOptions{
 		Project:                       "P1",
 		ResourceType:                  "Patient",
-		AuthResourcePathsUnrestricted: ExplicitAuthResourcePathsUnrestricted(false),
+		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(false),
 		AuthResourcePaths:             []string{},
 	}
 
@@ -150,13 +151,13 @@ func TestCacheSeparatesDatasetGenerationNamespaces(t *testing.T) {
 		return []fieldprofile.PopulatedField{{ResourceType: "Patient", Path: "gender"}}, nil
 	})
 	referenceCalls := 0
-	discoverReferences := cache.DiscoverReferences(func(context.Context, PopulatedReferenceOptions) ([]PopulatedReference, error) {
+	discoverReferences := cache.DiscoverReferences(func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 		referenceCalls++
-		return []PopulatedReference{{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen"}}, nil
+		return []catalog.PopulatedReference{{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen"}}, nil
 	})
 
 	fieldBase := fieldprofile.PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}
-	referenceBase := PopulatedReferenceOptions{Project: "P1", NodeType: "Patient", Mode: TraversalModeBuilder}
+	referenceBase := catalog.PopulatedReferenceOptions{Project: "P1", NodeType: "Patient", Mode: catalog.TraversalModeBuilder}
 	for _, generation := range []string{"", "generation-a", " generation-a ", "generation-b"} {
 		fields := fieldBase
 		fields.DatasetGeneration = generation
@@ -184,15 +185,15 @@ func TestCacheBoundsEntriesAcrossFieldsAndReferences(t *testing.T) {
 		fieldCalls++
 		return []fieldprofile.PopulatedField{{Path: "field"}}, nil
 	})
-	discoverReferences := cache.DiscoverReferences(func(context.Context, PopulatedReferenceOptions) ([]PopulatedReference, error) {
+	discoverReferences := cache.DiscoverReferences(func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 		referenceCalls++
-		return []PopulatedReference{{FromType: "Patient", ToType: "Observation"}}, nil
+		return []catalog.PopulatedReference{{FromType: "Patient", ToType: "Observation"}}, nil
 	})
 
 	if _, err := discoverFields(context.Background(), fieldprofile.PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := discoverReferences(context.Background(), PopulatedReferenceOptions{Project: "P1", FromType: "Patient"}); err != nil {
+	if _, err := discoverReferences(context.Background(), catalog.PopulatedReferenceOptions{Project: "P1", FromType: "Patient"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := discoverFields(context.Background(), fieldprofile.PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}); err != nil {
@@ -201,7 +202,7 @@ func TestCacheBoundsEntriesAcrossFieldsAndReferences(t *testing.T) {
 	if _, err := discoverFields(context.Background(), fieldprofile.PopulatedFieldOptions{Project: "P2", ResourceType: "Patient"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := discoverReferences(context.Background(), PopulatedReferenceOptions{Project: "P1", FromType: "Patient"}); err != nil {
+	if _, err := discoverReferences(context.Background(), catalog.PopulatedReferenceOptions{Project: "P1", FromType: "Patient"}); err != nil {
 		t.Fatal(err)
 	}
 

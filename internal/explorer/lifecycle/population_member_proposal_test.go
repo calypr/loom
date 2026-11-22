@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"reflect"
 	"sort"
 	"testing"
@@ -21,11 +22,11 @@ import (
 
 type populationProposalTestStore struct {
 	*fakeStore
-	selections map[string]explorer.SelectionRevision
-	members    map[string][]explorer.SelectionMember
+	selections map[string]explorerselection.SelectionRevision
+	members    map[string][]explorerselection.SelectionMember
 }
 
-func (s *populationProposalTestStore) GetSelection(ctx context.Context, project, id string) (*explorer.SelectionRevision, error) {
+func (s *populationProposalTestStore) GetSelection(ctx context.Context, project, id string) (*explorerselection.SelectionRevision, error) {
 	if header, ok := s.selections[id]; ok {
 		copy := header.Canonical()
 		return &copy, nil
@@ -33,18 +34,18 @@ func (s *populationProposalTestStore) GetSelection(ctx context.Context, project,
 	if s.fakeStore.selection != nil && s.fakeStore.selection.ID == id {
 		return s.fakeStore.GetSelection(ctx, project, id)
 	}
-	return nil, explorer.ErrSelectionNotFound
+	return nil, explorerselection.ErrSelectionNotFound
 }
 
-func (s *populationProposalTestStore) VisitSelectionMembers(_ context.Context, project, id, after string, limit int, visit func(explorer.SelectionMember) error) (string, error) {
+func (s *populationProposalTestStore) VisitSelectionMembers(_ context.Context, project, id, after string, limit int, visit func(explorerselection.SelectionMember) error) (string, error) {
 	members, ok := s.members[id]
 	if !ok && s.fakeStore.selection != nil && s.fakeStore.selection.ID == id {
 		members, ok = s.fakeStore.selectionMembers, true
 	}
 	if !ok {
-		return "", explorer.ErrSelectionNotFound
+		return "", explorerselection.ErrSelectionNotFound
 	}
-	ordered := append([]explorer.SelectionMember(nil), members...)
+	ordered := append([]explorerselection.SelectionMember(nil), members...)
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Ref.ID < ordered[j].Ref.ID })
 	start := 0
 	for start < len(ordered) && ordered[start].Ref.ID <= after {
@@ -68,23 +69,23 @@ func (s *populationProposalTestStore) VisitSelectionMembers(_ context.Context, p
 	return ordered[end-1].Ref.ID, nil
 }
 
-func (s *populationProposalTestStore) BeginSelection(_ context.Context, header explorer.SelectionRevision, _ string) (*explorer.SelectionRevision, error) {
+func (s *populationProposalTestStore) BeginSelection(_ context.Context, header explorerselection.SelectionRevision, _ string) (*explorerselection.SelectionRevision, error) {
 	if current, ok := s.selections[header.ID]; ok {
 		copy := current
 		return &copy, nil
 	}
 	header = header.Canonical()
 	s.selections[header.ID] = header
-	s.members[header.ID] = []explorer.SelectionMember{}
+	s.members[header.ID] = []explorerselection.SelectionMember{}
 	copy := header
 	return &copy, nil
 }
 
-func (s *populationProposalTestStore) AppendSelectionMembers(_ context.Context, id, _ string, members []explorer.SelectionMember) ([]explorer.SelectionMember, error) {
+func (s *populationProposalTestStore) AppendSelectionMembers(_ context.Context, id, _ string, members []explorerselection.SelectionMember) ([]explorerselection.SelectionMember, error) {
 	if _, ok := s.selections[id]; !ok {
-		return nil, explorer.ErrSelectionNotFound
+		return nil, explorerselection.ErrSelectionNotFound
 	}
-	added := make([]explorer.SelectionMember, 0, len(members))
+	added := make([]explorerselection.SelectionMember, 0, len(members))
 	for _, member := range members {
 		member = member.Canonical()
 		found := false
@@ -105,7 +106,7 @@ func (s *populationProposalTestStore) AppendSelectionMembers(_ context.Context, 
 func (s *populationProposalTestStore) DigestSelectionMembers(_ context.Context, project, id string) (string, int64, int64, error) {
 	members, ok := s.members[id]
 	if !ok {
-		return "", 0, 0, explorer.ErrSelectionNotFound
+		return "", 0, 0, explorerselection.ErrSelectionNotFound
 	}
 	var bytes int64
 	for _, member := range members {
@@ -114,13 +115,13 @@ func (s *populationProposalTestStore) DigestSelectionMembers(_ context.Context, 
 			bytes += int64(8 + len(value))
 		}
 	}
-	return explorer.MembershipDigest(members), int64(len(members)), bytes, nil
+	return explorerselection.MembershipDigest(members), int64(len(members)), bytes, nil
 }
 
-func (s *populationProposalTestStore) CompleteSelection(_ context.Context, id, _ string, digest string, count, bytes int64, completedAt time.Time) (*explorer.SelectionRevision, error) {
+func (s *populationProposalTestStore) CompleteSelection(_ context.Context, id, _ string, digest string, count, bytes int64, completedAt time.Time) (*explorerselection.SelectionRevision, error) {
 	header, ok := s.selections[id]
 	if !ok {
-		return nil, explorer.ErrSelectionNotFound
+		return nil, explorerselection.ErrSelectionNotFound
 	}
 	header.MembershipDigest, header.MemberCount, header.MemberBytes = digest, count, bytes
 	header.Complete, header.CompletedAt = true, &completedAt
@@ -214,19 +215,19 @@ func populationMemberProposalFixture(t *testing.T) (*Service, *populationProposa
 		t.Fatal(err)
 	}
 	completedAt := time.Now().UTC()
-	members := []explorer.SelectionMember{
-		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-1"}},
-		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}},
+	members := []explorerselection.SelectionMember{
+		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-1"}},
+		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}},
 	}
-	baseHeader := explorer.SelectionRevision{
+	baseHeader := explorerselection.SelectionRevision{
 		ID: "selection-base", Project: "project-a", Generation: "generation-a", ResourceType: "Patient",
-		Rule: explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit}, Source: explorer.SelectionSource{Kind: explorer.SelectionSourceExplicit},
-		ScopeDigest: snapshot.Identity.AuthorizationScopeDigest, RuleDigest: "base-rule", MembershipDigest: explorer.MembershipDigest(members),
+		Rule: explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleExplicit}, Source: explorerselection.SelectionSource{Kind: explorerselection.SelectionSourceExplicit},
+		ScopeDigest: snapshot.Identity.AuthorizationScopeDigest, RuleDigest: "base-rule", MembershipDigest: explorerselection.MembershipDigest(members),
 		MemberCount: int64(len(members)), MemberBytes: 100, Complete: true, CreatedAt: completedAt, CompletedAt: &completedAt,
 	}
 	fake := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", DraftConfig: raw, DraftVersion: 7, DraftDigest: digest}, copyGet: true,
 		selection: &baseHeader, selectionMembers: members}
-	store := &populationProposalTestStore{fakeStore: fake, selections: map[string]explorer.SelectionRevision{}, members: map[string][]explorer.SelectionMember{}}
+	store := &populationProposalTestStore{fakeStore: fake, selections: map[string]explorerselection.SelectionRevision{}, members: map[string][]explorerselection.SelectionMember{}}
 	domain, err := explorer.NewService(store)
 	if err != nil {
 		t.Fatal(err)
@@ -241,7 +242,7 @@ func populationMemberProposalFixture(t *testing.T) (*Service, *populationProposa
 	config.Capability.Catalog = func(snapshot capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
 		return lifecycleInterpretationCatalog(snapshot, explorerID)
 	}
-	config.SelectionReferenceValidator = func(_ context.Context, project, generation string, _ authscope.ReadScope, refs []explorer.ResourceRef) error {
+	config.SelectionReferenceValidator = func(_ context.Context, project, generation string, _ authscope.ReadScope, refs []explorerselection.ResourceRef) error {
 		for _, ref := range refs {
 			if err := ref.Validate(project, generation, "Patient"); err != nil {
 				return err
@@ -287,7 +288,7 @@ func populationMemberProposalFixture(t *testing.T) (*Service, *populationProposa
 	return service, store, snapshot, workspace
 }
 
-func populationProposalRequest(store *populationProposalTestStore, snapshot capability.Snapshot, member explorer.ResourceRef) PopulationMemberRemovalProposalRequest {
+func populationProposalRequest(store *populationProposalTestStore, snapshot capability.Snapshot, member explorerselection.ResourceRef) PopulationMemberRemovalProposalRequest {
 	return PopulationMemberRemovalProposalRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
@@ -297,7 +298,7 @@ func populationProposalRequest(store *populationProposalTestStore, snapshot capa
 
 func TestPopulationMemberRemovalProposalCreatesExactRevisionAndAppliesOnlyPopulationChange(t *testing.T) {
 	service, store, snapshot, before := populationMemberProposalFixture(t)
-	removed := explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
+	removed := explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
 	proposal, err := service.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(store, snapshot, removed))
 	if err != nil {
 		t.Fatal(err)
@@ -309,7 +310,7 @@ func TestPopulationMemberRemovalProposalCreatesExactRevisionAndAppliesOnlyPopula
 		t.Fatalf("selection headers = base %#v candidate %#v", proposal.BaseSelection, proposal.CandidateSelection)
 	}
 	var candidateIDs []string
-	if _, err := store.VisitSelectionMembers(context.Background(), "project-a", proposal.CandidateSelection.ID, "", 100, func(member explorer.SelectionMember) error {
+	if _, err := store.VisitSelectionMembers(context.Background(), "project-a", proposal.CandidateSelection.ID, "", 100, func(member explorerselection.SelectionMember) error {
 		candidateIDs = append(candidateIDs, member.Ref.ID)
 		return nil
 	}); err != nil {
@@ -425,7 +426,7 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 			},
 		}
 	}
-	service.config.SelectionReferenceValidator = func(_ context.Context, project, generation string, _ authscope.ReadScope, refs []explorer.ResourceRef) error {
+	service.config.SelectionReferenceValidator = func(_ context.Context, project, generation string, _ authscope.ReadScope, refs []explorerselection.ResourceRef) error {
 		for _, ref := range refs {
 			if err := ref.Validate(project, generation, "Observation"); err != nil {
 				return err
@@ -434,15 +435,15 @@ func TestPopulationMemberRemovalProposalReissuesAndRetainsNonemptyRoute(t *testi
 		return nil
 	}
 
-	members := []explorer.SelectionMember{
-		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Observation", ID: "observation-1"}},
-		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Observation", ID: "observation-2"}},
+	members := []explorerselection.SelectionMember{
+		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Observation", ID: "observation-1"}},
+		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Observation", ID: "observation-2"}},
 	}
 	completedAt := time.Now().UTC()
-	baseHeader := explorer.SelectionRevision{
+	baseHeader := explorerselection.SelectionRevision{
 		ID: "selection-base", Project: "project-a", Generation: "generation-a", ResourceType: "Observation",
-		Rule: explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit}, Source: explorer.SelectionSource{Kind: explorer.SelectionSourceExplicit},
-		ScopeDigest: snapshot.Identity.AuthorizationScopeDigest, RuleDigest: "base-route-rule", MembershipDigest: explorer.MembershipDigest(members),
+		Rule: explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleExplicit}, Source: explorerselection.SelectionSource{Kind: explorerselection.SelectionSourceExplicit},
+		ScopeDigest: snapshot.Identity.AuthorizationScopeDigest, RuleDigest: "base-route-rule", MembershipDigest: explorerselection.MembershipDigest(members),
 		MemberCount: int64(len(members)), MemberBytes: 100, Complete: true, CreatedAt: completedAt, CompletedAt: &completedAt,
 	}
 	store.fakeStore.selection, store.fakeStore.selectionMembers = &baseHeader, members
@@ -571,7 +572,7 @@ func TestPopulationMemberRemovalProposalRejectsStaleScopeAndForeignMember(t *tes
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			service, store, snapshot, _ := populationMemberProposalFixture(t)
-			member := explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
+			member := explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
 			request := populationProposalRequest(store, snapshot, member)
 			test.change(&request)
 			if _, err := service.ProposePopulationMemberRemoval(context.Background(), request); err == nil {
@@ -587,7 +588,7 @@ func TestPopulationMemberRemovalProposalRejectsStaleScopeAndForeignMember(t *tes
 func TestPopulationMemberRemovalPreviewFailureLeavesDraftUnchangedAndApplyReplaysFailCAS(t *testing.T) {
 	t.Run("preview error", func(t *testing.T) {
 		service, store, snapshot, _ := populationMemberProposalFixture(t)
-		removed := explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
+		removed := explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
 		proposal, err := service.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(store, snapshot, removed))
 		if err != nil {
 			t.Fatal(err)
@@ -610,7 +611,7 @@ func TestPopulationMemberRemovalPreviewFailureLeavesDraftUnchangedAndApplyReplay
 	})
 	t.Run("replay after successful apply is stale CAS", func(t *testing.T) {
 		service, store, snapshot, _ := populationMemberProposalFixture(t)
-		removed := explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
+		removed := explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
 		proposal, err := service.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(store, snapshot, removed))
 		if err != nil {
 			t.Fatal(err)
@@ -636,7 +637,7 @@ func TestPopulationMemberRemovalPreviewFailureLeavesDraftUnchangedAndApplyReplay
 
 func TestPopulationMemberRemovalProposalRejectsRouteSubstitution(t *testing.T) {
 	service, store, snapshot, _ := populationMemberProposalFixture(t)
-	removed := explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
+	removed := explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"}
 	_, err := service.ProposePopulationMemberRemoval(context.Background(), populationProposalRequest(store, snapshot, removed))
 	if err != nil {
 		t.Fatal(err)

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"sort"
 	"strings"
 
@@ -65,13 +66,13 @@ func InitialProjectConfigForRecipe(bundle recipe.Bundle) (explorer.ProjectConfig
 	config := explorer.ProjectConfig{
 		ID: bundle.Name, Title: bundle.Name,
 		RecipeRef: explorer.ProjectConfigRecipeRef{Name: bundle.Name},
-		Views:     make([]explorer.ConfigView, 0, len(bundle.Outputs)),
+		Views:     make([]explorerconfig.ConfigView, 0, len(bundle.Outputs)),
 	}
 	for _, output := range bundle.Outputs {
 		if strings.TrimSpace(output.Name) == "" {
 			return explorer.ProjectConfig{}, invalidProjectConfig("recipe %q contains an unnamed output", bundle.Name)
 		}
-		config.Views = append(config.Views, explorer.ConfigView{ID: output.Name, Title: output.Name, Output: output.Name})
+		config.Views = append(config.Views, explorerconfig.ConfigView{ID: output.Name, Title: output.Name, Output: output.Name})
 	}
 	if err := config.Validate(); err != nil {
 		return explorer.ProjectConfig{}, invalidProjectConfig("initial project config: %v", err)
@@ -188,7 +189,7 @@ func projectConfigAvailableFromRevision(revision explorer.Revision, catalog expl
 
 func projectConfigBindingDiagnostics(config explorer.ProjectConfig, public map[string]map[string]explorer.EmittedColumn) []explorer.Diagnostic {
 	problems := make(map[string][]string, len(config.Views))
-	add := func(view explorer.ConfigView, message string) {
+	add := func(view explorerconfig.ConfigView, message string) {
 		problems[view.ID] = append(problems[view.ID], message)
 	}
 	for _, view := range config.Views {

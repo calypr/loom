@@ -2,6 +2,7 @@ package explorer
 
 import (
 	"errors"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"reflect"
 	"testing"
 	"time"
@@ -55,8 +56,8 @@ func TestExplicitGroupMembershipDigestPreservesOverlapsAndDeduplicatesPairs(t *t
 		{ID: "group-a", Label: "Alpha", Ordinal: 0},
 		{ID: "group-b", Label: "Beta", Ordinal: 1},
 	}
-	shared := ResourceRef{Project: revision.Project, Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"}
-	onlyA := ResourceRef{Project: revision.Project, Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-2"}
+	shared := explorerselection.ResourceRef{Project: revision.Project, Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"}
+	onlyA := explorerselection.ResourceRef{Project: revision.Project, Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-2"}
 	memberships := []ExplicitGroupMembership{
 		{GroupID: "group-b", Ref: shared},
 		{GroupID: "group-a", Ref: onlyA},
@@ -153,10 +154,10 @@ func TestExplicitGroupValidationRejectsAmbiguousOrUnscopedData(t *testing.T) {
 
 	revision := testExplicitGroupRevision()
 	groups := []ExplicitGroupDefinition{{ID: "group-a", Label: "A", Ordinal: 0}}
-	if _, err := CanonicalExplicitGroupMemberships(revision, groups, []ExplicitGroupMembership{{GroupID: "missing", Ref: ResourceRef{Project: revision.Project, Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"}}}); err == nil {
+	if _, err := CanonicalExplicitGroupMemberships(revision, groups, []ExplicitGroupMembership{{GroupID: "missing", Ref: explorerselection.ResourceRef{Project: revision.Project, Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"}}}); err == nil {
 		t.Fatal("membership in undeclared group unexpectedly succeeded")
 	}
-	if _, err := CanonicalExplicitGroupMemberships(revision, groups, []ExplicitGroupMembership{{GroupID: "group-a", Ref: ResourceRef{Project: "other-project", Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"}}}); !errors.Is(err, ErrResourceRefScopeMismatch) {
+	if _, err := CanonicalExplicitGroupMemberships(revision, groups, []ExplicitGroupMembership{{GroupID: "group-a", Ref: explorerselection.ResourceRef{Project: "other-project", Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"}}}); !errors.Is(err, explorerselection.ErrResourceRefScopeMismatch) {
 		t.Fatalf("cross-project membership error = %v", err)
 	}
 }
@@ -173,14 +174,14 @@ func TestExplicitGroupMembershipCanonicalizesLegacyProjectIdentity(t *testing.T)
 	groups := []ExplicitGroupDefinition{{ID: "group-a", Label: "Alpha", Ordinal: 0}}
 	memberships, err := CanonicalExplicitGroupMemberships(revision, groups, []ExplicitGroupMembership{{
 		GroupID: "group-a",
-		Ref:     ResourceRef{Project: project, Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"},
+		Ref:     explorerselection.ResourceRef{Project: project, Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []ExplicitGroupMembership{{
 		GroupID: "group-a",
-		Ref:     ResourceRef{Project: "HTAN/HTAN001", Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"},
+		Ref:     explorerselection.ResourceRef{Project: "HTAN/HTAN001", Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"},
 	}}
 	if !reflect.DeepEqual(memberships, want) {
 		t.Fatalf("canonical memberships = %#v, want %#v", memberships, want)
@@ -195,15 +196,15 @@ func TestExplicitGroupRevisionRejectsSourceSelectionMismatch(t *testing.T) {
 	}
 	tests := []struct {
 		name   string
-		mutate func(*SelectionRevision)
+		mutate func(*explorerselection.SelectionRevision)
 	}{
-		{name: "revision ID", mutate: func(s *SelectionRevision) { s.ID = "another-selection" }},
-		{name: "project", mutate: func(s *SelectionRevision) { s.Project = "another-project" }},
-		{name: "generation", mutate: func(s *SelectionRevision) { s.Generation = "another-generation" }},
-		{name: "resource type", mutate: func(s *SelectionRevision) { s.ResourceType = "Encounter" }},
-		{name: "scope", mutate: func(s *SelectionRevision) { s.ScopeDigest = "another-scope" }},
-		{name: "membership", mutate: func(s *SelectionRevision) { s.MembershipDigest = "another-membership" }},
-		{name: "incomplete", mutate: func(s *SelectionRevision) { s.Complete = false }},
+		{name: "revision ID", mutate: func(s *explorerselection.SelectionRevision) { s.ID = "another-selection" }},
+		{name: "project", mutate: func(s *explorerselection.SelectionRevision) { s.Project = "another-project" }},
+		{name: "generation", mutate: func(s *explorerselection.SelectionRevision) { s.Generation = "another-generation" }},
+		{name: "resource type", mutate: func(s *explorerselection.SelectionRevision) { s.ResourceType = "Encounter" }},
+		{name: "scope", mutate: func(s *explorerselection.SelectionRevision) { s.ScopeDigest = "another-scope" }},
+		{name: "membership", mutate: func(s *explorerselection.SelectionRevision) { s.MembershipDigest = "another-membership" }},
+		{name: "incomplete", mutate: func(s *explorerselection.SelectionRevision) { s.Complete = false }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -270,11 +271,11 @@ func testCompleteExplicitGroupRevision() ExplicitGroupRevision {
 	return revision
 }
 
-func testCompleteSelection() SelectionRevision {
+func testCompleteSelection() explorerselection.SelectionRevision {
 	completedAt := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
-	return SelectionRevision{
+	return explorerselection.SelectionRevision{
 		ID: "selection-1", Project: "project-a", Generation: "generation-a", ResourceType: "Patient",
-		Rule: SelectionRule{Kind: SelectionRuleExplicit}, Source: SelectionSource{Kind: SelectionSourceExplicit},
+		Rule: explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleExplicit}, Source: explorerselection.SelectionSource{Kind: explorerselection.SelectionSourceExplicit},
 		ScopeDigest: "scope-a", RuleDigest: "selection-rule", MembershipDigest: "selection-membership",
 		MemberCount: 1, Complete: true, IdempotencyKey: "selection-create", CreatedAt: completedAt, CompletedAt: &completedAt,
 	}

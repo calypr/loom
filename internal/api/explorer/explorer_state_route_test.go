@@ -3,6 +3,7 @@ package explorerapi
 import (
 	"context"
 	"encoding/json"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"net/http"
 	"strings"
 	"testing"
@@ -200,7 +201,7 @@ func TestExplorerStateRouteReportsMalformedCurrentProjection(t *testing.T) {
 		config   json.RawMessage
 		contract json.RawMessage
 	}{
-		{name: "malformed current config", config: json.RawMessage(`{"apiVersion":"` + explorer.ConfigV2APIVersion + `","kind":"ExplorerConfig","unknown":true}`)},
+		{name: "malformed current config", config: json.RawMessage(`{"apiVersion":"` + explorerconfig.ConfigV2APIVersion + `","kind":"ExplorerConfig","unknown":true}`)},
 		{name: "malformed current public contract", contract: json.RawMessage(`{"outputs":`)},
 	} {
 		t.Run(test.name, func(t *testing.T) {

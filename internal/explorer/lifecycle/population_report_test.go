@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"strings"
 	"testing"
 
@@ -20,10 +21,10 @@ func TestPopulationMappingReportLiteralResult(t *testing.T) {
 	selection := completedTestSelection(snapshot, "Specimen")
 	selection.MemberCount = 3
 	selection.MembershipDigest = "membership-digest"
-	store := &fakeStore{receipt: receipt, selection: selection, selectionMembers: []explorer.SelectionMember{
-		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-001"}},
-		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-002"}},
-		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-004"}},
+	store := &fakeStore{receipt: receipt, selection: selection, selectionMembers: []explorerselection.SelectionMember{
+		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-001"}},
+		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-002"}},
+		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-004"}},
 	}}
 	config := testConfig(snapshot)
 	config.PopulationMapping = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, output string, ids []string, _ string, _ int) (dataframeexecution.PopulationMappingResult, error) {
@@ -57,10 +58,10 @@ func TestPopulationMappingRejectsCrossOutputCursorBeforeReadingMembers(t *testin
 	receipt := populationTestReceipt(snapshot)
 	selection := completedTestSelection(snapshot, "Specimen")
 	selection.MemberCount = 3
-	store := &fakeStore{receipt: receipt, selection: selection, selectionMembers: []explorer.SelectionMember{
-		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-001"}},
-		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-002"}},
-		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-004"}},
+	store := &fakeStore{receipt: receipt, selection: selection, selectionMembers: []explorerselection.SelectionMember{
+		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-001"}},
+		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-002"}},
+		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-004"}},
 	}}
 	config := testConfig(snapshot)
 	config.PopulationMapping = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, string, []string, string, int) (dataframeexecution.PopulationMappingResult, error) {
@@ -83,10 +84,10 @@ func TestPopulationMappingRejectsTamperedCursorBeforeReadingMembers(t *testing.T
 	receipt := populationTestReceipt(snapshot)
 	selection := completedTestSelection(snapshot, "Specimen")
 	selection.MemberCount = 3
-	store := &fakeStore{receipt: receipt, selection: selection, selectionMembers: []explorer.SelectionMember{
-		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-001"}},
-		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-002"}},
-		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-004"}},
+	store := &fakeStore{receipt: receipt, selection: selection, selectionMembers: []explorerselection.SelectionMember{
+		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-001"}},
+		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-002"}},
+		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-004"}},
 	}}
 	config := testConfig(snapshot)
 	config.PopulationMapping = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, string, []string, string, int) (dataframeexecution.PopulationMappingResult, error) {
@@ -126,10 +127,10 @@ func TestPopulationMappingIncompleteHasNoCounts(t *testing.T) {
 	receipt := populationTestReceipt(snapshot)
 	selection := completedTestSelection(snapshot, "Specimen")
 	selection.MemberCount = 3
-	store := &fakeStore{receipt: receipt, selection: selection, selectionMembers: []explorer.SelectionMember{
-		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-001"}},
-		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-002"}},
-		{Ref: explorer.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-004"}},
+	store := &fakeStore{receipt: receipt, selection: selection, selectionMembers: []explorerselection.SelectionMember{
+		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-001"}},
+		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-002"}},
+		{Ref: explorerselection.ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Specimen", ID: "file-004"}},
 	}}
 	config := testConfig(snapshot)
 	config.PopulationMapping = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, string, []string, string, int) (dataframeexecution.PopulationMappingResult, error) {

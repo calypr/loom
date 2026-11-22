@@ -1,4 +1,4 @@
-package catalog
+package discoverycache
 
 import (
 	"container/list"
@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/calypr/loom/internal/catalog"
 
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 )
@@ -83,15 +85,15 @@ func (c *Cache) DiscoverFields(fn func(context.Context, fieldprofile.PopulatedFi
 	}
 }
 
-func (c *Cache) DiscoverReferences(fn func(context.Context, PopulatedReferenceOptions) ([]PopulatedReference, error)) func(context.Context, PopulatedReferenceOptions) ([]PopulatedReference, error) {
-	return func(ctx context.Context, opts PopulatedReferenceOptions) ([]PopulatedReference, error) {
+func (c *Cache) DiscoverReferences(fn func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)) func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
+	return func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 		key, err := referenceKey(opts)
 		if err != nil {
 			return nil, err
 		}
 		cached, ok := c.get(cacheReferences, key)
 		if ok {
-			return cloneReferences(cached.([]PopulatedReference)), nil
+			return cloneReferences(cached.([]catalog.PopulatedReference)), nil
 		}
 		results, err := fn(ctx, opts)
 		if err != nil {
@@ -99,7 +101,7 @@ func (c *Cache) DiscoverReferences(fn func(context.Context, PopulatedReferenceOp
 		}
 		cached = cloneReferences(results)
 		c.put(cacheReferences, key, cached)
-		return cloneReferences(cached.([]PopulatedReference)), nil
+		return cloneReferences(cached.([]catalog.PopulatedReference)), nil
 	}
 }
 
@@ -187,25 +189,25 @@ func fieldKey(opts fieldprofile.PopulatedFieldOptions) (string, error) {
 	return fmt.Sprintf("%s|%s|%t|%s|%s", strings.TrimSpace(opts.Project), strings.TrimSpace(opts.ResourceType), opts.PivotOnly, scope, datasetGenerationKey(opts.DatasetGeneration)), nil
 }
 
-func referenceKey(opts PopulatedReferenceOptions) (string, error) {
+func referenceKey(opts catalog.PopulatedReferenceOptions) (string, error) {
 	scope, err := authScopeKey(opts.AuthResourcePaths, opts.AuthResourcePathsUnrestricted)
 	if err != nil {
 		return "", err
 	}
 	mode := opts.Mode
 	if mode == "" {
-		mode = TraversalModeStorage
+		mode = catalog.TraversalModeStorage
 	}
 	filter := opts.FromType
-	if mode == TraversalModeBuilder {
+	if mode == catalog.TraversalModeBuilder {
 		filter = opts.NodeType
 	}
 	return fmt.Sprintf("%s|%s|%s|%s|%s", strings.TrimSpace(opts.Project), strings.TrimSpace(filter), mode, scope, datasetGenerationKey(opts.DatasetGeneration)), nil
 }
 
 func datasetGenerationKey(generation string) string {
-	generation = NormalizeDatasetGeneration(generation)
-	if !HasDatasetGeneration(generation) {
+	generation = catalog.NormalizeDatasetGeneration(generation)
+	if !catalog.HasDatasetGeneration(generation) {
 		return "legacy"
 	}
 	encoded, _ := json.Marshal(generation)
@@ -213,7 +215,7 @@ func datasetGenerationKey(generation string) string {
 }
 
 func authScopeKey(paths []string, explicitUnrestricted *bool) (string, error) {
-	if EffectiveAuthResourcePathsUnrestricted(paths, explicitUnrestricted) {
+	if catalog.EffectiveAuthResourcePathsUnrestricted(paths, explicitUnrestricted) {
 		return "unrestricted", nil
 	}
 	normalized := append([]string(nil), paths...)
@@ -248,11 +250,11 @@ func cloneFields(in []fieldprofile.PopulatedField) []fieldprofile.PopulatedField
 	return out
 }
 
-func cloneReferences(in []PopulatedReference) []PopulatedReference {
+func cloneReferences(in []catalog.PopulatedReference) []catalog.PopulatedReference {
 	if len(in) == 0 {
-		return []PopulatedReference{}
+		return []catalog.PopulatedReference{}
 	}
-	out := make([]PopulatedReference, len(in))
+	out := make([]catalog.PopulatedReference, len(in))
 	copy(out, in)
 	return out
 }

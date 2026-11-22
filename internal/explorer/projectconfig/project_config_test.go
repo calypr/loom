@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/calypr/loom/internal/explorer"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"reflect"
 	"strings"
 	"testing"
@@ -25,25 +26,25 @@ func TestPrepareProjectConfigsSharesOneExactPublication(t *testing.T) {
 	configs := []explorer.ProjectConfig{
 		{
 			ID: "default", Title: "Metadata", RecipeRef: explorer.ProjectConfigRecipeRef{Name: resolved.Bundle.Name},
-			Views: []explorer.ConfigView{{
+			Views: []explorerconfig.ConfigView{{
 				ID: "documents", Title: "Documents", Output: "Documents",
-				Table:   explorer.ConfigTable{Columns: []explorer.ConfigColumn{{Column: "document_reference_id", Visible: true}, {Column: "document_reference_status", Visible: true}}},
-				Filters: []explorer.ConfigFilter{{Column: "document_reference_status"}},
-				Charts:  []explorer.ConfigChart{{Column: "document_reference_status", Type: "pie", Title: "Statuses"}},
-				Actions: []explorer.ConfigAction{{Type: "export", Title: "Export", Output: "Documents", Columns: []string{"document_reference_id", "document_reference_extension_tag"}}},
+				Table:   explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{{Column: "document_reference_id", Visible: true}, {Column: "document_reference_status", Visible: true}}},
+				Filters: []explorerconfig.ConfigFilter{{Column: "document_reference_status"}},
+				Charts:  []explorerconfig.ConfigChart{{Column: "document_reference_status", Type: "pie", Title: "Statuses"}},
+				Actions: []explorerconfig.ConfigAction{{Type: "export", Title: "Export", Output: "Documents", Columns: []string{"document_reference_id", "document_reference_extension_tag"}}},
 			}},
-			SharedFilters: map[string][]explorer.SharedFilter{"status": {{Output: "Documents", Column: "document_reference_status"}}},
-			FileActions:   explorer.FileActions{Extensions: map[string][]string{"pdf": {"download"}}, Actions: map[string]string{"download": "download"}},
+			SharedFilters: map[string][]explorerconfig.SharedFilter{"status": {{Output: "Documents", Column: "document_reference_status"}}},
+			FileActions:   explorerconfig.FileActions{Extensions: map[string][]string{"pdf": {"download"}}, Actions: map[string]string{"download": "download"}},
 		},
 		{
 			ID: "files", Title: "Files", RecipeRef: explorer.ProjectConfigRecipeRef{Name: resolved.Bundle.Name},
-			Views: []explorer.ConfigView{{
+			Views: []explorerconfig.ConfigView{{
 				ID: "files", Title: "File labels", Output: "Documents",
-				Table:  explorer.ConfigTable{Columns: []explorer.ConfigColumn{{Column: "document_reference_extension_tag", Visible: true}}},
-				Charts: []explorer.ConfigChart{{Column: "document_reference_extension_tag", Type: "pie"}},
+				Table:  explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{{Column: "document_reference_extension_tag", Visible: true}}},
+				Charts: []explorerconfig.ConfigChart{{Column: "document_reference_extension_tag", Type: "pie"}},
 			}},
 		},
-		{ID: "unrelated", Title: "Other recipe", RecipeRef: explorer.ProjectConfigRecipeRef{Name: "other-recipe"}, Views: []explorer.ConfigView{{ID: "other", Output: "Other"}}},
+		{ID: "unrelated", Title: "Other recipe", RecipeRef: explorer.ProjectConfigRecipeRef{Name: "other-recipe"}, Views: []explorerconfig.ConfigView{{ID: "other", Output: "Other"}}},
 	}
 
 	prepared, err := PrepareProjectConfigs(configs, resolved, executionValue, "source-commit")
@@ -132,7 +133,7 @@ func TestPrepareProjectConfigsSharesOneExactPublication(t *testing.T) {
 
 func TestPrepareProjectConfigsRejectsStalePublicationAndInvalidBindings(t *testing.T) {
 	resolved, executionValue, _ := projectConfigPublicationFixture()
-	valid := explorer.ProjectConfig{ID: "files", Title: "Files", RecipeRef: explorer.ProjectConfigRecipeRef{Name: resolved.Bundle.Name}, Views: []explorer.ConfigView{{ID: "files", Output: "Documents", Table: explorer.ConfigTable{Columns: []explorer.ConfigColumn{{Column: "document_reference_id", Visible: true}}}}}}
+	valid := explorer.ProjectConfig{ID: "files", Title: "Files", RecipeRef: explorer.ProjectConfigRecipeRef{Name: resolved.Bundle.Name}, Views: []explorerconfig.ConfigView{{ID: "files", Output: "Documents", Table: explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{{Column: "document_reference_id", Visible: true}}}}}}
 
 	tests := map[string]func(*execution.Resolved, *publication.BundleExecution, *explorer.ProjectConfig){
 		"project mismatch": func(_ *execution.Resolved, value *publication.BundleExecution, _ *explorer.ProjectConfig) {
@@ -160,13 +161,13 @@ func TestPrepareProjectConfigsRejectsStalePublicationAndInvalidBindings(t *testi
 			config.Views[0].Table.Columns[0].Column = "__loom_row_id"
 		},
 		"internal filter": func(_ *execution.Resolved, _ *publication.BundleExecution, config *explorer.ProjectConfig) {
-			config.Views[0].Filters = []explorer.ConfigFilter{{Column: "__loom_row_id"}}
+			config.Views[0].Filters = []explorerconfig.ConfigFilter{{Column: "__loom_row_id"}}
 		},
 		"non-scalar chart": func(_ *execution.Resolved, _ *publication.BundleExecution, config *explorer.ProjectConfig) {
-			config.Views[0].Charts = []explorer.ConfigChart{{Column: "document_reference_payload", Type: "pie"}}
+			config.Views[0].Charts = []explorerconfig.ConfigChart{{Column: "document_reference_payload", Type: "pie"}}
 		},
 		"unknown action column": func(_ *execution.Resolved, _ *publication.BundleExecution, config *explorer.ProjectConfig) {
-			config.Views[0].Actions = []explorer.ConfigAction{{Type: "export", Title: "Export", Columns: []string{"missing"}}}
+			config.Views[0].Actions = []explorerconfig.ConfigAction{{Type: "export", Title: "Export", Columns: []string{"missing"}}}
 		},
 	}
 	for name, mutate := range tests {
@@ -182,7 +183,7 @@ func TestPrepareProjectConfigsRejectsStalePublicationAndInvalidBindings(t *testi
 
 func TestPrepareProjectConfigsIsDeterministicAndRequiresPublishedExecution(t *testing.T) {
 	resolved, executionValue, _ := projectConfigPublicationFixture()
-	config := explorer.ProjectConfig{ID: "files", Title: "Files", RecipeRef: explorer.ProjectConfigRecipeRef{Name: resolved.Bundle.Name}, Views: []explorer.ConfigView{{ID: "files", Output: "Documents"}}}
+	config := explorer.ProjectConfig{ID: "files", Title: "Files", RecipeRef: explorer.ProjectConfigRecipeRef{Name: resolved.Bundle.Name}, Views: []explorerconfig.ConfigView{{ID: "files", Output: "Documents"}}}
 	first, err := PrepareProjectConfigs([]explorer.ProjectConfig{config}, resolved, executionValue, "source-commit")
 	if err != nil {
 		t.Fatal(err)
@@ -203,7 +204,7 @@ func TestPrepareProjectConfigsIsDeterministicAndRequiresPublishedExecution(t *te
 	if _, err := PrepareProjectConfigs([]explorer.ProjectConfig{config}, resolved, executionValue, ""); err == nil {
 		t.Fatal("empty source commit was accepted")
 	}
-	unmatched, err := PrepareProjectConfigs([]explorer.ProjectConfig{{ID: "other", Title: "Other", RecipeRef: explorer.ProjectConfigRecipeRef{Name: "other"}, Views: []explorer.ConfigView{{ID: "v", Output: "Other"}}}}, resolved, executionValue, "source-commit")
+	unmatched, err := PrepareProjectConfigs([]explorer.ProjectConfig{{ID: "other", Title: "Other", RecipeRef: explorer.ProjectConfigRecipeRef{Name: "other"}, Views: []explorerconfig.ConfigView{{ID: "v", Output: "Other"}}}}, resolved, executionValue, "source-commit")
 	if err != nil || len(unmatched) != 0 {
 		t.Fatalf("unmatched recipe config = %#v, %v; want empty success", unmatched, err)
 	}
@@ -213,7 +214,7 @@ func TestPrepareProjectConfigsIsDeterministicAndRequiresPublishedExecution(t *te
 	}
 	unmatchedInvalid, err := PrepareProjectConfigs([]explorer.ProjectConfig{{
 		ID: "other", Title: "Other", RecipeRef: explorer.ProjectConfigRecipeRef{Name: "other"},
-		Views: []explorer.ConfigView{{ID: "v", Output: "Other", Charts: []explorer.ConfigChart{{Column: "missing", Type: "unsupported"}}}},
+		Views: []explorerconfig.ConfigView{{ID: "v", Output: "Other", Charts: []explorerconfig.ConfigChart{{Column: "missing", Type: "unsupported"}}}},
 	}}, resolved, executionValue, "source-commit")
 	if err != nil || len(unmatchedInvalid) != 0 {
 		t.Fatalf("unmatched config affected data publication: %#v, %v", unmatchedInvalid, err)
@@ -244,7 +245,7 @@ func TestPrepareProjectConfigsAllowsOnlyOmittedDiscoveredPublicationColumns(t *t
 		RecipeDigest: published.RecipeDigest, ScopeDigest: published.ScopeDigest,
 		DatasetGeneration: published.DatasetGeneration,
 	}, []publication.OutputSchema{{Name: "Documents", Columns: retained}})
-	config := explorer.ProjectConfig{ID: "files", Title: "Files", RecipeRef: explorer.ProjectConfigRecipeRef{Name: resolved.Bundle.Name}, Views: []explorer.ConfigView{{ID: "files", Output: "Documents"}}}
+	config := explorer.ProjectConfig{ID: "files", Title: "Files", RecipeRef: explorer.ProjectConfigRecipeRef{Name: resolved.Bundle.Name}, Views: []explorerconfig.ConfigView{{ID: "files", Output: "Documents"}}}
 	prepared, err := PrepareProjectConfigs([]explorer.ProjectConfig{config}, resolved, published, "source-commit")
 	if err != nil {
 		t.Fatalf("unpopulated discovered column rejected exact publication: %v", err)
@@ -254,7 +255,7 @@ func TestPrepareProjectConfigsAllowsOnlyOmittedDiscoveredPublicationColumns(t *t
 			t.Fatal("unretained discovered column leaked into Viewer wire metadata")
 		}
 	}
-	config.Views[0].Charts = []explorer.ConfigChart{{Column: "document_reference_extension_tag", Type: "pie"}}
+	config.Views[0].Charts = []explorerconfig.ConfigChart{{Column: "document_reference_extension_tag", Type: "pie"}}
 	if _, err := PrepareProjectConfigs([]explorer.ProjectConfig{config}, resolved, published, "source-commit"); err == nil {
 		t.Fatal("config referenced an unretained discovered column")
 	}
@@ -268,7 +269,7 @@ func TestPrepareProjectConfigsAllowsOnlyOmittedDiscoveredPublicationColumns(t *t
 		}
 	}
 	explicitMissing.Outputs[0].Columns = explicitColumns
-	if _, err := PrepareProjectConfigs([]explorer.ProjectConfig{explorer.ProjectConfig{ID: "files", Title: "Files", RecipeRef: explorer.ProjectConfigRecipeRef{Name: resolved.Bundle.Name}, Views: []explorer.ConfigView{{ID: "files", Output: "Documents"}}}}, resolved, explicitMissing, "source-commit"); err == nil {
+	if _, err := PrepareProjectConfigs([]explorer.ProjectConfig{explorer.ProjectConfig{ID: "files", Title: "Files", RecipeRef: explorer.ProjectConfigRecipeRef{Name: resolved.Bundle.Name}, Views: []explorerconfig.ConfigView{{ID: "files", Output: "Documents"}}}}, resolved, explicitMissing, "source-commit"); err == nil {
 		t.Fatal("missing explicit compiler column was accepted")
 	}
 }
@@ -337,7 +338,7 @@ func TestPrepareProjectConfigsUsesFinalEngineResolvedSchemaDigest(t *testing.T) 
 	}
 	prepared, err := PrepareProjectConfigs([]explorer.ProjectConfig{{
 		ID: "engine-config", Title: "Engine config", RecipeRef: explorer.ProjectConfigRecipeRef{Name: bundle.Name},
-		Views: []explorer.ConfigView{{ID: "documents", Output: compiledOutput.Name}},
+		Views: []explorerconfig.ConfigView{{ID: "documents", Output: compiledOutput.Name}},
 	}}, resolved, published, "source-commit")
 	if err != nil {
 		t.Fatalf("PrepareProjectConfigs() rejected exact Engine publication: %v", err)
@@ -443,12 +444,12 @@ func cloneProjectConfigPublicationFixture(resolved execution.Resolved, execution
 	resolved.Compiled.Outputs[0].OutputSchema = append([]lower.CompiledOutputColumn(nil), resolved.Compiled.Outputs[0].OutputSchema...)
 	executionValue.Outputs = append([]publication.BundleOutputRecord(nil), executionValue.Outputs...)
 	executionValue.Outputs[0].Columns = append([]publication.PhysicalColumn(nil), executionValue.Outputs[0].Columns...)
-	config.Views = append([]explorer.ConfigView(nil), config.Views...)
+	config.Views = append([]explorerconfig.ConfigView(nil), config.Views...)
 	if len(config.Views) > 0 {
-		config.Views[0].Table.Columns = append([]explorer.ConfigColumn(nil), config.Views[0].Table.Columns...)
-		config.Views[0].Filters = append([]explorer.ConfigFilter(nil), config.Views[0].Filters...)
-		config.Views[0].Charts = append([]explorer.ConfigChart(nil), config.Views[0].Charts...)
-		config.Views[0].Actions = append([]explorer.ConfigAction(nil), config.Views[0].Actions...)
+		config.Views[0].Table.Columns = append([]explorerconfig.ConfigColumn(nil), config.Views[0].Table.Columns...)
+		config.Views[0].Filters = append([]explorerconfig.ConfigFilter(nil), config.Views[0].Filters...)
+		config.Views[0].Charts = append([]explorerconfig.ConfigChart(nil), config.Views[0].Charts...)
+		config.Views[0].Actions = append([]explorerconfig.ConfigAction(nil), config.Views[0].Actions...)
 	}
 	return resolved, executionValue, config
 }
@@ -554,15 +555,15 @@ func TestPrepareProjectConfigsDetachesNestedPresentationAfterRealPublication(t *
 	}
 	definition := explorer.ProjectConfig{
 		ID: "alias-config", Title: "Alias config", RecipeRef: explorer.ProjectConfigRecipeRef{Name: bundle.Name},
-		Views: []explorer.ConfigView{{
+		Views: []explorerconfig.ConfigView{{
 			ID: "documents", Output: "Documents",
 			FixedFilters: map[string][]string{"document_reference_id": {"original"}},
-			Actions: []explorer.ConfigAction{{
+			Actions: []explorerconfig.ConfigAction{{
 				Type: "export", Title: "Export", Columns: []string{"document_reference_id"},
 				ExportHeaders: map[string]string{"document_reference_id": "Original ID"},
 			}},
 		}},
-		FileActions: explorer.FileActions{Extensions: map[string][]string{"pdf": {"download"}}, Actions: map[string]string{"download": "Original download"}},
+		FileActions: explorerconfig.FileActions{Extensions: map[string][]string{"pdf": {"download"}}, Actions: map[string]string{"download": "Original download"}},
 	}
 	prepared, err := PrepareProjectConfigs([]explorer.ProjectConfig{definition}, resolved, executionValue, "source-commit")
 	if err != nil {

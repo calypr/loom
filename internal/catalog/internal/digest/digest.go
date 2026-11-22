@@ -1,4 +1,4 @@
-package identity
+package digest
 
 import (
 	"crypto/sha256"

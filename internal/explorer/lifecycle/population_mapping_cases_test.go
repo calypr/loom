@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"io"
 	"os"
 	"reflect"
@@ -53,7 +54,7 @@ type formalPopulationStore struct {
 	visits    int
 }
 
-func (s *formalPopulationStore) VisitSelectionMembers(ctx context.Context, project, id, after string, limit int, visit func(explorer.SelectionMember) error) (string, error) {
+func (s *formalPopulationStore) VisitSelectionMembers(ctx context.Context, project, id, after string, limit int, visit func(explorerselection.SelectionMember) error) (string, error) {
 	s.visits++
 	if !s.completes {
 		if s.deadline {
@@ -89,7 +90,7 @@ func formalPopulationObserve(t *testing.T, value formalPopulationCase) formalPop
 	}
 	base := &fakeStore{receipt: receipt, selection: selection}
 	for _, id := range []string{"file-001", "file-002", "file-004"} {
-		base.selectionMembers = append(base.selectionMembers, explorer.SelectionMember{Ref: explorer.ResourceRef{Project: project, Generation: selection.Generation, ResourceType: "Specimen", ID: id}})
+		base.selectionMembers = append(base.selectionMembers, explorerselection.SelectionMember{Ref: explorerselection.ResourceRef{Project: project, Generation: selection.Generation, ResourceType: "Specimen", ID: id}})
 	}
 	store := &formalPopulationStore{fakeStore: base, completes: *value.MemberReadCompletes, deadline: *value.Deadline}
 	authorized := snapshot

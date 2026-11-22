@@ -2,6 +2,7 @@ package explorer
 
 import (
 	"encoding/json"
+	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/publication"
@@ -33,13 +34,13 @@ func TestBuildViewerProjectionPreservesPublicContractColumnOrder(t *testing.T) {
 		}},
 	}
 	revision := &Revision{
-		Config: mustJSON(t, ConfigV2{
-			APIVersion: ConfigV2APIVersion,
+		Config: mustJSON(t, explorerconfig.ConfigV2{
+			APIVersion: explorerconfig.ConfigV2APIVersion,
 			Kind:       "ExplorerConfig",
 			Recipe:     mustJSON(t, bundle),
-			Views: []ConfigView{{
+			Views: []explorerconfig.ConfigView{{
 				ID: "observations", Output: "observations",
-				Table: ConfigTable{Columns: []ConfigColumn{
+				Table: explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{
 					{Column: "status", Visible: true},
 					{Column: "subject.reference", Visible: true},
 				}},
@@ -73,9 +74,9 @@ func TestBuildViewerProjectionPreservesPublicContractColumnOrder(t *testing.T) {
 		t.Fatalf("runtime table columns = %#v, want frozen public-contract order", table)
 	}
 
-	saved := &ProjectConfig{Views: []ConfigView{{
+	saved := &ProjectConfig{Views: []explorerconfig.ConfigView{{
 		ID: "observations", Output: "observations",
-		Table: ConfigTable{Columns: []ConfigColumn{
+		Table: explorerconfig.ConfigTable{Columns: []explorerconfig.ConfigColumn{
 			{Column: "status", Label: "Saved status", Visible: true, Pinned: true},
 		}},
 	}}}
