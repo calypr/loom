@@ -54,6 +54,8 @@ export function observedExtensionPaths(items: ReadonlyArray<SemanticInventoryIte
     .map(item => item.sourcePath))].sort();
 }
 
-export function hasObservedCategoryCodings(items: ReadonlyArray<SemanticInventoryItem>) {
-  return items.some(item => item.occurrences > 0 && item.system && item.sourcePath.startsWith('category[]'));
+export function observedCategorySystems(items: ReadonlyArray<SemanticInventoryItem>) {
+  return [...new Set(items
+    .filter(item => item.occurrences > 0 && item.system && item.sourcePath.startsWith('category[]'))
+    .map(item => item.system))].sort();
 }

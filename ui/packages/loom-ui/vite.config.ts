@@ -15,7 +15,7 @@ export default defineConfig({
         builder: resolve(directory, 'src/builder-entry.ts'),
         'saved-views': resolve(directory, 'src/saved-views-entry.ts'),
       },
-      external: ['react', 'react-dom', 'react/jsx-runtime'],
+      external: ['react', 'react-dom', 'react/jsx-runtime', '@mantine/core'],
       output: {
         entryFileNames: '[name].js',
         exports: 'named',

@@ -42,7 +42,7 @@ import {
   DatasetReviewPanel,
   type DatasetReviewTarget,
 } from './components/DatasetReviewPanel';
-import { useRecipeEditingOwner, projectRecipeCandidate, type RecipeEditToken } from './recipeEditing/recipeEditingOwner';
+import { sameRecipeEditingIdentity, useRecipeEditingOwner, projectRecipeCandidate, type RecipeEditToken } from './recipeEditing/recipeEditingOwner';
 import { CreateColumnRule } from './CreateColumnRule';
 import { columnRuleDefaults, type ColumnRuleOccurrence } from './sourceColumnRule';
 import { SourceRelationshipReview } from './components/SourceRelationshipReview';
@@ -289,7 +289,11 @@ const BuilderWorkspaceContent = ({
       ? selectedExplorerId
       : 'dataframe-default';
   const explorerSummaries = useMemo(() => {
-    const available = explorers.data ?? [];
+    const available = (explorers.data ?? []).filter(
+      (candidate) =>
+        candidate.explorerId === 'dataframe-default' ||
+        (candidate.explorerId !== 'default' && candidate.management?.toUpperCase() !== 'REPOSITORY'),
+    );
     if (available.some((candidate) => candidate.explorerId === 'dataframe-default')) return available;
     return [{
       project: projectId,
@@ -329,7 +333,7 @@ const BuilderWorkspaceContent = ({
   });
   if (selectedExplorerId === 'dataframe-default' &&
       (builder.error as { code?: string } | undefined)?.code === 'DEFAULT_DATAFRAME_UNAVAILABLE') {
-    const fallback = (explorers.data ?? []).find((candidate) => candidate.explorerId !== 'dataframe-default' && candidate.explorerId !== 'default');
+    const fallback = explorerSummaries.find((candidate) => candidate.explorerId !== 'dataframe-default');
     if (fallback) setSelectedExplorerId(fallback.explorerId);
   }
   const capabilities = useGetExplorerAuthoringCapabilityV2Query(builderQueryArgs);
@@ -344,6 +348,9 @@ const BuilderWorkspaceContent = ({
     rowSettingsOpenAction, rowSettingsCloseAction, actionsFor: traversalActionsFor } = useTraversalProjectedFields();
   const [sourceChangeReviewHost, setSourceChangeReviewHost] = useState<HTMLDivElement | null>(null);
   const sourceStepEditDirty = useRef(false);
+  const [pendingSavedRuleRemoval, setPendingSavedRuleRemoval] = useState<string>();
+  const [advancedView, setAdvancedView] = useState<'add' | 'saved'>('add');
+  const advancedRuleEditorReturn = useRef<string | undefined>(undefined);
   const sourceStepEditCancelAction = useRef<(() => void) | undefined>(undefined);
   const [cancelingConstructionProposal, setCancelingConstructionProposal] = useState(false);
   const cancelingConstructionProposalRef = useRef(false);
@@ -1033,13 +1040,17 @@ const BuilderWorkspaceContent = ({
     [state.catalog, table],
   );
   const graphOccurrence = graphOccurrences.find((candidate) => candidate.id === state.selectedOccurrenceId) ?? graphOccurrences.at(0);
-  const graphEdgeIds: string[] = [];
-  let graphPathMember = graphOccurrence;
-  while (graphPathMember?.parentId && graphPathMember.edgeId) {
-    graphEdgeIds.unshift(graphPathMember.edgeId);
-    const parentId = graphPathMember.parentId;
-    graphPathMember = graphOccurrences.find((candidate) => candidate.id === parentId);
-  }
+  const edgesToGraphOccurrence = (occurrence: typeof graphOccurrence) => {
+    const edgeIds: string[] = [];
+    let current = occurrence;
+    while (current?.parentId && current.edgeId) {
+      edgeIds.unshift(current.edgeId);
+      const parentId = current.parentId;
+      current = graphOccurrences.find((candidate) => candidate.id === parentId);
+    }
+    return edgeIds;
+  };
+  const graphEdgeIds = edgesToGraphOccurrence(graphOccurrence);
   const [relatedGraphSelection, setRelatedGraphSelection] = useState<string>();
   const addColumnsCapabilities = constructionLifecycle.capabilities;
   const addColumnsStage = addColumnsCapabilities.status === 'ready' ? addColumnsCapabilities.response.selectedStage : undefined;
@@ -1240,7 +1251,7 @@ const BuilderWorkspaceContent = ({
       }
       deleteSupported={capabilities.data?.features.deleteExplorer ?? false}
       deleteDisabled={
-        !(explorers.data ?? []).some(
+        !explorerSummaries.some(
           (explorer) => explorer.explorerId !== effectiveExplorerId,
         )
       }
@@ -1348,7 +1359,11 @@ const BuilderWorkspaceContent = ({
       ? 'The selected graph occurrence was removed.'
       : graphSource && !graphSource.isRoot && !graphSource.nodeId
         ? 'This graph occurrence is unavailable.'
-        : undefined;
+        : !capabilities.data
+          ? capabilities.isLoading ? 'Checking whether this Loom server can create column rules…' : 'Could not check whether this Loom server can create column rules.'
+          : !capabilities.data.operations?.includes('sourceRuleCreate')
+            ? 'This Loom server version can’t add new column rules. Imported rules are available under Saved rules.'
+            : undefined;
   const ruleInventoryScope = {
     project: projectId, explorerId: state.explorerId, authResourcePath,
     snapshotToken: state.catalog.snapshotToken,
@@ -1359,6 +1374,34 @@ const BuilderWorkspaceContent = ({
     .filter(candidate => candidate.nodeId === graphSource?.nodeId && candidate.populated !== false && candidate.fieldPath)
     .map(candidate => ruleOccurrence && candidate.fieldPath.startsWith(`${ruleOccurrence.resourceType}.`)
       ? candidate.fieldPath.slice(ruleOccurrence.resourceType.length + 1) : candidate.fieldPath))).sort();
+  const advancedOccurrenceId = ruleOccurrence?.id || table?.document.route.occurrenceId;
+  const advancedNetwork = table && savedNetwork?.owner === relationshipOwner &&
+    savedNetwork.result.network.outputId === table.outputId ? savedNetwork.result.network : undefined;
+  const importedSourceSteps = table?.document.importedSource?.steps ?? [];
+  const advancedRules = importedSourceSteps.flatMap((step) => {
+    if (!['DYNAMIC_COLUMN', 'EXTENSION_COLUMN', 'CATALOG_PROJECTION', 'PIVOT'].includes(step.kind)) return [];
+    const fields = (advancedNetwork?.projectedFields ?? []).filter((field) =>
+      field.owner === 'PINNED_SOURCE' && field.sourceStepId === step.id && field.occurrenceId === advancedOccurrenceId,
+    );
+    const parentOccurrence = step.parentId
+      ? advancedNetwork?.occurrences.find((item) => item.sourceStepId === step.parentId)?.occurrenceId
+        ?? importedSourceSteps.find((item) => item.id === step.parentId)?.occurrenceId
+      : table?.document.route.occurrenceId;
+    return parentOccurrence === advancedOccurrenceId || fields.length ? [{ step, fields }] : [];
+  });
+  const unassignedFrameIds = new Set<string>();
+  const savedFramesForNode = (table?.document.frames ?? []).filter((frame) => {
+    if (!graphSource || selectedRelatedGraphSource) return false;
+    const owners = graphOccurrences.filter((occurrence) => {
+      if (occurrence.resourceType !== frame.source.resourceType) return false;
+      const edgeIds = edgesToGraphOccurrence(occurrence);
+      return edgeIds.length === frame.route.length && frame.route.every((step, index) => step.edgeId === edgeIds[index]);
+    });
+    if (owners.length === 1) return owners[0].id === graphSource.occurrenceId;
+    if (!graphSource.isRoot) return false;
+    unassignedFrameIds.add(frame.id);
+    return true;
+  });
   const operationEditor = table && activeOperation ? (
     <OperationEditorHost
       table={table}
@@ -1387,36 +1430,109 @@ const BuilderWorkspaceContent = ({
       addSourceRouteContext={addSourceRouteContext}
       addColumnsView={addColumnsView}
       reviewingAdvancedColumns={reviewingAdvancedColumns}
+      onBackFromColumnRuleReview={() => cancelRecipeRelationship(false)}
       columnRulesUnavailableReason={ruleUnavailableReason}
       columnRuleInventoryScope={ruleInventoryScope}
-      hasCatalogRuleFields={ruleFieldPaths.length > 0}
-      renderColumnRule={(preset, inventory) => {
+      columnRuleFieldPaths={ruleFieldPaths}
+      advancedView={advancedView}
+      onAdvancedViewChange={(view) => { setPendingSavedRuleRemoval(undefined); setAdvancedView(view); }}
+      configuredAdvancedColumns={<section aria-label="Configured column rules" className="grid min-w-0 content-start gap-2"
+        ref={(node) => { if (node && table.document.importedRecipe) loadRecipeNetwork(); }}>
+        <h3 className="sr-only">Saved rules</h3>
+        {advancedRules.length ? <div className="grid gap-3">
+          {advancedRules.map(({ step, fields }) => (
+            <section key={step.id} aria-label={step.title} className="border-b border-slate-100 pb-2">
+              <div className="flex items-center justify-between gap-2 pb-1 text-xs">
+                <h4 className="font-semibold">{step.title}</h4>
+                {step.editable ? <button type="button" className="shrink-0 text-blue-800 underline"
+                  aria-label={`Configure ${step.title}`}
+                  disabled={pendingCommands > 0 || publishing || reviewingAdvancedColumns}
+                  onClick={() => {
+                    if (!sourceStepEditAction.current || !recipeMutationAllowed()) return;
+                    advancedRuleEditorReturn.current = step.id;
+                    closeConstructionWorkspace();
+                    sourceStepEditAction.current(step.id);
+                  }}>Configure rule</button> : null}
+              </div>
+              {fields.length ? <ul aria-label={`Columns from ${step.title}`} className="max-h-56 divide-y divide-slate-100 overflow-auto border-y border-slate-200 text-xs">
+                {fields.map((field) => {
+                  const removalKey = JSON.stringify([relationshipOwner, state.draftVersion, state.draftDigest, advancedOccurrenceId, step.id, field.columnId]);
+                  const removalDisabled = pendingCommands > 0 || publishing || reviewingAdvancedColumns || state.reconciliation === 'pending';
+                  return <li key={field.columnId ?? field.column} className="grid min-w-0 gap-1 px-2 py-1.5">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate" title={field.label}>{field.label}</span>
+                      {field.columnId && field.removal === 'DISABLE_PINNED_OUTPUT' && pendingSavedRuleRemoval !== removalKey
+                        ? <button type="button" className="shrink-0 text-slate-600 hover:text-slate-900"
+                          aria-label={`Remove ${field.label}`} disabled={removalDisabled}
+                          onClick={() => setPendingSavedRuleRemoval(removalKey)}>Remove</button> : null}
+                    </div>
+                    {field.columnId && field.removal === 'DISABLE_PINNED_OUTPUT' && pendingSavedRuleRemoval === removalKey ? (
+                      <div className="flex flex-wrap justify-end gap-x-3 gap-y-1">
+                        <button type="button" className="font-medium text-red-700 hover:underline" aria-label={`Confirm removal of ${field.label}`}
+                          disabled={removalDisabled} onClick={() => {
+                            setPendingSavedRuleRemoval(undefined);
+                            removeProjectedField(field);
+                          }}>Remove column</button>
+                        <button type="button" className="text-slate-600 hover:underline"
+                          onClick={() => setPendingSavedRuleRemoval(undefined)}>Cancel</button>
+                      </div>
+                    ) : null}
+                  </li>;
+                })}
+              </ul> : null}
+            </section>
+          ))}
+        </div> : savedFramesForNode.length ? null : <p className="text-xs text-slate-600">No column rules configured on this node.</p>}
+        {savedFramesForNode.length ? (
+          <FrameSourcePanel
+            key={`${table.outputId}:${state.catalog.snapshotToken}:${graphSource?.occurrenceId}`}
+            project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
+            snapshotToken={state.catalog.snapshotToken} outputId={table.outputId}
+            rowRoot={table.document.rootResourceType} frames={savedFramesForNode} unassignedFrameIds={unassignedFrameIds}
+            columns={table.document.columns} disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+            allowNewSource={false}
+            onSet={(choice, form) => applyCommands([{ type: 'SET_FRAME_SOURCE', outputId: table.outputId, frameChoiceId: choice.choiceId, form }])}
+            onReplace={(frameId, choice, form) => applyCommands([{ type: 'REPLACE_FRAME_SOURCE', outputId: table.outputId, frameId, frameChoiceId: choice.choiceId, form }])}
+            onRemove={(frameId) => applyCommands([{ type: 'REMOVE_FRAME_SOURCE', outputId: table.outputId, frameId }])}
+            onAddSelected={addSelectedFeatures}
+            onRemoveColumn={(column) => applyCommands([{ type: 'REMOVE_COLUMN', outputId: table.outputId, column }])}
+          />
+        ) : null}
+      </section>}
+      renderColumnRule={(preset, inventory, path, onClear, inline) => {
         const defaults = columnRuleDefaults[preset.id];
-        const extensionPath = inventory.extensionPaths[0];
-        const initialParameters = preset.id === 'extension' && defaults?.extension && extensionPath
-          ? { extension: { ...defaults.extension, source: { select: extensionPath } } }
-          : defaults;
+        const initialParameters = preset.id === 'extension' && defaults?.extension && path
+          ? { extension: { ...defaults.extension, source: { select: path } } }
+          : preset.id === 'catalog' && defaults?.catalog && path
+            ? { catalog: { ...defaults.catalog, includePaths: [path] } }
+            : defaults;
         if (!ruleOccurrence || !initialParameters) return null;
         return (
           <CreateColumnRule
-            key={`${relationshipOwner}:${ruleOccurrence.id}:${preset.id}`}
+            key={`${relationshipOwner}:${ruleOccurrence.id}:${preset.id}:${path ?? ''}`}
             kind={preset.kind} occurrence={ruleOccurrence} preset={preset} initialParameters={initialParameters}
-            identifierSystems={inventory.systems} identifierInventoryLoading={inventory.loading}
+            identifierSystems={inventory.systems} categorySystems={inventory.categorySystems} identifierInventoryLoading={inventory.loading}
             extensionSourcePaths={preset.id === 'extension' ? inventory.extensionPaths : undefined}
             identifierInventoryUnavailable={inventory.unavailable}
             fieldPathChoices={preset.id === 'catalog' ? ruleFieldPaths : undefined}
-            reviewing={activeRuleReview?.ruleKind === preset.kind && activeRuleReview.occurrenceId === ruleOccurrence.id}
-            disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-            onReview={() => {
-              if (recipeMutationAllowed()) recipeEditToken.current = recipeOwner.begin({ kind: 'createColumnRule', ruleKind: preset.kind, occurrenceId: ruleOccurrence.id });
-            }}
-            onCancel={() => cancelRecipeRelationship(false)}
-            renderReview={(sourceRule, onCancel) => <SourceRelationshipReview
+            reviewing={(!inline || inline.active) && activeRuleReview?.ruleKind === preset.kind && activeRuleReview.occurrenceId === ruleOccurrence.id}
+            inline={inline}
+            disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing || Boolean(inline?.disabled)}
+            onCancel={() => { if (cancelRecipeRelationship(false) && !inline) onClear?.(); }}
+            renderReview={(sourceRule, onCancel, disabled, label, automatic) => <SourceRelationshipReview
+              key={JSON.stringify(sourceRule)}
               client={loomClient} project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
               snapshotToken={state.catalog.snapshotToken} draftVersion={state.draftVersion} draftDigest={state.draftDigest}
-              outputId={table.outputId} disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+              outputId={table.outputId} disabled={disabled}
               requestControllerRef={sourceRelationshipRequest}
-              sourceRule={sourceRule} sharedPreview onPreviewStart={beginSourceReview}
+              sourceRule={sourceRule} sharedPreview autoPreview={automatic || (preset.id === 'catalog' && Boolean(path))} createRuleReview={{ label, active: Boolean(activeRuleReview) }}
+              onPreviewStart={() => {
+                if (!activeRuleReview) {
+                  if (!recipeMutationAllowed()) return undefined;
+                  recipeEditToken.current = recipeOwner.begin({ kind: 'createColumnRule', ruleKind: preset.kind, occurrenceId: ruleOccurrence.id });
+                }
+                return beginSourceReview();
+              }}
               onApply={async (commands) => {
                 const saved = await applySourceRecipe(commands);
                 if (saved) closeConstructionWorkspace();
@@ -1439,7 +1555,6 @@ const BuilderWorkspaceContent = ({
       onAddSelected={addSelectedFeatures}
       onPreviewSelected={previewRelatedSourceColumns}
       onInspectRouteCoverage={inspectRelatedRouteCoverage}
-      onApplyCommands={applyCommands}
       activeReshapeEditorKey={activeReshapeEditorKey}
       activeReshapeInitialKind={activeReshapeInitialKind}
       activeReshapeInitialEntry={activeReshapeInitialEntry}
@@ -1519,11 +1634,18 @@ const BuilderWorkspaceContent = ({
         {proposalPanel}
       </div>
     : undefined;
-  const { sourceCandidate, sourceReviewColumnLabels, rootCandidate, candidatePreview, generatedOutputRevision, proposalResponse, proposalPresentationTable, inspectedOccurrenceId, selectTraversalScope, editTraversalColumn, traversalTable, traversalNetwork, traversalRowIdentity, resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices, catalogOutputsForStep, pivotOutputsForStep, traversalOperationLabels, editTraversalRows, projectedFieldsForStep, occurrenceForStep, removeProjectedField, editProjectedField, renameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason } = traversalActionsFor({
+  const { sourceCandidate, sourceReviewColumnLabels, rootCandidate, candidatePreview, generatedOutputRevision, proposalResponse, proposalPresentationTable, inspectedOccurrenceId, selectTraversalScope, editTraversalColumn, traversalTable, traversalNetwork, traversalRowIdentity, resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices, catalogOutputsForStep, pivotOutputsForStep, traversalOperationLabels, editTraversalRows, projectedFieldsForStep, occurrenceForStep, removeProjectedField, canRemoveProjectedField, editProjectedField, renameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason } = traversalActionsFor({
     state, table, sourceProposal, relationshipOwner, recipeOwner, constructionLifecycle,
     lastAcceptedOutputPreview, pendingRelationship, cancelRecipeRelationship, dispatch,
     savedNetwork, recipeMutationAllowed, rememberRecipeFocus, recipeEditToken,
     applyCommands, pendingCommands, publishing, setRecipeNotice, sourceStepEditDirty, sourceStepEditCancelAction,
+    canEditColumnPolicy: (column) => {
+      if (!table || column.source.kind !== 'field') return false;
+      const candidate = candidateForPreviewColumn(column);
+      const occurrence = derivedOccurrences(table, state.catalog).find((item) => item.id === column.occurrenceId);
+      return Boolean(candidate && occurrence && candidate.nodeId === occurrence.nodeId &&
+        candidate.fieldPath === column.source.field.path && candidate.projectionModes.length > 1);
+    },
     onSwitchSavedOccurrence: (occurrenceId, restoredEditor) => {
       const key = JSON.stringify([relationshipOwner, state.draftVersion, state.draftDigest]);
       if (occurrencePanels.current?.key !== key) occurrencePanels.current = { key, panels: new Map() };
@@ -1578,8 +1700,19 @@ const BuilderWorkspaceContent = ({
     requestControllerRef={sourceRelationshipRequest}
     {...(sourceCandidate ? { prepared: { proposal: sourceCandidate.proposal, preview: sourceCandidate.preview } } : {})}
     onApply={applySourceRecipe} onCancel={cancelRecipeRelationship} /> : undefined;
-  const sourceRecipeInspector = recipeOwner.state.status === 'stale' && recipeOwner.state.target?.kind !== 'root'
-    ? <button type="button" className="rounded border border-slate-300 bg-white px-3 py-1 text-sm" onClick={() => cancelRecipeRelationship()}>Cancel</button>
+  const staleEditIdentity = {
+    project: state.project,
+    explorerId: state.explorerId,
+    outputId: table?.outputId ?? '',
+    snapshotToken: state.catalog.snapshotToken,
+    draftVersion: state.draftVersion,
+    draftDigest: state.draftDigest,
+  };
+  const staleSourceEdit = recipeOwner.state.status === 'stale' &&
+    recipeOwner.state.target?.kind !== 'root' &&
+    (Boolean(pendingRelationship) ||
+      Boolean(recipeOwner.state.token && !sameRecipeEditingIdentity(recipeOwner.state.token.identity, staleEditIdentity)));
+  const sourceRecipeInspector = staleSourceEdit ? undefined
     : recipeOwner.state.target?.kind === 'root' ? (recipeOwner.state.target.mode === 'REPLACE'
       ? <div ref={setRootReplacementInspectorHost} aria-label="Starting-record replacement inspector" />
       : rootCandidate || rootChangeState.kind === 'idle' ? <RowChangePreviewPanel candidateRoot={rootRecipeAssessment.current?.candidateRootResourceType ?? table?.document.rootResourceType ?? 'records'}
@@ -1594,7 +1727,7 @@ const BuilderWorkspaceContent = ({
         const occurrence = column ? derivedOccurrences(table, state.catalog).find((item) => item.id === column.occurrenceId) : undefined;
         return column ? <RecipeColumnPolicyInspector key={`${relationshipOwner}:${editingRecipeColumn.columnId}`}
           column={column} sourceNodeId={occurrence?.nodeId ?? ''} candidate={candidateForPreviewColumn(column)}
-          disabled={pendingCommands > 0 || publishing || state.reconciliation === 'pending'}
+          disabled={pendingCommands > 0 || publishing || state.reconciliation === 'pending' || recipeOwner.state.status === 'stale'}
           onCancel={cancelRecipeRelationship}
           busy={recipeOwner.state.status === 'previewing' || recipeOwner.state.status === 'applying'}
           error={recipeOwner.state.error}
@@ -1634,24 +1767,6 @@ const BuilderWorkspaceContent = ({
   const occurrenceInspection = canInspectOccurrence && table ? (
     <>
       <div className="min-w-0" ref={setOccurrenceInspectorHost} />
-      {graphSource?.isRoot && table.document.frames?.length ? (
-        <details className="rounded-md border border-slate-200 bg-white p-3">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-700">Manage saved code sources</summary>
-          <FrameSourcePanel
-            key={`${table.outputId}:${state.catalog.snapshotToken}`}
-            project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
-            snapshotToken={state.catalog.snapshotToken} outputId={table.outputId}
-            rowRoot={table.document.rootResourceType} frames={table.document.frames}
-            columns={table.document.columns} disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-            allowNewSource={false}
-            onSet={(choice, form) => applyCommands([{ type: 'SET_FRAME_SOURCE', outputId: table.outputId, frameChoiceId: choice.choiceId, form }])}
-            onReplace={(frameId, choice, form) => applyCommands([{ type: 'REPLACE_FRAME_SOURCE', outputId: table.outputId, frameId, frameChoiceId: choice.choiceId, form }])}
-            onRemove={(frameId) => applyCommands([{ type: 'REMOVE_FRAME_SOURCE', outputId: table.outputId, frameId }])}
-            onAddSelected={addSelectedFeatures}
-            onRemoveColumn={(column) => applyCommands([{ type: 'REMOVE_COLUMN', outputId: table.outputId, column }])}
-          />
-        </details>
-      ) : null}
     </>
   ) : undefined;
   const recordNetwork = table ? (
@@ -1883,6 +1998,18 @@ const BuilderWorkspaceContent = ({
         {state.tables.length === 0 ? tableCreatorPanel : (
           <>
             <span key={suggestionIdentity} ref={suggestionHostRef} hidden />
+            {staleSourceEdit ? <span hidden ref={(element) => {
+              const staleEdit = recipeOwner.getState();
+              if (!element || staleEdit.status !== 'stale' || !cancelRecipeRelationship(false)) return;
+              setRecipeNotice(staleEdit.error);
+              advancedRuleEditorReturn.current = undefined;
+              sourceStepEditDirty.current = false;
+              setActiveSourceStepId(undefined);
+              setSourceRowsOpen(false);
+              setActiveConstructionFamily(undefined);
+              setEditingConstructionStepId(undefined);
+              setRowIntentSession(false);
+            }} /> : null}
             {tableCreatorOpen ? tableCreatorPanel : null}
             {table ? (
               <ConstructionWorkspace
@@ -1902,11 +2029,10 @@ const BuilderWorkspaceContent = ({
                     sourceOperationNavigationDisabled={pendingCommands > 0 || publishing || sourceRowsOpen || recipeOwner.state.status === 'applying' || recipeOwner.state.status === 'stale'}
                     disabledReason={recipeOwner.state.status !== 'saved' ? 'Select an existing source operation to include it in this change.' : undefined}
                     onSelectScope={selectGraphOccurrence} onEditSourceStep={(stepId) => sourceStepEditAction.current?.(stepId)}
-                    onEditSourceOutput={(stepId, outputKey) => { setActiveSourceStepId(stepId); sourceOutputEditAction.current?.(stepId, outputKey); }}
                     onEditConstructionStep={editConstructionStep} onEditColumn={editTraversalColumn} onEditSourceRows={editTraversalRows}
                     onRemoveSourceStep={(stepId) => {
                       if (!recipeMutationAllowed()) return;
-                      void applyCommands([{ type: 'UPDATE_IMPORTED_SOURCE_STEP', outputId: table.outputId, sourceStep: { stepId, enabled: false } }]);
+                      void applyCommands([{ type: 'UPDATE_IMPORTED_SOURCE_STEP', outputId: table.outputId, sourceStep: { stepId, remove: true } }]);
                     }}
                     onRemoveConstructionStep={removeConstructionStep}
                     onExpandRelatedRows={() => chooseRelatedRows()} onGroupRows={() => chooseReshapeRows('group')}
@@ -2077,6 +2203,7 @@ const BuilderWorkspaceContent = ({
                         importedSource={table.document.importedSource}
                         editorHost={sourceStepInspectorHost}
                         reviewHost={sourceChangeReviewHost}
+                        reviewInEditor={advancedRuleEditorReturn.current !== undefined}
                         editActionRef={sourceStepEditAction}
                         fieldEditActionRef={sourceFieldEditAction} navigatorOnly reviewOwnsCancel
                         outputEditActionRef={sourceOutputEditAction}
@@ -2085,6 +2212,7 @@ const BuilderWorkspaceContent = ({
                         occurrenceForStep={occurrenceForStep}
                         projectedFieldsForStep={projectedFieldsForStep}
                         onRemoveProjectedField={removeProjectedField}
+                        canRemoveProjectedField={canRemoveProjectedField}
                         onEditProjectedField={editProjectedField}
                         onRenameProjectedField={renameProjectedField}
                         editableProjectedFieldIds={editableProjectedFieldIds}
@@ -2095,29 +2223,18 @@ const BuilderWorkspaceContent = ({
                         fieldKindChoices={fieldKindChoices}
                         catalogOutputsForStep={catalogOutputsForStep}
                         pivotOutputsForStep={pivotOutputsForStep}
-                        codedColumnsForStep={(stepId) => {
-                          const steps = table.document.importedSource?.steps ?? [];
-                          const step = steps.find((item) => item.id === stepId);
-                          if (!step) return [];
-                          const occurrenceId = step.parentId
-                            ? steps.find((item) => item.id === step.parentId)?.occurrenceId
-                            : table.document.route.occurrenceId;
-                          if (!occurrenceId) return [];
-                          return table.document.columns.filter((column) =>
-                            column.occurrenceId === occurrenceId && column.source.kind === 'codedValue'
-                          ).map(({ column, label }) => ({ column, label: label || column }));
-                        }}
-                        onRemoveCodedColumn={(column) => void applyCommands([{ type: 'REMOVE_COLUMN', outputId: table.outputId, column }])}
                         outputRevision={generatedOutputRevision}
                         onActiveOperationChange={setActiveSourceStepId}
                         onSuspendEdit={() => {
                           if (!cancelRecipeRelationship(false)) return false;
+                          advancedRuleEditorReturn.current = undefined;
                           sourceStepEditDirty.current = false;
                           setActiveSourceStepId(undefined);
                           return true;
                         }}
                         onBeginEdit={(stepId) => {
                           if (!recipeMutationAllowed()) return false;
+                          if (advancedRuleEditorReturn.current !== stepId) advancedRuleEditorReturn.current = undefined;
                           constructionLifecycle.cancel();
                           setActiveConstructionFamily(undefined);
                           setEditingConstructionStepId(undefined);
@@ -2135,7 +2252,13 @@ const BuilderWorkspaceContent = ({
                           setActiveSourceStepId(undefined);
                           if (recipeEditToken.current) recipeOwner.cancel(recipeEditToken.current);
                           recipeEditToken.current = undefined;
+                          const returnToAdvanced = advancedRuleEditorReturn.current !== undefined;
+                          advancedRuleEditorReturn.current = undefined;
                           cancelRecipeRelationship();
+                          if (returnToAdvanced) {
+                            setActiveConstructionFamily('ADD_COLUMNS');
+                            selectAddColumnsView('advanced');
+                          }
                         }}
                         onDraftChange={() => {
                           sourceStepEditDirty.current = true;
@@ -2145,6 +2268,7 @@ const BuilderWorkspaceContent = ({
                         disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
                         renderReview={(sourceStep, onCancel, sourceSteps) => <SourceRelationshipReview
                           columnLabels={sourceReviewColumnLabels}
+                          ruleEdit={advancedRuleEditorReturn.current !== undefined}
                           key={`${relationshipOwner}:source:${JSON.stringify(sourceSteps ?? sourceStep)}`}
                           client={loomClient} project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
                           snapshotToken={state.catalog.snapshotToken} draftVersion={state.draftVersion} draftDigest={state.draftDigest}
@@ -2181,42 +2305,30 @@ const BuilderWorkspaceContent = ({
                 activeFamily={activeConstructionFamily}
                 onSelectFamily={selectConstructionFamily}
                 preview={
-                  <>
-                    {!workspaceCandidatePreview && currentPreviewStatus === 'stale' ? (
-                      <p
-                        role="status"
-                        data-testid="construction-preview-stale-notice"
-                        className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-950"
-                      >
-                        Showing the last successful preview for this table.
-                        The table refreshes automatically when your changes are saved.
-                      </p>
-                    ) : null}
-                    {workspaceCandidatePreview ? (
-                      candidatePreviewElement
-                    ) : (
-                      <PreviewTable
-                        preview={tablePreview}
-                        previewErrorMessage={automaticPreviewFailureMessage}
-                        table={table}
-                        limit={previewLimit}
-                        onLimitChange={(limit) => {
-                          setPreviewLimit(limit);
-                        }}
-                        disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-                        onRowLineage={tablePreview ? (rowId, offset, signal) => loomClient.rowLineage({
-                          project: projectId,
-                          explorerId: state.explorerId,
-                          authResourcePath,
-                          receiptId: tablePreview.receiptId,
-                          outputId: tablePreview.outputId,
-                          rowId,
-                          offset,
-                          limit: 25,
-                        }, signal) : undefined}
-                      />
-                    )}
-                  </>
+                  workspaceCandidatePreview ? (
+                    candidatePreviewElement
+                  ) : (
+                    <PreviewTable
+                      preview={tablePreview}
+                      previewErrorMessage={automaticPreviewFailureMessage}
+                      table={table}
+                      limit={previewLimit}
+                      onLimitChange={(limit) => {
+                        setPreviewLimit(limit);
+                      }}
+                      disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+                      onRowLineage={tablePreview ? (rowId, offset, signal) => loomClient.rowLineage({
+                        project: projectId,
+                        explorerId: state.explorerId,
+                        authResourcePath,
+                        receiptId: tablePreview.receiptId,
+                        outputId: tablePreview.outputId,
+                        rowId,
+                        offset,
+                        limit: 25,
+                      }, signal) : undefined}
+                    />
+                  )
                 }
                 editor={externalWorkspaceEditor}
                 inspection={occurrenceInspection}

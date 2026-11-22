@@ -143,6 +143,7 @@ func (s *Store) TransitionManifest(ctx context.Context, manifest publication.Man
 	bindVars["expected_state"] = string(manifest.State)
 	bindVars["next_state"] = string(next)
 	bindVars["schema_identity"] = schemaIdentity
+	bindVars["identity_format"] = manifest.IdentityFormat
 	rows, err := s.manifestRows(ctx, transitionManifestAQL, bindVars)
 	if err != nil {
 		return publication.Manifest{}, fmt.Errorf("transition generation manifest: %w", err)
@@ -207,6 +208,7 @@ func (s *Store) Activate(ctx context.Context, candidate publication.Manifest) er
 	bindVars["active_key"] = activeDocumentKey(candidate.Dataset.Project)
 	bindVars["generation"] = candidate.Dataset.Generation
 	bindVars["schema_identity"] = schemaIdentity
+	bindVars["identity_format"] = candidate.IdentityFormat
 	bindVars["staged_state"] = string(publication.StateStaged)
 	bindVars["ready_state"] = string(publication.StateReady)
 
@@ -255,7 +257,8 @@ FOR document IN documents
     manifest: NEW.recordType == @manifest_record_type ? {
       dataset: NEW.dataset,
       state: NEW.state,
-      schemaIdentity: NEW.schemaIdentity
+      schemaIdentity: NEW.schemaIdentity,
+      identityFormat: NEW.identityFormat
     } : null
   }
 `
@@ -271,6 +274,7 @@ FOR manifest IN @@lifecycle_collection
     dataset: manifest.dataset,
     state: manifest.state,
     schemaIdentity: manifest.schemaIdentity,
+    identityFormat: manifest.identityFormat,
     analysisVersion: manifest.analysisVersion
   }
 `
@@ -283,11 +287,13 @@ FOR manifest IN @@lifecycle_collection
   FILTER manifest.dataset.generation == @generation
   FILTER manifest.state == @expected_state
   FILTER manifest.schemaIdentity == @schema_identity
+  FILTER NOT_NULL(manifest.identityFormat, "") == @identity_format
   UPDATE manifest WITH { state: @next_state } IN @@lifecycle_collection
   RETURN {
     dataset: NEW.dataset,
     state: NEW.state,
-    schemaIdentity: NEW.schemaIdentity
+    schemaIdentity: NEW.schemaIdentity,
+    identityFormat: NEW.identityFormat
   }
 `
 
@@ -307,6 +313,7 @@ FOR active IN @@lifecycle_collection
       dataset: manifest.dataset,
       state: manifest.state,
       schemaIdentity: manifest.schemaIdentity,
+      identityFormat: manifest.identityFormat,
       analysisVersion: manifest.analysisVersion
     }
 `
@@ -320,6 +327,7 @@ LET candidate = FIRST(
     FILTER manifest.dataset.generation == @generation
     FILTER manifest.state == @ready_state OR manifest.state == @staged_state
     FILTER manifest.schemaIdentity == @schema_identity
+    FILTER NOT_NULL(manifest.identityFormat, "") == @identity_format
     RETURN manifest
 )
 LET active = DOCUMENT(@@lifecycle_collection, @active_key)

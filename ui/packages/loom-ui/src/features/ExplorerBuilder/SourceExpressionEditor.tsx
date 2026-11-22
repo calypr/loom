@@ -25,8 +25,8 @@ export function SourceExpressionEditor({ value, onChange, label, disabled = fals
   if (unsupported) return <fieldset aria-label={label} className="rounded-md bg-amber-50 p-2 text-xs"><legend className="px-1 text-[11px] font-semibold text-amber-900">{label}</legend><p>This saved expression uses {unsupported}. It is preserved unchanged; structured editing supports source paths, primitive literals, and the supported recipe functions.</p></fieldset>;
   const kind = typeof value.select === 'string' ? 'select' : typeof value.call === 'string' ? 'call' : 'literal';
   return <fieldset aria-label={label} disabled={disabled} className="min-w-0 space-y-1.5">
-    <legend className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</legend>
-    <label className="flex flex-wrap items-center gap-1.5 text-xs">Expression type
+    <legend className="text-xs font-semibold text-slate-800">{label}</legend>
+    <label className="grid gap-1 text-xs">Expression type
       <select aria-label={`${label} type`} className={inputClass} value={kind} onChange={(event) => {
         const next = event.currentTarget.value;
         onChange(next === 'select' ? { select: 'root.id' } : next === 'call' ? { call: 'first', args: [{ select: 'root.id' }] } : { literal: '' });
@@ -39,7 +39,7 @@ export function SourceExpressionEditor({ value, onChange, label, disabled = fals
       </select> : <input aria-label={`${label} source path`} className={inputClass} value={value.select} onChange={(event) => onChange({ select: event.currentTarget.value })} />}
     </label> : null}
     {Object.hasOwn(value, 'literal') ? <div className="space-y-1.5">
-      <label className="flex items-center gap-2 text-xs">Literal type<select aria-label={`${label} literal type`} className={inputClass} value={value.literal === null ? 'null' : typeof value.literal}
+      <label className="grid gap-1 text-xs">Literal type<select aria-label={`${label} literal type`} className={inputClass} value={value.literal === null ? 'null' : typeof value.literal}
         onChange={(event) => onChange({ literal: event.currentTarget.value === 'null' ? null : event.currentTarget.value === 'boolean' ? false : event.currentTarget.value === 'number' ? 0 : '' })}>
         <option value="string">Text</option><option value="number">Number</option><option value="boolean">Boolean</option><option value="null">Null</option>
       </select></label>
@@ -49,7 +49,7 @@ export function SourceExpressionEditor({ value, onChange, label, disabled = fals
           onChange={(event) => { const raw = event.currentTarget.value; if (typeof value.literal === 'number') { if (raw.trim() !== '' && Number.isFinite(Number(raw))) onChange({ literal: Number(raw) }); } else onChange({ literal: raw }); }} /></label>}
     </div> : null}
     {typeof value.call === 'string' ? <div className="space-y-1.5">
-      <label className="flex items-center gap-1.5 text-xs">Function<select aria-label={`${label} function`} className={inputClass} value={value.call} onChange={(event) => onChange({ ...value, call: event.currentTarget.value })}>
+      <label className="grid gap-1 text-xs">Function<select aria-label={`${label} function`} className={inputClass} value={value.call} onChange={(event) => onChange({ ...value, call: event.currentTarget.value })}>
         {!sourceExpressionFunctions.some((name) => name === value.call) ? <option value={value.call}>{value.call} (existing function)</option> : null}
         {sourceExpressionFunctions.map((name) => <option key={name} value={name}>{name}</option>)}
       </select></label>

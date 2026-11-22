@@ -113,6 +113,38 @@ func TestWalkMembersRejectsInvalidInputsAndPropagatesVisitorErrors(t *testing.T)
 	}
 }
 
+func TestWalkMembersCachesReferencedScopeWithParentRequirements(t *testing.T) {
+	index, err := schema.NewIndex([]schema.Definition{
+		{
+			Name: "Root",
+			Elements: []schema.Element{
+				{Name: "first", JSONType: schema.JSONTypeObject, ReferencedType: "Child", RequiredChildren: []string{"alpha"}},
+				{Name: "second", JSONType: schema.JSONTypeObject, ReferencedType: "Child", RequiredChildren: []string{"beta"}},
+			},
+		},
+		{Name: "Child", Elements: []schema.Element{{Name: "value", JSONType: "string"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte(`{"first":{},"second":{}}`)
+	for attempt := 0; attempt < 3; attempt++ {
+		diagnostics, err := WalkMembers(index, "Root", payload, func(MemberFact) error { return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(diagnostics) != 2 {
+			t.Fatalf("diagnostics = %#v", diagnostics)
+		}
+		for position, expected := range []string{"first.alpha", "second.beta"} {
+			diagnostic := diagnostics[position]
+			if diagnostic.Code != WalkMissingRequiredElement || diagnostic.CanonicalPath != expected {
+				t.Fatalf("diagnostic[%d] = %#v, want missing required %q", position, diagnostic, expected)
+			}
+		}
+	}
+}
+
 func signalPacketIndex(t *testing.T) *schema.Index {
 	t.Helper()
 	index, err := schema.NewIndex([]schema.Definition{
@@ -172,4 +204,29 @@ func assertWalkDiagnostic(
 		}
 	}
 	t.Fatalf("diagnostic %s at %s/%s member=%q choice=%q not found in %#v", code, canonicalPath, ownerPath, member, choiceGroup, diagnostics)
+}
+
+func TestWalkMemberValuesTreatsTypedNilObjectAndArrayAsNull(t *testing.T) {
+	index, err := schema.NewIndex([]schema.Definition{{Name: "SignalPacket", Elements: []schema.Element{
+		{Name: "object", JSONType: schema.JSONTypeObject, ReferencedType: "Quantity"},
+		{Name: "items", JSONType: schema.JSONTypeArray, ArrayElementType: "Quantity"},
+	}}, {Name: "Quantity", Elements: []schema.Element{{Name: "value", JSONType: "number"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var object map[string]any
+	var items []any
+	var facts []MemberFact
+	if _, err := WalkMemberValues(index, "SignalPacket", map[string]any{
+		"object": object,
+		"items":  items,
+	}, func(fact MemberFact) error {
+		facts = append(facts, fact)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(facts) != 2 || !facts[0].Null || !facts[1].Null {
+		t.Fatalf("typed nil facts = %#v", facts)
+	}
 }

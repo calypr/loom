@@ -21,7 +21,6 @@ export interface ScopedOperation {
   readonly summary: string;
   readonly scopeId?: string;
   readonly scopeReason?: string;
-  readonly enabled: boolean;
   readonly editable: boolean;
   readonly inputs: ReadonlyArray<string>;
   readonly sourceStep?: NavigatorSourceStep;
@@ -62,7 +61,8 @@ export function traversalScopeModel(document: ExplorerBuilderDocument,
     const matches = scopes.filter(scope => scope.id === id);
     return matches.length === 1 ? { scopeId: id } : { scopeReason: matches.length ? 'The saved occurrence identity is ambiguous.' : 'The saved occurrence is not present in this authored traversal.' };
   };
-  const steps = document.importedSource?.steps ?? [];
+  const removedStepIds = new Set(document.importedSource?.removedStepIds ?? []);
+  const steps = (document.importedSource?.steps ?? []).filter((step) => !removedStepIds.has(step.id));
   const sourceScope = (step: NavigatorSourceStep, seen = new Set<string>()): ScopeResolution => {
     if (seen.has(step.id)) return { scopeReason: 'The source parent chain contains a cycle.' };
     if (steps.filter(item => item.id === step.id).length !== 1) return { scopeReason: 'The source operation identity is ambiguous.' };
@@ -84,7 +84,7 @@ export function traversalScopeModel(document: ExplorerBuilderDocument,
   };
   const sourceOperations = steps.map((step, index): ScopedOperation => ({
     id: step.id, kind: 'source', position: index + 1, title: step.title, summary: step.summary,
-    ...sourceScope(step), enabled: step.enabled, editable: step.editable, inputs: step.parentId ? [step.parentId] : [], sourceStep: step,
+    ...sourceScope(step), editable: step.editable, inputs: step.parentId ? [step.parentId] : [], sourceStep: step,
   }));
   const columns = document.columns.map((column): ScopedColumn => {
     const id = column.columnId ?? column.column;
@@ -176,7 +176,7 @@ export function traversalScopeModel(document: ExplorerBuilderDocument,
     const op = step.operation;
     return { id: step.id, kind: 'construction', position: index + 1,
       title: descriptor?.title ?? op.kind, summary: descriptor?.summary ?? `Inspect the saved ${op.kind} operation.`,
-      ...constructionScope(step), enabled: true, editable: descriptor?.editable ?? false, inputs: inputStage(step), constructionStep: step,
+      ...constructionScope(step), editable: descriptor?.editable ?? false, inputs: inputStage(step), constructionStep: step,
       anchorColumnId: op.kind === 'RELATED_SOURCE' ? op.relatedSource.anchorColumnId : op.kind === 'RELATED_EXPAND' ? op.relatedExpand.anchorColumnId : op.kind === 'RELATED_ELIGIBILITY' ? op.relatedEligibility.anchorColumnId : undefined };
   });
   return { scopes, sourceOperations, constructionOperations, columns };

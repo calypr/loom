@@ -2712,7 +2712,7 @@ components:
         kind: {type: string, enum: [ExplorerAuthoringCapabilities]}
         operations:
           type: array
-          items: {type: string, enum: [builder, suggestions, rowChange, preview, interpretationPreview, configuredColumnContext, interpretationCreate, publish, commands, reconcile]}
+          items: {type: string, enum: [builder, suggestions, rowChange, preview, interpretationPreview, configuredColumnContext, interpretationCreate, publish, commands, reconcile, sourceRuleCreate]}
         previewLimits:
           type: array
           items: {type: integer, minimum: 1, maximum: 1000}
@@ -3187,6 +3187,11 @@ components:
       additionalProperties: false
       required: [steps]
       properties:
+        removedStepIds:
+          type: array
+          readOnly: true
+          items: {type: string, minLength: 1}
+        nextRuleIndex: {type: integer, minimum: 1, readOnly: true}
         ruleAdditions:
           type: array
           readOnly: true
@@ -3208,13 +3213,12 @@ components:
     ImportedSourceRuleAddition:
       type: object
       additionalProperties: false
-      required: [stepId, kind, enabled, parameters]
+      required: [stepId, kind, parameters]
       properties:
         kind: {type: string, enum: [DYNAMIC_COLUMN, EXTENSION_COLUMN, CATALOG_PROJECTION]}
         occurrenceId: {type: string, minLength: 1}
         maxColumns: {type: integer, minimum: 1, maximum: 128}
         stepId: {type: string, minLength: 1}
-        enabled: {type: boolean}
         parameters: {$ref: '#/components/schemas/ImportedSourceParameters'}
     NetworkOccurrence:
       type: object
@@ -3411,7 +3415,7 @@ components:
     ImportedSourceStep:
       type: object
       additionalProperties: false
-      required: [id, kind, title, summary, enabled, editable]
+      required: [id, kind, title, summary, editable]
       properties:
         id: {type: string, minLength: 1}
         parentId: {type: string, minLength: 1}
@@ -3421,7 +3425,6 @@ components:
         kind: {type: string, minLength: 1}
         title: {type: string, minLength: 1}
         summary: {type: string, minLength: 1}
-        enabled: {type: boolean}
         editable: {type: boolean}
         maxColumns: {type: integer, minimum: 1}
         valueMode: {type: string, minLength: 1}
@@ -4369,10 +4372,10 @@ components:
         name: authoringv2
         path: github.com/calypr/loom/internal/explorer/authoringv2
       additionalProperties: false
-      required: [stepId, enabled]
+      required: [stepId]
       properties:
         stepId: {type: string, minLength: 1}
-        enabled: {type: boolean}
+        remove: {type: boolean, enum: [true]}
         maxColumns: {type: integer, minimum: 1}
         valueMode: {type: string, minLength: 1}
         parameters: {$ref: '#/components/schemas/ImportedSourceParameters'}

@@ -29,9 +29,10 @@ for (let i = 2; i < process.argv.length; i++) {
 assert.ok(['all', 'preview', 'download', 'route'].includes(options.feature), 'Unknown browser feature');
 for (const file of [fixture, options.chrome, 'ui/node_modules/esbuild/lib/main.js', 'ui/node_modules/postcss/lib/postcss.mjs', 'ui/node_modules/tailwindcss/lib/index.js'])
     assert.ok(existsSync(resolve(root, file)), `Missing browser prerequisite: ${file}`);
-const version = spawnSync(options.chrome, ['--version'], { encoding: 'utf8', timeout: 3000 });
-assert.equal(version.status, 0, version.stderr);
 if (options.doctor) {
+    const version = spawnSync(options.chrome, ['--version'], { encoding: 'utf8', timeout: 30_000 });
+    if (version.error) throw new Error(`Could not get the Chromium version from ${options.chrome}`, { cause: version.error });
+    assert.equal(version.status, 0, `Chromium version command failed (${version.signal ?? version.status}): ${version.stderr}`);
     console.log(JSON.stringify({ status: 'ready-for-browser-component-checks', chrome: version.stdout.trim(), features: ['preview', 'download', 'route'], boundary: 'real production components in real Chromium; test-owned caller/data/download HTTP response, not deployed Loom/backend or disk durability' }));
     process.exit(0);
 }
@@ -57,9 +58,10 @@ const inputFingerprint = fingerprint();
 const temp = await mkdtemp(join(tmpdir(), 'loom-browser-component-'));
 const assets = join(temp, 'assets'), profile = join(temp, 'profile'), downloads = join(temp, 'downloads');
 await mkdir(downloads);
-let server, chrome, client, browser, stopBuild, currentLoader;
+let server, chrome, client, browser, stopBuild, currentLoader, chromeStartError;
+let chromeErrors = '';
 const started = performance.now(), requests = [], browserErrors = [], downloadStarts = [], downloadStates = new Map();
-const report = { schemaVersion: 1, status: 'running', feature: options.feature, sourceFingerprint: inputFingerprint, chrome: version.stdout.trim(), checks: [], boundary: 'Actual PreviewTable/OutputTable and saved-route editor/proposal lifecycle in Chromium; DOM select change plus native pointer input. Test-owned caller/API responses/sessionStorage and controlled attachment endpoint. No BuilderWorkspace, real API/store, published Viewer integration or disk durability claim.' };
+const report = { schemaVersion: 1, status: 'running', feature: options.feature, sourceFingerprint: inputFingerprint, chrome: null, checks: [], boundary: 'Actual PreviewTable/OutputTable and saved-route editor/proposal lifecycle in Chromium; DOM select change plus native pointer input. Test-owned caller/API responses/sessionStorage and controlled attachment endpoint. No BuilderWorkspace, real API/store, published Viewer integration or disk durability claim.' };
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(probe, message, milliseconds = 5000) {
     const deadline = performance.now() + milliseconds;
@@ -154,12 +156,23 @@ try {
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     report.origin = `http://127.0.0.1:${server.address().port}`;
     chrome = spawn(options.chrome, ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--window-size=1600,1000', '--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--disable-component-update', '--disable-sync', '--proxy-server=direct://', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
-    let chromeErrors = '';
-    chrome.stderr.on('data', chunk => { chromeErrors += chunk; });
+    chrome.on('error', error => { chromeStartError = error; });
+    chrome.stderr.on('data', chunk => { chromeErrors = (chromeErrors + chunk).slice(-8192); });
     const portFile = join(profile, 'DevToolsActivePort');
-    await until(() => existsSync(portFile), 'Chromium DevTools startup', 8000);
+    try {
+        await until(() => {
+            if (chromeStartError) throw chromeStartError;
+            if (chrome.exitCode !== null || chrome.signalCode !== null) {
+                throw new Error(`Chromium exited before DevTools startup (${chrome.signalCode ?? chrome.exitCode})`);
+            }
+            return existsSync(portFile);
+        }, 'Chromium DevTools startup', 45_000);
+    } catch (error) {
+        throw new Error(`Chromium failed to expose DevTools (exit ${chrome.exitCode ?? chrome.signalCode ?? 'pending'}): ${chromeErrors.trim()}`, { cause: error });
+    }
     const [port, browserPath] = (await readFile(portFile, 'utf8')).trim().split('\n');
     browser = await CDPClient.connect(`ws://127.0.0.1:${port}${browserPath}`);
+    report.chrome = (await browser.send('Browser.getVersion')).product;
     browser.on('Browser.downloadWillBegin', event => downloadStarts.push(event));
     browser.on('Browser.downloadProgress', event => downloadStates.set(event.guid, event.state));
     await browser.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads, eventsEnabled: true });
@@ -284,12 +297,12 @@ try {
     await writeFile(join(out, 'page.png'), Buffer.from(screenshot.data, 'base64'));
     report.status = 'passed';
 } catch (error) {
-    report.status = 'failed'; report.error = { message: error.message, stack: error.stack };
+    report.status = 'failed'; report.error = { message: error.message, stack: error.stack, chromiumStderr: chromeErrors };
     process.exitCode = 1;
 } finally {
     stopBuild?.();
     client?.close(); browser?.close();
-    if (chrome && chrome.exitCode === null && chrome.signalCode === null) {
+    if (chrome?.pid && chrome.exitCode === null && chrome.signalCode === null) {
         const stopped = new Promise(resolve => chrome.once('exit', resolve));
         const forceStop = setTimeout(() => chrome.kill('SIGKILL'), 1000);
         chrome.kill('SIGTERM');
@@ -305,7 +318,7 @@ try {
         process.exitCode = 1;
     }
     report.seconds = (performance.now() - started) / 1000; report.browserErrors = browserErrors;
-    report.cleanup = { chromiumStopped: !chrome || chrome.exitCode !== null || chrome.signalCode !== null, fixtureServerStopped: !server || !server.listening, temporaryProfileRemoved: !existsSync(temp) };
+    report.cleanup = { chromiumStopped: !chrome?.pid || chrome.exitCode !== null || chrome.signalCode !== null, fixtureServerStopped: !server || !server.listening, temporaryProfileRemoved: !existsSync(temp) };
     await writeFile(join(out, 'browser.json'), JSON.stringify(report, null, 2));
     console.log(JSON.stringify(report));
 }

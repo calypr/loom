@@ -336,3 +336,34 @@ func assertWalkLimit(t *testing.T, err error, kind WalkLimitKind, limit int) {
 		t.Fatalf("limit error = %v, want *WalkLimitError{%s, %d}", err, kind, limit)
 	}
 }
+
+func TestWalkMemberValuesWithResourceTypesResolvesContainedResource(t *testing.T) {
+	index := resourceDispatchIndex(t, schema.Element{
+		Name: "contained", JSONType: schema.JSONTypeArray, ArrayElementType: "Resource",
+		ArrayElements: []schema.Element{{Name: "resourceType", JSONType: "string"}},
+	})
+	payload := map[string]any{"contained": []any{
+		map[string]any{"resourceType": "Observation", "observationOnly": "seen"},
+		map[string]any{"resourceType": "Patient"},
+	}}
+	var facts []MemberFact
+	diagnostics, err := WalkMemberValuesWithResourceTypes(index, "DispatchEnvelope", payload, []schema.ResourceType{"Observation"}, func(fact MemberFact) error {
+		facts = append(facts, fact)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Code != WalkUnresolvedResourceType || diagnostics[0].OwnerPath != "contained[1]" {
+		t.Fatalf("diagnostics = %#v", diagnostics)
+	}
+	for _, fact := range facts {
+		if fact.OwnerPath == "contained[0].observationOnly" {
+			if fact.DeclaringType != "Observation" || fact.Value != "seen" || len(fact.ResourceBoundaries) != 1 {
+				t.Fatalf("contained observation fact = %#v", fact)
+			}
+			return
+		}
+	}
+	t.Fatalf("contained observation fact missing from %#v", facts)
+}

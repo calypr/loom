@@ -53,3 +53,10 @@ stay in the published generation. Partial updates require an immutable base
 with file ownership metadata. Legacy data that cannot be copied safely returns
 a migration-required conflict. Abandoned candidate generations remain inactive;
 automatic staging-data retention cleanup is not implemented yet.
+
+## Publish a dataframe
+
+Use `authoring.New` with the Loom base URL and a bearer token, then call
+`Publish` with the project, Explorer ID, authorization resource path, and
+publication receipt ID. The client verifies that Loom returned an active
+publication for that receipt and returns its JSON response.

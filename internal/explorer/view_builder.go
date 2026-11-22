@@ -25,6 +25,7 @@ type ViewBuilderConfig struct {
 
 type ViewBuilderCatalog struct {
 	RecipeName  string             `json:"recipeName"`
+	Title       string             `json:"title,omitempty"`
 	RevisionID  string             `json:"revisionId"`
 	ExecutionID string             `json:"executionId"`
 	Generation  string             `json:"generation"`

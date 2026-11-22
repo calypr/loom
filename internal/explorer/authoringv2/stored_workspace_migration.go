@@ -39,7 +39,11 @@ func MigrateStoredWorkspace(raw []byte, catalog CatalogSnapshot) (StoredWorkspac
 	if legacyDigest, digestErr := original.LegacyNilConstructionStepsDigest(); digestErr == nil {
 		result.OriginalLegacyNilStepsDigest = legacyDigest
 	}
-	for _, digest := range []string{result.OriginalCanonicalDigest, result.OriginalLegacyNilStepsDigest} {
+	legacySourceDigest, err := legacyImportedSourceDigest(raw, original)
+	if err != nil {
+		return result, fmt.Errorf("verify legacy imported source encoding: %w", err)
+	}
+	for _, digest := range []string{result.OriginalCanonicalDigest, result.OriginalLegacyNilStepsDigest, legacySourceDigest} {
 		if digest != "" && !contains(result.AcceptedOriginalDigests, digest) {
 			result.AcceptedOriginalDigests = append(result.AcceptedOriginalDigests, digest)
 		}

@@ -58,6 +58,68 @@ func TestSemanticInventoryEmitsBeyondBoundedFieldSummary(t *testing.T) {
 	}
 }
 
+func TestSemanticInventoryAggregatorCoalescesOnlyEqualReducerInputs(t *testing.T) {
+	base := SemanticInventoryContribution{
+		Project: "project", DatasetGeneration: "generation", AuthResourcePath: "scope",
+		ResourceType: "Observation", BuildID: SemanticInventoryBuildID("project", "generation"), SourceID: "Observation.ndjson#1",
+		ConceptID: "concept", BindingID: "binding", Example: "example",
+		Observation: SemanticObservation{
+			SchemaVersion: 4,
+			Source:        SemanticObservationSource{Canonical: "canonical", Type: "Observation", Profile: "profile", Path: "value"},
+			Key:           SemanticObservationKey{Selector: "code", System: "system", Version: "version", Code: "code", Display: "display"},
+			Value:         SemanticObservationValue{Selector: "value", Type: "string", FallbackSelectors: []string{"a", "b"}, FallbackOnBlankString: true},
+			OwningScope:   "scope", ExtensionURLPath: []string{"extension", "url"}, ChoiceArm: "valueString",
+			LogicalType: "string", ObservedUnits: []string{"mg"}, Completeness: SemanticComplete,
+			Population: 1, Examples: []string{"example"}, RuleHint: "rule", RuleVersion: "1",
+		},
+	}
+	aggregator := NewSemanticInventoryAggregator("project", "generation", "scope", "Observation", "META/Observation.ndjson")
+	if err := aggregator.Add(base); err != nil {
+		t.Fatal(err)
+	}
+	duplicate := base
+	duplicate.Observation.Population = 2
+	duplicate.Observation.ExamplesTruncated = true
+	if err := aggregator.Add(duplicate); err != nil {
+		t.Fatal(err)
+	}
+	changed := duplicate
+	changed.Observation.Value.FallbackSelectors = nil
+	changed.Observation.Population = 1
+	if err := aggregator.Add(changed); err != nil {
+		t.Fatal(err)
+	}
+	documents := aggregator.Documents()
+	if len(documents) != 2 {
+		t.Fatalf("documents = %d, want one coalesced row and one distinct reducer input", len(documents))
+	}
+	if documents[0].Ordinal != 0 || documents[1].Ordinal != 1 {
+		t.Fatalf("ordinals = %d, %d, want stable contiguous ordinals", documents[0].Ordinal, documents[1].Ordinal)
+	}
+	for _, document := range documents {
+		if document.SourceID != "META/Observation.ndjson" || document.Key == "" {
+			t.Fatalf("unstable identity fields: source_id=%q key=%q", document.SourceID, document.Key)
+		}
+		if document.Observation.Population == 3 {
+			if !document.Observation.ExamplesTruncated {
+				t.Fatal("examples_truncated = false, want OR of source values")
+			}
+			if document.Example != "example" {
+				t.Fatalf("example = %q, want unchanged minimum input", document.Example)
+			}
+		}
+	}
+	retry := NewSemanticInventoryAggregator("project", "generation", "scope", "Observation", "META/Observation.ndjson")
+	for _, contribution := range []SemanticInventoryContribution{base, duplicate, changed} {
+		if err := retry.Add(contribution); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !reflect.DeepEqual(documents, retry.Documents()) {
+		t.Fatal("retry aggregation changed deterministic documents")
+	}
+}
+
 func TestRetainedSemanticEmitterEmitsBeyondSummaryCapWithoutRetainingScopeMaps(t *testing.T) {
 	components := make([]any, 1000)
 	for i := range components {

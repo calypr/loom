@@ -2,9 +2,12 @@ package semantic
 
 import (
 	"container/heap"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
+	"sync"
 
 	"github.com/calypr/loom/internal/fhir/schema"
 )
@@ -69,6 +72,7 @@ type MemberFact struct {
 	ArrayItem          bool
 	ItemIndex          *int
 	Null               bool
+	Value              any
 }
 
 func WalkMembers(
@@ -78,6 +82,42 @@ func WalkMembers(
 	visit func(MemberFact) error,
 ) ([]WalkDiagnostic, error) {
 	return walkMembers(index, root, payload, visit, memberWalkOptions{})
+}
+
+func WalkMemberValues(
+	index *schema.Index,
+	root schema.DefinitionName,
+	payload map[string]any,
+	visit func(MemberFact) error,
+) ([]WalkDiagnostic, error) {
+	if payload == nil {
+		return nil, fmt.Errorf("walk FHIR members for %q: expected an object", root)
+	}
+	return walkMemberTree(index, root, decodedMemberObject(payload), visit, memberWalkOptions{})
+}
+
+func WalkMemberValuesWithResourceTypes(
+	index *schema.Index,
+	root schema.DefinitionName,
+	payload map[string]any,
+	allowed []schema.ResourceType,
+	visit func(MemberFact) error,
+) ([]WalkDiagnostic, error) {
+	if payload == nil {
+		return nil, fmt.Errorf("walk FHIR members for %q: expected an object", root)
+	}
+	allowedTypes, err := validateAllowedResourceTypes(root, allowed)
+	if err != nil {
+		return nil, err
+	}
+	return walkMemberTree(index, root, decodedMemberObject(payload), visit, memberWalkOptions{
+		allowedResourceTypes: allowedTypes,
+		limits: &memberWalkLimits{
+			maxFacts:       WalkMembersWithResourceTypesMaxFacts,
+			maxDiagnostics: WalkMembersWithResourceTypesMaxDiagnostics,
+			maxDepth:       WalkMembersWithResourceTypesMaxDepth,
+		},
+	})
 }
 
 func WalkMembersWithResourceTypes(
@@ -117,6 +157,28 @@ type memberWalkState struct {
 	visitedFacts int
 	limitErr     *WalkLimitError
 }
+
+type memberScopeCacheKey struct {
+	first         schema.ElementView
+	elementCount  int
+	requiredNames string
+}
+
+type memberScopePlan struct {
+	declared      map[string]schema.ElementView
+	requiredOrder []string
+	choiceGroups  map[string][]string
+	choiceOrder   []string
+}
+
+const maxMemberScopePlans = 8192
+
+var memberScopePlans sync.Map
+var memberScopePlanOrder = struct {
+	sync.Mutex
+	keys []memberScopeCacheKey
+	next int
+}{keys: make([]memberScopeCacheKey, 0, maxMemberScopePlans)}
 
 func walkMembersWithResourceTypesAndLimits(
 	index *schema.Index,
@@ -163,6 +225,20 @@ func walkMembers(
 	visit func(MemberFact) error,
 	options memberWalkOptions,
 ) ([]WalkDiagnostic, error) {
+	object, err := decodeObject(payload, "root")
+	if err != nil {
+		return nil, err
+	}
+	return walkMemberTree(index, root, rawMemberObject(object), visit, options)
+}
+
+func walkMemberTree(
+	index *schema.Index,
+	root schema.DefinitionName,
+	object memberObject,
+	visit func(MemberFact) error,
+	options memberWalkOptions,
+) ([]WalkDiagnostic, error) {
 	if index == nil {
 		return nil, fmt.Errorf("walk FHIR members for %q: schema index is nil", root)
 	}
@@ -173,27 +249,11 @@ func walkMembers(
 	if !ok {
 		return nil, fmt.Errorf("walk FHIR members for %q: definition is not in the schema index", root)
 	}
-	object, err := decodeObject(payload, "root")
-	if err != nil {
-		return nil, err
-	}
 	diagnostics := make([]WalkDiagnostic, 0)
 	state := &memberWalkState{options: options}
-	err = walkMemberScope(
-		index,
-		root,
-		root,
-		definition.Elements(),
-		definition.RequiredElements(),
-		object,
-		"",
-		"",
-		nil,
-		nil,
-		0,
-		visit,
-		&diagnostics,
-		state,
+	err := walkMemberScope(
+		index, root, root, definition.Elements(), definition.RequiredElements(),
+		object, "", "", nil, nil, 0, visit, &diagnostics, state,
 	)
 	if err != nil {
 		if state.limitErr != nil && err == state.limitErr {
@@ -210,7 +270,7 @@ func walkMemberScope(
 	declaringType schema.DefinitionName,
 	elements schema.ElementListView,
 	requiredNames []string,
-	object map[string]json.RawMessage,
+	object memberObject,
 	canonicalPrefix string,
 	ownerPrefix string,
 	repeated []RepeatedBoundary,
@@ -223,16 +283,12 @@ func walkMemberScope(
 	if state.options.limits != nil && depth > state.options.limits.maxDepth {
 		return state.newLimitError(WalkLimitDepth, state.options.limits.maxDepth)
 	}
-	declared := make(map[string]schema.ElementView, elements.Len())
-	for elementIndex := 0; elementIndex < elements.Len(); elementIndex++ {
-		element, ok := elements.At(elementIndex)
-		if !ok {
-			return fmt.Errorf("walk FHIR members for %q: schema element index %d is unavailable", root, elementIndex)
-		}
-		declared[element.Name()] = element
+	plan, err := cachedMemberScopePlan(elements, requiredNames, root)
+	if err != nil {
+		return err
 	}
 
-	unknown := unknownMemberNames(object, declared, len(*diagnostics), state)
+	unknown := unknownMemberNames(object, plan.declared, len(*diagnostics), state)
 	for _, name := range unknown {
 		if err := appendWalkDiagnostic(diagnostics, WalkDiagnostic{
 			Code:          WalkUnknownMember,
@@ -244,33 +300,13 @@ func walkMemberScope(
 		}
 	}
 
-	required := make(map[string]struct{}, len(requiredNames)+elements.Len())
-	for _, name := range requiredNames {
-		required[name] = struct{}{}
-	}
-	choiceGroups := make(map[string][]string)
-	for elementIndex := 0; elementIndex < elements.Len(); elementIndex++ {
-		element, _ := elements.At(elementIndex)
-		metadata := element.Snapshot()
-		if metadata.ElementRequired && metadata.ChoiceGroup == "" {
-			required[element.Name()] = struct{}{}
-		}
-		if metadata.ChoiceGroup != "" && metadata.ChoiceGroupRequired {
-			choiceGroups[metadata.ChoiceGroup] = append(choiceGroups[metadata.ChoiceGroup], element.Name())
-		}
-	}
-	requiredOrder := make([]string, 0, len(required))
-	for name := range required {
-		requiredOrder = append(requiredOrder, name)
-	}
-	sort.Strings(requiredOrder)
-	for _, name := range requiredOrder {
-		value, ok := object[name]
-		if ok && !isNull(value) || !ok && depth == 0 && name == "resourceType" {
+	for _, name := range plan.requiredOrder {
+		value, ok := object.member(name)
+		if ok && !value.isNull() || !ok && depth == 0 && name == "resourceType" {
 			continue
 		}
 		canonicalPath := joinPath(canonicalPrefix, name)
-		if element, found := declared[name]; found && element.JSONType() == schema.JSONTypeArray {
+		if element, found := plan.declared[name]; found && element.JSONType() == schema.JSONTypeArray {
 			canonicalPath += "[]"
 		}
 		if err := appendWalkDiagnostic(diagnostics, WalkDiagnostic{
@@ -282,15 +318,10 @@ func walkMemberScope(
 			return err
 		}
 	}
-	groupNames := make([]string, 0, len(choiceGroups))
-	for group := range choiceGroups {
-		groupNames = append(groupNames, group)
-	}
-	sort.Strings(groupNames)
-	for _, group := range groupNames {
+	for _, group := range plan.choiceOrder {
 		present := false
-		for _, arm := range choiceGroups[group] {
-			if value, ok := object[arm]; ok && !isNull(value) {
+		for _, arm := range plan.choiceGroups[group] {
+			if value, ok := object.member(arm); ok && !value.isNull() {
 				present = true
 				break
 			}
@@ -317,7 +348,7 @@ func walkMemberScope(
 
 	for elementIndex := 0; elementIndex < elements.Len(); elementIndex++ {
 		element, _ := elements.At(elementIndex)
-		value, exists := object[element.Name()]
+		value, exists := object.member(element.Name())
 		if !exists {
 			continue
 		}
@@ -328,12 +359,91 @@ func walkMemberScope(
 	return nil
 }
 
+func cachedMemberScopePlan(
+	elements schema.ElementListView,
+	requiredNames []string,
+	root schema.DefinitionName,
+) (*memberScopePlan, error) {
+	first, elementCount := elements.Identity()
+	key := memberScopeCacheKey{first: first, elementCount: elementCount, requiredNames: requiredNamesIdentity(requiredNames)}
+	if cached, ok := memberScopePlans.Load(key); ok {
+		return cached.(*memberScopePlan), nil
+	}
+	plan := &memberScopePlan{
+		declared:     make(map[string]schema.ElementView, elements.Len()),
+		choiceGroups: make(map[string][]string),
+	}
+	required := make(map[string]struct{}, len(requiredNames)+elements.Len())
+	for elementIndex := 0; elementIndex < elements.Len(); elementIndex++ {
+		element, ok := elements.At(elementIndex)
+		if !ok {
+			return nil, fmt.Errorf("walk FHIR members for %q: schema element index %d is unavailable", root, elementIndex)
+		}
+		plan.declared[element.Name()] = element
+	}
+	for _, name := range requiredNames {
+		required[name] = struct{}{}
+	}
+	for elementIndex := 0; elementIndex < elements.Len(); elementIndex++ {
+		element, _ := elements.At(elementIndex)
+		metadata := element.Snapshot()
+		if metadata.ElementRequired && metadata.ChoiceGroup == "" {
+			required[element.Name()] = struct{}{}
+		}
+		if metadata.ChoiceGroup != "" && metadata.ChoiceGroupRequired {
+			plan.choiceGroups[metadata.ChoiceGroup] = append(plan.choiceGroups[metadata.ChoiceGroup], element.Name())
+		}
+	}
+	plan.requiredOrder = make([]string, 0, len(required))
+	for name := range required {
+		plan.requiredOrder = append(plan.requiredOrder, name)
+	}
+	sort.Strings(plan.requiredOrder)
+	plan.choiceOrder = make([]string, 0, len(plan.choiceGroups))
+	for group := range plan.choiceGroups {
+		plan.choiceOrder = append(plan.choiceOrder, group)
+	}
+	sort.Strings(plan.choiceOrder)
+	actual, loaded := memberScopePlans.LoadOrStore(key, plan)
+	if !loaded {
+		memberScopePlanOrder.Lock()
+		if len(memberScopePlanOrder.keys) < maxMemberScopePlans {
+			memberScopePlanOrder.keys = append(memberScopePlanOrder.keys, key)
+		} else {
+			memberScopePlans.Delete(memberScopePlanOrder.keys[memberScopePlanOrder.next])
+			memberScopePlanOrder.keys[memberScopePlanOrder.next] = key
+			memberScopePlanOrder.next = (memberScopePlanOrder.next + 1) % maxMemberScopePlans
+		}
+		memberScopePlanOrder.Unlock()
+	}
+	return actual.(*memberScopePlan), nil
+}
+
+func requiredNamesIdentity(names []string) string {
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return "\x01" + names[0]
+	default:
+		var builder strings.Builder
+		builder.WriteByte(2)
+		var length [binary.MaxVarintLen64]byte
+		for _, name := range names {
+			encoded := binary.PutUvarint(length[:], uint64(len(name)))
+			builder.Write(length[:encoded])
+			builder.WriteString(name)
+		}
+		return builder.String()
+	}
+}
+
 func visitMemberValue(
 	index *schema.Index,
 	root schema.DefinitionName,
 	declaringType schema.DefinitionName,
 	element schema.ElementView,
-	value json.RawMessage,
+	value memberValue,
 	canonicalPrefix string,
 	ownerPrefix string,
 	repeated []RepeatedBoundary,
@@ -368,7 +478,7 @@ func visitMemberValue(
 		if fact.Null || !memberIsObject(element) {
 			return nil
 		}
-		object, err := decodeObject(value, ownerPath)
+		object, err := value.object(ownerPath)
 		if err != nil {
 			return err
 		}
@@ -385,9 +495,9 @@ func visitMemberValue(
 	if container.Null {
 		return nil
 	}
-	var items []json.RawMessage
-	if err := json.Unmarshal(value, &items); err != nil {
-		return fmt.Errorf("walk FHIR path %q: decode array: %w", ownerPath, err)
+	items, err := value.array(ownerPath)
+	if err != nil {
+		return err
 	}
 	for itemIndex, item := range items {
 		itemOwnerPath := ownerPath + "[" + fmt.Sprint(itemIndex) + "]"
@@ -421,7 +531,7 @@ func visitMemberValue(
 		if fact.Null || !memberArrayItemIsObject(element) {
 			continue
 		}
-		object, err := decodeObject(item, itemOwnerPath)
+		object, err := item.object(itemOwnerPath)
 		if err != nil {
 			return err
 		}
@@ -443,7 +553,7 @@ func walkObjectMembers(
 	referencedType schema.DefinitionName,
 	inlineElements schema.ElementListView,
 	requiredChildren []string,
-	object map[string]json.RawMessage,
+	object memberObject,
 	canonicalPrefix string,
 	ownerPrefix string,
 	repeated []RepeatedBoundary,
@@ -476,7 +586,7 @@ func memberFact(
 	ownerPath string,
 	repeated []RepeatedBoundary,
 	element schema.Element,
-	raw json.RawMessage,
+	value memberValue,
 ) MemberFact {
 	return MemberFact{
 		RootDefinition:     root,
@@ -487,8 +597,9 @@ func memberFact(
 		RepeatedBoundaries: cloneRepeatedBoundaries(repeated),
 		ResourceBoundaries: nil,
 		Element:            element,
-		RawJSON:            append(json.RawMessage(nil), raw...),
-		Null:               isNull(raw),
+		RawJSON:            append(json.RawMessage(nil), value.raw...),
+		Null:               value.isNull(),
+		Value:              value.decoded,
 	}
 }
 
@@ -516,14 +627,109 @@ func (state *memberWalkState) newLimitError(kind WalkLimitKind, limit int) *Walk
 	return state.limitErr
 }
 
-func unknownMemberNames(object map[string]json.RawMessage, declared map[string]schema.ElementView, diagnosticCount int, state *memberWalkState) []string {
+type memberObject interface {
+	member(string) (memberValue, bool)
+	forEachName(func(string))
+}
+
+type rawMemberObject map[string]json.RawMessage
+
+func (object rawMemberObject) member(name string) (memberValue, bool) {
+	raw, ok := object[name]
+	return memberValue{raw: raw}, ok
+}
+
+func (object rawMemberObject) forEachName(visit func(string)) {
+	for name := range object {
+		visit(name)
+	}
+}
+
+type decodedMemberObject map[string]any
+
+func (object decodedMemberObject) member(name string) (memberValue, bool) {
+	value, ok := object[name]
+	return memberValue{decoded: value, isDecoded: true}, ok
+}
+
+func (object decodedMemberObject) forEachName(visit func(string)) {
+	for name := range object {
+		visit(name)
+	}
+}
+
+type memberValue struct {
+	raw       json.RawMessage
+	decoded   any
+	isDecoded bool
+}
+
+func (value memberValue) decodedValue() (any, bool) {
+	return value.decoded, value.isDecoded
+}
+
+func (value memberValue) isNull() bool {
+	if !value.isDecoded {
+		return isNull(value.raw)
+	}
+	switch decoded := value.decoded.(type) {
+	case nil:
+		return true
+	case map[string]any:
+		return decoded == nil
+	case []any:
+		return decoded == nil
+	default:
+		return false
+	}
+}
+
+func (value memberValue) object(path string) (memberObject, error) {
+	if value.isDecoded {
+		object, ok := value.decoded.(map[string]any)
+		if !ok || object == nil {
+			return nil, fmt.Errorf("walk FHIR path %q: expected an object", path)
+		}
+		return decodedMemberObject(object), nil
+	}
+	object, err := decodeObject(value.raw, path)
+	if err != nil {
+		return nil, err
+	}
+	return rawMemberObject(object), nil
+}
+
+func (value memberValue) array(path string) ([]memberValue, error) {
+	if value.isDecoded {
+		items, ok := value.decoded.([]any)
+		if !ok {
+			return nil, fmt.Errorf("walk FHIR path %q: decode array: expected an array", path)
+		}
+		values := make([]memberValue, len(items))
+		for index, item := range items {
+			values[index] = memberValue{decoded: item, isDecoded: true}
+		}
+		return values, nil
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(value.raw, &items); err != nil {
+		return nil, fmt.Errorf("walk FHIR path %q: decode array: %w", path, err)
+	}
+	values := make([]memberValue, len(items))
+	for index, item := range items {
+		values[index] = memberValue{raw: item}
+	}
+	return values, nil
+}
+
+func unknownMemberNames(object memberObject, declared map[string]schema.ElementView, diagnosticCount int, state *memberWalkState) []string {
 	if state.options.limits == nil {
 		unknown := make([]string, 0)
-		for name := range object {
+		object.forEachName(func(name string) {
 			if _, ok := declared[name]; !ok {
 				unknown = append(unknown, name)
 			}
-		}
+		})
 		sort.Strings(unknown)
 		return unknown
 	}
@@ -533,19 +739,19 @@ func unknownMemberNames(object map[string]json.RawMessage, declared map[string]s
 		capacity = 1
 	}
 	unknown := make(stringMaxHeap, 0, capacity)
-	for name := range object {
+	object.forEachName(func(name string) {
 		if _, ok := declared[name]; ok {
-			continue
+			return
 		}
 		if len(unknown) < capacity {
 			heap.Push(&unknown, name)
-			continue
+			return
 		}
 		if name < unknown[0] {
 			unknown[0] = name
 			heap.Fix(&unknown, 0)
 		}
-	}
+	})
 	sort.Strings(unknown)
 	return unknown
 }
@@ -575,19 +781,25 @@ func appendUnresolvedResourceDiagnostic(diagnostics *[]WalkDiagnostic, canonical
 
 func resolveResourceType(
 	index *schema.Index,
-	raw json.RawMessage,
+	value memberValue,
 	canonicalPath string,
 	ownerPath string,
 	allowed map[string]struct{},
 ) (string, ResourceBoundary, bool, error) {
-	object, err := decodeObject(raw, ownerPath)
+	object, err := value.object(ownerPath)
 	if err != nil {
 		return "", ResourceBoundary{}, false, err
 	}
 	var discriminator any
-	value, exists := object["resourceType"]
-	if !exists || json.Unmarshal(value, &discriminator) != nil {
+	resourceValue, exists := object.member("resourceType")
+	if !exists {
 		return "", ResourceBoundary{}, false, nil
+	}
+	discriminator, ok := resourceValue.decodedValue()
+	if !ok {
+		if err := json.Unmarshal(resourceValue.raw, &discriminator); err != nil {
+			return "", ResourceBoundary{}, false, nil
+		}
 	}
 	resourceType, ok := discriminator.(string)
 	if !ok {

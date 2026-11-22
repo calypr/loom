@@ -200,7 +200,16 @@ func (s *Store) SaveViewBuilderConfig(ctx context.Context, mutation explorer.Vie
 		if err := validateViewBuilderOwnerHead(owner, project, publication.Definition, mutation.ExpectedRevisionID); err != nil {
 			return err
 		}
-		if err := validateViewBuilderDefaultBinding(settings.value, publication.Definition); err != nil {
+		nextSettings := cloneViewBuilderSettings(settings.value)
+		if owner != nil && nextSettings.DefaultConfigID == publication.Definition.ID &&
+			owner.value.ProjectConfig.RecipeRef.Name != publication.Definition.RecipeRef.Name {
+			recipeName, output, valid := parseViewBuilderFrameID(nextSettings.DefaultFrameID)
+			if valid && recipeName == owner.value.ProjectConfig.RecipeRef.Name {
+				nextSettings.DefaultFrameID = explorer.ViewBuilderFrameID(publication.Definition.RecipeRef.Name, output)
+				nextSettings.Version++
+			}
+		}
+		if err := validateViewBuilderDefaultBinding(nextSettings, publication.Definition); err != nil {
 			return err
 		}
 
@@ -271,7 +280,7 @@ func (s *Store) SaveViewBuilderConfig(ctx context.Context, mutation explorer.Vie
 			return err
 		}
 
-		return writeViewBuilderSettings(txCtx, tx, settings, cloneViewBuilderSettings(settings.value))
+		return writeViewBuilderSettings(txCtx, tx, settings, nextSettings)
 	})
 	return normalizeViewBuilderConflict(err)
 }
@@ -312,7 +321,10 @@ func validateViewBuilderOwnerHead(owner *projectConfigOwner, project string, def
 		}
 		return nil
 	}
-	if err := validateProjectConfigOwner(owner.value, project, definition.ID, definition.RecipeRef.Name); err != nil {
+	if owner.value.ProjectConfig == nil {
+		return explorer.ErrDraftConflict
+	}
+	if err := validateProjectConfigOwner(owner.value, project, definition.ID, owner.value.ProjectConfig.RecipeRef.Name); err != nil {
 		return err
 	}
 	if owner.value.ActiveRevisionID != expectedRevisionID || expectedRevisionID == "" {

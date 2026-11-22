@@ -133,8 +133,8 @@ func TestStreamingMissingCategoryPivotUsesStoredParentProjectionIndex(t *testing
 	if legacyIndex != nil {
 		t.Fatalf("MISSING-presence plan unexpectedly has a field-only pre-override index proof: %+v", legacyIndex)
 	}
-	wantFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status", "payload.subject.reference"}
-	wantStoredValues := []string{"payload.valueQuantity"}
+	wantFields := []string{"project", "dataset_generation", "_key", "payload.id", "payload.status", "payload.subject.reference"}
+	wantStoredValues := previewQuantityCategoryStoredValues()
 	if !reflect.DeepEqual(query.PreviewCoveringIndex.Fields, wantFields) || !reflect.DeepEqual(query.PreviewCoveringIndex.StoredValues, wantStoredValues) {
 		t.Fatalf("stored-values index = %+v, want fields=%v storedValues=%v", query.PreviewCoveringIndex, wantFields, wantStoredValues)
 	}
@@ -145,7 +145,7 @@ func TestStreamingMissingCategoryPivotUsesStoredParentProjectionIndex(t *testing
 	if strings.Contains(unhinted.Query, "FIRST([root.payload.valueQuantity])") {
 		t.Fatalf("stored-parent access wrapper leaked into unhinted rendering:\n%s", unhinted.Query)
 	}
-	genericFields := []string{"project", "dataset_generation", "auth_resource_path", "_key"}
+	genericFields := []string{"project", "dataset_generation", "_key"}
 	if previewCoveringIndexNameWithStoredValues("Observation", wantFields, wantStoredValues) ==
 		previewCoveringIndexNameWithStoredValues("Observation", genericFields, wantStoredValues) {
 		t.Fatal("scalar key fields did not participate in deterministic index identity")
@@ -428,9 +428,13 @@ func TestConstructionPreviewCoveringIndexMetadataAndRootHint(t *testing.T) {
 	if !strings.HasPrefix(index.Name, previewCoveringIndexNamePrefix) {
 		t.Fatalf("index name = %q, want prefix %q", index.Name, previewCoveringIndexNamePrefix)
 	}
-	wantFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.gender", "payload.multipleBirthInteger"}
+	wantFields := []string{"project", "dataset_generation", "_key", "payload.gender", "payload.multipleBirthInteger"}
+	wantStoredValues := []string{"auth_resource_path"}
 	if !reflect.DeepEqual(index.Fields, wantFields) {
 		t.Fatalf("index fields = %#v, want %#v", index.Fields, wantFields)
+	}
+	if !reflect.DeepEqual(index.StoredValues, wantStoredValues) {
+		t.Fatalf("index stored values = %#v, want %#v", index.StoredValues, wantStoredValues)
 	}
 	wantHint := "OPTIONS { indexHint: \"" + index.Name + "\", forceIndexHint: false }"
 	if strings.Count(query.Query, wantHint) != 2 {
@@ -480,7 +484,7 @@ func TestConstructionGroupPreviewUsesProjectionFieldsAndOneRootHint(t *testing.T
 	if !index.PrepareAfterPreview {
 		t.Fatal("eligible Group covering index should be prepared after the preview query")
 	}
-	wantFields := []string{"project", "dataset_generation", "auth_resource_path", "payload.note", "payload.status"}
+	wantFields := []string{"project", "dataset_generation", "payload.note", "payload.status"}
 	if !reflect.DeepEqual(index.Fields, wantFields) {
 		t.Fatalf("index fields = %#v, want %#v", index.Fields, wantFields)
 	}

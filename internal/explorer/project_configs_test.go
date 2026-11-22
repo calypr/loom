@@ -19,8 +19,8 @@ func TestProjectConfigsForSourcePublicationSeedsActualOutputsOnce(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(configs) != 1 {
-		t.Fatalf("initial configs = %d, want one generic user config", len(configs))
+	if len(configs) != 1 || configs[0].ID != "default" {
+		t.Fatalf("initial configs = %#v, want one default project view", configs)
 	}
 	if len(configs[0].Views) != len(snapshot.Recipe.Outputs) {
 		t.Fatalf("initial tabs = %#v, want one for every compiled recipe output", configs[0].Views)
@@ -44,6 +44,7 @@ func TestProjectConfigsForSourcePublicationSeedsActualOutputsOnce(t *testing.T) 
 	}
 
 	owners := []Explorer{
+		{Project: "project-a", ExplorerID: "default"},
 		{Project: "project-a", ExplorerID: "metadata-v1"},
 		{Project: "project-a", ExplorerID: "metadata-v1-views"},
 	}

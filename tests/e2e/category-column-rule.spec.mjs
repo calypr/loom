@@ -54,19 +54,30 @@ test('category coding rule keeps each system paired with its own display', { tim
       await page.click(selector);
       await page.click('[data-testid="construction-action-add-columns"]');
       await page.click('[role="tab"][data-column-tab="advanced"]');
-      await page.clickText('Category codings');
+      await page.until(() => page.evaluate(`Boolean(document.querySelector('select:has(option[value="categoryCoding"])'))`), 'rule source available');
+      await page.select('select:has(option[value="categoryCoding"])', 'categoryCoding');
+      await page.until(() => page.evaluate(`Boolean(document.querySelector('[aria-label="Category systems to include"] input:not(:disabled)'))`), 'inline category systems are available');
       assert(!await page.evaluate(`Boolean(document.querySelector('[aria-label="Column name expression"]'))`));
-      await page.clickText('Review column rule');
-      await page.clickText('Preview column rule');
+      await page.clickText('Select all', '[aria-label="Category systems to include"]');
+      await page.click('[aria-label="Category coding systems"] summary');
+      await page.fill('input[aria-label="Rule name"]', 'custom_category_codings');
       await page.until(() => buttonReady('Apply column rule'), 'category coding preview');
-      const assertPairedRows = () => page.until(async () => {
+      const assertPairedRows = (selectedKeys) => page.until(async () => {
         const headers = await page.evaluate(`[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"], thead th')].map(header => header.innerText.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_'))`);
         const rows = await page.tableRows();
+        if (selectedKeys && headers.some(header => header.includes('category_codings_alpha'))) return false;
         return expected.every(({ patientID, values }) => rows.some(row => row.includes(patientID) &&
-          Object.entries(values).every(([key, value]) => row[headers.findIndex(header => header.includes('category_codings_' + key))] === value))) || false;
+          Object.entries(values).filter(([key]) => !selectedKeys || selectedKeys.includes(key)).every(([key, value]) => row[headers.findIndex(header => header.includes('category_codings_' + key))] === value))) || false;
       }, 'categories remain paired by system');
       await assertPairedRows();
       assert.equal((await readDraft()).draftDigest, connected.draftDigest);
+      await page.pressEscape();
+      await page.clickText('Clear selection', '[aria-label="Category systems to include"]');
+      assert.equal(await buttonReady('Apply column rule'), false, 'preview requires at least one system');
+      await page.click('label:has(input[aria-label="Include https://example.test/systems/beta"])');
+      assert.equal(await page.evaluate(`document.querySelector('label:has(input[aria-label="Include https://example.test/systems/beta"])').matches(':has(:checked)')`), true);
+      await page.until(() => buttonReady('Apply column rule'), 'single-category preview is ready');
+      await assertPairedRows(['beta']);
       await page.clickText('Apply column rule');
       const saved = await page.until(async () => {
         const draft = await readDraft();
@@ -75,8 +86,9 @@ test('category coding rule keeps each system paired with its own display', { tim
       const [rule] = saved.workspace.documents[0].importedSource.ruleAdditions;
       assert.equal(rule.occurrenceId, occurrence.occurrenceId);
       assert.equal(rule.parameters.dynamic.source.select, 'category[].coding[]');
+      assert.deepEqual(rule.parameters.dynamic.outputs, [{ key: 'alpha', enabled: false }]);
       await page.reload();
-      await assertPairedRows();
+      await assertPairedRows(['beta']);
     } finally {
       const capability = await api(`${fixture.base}/capability`);
       if (capability.features?.deleteExplorer) {

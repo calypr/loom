@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -268,9 +269,11 @@ func (c *Client) Publish(ctx context.Context, request Request) (Receipt, error) 
 	if err != nil || len(planBody) > maxPlanSize {
 		return Receipt{}, &Error{Code: "INVALID_REQUEST", Message: "source load plan is invalid or too large", cause: err}
 	}
+	beginStarted := time.Now()
 	if _, err := c.begin(ctx, endpoint, request.OperationID, planBody); err != nil {
 		return Receipt{}, err
 	}
+	slog.InfoContext(ctx, "source load begin returned", "operation_id", request.OperationID, "elapsed_ms", time.Since(beginStarted).Milliseconds())
 	status, err := c.loadStatus(ctx, endpoint, request.OperationID)
 	if err != nil {
 		return Receipt{}, err
@@ -283,13 +286,14 @@ func (c *Client) Publish(ctx context.Context, request Request) (Receipt, error) 
 		return Receipt{}, err
 	}
 	files := filesByPath(request.Files)
-	for _, selected := range request.Manifest.Files {
+	for index, selected := range request.Manifest.Files {
 		if _, ok := completed[selected.Path]; ok {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
 			return Receipt{}, err
 		}
+		acquireStarted := time.Now()
 		file := files[selected.Path]
 		localPath := file.LocalPath
 		var cleanup func()
@@ -308,6 +312,7 @@ func (c *Client) Publish(ctx context.Context, request Request) (Receipt, error) 
 			}
 			return Receipt{}, &Error{Code: "LOCAL_FILE_ERROR", Message: redactToken(err.Error(), c.bearer), cause: err}
 		}
+		uploadStarted := time.Now()
 		fileReceipt, uploadErr := c.uploadFile(ctx, endpoint, request.OperationID, selected.Path, localPath)
 		if cleanup != nil {
 			cleanup()
@@ -318,6 +323,9 @@ func (c *Client) Publish(ctx context.Context, request Request) (Receipt, error) 
 		if err := validateFileReceipt(fileReceipt, selected); err != nil {
 			return Receipt{}, err
 		}
+		slog.InfoContext(ctx, "source file uploaded", "operation_id", request.OperationID, "file_number", index+1,
+			"acquire_and_check_ms", uploadStarted.Sub(acquireStarted).Milliseconds(),
+			"upload_and_stage_ms", time.Since(uploadStarted).Milliseconds())
 		completed[selected.Path] = fileReceipt
 	}
 	return c.publish(ctx, endpoint, request.OperationID)
@@ -881,6 +889,7 @@ func (state *retryState) wait(ctx context.Context, err error, busyInterval, busy
 		if now.Sub(state.busyStarted)+busyInterval > busyBudget {
 			return false, nil
 		}
+		slog.InfoContext(ctx, "source publication waiting to retry", "code", structured.Code, "wait_ms", busyInterval.Milliseconds())
 		if err := waitForRetry(ctx, busyInterval); err != nil {
 			return false, err
 		}

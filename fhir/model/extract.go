@@ -35,6 +35,27 @@ type Result struct {
 	Edges        []json.RawMessage
 }
 
+func buildEdgeRawJSON(key, from, to, label, projectJSON, fromType, toType string) json.RawMessage {
+	var buf bytes.Buffer
+	buf.Grow(256)
+	buf.WriteString("{\"_key\":\"")
+	buf.WriteString(key)
+	buf.WriteString("\",\"_from\":\"")
+	buf.WriteString(from)
+	buf.WriteString("\",\"_to\":\"")
+	buf.WriteString(to)
+	buf.WriteString("\",\"label\":\"")
+	buf.WriteString(label)
+	buf.WriteString("\",\"project\":")
+	buf.WriteString(projectJSON)
+	buf.WriteString(",\"from_type\":\"")
+	buf.WriteString(fromType)
+	buf.WriteString("\",\"to_type\":\"")
+	buf.WriteString(toType)
+	buf.WriteString("\"}")
+	return json.RawMessage(buf.Bytes())
+}
+
 // Global namespace UUID constant computed from "calypr-public.ohsu.edu"
 var namespaceUUID = uuid.NewMD5(uuid.NameSpaceDNS, []byte("calypr-public.ohsu.edu"))
 
@@ -152,39 +173,15 @@ func splitFHIRReference(ref string) (string, string, bool) {
 	return targetType, targetID, true
 }
 
-func buildEdgeRawJSON(key, from, to, label, projectJSON, fromType, toType string) json.RawMessage {
-	var buf bytes.Buffer
-	buf.Grow(256)
-	buf.WriteString("{\"_key\":\"")
-	buf.WriteString(key)
-	buf.WriteString("\",\"_from\":\"")
-	buf.WriteString(from)
-	buf.WriteString("\",\"_to\":\"")
-	buf.WriteString(to)
-	buf.WriteString("\",\"label\":\"")
-	buf.WriteString(label)
-	buf.WriteString("\",\"project\":")
-	buf.WriteString(projectJSON)
-	buf.WriteString(",\"from_type\":\"")
-	buf.WriteString(fromType)
-	buf.WriteString("\",\"to_type\":\"")
-	buf.WriteString(toType)
-	buf.WriteString("\"}")
-	return json.RawMessage(buf.Bytes())
-}
-
-// ExtractEdges extracts graph links from BodyStructure.
-func (x *BodyStructure) ExtractEdges(project string) ([]json.RawMessage, error) {
-	var edges []json.RawMessage
+// ExtractEdgeDocuments builds graph links from BodyStructure.
+func (x *BodyStructure) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "BodyStructure"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -204,15 +201,15 @@ func (x *BodyStructure) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -236,15 +233,15 @@ func (x *BodyStructure) ExtractEdges(project string) ([]json.RawMessage, error) 
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -254,18 +251,28 @@ func (x *BodyStructure) ExtractEdges(project string) ([]json.RawMessage, error) 
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from Condition.
-func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from BodyStructure.
+func (x *BodyStructure) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from Condition.
+func (x *Condition) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "Condition"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -285,15 +292,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -317,15 +324,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Group",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Group",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -346,15 +353,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -378,15 +385,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"participant_actor_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "participant_actor_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -413,15 +420,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"participant_actor_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "participant_actor_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -448,15 +455,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"participant_actor_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "participant_actor_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -483,15 +490,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"participant_actor_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "participant_actor_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -520,15 +527,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 											}
 											if _, exists := seen[forwardKey]; !exists {
 												seen[forwardKey] = struct{}{}
-												edges = append(edges, buildEdgeRawJSON(
-													forwardKey,
-													collectionID(sourceType, id),
-													collectionID(refType, targetID),
-													"stage_assessment_DiagnosticReport",
-													projectJSON,
-													sourceType,
-													refType,
-												))
+												edges = append(edges, EdgeDocument{
+													Key:      forwardKey,
+													From:     collectionID(sourceType, id),
+													To:       collectionID(refType, targetID),
+													Label:    "stage_assessment_DiagnosticReport",
+													Project:  project,
+													FromType: sourceType,
+													ToType:   refType,
+												})
 											}
 										}
 									}
@@ -559,15 +566,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 											}
 											if _, exists := seen[forwardKey]; !exists {
 												seen[forwardKey] = struct{}{}
-												edges = append(edges, buildEdgeRawJSON(
-													forwardKey,
-													collectionID(sourceType, id),
-													collectionID(refType, targetID),
-													"stage_assessment_Observation",
-													projectJSON,
-													sourceType,
-													refType,
-												))
+												edges = append(edges, EdgeDocument{
+													Key:      forwardKey,
+													From:     collectionID(sourceType, id),
+													To:       collectionID(refType, targetID),
+													Label:    "stage_assessment_Observation",
+													Project:  project,
+													FromType: sourceType,
+													ToType:   refType,
+												})
 											}
 										}
 									}
@@ -596,15 +603,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_BodyStructure",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_BodyStructure",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -631,15 +638,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_Condition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_Condition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -666,15 +673,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_DiagnosticReport",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_DiagnosticReport",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -701,15 +708,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_DocumentReference",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_DocumentReference",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -736,15 +743,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_FamilyMemberHistory",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_FamilyMemberHistory",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -771,15 +778,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_Group",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_Group",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -806,15 +813,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_ImagingStudy",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_ImagingStudy",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -841,15 +848,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_Medication",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_Medication",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -876,15 +883,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_MedicationAdministration",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_MedicationAdministration",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -911,15 +918,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_MedicationRequest",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_MedicationRequest",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -946,15 +953,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_MedicationStatement",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_MedicationStatement",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -981,15 +988,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_Observation",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_Observation",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -1016,15 +1023,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -1051,15 +1058,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -1086,15 +1093,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -1121,15 +1128,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -1156,15 +1163,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_Procedure",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_Procedure",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -1191,15 +1198,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_ResearchStudy",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_ResearchStudy",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -1226,15 +1233,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_ResearchSubject",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_ResearchSubject",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -1261,15 +1268,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_Specimen",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_Specimen",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -1296,15 +1303,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_Substance",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_Substance",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -1331,15 +1338,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_SubstanceDefinition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_SubstanceDefinition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -1366,15 +1373,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"evidence_Task",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "evidence_Task",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -1401,15 +1408,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -1436,15 +1443,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -1471,15 +1478,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -1506,15 +1513,15 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -1527,18 +1534,28 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from DiagnosticReport.
-func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from Condition.
+func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from DiagnosticReport.
+func (x *DiagnosticReport) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "DiagnosticReport"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -1558,15 +1575,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -1592,15 +1609,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_MedicationRequest",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_MedicationRequest",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -1623,15 +1640,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Group",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Group",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -1652,15 +1669,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Medication",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Medication",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -1681,15 +1698,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Organization",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Organization",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -1710,15 +1727,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -1739,15 +1756,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Practitioner",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Practitioner",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -1768,15 +1785,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Substance",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Substance",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -1799,15 +1816,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"performer_Organization",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "performer_Organization",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -1832,15 +1849,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"performer_Practitioner",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "performer_Practitioner",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -1865,15 +1882,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"performer_PractitionerRole",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "performer_PractitionerRole",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -1898,15 +1915,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"resultsInterpreter_Organization",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "resultsInterpreter_Organization",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -1931,15 +1948,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"resultsInterpreter_Practitioner",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "resultsInterpreter_Practitioner",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -1964,15 +1981,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"resultsInterpreter_PractitionerRole",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "resultsInterpreter_PractitionerRole",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -1997,15 +2014,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"specimen",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "specimen",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -2030,15 +2047,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"result",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "result",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -2064,15 +2081,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -2099,15 +2116,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -2134,15 +2151,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -2169,15 +2186,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -2203,15 +2220,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"study_ImagingStudy",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "study_ImagingStudy",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -2237,15 +2254,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"supportingInfo_reference_DiagnosticReport",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "supportingInfo_reference_DiagnosticReport",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -2272,15 +2289,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"supportingInfo_reference_Observation",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "supportingInfo_reference_Observation",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -2307,15 +2324,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"supportingInfo_reference_Procedure",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "supportingInfo_reference_Procedure",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -2342,15 +2359,15 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"media_link",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "media_link",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -2363,18 +2380,28 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from DocumentReference.
-func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from DiagnosticReport.
+func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from DocumentReference.
+func (x *DocumentReference) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "DocumentReference"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -2394,15 +2421,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -2428,15 +2455,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_MedicationRequest",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_MedicationRequest",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -2459,15 +2486,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_BodyStructure",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_BodyStructure",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -2488,15 +2515,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Condition",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Condition",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -2517,15 +2544,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_DiagnosticReport",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_DiagnosticReport",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -2546,15 +2573,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_DocumentReference",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_DocumentReference",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -2575,15 +2602,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_FamilyMemberHistory",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_FamilyMemberHistory",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -2604,15 +2631,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Group",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Group",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -2633,15 +2660,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_ImagingStudy",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_ImagingStudy",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -2662,15 +2689,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Medication",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Medication",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -2691,15 +2718,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_MedicationAdministration",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_MedicationAdministration",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -2720,15 +2747,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_MedicationRequest",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_MedicationRequest",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -2749,15 +2776,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_MedicationStatement",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_MedicationStatement",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -2778,15 +2805,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Observation",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Observation",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -2807,15 +2834,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Organization",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Organization",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -2836,15 +2863,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -2865,15 +2892,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Practitioner",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Practitioner",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -2894,15 +2921,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_PractitionerRole",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_PractitionerRole",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -2923,15 +2950,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Procedure",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Procedure",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -2952,15 +2979,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_ResearchStudy",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_ResearchStudy",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -2981,15 +3008,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_ResearchSubject",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_ResearchSubject",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -3010,15 +3037,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Specimen",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Specimen",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -3039,15 +3066,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Substance",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Substance",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -3068,15 +3095,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_SubstanceDefinition",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_SubstanceDefinition",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -3097,15 +3124,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Task",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Task",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -3129,15 +3156,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_BodyStructure",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_BodyStructure",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3164,15 +3191,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_Condition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_Condition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3199,15 +3226,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_DiagnosticReport",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_DiagnosticReport",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3234,15 +3261,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_DocumentReference",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_DocumentReference",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3269,15 +3296,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_FamilyMemberHistory",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_FamilyMemberHistory",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3304,15 +3331,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_Group",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_Group",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3339,15 +3366,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_ImagingStudy",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_ImagingStudy",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3374,15 +3401,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_Medication",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_Medication",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3409,15 +3436,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_MedicationAdministration",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_MedicationAdministration",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3444,15 +3471,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_MedicationRequest",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_MedicationRequest",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3479,15 +3506,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_MedicationStatement",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_MedicationStatement",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3514,15 +3541,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_Observation",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_Observation",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3549,15 +3576,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3584,15 +3611,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3619,15 +3646,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3654,15 +3681,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3689,15 +3716,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_Procedure",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_Procedure",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3724,15 +3751,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_ResearchStudy",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_ResearchStudy",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3759,15 +3786,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_ResearchSubject",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_ResearchSubject",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3794,15 +3821,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_Specimen",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_Specimen",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3829,15 +3856,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_Substance",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_Substance",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3864,15 +3891,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_SubstanceDefinition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_SubstanceDefinition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3899,15 +3926,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"event_Task",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "event_Task",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3934,15 +3961,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"bodySite",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "bodySite",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -3968,15 +3995,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"author_Organization",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "author_Organization",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -4001,15 +4028,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"author_Patient",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "author_Patient",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -4034,15 +4061,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"author_Practitioner",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "author_Practitioner",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -4067,15 +4094,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"author_PractitionerRole",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "author_PractitionerRole",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -4101,15 +4128,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"attester_party_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "attester_party_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -4136,15 +4163,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"attester_party_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "attester_party_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -4171,15 +4198,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"attester_party_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "attester_party_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -4206,15 +4233,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"attester_party_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "attester_party_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -4238,15 +4265,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"custodian",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "custodian",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -4270,15 +4297,15 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatesTo_target",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatesTo_target",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -4291,18 +4318,28 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from FamilyMemberHistory.
-func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from DocumentReference.
+func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from FamilyMemberHistory.
+func (x *FamilyMemberHistory) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "FamilyMemberHistory"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -4322,15 +4359,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -4354,15 +4391,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -4386,15 +4423,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"participant_actor_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "participant_actor_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -4421,15 +4458,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"participant_actor_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "participant_actor_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -4456,15 +4493,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"participant_actor_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "participant_actor_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -4491,15 +4528,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"participant_actor_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "participant_actor_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -4526,15 +4563,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Condition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Condition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -4561,15 +4598,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_DiagnosticReport",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_DiagnosticReport",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -4596,15 +4633,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_DocumentReference",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_DocumentReference",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -4631,15 +4668,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Observation",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Observation",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -4666,15 +4703,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -4701,15 +4738,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -4736,15 +4773,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -4771,15 +4808,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -4809,15 +4846,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 												}
 												if _, exists := seen[forwardKey]; !exists {
 													seen[forwardKey] = struct{}{}
-													edges = append(edges, buildEdgeRawJSON(
-														forwardKey,
-														collectionID(sourceType, id),
-														collectionID(refType, targetID),
-														"condition_note_authorReference_Organization",
-														projectJSON,
-														sourceType,
-														refType,
-													))
+													edges = append(edges, EdgeDocument{
+														Key:      forwardKey,
+														From:     collectionID(sourceType, id),
+														To:       collectionID(refType, targetID),
+														Label:    "condition_note_authorReference_Organization",
+														Project:  project,
+														FromType: sourceType,
+														ToType:   refType,
+													})
 												}
 											}
 										}
@@ -4850,15 +4887,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 												}
 												if _, exists := seen[forwardKey]; !exists {
 													seen[forwardKey] = struct{}{}
-													edges = append(edges, buildEdgeRawJSON(
-														forwardKey,
-														collectionID(sourceType, id),
-														collectionID(refType, targetID),
-														"condition_note_authorReference_Patient",
-														projectJSON,
-														sourceType,
-														refType,
-													))
+													edges = append(edges, EdgeDocument{
+														Key:      forwardKey,
+														From:     collectionID(sourceType, id),
+														To:       collectionID(refType, targetID),
+														Label:    "condition_note_authorReference_Patient",
+														Project:  project,
+														FromType: sourceType,
+														ToType:   refType,
+													})
 												}
 											}
 										}
@@ -4891,15 +4928,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 												}
 												if _, exists := seen[forwardKey]; !exists {
 													seen[forwardKey] = struct{}{}
-													edges = append(edges, buildEdgeRawJSON(
-														forwardKey,
-														collectionID(sourceType, id),
-														collectionID(refType, targetID),
-														"condition_note_authorReference_Practitioner",
-														projectJSON,
-														sourceType,
-														refType,
-													))
+													edges = append(edges, EdgeDocument{
+														Key:      forwardKey,
+														From:     collectionID(sourceType, id),
+														To:       collectionID(refType, targetID),
+														Label:    "condition_note_authorReference_Practitioner",
+														Project:  project,
+														FromType: sourceType,
+														ToType:   refType,
+													})
 												}
 											}
 										}
@@ -4932,15 +4969,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 												}
 												if _, exists := seen[forwardKey]; !exists {
 													seen[forwardKey] = struct{}{}
-													edges = append(edges, buildEdgeRawJSON(
-														forwardKey,
-														collectionID(sourceType, id),
-														collectionID(refType, targetID),
-														"condition_note_authorReference_PractitionerRole",
-														projectJSON,
-														sourceType,
-														refType,
-													))
+													edges = append(edges, EdgeDocument{
+														Key:      forwardKey,
+														From:     collectionID(sourceType, id),
+														To:       collectionID(refType, targetID),
+														Label:    "condition_note_authorReference_PractitionerRole",
+														Project:  project,
+														FromType: sourceType,
+														ToType:   refType,
+													})
 												}
 											}
 										}
@@ -4973,15 +5010,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 												}
 												if _, exists := seen[forwardKey]; !exists {
 													seen[forwardKey] = struct{}{}
-													edges = append(edges, buildEdgeRawJSON(
-														forwardKey,
-														collectionID(sourceType, id),
-														collectionID(refType, targetID),
-														"procedure_note_authorReference_Organization",
-														projectJSON,
-														sourceType,
-														refType,
-													))
+													edges = append(edges, EdgeDocument{
+														Key:      forwardKey,
+														From:     collectionID(sourceType, id),
+														To:       collectionID(refType, targetID),
+														Label:    "procedure_note_authorReference_Organization",
+														Project:  project,
+														FromType: sourceType,
+														ToType:   refType,
+													})
 												}
 											}
 										}
@@ -5014,15 +5051,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 												}
 												if _, exists := seen[forwardKey]; !exists {
 													seen[forwardKey] = struct{}{}
-													edges = append(edges, buildEdgeRawJSON(
-														forwardKey,
-														collectionID(sourceType, id),
-														collectionID(refType, targetID),
-														"procedure_note_authorReference_Patient",
-														projectJSON,
-														sourceType,
-														refType,
-													))
+													edges = append(edges, EdgeDocument{
+														Key:      forwardKey,
+														From:     collectionID(sourceType, id),
+														To:       collectionID(refType, targetID),
+														Label:    "procedure_note_authorReference_Patient",
+														Project:  project,
+														FromType: sourceType,
+														ToType:   refType,
+													})
 												}
 											}
 										}
@@ -5055,15 +5092,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 												}
 												if _, exists := seen[forwardKey]; !exists {
 													seen[forwardKey] = struct{}{}
-													edges = append(edges, buildEdgeRawJSON(
-														forwardKey,
-														collectionID(sourceType, id),
-														collectionID(refType, targetID),
-														"procedure_note_authorReference_Practitioner",
-														projectJSON,
-														sourceType,
-														refType,
-													))
+													edges = append(edges, EdgeDocument{
+														Key:      forwardKey,
+														From:     collectionID(sourceType, id),
+														To:       collectionID(refType, targetID),
+														Label:    "procedure_note_authorReference_Practitioner",
+														Project:  project,
+														FromType: sourceType,
+														ToType:   refType,
+													})
 												}
 											}
 										}
@@ -5096,15 +5133,15 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 												}
 												if _, exists := seen[forwardKey]; !exists {
 													seen[forwardKey] = struct{}{}
-													edges = append(edges, buildEdgeRawJSON(
-														forwardKey,
-														collectionID(sourceType, id),
-														collectionID(refType, targetID),
-														"procedure_note_authorReference_PractitionerRole",
-														projectJSON,
-														sourceType,
-														refType,
-													))
+													edges = append(edges, EdgeDocument{
+														Key:      forwardKey,
+														From:     collectionID(sourceType, id),
+														To:       collectionID(refType, targetID),
+														Label:    "procedure_note_authorReference_PractitionerRole",
+														Project:  project,
+														FromType: sourceType,
+														ToType:   refType,
+													})
 												}
 											}
 										}
@@ -5120,18 +5157,28 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from Group.
-func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from FamilyMemberHistory.
+func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from Group.
+func (x *Group) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "Group"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -5151,15 +5198,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5183,15 +5230,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"managingEntity_Organization",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "managingEntity_Organization",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -5212,15 +5259,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"managingEntity_Practitioner",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "managingEntity_Practitioner",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -5241,15 +5288,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"managingEntity_PractitionerRole",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "managingEntity_PractitionerRole",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -5273,15 +5320,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_BodyStructure",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_BodyStructure",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5308,15 +5355,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_Condition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_Condition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5343,15 +5390,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_DiagnosticReport",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_DiagnosticReport",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5378,15 +5425,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_DocumentReference",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_DocumentReference",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5413,15 +5460,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_FamilyMemberHistory",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_FamilyMemberHistory",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5448,15 +5495,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_Group",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_Group",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5483,15 +5530,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_ImagingStudy",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_ImagingStudy",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5518,15 +5565,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_Medication",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_Medication",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5553,15 +5600,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_MedicationAdministration",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_MedicationAdministration",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5588,15 +5635,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_MedicationRequest",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_MedicationRequest",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5623,15 +5670,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_MedicationStatement",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_MedicationStatement",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5658,15 +5705,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_Observation",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_Observation",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5693,15 +5740,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5728,15 +5775,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5763,15 +5810,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5798,15 +5845,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5833,15 +5880,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_Procedure",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_Procedure",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5868,15 +5915,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_ResearchStudy",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_ResearchStudy",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5903,15 +5950,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_ResearchSubject",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_ResearchSubject",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5938,15 +5985,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_Specimen",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_Specimen",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -5973,15 +6020,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_Substance",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_Substance",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -6008,15 +6055,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_SubstanceDefinition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_SubstanceDefinition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -6043,15 +6090,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"characteristic_valueReference_Task",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "characteristic_valueReference_Task",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -6078,15 +6125,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"member_entity_Group",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "member_entity_Group",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -6113,15 +6160,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"member_entity_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "member_entity_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -6148,15 +6195,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"member_entity_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "member_entity_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -6183,15 +6230,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"member_entity_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "member_entity_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -6218,15 +6265,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"member_entity_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "member_entity_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -6253,15 +6300,15 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"member_entity_Specimen",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "member_entity_Specimen",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -6274,18 +6321,28 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from ImagingStudy.
-func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from Group.
+func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from ImagingStudy.
+func (x *ImagingStudy) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "ImagingStudy"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -6305,15 +6362,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -6337,15 +6394,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Group",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Group",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -6366,15 +6423,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -6397,15 +6454,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_Task",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_Task",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -6430,15 +6487,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"partOf",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "partOf",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -6461,15 +6518,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"referrer_Practitioner",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "referrer_Practitioner",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -6490,15 +6547,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"referrer_PractitionerRole",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "referrer_PractitionerRole",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -6522,15 +6579,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Condition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Condition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -6557,15 +6614,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_DiagnosticReport",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_DiagnosticReport",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -6592,15 +6649,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_DocumentReference",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_DocumentReference",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -6627,15 +6684,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Observation",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Observation",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -6662,15 +6719,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -6697,15 +6754,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -6732,15 +6789,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -6767,15 +6824,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -6803,15 +6860,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"series_bodySite",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "series_bodySite",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -6841,15 +6898,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 											}
 											if _, exists := seen[forwardKey]; !exists {
 												seen[forwardKey] = struct{}{}
-												edges = append(edges, buildEdgeRawJSON(
-													forwardKey,
-													collectionID(sourceType, id),
-													collectionID(refType, targetID),
-													"series_specimen",
-													projectJSON,
-													sourceType,
-													refType,
-												))
+												edges = append(edges, EdgeDocument{
+													Key:      forwardKey,
+													From:     collectionID(sourceType, id),
+													To:       collectionID(refType, targetID),
+													Label:    "series_specimen",
+													Project:  project,
+													FromType: sourceType,
+													ToType:   refType,
+												})
 											}
 										}
 									}
@@ -6881,15 +6938,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 												}
 												if _, exists := seen[forwardKey]; !exists {
 													seen[forwardKey] = struct{}{}
-													edges = append(edges, buildEdgeRawJSON(
-														forwardKey,
-														collectionID(sourceType, id),
-														collectionID(refType, targetID),
-														"series_performer_actor_Organization",
-														projectJSON,
-														sourceType,
-														refType,
-													))
+													edges = append(edges, EdgeDocument{
+														Key:      forwardKey,
+														From:     collectionID(sourceType, id),
+														To:       collectionID(refType, targetID),
+														Label:    "series_performer_actor_Organization",
+														Project:  project,
+														FromType: sourceType,
+														ToType:   refType,
+													})
 												}
 											}
 										}
@@ -6922,15 +6979,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 												}
 												if _, exists := seen[forwardKey]; !exists {
 													seen[forwardKey] = struct{}{}
-													edges = append(edges, buildEdgeRawJSON(
-														forwardKey,
-														collectionID(sourceType, id),
-														collectionID(refType, targetID),
-														"series_performer_actor_Patient",
-														projectJSON,
-														sourceType,
-														refType,
-													))
+													edges = append(edges, EdgeDocument{
+														Key:      forwardKey,
+														From:     collectionID(sourceType, id),
+														To:       collectionID(refType, targetID),
+														Label:    "series_performer_actor_Patient",
+														Project:  project,
+														FromType: sourceType,
+														ToType:   refType,
+													})
 												}
 											}
 										}
@@ -6963,15 +7020,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 												}
 												if _, exists := seen[forwardKey]; !exists {
 													seen[forwardKey] = struct{}{}
-													edges = append(edges, buildEdgeRawJSON(
-														forwardKey,
-														collectionID(sourceType, id),
-														collectionID(refType, targetID),
-														"series_performer_actor_Practitioner",
-														projectJSON,
-														sourceType,
-														refType,
-													))
+													edges = append(edges, EdgeDocument{
+														Key:      forwardKey,
+														From:     collectionID(sourceType, id),
+														To:       collectionID(refType, targetID),
+														Label:    "series_performer_actor_Practitioner",
+														Project:  project,
+														FromType: sourceType,
+														ToType:   refType,
+													})
 												}
 											}
 										}
@@ -7004,15 +7061,15 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 												}
 												if _, exists := seen[forwardKey]; !exists {
 													seen[forwardKey] = struct{}{}
-													edges = append(edges, buildEdgeRawJSON(
-														forwardKey,
-														collectionID(sourceType, id),
-														collectionID(refType, targetID),
-														"series_performer_actor_PractitionerRole",
-														projectJSON,
-														sourceType,
-														refType,
-													))
+													edges = append(edges, EdgeDocument{
+														Key:      forwardKey,
+														From:     collectionID(sourceType, id),
+														To:       collectionID(refType, targetID),
+														Label:    "series_performer_actor_PractitionerRole",
+														Project:  project,
+														FromType: sourceType,
+														ToType:   refType,
+													})
 												}
 											}
 										}
@@ -7028,18 +7085,28 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from Medication.
-func (x *Medication) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from ImagingStudy.
+func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from Medication.
+func (x *Medication) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "Medication"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -7059,15 +7126,15 @@ func (x *Medication) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -7091,15 +7158,15 @@ func (x *Medication) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"marketingAuthorizationHolder",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "marketingAuthorizationHolder",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -7124,15 +7191,15 @@ func (x *Medication) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"ingredient_item_Medication",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "ingredient_item_Medication",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -7161,15 +7228,15 @@ func (x *Medication) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"ingredient_item_Substance",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "ingredient_item_Substance",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -7183,18 +7250,28 @@ func (x *Medication) ExtractEdges(project string) ([]json.RawMessage, error) {
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from MedicationAdministration.
-func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from Medication.
+func (x *Medication) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from MedicationAdministration.
+func (x *MedicationAdministration) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "MedicationAdministration"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -7214,15 +7291,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -7248,15 +7325,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"partOf_MedicationAdministration",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "partOf_MedicationAdministration",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7281,15 +7358,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"partOf_Procedure",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "partOf_Procedure",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7313,15 +7390,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"medication",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "medication",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -7343,15 +7420,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Group",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Group",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -7372,15 +7449,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -7403,15 +7480,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_BodyStructure",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_BodyStructure",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7436,15 +7513,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Condition",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Condition",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7469,15 +7546,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_DiagnosticReport",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_DiagnosticReport",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7502,15 +7579,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_DocumentReference",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_DocumentReference",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7535,15 +7612,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_FamilyMemberHistory",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_FamilyMemberHistory",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7568,15 +7645,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Group",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Group",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7601,15 +7678,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_ImagingStudy",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_ImagingStudy",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7634,15 +7711,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Medication",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Medication",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7667,15 +7744,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_MedicationAdministration",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_MedicationAdministration",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7700,15 +7777,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_MedicationRequest",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_MedicationRequest",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7733,15 +7810,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_MedicationStatement",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_MedicationStatement",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7766,15 +7843,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Observation",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Observation",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7799,15 +7876,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Organization",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Organization",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7832,15 +7909,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Patient",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Patient",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7865,15 +7942,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Practitioner",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Practitioner",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7898,15 +7975,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_PractitionerRole",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_PractitionerRole",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7931,15 +8008,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Procedure",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Procedure",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7964,15 +8041,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_ResearchStudy",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_ResearchStudy",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -7997,15 +8074,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_ResearchSubject",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_ResearchSubject",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -8030,15 +8107,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Specimen",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Specimen",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -8063,15 +8140,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Substance",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Substance",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -8096,15 +8173,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_SubstanceDefinition",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_SubstanceDefinition",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -8129,15 +8206,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Task",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Task",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -8164,15 +8241,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"performer_actor_Patient",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "performer_actor_Patient",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -8201,15 +8278,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"performer_actor_Practitioner",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "performer_actor_Practitioner",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -8238,15 +8315,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"performer_actor_PractitionerRole",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "performer_actor_PractitionerRole",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -8274,15 +8351,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Condition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Condition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -8309,15 +8386,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_DiagnosticReport",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_DiagnosticReport",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -8344,15 +8421,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Observation",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Observation",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -8376,15 +8453,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"request",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "request",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -8408,15 +8485,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -8443,15 +8520,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -8478,15 +8555,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -8513,15 +8590,15 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -8534,18 +8611,28 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from MedicationRequest.
-func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from MedicationAdministration.
+func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from MedicationRequest.
+func (x *MedicationRequest) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "MedicationRequest"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -8565,15 +8652,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -8599,15 +8686,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_MedicationRequest",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_MedicationRequest",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -8630,15 +8717,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"priorPrescription",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "priorPrescription",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -8660,15 +8747,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"groupIdentifier_assigner",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "groupIdentifier_assigner",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -8691,15 +8778,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"medication",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "medication",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -8721,15 +8808,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Group",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Group",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -8750,15 +8837,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -8781,15 +8868,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"informationSource_Organization",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "informationSource_Organization",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -8814,15 +8901,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"informationSource_Patient",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "informationSource_Patient",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -8847,15 +8934,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"informationSource_Practitioner",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "informationSource_Practitioner",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -8880,15 +8967,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"informationSource_PractitionerRole",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "informationSource_PractitionerRole",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -8913,15 +9000,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_BodyStructure",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_BodyStructure",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -8946,15 +9033,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Condition",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Condition",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -8979,15 +9066,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_DiagnosticReport",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_DiagnosticReport",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9012,15 +9099,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_DocumentReference",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_DocumentReference",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9045,15 +9132,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_FamilyMemberHistory",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_FamilyMemberHistory",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9078,15 +9165,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Group",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Group",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9111,15 +9198,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_ImagingStudy",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_ImagingStudy",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9144,15 +9231,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Medication",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Medication",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9177,15 +9264,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_MedicationAdministration",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_MedicationAdministration",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9210,15 +9297,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_MedicationRequest",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_MedicationRequest",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9243,15 +9330,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_MedicationStatement",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_MedicationStatement",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9276,15 +9363,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Observation",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Observation",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9309,15 +9396,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Organization",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Organization",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9342,15 +9429,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Patient",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Patient",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9375,15 +9462,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Practitioner",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Practitioner",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9408,15 +9495,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_PractitionerRole",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_PractitionerRole",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9441,15 +9528,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Procedure",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Procedure",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9474,15 +9561,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_ResearchStudy",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_ResearchStudy",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9507,15 +9594,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_ResearchSubject",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_ResearchSubject",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9540,15 +9627,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Specimen",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Specimen",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9573,15 +9660,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Substance",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Substance",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9606,15 +9693,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_SubstanceDefinition",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_SubstanceDefinition",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9639,15 +9726,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInformation_Task",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInformation_Task",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9670,15 +9757,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"requester_Organization",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "requester_Organization",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -9699,15 +9786,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"requester_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "requester_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -9728,15 +9815,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"requester_Practitioner",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "requester_Practitioner",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -9757,15 +9844,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"requester_PractitionerRole",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "requester_PractitionerRole",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -9788,15 +9875,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"performer_Organization",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "performer_Organization",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9821,15 +9908,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"performer_Patient",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "performer_Patient",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9854,15 +9941,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"performer_Practitioner",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "performer_Practitioner",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9887,15 +9974,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"performer_PractitionerRole",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "performer_PractitionerRole",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -9918,15 +10005,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"recorder_Practitioner",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "recorder_Practitioner",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -9947,15 +10034,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"recorder_PractitionerRole",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "recorder_PractitionerRole",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -9979,15 +10066,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Condition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Condition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -10014,15 +10101,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Observation",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Observation",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -10049,15 +10136,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -10084,15 +10171,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -10119,15 +10206,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -10154,15 +10241,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -10187,15 +10274,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"dispenseRequest_dispenser",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "dispenseRequest_dispenser",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -10221,15 +10308,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"dispenseRequest_dispenserInstruction_authorReference_Organization",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "dispenseRequest_dispenserInstruction_authorReference_Organization",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -10258,15 +10345,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"dispenseRequest_dispenserInstruction_authorReference_Patient",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "dispenseRequest_dispenserInstruction_authorReference_Patient",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -10295,15 +10382,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"dispenseRequest_dispenserInstruction_authorReference_Practitioner",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "dispenseRequest_dispenserInstruction_authorReference_Practitioner",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -10332,15 +10419,15 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"dispenseRequest_dispenserInstruction_authorReference_PractitionerRole",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "dispenseRequest_dispenserInstruction_authorReference_PractitionerRole",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -10354,18 +10441,28 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from MedicationStatement.
-func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from MedicationRequest.
+func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from MedicationStatement.
+func (x *MedicationStatement) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "MedicationStatement"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -10385,15 +10482,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -10419,15 +10516,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"partOf_MedicationStatement",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "partOf_MedicationStatement",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -10452,15 +10549,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"partOf_Procedure",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "partOf_Procedure",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -10484,15 +10581,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"medication",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "medication",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -10514,15 +10611,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Group",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Group",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -10543,15 +10640,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -10574,15 +10671,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"informationSource_Organization",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "informationSource_Organization",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -10607,15 +10704,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"informationSource_Patient",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "informationSource_Patient",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -10640,15 +10737,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"informationSource_Practitioner",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "informationSource_Practitioner",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -10673,15 +10770,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"informationSource_PractitionerRole",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "informationSource_PractitionerRole",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -10706,15 +10803,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_BodyStructure",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_BodyStructure",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -10739,15 +10836,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_Condition",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_Condition",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -10772,15 +10869,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_DiagnosticReport",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_DiagnosticReport",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -10805,15 +10902,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_DocumentReference",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_DocumentReference",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -10838,15 +10935,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_FamilyMemberHistory",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_FamilyMemberHistory",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -10871,15 +10968,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_Group",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_Group",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -10904,15 +11001,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_ImagingStudy",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_ImagingStudy",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -10937,15 +11034,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_Medication",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_Medication",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -10970,15 +11067,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_MedicationAdministration",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_MedicationAdministration",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11003,15 +11100,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_MedicationRequest",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_MedicationRequest",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11036,15 +11133,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_MedicationStatement",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_MedicationStatement",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11069,15 +11166,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_Observation",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_Observation",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11102,15 +11199,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_Organization",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_Organization",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11135,15 +11232,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_Patient",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_Patient",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11168,15 +11265,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_Practitioner",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_Practitioner",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11201,15 +11298,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_PractitionerRole",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_PractitionerRole",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11234,15 +11331,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_Procedure",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_Procedure",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11267,15 +11364,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_ResearchStudy",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_ResearchStudy",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11300,15 +11397,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_ResearchSubject",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_ResearchSubject",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11333,15 +11430,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_Specimen",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_Specimen",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11366,15 +11463,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_Substance",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_Substance",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11399,15 +11496,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_SubstanceDefinition",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_SubstanceDefinition",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11432,15 +11529,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_Task",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_Task",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11466,15 +11563,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Condition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Condition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -11501,15 +11598,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_DiagnosticReport",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_DiagnosticReport",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -11536,15 +11633,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Observation",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Observation",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -11571,15 +11668,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -11606,15 +11703,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -11641,15 +11738,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -11676,15 +11773,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -11710,15 +11807,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"relatedClinicalInformation_Condition",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "relatedClinicalInformation_Condition",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11743,15 +11840,15 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"relatedClinicalInformation_Observation",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "relatedClinicalInformation_Observation",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11763,18 +11860,28 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from Observation.
-func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from MedicationStatement.
+func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from Observation.
+func (x *Observation) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "Observation"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -11794,15 +11901,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -11828,15 +11935,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_MedicationRequest",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_MedicationRequest",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11862,15 +11969,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"triggeredBy_observation",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "triggeredBy_observation",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -11896,15 +12003,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"partOf_ImagingStudy",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "partOf_ImagingStudy",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11929,15 +12036,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"partOf_MedicationAdministration",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "partOf_MedicationAdministration",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11962,15 +12069,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"partOf_MedicationStatement",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "partOf_MedicationStatement",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -11995,15 +12102,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"partOf_Procedure",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "partOf_Procedure",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12026,15 +12133,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Group",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Group",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -12055,15 +12162,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Medication",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Medication",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -12084,15 +12191,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Organization",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Organization",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -12113,15 +12220,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -12142,15 +12249,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Practitioner",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Practitioner",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -12171,15 +12278,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Procedure",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Procedure",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -12200,15 +12307,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Substance",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Substance",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -12231,15 +12338,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_BodyStructure",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_BodyStructure",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12264,15 +12371,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_Condition",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_Condition",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12297,15 +12404,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_DiagnosticReport",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_DiagnosticReport",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12330,15 +12437,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_DocumentReference",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_DocumentReference",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12363,15 +12470,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_FamilyMemberHistory",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_FamilyMemberHistory",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12396,15 +12503,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_Group",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_Group",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12429,15 +12536,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_ImagingStudy",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_ImagingStudy",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12462,15 +12569,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_Medication",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_Medication",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12495,15 +12602,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_MedicationAdministration",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_MedicationAdministration",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12528,15 +12635,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_MedicationRequest",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_MedicationRequest",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12561,15 +12668,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_MedicationStatement",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_MedicationStatement",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12594,15 +12701,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_Observation",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_Observation",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12627,15 +12734,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_Organization",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_Organization",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12660,15 +12767,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_Patient",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_Patient",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12693,15 +12800,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_Practitioner",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_Practitioner",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12726,15 +12833,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_PractitionerRole",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_PractitionerRole",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12759,15 +12866,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_Procedure",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_Procedure",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12792,15 +12899,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_ResearchStudy",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_ResearchStudy",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12825,15 +12932,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_ResearchSubject",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_ResearchSubject",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12858,15 +12965,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_Specimen",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_Specimen",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12891,15 +12998,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_Substance",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_Substance",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12924,15 +13031,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_SubstanceDefinition",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_SubstanceDefinition",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12957,15 +13064,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"focus_Task",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "focus_Task",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -12990,15 +13097,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"performer_Organization",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "performer_Organization",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -13023,15 +13130,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"performer_Patient",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "performer_Patient",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -13056,15 +13163,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"performer_Practitioner",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "performer_Practitioner",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -13089,15 +13196,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"performer_PractitionerRole",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "performer_PractitionerRole",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -13123,15 +13230,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -13158,15 +13265,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -13193,15 +13300,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -13228,15 +13335,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -13260,15 +13367,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"bodyStructure",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "bodyStructure",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -13289,15 +13396,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"specimen_Group",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "specimen_Group",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -13318,15 +13425,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"specimen_Specimen",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "specimen_Specimen",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -13349,15 +13456,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"hasMember_Observation",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "hasMember_Observation",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -13382,15 +13489,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_DocumentReference",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_DocumentReference",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -13415,15 +13522,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_ImagingStudy",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_ImagingStudy",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -13448,15 +13555,15 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"derivedFrom_Observation",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "derivedFrom_Observation",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -13468,18 +13575,28 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from Organization.
-func (x *Organization) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from Observation.
+func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from Organization.
+func (x *Organization) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "Organization"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -13499,15 +13616,15 @@ func (x *Organization) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -13534,15 +13651,15 @@ func (x *Organization) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"contact_organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "contact_organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -13566,15 +13683,15 @@ func (x *Organization) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"partOf",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "partOf",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -13601,15 +13718,15 @@ func (x *Organization) ExtractEdges(project string) ([]json.RawMessage, error) {
 												}
 												if _, exists := seen[forwardKey]; !exists {
 													seen[forwardKey] = struct{}{}
-													edges = append(edges, buildEdgeRawJSON(
-														forwardKey,
-														collectionID(sourceType, id),
-														collectionID(refType, targetID),
-														"qualification_identifier_assigner",
-														projectJSON,
-														sourceType,
-														refType,
-													))
+													edges = append(edges, EdgeDocument{
+														Key:      forwardKey,
+														From:     collectionID(sourceType, id),
+														To:       collectionID(refType, targetID),
+														Label:    "qualification_identifier_assigner",
+														Project:  project,
+														FromType: sourceType,
+														ToType:   refType,
+													})
 												}
 											}
 										}
@@ -13639,15 +13756,15 @@ func (x *Organization) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"qualification_issuer",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "qualification_issuer",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -13660,18 +13777,28 @@ func (x *Organization) ExtractEdges(project string) ([]json.RawMessage, error) {
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from Patient.
-func (x *Patient) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from Organization.
+func (x *Organization) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from Patient.
+func (x *Patient) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "Patient"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -13691,15 +13818,15 @@ func (x *Patient) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -13726,15 +13853,15 @@ func (x *Patient) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"contact_organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "contact_organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -13760,15 +13887,15 @@ func (x *Patient) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"generalPractitioner_Organization",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "generalPractitioner_Organization",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -13793,15 +13920,15 @@ func (x *Patient) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"generalPractitioner_Practitioner",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "generalPractitioner_Practitioner",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -13826,15 +13953,15 @@ func (x *Patient) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"generalPractitioner_PractitionerRole",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "generalPractitioner_PractitionerRole",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -13857,15 +13984,15 @@ func (x *Patient) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"managingOrganization",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "managingOrganization",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -13889,15 +14016,15 @@ func (x *Patient) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"link_other_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "link_other_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -13910,18 +14037,28 @@ func (x *Patient) ExtractEdges(project string) ([]json.RawMessage, error) {
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from Practitioner.
-func (x *Practitioner) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from Patient.
+func (x *Patient) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from Practitioner.
+func (x *Practitioner) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "Practitioner"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -13941,15 +14078,15 @@ func (x *Practitioner) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -13979,15 +14116,15 @@ func (x *Practitioner) ExtractEdges(project string) ([]json.RawMessage, error) {
 												}
 												if _, exists := seen[forwardKey]; !exists {
 													seen[forwardKey] = struct{}{}
-													edges = append(edges, buildEdgeRawJSON(
-														forwardKey,
-														collectionID(sourceType, id),
-														collectionID(refType, targetID),
-														"qualification_identifier_assigner",
-														projectJSON,
-														sourceType,
-														refType,
-													))
+													edges = append(edges, EdgeDocument{
+														Key:      forwardKey,
+														From:     collectionID(sourceType, id),
+														To:       collectionID(refType, targetID),
+														Label:    "qualification_identifier_assigner",
+														Project:  project,
+														FromType: sourceType,
+														ToType:   refType,
+													})
 												}
 											}
 										}
@@ -14017,15 +14154,15 @@ func (x *Practitioner) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"qualification_issuer",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "qualification_issuer",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -14038,18 +14175,28 @@ func (x *Practitioner) ExtractEdges(project string) ([]json.RawMessage, error) {
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from PractitionerRole.
-func (x *PractitionerRole) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from Practitioner.
+func (x *Practitioner) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from PractitionerRole.
+func (x *PractitionerRole) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "PractitionerRole"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -14069,15 +14216,15 @@ func (x *PractitionerRole) ExtractEdges(project string) ([]json.RawMessage, erro
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -14101,15 +14248,15 @@ func (x *PractitionerRole) ExtractEdges(project string) ([]json.RawMessage, erro
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"practitioner",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "practitioner",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14130,15 +14277,15 @@ func (x *PractitionerRole) ExtractEdges(project string) ([]json.RawMessage, erro
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"organization",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "organization",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14162,15 +14309,15 @@ func (x *PractitionerRole) ExtractEdges(project string) ([]json.RawMessage, erro
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"contact_organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "contact_organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -14183,18 +14330,28 @@ func (x *PractitionerRole) ExtractEdges(project string) ([]json.RawMessage, erro
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from Procedure.
-func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from PractitionerRole.
+func (x *PractitionerRole) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from Procedure.
+func (x *Procedure) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "Procedure"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -14214,15 +14371,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -14248,15 +14405,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"partOf_MedicationAdministration",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "partOf_MedicationAdministration",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -14281,15 +14438,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"partOf_Observation",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "partOf_Observation",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -14314,15 +14471,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"partOf_Procedure",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "partOf_Procedure",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -14345,15 +14502,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Group",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Group",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14374,15 +14531,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Organization",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Organization",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14403,15 +14560,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14432,15 +14589,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Practitioner",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Practitioner",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14461,15 +14618,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_Group",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_Group",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14490,15 +14647,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_Organization",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_Organization",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14519,15 +14676,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14548,15 +14705,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_Practitioner",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_Practitioner",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14577,15 +14734,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_PractitionerRole",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_PractitionerRole",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14606,15 +14763,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_Specimen",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_Specimen",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14635,15 +14792,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"recorder_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "recorder_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14664,15 +14821,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"recorder_Practitioner",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "recorder_Practitioner",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14693,15 +14850,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"recorder_PractitionerRole",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "recorder_PractitionerRole",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14722,15 +14879,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"reportedReference_Organization",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "reportedReference_Organization",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14751,15 +14908,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"reportedReference_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "reportedReference_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14780,15 +14937,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"reportedReference_Practitioner",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "reportedReference_Practitioner",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14809,15 +14966,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"reportedReference_PractitionerRole",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "reportedReference_PractitionerRole",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -14841,15 +14998,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"performer_actor_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "performer_actor_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -14876,15 +15033,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"performer_actor_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "performer_actor_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -14911,15 +15068,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"performer_actor_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "performer_actor_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -14946,15 +15103,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"performer_actor_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "performer_actor_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -14981,15 +15138,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"performer_onBehalfOf",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "performer_onBehalfOf",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -15016,15 +15173,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Condition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Condition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -15051,15 +15208,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_DiagnosticReport",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_DiagnosticReport",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -15086,15 +15243,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_DocumentReference",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_DocumentReference",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -15121,15 +15278,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Observation",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Observation",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -15156,15 +15313,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Procedure",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Procedure",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -15190,15 +15347,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"report_DiagnosticReport",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "report_DiagnosticReport",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -15223,15 +15380,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"report_DocumentReference",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "report_DocumentReference",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -15257,15 +15414,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"complication",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "complication",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -15292,15 +15449,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -15327,15 +15484,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -15362,15 +15519,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -15397,15 +15554,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -15432,15 +15589,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"used_Medication",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "used_Medication",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -15467,15 +15624,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"used_Substance",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "used_Substance",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -15501,15 +15658,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_BodyStructure",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_BodyStructure",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -15534,15 +15691,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_Condition",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_Condition",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -15567,15 +15724,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_DiagnosticReport",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_DiagnosticReport",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -15600,15 +15757,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_DocumentReference",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_DocumentReference",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -15633,15 +15790,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_FamilyMemberHistory",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_FamilyMemberHistory",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -15666,15 +15823,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_Group",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_Group",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -15699,15 +15856,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_ImagingStudy",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_ImagingStudy",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -15732,15 +15889,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_Medication",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_Medication",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -15765,15 +15922,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_MedicationAdministration",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_MedicationAdministration",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -15798,15 +15955,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_MedicationRequest",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_MedicationRequest",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -15831,15 +15988,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_MedicationStatement",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_MedicationStatement",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -15864,15 +16021,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_Observation",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_Observation",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -15897,15 +16054,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_Organization",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_Organization",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -15930,15 +16087,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_Patient",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_Patient",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -15963,15 +16120,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_Practitioner",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_Practitioner",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -15996,15 +16153,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_PractitionerRole",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_PractitionerRole",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -16029,15 +16186,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_Procedure",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_Procedure",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -16062,15 +16219,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_ResearchStudy",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_ResearchStudy",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -16095,15 +16252,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_ResearchSubject",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_ResearchSubject",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -16128,15 +16285,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_Specimen",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_Specimen",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -16161,15 +16318,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_Substance",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_Substance",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -16194,15 +16351,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_SubstanceDefinition",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_SubstanceDefinition",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -16227,15 +16384,15 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supportingInfo_Task",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supportingInfo_Task",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -16247,18 +16404,28 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from ResearchStudy.
-func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from Procedure.
+func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from ResearchStudy.
+func (x *ResearchStudy) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "ResearchStudy"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -16278,15 +16445,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16312,15 +16479,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"partOf",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "partOf",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -16346,15 +16513,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_BodyStructure",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_BodyStructure",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16381,15 +16548,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_Condition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_Condition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16416,15 +16583,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_DiagnosticReport",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_DiagnosticReport",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16451,15 +16618,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_DocumentReference",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_DocumentReference",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16486,15 +16653,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_FamilyMemberHistory",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_FamilyMemberHistory",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16521,15 +16688,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_Group",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_Group",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16556,15 +16723,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_ImagingStudy",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_ImagingStudy",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16591,15 +16758,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_Medication",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_Medication",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16626,15 +16793,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_MedicationAdministration",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_MedicationAdministration",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16661,15 +16828,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_MedicationRequest",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_MedicationRequest",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16696,15 +16863,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_MedicationStatement",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_MedicationStatement",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16731,15 +16898,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_Observation",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_Observation",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16766,15 +16933,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16801,15 +16968,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16836,15 +17003,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16871,15 +17038,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16906,15 +17073,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_Procedure",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_Procedure",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16941,15 +17108,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_ResearchStudy",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_ResearchStudy",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -16976,15 +17143,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_ResearchSubject",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_ResearchSubject",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -17011,15 +17178,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_Specimen",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_Specimen",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -17046,15 +17213,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_Substance",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_Substance",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -17081,15 +17248,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_SubstanceDefinition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_SubstanceDefinition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -17116,15 +17283,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relatedArtifact_resourceReference_Task",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relatedArtifact_resourceReference_Task",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -17151,15 +17318,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"focus_Medication",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "focus_Medication",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -17186,15 +17353,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"focus_SubstanceDefinition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "focus_SubstanceDefinition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -17220,15 +17387,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"site_Organization",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "site_Organization",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -17253,15 +17420,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"site_ResearchStudy",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "site_ResearchStudy",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -17287,15 +17454,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -17322,15 +17489,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -17357,15 +17524,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -17392,15 +17559,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -17427,15 +17594,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"associatedParty_party_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "associatedParty_party_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -17462,15 +17629,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"associatedParty_party_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "associatedParty_party_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -17497,15 +17664,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"associatedParty_party_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "associatedParty_party_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -17530,15 +17697,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"recruitment_eligibility_Group",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "recruitment_eligibility_Group",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -17561,15 +17728,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"recruitment_actualGroup",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "recruitment_actualGroup",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -17594,15 +17761,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"comparisonGroup_observedGroup",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "comparisonGroup_observedGroup",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -17628,15 +17795,15 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"result_DiagnosticReport",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "result_DiagnosticReport",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -17648,18 +17815,28 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from ResearchSubject.
-func (x *ResearchSubject) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from ResearchStudy.
+func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from ResearchSubject.
+func (x *ResearchSubject) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "ResearchSubject"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -17679,15 +17856,15 @@ func (x *ResearchSubject) ExtractEdges(project string) ([]json.RawMessage, error
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -17711,15 +17888,15 @@ func (x *ResearchSubject) ExtractEdges(project string) ([]json.RawMessage, error
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"study",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "study",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -17740,15 +17917,15 @@ func (x *ResearchSubject) ExtractEdges(project string) ([]json.RawMessage, error
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Group",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Group",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -17769,15 +17946,15 @@ func (x *ResearchSubject) ExtractEdges(project string) ([]json.RawMessage, error
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Medication",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Medication",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -17798,15 +17975,15 @@ func (x *ResearchSubject) ExtractEdges(project string) ([]json.RawMessage, error
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -17827,15 +18004,15 @@ func (x *ResearchSubject) ExtractEdges(project string) ([]json.RawMessage, error
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Specimen",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Specimen",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -17856,15 +18033,15 @@ func (x *ResearchSubject) ExtractEdges(project string) ([]json.RawMessage, error
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Substance",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Substance",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -17874,18 +18051,28 @@ func (x *ResearchSubject) ExtractEdges(project string) ([]json.RawMessage, error
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from Specimen.
-func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from ResearchSubject.
+func (x *ResearchSubject) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from Specimen.
+func (x *Specimen) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "Specimen"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -17905,15 +18092,15 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -17938,15 +18125,15 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"accessionIdentifier_assigner",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "accessionIdentifier_assigner",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -17968,15 +18155,15 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Group",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Group",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -17997,15 +18184,15 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -18026,15 +18213,15 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"subject_Substance",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "subject_Substance",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -18057,15 +18244,15 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"parent",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "parent",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -18089,15 +18276,15 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"collection_collector_Patient",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "collection_collector_Patient",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -18120,15 +18307,15 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"collection_collector_Practitioner",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "collection_collector_Practitioner",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -18151,15 +18338,15 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"collection_collector_PractitionerRole",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "collection_collector_PractitionerRole",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -18182,15 +18369,15 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"collection_procedure",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "collection_procedure",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -18214,15 +18401,15 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"collection_bodySite",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "collection_bodySite",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -18250,15 +18437,15 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 											}
 											if _, exists := seen[forwardKey]; !exists {
 												seen[forwardKey] = struct{}{}
-												edges = append(edges, buildEdgeRawJSON(
-													forwardKey,
-													collectionID(sourceType, id),
-													collectionID(refType, targetID),
-													"processing_additive",
-													projectJSON,
-													sourceType,
-													refType,
-												))
+												edges = append(edges, EdgeDocument{
+													Key:      forwardKey,
+													From:     collectionID(sourceType, id),
+													To:       collectionID(refType, targetID),
+													Label:    "processing_additive",
+													Project:  project,
+													FromType: sourceType,
+													ToType:   refType,
+												})
 											}
 										}
 									}
@@ -18287,15 +18474,15 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -18322,15 +18509,15 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -18357,15 +18544,15 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -18392,15 +18579,15 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -18413,18 +18600,28 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from Substance.
-func (x *Substance) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from Specimen.
+func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from Substance.
+func (x *Substance) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "Substance"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -18444,15 +18641,15 @@ func (x *Substance) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -18477,15 +18674,15 @@ func (x *Substance) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"code",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "code",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -18510,15 +18707,15 @@ func (x *Substance) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"ingredient_substanceReference",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "ingredient_substanceReference",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -18531,18 +18728,28 @@ func (x *Substance) ExtractEdges(project string) ([]json.RawMessage, error) {
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from SubstanceDefinition.
-func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from Substance.
+func (x *Substance) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from SubstanceDefinition.
+func (x *SubstanceDefinition) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "SubstanceDefinition"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -18562,15 +18769,15 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -18597,15 +18804,15 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -18632,15 +18839,15 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -18667,15 +18874,15 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -18702,15 +18909,15 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -18736,15 +18943,15 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"manufacturer",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "manufacturer",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -18769,15 +18976,15 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"supplier",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "supplier",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -18804,15 +19011,15 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"moiety_identifier_assigner",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "moiety_identifier_assigner",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -18840,15 +19047,15 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"structure_sourceDocument",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "structure_sourceDocument",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -18876,15 +19083,15 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"structure_representation_document",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "structure_representation_document",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -18915,15 +19122,15 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 												}
 												if _, exists := seen[forwardKey]; !exists {
 													seen[forwardKey] = struct{}{}
-													edges = append(edges, buildEdgeRawJSON(
-														forwardKey,
-														collectionID(sourceType, id),
-														collectionID(refType, targetID),
-														"code_note_authorReference_Organization",
-														projectJSON,
-														sourceType,
-														refType,
-													))
+													edges = append(edges, EdgeDocument{
+														Key:      forwardKey,
+														From:     collectionID(sourceType, id),
+														To:       collectionID(refType, targetID),
+														Label:    "code_note_authorReference_Organization",
+														Project:  project,
+														FromType: sourceType,
+														ToType:   refType,
+													})
 												}
 											}
 										}
@@ -18956,15 +19163,15 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 												}
 												if _, exists := seen[forwardKey]; !exists {
 													seen[forwardKey] = struct{}{}
-													edges = append(edges, buildEdgeRawJSON(
-														forwardKey,
-														collectionID(sourceType, id),
-														collectionID(refType, targetID),
-														"code_note_authorReference_Patient",
-														projectJSON,
-														sourceType,
-														refType,
-													))
+													edges = append(edges, EdgeDocument{
+														Key:      forwardKey,
+														From:     collectionID(sourceType, id),
+														To:       collectionID(refType, targetID),
+														Label:    "code_note_authorReference_Patient",
+														Project:  project,
+														FromType: sourceType,
+														ToType:   refType,
+													})
 												}
 											}
 										}
@@ -18997,15 +19204,15 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 												}
 												if _, exists := seen[forwardKey]; !exists {
 													seen[forwardKey] = struct{}{}
-													edges = append(edges, buildEdgeRawJSON(
-														forwardKey,
-														collectionID(sourceType, id),
-														collectionID(refType, targetID),
-														"code_note_authorReference_Practitioner",
-														projectJSON,
-														sourceType,
-														refType,
-													))
+													edges = append(edges, EdgeDocument{
+														Key:      forwardKey,
+														From:     collectionID(sourceType, id),
+														To:       collectionID(refType, targetID),
+														Label:    "code_note_authorReference_Practitioner",
+														Project:  project,
+														FromType: sourceType,
+														ToType:   refType,
+													})
 												}
 											}
 										}
@@ -19038,15 +19245,15 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 												}
 												if _, exists := seen[forwardKey]; !exists {
 													seen[forwardKey] = struct{}{}
-													edges = append(edges, buildEdgeRawJSON(
-														forwardKey,
-														collectionID(sourceType, id),
-														collectionID(refType, targetID),
-														"code_note_authorReference_PractitionerRole",
-														projectJSON,
-														sourceType,
-														refType,
-													))
+													edges = append(edges, EdgeDocument{
+														Key:      forwardKey,
+														From:     collectionID(sourceType, id),
+														To:       collectionID(refType, targetID),
+														Label:    "code_note_authorReference_PractitionerRole",
+														Project:  project,
+														FromType: sourceType,
+														ToType:   refType,
+													})
 												}
 											}
 										}
@@ -19078,15 +19285,15 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 											}
 											if _, exists := seen[forwardKey]; !exists {
 												seen[forwardKey] = struct{}{}
-												edges = append(edges, buildEdgeRawJSON(
-													forwardKey,
-													collectionID(sourceType, id),
-													collectionID(refType, targetID),
-													"code_source",
-													projectJSON,
-													sourceType,
-													refType,
-												))
+												edges = append(edges, EdgeDocument{
+													Key:      forwardKey,
+													From:     collectionID(sourceType, id),
+													To:       collectionID(refType, targetID),
+													Label:    "code_source",
+													Project:  project,
+													FromType: sourceType,
+													ToType:   refType,
+												})
 											}
 										}
 									}
@@ -19117,15 +19324,15 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 											}
 											if _, exists := seen[forwardKey]; !exists {
 												seen[forwardKey] = struct{}{}
-												edges = append(edges, buildEdgeRawJSON(
-													forwardKey,
-													collectionID(sourceType, id),
-													collectionID(refType, targetID),
-													"name_source",
-													projectJSON,
-													sourceType,
-													refType,
-												))
+												edges = append(edges, EdgeDocument{
+													Key:      forwardKey,
+													From:     collectionID(sourceType, id),
+													To:       collectionID(refType, targetID),
+													Label:    "name_source",
+													Project:  project,
+													FromType: sourceType,
+													ToType:   refType,
+												})
 											}
 										}
 									}
@@ -19154,15 +19361,15 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"relationship_substanceDefinitionReference",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "relationship_substanceDefinitionReference",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -19191,15 +19398,15 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 											}
 											if _, exists := seen[forwardKey]; !exists {
 												seen[forwardKey] = struct{}{}
-												edges = append(edges, buildEdgeRawJSON(
-													forwardKey,
-													collectionID(sourceType, id),
-													collectionID(refType, targetID),
-													"relationship_source",
-													projectJSON,
-													sourceType,
-													refType,
-												))
+												edges = append(edges, EdgeDocument{
+													Key:      forwardKey,
+													From:     collectionID(sourceType, id),
+													To:       collectionID(refType, targetID),
+													Label:    "relationship_source",
+													Project:  project,
+													FromType: sourceType,
+													ToType:   refType,
+												})
 											}
 										}
 									}
@@ -19214,18 +19421,28 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 	return edges, nil
 }
 
-// ExtractEdges extracts graph links from Task.
-func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
+// ExtractEdges encodes graph links from SubstanceDefinition.
+func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
 	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
+	}
+	return edges, nil
+}
+
+// ExtractEdgeDocuments builds graph links from Task.
+func (x *Task) ExtractEdgeDocuments(project string) ([]EdgeDocument, error) {
+	var edges []EdgeDocument
 	if x == nil || x.ID == nil {
 		return edges, nil
 	}
 	id := *x.ID
 	sourceType := "Task"
-	projectJSON := strconv.Quote(project)
-	_ = id
 	_ = sourceType
-	_ = projectJSON
 	var seen map[string]struct{}
 	_ = seen
 	if x.IDentifier != nil {
@@ -19245,15 +19462,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"identifier_assigner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "identifier_assigner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -19279,15 +19496,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_BodyStructure",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_BodyStructure",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19312,15 +19529,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_Condition",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_Condition",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19345,15 +19562,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_DiagnosticReport",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_DiagnosticReport",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19378,15 +19595,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_DocumentReference",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_DocumentReference",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19411,15 +19628,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_FamilyMemberHistory",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_FamilyMemberHistory",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19444,15 +19661,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_Group",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_Group",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19477,15 +19694,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_ImagingStudy",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_ImagingStudy",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19510,15 +19727,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_Medication",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_Medication",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19543,15 +19760,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_MedicationAdministration",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_MedicationAdministration",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19576,15 +19793,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_MedicationRequest",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_MedicationRequest",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19609,15 +19826,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_MedicationStatement",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_MedicationStatement",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19642,15 +19859,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_Observation",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_Observation",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19675,15 +19892,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_Organization",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_Organization",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19708,15 +19925,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_Patient",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_Patient",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19741,15 +19958,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_Practitioner",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_Practitioner",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19774,15 +19991,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_PractitionerRole",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_PractitionerRole",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19807,15 +20024,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_Procedure",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_Procedure",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19840,15 +20057,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_ResearchStudy",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_ResearchStudy",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19873,15 +20090,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_ResearchSubject",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_ResearchSubject",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19906,15 +20123,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_Specimen",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_Specimen",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19939,15 +20156,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_Substance",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_Substance",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -19972,15 +20189,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_SubstanceDefinition",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_SubstanceDefinition",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -20005,15 +20222,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"basedOn_Task",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "basedOn_Task",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -20037,15 +20254,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"groupIdentifier_assigner",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "groupIdentifier_assigner",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20069,15 +20286,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 								}
 								if _, exists := seen[forwardKey]; !exists {
 									seen[forwardKey] = struct{}{}
-									edges = append(edges, buildEdgeRawJSON(
-										forwardKey,
-										collectionID(sourceType, id),
-										collectionID(refType, targetID),
-										"partOf",
-										projectJSON,
-										sourceType,
-										refType,
-									))
+									edges = append(edges, EdgeDocument{
+										Key:      forwardKey,
+										From:     collectionID(sourceType, id),
+										To:       collectionID(refType, targetID),
+										Label:    "partOf",
+										Project:  project,
+										FromType: sourceType,
+										ToType:   refType,
+									})
 								}
 							}
 						}
@@ -20101,15 +20318,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_BodyStructure",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_BodyStructure",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20132,15 +20349,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_Condition",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_Condition",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20163,15 +20380,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_DiagnosticReport",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_DiagnosticReport",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20194,15 +20411,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_DocumentReference",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_DocumentReference",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20225,15 +20442,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_FamilyMemberHistory",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_FamilyMemberHistory",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20256,15 +20473,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_Group",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_Group",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20287,15 +20504,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_ImagingStudy",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_ImagingStudy",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20318,15 +20535,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_Medication",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_Medication",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20349,15 +20566,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_MedicationAdministration",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_MedicationAdministration",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20380,15 +20597,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_MedicationRequest",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_MedicationRequest",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20411,15 +20628,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_MedicationStatement",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_MedicationStatement",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20442,15 +20659,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_Observation",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_Observation",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20473,15 +20690,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_Organization",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_Organization",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20504,15 +20721,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_Patient",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_Patient",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20535,15 +20752,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_Practitioner",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_Practitioner",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20566,15 +20783,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_PractitionerRole",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_PractitionerRole",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20597,15 +20814,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_Procedure",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_Procedure",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20628,15 +20845,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_ResearchStudy",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_ResearchStudy",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20659,15 +20876,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_ResearchSubject",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_ResearchSubject",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20690,15 +20907,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_Specimen",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_Specimen",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20721,15 +20938,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_Substance",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_Substance",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20752,15 +20969,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_SubstanceDefinition",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_SubstanceDefinition",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20783,15 +21000,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 							}
 							if _, exists := seen[forwardKey]; !exists {
 								seen[forwardKey] = struct{}{}
-								edges = append(edges, buildEdgeRawJSON(
-									forwardKey,
-									collectionID(sourceType, id),
-									collectionID(refType, targetID),
-									"statusReason_Task",
-									projectJSON,
-									sourceType,
-									refType,
-								))
+								edges = append(edges, EdgeDocument{
+									Key:      forwardKey,
+									From:     collectionID(sourceType, id),
+									To:       collectionID(refType, targetID),
+									Label:    "statusReason_Task",
+									Project:  project,
+									FromType: sourceType,
+									ToType:   refType,
+								})
 							}
 						}
 					}
@@ -20813,15 +21030,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_BodyStructure",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_BodyStructure",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -20842,15 +21059,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_Condition",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_Condition",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -20871,15 +21088,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_DiagnosticReport",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_DiagnosticReport",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -20900,15 +21117,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_DocumentReference",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_DocumentReference",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -20929,15 +21146,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_FamilyMemberHistory",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_FamilyMemberHistory",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -20958,15 +21175,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_Group",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_Group",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -20987,15 +21204,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_ImagingStudy",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_ImagingStudy",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21016,15 +21233,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_Medication",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_Medication",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21045,15 +21262,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_MedicationAdministration",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_MedicationAdministration",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21074,15 +21291,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_MedicationRequest",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_MedicationRequest",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21103,15 +21320,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_MedicationStatement",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_MedicationStatement",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21132,15 +21349,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_Observation",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_Observation",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21161,15 +21378,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_Organization",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_Organization",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21190,15 +21407,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21219,15 +21436,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_Practitioner",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_Practitioner",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21248,15 +21465,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_PractitionerRole",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_PractitionerRole",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21277,15 +21494,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_Procedure",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_Procedure",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21306,15 +21523,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_ResearchStudy",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_ResearchStudy",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21335,15 +21552,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_ResearchSubject",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_ResearchSubject",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21364,15 +21581,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_Specimen",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_Specimen",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21393,15 +21610,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_Substance",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_Substance",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21422,15 +21639,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_SubstanceDefinition",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_SubstanceDefinition",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21451,15 +21668,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"focus_Task",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "focus_Task",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21480,15 +21697,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_BodyStructure",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_BodyStructure",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21509,15 +21726,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_Condition",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_Condition",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21538,15 +21755,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_DiagnosticReport",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_DiagnosticReport",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21567,15 +21784,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_DocumentReference",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_DocumentReference",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21596,15 +21813,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_FamilyMemberHistory",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_FamilyMemberHistory",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21625,15 +21842,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_Group",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_Group",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21654,15 +21871,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_ImagingStudy",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_ImagingStudy",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21683,15 +21900,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_Medication",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_Medication",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21712,15 +21929,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_MedicationAdministration",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_MedicationAdministration",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21741,15 +21958,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_MedicationRequest",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_MedicationRequest",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21770,15 +21987,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_MedicationStatement",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_MedicationStatement",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21799,15 +22016,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_Observation",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_Observation",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21828,15 +22045,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_Organization",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_Organization",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21857,15 +22074,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21886,15 +22103,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_Practitioner",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_Practitioner",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21915,15 +22132,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_PractitionerRole",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_PractitionerRole",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21944,15 +22161,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_Procedure",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_Procedure",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -21973,15 +22190,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_ResearchStudy",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_ResearchStudy",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -22002,15 +22219,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_ResearchSubject",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_ResearchSubject",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -22031,15 +22248,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_Specimen",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_Specimen",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -22060,15 +22277,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_Substance",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_Substance",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -22089,15 +22306,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_SubstanceDefinition",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_SubstanceDefinition",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -22118,15 +22335,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"for_Task",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "for_Task",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -22147,15 +22364,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"requester_Organization",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "requester_Organization",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -22176,15 +22393,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"requester_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "requester_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -22205,15 +22422,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"requester_Practitioner",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "requester_Practitioner",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -22234,15 +22451,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"requester_PractitionerRole",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "requester_PractitionerRole",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -22266,15 +22483,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"requestedPerformer_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "requestedPerformer_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -22301,15 +22518,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"requestedPerformer_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "requestedPerformer_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -22336,15 +22553,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"requestedPerformer_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "requestedPerformer_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -22371,15 +22588,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"requestedPerformer_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "requestedPerformer_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -22403,15 +22620,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"owner_Organization",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "owner_Organization",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -22432,15 +22649,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"owner_Patient",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "owner_Patient",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -22461,15 +22678,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"owner_Practitioner",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "owner_Practitioner",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -22490,15 +22707,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 						}
 						if _, exists := seen[forwardKey]; !exists {
 							seen[forwardKey] = struct{}{}
-							edges = append(edges, buildEdgeRawJSON(
-								forwardKey,
-								collectionID(sourceType, id),
-								collectionID(refType, targetID),
-								"owner_PractitionerRole",
-								projectJSON,
-								sourceType,
-								refType,
-							))
+							edges = append(edges, EdgeDocument{
+								Key:      forwardKey,
+								From:     collectionID(sourceType, id),
+								To:       collectionID(refType, targetID),
+								Label:    "owner_PractitionerRole",
+								Project:  project,
+								FromType: sourceType,
+								ToType:   refType,
+							})
 						}
 					}
 				}
@@ -22522,15 +22739,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"performer_actor_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "performer_actor_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -22557,15 +22774,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"performer_actor_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "performer_actor_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -22592,15 +22809,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"performer_actor_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "performer_actor_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -22627,15 +22844,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"performer_actor_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "performer_actor_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -22662,15 +22879,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_BodyStructure",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_BodyStructure",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -22697,15 +22914,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Condition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Condition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -22732,15 +22949,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_DiagnosticReport",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_DiagnosticReport",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -22767,15 +22984,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_DocumentReference",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_DocumentReference",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -22802,15 +23019,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_FamilyMemberHistory",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_FamilyMemberHistory",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -22837,15 +23054,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Group",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Group",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -22872,15 +23089,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_ImagingStudy",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_ImagingStudy",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -22907,15 +23124,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Medication",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Medication",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -22942,15 +23159,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_MedicationAdministration",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_MedicationAdministration",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -22977,15 +23194,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_MedicationRequest",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_MedicationRequest",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23012,15 +23229,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_MedicationStatement",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_MedicationStatement",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23047,15 +23264,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Observation",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Observation",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23082,15 +23299,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23117,15 +23334,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23152,15 +23369,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23187,15 +23404,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23222,15 +23439,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Procedure",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Procedure",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23257,15 +23474,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_ResearchStudy",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_ResearchStudy",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23292,15 +23509,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_ResearchSubject",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_ResearchSubject",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23327,15 +23544,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Specimen",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Specimen",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23362,15 +23579,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Substance",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Substance",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23397,15 +23614,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_SubstanceDefinition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_SubstanceDefinition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23432,15 +23649,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"reason_Task",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "reason_Task",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23467,15 +23684,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23502,15 +23719,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23537,15 +23754,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23572,15 +23789,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"note_authorReference_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "note_authorReference_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23607,15 +23824,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"restriction_recipient_Group",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "restriction_recipient_Group",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23642,15 +23859,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"restriction_recipient_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "restriction_recipient_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23677,15 +23894,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"restriction_recipient_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "restriction_recipient_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23712,15 +23929,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"restriction_recipient_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "restriction_recipient_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23747,15 +23964,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"restriction_recipient_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "restriction_recipient_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23782,15 +23999,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_BodyStructure",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_BodyStructure",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23817,15 +24034,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_Condition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_Condition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23852,15 +24069,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_DiagnosticReport",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_DiagnosticReport",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23887,15 +24104,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_DocumentReference",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_DocumentReference",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23922,15 +24139,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_FamilyMemberHistory",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_FamilyMemberHistory",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23957,15 +24174,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_Group",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_Group",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -23992,15 +24209,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_ImagingStudy",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_ImagingStudy",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -24027,15 +24244,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_Medication",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_Medication",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -24062,15 +24279,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_MedicationAdministration",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_MedicationAdministration",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -24097,15 +24314,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_MedicationRequest",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_MedicationRequest",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -24132,15 +24349,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_MedicationStatement",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_MedicationStatement",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -24167,15 +24384,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_Observation",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_Observation",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -24202,15 +24419,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -24237,15 +24454,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -24272,15 +24489,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -24307,15 +24524,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -24342,15 +24559,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_Procedure",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_Procedure",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -24377,15 +24594,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_ResearchStudy",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_ResearchStudy",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -24412,15 +24629,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_ResearchSubject",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_ResearchSubject",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -24447,15 +24664,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_Specimen",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_Specimen",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -24482,15 +24699,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_Substance",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_Substance",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -24517,15 +24734,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_SubstanceDefinition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_SubstanceDefinition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -24552,15 +24769,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"input_valueReference_Task",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "input_valueReference_Task",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -24588,15 +24805,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueAnnotation_authorReference_Organization",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueAnnotation_authorReference_Organization",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -24625,15 +24842,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueAnnotation_authorReference_Patient",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueAnnotation_authorReference_Patient",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -24662,15 +24879,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueAnnotation_authorReference_Practitioner",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueAnnotation_authorReference_Practitioner",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -24699,15 +24916,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueAnnotation_authorReference_PractitionerRole",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueAnnotation_authorReference_PractitionerRole",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -24736,15 +24953,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_BodyStructure",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_BodyStructure",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -24773,15 +24990,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_Condition",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_Condition",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -24810,15 +25027,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_DiagnosticReport",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_DiagnosticReport",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -24847,15 +25064,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_DocumentReference",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_DocumentReference",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -24884,15 +25101,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_FamilyMemberHistory",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_FamilyMemberHistory",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -24921,15 +25138,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_Group",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_Group",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -24958,15 +25175,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_ImagingStudy",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_ImagingStudy",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -24995,15 +25212,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_Medication",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_Medication",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25032,15 +25249,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_MedicationAdministration",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_MedicationAdministration",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25069,15 +25286,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_MedicationRequest",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_MedicationRequest",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25106,15 +25323,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_MedicationStatement",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_MedicationStatement",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25143,15 +25360,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_Observation",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_Observation",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25180,15 +25397,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_Organization",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_Organization",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25217,15 +25434,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_Patient",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_Patient",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25254,15 +25471,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_Practitioner",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_Practitioner",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25291,15 +25508,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_PractitionerRole",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_PractitionerRole",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25328,15 +25545,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_Procedure",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_Procedure",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25365,15 +25582,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_ResearchStudy",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_ResearchStudy",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25402,15 +25619,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_ResearchSubject",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_ResearchSubject",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25439,15 +25656,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_Specimen",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_Specimen",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25476,15 +25693,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_Substance",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_Substance",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25513,15 +25730,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_SubstanceDefinition",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_SubstanceDefinition",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25550,15 +25767,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueCodeableReference_Task",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueCodeableReference_Task",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25587,15 +25804,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueIdentifier_assigner",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueIdentifier_assigner",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25624,15 +25841,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueSignature_who_Organization",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueSignature_who_Organization",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25661,15 +25878,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueSignature_who_Patient",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueSignature_who_Patient",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25698,15 +25915,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueSignature_who_Practitioner",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueSignature_who_Practitioner",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25735,15 +25952,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueSignature_who_PractitionerRole",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueSignature_who_PractitionerRole",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25772,15 +25989,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueSignature_onBehalfOf_Organization",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueSignature_onBehalfOf_Organization",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25809,15 +26026,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueSignature_onBehalfOf_Patient",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueSignature_onBehalfOf_Patient",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25846,15 +26063,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueSignature_onBehalfOf_Practitioner",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueSignature_onBehalfOf_Practitioner",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25883,15 +26100,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueSignature_onBehalfOf_PractitionerRole",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueSignature_onBehalfOf_PractitionerRole",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25920,15 +26137,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueDataRequirement_subjectReference",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueDataRequirement_subjectReference",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25957,15 +26174,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_BodyStructure",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_BodyStructure",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -25994,15 +26211,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_Condition",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_Condition",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26031,15 +26248,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_DiagnosticReport",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_DiagnosticReport",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26068,15 +26285,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_DocumentReference",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_DocumentReference",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26105,15 +26322,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_FamilyMemberHistory",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_FamilyMemberHistory",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26142,15 +26359,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_Group",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_Group",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26179,15 +26396,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_ImagingStudy",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_ImagingStudy",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26216,15 +26433,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_Medication",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_Medication",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26253,15 +26470,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_MedicationAdministration",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_MedicationAdministration",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26290,15 +26507,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_MedicationRequest",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_MedicationRequest",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26327,15 +26544,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_MedicationStatement",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_MedicationStatement",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26364,15 +26581,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_Observation",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_Observation",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26401,15 +26618,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_Organization",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_Organization",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26438,15 +26655,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_Patient",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_Patient",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26475,15 +26692,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_Practitioner",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_Practitioner",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26512,15 +26729,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_PractitionerRole",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_PractitionerRole",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26549,15 +26766,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_Procedure",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_Procedure",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26586,15 +26803,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_ResearchStudy",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_ResearchStudy",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26623,15 +26840,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_ResearchSubject",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_ResearchSubject",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26660,15 +26877,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_Specimen",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_Specimen",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26697,15 +26914,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_Substance",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_Substance",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26734,15 +26951,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_SubstanceDefinition",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_SubstanceDefinition",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26771,15 +26988,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueRelatedArtifact_resourceReference_Task",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueRelatedArtifact_resourceReference_Task",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26811,15 +27028,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 													}
 													if _, exists := seen[forwardKey]; !exists {
 														seen[forwardKey] = struct{}{}
-														edges = append(edges, buildEdgeRawJSON(
-															forwardKey,
-															collectionID(sourceType, id),
-															collectionID(refType, targetID),
-															"input_valueTriggerDefinition_data_subjectReference",
-															projectJSON,
-															sourceType,
-															refType,
-														))
+														edges = append(edges, EdgeDocument{
+															Key:      forwardKey,
+															From:     collectionID(sourceType, id),
+															To:       collectionID(refType, targetID),
+															Label:    "input_valueTriggerDefinition_data_subjectReference",
+															Project:  project,
+															FromType: sourceType,
+															ToType:   refType,
+														})
 													}
 												}
 											}
@@ -26851,15 +27068,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueUsageContext_valueReference_Group",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueUsageContext_valueReference_Group",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26888,15 +27105,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueUsageContext_valueReference_Organization",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueUsageContext_valueReference_Organization",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26925,15 +27142,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueUsageContext_valueReference_ResearchStudy",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueUsageContext_valueReference_ResearchStudy",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26962,15 +27179,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"input_valueExtendedContactDetail_organization",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "input_valueExtendedContactDetail_organization",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -26998,15 +27215,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_BodyStructure",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_BodyStructure",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27033,15 +27250,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_Condition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_Condition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27068,15 +27285,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_DiagnosticReport",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_DiagnosticReport",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27103,15 +27320,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_DocumentReference",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_DocumentReference",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27138,15 +27355,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_FamilyMemberHistory",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_FamilyMemberHistory",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27173,15 +27390,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_Group",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_Group",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27208,15 +27425,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_ImagingStudy",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_ImagingStudy",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27243,15 +27460,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_Medication",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_Medication",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27278,15 +27495,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_MedicationAdministration",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_MedicationAdministration",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27313,15 +27530,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_MedicationRequest",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_MedicationRequest",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27348,15 +27565,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_MedicationStatement",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_MedicationStatement",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27383,15 +27600,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_Observation",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_Observation",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27418,15 +27635,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_Organization",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_Organization",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27453,15 +27670,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_Patient",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_Patient",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27488,15 +27705,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_Practitioner",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_Practitioner",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27523,15 +27740,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_PractitionerRole",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_PractitionerRole",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27558,15 +27775,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_Procedure",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_Procedure",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27593,15 +27810,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_ResearchStudy",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_ResearchStudy",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27628,15 +27845,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_ResearchSubject",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_ResearchSubject",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27663,15 +27880,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_Specimen",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_Specimen",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27698,15 +27915,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_Substance",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_Substance",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27733,15 +27950,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_SubstanceDefinition",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_SubstanceDefinition",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27768,15 +27985,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 									}
 									if _, exists := seen[forwardKey]; !exists {
 										seen[forwardKey] = struct{}{}
-										edges = append(edges, buildEdgeRawJSON(
-											forwardKey,
-											collectionID(sourceType, id),
-											collectionID(refType, targetID),
-											"output_valueReference_Task",
-											projectJSON,
-											sourceType,
-											refType,
-										))
+										edges = append(edges, EdgeDocument{
+											Key:      forwardKey,
+											From:     collectionID(sourceType, id),
+											To:       collectionID(refType, targetID),
+											Label:    "output_valueReference_Task",
+											Project:  project,
+											FromType: sourceType,
+											ToType:   refType,
+										})
 									}
 								}
 							}
@@ -27804,15 +28021,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueAnnotation_authorReference_Organization",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueAnnotation_authorReference_Organization",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -27841,15 +28058,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueAnnotation_authorReference_Patient",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueAnnotation_authorReference_Patient",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -27878,15 +28095,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueAnnotation_authorReference_Practitioner",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueAnnotation_authorReference_Practitioner",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -27915,15 +28132,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueAnnotation_authorReference_PractitionerRole",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueAnnotation_authorReference_PractitionerRole",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -27952,15 +28169,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_BodyStructure",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_BodyStructure",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -27989,15 +28206,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_Condition",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_Condition",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28026,15 +28243,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_DiagnosticReport",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_DiagnosticReport",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28063,15 +28280,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_DocumentReference",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_DocumentReference",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28100,15 +28317,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_FamilyMemberHistory",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_FamilyMemberHistory",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28137,15 +28354,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_Group",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_Group",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28174,15 +28391,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_ImagingStudy",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_ImagingStudy",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28211,15 +28428,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_Medication",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_Medication",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28248,15 +28465,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_MedicationAdministration",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_MedicationAdministration",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28285,15 +28502,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_MedicationRequest",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_MedicationRequest",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28322,15 +28539,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_MedicationStatement",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_MedicationStatement",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28359,15 +28576,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_Observation",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_Observation",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28396,15 +28613,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_Organization",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_Organization",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28433,15 +28650,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_Patient",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_Patient",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28470,15 +28687,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_Practitioner",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_Practitioner",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28507,15 +28724,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_PractitionerRole",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_PractitionerRole",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28544,15 +28761,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_Procedure",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_Procedure",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28581,15 +28798,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_ResearchStudy",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_ResearchStudy",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28618,15 +28835,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_ResearchSubject",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_ResearchSubject",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28655,15 +28872,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_Specimen",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_Specimen",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28692,15 +28909,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_Substance",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_Substance",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28729,15 +28946,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_SubstanceDefinition",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_SubstanceDefinition",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28766,15 +28983,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueCodeableReference_Task",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueCodeableReference_Task",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28803,15 +29020,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueIdentifier_assigner",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueIdentifier_assigner",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28840,15 +29057,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueSignature_who_Organization",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueSignature_who_Organization",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28877,15 +29094,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueSignature_who_Patient",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueSignature_who_Patient",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28914,15 +29131,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueSignature_who_Practitioner",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueSignature_who_Practitioner",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28951,15 +29168,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueSignature_who_PractitionerRole",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueSignature_who_PractitionerRole",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -28988,15 +29205,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueSignature_onBehalfOf_Organization",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueSignature_onBehalfOf_Organization",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29025,15 +29242,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueSignature_onBehalfOf_Patient",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueSignature_onBehalfOf_Patient",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29062,15 +29279,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueSignature_onBehalfOf_Practitioner",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueSignature_onBehalfOf_Practitioner",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29099,15 +29316,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueSignature_onBehalfOf_PractitionerRole",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueSignature_onBehalfOf_PractitionerRole",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29136,15 +29353,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueDataRequirement_subjectReference",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueDataRequirement_subjectReference",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29173,15 +29390,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_BodyStructure",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_BodyStructure",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29210,15 +29427,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_Condition",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_Condition",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29247,15 +29464,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_DiagnosticReport",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_DiagnosticReport",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29284,15 +29501,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_DocumentReference",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_DocumentReference",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29321,15 +29538,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_FamilyMemberHistory",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_FamilyMemberHistory",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29358,15 +29575,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_Group",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_Group",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29395,15 +29612,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_ImagingStudy",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_ImagingStudy",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29432,15 +29649,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_Medication",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_Medication",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29469,15 +29686,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_MedicationAdministration",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_MedicationAdministration",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29506,15 +29723,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_MedicationRequest",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_MedicationRequest",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29543,15 +29760,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_MedicationStatement",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_MedicationStatement",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29580,15 +29797,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_Observation",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_Observation",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29617,15 +29834,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_Organization",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_Organization",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29654,15 +29871,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_Patient",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_Patient",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29691,15 +29908,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_Practitioner",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_Practitioner",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29728,15 +29945,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_PractitionerRole",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_PractitionerRole",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29765,15 +29982,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_Procedure",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_Procedure",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29802,15 +30019,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_ResearchStudy",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_ResearchStudy",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29839,15 +30056,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_ResearchSubject",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_ResearchSubject",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29876,15 +30093,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_Specimen",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_Specimen",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29913,15 +30130,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_Substance",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_Substance",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29950,15 +30167,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_SubstanceDefinition",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_SubstanceDefinition",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -29987,15 +30204,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueRelatedArtifact_resourceReference_Task",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueRelatedArtifact_resourceReference_Task",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -30027,15 +30244,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 													}
 													if _, exists := seen[forwardKey]; !exists {
 														seen[forwardKey] = struct{}{}
-														edges = append(edges, buildEdgeRawJSON(
-															forwardKey,
-															collectionID(sourceType, id),
-															collectionID(refType, targetID),
-															"output_valueTriggerDefinition_data_subjectReference",
-															projectJSON,
-															sourceType,
-															refType,
-														))
+														edges = append(edges, EdgeDocument{
+															Key:      forwardKey,
+															From:     collectionID(sourceType, id),
+															To:       collectionID(refType, targetID),
+															Label:    "output_valueTriggerDefinition_data_subjectReference",
+															Project:  project,
+															FromType: sourceType,
+															ToType:   refType,
+														})
 													}
 												}
 											}
@@ -30067,15 +30284,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueUsageContext_valueReference_Group",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueUsageContext_valueReference_Group",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -30104,15 +30321,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueUsageContext_valueReference_Organization",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueUsageContext_valueReference_Organization",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -30141,15 +30358,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueUsageContext_valueReference_ResearchStudy",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueUsageContext_valueReference_ResearchStudy",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -30178,15 +30395,15 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 										}
 										if _, exists := seen[forwardKey]; !exists {
 											seen[forwardKey] = struct{}{}
-											edges = append(edges, buildEdgeRawJSON(
-												forwardKey,
-												collectionID(sourceType, id),
-												collectionID(refType, targetID),
-												"output_valueExtendedContactDetail_organization",
-												projectJSON,
-												sourceType,
-												refType,
-											))
+											edges = append(edges, EdgeDocument{
+												Key:      forwardKey,
+												From:     collectionID(sourceType, id),
+												To:       collectionID(refType, targetID),
+												Label:    "output_valueExtendedContactDetail_organization",
+												Project:  project,
+												FromType: sourceType,
+												ToType:   refType,
+											})
 										}
 									}
 								}
@@ -30196,6 +30413,19 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 				}
 			}
 		}
+	}
+	return edges, nil
+}
+
+// ExtractEdges encodes graph links from Task.
+func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
+	documents, err := x.ExtractEdgeDocuments(project)
+	if err != nil {
+		return nil, err
+	}
+	var edges []json.RawMessage
+	for _, document := range documents {
+		edges = append(edges, buildEdgeRawJSON(document.Key, document.From, document.To, document.Label, strconv.Quote(document.Project), document.FromType, document.ToType))
 	}
 	return edges, nil
 }

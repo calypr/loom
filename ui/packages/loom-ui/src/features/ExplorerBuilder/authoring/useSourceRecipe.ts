@@ -82,9 +82,11 @@ export const useSourceRecipe = () => {
       if (prepareImmediately) void prepareSourceRelationship(change);
     };
     const cancelRecipeRelationship = (restoreFocus = true) => {
-      if (recipeOwner.getState().status === 'applying') return false;
+      const editing = recipeOwner.getState();
+      if (editing.status === 'applying') return false;
       const token = recipeEditToken.current;
-      if (token && !recipeOwner.cancel(token)) return false;
+      if (editing.status === 'stale') recipeOwner.discardStale();
+      else if (token && !recipeOwner.cancel(token)) return false;
       sourceRelationshipRequest.current?.abort();
       sourceRelationshipRequest.current = undefined;
       setConnectingRelationship(false);

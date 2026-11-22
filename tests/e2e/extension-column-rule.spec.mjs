@@ -40,7 +40,10 @@ test('extension rules preserve nested URL ancestry through preview and reload', 
       await page.until(() => page.evaluate(`Boolean(document.querySelector('${addColumns}:not(:disabled)'))`), 'Add columns is ready');
       await page.click(addColumns);
       await page.click('[role="tab"][data-column-tab="advanced"]');
-      await page.clickText('Extensions');
+      await page.until(() => page.evaluate(`Boolean(document.querySelector('select:has(option[value="extension"])'))`), 'rule source available');
+      await page.select('select:has(option[value="extension"])', 'extension');
+      await page.until(() => page.evaluate(`[...document.querySelectorAll('button')].some(button => button.innerText === 'extension[]' && !button.disabled)`), 'the advanced column source is available');
+      await page.clickText('extension[]');
 
       const extensionSource = 'fieldset[aria-label="Source step parameters"] select[aria-label="Extension source path"]';
       await page.until(() => page.evaluate(`Boolean(document.querySelector(${JSON.stringify(extensionSource)}))`), 'Extension path choices');
@@ -48,8 +51,7 @@ test('extension rules preserve nested URL ancestry through preview and reload', 
       assert(choices.includes('extension[]'));
       assert(choices.includes('extension[].extension[]'));
       await page.selectOptionText(extensionSource, 'extension[]');
-      await page.clickText('Review column rule');
-      await page.clickText('Preview column rule');
+      await page.fill('input[aria-label="Extension column name"]', 'custom_extensions');
       await page.until(() => page.evaluate(`[...document.querySelectorAll('button')].some(button => button.innerText === 'Apply column rule' && !button.disabled)`), 'extension rule preview is ready');
 
       const readRowsWithHeaders = async () => ({

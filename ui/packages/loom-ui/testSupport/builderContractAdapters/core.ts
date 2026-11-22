@@ -689,7 +689,7 @@ const driveAutomaticPreview = async (input: CoreAdapterInput): Promise<void> => 
     failIfUnavailable(input, retry, 'preview refresh');
     fireEvent.click(retry);
   }
-  const preview = screen.queryByRole('region', { name: /preview/i }) ?? screen.queryByTestId('construction-preview-stale-notice');
+  const preview = screen.queryByRole('region', { name: /preview/i });
   if (!preview) throw new CoreAdapterGapError(input.uiAction.affordanceId, 'the real preview surface is not mounted in this Builder fixture.');
   if (['preview_selected_output', 'retry_preview_once', 'refresh_preview_catalog', 'rebuild_preview_after_catalog_refresh',
     'fetch_preview_after_catalog_refresh', 'rebuild_stale_preview_receipt', 'refresh_preview_after_recompile'].includes(action ?? '')) return;

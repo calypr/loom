@@ -10,6 +10,8 @@ import (
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
+const DefaultWriteQueueSize = 2
+
 type LoadOptions struct {
 	arangostore.ConnectionOptions
 	MetaDir          string
@@ -19,12 +21,14 @@ type LoadOptions struct {
 	ProgressEvery    int
 	WriterCount      int
 	WorkerCount      int
+	FileConcurrency  int
 	LineQueueSize    int
 	WriteQueueSize   int
 	CatalogLimits    catalog.ProfileLimits
 	Truncate         bool
 	FailFast         bool
 	SourceFileOwner  string
+	IdentityFormat   string
 	WriteAPI         string
 	EventSink        EventSink
 
@@ -35,6 +39,11 @@ type LoadOptions struct {
 	DeferActivation bool
 
 	PreflightSampleRows int
+
+	fileWorkerBudget     chan struct{}
+	fileWriterBudget     chan struct{}
+	fileShapePlanCache   *catalog.ShapePlanCache
+	fileInsertedCounters *generationInsertCounters
 }
 
 type RowErrorSample struct {
@@ -76,11 +85,14 @@ func normalizeLoadOptions(opts LoadOptions) LoadOptions {
 	if opts.WorkerCount <= 0 {
 		opts.WorkerCount = opts.WriterCount
 	}
+	if opts.FileConcurrency <= 0 {
+		opts.FileConcurrency = 2
+	}
 	if opts.LineQueueSize <= 0 {
 		opts.LineQueueSize = 1024
 	}
 	if opts.WriteQueueSize <= 0 {
-		opts.WriteQueueSize = 16
+		opts.WriteQueueSize = DefaultWriteQueueSize
 	}
 	opts.CatalogLimits = catalog.NormalizeProfileLimits(opts.CatalogLimits)
 	if opts.WriteAPI == "" {

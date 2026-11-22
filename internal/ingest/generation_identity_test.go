@@ -5,7 +5,11 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/catalog"
+	publication "github.com/calypr/loom/internal/dataset"
 )
 
 func TestNamespaceRowBuildResultKeepsLogicalFHIRIdentityAndQualifiesGraphIdentity(t *testing.T) {
@@ -32,7 +36,7 @@ func TestNamespaceRowBuildResultKeepsLogicalFHIRIdentityAndQualifiesGraphIdentit
 		t.Fatalf("vertex dataset generation = %q, want %q", got, want)
 	}
 	vertexKey := documentString(t, vertex, "_key")
-	if vertexKey == "patient-1" || len(vertexKey) != len("g_")+64 {
+	if vertexKey == "patient-1" || len(vertexKey) != 34 || !strings.HasPrefix(vertexKey, "g2") {
 		t.Fatalf("vertex physical key = %q, want generation-qualified hash", vertexKey)
 	}
 	if got, want := string(vertex["payload"]), `{"resourceType":"Patient","id":"patient-1"}`; got != want {
@@ -55,11 +59,80 @@ func TestNamespaceRowBuildResultKeepsLogicalFHIRIdentityAndQualifiesGraphIdentit
 	if got, want := documentString(t, edge, "_to"), "Patient/"+vertexKey; got != want {
 		t.Fatalf("edge _to = %q, want %q", got, want)
 	}
-	if key := documentString(t, edge, "_key"); key == "subject-edge" || len(key) != len("g_")+64 {
+	if key := documentString(t, edge, "_key"); key == "subject-edge" || len(key) != 34 || !strings.HasPrefix(key, "g2") {
 		t.Fatalf("edge physical key = %q, want generation-qualified hash", key)
 	}
 	if !reflect.DeepEqual(namespaced.payload, result.payload) {
 		t.Fatalf("payload map changed\ngot:  %#v\nwant: %#v", namespaced.payload, result.payload)
+	}
+}
+
+func TestGenerationIdentityFormatKeepsLegacyKeysAndUsesCompactKeys(t *testing.T) {
+	const (
+		project    = "project-a"
+		generation = "generation-a"
+		resource   = "Patient"
+		logicalKey = "patient-1"
+	)
+
+	if got, want := generationDocumentKeyWithFormat(project, generation, resource, logicalKey, publication.IdentityFormatLegacy), "g_297a2d590f1d1a2b5f2380ad8e3d8bf21b7aed2e3270e25559ae489097b810a6"; got != want {
+		t.Fatalf("legacy key = %q, want %q", got, want)
+	}
+	if got, want := generationDocumentKeyWithFormat(project, generation, resource, logicalKey, publication.IdentityFormatCompact), "g2297a2d590f1d1a2b5f2380ad8e3d8bf2"; got != want {
+		t.Fatalf("compact key = %q, want %q", got, want)
+	}
+}
+
+func TestSourceCopyPreservesTheIdentityFormatOfAnInProgressManifest(t *testing.T) {
+	for _, format := range []struct {
+		name  string
+		value string
+	}{
+		{name: "legacy omitted manifest field", value: ""},
+		{name: "explicit legacy", value: publication.IdentityFormatLegacy},
+		{name: "compact", value: publication.IdentityFormatCompact},
+	} {
+		t.Run(format.name, func(t *testing.T) {
+			doc := map[string]any{
+				"_key": "old-physical-key", "logical_key": "patient-1", "project": "project-a",
+				"payload": map[string]any{"id": "patient-1"},
+			}
+			copied, err := copyVertexDocument("Patient", "project-a", "generation-a", format.value)(sourceCopyRow{Document: doc})
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded := decodeIdentityDocument(t, copied)
+			wantFormat := format.value
+			if wantFormat == "" {
+				wantFormat = publication.IdentityFormatLegacy
+			}
+			want := generationDocumentKeyWithFormat("project-a", "generation-a", "Patient", "patient-1", wantFormat)
+			if got := documentString(t, decoded, "_key"); got != want {
+				t.Fatalf("copied _key = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestGenerationRowBuilderUsesManifestIdentityFormat(t *testing.T) {
+	const project, generation, resourceType, logicalKey = "project-a", "generation-a", "Patient", "patient-1"
+	line := []byte(`{"resourceType":"Patient","id":"patient-1"}`)
+	for _, format := range []string{publication.IdentityFormatLegacy, publication.IdentityFormatCompact} {
+		t.Run(format, func(t *testing.T) {
+			builder, err := newGenerationRowBuilderWithFormat(NewGeneratedRowBuilder(project, ""), project, generation, format)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, kind, err := builder.Build(resourceType, line, map[string]float64{})
+			if err != nil {
+				t.Fatalf("Build() kind %q: %v", kind, err)
+			}
+			vertex := decodeIdentityDocument(t, result.vertex)
+			want := generationDocumentKeyWithFormat(project, generation, resourceType, logicalKey, format)
+			if got := documentString(t, vertex, "_key"); got != want {
+				t.Fatalf("vertex key = %q, want %q", got, want)
+			}
+		})
 	}
 }
 
@@ -133,6 +206,65 @@ func TestGenerationRowBuilderTurnsIdentityFailureIntoGenerationError(t *testing.
 	_, kind, err := builder.Build("Patient", []byte(`{}`), map[string]float64{})
 	if err == nil || kind != rowErrorGeneration {
 		t.Fatalf("Build() = kind %q err %v, want generation error", kind, err)
+	}
+}
+
+func TestGenerationRowBuilderRejectsInvalidUTF8Project(t *testing.T) {
+	const project = "p\xff"
+	builder, err := newGenerationRowBuilder(NewGeneratedRowBuilder(project, ""), project, "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, kind, err := builder.Build("Patient", []byte(`{"resourceType":"Patient","id":"a"}`), map[string]float64{})
+	if err == nil || kind != rowErrorGeneration {
+		t.Fatalf("expected generation error, got %q %v", kind, err)
+	}
+}
+
+func TestGenerationRowBuilderFallbackKeepsSourceOwnerAndRecountsNamespacedEdges(t *testing.T) {
+	const project = "project-1"
+	result, _, err := NewGeneratedRowBuilder(project, "").Build("ResearchSubject", []byte(`{"resourceType":"ResearchSubject","id":"r","status":"active","study":{"reference":"ResearchStudy/s"},"subject":{"reference":"Patient/p"}}`), map[string]float64{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	delegate := rowBuilderFunc(func(string, []byte, map[string]float64) (rowBuildResult, rowErrorType, error) {
+		return result, "", nil
+	})
+	builder, err := newGenerationRowBuilder(delegate, project, "generation-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned, kind, err := (sourceFileOwnerRowBuilder{delegate: builder, owner: "ResearchSubject"}).Build("ResearchSubject", nil, map[string]float64{})
+	if err != nil {
+		t.Fatalf("Build() kind %q error = %v", kind, err)
+	}
+	if len(owned.edges) == 0 {
+		t.Fatal("Build() returned no edges")
+	}
+	var edge map[string]any
+	if err := json.Unmarshal(owned.edges[0], &edge); err != nil {
+		t.Fatal(err)
+	}
+	if got := edge["source_file"]; got != "ResearchSubject" {
+		t.Fatalf("source_file = %v, want ResearchSubject", got)
+	}
+	if got := edge[generationIdentityField]; got != "generation-1" {
+		t.Fatalf("dataset_generation = %v, want generation-1", got)
+	}
+	if owned.relationships != nil {
+		t.Fatalf("fallback relationship keys = %#v, want nil so final documents are recounted", owned.relationships)
+	}
+	counts, err := catalog.RelationshipCountsFromRawEdges(owned.edges)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(counts) != 2 {
+		t.Fatalf("final document relationship counts = %#v, want both ResearchStudy and Patient endpoints", counts)
+	}
+	for relationship := range counts {
+		if relationship.DatasetGeneration != "generation-1" || relationship.FromType != "ResearchSubject" {
+			t.Fatalf("final document relationship = %#v, want namespaced ResearchSubject relationship", relationship)
+		}
 	}
 }
 

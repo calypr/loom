@@ -316,6 +316,25 @@ func TestParseLoadMutableWiresFlagsWithoutGeneration(t *testing.T) {
 	}
 }
 
+func TestLoadGenerationDefaultsToTwoWriteBatches(t *testing.T) {
+	for _, tc := range []struct {
+		extra []string
+		want  int
+	}{
+		{want: 2},
+		{extra: []string{"--write-queue-size", "7"}, want: 7},
+	} {
+		args := append([]string{"--project", "project-a", "--generation", "gen-a"}, tc.extra...)
+		config, err := parseLoadCommand(args, flag.ContinueOnError)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if config.Options.WriteQueueSize != tc.want {
+			t.Fatalf("write queue size = %d, want %d", config.Options.WriteQueueSize, tc.want)
+		}
+	}
+}
+
 func TestManifestMutatingCommandsUseSignalCancellation(t *testing.T) {
 	guarded := signalGuardedCommands()
 	routes := commandRoutes()

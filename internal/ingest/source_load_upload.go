@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	publication "github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -55,10 +57,12 @@ func (p *RepositorySourceLoader) UploadFile(ctx context.Context, project, operat
 		}
 		return receipt, nil
 	}
+	validationStarted := time.Now()
 	digest, rows, validation, err := validateSourceLoadFile(ctx, localPath, planned.Path, project, record.Plan.AuthResourcePath, record.Generation, p.schema)
 	if err != nil {
 		return SourceFileReceipt{}, fmt.Errorf("validate source file %q: %w", planned.Path, err)
 	}
+	validated := time.Now()
 	if validation != nil {
 		return SourceFileReceipt{}, validation
 	}
@@ -95,9 +99,11 @@ func (p *RepositorySourceLoader) UploadFile(ctx context.Context, project, operat
 	workCtx, stopLease := p.renewSourceLoadFileLease(ctx, record.Key, planned.Path, owner)
 	defer stopLease()
 
+	clearStarted := time.Now()
 	if err := p.clearCandidateSourceFile(workCtx, record, planned.Path, owner, resourceType); err != nil {
 		return SourceFileReceipt{}, err
 	}
+	cleared := time.Now()
 	stat, err := os.Stat(localPath)
 	if err != nil || !stat.Mode().IsRegular() {
 		if err == nil {
@@ -111,6 +117,16 @@ func (p *RepositorySourceLoader) UploadFile(ctx context.Context, project, operat
 		WriterCount: 1, WorkerCount: 1, FailFast: true, SourceFileOwner: resourceType,
 		WriteAPI: p.writeAPI,
 	})
+	manifestRef, err := publication.NewRef(project, record.Generation)
+	if err != nil {
+		return SourceFileReceipt{}, err
+	}
+	manifest, err := p.datasets.ReadManifest(workCtx, manifestRef)
+	if err != nil {
+		return SourceFileReceipt{}, fmt.Errorf("read candidate generation identity format: %w", err)
+	}
+	opts.IdentityFormat = manifest.IdentityFormat
+	loadStarted := time.Now()
 	loaded, loadErr := loadFile(workCtx, opts, p.client, p.schema, localPath, record.Generation, false, time.Now(), 0, 0, insertRawDocuments)
 	if loadErr != nil {
 		cleanupErr := p.clearCandidateSourceFile(context.WithoutCancel(ctx), record, planned.Path, owner, resourceType)
@@ -120,6 +136,7 @@ func (p *RepositorySourceLoader) UploadFile(ctx context.Context, project, operat
 		cleanupErr := p.clearCandidateSourceFile(context.WithoutCancel(ctx), record, planned.Path, owner, resourceType)
 		return SourceFileReceipt{}, errors.Join(fmt.Errorf("source file changed or failed during candidate import"), cleanupErr)
 	}
+	loadDone := time.Now()
 	if loaded.Catalog != nil {
 		catalogStore, err := catalogarango.New(p.client)
 		if err != nil {
@@ -130,6 +147,7 @@ func (p *RepositorySourceLoader) UploadFile(ctx context.Context, project, operat
 			return SourceFileReceipt{}, errors.Join(fmt.Errorf("write candidate field catalog for %s: %w", resourceType, err), cleanupErr)
 		}
 	}
+	catalogDone := time.Now()
 	postDigest, err := hashSourceLoadFile(localPath)
 	if err != nil || postDigest != digest {
 		cleanupErr := p.clearCandidateSourceFile(context.WithoutCancel(ctx), record, planned.Path, owner, resourceType)
@@ -138,6 +156,7 @@ func (p *RepositorySourceLoader) UploadFile(ctx context.Context, project, operat
 		}
 		return SourceFileReceipt{}, errors.Join(err, cleanupErr)
 	}
+	hashDone := time.Now()
 	if err := context.Cause(workCtx); err != nil {
 		cleanupErr := p.clearCandidateSourceFile(context.WithoutCancel(ctx), record, planned.Path, owner, resourceType)
 		return SourceFileReceipt{}, errors.Join(err, cleanupErr)
@@ -159,6 +178,16 @@ func (p *RepositorySourceLoader) UploadFile(ctx context.Context, project, operat
 		cleanupErr := p.clearCandidateSourceFile(context.WithoutCancel(ctx), record, planned.Path, owner, resourceType)
 		return SourceFileReceipt{}, errors.Join(err, cleanupErr)
 	}
+	slog.InfoContext(ctx, "source file staged", "operation_id", operationID,
+		"resource_type", resourceType, "rows", rows, "bytes", stat.Size(),
+		"validate_ms", validated.Sub(validationStarted).Milliseconds(),
+		"claim_ms", clearStarted.Sub(validated).Milliseconds(),
+		"clear_ms", cleared.Sub(clearStarted).Milliseconds(),
+		"prepare_ms", loadStarted.Sub(cleared).Milliseconds(),
+		"load_ms", loadDone.Sub(loadStarted).Milliseconds(),
+		"catalog_ms", catalogDone.Sub(loadDone).Milliseconds(),
+		"rehash_ms", hashDone.Sub(catalogDone).Milliseconds(),
+		"complete_ms", time.Since(hashDone).Milliseconds())
 	return receipt, nil
 }
 
@@ -301,6 +330,7 @@ func (p *RepositorySourceLoader) clearCandidateSourceFile(ctx context.Context, r
 		{EdgeCollection, "doc.dataset_generation == @generation AND doc.source_file == @resource_type"},
 		{catalog.FieldCatalogCollection, "doc.dataset_generation == @generation AND doc.resource_type == @resource_type"},
 		{catalog.SemanticInventoryCollection, "doc.dataset_generation == @generation AND doc.resource_type == @resource_type"},
+		{catalog.SemanticInventoryEntryCollection, "doc.dataset_generation == @generation AND doc.resource_type == @resource_type"},
 	}
 	for _, target := range targets {
 		if exists, err := p.client.CollectionExists(ctx, target.collection); err != nil {

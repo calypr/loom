@@ -191,7 +191,7 @@ func TestImportedSourceEditRetainsBuilderAddedColumns(t *testing.T) {
 		t.Fatal("MedicationAdministration fixture has no editable source fields")
 	}
 	params.FieldGroup.Fields[0].Label = "Administration identifier"
-	updated, err := fixture.resolver.Edit(context.Background(), "project-a", fixture.authorized, document, &authoringv2.ImportedSourceStepChange{StepID: "fields", Enabled: true, Parameters: params})
+	updated, err := fixture.resolver.Edit(context.Background(), "project-a", fixture.authorized, document, &authoringv2.ImportedSourceStepChange{StepID: "fields", Parameters: params})
 	if err != nil {
 		t.Fatalf("edit imported recipe source: %v", err)
 	}

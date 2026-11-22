@@ -17,7 +17,7 @@ import (
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
-func (p *RepositorySourceLoader) copyGenerationForward(ctx context.Context, record sourceLoadRecord) error {
+func (p *RepositorySourceLoader) copyGenerationForward(ctx context.Context, record sourceLoadRecord, identityFormat string) error {
 	identity, err := loadSchemaSnapshot()
 	if err != nil {
 		return err
@@ -44,6 +44,14 @@ func (p *RepositorySourceLoader) copyGenerationForward(ctx context.Context, reco
 			return err
 		}
 	}
+	copyCurrentFileEntries := false
+	if record.SourceGeneration != "" {
+		version, err := p.sourceSemanticInventoryEntryIndexVersion(ctx, record.Project, record.SourceGeneration)
+		if err != nil {
+			return err
+		}
+		copyCurrentFileEntries = version >= catalog.SemanticInventoryEntryIndexVersion
+	}
 	for _, resourceType := range identity.GeneratedResourceTypes {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -51,11 +59,11 @@ func (p *RepositorySourceLoader) copyGenerationForward(ctx context.Context, reco
 		if sourceLoadSelectsType(record.Plan.Files, resourceType) {
 			continue
 		}
-		if err := p.copySourceCollection(ctx, resourceType, record.SourceGeneration, record.Project, record.Generation, copyVertexDocument(resourceType, record.Project, record.Generation)); err != nil {
+		if err := p.copySourceCollection(ctx, resourceType, record.SourceGeneration, record.Project, record.Generation, copyVertexDocument(resourceType, record.Project, record.Generation, identityFormat)); err != nil {
 			return fmt.Errorf("copy source generation resource %s: %w", resourceType, err)
 		}
 	}
-	if err := p.copySourceCollection(ctx, EdgeCollection, record.SourceGeneration, record.Project, record.Generation, copyEdgeDocument(record.Project, record.Generation, record.SourceGeneration, selectedTypes)); err != nil {
+	if err := p.copySourceCollection(ctx, EdgeCollection, record.SourceGeneration, record.Project, record.Generation, copyEdgeDocument(record.Project, record.Generation, record.SourceGeneration, selectedTypes, identityFormat)); err != nil {
 		return fmt.Errorf("copy source generation edges: %w", err)
 	}
 	if err := p.copySourceCollection(ctx, catalog.FieldCatalogCollection, record.SourceGeneration, record.Project, record.Generation, copyCatalogDocument(catalog.FieldCatalogCollection, record.Project, record.Generation, selectedTypes)); err != nil {
@@ -63,6 +71,9 @@ func (p *RepositorySourceLoader) copyGenerationForward(ctx context.Context, reco
 	}
 	if err := p.copySourceCollection(ctx, catalog.SemanticInventoryCollection, record.SourceGeneration, record.Project, record.Generation, copySemanticInventoryDocument(record.Project, record.Generation, selectedTypes)); err != nil {
 		return fmt.Errorf("copy source generation semantic inventory: %w", err)
+	}
+	if err := p.copySourceCollection(ctx, catalog.SemanticInventoryEntryCollection, record.SourceGeneration, record.Project, record.Generation, copySemanticInventoryEntryDocument(record.Project, record.Generation, selectedTypes, copyCurrentFileEntries)); err != nil {
+		return fmt.Errorf("copy source generation semantic inventory entries: %w", err)
 	}
 	return nil
 }
@@ -95,7 +106,7 @@ func (p *RepositorySourceLoader) copySourceCollection(ctx context.Context, colle
 	if !exists {
 		return nil
 	}
-	query := `FOR doc IN @@collection
+	query := `FOR doc IN @@collection OPTIONS { indexHint: "primary", forceIndexHint: true }
 FILTER doc.project == @project
 FILTER (@source_generation == "" AND NOT_NULL(doc.dataset_generation, "") == "") OR doc.dataset_generation == @source_generation
 FILTER doc._key > @after_key
@@ -103,7 +114,7 @@ SORT doc._key
 LIMIT @limit
 RETURN {document: doc}`
 	if collection == EdgeCollection {
-		query = `FOR doc IN @@collection
+		query = `FOR doc IN @@collection OPTIONS { indexHint: "primary", forceIndexHint: true }
 FILTER doc.project == @project
 FILTER (@source_generation == "" AND NOT_NULL(doc.dataset_generation, "") == "") OR doc.dataset_generation == @source_generation
 FILTER doc._key > @after_key
@@ -173,7 +184,7 @@ RETURN {
 	}
 }
 
-func copyVertexDocument(resourceType, project, generation string) sourceCopyTransform {
+func copyVertexDocument(resourceType, project, generation, identityFormat string) sourceCopyTransform {
 	return func(row sourceCopyRow) (json.RawMessage, error) {
 		doc := row.Document
 		if sourceLoadString(doc["project"]) != project {
@@ -191,12 +202,12 @@ func copyVertexDocument(resourceType, project, generation string) sourceCopyTran
 		doc[logicalKeyField] = logicalKey
 		doc[generationIdentityField] = generation
 		doc["source_file"] = resourceType
-		doc["_key"] = generationDocumentKey(project, generation, resourceType, logicalKey)
+		doc["_key"] = generationDocumentKeyWithFormat(project, generation, resourceType, logicalKey, identityFormat)
 		return json.Marshal(doc)
 	}
 }
 
-func copyEdgeDocument(project, generation, sourceGeneration string, selectedTypes []string) sourceCopyTransform {
+func copyEdgeDocument(project, generation, sourceGeneration string, selectedTypes []string, identityFormat string) sourceCopyTransform {
 	return func(row sourceCopyRow) (json.RawMessage, error) {
 		doc := row.Document
 		if sourceLoadString(doc["project"]) != project {
@@ -258,7 +269,7 @@ func copyEdgeDocument(project, generation, sourceGeneration string, selectedType
 		doc["_to"] = to
 		delete(doc, "_id")
 		delete(doc, "_rev")
-		namespaced, err := namespaceEdgeDocument(jsonRawDocument(doc), project, generation)
+		namespaced, err := namespaceEdgeDocumentWithFormat(jsonRawDocument(doc), project, generation, identityFormat)
 		if err != nil {
 			return nil, err
 		}
@@ -317,6 +328,36 @@ func copySemanticInventoryDocument(project, generation string, selectedTypes []s
 	}
 }
 
+func copySemanticInventoryEntryDocument(project, generation string, selectedTypes []string, copyCurrentFileEntries bool) sourceCopyTransform {
+	return func(row sourceCopyRow) (json.RawMessage, error) {
+		doc := row.Document
+		delete(doc, "_id")
+		delete(doc, "_rev")
+		if sourceLoadString(doc["project"]) != project {
+			return nil, fmt.Errorf("semantic inventory entry project does not match source-load project")
+		}
+		resourceType := sourceLoadString(doc["resource_type"])
+		if sourceLoadSelectsTypeNames(selectedTypes, resourceType) {
+			return nil, nil
+		}
+		bindingID := sourceLoadString(doc["binding_id"])
+		conceptID := sourceLoadString(doc["concept_id"])
+		sourceKind := sourceLoadString(doc["source_kind"])
+		if resourceType == "" || bindingID == "" || conceptID == "" || sourceKind == "" {
+			return nil, fmt.Errorf("semantic inventory entry is missing its stable identity")
+		}
+		if sourceKind == catalog.SemanticInventorySourceFile && !copyCurrentFileEntries {
+			return nil, nil
+		}
+		buildID := catalog.SemanticInventoryBuildID(project, generation)
+		doc["dataset_generation"] = generation
+		doc["build_id"] = buildID
+		doc["_key"] = catalog.SemanticInventoryEntryKey(project, generation, buildID, sourceKind,
+			sourceLoadString(doc["auth_resource_path"]), bindingID, conceptID)
+		return json.Marshal(doc)
+	}
+}
+
 func sourceLoadCopiedCatalogKey(collection, project, generation, oldKey string) string {
 	digest := sha256.Sum256([]byte("loom-source-load-copied-catalog-v1\x00" + collection + "\x00" + project + "\x00" + generation + "\x00" + oldKey))
 	return "slc_" + hex.EncodeToString(digest[:])
@@ -347,7 +388,7 @@ func (p *RepositorySourceLoader) validateSourceLoadSelectedScopes(ctx context.Co
 		}
 	}
 	collections := append([]string(nil), selectedTypes...)
-	collections = append(collections, catalog.FieldCatalogCollection, catalog.SemanticInventoryCollection)
+	collections = append(collections, catalog.FieldCatalogCollection, catalog.SemanticInventoryCollection, catalog.SemanticInventoryEntryCollection)
 	for _, collection := range collections {
 		if exists, err := p.client.CollectionExists(ctx, collection); err != nil {
 			return err
@@ -362,7 +403,7 @@ FILTER NOT_NULL(doc.auth_resource_path, "") != @auth_resource_path
 LIMIT 1
 RETURN {mismatch: true}`
 		fieldName := "resourceType"
-		if collection == catalog.FieldCatalogCollection || collection == catalog.SemanticInventoryCollection {
+		if collection == catalog.FieldCatalogCollection || collection == catalog.SemanticInventoryCollection || collection == catalog.SemanticInventoryEntryCollection {
 			fieldName = "resource_type"
 		}
 		found, err := arangostore.QueryHasRow(ctx, p.client, query, 1, map[string]any{
@@ -439,7 +480,7 @@ LIMIT 1 RETURN {found: true}`, 1, map[string]any{"@collection": resourceType, "p
 			return &SourcePublishMigrationRequiredError{Reason: "partial update cannot copy unversioned mutable-root rows safely"}
 		}
 	}
-	for _, collection := range []string{catalog.FieldCatalogCollection, catalog.SemanticInventoryCollection} {
+	for _, collection := range []string{catalog.FieldCatalogCollection, catalog.SemanticInventoryCollection, catalog.SemanticInventoryEntryCollection} {
 		if exists, err := p.client.CollectionExists(ctx, collection); err != nil {
 			return err
 		} else if !exists {
@@ -504,7 +545,33 @@ func (p *RepositorySourceLoader) prepareCandidateSemanticInventory(ctx context.C
 		return err
 	}
 	build := catalog.NewSemanticInventoryBuild(record.Project, record.Generation, record.Plan.AuthResourcePath)
+	if record.SourceGeneration != "" {
+		version, err := p.sourceSemanticInventoryEntryIndexVersion(ctx, record.Project, record.SourceGeneration)
+		if err != nil {
+			return err
+		}
+		if version >= catalog.SemanticInventoryEntryIndexVersion {
+			build.EntryIndexVersion = version
+		}
+	}
 	return store.BeginSemanticInventoryBuild(ctx, build)
+}
+
+func (p *RepositorySourceLoader) sourceSemanticInventoryEntryIndexVersion(ctx context.Context, project, generation string) (int, error) {
+	exists, err := p.client.CollectionExists(ctx, catalog.SemanticInventoryBuildCollection)
+	if err != nil || !exists {
+		return 0, err
+	}
+	version := 0
+	key := catalog.SemanticInventoryBuildKey(project, generation)
+	err = p.client.QueryRows(ctx, `FOR build IN fhir_semantic_inventory_builds
+FILTER build._key == @key
+LIMIT 1
+RETURN {entry_index_version: NOT_NULL(build.entry_index_version, 0)}`, 1, map[string]any{"key": key}, func(row map[string]any) error {
+		version = int(numericInt64(row["entry_index_version"]))
+		return nil
+	})
+	return version, err
 }
 
 func (p *RepositorySourceLoader) finalizeSourceLoadCandidate(ctx context.Context, record sourceLoadRecord) (int64, error) {

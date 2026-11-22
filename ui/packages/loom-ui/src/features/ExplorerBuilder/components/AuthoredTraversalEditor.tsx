@@ -36,7 +36,8 @@ export function AuthoredTraversalEditor(props: AuthoredTraversalEditorProps) {
   };
   const incomingEdges = selected && !table?.document.importedRecipe ? replaceableIncomingEdges(catalog, table, selected.id) : [];
   const canWriteRelationship = !table?.document.importedRecipe || Boolean(props.importedRelationshipActions);
-  const selectedInspector = selected && props.showInspector !== false ? (
+  const showStartingRecords = Boolean(selected && !selected.parentId && !props.onDefineRow && props.onEditStartingRecords);
+  const selectedInspector = selected && props.showInspector !== false && (selected.parentId || showStartingRecords || blockedReason) ? (
     <section aria-label="Selected recipe fact" data-testid="authored-occurrence-inspector" data-occurrence-id={selected.id} className="min-w-0 rounded border border-blue-200 px-2 py-1 text-xs">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         {selected.parentId && incomingEdges.length > 1 ? <select aria-label={`Relationship for ${selected.path}`} className="rounded border border-slate-300 bg-white px-1 py-0.5 text-xs" value={selected.edgeId ?? ''} disabled={blocked}
@@ -56,7 +57,7 @@ export function AuthoredTraversalEditor(props: AuthoredTraversalEditorProps) {
             </span>
           </span>
         </div> : null}
-        {!props.onDefineRow && !selected.parentId && props.onEditStartingRecords ? <button type="button" className="rounded border px-2 py-0.5 text-xs" disabled={blocked} onClick={props.onEditStartingRecords ?? props.onDefineRow}>Change starting records</button> : null}
+        {showStartingRecords ? <button type="button" className="rounded border px-2 py-0.5 text-xs" disabled={blocked} onClick={props.onEditStartingRecords ?? props.onDefineRow}>Change starting records</button> : null}
       </div>
       {blockedReason ? <p role="note" className="mt-1 text-xs text-slate-600">{blockedReason}</p> : null}
     </section>

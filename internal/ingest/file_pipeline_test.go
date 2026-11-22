@@ -143,6 +143,70 @@ func TestLoadFileReportsPhysicalLinesAndBoundedErrors(t *testing.T) {
 	})
 }
 
+func TestLoadFilePreservesRowErrorsAcrossLineBatches(t *testing.T) {
+	schema := loadRuntimeFHIRSchema()
+	file := filepath.Join(t.TempDir(), "Patient.ndjson")
+	data := "{\"resourceType\":\"Patient\",\"id\":\"one\"}\n{\n" +
+		"{\"resourceType\":\"Patient\",\"id\":\"three\"}\n" +
+		"{\"resourceType\":\"Patient\",\"id\":\"four\"}\n"
+	if err := os.WriteFile(file, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts := normalizeLoadOptions(LoadOptions{Project: "project", LineQueueSize: 2, WorkerCount: 2})
+	insert := func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error { return nil }
+	result, err := loadFile(context.Background(), opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0, insert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Rows != 3 || result.VerticesInserted != 3 || result.ValidationErrors != 1 || len(result.RowErrors) != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+	if result.RowErrors[0].Line != 2 {
+		t.Fatalf("error line = %d, want physical line 2", result.RowErrors[0].Line)
+	}
+}
+
+func TestLoadFileStopsAtCancellationBetweenLinesInABatch(t *testing.T) {
+	schema := loadRuntimeFHIRSchema()
+	file := filepath.Join(t.TempDir(), "Patient.ndjson")
+	data := "{\"resourceType\":\"Patient\",\"id\":\"one\"}\n" +
+		"{\"resourceType\":\"Patient\",\"id\":\"two\"}\n" +
+		"{\"resourceType\":\"Patient\",\"id\":\"three\"}\n"
+	if err := os.WriteFile(file, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	progressEvents := 0
+	opts := normalizeLoadOptions(LoadOptions{
+		Project:       "project",
+		LineQueueSize: 8,
+		WorkerCount:   1,
+		ProgressEvery: 1,
+		EventSink: func(event string, fields map[string]any) {
+			if event == "go_load_progress" {
+				progressEvents++
+				if progressEvents == 1 {
+					cancel()
+				}
+			}
+		},
+	})
+	workerBudget := make(chan struct{}, 1)
+	opts.fileWorkerBudget = workerBudget
+	insert := func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error { return nil }
+	_, err := loadFile(ctx, opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0, insert)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("loadFile error = %v, want context.Canceled", err)
+	}
+	if progressEvents != 1 {
+		t.Fatalf("progress events = %d, want only the completed first row", progressEvents)
+	}
+	if len(workerBudget) != 0 {
+		t.Fatalf("worker permit leaked after cancellation: %d", len(workerBudget))
+	}
+}
+
 func TestLoadFileBatchesAndPropagatesWriterFailure(t *testing.T) {
 	schema := loadRuntimeFHIRSchema()
 	file := filepath.Join(t.TempDir(), "Patient.ndjson")
@@ -166,10 +230,16 @@ func TestLoadFileBatchesAndPropagatesWriterFailure(t *testing.T) {
 	writeErr := errors.New("writer failed")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	_, err = loadFile(ctx, opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0, func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
+	writerBudget := make(chan struct{}, 1)
+	budgetedOpts := opts
+	budgetedOpts.fileWriterBudget = writerBudget
+	_, err = loadFile(ctx, budgetedOpts, nil, schema, file, "generation-1", false, time.Now(), 0, 0, func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
 		return writeErr
 	})
 	if !errors.Is(err, writeErr) {
 		t.Fatalf("error = %v, want %v", err, writeErr)
+	}
+	if len(writerBudget) != 0 {
+		t.Fatalf("writer permit leaked after insert error: %d permits held", len(writerBudget))
 	}
 }

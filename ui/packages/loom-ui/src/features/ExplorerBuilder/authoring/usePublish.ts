@@ -142,7 +142,9 @@ export const usePublish = ({
           }
           const suffix = apiError.code ? ` (${apiError.code})` : '';
           setMessage(
-            `Publication failed; the previously active Viewer revision remains available: ${apiError.message}${suffix}`,
+            apiError.code === 'PUBLICATION_STATUS_UNKNOWN'
+              ? apiError.message
+              : `Publication failed; the previously active Viewer revision remains available: ${apiError.message}${suffix}`,
           );
           return;
         }

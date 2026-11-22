@@ -92,3 +92,92 @@ func TestGenerationActivationBlindlyFlipsSharedPointerAgainstArango(t *testing.T
 	activateAndAssert(g3)
 	activateAndAssert(g3)
 }
+
+func TestGenerationIdentityFormatRoundTripsAgainstArango(t *testing.T) {
+	ctx, lifecycle := gacOpen(t, 30*time.Second)
+	manifest := gacLoadStaged(t, ctx, lifecycle, "gac-identity-project", "gac-identity-generation", strings.Repeat("a", 64))
+	if manifest.IdentityFormat != publication.IdentityFormatCompact {
+		t.Fatalf("read identity format = %q, want %q", manifest.IdentityFormat, publication.IdentityFormatCompact)
+	}
+}
+
+func TestManifestIdentityFormatCASRejectsMutationAgainstArango(t *testing.T) {
+	owned := arangotest.Owned(t, "loom_verify_gac_cas_")
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	if err := owned.Client.Bootstrap(ctx, BootstrapSpec()); err != nil {
+		t.Fatalf("bootstrap lifecycle collection: %v", err)
+	}
+	lifecycle, err := New(owned.Client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := publication.NewRef("gac-cas-project", "gac-cas-generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema, err := publication.NewSchemaSnapshot("urn:gac-cas", "", strings.Repeat("a", 64), []string{"Patient"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := publication.NewManifest(ref, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := lifecycle.CreateManifest(ctx, manifest)
+	if err != nil {
+		t.Fatalf("CreateManifest: %v", err)
+	}
+	setManifestMetadata := func(state publication.State, format string) {
+		t.Helper()
+		err := owned.Client.ExecuteAQL(ctx, `
+FOR manifest IN @@collection
+  FILTER manifest._key == @key
+  UPDATE manifest WITH {state: @state, identityFormat: @format} IN @@collection
+  RETURN NEW`, map[string]any{
+			"@collection": LifecycleCollection,
+			"key":         manifestDocumentKey(ref),
+			"state":       string(state),
+			"format":      format,
+		})
+		if err != nil {
+			t.Fatalf("set manifest identity format %q: %v", format, err)
+		}
+	}
+	setManifestMetadata(publication.StateLoading, publication.IdentityFormatLegacy)
+	_, transitionErr := lifecycle.TransitionManifest(ctx, created, publication.StateStaged)
+	if !errors.Is(transitionErr, ErrManifestTransitionConflict) {
+		t.Errorf("transition with changed identity format = %v, want conflict", transitionErr)
+	}
+	loading, err := lifecycle.ReadManifest(ctx, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loading.State != publication.StateLoading || loading.IdentityFormat != publication.IdentityFormatLegacy {
+		t.Errorf("mismatched transition mutated manifest: state=%s identityFormat=%q", loading.State, loading.IdentityFormat)
+	}
+
+	setManifestMetadata(publication.StateLoading, publication.IdentityFormatCompact)
+	loading, err = lifecycle.ReadManifest(ctx, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged, err := lifecycle.TransitionManifest(ctx, loading, publication.StateStaged)
+	if err != nil {
+		t.Fatalf("transition after restoring identity format: %v", err)
+	}
+	setManifestMetadata(publication.StateStaged, publication.IdentityFormatLegacy)
+	if err := lifecycle.Activate(ctx, staged); !errors.Is(err, ErrActivationConflict) {
+		t.Errorf("activation with changed identity format = %v, want conflict", err)
+	}
+	stored, err := lifecycle.ReadManifest(ctx, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != publication.StateStaged || stored.IdentityFormat != publication.IdentityFormatLegacy {
+		t.Errorf("mismatched activation mutated manifest: state=%s identityFormat=%q", stored.State, stored.IdentityFormat)
+	}
+	if _, err := lifecycle.ResolveActiveManifest(ctx, ref.Project); !errors.Is(err, publication.ErrNoActiveGeneration) {
+		t.Errorf("mismatched activation advanced active pointer: %v", err)
+	}
+}

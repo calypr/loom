@@ -70,17 +70,17 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 				t.Fatalf("transport retargeted intent: %#v", change)
 			}
 			plan := recipeimport.SourcePlan(output)
-			setHTTPSourceStepEnabled(t, &plan, "fields", false)
 			document.ImportedSource = &plan
 			return document, nil
 		},
 		EditImportedSource: func(_ context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
 			stepEdits++
-			if project != "project-a" || authorized.Snapshot.Token != snapshot.Token || change == nil || change.StepID != "fields" || !change.Enabled {
+			if project != "project-a" || authorized.Snapshot.Token != snapshot.Token || change == nil || change.StepID != "fields" || !change.Remove {
 				t.Fatalf("source-step transport lost settings: %#v", change)
 			}
 			plan := recipeimport.SourcePlan(output)
-			setHTTPSourceStepEnabled(t, &plan, "fields", change.Enabled)
+			plan.RemovedStepIDs = append(plan.RemovedStepIDs, change.StepID)
+			plan.Steps = removeTestSourceStep(plan.Steps, change.StepID)
 			document.ImportedSource = &plan
 			return document, nil
 		},
@@ -90,7 +90,11 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 			}
 			plan := recipeimport.SourcePlan(output)
 			for _, change := range changes {
-				setHTTPSourceStepEnabled(t, &plan, change.StepID, change.Enabled)
+				if !change.Remove {
+					t.Fatalf("expected source step removal: %#v", change)
+				}
+				plan.RemovedStepIDs = append(plan.RemovedStepIDs, change.StepID)
+				plan.Steps = removeTestSourceStep(plan.Steps, change.StepID)
 			}
 			document.ImportedSource = &plan
 			return document, nil
@@ -99,7 +103,9 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 			networks++
 			network := authoringv2.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
 			network.Occurrences = append(network.Occurrences, authoringv2.NetworkOccurrence{OccurrenceID: "base", ResourceType: "Patient", Label: "Patient", Enabled: true, PreservesRowIdentity: true})
-			network.Bindings = append(network.Bindings, authoringv2.NetworkColumnBinding{ColumnID: "patient-id", OccurrenceID: "base", SourceStepID: "fields", ValueMode: "ALL", Status: "EXACT"})
+			if !containsSourceStepRemoval(document.ImportedSource, "fields") {
+				network.Bindings = append(network.Bindings, authoringv2.NetworkColumnBinding{ColumnID: "patient-id", OccurrenceID: "base", SourceStepID: "fields", ValueMode: "ALL", Status: "EXACT"})
+			}
 			return network, nil
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
@@ -198,7 +204,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	if proposal.ProposalID == "" || proposal.CandidateReceiptID != proposal.ProposalID || proposal.OutputID != "patients" || proposal.SnapshotToken != snapshot.Token || proposal.DraftVersion != 1 || proposal.DraftDigest != digest || proposal.BaseDocumentDigest == "" || proposal.CandidateWorkspaceDigest == "" || proposal.PreviewStatus != "READY" || proposal.SampledRows != 1 || proposal.Sampled || proposal.AffectedColumns == nil || len(proposal.Notices) == 0 || edits != 1 || previews != 1 {
 		t.Fatalf("proposal public contract lost fields: %s", proposed.Body)
 	}
-	if proposal.CandidateDocument.Output.ID != "patients" || proposal.CandidateDocument.ImportedSource == nil || httpSourceStepEnabled(t, proposal.CandidateDocument.ImportedSource, "fields") || proposal.CandidateNetwork.OutputID != "patients" || proposal.CandidateNetwork.Owner != "IMPORTED_SOURCE" || len(proposal.CandidateNetwork.Bindings) != 1 || proposal.CandidateNetwork.Bindings[0].OccurrenceID != "base" || proposal.CandidateRowIdentity.OutputID != "patients" || len(proposal.CandidateRowIdentity.Stages) != 1 || proposal.CandidateRowIdentity.Stages[0].Identity.Kind != "RECORD" {
+	if proposal.CandidateDocument.Output.ID != "patients" || proposal.CandidateDocument.ImportedSource == nil || !httpSourceStepPresent(proposal.CandidateDocument.ImportedSource, "fields") || proposal.CandidateNetwork.OutputID != "patients" || proposal.CandidateNetwork.Owner != "IMPORTED_SOURCE" || len(proposal.CandidateNetwork.Bindings) != 1 || proposal.CandidateNetwork.Bindings[0].OccurrenceID != "base" || proposal.CandidateRowIdentity.OutputID != "patients" || len(proposal.CandidateRowIdentity.Stages) != 1 || proposal.CandidateRowIdentity.Stages[0].Identity.Kind != "RECORD" {
 		t.Fatalf("HTTP transport lost authoritative candidate projection: %s", proposed.Body)
 	}
 	if *proposal.CandidateDocument.ImportedRecipe != *workspace.Documents[0].ImportedRecipe {
@@ -330,7 +336,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 		t.Fatal("stale HTTP Apply changed saved state")
 	}
 
-	stepBody := fmt.Sprintf(`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients","sourceStep":{"stepId":"fields","enabled":true}}`, snapshot.Token, saved.DraftVersion, saved.DraftDigest)
+	stepBody := fmt.Sprintf(`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients","sourceStep":{"stepId":"fields","remove":true}}`, snapshot.Token, saved.DraftVersion, saved.DraftDigest)
 	stepResponse := requestJSON(t, app, http.MethodPost, basePath+"/source-relationship-proposals", stepBody)
 	if stepResponse.StatusCode != http.StatusOK {
 		t.Fatalf("source-step preview HTTP %d: %s", stepResponse.StatusCode, stepResponse.Body)
@@ -340,22 +346,22 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	if stepProposal.ProposalID == "" || stepEdits != 1 {
-		t.Fatal("source-step proposal lost its selected settings")
+		t.Fatal("source-step proposal lost its removal intent")
 	}
-	if stepProposal.CandidateDocument.ImportedSource == nil || !httpSourceStepEnabled(t, stepProposal.CandidateDocument.ImportedSource, "fields") || stepProposal.CandidateNetwork.OutputID != "patients" || stepProposal.CandidateRowIdentity.OutputID != "patients" {
-		t.Fatalf("HTTP source-step candidate did not reflect restored settings: %s", stepResponse.Body)
+	if stepProposal.CandidateDocument.ImportedSource == nil || httpSourceStepPresent(stepProposal.CandidateDocument.ImportedSource, "fields") || !containsSourceStepRemoval(stepProposal.CandidateDocument.ImportedSource, "fields") || stepProposal.CandidateNetwork.OutputID != "patients" || len(stepProposal.CandidateNetwork.Bindings) != 0 || stepProposal.CandidateRowIdentity.OutputID != "patients" {
+		t.Fatalf("HTTP source-step candidate retained removed source: %s", stepResponse.Body)
 	}
 	afterStepPreview, err := service.Get(ctx, "project-a", "custom")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if afterStepPreview.DraftVersion != saved.DraftVersion || afterStepPreview.DraftDigest != saved.DraftDigest || !bytes.Equal(afterStepPreview.DraftConfig, saved.DraftConfig) {
-		t.Fatal("source-step HTTP Preview/Cancel changed draft")
+		t.Fatal("source-step removal Preview changed draft")
 	}
-	stepApplyBody := fmt.Sprintf(`{"commandId":"source-step-restore","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_IMPORTED_RELATIONSHIP_PROPOSAL","outputId":"patients","proposalId":%q}]}`, authoringv2.CurrentSemanticsVersion, snapshot.Token, saved.DraftVersion, saved.DraftDigest, stepProposal.ProposalID)
+	stepApplyBody := fmt.Sprintf(`{"commandId":"source-step-remove","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_IMPORTED_RELATIONSHIP_PROPOSAL","outputId":"patients","proposalId":%q}]}`, authoringv2.CurrentSemanticsVersion, snapshot.Token, saved.DraftVersion, saved.DraftDigest, stepProposal.ProposalID)
 	stepApplied := requestJSON(t, app, http.MethodPost, basePath+"/commands", stepApplyBody)
 	if stepApplied.StatusCode != http.StatusOK {
-		t.Fatalf("source-step Apply HTTP %d: %s", stepApplied.StatusCode, stepApplied.Body)
+		t.Fatalf("source-step removal Apply HTTP %d: %s", stepApplied.StatusCode, stepApplied.Body)
 	}
 	restored, err := service.Get(ctx, "project-a", "custom")
 	if err != nil {
@@ -365,49 +371,42 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restored.DraftVersion != 3 || !httpSourceStepEnabled(t, restoredWorkspace.Documents[0].ImportedSource, "fields") || *restoredWorkspace.Documents[0].ImportedRecipe != *workspace.Documents[0].ImportedRecipe {
-		t.Fatal("source-step HTTP Apply lost restore settings or immutable pin")
-	}
-
-	batchIdentity := fmt.Sprintf(`"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients"`, snapshot.Token, restored.DraftVersion, restored.DraftDigest)
-	beforeBatch := append([]byte(nil), restored.DraftConfig...)
-	batch := requestJSON(t, app, http.MethodPost, basePath+"/source-relationship-proposals", "{"+batchIdentity+`,"sourceSteps":[{"stepId":"output","enabled":true},{"stepId":"fields","enabled":false}]}`)
-	if batch.StatusCode != http.StatusOK {
-		t.Fatalf("batch HTTP %d: %s", batch.StatusCode, batch.Body)
-	}
-	var batchProposal lifecycle.SourceRelationshipProposal
-	if err := json.Unmarshal([]byte(batch.Body), &batchProposal); err != nil {
-		t.Fatal(err)
-	}
-	if batchProposal.DraftVersion != 3 || httpSourceStepEnabled(t, batchProposal.CandidateDocument.ImportedSource, "fields") || batchProposal.CandidateNetwork.OutputID != "patients" || batchProposal.CandidateRowIdentity.OutputID != "patients" {
-		t.Fatal("HTTP batch candidate lost exact owner or setting")
-	}
-	afterBatch, err := service.Get(ctx, "project-a", "custom")
-	if err != nil || !bytes.Equal(beforeBatch, afterBatch.DraftConfig) || afterBatch.DraftVersion != restored.DraftVersion {
-		t.Fatal("batch Preview changed saved recipe")
+	if restored.DraftVersion != 3 || httpSourceStepPresent(restoredWorkspace.Documents[0].ImportedSource, "fields") || !containsSourceStepRemoval(restoredWorkspace.Documents[0].ImportedSource, "fields") || *restoredWorkspace.Documents[0].ImportedRecipe != *workspace.Documents[0].ImportedRecipe {
+		t.Fatal("source-step HTTP Apply did not persist removal and preserve immutable pin")
 	}
 
 }
 
-func setHTTPSourceStepEnabled(t *testing.T, plan *authoringv2.ImportedSourcePlan, id string, enabled bool) {
-	t.Helper()
-	for i := range plan.Steps {
-		if plan.Steps[i].ID == id {
-			plan.Steps[i].Enabled = enabled
-			return
+func httpSourceStepPresent(plan *authoringv2.ImportedSourcePlan, id string) bool {
+	if plan == nil {
+		return false
+	}
+	for _, step := range plan.Steps {
+		if step.ID == id {
+			return true
 		}
 	}
-	t.Fatalf("missing source step %s", id)
-}
-func httpSourceStepEnabled(t *testing.T, plan *authoringv2.ImportedSourcePlan, id string) bool {
-	t.Helper()
-	if plan != nil {
-		for _, step := range plan.Steps {
-			if step.ID == id {
-				return step.Enabled
-			}
-		}
-	}
-	t.Fatalf("missing source step %s", id)
 	return false
+}
+
+func containsSourceStepRemoval(plan *authoringv2.ImportedSourcePlan, id string) bool {
+	if plan == nil {
+		return false
+	}
+	for _, removed := range plan.RemovedStepIDs {
+		if removed == id {
+			return true
+		}
+	}
+	return false
+}
+
+func removeTestSourceStep(steps []authoringv2.ImportedSourceStep, id string) []authoringv2.ImportedSourceStep {
+	retained := steps[:0]
+	for _, step := range steps {
+		if step.ID != id {
+			retained = append(retained, step)
+		}
+	}
+	return retained
 }

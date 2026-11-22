@@ -113,7 +113,7 @@ func TestImportedRelationshipAddMatchRemoveRoundTripPreservesPin(t *testing.T) {
 		editedParams := copySourceParametersForTest(t, created, step.ID)
 		editedParams.Dynamic.ColumnPrefix = &prefix
 		edited, err := resolver.Edit(ctx, "project-a", authorized, created, &authoringv2.ImportedSourceStepChange{
-			StepID: step.ID, Enabled: true, Parameters: editedParams,
+			StepID: step.ID, Parameters: editedParams,
 		})
 		if err != nil {
 			t.Fatal(err)

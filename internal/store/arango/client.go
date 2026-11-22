@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -193,17 +194,20 @@ func (c *Client) Bootstrap(ctx context.Context, spec BootstrapSpec) error {
 		reportBootstrap(spec, "go_bootstrap_collection_indexes_start", map[string]any{
 			"backend":    "arango",
 			"collection": collection.Name,
-			"indexes":    len(collection.Indexes),
+			"indexes":    len(collection.Indexes) + len(collection.PersistentIndexes),
 			"position":   i + 1,
 			"total":      total,
 		})
 		if err := ensureIndexes(ctx, col, collection.Indexes); err != nil {
 			return err
 		}
+		if err := ensurePersistentIndexSpecs(ctx, col, collection.PersistentIndexes); err != nil {
+			return err
+		}
 		reportBootstrap(spec, "go_bootstrap_collection_complete", map[string]any{
 			"backend":    "arango",
 			"collection": collection.Name,
-			"indexes":    len(collection.Indexes),
+			"indexes":    len(collection.Indexes) + len(collection.PersistentIndexes),
 			"position":   i + 1,
 			"total":      total,
 		})
@@ -442,6 +446,36 @@ func ensureIndexes(ctx context.Context, col driver.Collection, indexes [][]strin
 	return nil
 }
 
+type persistentIndexEnsurer interface {
+	EnsurePersistentIndex(context.Context, []string, *driver.CreatePersistentIndexOptions) (driver.IndexResponse, bool, error)
+}
+
+func ensurePersistentIndexSpecs(ctx context.Context, col persistentIndexEnsurer, indexes []PersistentIndexSpec) error {
+	for _, index := range indexes {
+		created, _, err := col.EnsurePersistentIndex(ctx, index.Fields, &driver.CreatePersistentIndexOptions{
+			StoredValues: append([]string(nil), index.StoredValues...),
+			Unique:       utils.NewType(false),
+			Sparse:       utils.NewType(index.Sparse),
+		})
+		if err != nil {
+			return err
+		}
+		if created.Type != driver.IndexType("persistent") || created.RegularIndex == nil ||
+			created.Unique == nil || *created.Unique || created.Sparse == nil || *created.Sparse != index.Sparse ||
+			!slices.Equal(created.RegularIndex.Fields, index.Fields) ||
+			!slices.Equal(created.RegularIndex.StoredValues, index.StoredValues) {
+			return fmt.Errorf("Arango persistent index differs from bootstrap definition")
+		}
+	}
+	return nil
+}
+
+type rawInsertObserverKey struct{}
+
+func WithRawInsertObserver(ctx context.Context, observe func(int64, time.Duration)) context.Context {
+	return context.WithValue(ctx, rawInsertObserverKey{}, observe)
+}
+
 func (c *Client) insertBatchDocumentRaw(ctx context.Context, collection string, docs []json.RawMessage, overwrite bool) error {
 	var url string
 	if overwrite {
@@ -469,6 +503,10 @@ func (c *Client) insertBatchDocumentRaw(ctx context.Context, collection string, 
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	if observe, ok := ctx.Value(rawInsertObserverKey{}).(func(int64, time.Duration)); ok {
+		start := time.Now()
+		defer func() { observe(req.ContentLength, time.Since(start)) }()
+	}
 	resp, err := c.client.Do(req)
 	bufferPool.Put(buf)
 	if err != nil {
@@ -509,6 +547,10 @@ func (c *Client) insertBatchImportRaw(ctx context.Context, collection string, do
 	}
 	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
 
+	if observe, ok := ctx.Value(rawInsertObserverKey{}).(func(int64, time.Duration)); ok {
+		start := time.Now()
+		defer func() { observe(req.ContentLength, time.Since(start)) }()
+	}
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return err

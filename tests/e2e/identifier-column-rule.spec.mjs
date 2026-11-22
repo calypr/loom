@@ -29,9 +29,11 @@ test('create an identifier column rule, preview its values, and reopen it from R
       await page.until(() => page.evaluate(`Boolean(document.querySelector('${addColumns}:not(:disabled)'))`), 'Add columns is ready');
       await page.click(addColumns);
       await page.click('[role="tab"][data-column-tab="advanced"]');
-      await page.clickText('Identifiers');
-      await page.clickText('Review column rule');
-      await page.clickText('Preview column rule');
+      await page.until(() => page.evaluate(`Boolean(document.querySelector('select:has(option[value="identifier"])'))`), 'rule source available');
+      await page.select('select:has(option[value="identifier"])', 'identifier');
+      await page.until(() => page.evaluate(`Boolean(document.querySelector('[aria-label="Identifier systems to include"] input:not(:disabled)'))`), 'inline identifier systems are available');
+      assert.equal(await page.evaluate(`[...document.querySelectorAll('button')].some(button => button.innerText === 'Add column rule')`), false);
+      await page.clickText('Select all', '[aria-label="Identifier systems to include"]');
       await page.until(() => page.evaluate(`[...document.querySelectorAll('button')].some(button => button.innerText === 'Apply column rule' && !button.disabled)`), 'identifier rule preview is ready');
       await page.until(async () => {
         const rows = await page.tableRows();
@@ -62,11 +64,16 @@ test('create an identifier column rule, preview its values, and reopen it from R
       const editRule = 'button[aria-label^="Edit source operation"][aria-label$="identifiers"]';
       await page.until(() => page.evaluate(`Boolean(document.querySelector(${JSON.stringify(editRule)}))`),
         'created rule is available in Recipe steps');
-      await page.click(editRule);
+      await page.click('[data-testid="construction-action-add-columns"]');
+      await page.click('[role="tab"][data-column-tab="saved"]');
+      const configureRule = '[aria-label="Configured column rules"] button[aria-label$="identifiers"]';
+      await page.until(() => page.evaluate(`Boolean(document.querySelector(${JSON.stringify(configureRule)}))`),
+        'saved identifier rule can be configured from Advanced');
+      await page.click(configureRule);
       await page.until(() => page.evaluate('Boolean(document.querySelector(\'input[aria-label="Rule name"][value="identifiers"]\'))'),
         'saved rule opens the shared identifier form');
       await page.selectOptionMatching('fieldset[aria-label="Source step parameters"] select', 'Last part of the identifier system');
-      await page.clickText('Preview source step');
+      assert.equal(await page.evaluate(`[...document.querySelectorAll('button')].some(button => button.innerText === 'Preview changes')`), false);
       await page.until(() => page.evaluate(`Boolean(document.querySelector('[data-testid="imported-source-step-apply"]:not(:disabled)'))`),
         'edited rule preview is ready');
       await page.click('[data-testid="imported-source-step-apply"]');
@@ -78,24 +85,19 @@ test('create an identifier column rule, preview its values, and reopen it from R
       const originalIds = new Set(before.workspace.documents[0].columns.map(column => column.columnId));
       const generated = edited.workspace.documents[0].columns.filter(column => !originalIds.has(column.columnId));
       assert(generated.length > 0, 'the edited rule generates columns');
-      for (const enabled of [false, true]) {
-        await page.reload();
-        await page.until(() => page.evaluate(`Boolean(document.querySelector(${JSON.stringify(editRule)}))`),
-          'saved rule is available after reload');
-        await page.click(editRule);
-        await page.click('[data-testid="imported-source-rule-enabled"]');
-        await page.clickText('Preview source step');
-        await page.until(() => page.evaluate(`Boolean(document.querySelector('[data-testid="imported-source-step-apply"]:not(:disabled)'))`),
-          'rule enablement preview is ready');
-        await page.click('[data-testid="imported-source-step-apply"]');
-        const updated = await page.until(async () => {
-          const draft = await readDraft();
-          const rule = draft.workspace.documents[0].importedSource.ruleAdditions[0];
-          return rule.stepId === addition.stepId && rule.enabled === enabled ? draft : false;
-        }, enabled ? 'rule is re-enabled' : 'rule is disabled');
-        const names = new Set(updated.workspace.documents[0].columns.map(column => column.column));
-        for (const column of generated) assert.equal(names.has(column.column), enabled, column.column);
-      }
+      await page.reload();
+      await page.until(() => page.evaluate(`Boolean(document.querySelector(${JSON.stringify(editRule)}))`),
+        'saved rule is available after reload');
+      const removeRule = `[data-operation-id=${JSON.stringify(addition.stepId)}] button[aria-label^="Remove source operation"]`;
+      await page.click(removeRule);
+      const updated = await page.until(async () => {
+        const draft = await readDraft();
+        const source = draft.workspace.documents[0].importedSource;
+        return draft.draftDigest !== edited.draftDigest && !source.ruleAdditions?.some(rule => rule.stepId === addition.stepId)
+          && !source.steps.some(step => step.id === addition.stepId) ? draft : false;
+      }, 'removed identifier rule is gone from the saved plan');
+      const names = new Set(updated.workspace.documents[0].columns.map(column => column.column));
+      for (const column of generated) assert.equal(names.has(column.column), false, column.column);
     } finally {
       const capability = await api(`${fixture.base}/capability`);
       if (capability.features?.deleteExplorer) {
@@ -109,9 +111,12 @@ test('create an Identifier rule on a connected Observation occurrence', { timeou
   const fixtureDirectory = resolve(import.meta.dirname, '../fixtures/builder-rule-related');
   const patients = await readFixture('Patient', fixtureDirectory);
   const observations = await readFixture('Observation', fixtureDirectory);
+  const excludedSystem = observations[0].identifier[0].system;
+  const excludedValues = observations.flatMap(observation =>
+    observation.identifier.filter(item => item.system === excludedSystem).map(item => item.value));
   const expectedByPatient = new Map(observations.map(observation => [
     observation.subject.reference.split('/').at(-1),
-    observation.identifier.map(item => [item.system.split(':').at(-1), item.value]),
+    observation.identifier.filter(item => item.system !== excludedSystem).map(item => [item.system.split(':').at(-1), item.value]),
   ]));
 
   await withFreshUIExplorer('related identifier rule', async (scenario, page) => {
@@ -171,17 +176,27 @@ test('create an Identifier rule on a connected Observation occurrence', { timeou
       await page.click(occurrenceSelector);
       await page.click('[data-testid="construction-action-add-columns"]');
       await page.click('[role="tab"][data-column-tab="advanced"]');
-      await page.clickText('Identifiers');
+      await page.until(() => page.evaluate(`Boolean(document.querySelector('select:has(option[value="identifier"])'))`), 'rule source available');
+      await page.select('select:has(option[value="identifier"])', 'identifier');
+      await page.until(() => page.evaluate(`Boolean(document.querySelector('[aria-label="Identifier systems to include"] input:not(:disabled)'))`), 'inline identifier systems are available');
       const observedSystems = [...new Set(observations.flatMap(observation => observation.identifier.map(item => item.system)))];
       await page.until(() => page.evaluate(`(() => {
-        const text = document.querySelector('[aria-label="Observed identifier systems"]')?.innerText ?? '';
-        return ${JSON.stringify(observedSystems)}.every(system => text.includes(system));
-      })()`), 'resource-type Identifier systems are shown without search');
-      await page.clickText('Review column rule');
-      await page.clickText('Preview column rule');
+        const choices = [...document.querySelectorAll('input[type="checkbox"]')].map(input => input.getAttribute('aria-label'));
+        return ${JSON.stringify(observedSystems)}.every(system => choices.includes('Include ' + system));
+      })()`), 'resource-type Identifier systems are available as checkboxes').catch(async (error) => {
+        const visible = await page.evaluate(`document.querySelector('[data-operation-family="ADD_COLUMNS"]')?.innerText`);
+        throw new Error(`${error.message}: ${visible}`, { cause: error });
+      });
+      for (const system of observedSystems.filter(system => system !== excludedSystem)) {
+        await page.click(`label:has(input[aria-label=${JSON.stringify(`Include ${system}`)}])`);
+      }
+      await page.click('[aria-label="Identifier systems"] summary');
+      await page.fill('input[aria-label="Rule name"]', 'custom_identifiers');
       await page.until(() => page.evaluate(`Boolean([...document.querySelectorAll('button')].find(button => button.innerText === 'Apply column rule' && !button.disabled))`),
         'related Identifier rule preview is ready');
       await waitForPairedRows();
+      assert((await page.tableRows()).every(row => excludedValues.every(value => !row.includes(value))),
+        'Unchecked identifier values stay out of the table');
       assert.equal((await readDraft()).draftDigest, connected.draftDigest,
         'Identifier rule preview on a related occurrence leaves the draft unchanged');
       await page.clickText('Apply column rule');
@@ -195,6 +210,7 @@ test('create an Identifier rule on a connected Observation occurrence', { timeou
       const addition = savedDocument.importedSource.ruleAdditions[0];
       assert.equal(addition.parameters.dynamic.source.select, 'identifier[]');
       assert.equal(addition.kind, 'DYNAMIC_COLUMN');
+      assert.deepEqual(addition.parameters.dynamic.outputs, [{ key: excludedSystem, enabled: false }]);
       assert.equal(savedDocument.importedSource.steps.find(step => step.id === addition.stepId).parentId,
         `relationships.${observationOccurrence.occurrenceId}`);
       const previousColumnIds = new Set(document.columns.map(column => column.columnId));
@@ -219,6 +235,8 @@ test('create an Identifier rule on a connected Observation occurrence', { timeou
         'related rule occurrence reloads');
       await page.click(occurrenceSelector);
       await waitForPairedRows();
+      assert((await page.tableRows()).every(row => excludedValues.every(value => !row.includes(value))),
+        'Unchecked identifier values stay out of the table');
     } finally {
       const capability = await api(`${fixture.base}/capability`);
       if (capability.features?.deleteExplorer) {

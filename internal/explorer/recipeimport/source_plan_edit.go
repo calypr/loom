@@ -2,6 +2,7 @@ package recipeimport
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -47,19 +48,46 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 	if err != nil {
 		return authoringv2.ImportedSourcePlan{}, err
 	}
-	baseStepCount := len(SourcePlan(original).Steps)
+	pinnedSteps, err := retainedPinnedSteps(SourcePlan(original).Steps, plan.RemovedStepIDs)
+	if err != nil {
+		return authoringv2.ImportedSourcePlan{}, err
+	}
+	baseStepCount := len(pinnedSteps)
+	var newPinnedRemovals []string
 	if rule != nil {
 		limit := authoringv2.MaxImportedRuleColumns
 		if rule.MaxColumns != nil {
 			limit = *rule.MaxColumns
 		}
+		ruleIndex := max(plan.NextRuleIndex, len(plan.RuleAdditions))
+		plan.NextRuleIndex = ruleIndex + 1
 		addition := authoringv2.ImportedSourceRuleAddition{
-			StepID: fmt.Sprintf("ruleAdditions[%d]", len(plan.RuleAdditions)),
-			Kind:   rule.Kind, OccurrenceID: rule.OccurrenceID, Enabled: true, Parameters: relativeSourceRuleParameters(rule.OccurrenceID, rule.Parameters), MaxColumns: &limit,
+			StepID: fmt.Sprintf("ruleAdditions[%d]", ruleIndex),
+			Kind:   rule.Kind, OccurrenceID: rule.OccurrenceID, Parameters: relativeSourceRuleParameters(rule.OccurrenceID, rule.Parameters), MaxColumns: &limit,
+		}
+		if addition.Kind == SourcePlanCatalogProjection {
+			params := *addition.Parameters
+			projection := *params.Catalog
+			projection.Name = availableCatalogRuleName(plan.Steps, addition.OccurrenceID, projection.Name)
+			params.Catalog = &projection
+			addition.Parameters = &params
 		}
 		plan.RuleAdditions = append(plan.RuleAdditions, addition)
 	}
 	for _, change := range changes {
+		if change.Remove {
+			index := slices.IndexFunc(plan.RuleAdditions, func(addition authoringv2.ImportedSourceRuleAddition) bool {
+				return addition.StepID == change.StepID
+			})
+			if index >= 0 {
+				plan.NextRuleIndex = max(plan.NextRuleIndex, len(plan.RuleAdditions))
+				plan.RuleAdditions = slices.Delete(plan.RuleAdditions, index, index+1)
+			} else {
+				plan.RemovedStepIDs = append(plan.RemovedStepIDs, change.StepID)
+				newPinnedRemovals = append(newPinnedRemovals, change.StepID)
+			}
+			continue
+		}
 		if change.Parameters != nil && change.Parameters.FieldGroup != nil {
 			if err := VerifyPinnedFieldBindings(plan.FieldBindings, input.PinnedFieldIDs); err != nil {
 				return authoringv2.ImportedSourcePlan{}, err
@@ -97,7 +125,6 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 			if change.MaxColumns != nil {
 				addition.MaxColumns = change.MaxColumns
 			}
-			addition.Enabled = change.Enabled
 			additionFound = true
 			break
 		}
@@ -125,7 +152,6 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 				}
 				step.Parameters = change.Parameters
 			}
-			step.Enabled = change.Enabled
 			if change.MaxColumns != nil {
 				value := *change.MaxColumns
 				step.MaxColumns = &value
@@ -243,7 +269,10 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 			return authoringv2.ImportedSourcePlan{}, err
 		}
 	}
-	plan.Steps = plan.Steps[:baseStepCount]
+	plan.Steps, err = retainedPinnedSteps(plan.Steps[:baseStepCount], newPinnedRemovals)
+	if err != nil {
+		return authoringv2.ImportedSourcePlan{}, err
+	}
 	ruleSteps, err := sourceRuleSteps(plan.Steps, &plan)
 	if err != nil {
 		return authoringv2.ImportedSourcePlan{}, err
@@ -293,4 +322,27 @@ func VerifyPinnedFieldBindings(bindings []authoringv2.ImportedSourceFieldBinding
 		}
 	}
 	return nil
+}
+
+func availableCatalogRuleName(steps []authoringv2.ImportedSourceStep, occurrenceID, preferred string) string {
+	parentID := ""
+	if occurrenceID != "" {
+		for _, step := range steps {
+			if step.Kind == SourcePlanTraversal && step.OccurrenceID == occurrenceID {
+				parentID = step.ID
+				break
+			}
+		}
+	}
+	names := make(map[string]bool)
+	for _, step := range steps {
+		if step.Kind == SourcePlanCatalogProjection && step.ParentID == parentID {
+			names[effectiveSourceKey(step)] = true
+		}
+	}
+	name := preferred
+	for suffix := 2; names[name]; suffix++ {
+		name = fmt.Sprintf("%s_%d", preferred, suffix)
+	}
+	return name
 }

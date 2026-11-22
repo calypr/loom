@@ -619,7 +619,7 @@ export const createPivotCategoryForm = (
   key: available.key,
   outputColumnId: createOpaqueId('pivot-column'),
   name: uniqueName(available.suggestedName ?? normalizedName(scalarLabel(available.key)), usedNames),
-  label: available.suggestedLabel ?? available.label,
+  label: available.suggestedLabel ?? (available.key.kind === 'NULL' ? scalarLabel(available.key) : available.label),
 });
 
 export const scalarFromText = (kind: ConstructionTableScalar['kind'], value: string): ConstructionTableScalar | undefined => {

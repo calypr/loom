@@ -106,3 +106,50 @@ func TestUnknownFieldAndResource(t *testing.T) {
 		t.Fatalf("unknown resource fields %#v", fields)
 	}
 }
+
+func TestResourceFieldCachePublishesOneInitializationAndSkipsUnknownNames(t *testing.T) {
+	const resourceType = "Patient"
+	previous, hadPrevious := resourceCache.Load(resourceType)
+	resourceCache.Delete(resourceType)
+	defer func() {
+		resourceCache.Delete(resourceType)
+		if hadPrevious {
+			resourceCache.Store(resourceType, previous)
+		}
+	}()
+
+	var workers sync.WaitGroup
+	results := make(chan []FieldSpec, 16)
+	for worker := 0; worker < cap(results); worker++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			results <- cachedResourceFields(resourceType).fields
+		}()
+	}
+	workers.Wait()
+	close(results)
+	var expected []FieldSpec
+	for fields := range results {
+		if len(fields) == 0 {
+			t.Fatal("known resource fields were empty")
+		}
+		if expected == nil {
+			expected = fields
+			continue
+		}
+		if !reflect.DeepEqual(fields, expected) {
+			t.Fatal("concurrent callers observed different field definitions")
+		}
+	}
+	entry, ok := resourceCache.Load(resourceType)
+	if !ok || len(entry.(*resourceFieldsEntry).fields.byPath) == 0 {
+		t.Fatal("known resource cache entry was not initialized")
+	}
+
+	const unknown = "RoundFourUnknownResource"
+	cachedResourceFields(unknown)
+	if _, ok := resourceCache.Load(unknown); ok {
+		t.Fatal("unknown resource name was retained in the cache")
+	}
+}

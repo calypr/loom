@@ -18,19 +18,9 @@ func openBackend(ctx context.Context, opts arangostore.ConnectionOptions) (*aran
 func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter EventSink) arangostore.BootstrapSpec {
 	collections := make([]arangostore.CollectionSpec, 0, len(resourceTypes)+4)
 	for _, name := range resourceTypes {
-
 		indexes := [][]string{
-			{"project"},
-			{"id"},
-			{"project", "id"},
-			{"project", "_key"},
-			{"project", "auth_resource_path"},
-			{"project", "auth_resource_path", "_key"},
-
-			{"project", "dataset_generation", "_key"},
-			{"project", "dataset_generation", "auth_resource_path", "_key"},
 			{"project", "dataset_generation", "id"},
-			{"project", "dataset_generation", "auth_resource_path", "id"},
+			{"project", "dataset_generation", "auth_resource_path", "_key"},
 		}
 		collections = append(collections, arangostore.CollectionSpec{
 			Name:     name,
@@ -43,18 +33,10 @@ func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter E
 			Name:     EdgeCollection,
 			Edge:     true,
 			Truncate: truncate,
-			Indexes: [][]string{
-				{"project", "label"},
-				{"project", "from_type", "label"},
-				{"project", "to_type", "label"},
-				{"project", "dataset_generation", "from_type", "label"},
-				{"project", "dataset_generation", "to_type", "label"},
-				{"project", "dataset_generation", "auth_resource_path", "from_type", "label"},
-				{"project", "dataset_generation", "auth_resource_path", "to_type", "label"},
-
-				{"_to", "project", "dataset_generation", "label", "from_type"},
-				{"_from", "project", "dataset_generation", "label", "to_type"},
-			},
+			PersistentIndexes: []arangostore.PersistentIndexSpec{{
+				Fields:       []string{"project", "dataset_generation", "auth_resource_path", "from_type", "label", "to_type"},
+				StoredValues: []string{"source_file"},
+			}},
 		},
 		arangostore.CollectionSpec{
 			Name:     "fhir_field_catalog",
