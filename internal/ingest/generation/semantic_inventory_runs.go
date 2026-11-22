@@ -345,53 +345,6 @@ func (h *semanticInventoryRunHeap) Pop() any {
 	return last
 }
 
-func mergeWorkerSemanticInventory(ctx context.Context, runs []string, workers []*semanticinventory.Aggregator, emit func(semanticinventory.Contribution) error) (err error) {
-	defer func() {
-		for _, path := range runs {
-			if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) && err == nil {
-				err = removeErr
-			}
-		}
-	}()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	total := 0
-	for _, worker := range workers {
-		total += worker.Len()
-	}
-	if len(runs) == 0 && total <= semanticInventoryRunKeyLimit {
-		if total == 0 {
-			return nil
-		}
-		merged := workers[0]
-		for _, worker := range workers[1:] {
-			if err := merged.Merge(worker); err != nil {
-				return err
-			}
-		}
-		for _, value := range merged.Values() {
-			if err := emit(value); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	for _, worker := range workers {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		path, err := writeSemanticInventoryRun(worker)
-		if err != nil {
-			return err
-		}
-		if path != "" {
-			runs = append(runs, path)
-		}
-	}
-	return mergeSemanticInventoryRuns(ctx, runs, emit)
-}
-
 func mergeSemanticInventoryRuns(ctx context.Context, paths []string, emit func(semanticinventory.Contribution) error) error {
 	paths = slices.Clone(paths)
 	slices.Sort(paths)

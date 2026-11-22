@@ -50,7 +50,3 @@ func newExplorerHTTPHandlers(authorizer authscope.Authorizer, authorizeRead func
 	}
 	return NewHandlers(Config{Authorizer: authorizer, AuthorizeRead: authorizeRead, Explorers: service, Lifecycle: config})
 }
-
-func registerStrictExplorerHandlers(router fiber.Router, handlers *Handlers) {
-	loomapi.RegisterHandlersWithOptions(router, loomapi.NewStrictHandler(strictExplorerHandlers(handlers), nil), loomapi.FiberServerOptions{})
-}

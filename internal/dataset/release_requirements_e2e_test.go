@@ -184,18 +184,6 @@ func (s r14Snapshot) log(label string) {
 		s.releasePointer, s.genPointer, s.canonical)
 }
 
-func r14VerificationsDigest(vs []dataset.ContractVerification) string {
-	if len(vs) == 0 {
-		return "<empty Verifications>"
-	}
-	parts := make([]string, 0, len(vs))
-	for i, v := range vs {
-		parts = append(parts, fmt.Sprintf("[%d] selector{recipe=%q translationVersion=%q output=%q} executionId=%q generation=%q state=%q queryable=%v errorCode=%q",
-			i, v.Selector.Recipe, v.Selector.TranslationVersion, v.Selector.Output, v.ExecutionID, v.Generation, v.State, v.Queryable, v.ErrorCode))
-	}
-	return strings.Join(parts, "\n    ")
-}
-
 func TestReleaseRequirementsUnmetActivateAgainstArango(t *testing.T) {
 	ctx, client, lifecycle := r14Open(t, 180*time.Second)
 

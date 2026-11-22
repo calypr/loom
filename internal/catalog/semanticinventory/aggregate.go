@@ -147,25 +147,6 @@ func semanticInventoryAggregateSortKey(key semanticInventoryAggregateKey) string
 	return string(append(encoded, 0))
 }
 
-func (a *Aggregator) Merge(other *Aggregator) error {
-	if other == nil {
-		return nil
-	}
-	for _, contribution := range other.contributions {
-		if err := a.Add(contribution); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (a *Aggregator) Len() int {
-	if a == nil {
-		return 0
-	}
-	return len(a.contributions)
-}
-
 func (a *Aggregator) Reset() {
 	if a != nil {
 		a.contributions = make(map[semanticInventoryAggregateKey]Contribution)

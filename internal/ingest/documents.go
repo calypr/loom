@@ -66,7 +66,3 @@ func SanitizeKey(value string) string {
 	}
 	return validKeyPart.ReplaceAllString(value, "_")
 }
-
-func collectionID(resourceType, id string) string {
-	return SanitizeKey(resourceType) + "/" + SanitizeKey(id)
-}

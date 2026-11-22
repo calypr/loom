@@ -85,14 +85,3 @@ type ViewBuilderRepository interface {
 func ViewBuilderFrameID(recipeName, outputName string) string {
 	return strings.TrimSpace(recipeName) + "/" + strings.TrimSpace(outputName)
 }
-
-func parseViewBuilderFrameID(id string) (recipeName, outputName string, ok bool) {
-	parts := strings.Split(id, "/")
-	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
-		return "", "", false
-	}
-	if parts[0] != strings.TrimSpace(parts[0]) || parts[1] != strings.TrimSpace(parts[1]) {
-		return "", "", false
-	}
-	return parts[0], parts[1], true
-}

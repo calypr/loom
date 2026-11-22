@@ -377,15 +377,6 @@ func compareSemanticInventoryEntryGroupKeys(left, right semanticInventoryEntryGr
 	return 0
 }
 
-func (a *EntryAggregator) Documents() []map[string]any {
-	values := a.Values()
-	documents := make([]map[string]any, 0, len(values))
-	for _, value := range values {
-		documents = append(documents, EntryDocument(value, a.project, a.datasetGeneration, a.buildID, a.sourceKind))
-	}
-	return documents
-}
-
 func EntryDocument(value EntryPartial, project, generation, buildID, sourceKind string) map[string]any {
 	c := value.Contribution
 	o := c.Observation

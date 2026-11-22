@@ -2631,12 +2631,3 @@ func TestRelatedExpandContributorTypedWireSourcesPreserveRepeatedBoundaries(t *t
 }
 
 func stringPointer(value string) *string { return &value }
-
-func containsOutputContractString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
-}

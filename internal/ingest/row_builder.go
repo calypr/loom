@@ -124,10 +124,6 @@ func marshalEdgeRowsWithFormat(documents []fhir.EdgeDocument, project, authResou
 	return encoded, relationships, nil
 }
 
-func namespaceEdgeDocumentValue(document fhir.EdgeDocument, project, authResourcePath, datasetGeneration, sourceFile string) (edgeRow, catalog.RelationshipKey, error) {
-	return namespaceEdgeDocumentValueWithFormat(document, project, authResourcePath, datasetGeneration, sourceFile, publication.IdentityFormatCompact)
-}
-
 func namespaceEdgeDocumentValueWithFormat(document fhir.EdgeDocument, project, authResourcePath, datasetGeneration, sourceFile, identityFormat string) (edgeRow, catalog.RelationshipKey, error) {
 	if strings.TrimSpace(document.Key) == "" || strings.TrimSpace(document.From) == "" || strings.TrimSpace(document.To) == "" {
 		return edgeRow{}, catalog.RelationshipKey{}, fmt.Errorf("edge requires non-empty _key, _from, and _to")

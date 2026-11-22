@@ -121,10 +121,6 @@ func namespaceRowEdgesWithFormat(edges []json.RawMessage, project, datasetGenera
 	return namespaced, nil
 }
 
-func namespaceVertexDocument(raw json.RawMessage, project, datasetGeneration, resourceType string) (json.RawMessage, string, error) {
-	return namespaceVertexDocumentWithFormat(raw, project, datasetGeneration, resourceType, publication.IdentityFormatCompact)
-}
-
 func namespaceVertexDocumentWithFormat(raw json.RawMessage, project, datasetGeneration, resourceType, identityFormat string) (json.RawMessage, string, error) {
 	document, err := DecodeTopLevelDocument(raw)
 	if err != nil {
@@ -145,10 +141,6 @@ func namespaceVertexDocumentWithFormat(raw json.RawMessage, project, datasetGene
 		return nil, "", fmt.Errorf("marshal namespaced vertex: %w", err)
 	}
 	return json.RawMessage(encoded), logicalKey, nil
-}
-
-func namespaceEdgeDocument(raw json.RawMessage, project, datasetGeneration string) (json.RawMessage, error) {
-	return NamespaceEdgeDocumentWithFormat(raw, project, datasetGeneration, publication.IdentityFormatCompact)
 }
 
 func NamespaceEdgeDocumentWithFormat(raw json.RawMessage, project, datasetGeneration, identityFormat string) (json.RawMessage, error) {
