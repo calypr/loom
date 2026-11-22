@@ -165,8 +165,8 @@ describe('BuilderWorkspace route selection', () => {
     const builderState = newBuilderState();
     (useGetExplorerAuthoringExplorersQuery as Mock).mockReturnValue({
       data: [
-        { explorerId: 'first', title: 'First Explorer' },
-        { explorerId: 'second', title: 'Second Explorer' },
+        { explorerId: 'first', title: 'First Explorer', management: 'INTERACTIVE' },
+        { explorerId: 'second', title: 'Second Explorer', management: 'INTERACTIVE' },
       ],
       isLoading: false,
       refetch: vi.fn(),
@@ -221,7 +221,7 @@ describe('BuilderWorkspace route selection', () => {
       unwrap: vi.fn().mockResolvedValue({ explorerId: 'second' }),
     });
     (useGetExplorerAuthoringExplorersQuery as Mock).mockReturnValue({
-      data: [{ explorerId: 'first', title: 'First Explorer' }],
+      data: [{ explorerId: 'first', title: 'First Explorer', management: 'INTERACTIVE' }],
       isLoading: false,
       refetch,
     });

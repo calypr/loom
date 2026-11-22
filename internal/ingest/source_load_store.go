@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -116,6 +117,7 @@ func (p *RepositorySourceLoader) Begin(ctx context.Context, project, operationID
 	if err != nil {
 		return SourceLoadStatus{}, err
 	}
+	bootstrapStarted := time.Now()
 	schemaIdentity, err := loadSchemaSnapshot()
 	if err != nil {
 		return SourceLoadStatus{}, err
@@ -129,6 +131,7 @@ func (p *RepositorySourceLoader) Begin(ctx context.Context, project, operationID
 	if err := p.client.Bootstrap(ctx, sourceLoadBootstrapSpec()); err != nil {
 		return SourceLoadStatus{}, fmt.Errorf("bootstrap source-load sessions: %w", err)
 	}
+	slog.InfoContext(ctx, "source load bootstrap complete", "operation_id", operationID, "elapsed_ms", time.Since(bootstrapStarted).Milliseconds())
 	key := sourceLoadDocumentKey(project, operationID)
 	if existing, found, err := p.readSourceLoad(ctx, key); err != nil {
 		return SourceLoadStatus{}, err
@@ -428,12 +431,15 @@ func (p *RepositorySourceLoader) ensureSourceLoadCandidate(ctx context.Context, 
 			return &SourcePublishConflictError{Reason: "source-load candidate generation already exists with incompatible lifecycle state"}
 		}
 	}
+	copyStarted := time.Now()
 	if err := p.copyGenerationForward(workCtx, *record, created.IdentityFormat); err != nil {
 		return err
 	}
+	copyDone := time.Now()
 	if err := p.prepareCandidateSemanticInventory(workCtx, *record); err != nil {
 		return err
 	}
+	slog.InfoContext(ctx, "source load candidate prepared", "operation_id", record.OperationID, "copy_ms", copyDone.Sub(copyStarted).Milliseconds(), "inventory_ms", time.Since(copyDone).Milliseconds())
 	if err := context.Cause(workCtx); err != nil {
 		return err
 	}

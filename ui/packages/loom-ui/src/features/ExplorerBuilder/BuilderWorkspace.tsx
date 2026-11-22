@@ -1710,7 +1710,8 @@ const BuilderWorkspaceContent = ({
   };
   const staleSourceEdit = recipeOwner.state.status === 'stale' &&
     recipeOwner.state.target?.kind !== 'root' &&
-    Boolean(recipeOwner.state.token && !sameRecipeEditingIdentity(recipeOwner.state.token.identity, staleEditIdentity));
+    (Boolean(pendingRelationship) ||
+      Boolean(recipeOwner.state.token && !sameRecipeEditingIdentity(recipeOwner.state.token.identity, staleEditIdentity)));
   const sourceRecipeInspector = staleSourceEdit ? undefined
     : recipeOwner.state.target?.kind === 'root' ? (recipeOwner.state.target.mode === 'REPLACE'
       ? <div ref={setRootReplacementInspectorHost} aria-label="Starting-record replacement inspector" />
@@ -1998,7 +1999,9 @@ const BuilderWorkspaceContent = ({
           <>
             <span key={suggestionIdentity} ref={suggestionHostRef} hidden />
             {staleSourceEdit ? <span hidden ref={(element) => {
-              if (!element || recipeOwner.getState().status !== 'stale' || !cancelRecipeRelationship(false)) return;
+              const staleEdit = recipeOwner.getState();
+              if (!element || staleEdit.status !== 'stale' || !cancelRecipeRelationship(false)) return;
+              setRecipeNotice(staleEdit.error);
               advancedRuleEditorReturn.current = undefined;
               sourceStepEditDirty.current = false;
               setActiveSourceStepId(undefined);

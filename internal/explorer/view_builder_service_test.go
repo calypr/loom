@@ -99,3 +99,33 @@ func TestViewBuilderServiceSavesPresentationAgainstExactCatalog(t *testing.T) {
 		t.Fatalf("foreign project err=%v writes=%d", err, store.writes)
 	}
 }
+
+func (s *viewBuilderServiceStore) Get(_ context.Context, project, id string) (*Explorer, error) {
+	for _, owner := range s.owners {
+		if owner.Project == project && owner.ExplorerID == id {
+			return &owner, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func TestLoadExplorerStateResolvesProjectDefault(t *testing.T) {
+	store := &viewBuilderServiceStore{
+		settings: ViewBuilderSettings{DefaultConfigID: "recipe-view"},
+		owners:   []Explorer{{Project: "HTAN_INT-BForePC", ExplorerID: "recipe-view"}},
+	}
+	service, err := NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := service.LoadExplorerState(context.Background(), "HTAN_INT/BForePC", "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ExplorerID != "recipe-view" || store.writes != 0 {
+		t.Fatalf("expected selected project view without writes, got %q", state.ExplorerID)
+	}
+	if _, err := service.LoadExplorerState(context.Background(), "HTAN_INT/BForePC", "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("explicit missing Explorer returned %v", err)
+	}
+}

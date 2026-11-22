@@ -67,11 +67,11 @@ const newBuilderState = () => ({
 
 const project = 'HTAN_INT/BForePC';
 const authResourcePath = '/programs/HTAN_INT/projects/BForePC';
-const explorerSummary = (explorerId: string, title: string) => ({
+const explorerSummary = (explorerId: string, title: string, management = 'INTERACTIVE') => ({
   project,
   explorerId,
   title,
-  management: explorerId === 'default' ? 'repository' : 'interactive',
+  management,
   updatedAt: '2026-10-10T00:00:00Z',
 });
 const createTestClient = (
@@ -321,7 +321,7 @@ describe('BuilderWorkspace empty authenticated project', () => {
   });
 
   it('resolves the default URL to the shared dataframe even when a legacy default is listed', async () => {
-    const listedDefault = explorerSummary('default', 'Default Explorer');
+    const listedDefault = explorerSummary('default', 'calypr-meta-default', 'REPOSITORY');
     const { client, getBuilder, getCapability } = createTestClient(
       () => [listedDefault],
     );

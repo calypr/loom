@@ -39,6 +39,17 @@ func (s *Service) LoadExplorerState(ctx context.Context, project, id string) (Ex
 	project = projectid.Canonical(project)
 	id = strings.TrimSpace(id)
 	owner, err := s.Get(ctx, project, id)
+	if id == "default" && errors.Is(err, ErrNotFound) {
+		if repository, ok := s.store.(ViewBuilderRepository); ok {
+			settings, settingsErr := repository.GetViewBuilderSettings(ctx, projectid.Legacy(project))
+			if settingsErr != nil && !errors.Is(settingsErr, ErrNotFound) {
+				return ExplorerStateV1{}, settingsErr
+			}
+			if settingsErr == nil && settings.DefaultConfigID != "" && settings.DefaultConfigID != id {
+				owner, err = s.Get(ctx, project, settings.DefaultConfigID)
+			}
+		}
+	}
 	if err != nil {
 		return ExplorerStateV1{}, err
 	}
