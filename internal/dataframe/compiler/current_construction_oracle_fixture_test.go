@@ -7,7 +7,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func currentOracleSource(name string) recipe.Output {
@@ -121,11 +121,11 @@ func TestCurrentConstructionDirectIDPivotFixtureRetainsFastPath(t *testing.T) {
 func compileCurrentConstructionOracle(output recipe.Output, project, generation string, limit int) (lower.CompiledRecipeOutput, CompiledQuery, error) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "current-construction-oracle", TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		return lower.CompiledRecipeOutput{}, CompiledQuery{}, err
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
 	if err != nil {
 		return lower.CompiledRecipeOutput{}, CompiledQuery{}, err
 	}

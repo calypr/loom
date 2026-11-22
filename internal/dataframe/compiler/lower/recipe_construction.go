@@ -11,7 +11,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -282,7 +282,7 @@ type constructionLowerer struct {
 }
 
 type cohortGroupCompileInput struct {
-	Output      semantic.OutputPlan
+	Output      recipeplan.OutputPlan
 	Rows        ir.PhysicalGroupRows
 	BindVars    map[string]any
 	AfterStepID string
@@ -757,7 +757,7 @@ func populationRootContributorAvailable(plan *ir.PhysicalPlan, schema []Compiled
 	return false
 }
 
-func cohortGroupStageOutputSchema(output semantic.OutputPlan, inputSchema []CompiledOutputColumn, rootResourceType string) ([]CompiledOutputColumn, error) {
+func cohortGroupStageOutputSchema(output recipeplan.OutputPlan, inputSchema []CompiledOutputColumn, rootResourceType string) ([]CompiledOutputColumn, error) {
 	if output.GroupRows == nil {
 		return nil, fmt.Errorf("explicit group rows are required")
 	}
@@ -1448,7 +1448,7 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedSource(
 	}
 
 	rootVariable := allocateConstructionVariable(lowerer.usedVariables, fmt.Sprintf("related_%d_root", index), index)
-	rootNode := semantic.SemanticNode{Alias: lowerer.plan.Source.SemanticNode, ResourceType: rootResourceType}
+	rootNode := recipeplan.SemanticNode{Alias: lowerer.plan.Source.SemanticNode, ResourceType: rootResourceType}
 	keySetAnchor := !directRootAnchor && hasContributor && contributor.Cardinality == string(expression.Many)
 	rootOperation := ir.PhysicalOperation{
 		Kind:   ir.PhysicalCollectionScanOp,
@@ -1511,7 +1511,7 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedSource(
 		for key, value := range traversal.BindVars {
 			lowerer.plan.BindVars[key] = value
 		}
-		child := semantic.SemanticNode{Alias: hop.ToNodeID, ResourceType: hop.ToResourceType, EdgeLabel: hop.Relationship}
+		child := recipeplan.SemanticNode{Alias: hop.ToNodeID, ResourceType: hop.ToResourceType, EdgeLabel: hop.Relationship}
 		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
 			Kind:      ir.PhysicalTraversalOp,
 			Source:    ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, Relationship: hop.Relationship},
@@ -1632,7 +1632,7 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedSource(
 	return projections, outputSchema, nil
 }
 
-func constructionSemanticPivot(pivot recipe.ConstructionPivot, input map[string]CompiledOutputColumn, output map[string]recipe.StageColumn) (semanticPivot semantic.SemanticGroupedPivot, outputNames map[string]string, err error) {
+func constructionSemanticPivot(pivot recipe.ConstructionPivot, input map[string]CompiledOutputColumn, output map[string]recipe.StageColumn) (semanticPivot recipeplan.SemanticGroupedPivot, outputNames map[string]string, err error) {
 	if pivot.Discovery != nil {
 		return semanticPivot, nil, fmt.Errorf("pivot %q discovery must be resolved to concrete categories before compilation", pivot.ConstructionID)
 	}
@@ -1643,7 +1643,7 @@ func constructionSemanticPivot(pivot recipe.ConstructionPivot, input map[string]
 		}
 		return column.Name, nil
 	}
-	semanticPivot = semantic.SemanticGroupedPivot{
+	semanticPivot = recipeplan.SemanticGroupedPivot{
 		ConstructionID: pivot.ConstructionID, DuplicatePolicy: pivot.DuplicatePolicy,
 		MissingCellPolicy: pivot.MissingCellPolicy, UnlistedCategoryPolicy: pivot.UnlistedCategoryPolicy,
 	}
@@ -1668,30 +1668,30 @@ func constructionSemanticPivot(pivot recipe.ConstructionPivot, input map[string]
 		if !ok {
 			return semanticPivot, nil, fmt.Errorf("pivot output column ID %q is missing", category.OutputColumnID)
 		}
-		semanticPivot.Categories = append(semanticPivot.Categories, semantic.SemanticGroupedPivotCategory{Key: category.Key, Output: column.Name, Label: column.Label})
+		semanticPivot.Categories = append(semanticPivot.Categories, recipeplan.SemanticGroupedPivotCategory{Key: category.Key, Output: column.Name, Label: column.Label})
 		outputNames[column.Name] = column.Name
 	}
 	return semanticPivot, outputNames, nil
 }
 
-func constructionSemanticUnpivot(unpivot recipe.ConstructionUnpivot, input map[string]CompiledOutputColumn, output map[string]recipe.StageColumn) (semantic.SemanticUnpivot, error) {
-	semanticUnpivot := semantic.SemanticUnpivot{
+func constructionSemanticUnpivot(unpivot recipe.ConstructionUnpivot, input map[string]CompiledOutputColumn, output map[string]recipe.StageColumn) (recipeplan.SemanticUnpivot, error) {
+	semanticUnpivot := recipeplan.SemanticUnpivot{
 		ConstructionID: unpivot.ConstructionID, NullRowPolicy: unpivot.NullRowPolicy,
 	}
 	for _, item := range unpivot.Inputs {
 		column, ok := input[item.ColumnID]
 		if !ok || column.Internal {
-			return semantic.SemanticUnpivot{}, fmt.Errorf("unpivot input column ID %q is not public", item.ColumnID)
+			return recipeplan.SemanticUnpivot{}, fmt.Errorf("unpivot input column ID %q is not public", item.ColumnID)
 		}
-		semanticUnpivot.Inputs = append(semanticUnpivot.Inputs, semantic.SemanticUnpivotInput{Column: column.Name, Key: item.Key})
+		semanticUnpivot.Inputs = append(semanticUnpivot.Inputs, recipeplan.SemanticUnpivotInput{Column: column.Name, Key: item.Key})
 	}
 	keyOutput, ok := output[unpivot.KeyOutputColumnID]
 	if !ok {
-		return semantic.SemanticUnpivot{}, fmt.Errorf("unpivot key output ID %q is missing", unpivot.KeyOutputColumnID)
+		return recipeplan.SemanticUnpivot{}, fmt.Errorf("unpivot key output ID %q is missing", unpivot.KeyOutputColumnID)
 	}
 	valueOutput, ok := output[unpivot.ValueOutputColumnID]
 	if !ok {
-		return semantic.SemanticUnpivot{}, fmt.Errorf("unpivot value output ID %q is missing", unpivot.ValueOutputColumnID)
+		return recipeplan.SemanticUnpivot{}, fmt.Errorf("unpivot value output ID %q is missing", unpivot.ValueOutputColumnID)
 	}
 	semanticUnpivot.KeyOutput, semanticUnpivot.KeyLabel = keyOutput.Name, keyOutput.Label
 	semanticUnpivot.ValueOutput, semanticUnpivot.ValueLabel = valueOutput.Name, valueOutput.Label

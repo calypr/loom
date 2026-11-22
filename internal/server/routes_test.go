@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	ingestevent "github.com/calypr/loom/internal/ingest/event"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,7 +11,6 @@ import (
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	api "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/ingest"
 	"github.com/calypr/loom/internal/ingest/generation"
 )
 
@@ -18,7 +18,7 @@ type HTTPRoutes = routes
 
 type routeRunner struct{}
 
-func (routeRunner) RunGeneration(context.Context, loadapi.GenerationLoadRequest, ingest.EventSink) (generation.LoadSummary, error) {
+func (routeRunner) RunGeneration(context.Context, loadapi.GenerationLoadRequest, ingestevent.EventSink) (generation.LoadSummary, error) {
 	return generation.LoadSummary{}, nil
 }
 

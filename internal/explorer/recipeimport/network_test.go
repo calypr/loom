@@ -4,15 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	recipeschema "github.com/calypr/loom/internal/dataframe/recipe/schema"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
@@ -134,15 +133,15 @@ func TestRelationshipOverlayReauthorizesAdditionAndRejectsAmbiguousCatalog(t *te
 
 func TestCompiledNetworkProvenanceDistinguishesRepeatedPatientOccurrences(t *testing.T) {
 	output := recipe.Output{Name: "subjects", RootResourceType: "Observation", RootColumnNaming: recipe.RootColumnNamingExact, Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}}, RowGrain: "observation", Traversals: []recipe.Traversal{{Name: "subject_Patient", Alias: "patient_a", ToResourceType: "Patient", OccurrenceID: "patient_first", Fields: []recipe.Field{{Name: "id", ValueMode: recipe.ValueModeAll, Expr: recipe.Expression{Select: "patient_a.id"}}}}, {Name: "performer_Patient", Alias: "patient_b", ToResourceType: "Patient", OccurrenceID: "patient_second", Fields: []recipe.Field{{Name: "id", ValueMode: recipe.ValueModeFirst, Expr: recipe.Expression{Select: "patient_b.id"}}}}}}
-	plan, err := semantic.BuildRecipePlan(recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "oracle", TranslationVersion: "v1", Outputs: []recipe.Output{output}}, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "oracle", TranslationVersion: "v1", Outputs: []recipe.Output{output}}, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,15 +179,15 @@ func TestDefaultCompiledNetworkBindsEveryPublicColumn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := semantic.BuildRecipePlan(discovered.Bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
+	plan, err := recipeplan.BuildRecipePlan(discovered.Bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "g")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "g")
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +351,7 @@ func TestHydrateSourcePlanMigratesLegacyMetadataAndRejectsRetargeting(t *testing
 
 func TestCompiledNetworkRejectsAmbiguousLegacyCatalogOwners(t *testing.T) {
 	network := authoringv2.AuthoringNetwork{Occurrences: []authoringv2.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []authoringv2.NetworkColumnBinding{{ColumnID: "id", Status: "UNKNOWN"}}}
-	columns := []lower.CompiledOutputColumn{{ID: "id", Name: "id", SourceOrigin: &lower.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "fields", SourceKind: SourcePlanCatalogProjection}}}
+	columns := []facade.CompiledOutputColumn{{ID: "id", Name: "id", SourceOrigin: &facade.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "fields", SourceKind: SourcePlanCatalogProjection}}}
 	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "catalogProjections[0]", Kind: SourcePlanCatalogProjection, Title: "First", Summary: "First", Editable: true}, {ID: "catalogProjections[1]", Kind: SourcePlanCatalogProjection, Title: "Second", Summary: "Second", Editable: true}}}
 	if _, err := BindCompiledNetwork(network, columns, &plan); err == nil || !strings.Contains(err.Error(), "SOURCE_PROVENANCE_AMBIGUOUS") {
 		t.Fatalf("ambiguous catalog provenance was guessed: %v", err)
@@ -369,7 +368,7 @@ func TestCompiledNetworkRejectsAmbiguousLegacyCatalogOwners(t *testing.T) {
 
 func TestCompiledNetworkCarriesCatalogOutputIdentityToSourceStep(t *testing.T) {
 	network := authoringv2.AuthoringNetwork{Occurrences: []authoringv2.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []authoringv2.NetworkColumnBinding{{ColumnID: "gender", Status: "UNKNOWN"}}}
-	columns := []lower.CompiledOutputColumn{{ID: "gender", Name: "gender", SourceOrigin: &lower.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "fields", SourceKind: SourcePlanCatalogProjection, SourceKey: "populated_fields", OutputKey: "gender"}}}
+	columns := []facade.CompiledOutputColumn{{ID: "gender", Name: "gender", SourceOrigin: &facade.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "fields", SourceKind: SourcePlanCatalogProjection, SourceKey: "populated_fields", OutputKey: "gender"}}}
 	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "catalogProjections[0]", SourceKey: "populated_fields", Kind: SourcePlanCatalogProjection, Title: "Fields", Summary: "Pinned catalog projection", Editable: true}}}
 	got, err := BindCompiledNetwork(network, columns, &plan)
 	if err != nil {
@@ -382,7 +381,7 @@ func TestCompiledNetworkCarriesCatalogOutputIdentityToSourceStep(t *testing.T) {
 
 func TestCompiledNetworkFamilyKeysSurviveDiscoveryPruning(t *testing.T) {
 	network := authoringv2.AuthoringNetwork{Occurrences: []authoringv2.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []authoringv2.NetworkColumnBinding{{ColumnID: "pivot_result", Status: "UNKNOWN"}}}
-	columns := []lower.CompiledOutputColumn{{ID: "pivot_result", SourceOrigin: &lower.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "pivots[0]", SourceKind: SourcePlanPivot, SourceKey: "second", OutputKey: "urn:loinc|8480-6"}}}
+	columns := []facade.CompiledOutputColumn{{ID: "pivot_result", SourceOrigin: &facade.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "pivots[0]", SourceKind: SourcePlanPivot, SourceKey: "second", OutputKey: "urn:loinc|8480-6"}}}
 	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "pivots[0]", SourceKey: "first", Kind: SourcePlanPivot, Title: "First", Summary: "First", Editable: true}, {ID: "pivots[1]", SourceKey: "second", Kind: SourcePlanPivot, Title: "Second", Summary: "Second", Editable: true}}}
 	got, err := BindCompiledNetwork(network, columns, &plan)
 	if err != nil {
@@ -399,15 +398,15 @@ func TestCompiledExtensionFamiliesRetainNativeSourceStepKeys(t *testing.T) {
 	}
 	output := recipe.Output{Name: "patients", RootResourceType: "Patient", RootOccurrenceID: "base", RowGrain: "patient", ExtensionColumns: []recipe.ExtensionColumn{extension("first", "one"), extension("second", "two")}}
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "source-families", TranslationVersion: "v1", Outputs: []recipe.Output{output}}
-	semanticPlan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
+	semanticPlan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(semanticPlan, "scope", "g")
+	resolved, err := recipeplan.ResolveRecipePlan(semanticPlan, "scope", "g")
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

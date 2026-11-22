@@ -2,16 +2,16 @@ package execution
 
 import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 type Validation struct {
 	Entry recipe.Entry
-	Plan  semantic.RecipePlan
+	Plan  recipeplan.RecipePlan
 }
 
 type Preview struct {
-	Plan    semantic.ResolvedRecipePlan
+	Plan    recipeplan.ResolvedRecipePlan
 	Outputs []OutputRows
 }
 

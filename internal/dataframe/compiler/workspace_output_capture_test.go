@@ -9,7 +9,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func TestWorkspaceOutputExecutionRemainsExplicitlyUnsupportedUntilCapture(t *testing.T) {
@@ -41,11 +41,11 @@ func TestCompiledQueryRetainsFinalizedPlanThatRendersExecutedQuery(t *testing.T)
 			Fields: []recipe.Field{{Name: "gender", ColumnID: "gender", Expr: recipe.Expression{Select: "root.gender"}}},
 		}},
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatalf("BuildRecipePlan: %v", err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
 	if err != nil {
 		t.Fatalf("ResolveRecipePlan: %v", err)
 	}

@@ -5,6 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/ingest/bootstrap"
+	ingestevent "github.com/calypr/loom/internal/ingest/event"
+	"github.com/calypr/loom/internal/ingest/row"
+	"github.com/calypr/loom/internal/ingest/source"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,8 +20,7 @@ import (
 
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -109,7 +112,7 @@ type fileLoadResult struct {
 	StageSeconds               map[string]float64
 	Catalog                    *fieldprofile.Profiler
 	RelationshipCounts         map[catalog.RelationshipKey]int64
-	RowErrors                  []ingest.RowErrorSample
+	RowErrors                  []row.RowErrorSample
 }
 
 type generationInsertCounters struct {
@@ -121,8 +124,8 @@ const rowErrorSampleLimit = 10
 const lineBatchSize = 256
 const lineBatchByteLimit = 1 << 20
 
-func selectGenerationRowErrorSamples(fileSamples [][]ingest.RowErrorSample) []ingest.RowErrorSample {
-	failing := make([][]ingest.RowErrorSample, 0, len(fileSamples))
+func selectGenerationRowErrorSamples(fileSamples [][]row.RowErrorSample) []row.RowErrorSample {
+	failing := make([][]row.RowErrorSample, 0, len(fileSamples))
 	longest := 0
 	for _, candidates := range fileSamples {
 		if len(candidates) == 0 {
@@ -137,8 +140,8 @@ func selectGenerationRowErrorSamples(fileSamples [][]ingest.RowErrorSample) []in
 		return nil
 	}
 
-	picked := make([][]ingest.RowErrorSample, len(failing))
-	seen := make(map[ingest.RowErrorSample]struct{}, rowErrorSampleLimit)
+	picked := make([][]row.RowErrorSample, len(failing))
+	seen := make(map[row.RowErrorSample]struct{}, rowErrorSampleLimit)
 	total := 0
 	for rank := 0; rank < longest; rank++ {
 		for file, candidates := range failing {
@@ -160,12 +163,12 @@ func selectGenerationRowErrorSamples(fileSamples [][]ingest.RowErrorSample) []in
 	return flattenRowErrorSamples(picked)
 }
 
-func flattenRowErrorSamples(picked [][]ingest.RowErrorSample) []ingest.RowErrorSample {
+func flattenRowErrorSamples(picked [][]row.RowErrorSample) []row.RowErrorSample {
 	total := 0
 	for _, samples := range picked {
 		total += len(samples)
 	}
-	samples := make([]ingest.RowErrorSample, 0, total)
+	samples := make([]row.RowErrorSample, 0, total)
 	for _, fileSamples := range picked {
 		samples = append(samples, fileSamples...)
 	}
@@ -196,7 +199,7 @@ type documentInserter func(context.Context, *arangostore.Client, string, []json.
 type fileLoader struct {
 	options           LoadOptions
 	client            *arangostore.Client
-	schema            *ingest.RuntimeFHIRSchema
+	schema            *source.RuntimeFHIRSchema
 	datasetGeneration string
 	overwrite         bool
 	insert            documentInserter
@@ -205,7 +208,7 @@ type fileLoader struct {
 func (loader fileLoader) load(ctx context.Context, file string, start time.Time, priorVertices, priorEdges int) (result fileLoadResult, err error) {
 	opts, schema := loader.options, loader.schema
 	datasetGeneration := loader.datasetGeneration
-	resourceType := ingest.ResourceTypeFromPath(file)
+	resourceType := source.ResourceTypeFromPath(file)
 	if strings.TrimSpace(opts.SourceFileOwner) != "" {
 		resourceType = strings.TrimSpace(opts.SourceFileOwner)
 	}
@@ -221,11 +224,11 @@ func (loader fileLoader) load(ctx context.Context, file string, start time.Time,
 	if !schema.HasClass(resourceType) {
 		return result, fmt.Errorf("%s: resource type %q is not in the generated FHIR resource registry", filepath.Base(file), resourceType)
 	}
-	if !ingest.SupportsGeneratedLoad(resourceType) {
+	if !row.SupportsGeneratedLoad(resourceType) {
 		return result, fmt.Errorf("%s: resource type %q has no generated loader", filepath.Base(file), resourceType)
 	}
 
-	scanner, closeFn, err := ingest.OpenLineScanner(file)
+	scanner, closeFn, err := source.OpenLineScanner(file)
 	if err != nil {
 		return result, err
 	}
@@ -233,15 +236,15 @@ func (loader fileLoader) load(ctx context.Context, file string, start time.Time,
 		err = errors.Join(err, closeFn())
 	}()
 
-	var rowBuilder ingest.RowBuilder = ingest.NewGeneratedRowBuilder(opts.Project, opts.AuthResourcePath)
+	var rowBuilder row.RowBuilder = row.NewGeneratedRowBuilder(opts.Project, opts.AuthResourcePath)
 	if strings.TrimSpace(datasetGeneration) != "" {
-		rowBuilder, err = ingest.NewGenerationRowBuilderWithFormat(rowBuilder, opts.Project, datasetGeneration, opts.IdentityFormat)
+		rowBuilder, err = row.NewGenerationRowBuilderWithFormat(rowBuilder, opts.Project, datasetGeneration, opts.IdentityFormat)
 		if err != nil {
 			return result, err
 		}
 	}
 	if strings.TrimSpace(opts.SourceFileOwner) != "" {
-		rowBuilder = ingest.WithSourceFileOwner(rowBuilder, opts.SourceFileOwner)
+		rowBuilder = row.WithSourceFileOwner(rowBuilder, opts.SourceFileOwner)
 	}
 
 	batchSize := min(lineBatchSize, opts.LineQueueSize)
@@ -268,7 +271,7 @@ func (loader fileLoader) load(ctx context.Context, file string, start time.Time,
 	var workersWG sync.WaitGroup
 	workerTimingsChan := make(chan map[string]float64, workerCount)
 	workerCatalogsChan := make(chan *fieldprofile.Profiler, workerCount)
-	workerInventoryChan := make(chan *semanticinventory.EntryAggregator, workerCount)
+	workerInventoryChan := make(chan *semantic.EntryAggregator, workerCount)
 	shapeCache := fieldprofile.NewShapePlanCacheWithLimits(opts.CatalogLimits.MaxShapePlans, opts.CatalogLimits.MaxRetainedBytes)
 	if opts.fileShapePlanCache != nil {
 		shapeCache = fieldprofile.NewShapePlanCacheWithSharedPlans(opts.CatalogLimits.MaxShapePlans, opts.CatalogLimits.MaxRetainedBytes, opts.fileShapePlanCache)
@@ -297,9 +300,9 @@ func (loader fileLoader) load(ctx context.Context, file string, start time.Time,
 		}
 	}()
 	var rowErrorsMu sync.Mutex
-	rowErrors := make([]ingest.RowErrorSample, 0, rowErrorSampleLimit)
-	recordRowError := func(line int, category ingest.RowErrorType, buildErr error) {
-		sample := ingest.RowErrorSample{
+	rowErrors := make([]row.RowErrorSample, 0, rowErrorSampleLimit)
+	recordRowError := func(line int, category row.RowErrorType, buildErr error) {
+		sample := row.RowErrorSample{
 			File:         filepath.Base(file),
 			Line:         line,
 			ResourceType: resourceType,
@@ -329,7 +332,7 @@ func (loader fileLoader) load(ctx context.Context, file string, start time.Time,
 			defer workersWG.Done()
 			localTimings := make(map[string]float64)
 			localCatalog := fieldprofile.NewProfilerForGenerationWithLimits(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, shapeCache, opts.CatalogLimits)
-			localInventory := semanticinventory.NewEntryAggregator(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, semanticinventory.SourceFile)
+			localInventory := semantic.NewEntryAggregator(opts.Project, datasetGeneration, opts.AuthResourcePath, resourceType, semantic.SourceFile)
 			vertexBatch := make([]json.RawMessage, 0, opts.BatchSize)
 			edgeBatch := make([]json.RawMessage, 0, opts.BatchSize)
 			edgeRelationshipCounts := make(map[catalog.RelationshipKey]int64)
@@ -384,7 +387,7 @@ func (loader fileLoader) load(ctx context.Context, file string, start time.Time,
 				}
 				waitStart := time.Now()
 				select {
-				case writeChan <- fileWriteTask{collection: ingest.EdgeCollection, docs: edgeBatch, relationshipCounts: relationshipCounts}:
+				case writeChan <- fileWriteTask{collection: bootstrap.EdgeCollection, docs: edgeBatch, relationshipCounts: relationshipCounts}:
 					localTimings["edge_queue_wait"] += time.Since(waitStart).Seconds()
 					localTimings["edge_batches"]++
 					edgeBatch = make([]json.RawMessage, 0, opts.BatchSize)
@@ -438,18 +441,18 @@ func (loader fileLoader) load(ctx context.Context, file string, start time.Time,
 						built, errorType, buildErr := rowBuilder.Build(resourceType, []byte(line.text), localTimings)
 						if buildErr != nil {
 							if opts.FailFast {
-								setPipelineErr(&ingest.RowError{File: filepath.Base(file), ResourceType: resourceType,
+								setPipelineErr(&row.RowError{File: filepath.Base(file), ResourceType: resourceType,
 									Row: line.number, Category: string(errorType), Cause: buildErr})
 								releaseWorkerBudget()
 								return
 							}
 							recordRowError(line.number, errorType, buildErr)
 							switch errorType {
-							case ingest.RowErrorValidation:
+							case row.RowErrorValidation:
 								atomic.AddInt64(&validationErrors, 1)
-							case ingest.RowErrorGeneration:
+							case row.RowErrorGeneration:
 								atomic.AddInt64(&generationErrors, 1)
-							case ingest.RowErrorEdge:
+							case row.RowErrorEdge:
 								atomic.AddInt64(&edgeErrors, 1)
 							}
 							continue
@@ -463,7 +466,7 @@ func (loader fileLoader) load(ctx context.Context, file string, start time.Time,
 							}
 						} else {
 							sourceID := semanticInventorySourceRecordID(semanticSourceFile, line.number)
-							semanticSink := func(contribution semanticinventory.Contribution) {
+							semanticSink := func(contribution semantic.Contribution) {
 								if semanticInventoryFailed || fileCtx.Err() != nil {
 									return
 								}
@@ -513,7 +516,7 @@ func (loader fileLoader) load(ctx context.Context, file string, start time.Time,
 								verticesTotal = int(atomic.LoadInt64(&opts.fileInsertedCounters.vertices))
 								edgesTotal = int(atomic.LoadInt64(&opts.fileInsertedCounters.edges))
 							}
-							ingest.EmitEvent(opts.EventSink, "go_load_progress", map[string]any{
+							ingestevent.EmitEvent(opts.EventSink, "go_load_progress", map[string]any{
 								"file":              filepath.Base(file),
 								"resource":          resourceType,
 								"file_rows":         currentRows,
@@ -521,7 +524,7 @@ func (loader fileLoader) load(ctx context.Context, file string, start time.Time,
 								"file_edges":        atomic.LoadInt64(&fileEdges),
 								"vertices_inserted": verticesTotal,
 								"edges_inserted":    edgesTotal,
-								"seconds":           ingest.SecondsSince(start),
+								"seconds":           ingestevent.SecondsSince(start),
 							})
 						}
 					}
@@ -540,7 +543,7 @@ func (loader fileLoader) load(ctx context.Context, file string, start time.Time,
 		runs := append([]string(nil), inventoryRuns...)
 		inventoryRunsMu.Unlock()
 		close(workerInventoryChan)
-		workers := make([]*semanticinventory.EntryAggregator, 0, workerCount)
+		workers := make([]*semantic.EntryAggregator, 0, workerCount)
 		for worker := range workerInventoryChan {
 			workers = append(workers, worker)
 		}
@@ -648,7 +651,7 @@ func semanticInventorySourceRecordID(sourceFile string, line int) string {
 	return sourceFile + "#" + strconv.Itoa(line)
 }
 
-func LoadSourceFile(ctx context.Context, file string, options LoadOptions, client *arangostore.Client, schema *ingest.RuntimeFHIRSchema, datasetGeneration string) (fileLoadResult, error) {
-	loader := fileLoader{options: normalizeLoadOptions(options), client: client, schema: schema, datasetGeneration: datasetGeneration, insert: ingest.InsertRawDocuments}
+func LoadSourceFile(ctx context.Context, file string, options LoadOptions, client *arangostore.Client, schema *source.RuntimeFHIRSchema, datasetGeneration string) (fileLoadResult, error) {
+	loader := fileLoader{options: normalizeLoadOptions(options), client: client, schema: schema, datasetGeneration: datasetGeneration, insert: bootstrap.InsertRawDocuments}
 	return loader.load(ctx, file, time.Now(), 0, 0)
 }

@@ -7,9 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 const (
@@ -17,7 +16,7 @@ const (
 	maxSemanticExamples     = 32
 )
 
-func (p *Profiler) observeSemanticObservations(payload map[string]any, sourceID string, sink semanticinventory.ObservationSink) error {
+func (p *Profiler) observeSemanticObservations(payload map[string]any, sourceID string, sink semantic.ObservationSink) error {
 	return p.observeSemanticObservationsWithCoverage(payload, sourceID, "", sink, nil, nil, nil)
 }
 
@@ -25,7 +24,7 @@ func (p *Profiler) observeSemanticObservationsWithCoverage(
 	payload map[string]any,
 	sourceID string,
 	schemaIdentity string,
-	sink semanticinventory.ObservationSink,
+	sink semantic.ObservationSink,
 	emissionSink SemanticCoverageEmissionSink,
 	coverageSink SemanticCoverageSourceSink,
 	rawPaths map[string]struct{},
@@ -33,7 +32,7 @@ func (p *Profiler) observeSemanticObservationsWithCoverage(
 	ordinal := 0
 	emissions := make([]SemanticCoverageEmissionEvidence, 0)
 	emissionsTruncated := false
-	emit := func(observation codedconcept.Observation, examples []any, evidence SemanticCoverageEmissionEvidence) {
+	emit := func(observation semantic.Observation, examples []any, evidence SemanticCoverageEmissionEvidence) {
 		if sourceID != "" && sink != nil {
 			sink(p.semanticInventoryContribution(sourceID, ordinal, observation, examples))
 			ordinal++
@@ -49,7 +48,7 @@ func (p *Profiler) observeSemanticObservationsWithCoverage(
 			}
 		}
 	}
-	profile := codedconcept.ProfileForPayload(payload)
+	profile := semantic.ProfileForPayload(payload)
 	index, err := fhirschema.GeneratedIndex()
 	if err != nil {
 		return fmt.Errorf("load generated FHIR schema for semantic observations: %w", err)
@@ -71,7 +70,7 @@ func (p *Profiler) observeSemanticObservationsWithCoverage(
 			DatasetGeneration: strings.TrimSpace(p.datasetGeneration),
 			AuthResourcePath:  p.authResourcePath,
 			SchemaIdentity:    schemaIdentity,
-			SourceKind:        semanticinventory.SourceKind(p.semanticSourceKind),
+			SourceKind:        semantic.SourceKind(p.semanticSourceKind),
 			SourceID:          sourceID,
 			ResourceType:      p.resourceType,
 		}
@@ -93,7 +92,7 @@ func (p *Profiler) observeSemanticObservationsWithCoverage(
 		}
 		return nil
 	}
-	return p.observeSchemaSemantics(index, payload, profile, func(observation codedconcept.Observation, examples []any) {
+	return p.observeSchemaSemantics(index, payload, profile, func(observation semantic.Observation, examples []any) {
 		if sourceID != "" && sink != nil {
 			sink(p.semanticInventoryContribution(sourceID, ordinal, observation, examples))
 			ordinal++
@@ -124,7 +123,7 @@ func (p *Profiler) ensureSemanticStat(path string) *fieldCatalogStats {
 	return stat
 }
 
-func (s *fieldCatalogStats) addSemanticObservation(observation codedconcept.Observation, examples []any) {
+func (s *fieldCatalogStats) addSemanticObservation(observation semantic.Observation, examples []any) {
 	if strings.TrimSpace(observation.Source.Canonical) == "" || strings.TrimSpace(observation.Value.Selector) == "" {
 		return
 	}
@@ -137,9 +136,9 @@ func (s *fieldCatalogStats) addSemanticObservation(observation codedconcept.Obse
 		if len(s.semanticObservations) >= maxSemanticObservations {
 			return
 		}
-		observation.SchemaVersion = codedconcept.ObservationSchemaVersion
+		observation.SchemaVersion = semantic.ObservationSchemaVersion
 		if observation.Completeness == "" {
-			observation.Completeness = codedconcept.Complete
+			observation.Completeness = semantic.CompletenessComplete
 		}
 		stat = &semanticObservationStats{observation: observation, exampleSet: map[string]struct{}{}, unitSet: map[string]struct{}{}}
 		s.semanticObservations[key] = stat
@@ -149,13 +148,13 @@ func (s *fieldCatalogStats) addSemanticObservation(observation codedconcept.Obse
 		stat.unitSet[unit] = struct{}{}
 	}
 	for _, value := range examples {
-		if text, valid := codedconcept.SafeExample(value); valid {
+		if text, valid := semantic.SafeExample(value); valid {
 			addBoundedSemanticExample(stat, text)
 		}
 	}
 }
 
-func semanticObservationKey(observation codedconcept.Observation) string {
+func semanticObservationKey(observation semantic.Observation) string {
 	return strings.Join([]string{
 		observation.Source.Canonical, observation.Source.Profile, observation.Source.Path,
 		observation.OwningScope, strings.Join(observation.ExtensionURLPath, "\x1f"),
@@ -188,7 +187,7 @@ func addBoundedSemanticExample(stat *semanticObservationStats, value string) {
 	}
 }
 
-func semanticObservationValues(stat *semanticObservationStats) codedconcept.Observation {
+func semanticObservationValues(stat *semanticObservationStats) semantic.Observation {
 	observation := stat.observation
 	observation.Examples = make([]string, 0, len(stat.exampleSet))
 	for value := range stat.exampleSet {
@@ -201,7 +200,7 @@ func semanticObservationValues(stat *semanticObservationStats) codedconcept.Obse
 	}
 	sort.Strings(observation.ObservedUnits)
 	if observation.ExamplesTruncated {
-		observation.Completeness = codedconcept.Partial
+		observation.Completeness = semantic.Partial
 	}
 	return observation
 }
@@ -237,8 +236,8 @@ func mergeSemanticObservations(destination, source *fieldCatalogStats) {
 	}
 }
 
-func (p *Profiler) semanticInventoryContribution(sourceID string, ordinal int, observation codedconcept.Observation, examples []any) semanticinventory.Contribution {
-	source := semanticinventory.ContributionSource{
+func (p *Profiler) semanticInventoryContribution(sourceID string, ordinal int, observation semantic.Observation, examples []any) semantic.Contribution {
+	source := semantic.ContributionSource{
 		Project: p.project, DatasetGeneration: p.datasetGeneration, BuildID: p.semanticInventoryBuildID,
 		AuthResourcePath: p.authResourcePath, ResourceType: p.resourceType, Kind: p.semanticSourceKind,
 	}

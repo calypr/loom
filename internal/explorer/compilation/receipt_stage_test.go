@@ -2,15 +2,15 @@ package compilation
 
 import (
 	"encoding/json"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/explorer"
 )
 
 func TestConstructionStageWithoutRelatedAnchorsSurvivesReceiptJSON(t *testing.T) {
-	stage, err := ReceiptConstructionStageFromDescriptor(lower.CompiledStageDescriptor{ID: "group", Operation: "GROUP"})
+	stage, err := ReceiptConstructionStageFromDescriptor(facade.CompiledStageDescriptor{ID: "group", Operation: "GROUP"})
 	if err != nil {
 		t.Fatal(err)
 	}

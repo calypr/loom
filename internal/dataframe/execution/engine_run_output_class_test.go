@@ -10,7 +10,7 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 type runOutputRegistry struct{ loads int }
@@ -44,8 +44,8 @@ func runOutputResolved(names ...string) Resolved {
 	compiled := lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{Name: "patients", RootResourceType: "Patient"}}}
 	return Resolved{
 		Bundle: recipe.Bundle{Name: "patients"},
-		Semantic: semantic.ResolvedRecipePlan{
-			SemanticPlan: semantic.RecipePlan{Bindings: recipe.RuntimeBindings{Project: "HTAN_INT/project-a", OutputNames: names}},
+		Semantic: recipeplan.ResolvedRecipePlan{
+			SemanticPlan: recipeplan.RecipePlan{Bindings: recipe.RuntimeBindings{Project: "HTAN_INT/project-a", OutputNames: names}},
 		},
 		Compiled: compiled,
 	}

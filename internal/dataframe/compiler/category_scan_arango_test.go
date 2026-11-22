@@ -13,7 +13,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -114,11 +114,11 @@ func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing
 		t.Helper()
 		bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
 		bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
-		plan, err := semantic.BuildRecipePlan(bundle, bindings)
+		plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 		if err != nil {
 			t.Fatal(err)
 		}
-		resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+		resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -274,11 +274,11 @@ func TestRootQuantityCategoryScanAugmentsStoredParentIndexAgainstArango(t *testi
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{allowedPath},
 	}
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
 	if err != nil {
 		t.Fatal(err)
 	}

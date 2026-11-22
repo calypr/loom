@@ -7,7 +7,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func TestCompileRecipeOutputPageOrdersMixedRelatedFilterSequences(t *testing.T) {
@@ -160,11 +160,11 @@ func compileRelatedConstructionPage(t *testing.T, name string, output recipe.Out
 		Outputs: []recipe.Output{output},
 	}
 	bindings := recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a"}
-	semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
+	semanticPlan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(semanticPlan, "scope-a", bindings.DatasetGeneration)
+	resolved, err := recipeplan.ResolveRecipePlan(semanticPlan, "scope-a", bindings.DatasetGeneration)
 	if err != nil {
 		t.Fatal(err)
 	}

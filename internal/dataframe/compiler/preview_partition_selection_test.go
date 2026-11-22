@@ -10,14 +10,14 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestPreviewProjectionPlansLargeQueryWithFewerThan160Columns(t *testing.T) {
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Fields: []semantic.SemanticField{{Name: "id", FieldRef: "Patient.id", Expr: semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionScalar}},
+		Fields: []recipeplan.SemanticField{{Name: "id", FieldRef: "Patient.id", Expr: recipeplan.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionScalar}},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -72,7 +72,7 @@ func TestPreviewProjectionGroupsSeparateHiddenMetadataAndStayDeterministic(t *te
 }
 
 func TestPreviewProjectionPlanEmitsMetadataByItself(t *testing.T) {
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Fields: []semantic.SemanticField{{Name: "id", FieldRef: "Patient.id", Expr: semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionScalar}}}})
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient", Fields: []recipeplan.SemanticField{{Name: "id", FieldRef: "Patient.id", Expr: recipeplan.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionScalar}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestPreviewProjectionPlanEmitsMetadataByItself(t *testing.T) {
 }
 
 func TestPreviewProjectionPlanDeclinesExcessiveRetainedPrefix(t *testing.T) {
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Fields: []semantic.SemanticField{{Name: "id", FieldRef: "Patient.id", Expr: semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionScalar}}}})
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient", Fields: []recipeplan.SemanticField{{Name: "id", FieldRef: "Patient.id", Expr: recipeplan.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionScalar}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

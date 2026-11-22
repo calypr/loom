@@ -9,7 +9,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func TestExpandedWindowSortsStableIdentityBeforeUnrelatedSets(t *testing.T) {
@@ -90,11 +90,11 @@ func compileWindowExpansionOutput(t *testing.T) lower.CompiledRecipeOutput {
 			},
 		}},
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}

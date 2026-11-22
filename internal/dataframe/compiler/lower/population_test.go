@@ -7,7 +7,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func TestPopulationRootSourceStartsFromMembersWithoutProvenance(t *testing.T) {
@@ -297,13 +297,13 @@ func compilePopulationRecipe(t *testing.T, output recipe.Output) (aql.RenderedPh
 		TranslationVersion:  "population-test",
 		Outputs:             []recipe.Output{output},
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{
 		Project: "fixture_program-project-a", SelectionProject: "fixture_program/project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-a", "generation-a")
 	if err != nil {
 		t.Fatal(err)
 	}

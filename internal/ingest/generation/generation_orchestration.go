@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/ingest/bootstrap"
+	ingestevent "github.com/calypr/loom/internal/ingest/event"
+	"github.com/calypr/loom/internal/ingest/row"
+	"github.com/calypr/loom/internal/ingest/source"
 	"os"
 	"path/filepath"
 	"sync"
@@ -13,10 +17,9 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	publication "github.com/calypr/loom/internal/dataset"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
@@ -54,7 +57,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	opts = normalizeLoadOptions(opts)
 
 	start := time.Now()
-	files, err := ingest.DiscoverNDJSON(opts.MetaDir)
+	files, err := source.DiscoverNDJSON(opts.MetaDir)
 	if err != nil {
 		return LoadSummary{}, err
 	}
@@ -65,26 +68,26 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		StageSeconds: map[string]float64{},
 	}
 
-	schemaIdentity, schema, err := ingest.LoadSchema()
+	schemaIdentity, schema, err := source.LoadSchema()
 	if err != nil {
 		return summary, err
 	}
 	summary.SchemaIdentity = &schemaIdentity
 	preflightSampleRows := opts.PreflightSampleRows
 	if preflightSampleRows <= 0 {
-		preflightSampleRows = ingest.DefaultPreflightSampleRows
+		preflightSampleRows = source.DefaultPreflightSampleRows
 	}
-	ingest.EmitEvent(opts.EventSink, "go_preflight_start", map[string]any{
+	ingestevent.EmitEvent(opts.EventSink, "go_preflight_start", map[string]any{
 		"files":              len(files),
 		"sampleRows":         preflightSampleRows,
 		"schemaSha256":       schemaIdentity.SchemaSHA256,
 		"generatedRootCount": len(schemaIdentity.GeneratedResourceTypes),
 	})
 	preflightStart := time.Now()
-	preflight, err := ingest.PreflightFiles(files, schema, preflightSampleRows)
+	preflight, err := source.PreflightFiles(files, schema, preflightSampleRows)
 	summary.Preflight = preflight
 	summary.StageSeconds["preflight"] = time.Since(preflightStart).Seconds()
-	ingest.EmitEvent(opts.EventSink, "go_preflight_complete", map[string]any{
+	ingestevent.EmitEvent(opts.EventSink, "go_preflight_complete", map[string]any{
 		"files":     len(files),
 		"resources": len(preflight.Resources),
 		"issues":    len(preflight.Issues),
@@ -117,13 +120,13 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		resourceTypes = append(resourceTypes, resource.ResourceType)
 	}
 
-	ingest.EmitEvent(opts.EventSink, "go_backend_connect_start", map[string]any{
+	ingestevent.EmitEvent(opts.EventSink, "go_backend_connect_start", map[string]any{
 		"backend":  "arango",
 		"url":      opts.URL,
 		"database": opts.Database,
 	})
 	connectStart := time.Now()
-	client, err := ingest.OpenBackend(ctx, opts.ConnectionOptions)
+	client, err := bootstrap.OpenBackend(ctx, opts.ConnectionOptions)
 	if err != nil {
 		return summary, err
 	}
@@ -134,7 +137,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err != nil {
 		return summary, err
 	}
-	ingest.EmitEvent(opts.EventSink, "go_backend_connect_complete", map[string]any{
+	ingestevent.EmitEvent(opts.EventSink, "go_backend_connect_complete", map[string]any{
 		"backend":  "arango",
 		"url":      opts.URL,
 		"database": opts.Database,
@@ -143,21 +146,21 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 
 	bootstrapStart := time.Now()
 
-	ingest.EmitEvent(opts.EventSink, "go_bootstrap_start", map[string]any{
+	ingestevent.EmitEvent(opts.EventSink, "go_bootstrap_start", map[string]any{
 		"database":    opts.Database,
 		"resources":   0,
 		"truncate":    false,
 		"collections": "dataset_lifecycle",
 	})
-	if err = client.Bootstrap(ctx, ingest.LifecycleBootstrapSpecWithReporter(opts.EventSink)); err != nil {
+	if err = client.Bootstrap(ctx, bootstrap.LifecycleBootstrapSpecWithReporter(opts.EventSink)); err != nil {
 		return summary, err
 	}
-	ingest.EmitEvent(opts.EventSink, "go_bootstrap_start", map[string]any{
+	ingestevent.EmitEvent(opts.EventSink, "go_bootstrap_start", map[string]any{
 		"database":  opts.Database,
 		"resources": len(resourceTypes),
 		"truncate":  false,
 	})
-	if err = client.Bootstrap(ctx, ingest.BootstrapSpecWithReporter(resourceTypes, false, opts.EventSink)); err != nil {
+	if err = client.Bootstrap(ctx, bootstrap.BootstrapSpecWithReporter(resourceTypes, false, opts.EventSink)); err != nil {
 		return summary, err
 	}
 	summary.StageSeconds["bootstrap"] = time.Since(bootstrapStart).Seconds()
@@ -181,8 +184,8 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			return err
 		})
 	}()
-	inventoryBuild := semanticinventory.NewBuild(opts.Project, plan.Dataset.Generation, opts.AuthResourcePath)
-	inventoryBuild.EntryIndexVersion = semanticinventory.EntryIndexVersion
+	inventoryBuild := semantic.NewBuild(opts.Project, plan.Dataset.Generation, opts.AuthResourcePath)
+	inventoryBuild.EntryIndexVersion = semantic.EntryIndexVersion
 	if err = catalogStore.BeginSemanticInventoryBuild(ctx, inventoryBuild); err != nil {
 		return summary, err
 	}
@@ -199,7 +202,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	catalogs := make(map[generationCatalogKey]*fieldprofile.Profiler)
 	relationshipCounts := make(map[catalog.RelationshipKey]int64)
 	lastInventoryCheckpoint := ""
-	rowErrorCandidates := make([][]ingest.RowErrorSample, len(files))
+	rowErrorCandidates := make([][]row.RowErrorSample, len(files))
 	defer func() {
 		summary.RowErrors = selectGenerationRowErrorSamples(rowErrorCandidates)
 	}()
@@ -215,28 +218,28 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		if event == "go_load_progress" {
 			fields["vertices_inserted"] = int(atomic.LoadInt64(&insertCounters.vertices))
 			fields["edges_inserted"] = int(atomic.LoadInt64(&insertCounters.edges))
-			fields["seconds"] = ingest.SecondsSince(start)
+			fields["seconds"] = ingestevent.SecondsSince(start)
 		}
-		ingest.EmitEvent(eventSink, event, fields)
+		ingestevent.EmitEvent(eventSink, event, fields)
 	}
 	opts.fileInsertedCounters = insertCounters
 	shapeCaches := make(map[string]*fieldprofile.ShapePlanCache)
 	for _, file := range files {
-		resourceType := ingest.ResourceTypeFromPath(file)
+		resourceType := source.ResourceTypeFromPath(file)
 		if shapeCaches[resourceType] == nil {
 			shapeCaches[resourceType] = fieldprofile.NewShapePlanCacheWithLimits(opts.CatalogLimits.MaxShapePlans, opts.CatalogLimits.MaxRetainedBytes)
 		}
 	}
 	loadErr := runGenerationFiles(ctx, opts, files, func(fileCtx context.Context, fileOpts LoadOptions, index int, file string) error {
 		fileStart := time.Now()
-		resourceType := ingest.ResourceTypeFromPath(file)
-		ingest.EmitEvent(fileOpts.EventSink, "go_load_file_start", map[string]any{"file": file, "resource": resourceType})
+		resourceType := source.ResourceTypeFromPath(file)
+		ingestevent.EmitEvent(fileOpts.EventSink, "go_load_file_start", map[string]any{"file": file, "resource": resourceType})
 		fileOpts.fileShapePlanCache = shapeCaches[resourceType]
 
-		result, fileErr := fileLoader{options: fileOpts, client: client, schema: schema, datasetGeneration: plan.Dataset.Generation, overwrite: false, insert: ingest.InsertRawDocuments}.load(fileCtx, file, start, 0, 0)
+		result, fileErr := fileLoader{options: fileOpts, client: client, schema: schema, datasetGeneration: plan.Dataset.Generation, overwrite: false, insert: bootstrap.InsertRawDocuments}.load(fileCtx, file, start, 0, 0)
 		checkpointErr := outcomes.complete(ctx, index, result, fileErr)
 		if fileErr == nil && checkpointErr == nil {
-			ingest.EmitEvent(fileOpts.EventSink, "go_load_file_complete", map[string]any{
+			ingestevent.EmitEvent(fileOpts.EventSink, "go_load_file_complete", map[string]any{
 				"file":          filepath.Base(file),
 				"resource":      result.ResourceType,
 				"file_rows":     result.Rows,
@@ -341,7 +344,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		now := time.Now()
 		seconds := now.Sub(finalizationStart).Seconds()
 		summary.StageSeconds[stage] = seconds
-		ingest.EmitEvent(opts.EventSink, "go_load_finalization", map[string]any{"stage": stage, "seconds": seconds})
+		ingestevent.EmitEvent(opts.EventSink, "go_load_finalization", map[string]any{"stage": stage, "seconds": seconds})
 		finalizationStart = now
 	}
 	for _, key := range sortedGenerationCatalogKeys(catalogs) {
@@ -381,7 +384,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if inventoryErr != nil {
 		return summary, fmt.Errorf("build resource inventory for dataset generation %s/%s: %w", plan.Dataset.Project, plan.Dataset.Generation, inventoryErr)
 	}
-	ingest.EmitEvent(opts.EventSink, "go_resource_inventory_complete", map[string]any{
+	ingestevent.EmitEvent(opts.EventSink, "go_resource_inventory_complete", map[string]any{
 		"dataset_generation": plan.Dataset.Generation, "build_id": resourceInventorySummary.BuildID,
 		"resource_type_count": resourceInventorySummary.ResourceTypeCount, "count_row_count": resourceInventorySummary.CountRowCount,
 		"document_count": resourceInventorySummary.DocumentCount,
@@ -406,7 +409,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		recordFinalization("activation")
 	}
 
-	ingest.EmitEvent(opts.EventSink, "go_load_complete", map[string]any{
+	ingestevent.EmitEvent(opts.EventSink, "go_load_complete", map[string]any{
 		"write_stats":        writeStats.summary(),
 		"files":              summary.Files,
 		"vertices_inserted":  summary.VerticesInserted,
@@ -415,7 +418,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		"generation_errors":  summary.GenerationErrors,
 		"edge_errors":        summary.EdgeErrors,
 		"dataset_generation": plan.Dataset.Generation,
-		"seconds":            ingest.SecondsSince(start),
+		"seconds":            ingestevent.SecondsSince(start),
 	})
 	return summary, nil
 }

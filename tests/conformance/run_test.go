@@ -10,7 +10,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
@@ -27,11 +27,11 @@ func Run(fixture Fixture) Result {
 
 func compileRecipe(bundle recipe.Bundle, project string, limit int, policy ir.PhysicalOptimizationPolicy) (compiler.CompiledQuery, error) {
 	bindings := recipe.RuntimeBindings{Project: project}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		return compiler.CompiledQuery{}, err
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "conformance", "")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "conformance", "")
 	if err != nil {
 		return compiler.CompiledQuery{}, err
 	}

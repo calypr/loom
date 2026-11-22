@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"sort"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -221,7 +221,7 @@ func validatePreparedExecution(resolved execution.Resolved, published publicatio
 
 func projectConfigOutputMetadata(
 	bundle recipe.Bundle,
-	compiledOutputs []lower.CompiledRecipeOutput,
+	compiledOutputs []facade.CompiledRecipeOutput,
 	executionValue publication.BundleExecution,
 	retained map[string]map[string]struct{},
 ) ([]explorer.EmittedColumn, explorer.PublicOutputContracts, map[string]map[string]explorer.EmittedColumn, map[string][]publication.PhysicalColumn, error) {

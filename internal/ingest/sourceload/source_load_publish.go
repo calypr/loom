@@ -9,8 +9,8 @@ import (
 	"time"
 
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	dataset "github.com/calypr/loom/internal/dataset"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operationID string) (SourcePublishReceipt, error) {
@@ -82,7 +82,7 @@ func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operation
 		if err != nil {
 			return SourcePublishReceipt{}, err
 		}
-		build := semanticinventory.NewBuild(project, record.Generation, record.Plan.AuthResourcePath)
+		build := semantic.NewBuild(project, record.Generation, record.Plan.AuthResourcePath)
 		if err := inventory.CompleteSemanticInventoryBuild(workCtx, build, totalRows, ""); err != nil {
 			return SourcePublishReceipt{}, fmt.Errorf("complete candidate semantic inventory: %w", err)
 		}

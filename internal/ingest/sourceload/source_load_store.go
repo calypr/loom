@@ -7,7 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/bootstrap"
+	"github.com/calypr/loom/internal/ingest/source"
 	"log/slog"
 	"strings"
 	"time"
@@ -119,11 +120,11 @@ func (p *RepositorySourceLoader) Begin(ctx context.Context, project, operationID
 		return SourceLoadStatus{}, err
 	}
 	bootstrapStarted := time.Now()
-	schemaIdentity, err := ingest.LoadSchemaSnapshot()
+	schemaIdentity, err := source.LoadSchemaSnapshot()
 	if err != nil {
 		return SourceLoadStatus{}, err
 	}
-	if err := p.client.Bootstrap(ctx, ingest.BootstrapSpecWithReporter(schemaIdentity.GeneratedResourceTypes, false, nil)); err != nil {
+	if err := p.client.Bootstrap(ctx, bootstrap.BootstrapSpecWithReporter(schemaIdentity.GeneratedResourceTypes, false, nil)); err != nil {
 		return SourceLoadStatus{}, fmt.Errorf("bootstrap source-load graph collections: %w", err)
 	}
 	if err := p.client.Bootstrap(ctx, datasetarango.BootstrapSpec()); err != nil {
@@ -407,7 +408,7 @@ func (p *RepositorySourceLoader) ensureSourceLoadCandidate(ctx context.Context, 
 	workCtx, stopLease := p.renewCandidateCopyLease(ctx, record.Key, owner)
 	defer stopLease()
 
-	schemaIdentity, err := ingest.LoadSchemaSnapshot()
+	schemaIdentity, err := source.LoadSchemaSnapshot()
 	if err != nil {
 		return err
 	}

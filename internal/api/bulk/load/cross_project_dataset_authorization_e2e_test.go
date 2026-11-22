@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	ingestevent "github.com/calypr/loom/internal/ingest/event"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -13,7 +14,6 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	dataframepublication "github.com/calypr/loom/internal/dataframe/publication"
 	publication "github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/ingest"
 	"github.com/calypr/loom/internal/ingest/generation"
 )
 
@@ -140,7 +140,7 @@ func multipartGenerationBody(t *testing.T) *multipart.Reader {
 
 func TestCrossProjectDatasetPublishGateIsProjectBound(t *testing.T) {
 	var requests []GenerationLoadRequest
-	loader := func(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
+	loader := func(_ context.Context, req GenerationLoadRequest, _ ingestevent.EventSink) (generation.LoadSummary, error) {
 		requests = append(requests, req)
 		return generation.LoadSummary{}, nil
 	}
@@ -169,7 +169,7 @@ func TestCrossProjectDatasetActivateGateIsProjectBound(t *testing.T) {
 	handler := newTestHandler(t, []string{"/projA/data"}, map[string][]string{
 		"projA": {"/projA/data"},
 		"projB": {"/projB/data"},
-	}, func(context.Context, GenerationLoadRequest, ingest.EventSink) (generation.LoadSummary, error) {
+	}, func(context.Context, GenerationLoadRequest, ingestevent.EventSink) (generation.LoadSummary, error) {
 		t.Fatal("activate leg must not load generations")
 		return generation.LoadSummary{}, nil
 	}, activator, stubReleases{execution: victimBundle("projB", "g1", "exec-victim")})
@@ -190,7 +190,7 @@ func TestCrossProjectDatasetActivateGateIsProjectBound(t *testing.T) {
 
 func TestDatasetPublishControlsSameProjectOwnerAndEmptyGrant(t *testing.T) {
 	ownerLoaderCalls := 0
-	loader := func(_ context.Context, _ GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
+	loader := func(_ context.Context, _ GenerationLoadRequest, _ ingestevent.EventSink) (generation.LoadSummary, error) {
 		ownerLoaderCalls++
 		return generation.LoadSummary{}, nil
 	}
@@ -213,7 +213,7 @@ func TestDatasetPublishControlsSameProjectOwnerAndEmptyGrant(t *testing.T) {
 
 func TestDatasetPublishNewProjectBootstrapRemainsPossible(t *testing.T) {
 	loaderCalls := 0
-	loader := func(_ context.Context, _ GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
+	loader := func(_ context.Context, _ GenerationLoadRequest, _ ingestevent.EventSink) (generation.LoadSummary, error) {
 		loaderCalls++
 		return generation.LoadSummary{}, nil
 	}

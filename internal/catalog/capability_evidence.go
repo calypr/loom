@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/calypr/loom/internal/catalog/codedconcept"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func canonicalDigest(value any) (string, error) {
@@ -119,7 +119,7 @@ func cloneFieldEnrichment(in []FieldEnrichmentObservation) []FieldEnrichmentObse
 		for j := range out[i].ExtensionValues {
 			out[i].ExtensionValues[j].URLPath = append([]string(nil), in[i].ExtensionValues[j].URLPath...)
 		}
-		out[i].SemanticObservations = append([]codedconcept.Observation(nil), in[i].SemanticObservations...)
+		out[i].SemanticObservations = append([]semantic.Observation(nil), in[i].SemanticObservations...)
 		for j := range out[i].SemanticObservations {
 			out[i].SemanticObservations[j].ExtensionURLPath = append([]string(nil), in[i].SemanticObservations[j].ExtensionURLPath...)
 			out[i].SemanticObservations[j].ObservedUnits = append([]string(nil), in[i].SemanticObservations[j].ObservedUnits...)

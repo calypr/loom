@@ -9,7 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/row"
+	"github.com/calypr/loom/internal/ingest/source"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,7 +18,7 @@ import (
 
 const sourceFileIssueLimit = 100
 
-func validateSourceLoadFile(ctx context.Context, localPath, filePath, project, authResourcePath, generation string, schema *ingest.RuntimeFHIRSchema) (digest string, rows int64, validation *SourceFileValidationError, err error) {
+func validateSourceLoadFile(ctx context.Context, localPath, filePath, project, authResourcePath, generation string, schema *source.RuntimeFHIRSchema) (digest string, rows int64, validation *SourceFileValidationError, err error) {
 	resourceType, err := canonicalSourceResourceType(filePath)
 	if err != nil {
 		return "", 0, nil, err
@@ -25,11 +26,11 @@ func validateSourceLoadFile(ctx context.Context, localPath, filePath, project, a
 	if !schema.HasClass(resourceType) {
 		return "", 0, nil, fmt.Errorf("resource type %s is not in the generated FHIR resource registry", resourceType)
 	}
-	if !ingest.SupportsGeneratedLoad(resourceType) {
+	if !row.SupportsGeneratedLoad(resourceType) {
 		return "", 0, nil, fmt.Errorf("resource type %q has no generated loader", resourceType)
 	}
-	var builder ingest.RowBuilder = ingest.NewGeneratedRowBuilder(project, authResourcePath)
-	builder, err = ingest.NewGenerationRowBuilder(builder, project, generation)
+	var builder row.RowBuilder = row.NewGeneratedRowBuilder(project, authResourcePath)
+	builder, err = row.NewGenerationRowBuilder(builder, project, generation)
 	if err != nil {
 		return "", 0, nil, err
 	}
@@ -57,7 +58,7 @@ func validateSourceLoadFile(ctx context.Context, localPath, filePath, project, a
 		var envelope struct {
 			ResourceType string `json:"resourceType"`
 		}
-		category := ingest.RowErrorValidation
+		category := row.RowErrorValidation
 		var rowErr error
 		if decodeErr := json.Unmarshal(line, &envelope); decodeErr != nil {
 			rowErr = decodeErr
@@ -69,13 +70,13 @@ func validateSourceLoadFile(ctx context.Context, localPath, filePath, project, a
 		if rowErr == nil {
 			continue
 		}
-		located := &ingest.RowError{File: filepath.Base(filePath), Row: lineNumber, ResourceType: resourceType, Category: string(category), Cause: rowErr}
-		if category != ingest.RowErrorValidation {
+		located := &row.RowError{File: filepath.Base(filePath), Row: lineNumber, ResourceType: resourceType, Category: string(category), Cause: rowErr}
+		if category != row.RowErrorValidation {
 			return "", rows, nil, located
 		}
 		failures.TotalErrors++
 		if len(failures.Issues) < sourceFileIssueLimit {
-			failures.Issues = append(failures.Issues, ingest.RowErrorSample{File: located.File, Line: lineNumber, ResourceType: resourceType, Category: string(category), Message: located.PublicMessage()})
+			failures.Issues = append(failures.Issues, row.RowErrorSample{File: located.File, Line: lineNumber, ResourceType: resourceType, Category: string(category), Message: located.PublicMessage()})
 		}
 	}
 	if scanErr := scanner.Err(); scanErr != nil {

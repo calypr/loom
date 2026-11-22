@@ -3,9 +3,9 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -17,7 +17,7 @@ func TestRowLineageBindsReceiptAndDefaultsToBoundedPage(t *testing.T) {
 	receipt := nativeReceipt(snapshot)
 	config := testConfig(snapshot)
 	config.RowLineage = func(_ context.Context, gotReceipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error) {
-		if gotReceipt.ID != receipt.ID || bindings.DatasetGeneration != receipt.SourceGeneration || request.Output != "patients" || request.RowID != "row-7" || request.Offset != 0 || request.Limit != compiler.DefaultRowLineageLimit {
+		if gotReceipt.ID != receipt.ID || bindings.DatasetGeneration != receipt.SourceGeneration || request.Output != "patients" || request.RowID != "row-7" || request.Offset != 0 || request.Limit != facade.DefaultRowLineageLimit {
 			t.Fatalf("unexpected lineage invocation: receipt=%#v bindings=%#v request=%#v", gotReceipt, bindings, request)
 		}
 		return dataframeexecution.RowLineageResult{Contributors: []dataframeexecution.RowLineageContributor{}, HasMore: true, NextOffset: request.Limit}, nil
@@ -29,7 +29,7 @@ func TestRowLineageBindsReceiptAndDefaultsToBoundedPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.ReceiptID != receipt.ID || result.Status != "COMPLETE" || !result.HasMore || result.NextOffset == nil || *result.NextOffset != compiler.DefaultRowLineageLimit || result.Contributors == nil {
+	if result.ReceiptID != receipt.ID || result.Status != "COMPLETE" || !result.HasMore || result.NextOffset == nil || *result.NextOffset != facade.DefaultRowLineageLimit || result.Contributors == nil {
 		t.Fatalf("unexpected row lineage page: %#v", result)
 	}
 }
@@ -56,7 +56,7 @@ func TestRowLineageMapsUnsupportedConstructionCapability(t *testing.T) {
 	receipt := nativeReceipt(snapshot)
 	config := testConfig(snapshot)
 	config.RowLineage = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error) {
-		return dataframeexecution.RowLineageResult{}, &compiler.RowLineageUnsupportedError{Capability: compiler.RowLineageCapability{
+		return dataframeexecution.RowLineageResult{}, &facade.RowLineageUnsupportedError{Capability: facade.RowLineageCapability{
 			ReasonCode: "ROW_LINEAGE_OPERATION_UNSUPPORTED", Operation: "PIVOT",
 		}}
 	}

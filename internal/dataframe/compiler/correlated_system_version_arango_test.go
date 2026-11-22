@@ -10,7 +10,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/google/uuid"
 )
@@ -58,9 +58,9 @@ FOR document IN Observation
 		SystemPath: "system", CodePath: "code", ValuePath: "display",
 		ValueFallback: []string{"code"}, FallbackOnBlankString: true, LogicalType: "string",
 	}
-	root := semantic.SemanticNode{
+	root := recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Observation",
-		Pivots: []semantic.SemanticPivot{
+		Pivots: []recipeplan.SemanticPivot{
 			{
 				Name: "system_version_v1", Columns: []string{"all_codes"},
 				ColumnAliases: map[string]string{"all_codes": "version_v1_values"}, ProjectionMode: "ALL",
@@ -79,8 +79,8 @@ FOR document IN Observation
 		},
 	}
 	physical, err := lower.BuildGenericPhysicalPlanWithPolicy(
-		semantic.OutputPlan{Root: root},
-		semantic.ExecutionContext{Project: project, DatasetGeneration: generation},
+		recipeplan.OutputPlan{Root: root},
+		recipeplan.ExecutionContext{Project: project, DatasetGeneration: generation},
 		ir.DefaultPhysicalOptimizationPolicy(),
 	)
 	if err != nil {

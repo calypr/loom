@@ -3,16 +3,15 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -95,19 +94,19 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 			scan.ColumnID != "pivot_category_id" || scan.ValueColumnID != "pivot_value_id" || !scan.RequireValue {
 			t.Fatalf("lifecycle did not pass the exact filtered discovery pair: receipt=%#v scan=%#v", receipt, scan)
 		}
-		plan, err := semantic.BuildRecipePlan(receipt.Bundle, bindings)
+		plan, err := recipeplan.BuildRecipePlan(receipt.Bundle, bindings)
 		if err != nil {
 			t.Fatalf("build lifecycle receipt recipe: %v", err)
 		}
-		resolved, err := semantic.ResolveRecipePlan(plan, receipt.AuthorizationScopeDigest, bindings.DatasetGeneration)
+		resolved, err := recipeplan.ResolveRecipePlan(plan, receipt.AuthorizationScopeDigest, bindings.DatasetGeneration)
 		if err != nil {
 			t.Fatalf("resolve lifecycle receipt recipe: %v", err)
 		}
-		compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+		compiled, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("lower lifecycle receipt recipe: %v", err)
 		}
-		query, err := compiler.CompileCategoryScanStageRequiringValue(compiled.Outputs[0], scan.StageID, scan.ColumnID, scan.ValueColumnID, scan.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := facade.CompileCategoryScanStageRequiringValue(compiled.Outputs[0], scan.StageID, scan.ColumnID, scan.ValueColumnID, scan.MaxValues, facade.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("compile lifecycle category stage: %v", err)
 		}

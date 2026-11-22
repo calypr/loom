@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -17,7 +17,7 @@ import (
 )
 
 func TestDiscoverConstructionCategoriesClassifiesScanFailures(t *testing.T) {
-	refusal := &compiler.CategoryScanRefusal{Code: compiler.CategoryScanStageUnknown, Column: "private-column"}
+	refusal := &facade.CategoryScanRefusal{Code: facade.CategoryScanStageUnknown, Column: "private-column"}
 	tests := []struct {
 		name      string
 		scanErr   error
@@ -30,7 +30,7 @@ func TestDiscoverConstructionCategoriesClassifiesScanFailures(t *testing.T) {
 			name:      "wrapped compiler refusal",
 			scanErr:   fmt.Errorf("compile category query: %w", refusal),
 			wantClass: ports.ClassUnprocessable,
-			wantCode:  string(compiler.CategoryScanStageUnknown),
+			wantCode:  string(facade.CategoryScanStageUnknown),
 			wantCause: refusal,
 		},
 		{

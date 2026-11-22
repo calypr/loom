@@ -3,16 +3,14 @@ package compilation
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
-	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -286,15 +284,15 @@ func TestCompileSourceOnlyConstructionCarriesColumnIDsIntoStageDescriptors(t *te
 	if !reflect.DeepEqual(compiled.Bundle.Outputs[0].Construction.SourceColumns, wantSource) {
 		t.Fatalf("source construction schema = %#v, want %#v", compiled.Bundle.Outputs[0].Construction.SourceColumns, wantSource)
 	}
-	plan, err := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation-a"})
+	plan, err := recipeplan.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-a", "generation-a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	lowered, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	lowered, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +333,7 @@ func TestCompileRelatedScalarProjectionsFeedGroupedRowValues(t *testing.T) {
 			if len(group.RowValues) != 1 || group.RowValues[0].InputMany != test.wantInputMany || group.RowValues[0].Policy != string(test.policy) {
 				t.Fatalf("grouped related row value = %#v; want InputMany=%v Policy=%s", group.RowValues, test.wantInputMany, test.policy)
 			}
-			var relatedIDs *lower.CompiledOutputColumn
+			var relatedIDs *facade.CompiledOutputColumn
 			for index := range lowered.Outputs[0].Stages[1].Columns {
 				column := &lowered.Outputs[0].Stages[1].Columns[index]
 				if column.ID == "observation_ids" {
@@ -375,7 +373,7 @@ func TestCompileRootScalarAllStillRequiresAdvertisedMode(t *testing.T) {
 	}
 }
 
-func compileRelatedScalarGroupRowValue(t *testing.T, projection string, policy authoringv2.ConstructionRowValuePolicy, outputType string) (lower.CompiledRecipe, aql.RenderedPhysicalPlan) {
+func compileRelatedScalarGroupRowValue(t *testing.T, projection string, policy authoringv2.ConstructionRowValuePolicy, outputType string) (facade.CompiledRecipe, facade.RenderedPhysicalPlan) {
 	t.Helper()
 	snapshot := contributorSnapshot()
 	snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{
@@ -418,19 +416,19 @@ func compileRelatedScalarGroupRowValue(t *testing.T, projection string, policy a
 	if err != nil {
 		t.Fatalf("compile related scalar %s into grouped row values: %v", projection, err)
 	}
-	plan, err := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"})
+	plan, err := recipeplan.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-a", "generation-a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	lowered, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	lowered, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("lower related scalar %s into grouped row values: %v", projection, err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(lowered.Outputs[0].Plan)
+	rendered, err := facade.RenderPhysicalPlan(lowered.Outputs[0].Plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,17 +519,17 @@ func TestCompileIndexedSourceChildrenReachCompilerStageCapabilities(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolve := func(result Result) lower.CompiledRecipeOutput {
+	resolve := func(result Result) facade.CompiledRecipeOutput {
 		t.Helper()
-		plan, err := semantic.BuildRecipePlan(result.Bundle, recipe.RuntimeBindings{Project: "project-a"})
+		plan, err := recipeplan.BuildRecipePlan(result.Bundle, recipe.RuntimeBindings{Project: "project-a"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+		resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-a", "generation-a")
 		if err != nil {
 			t.Fatal(err)
 		}
-		physical, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+		physical, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -542,7 +540,7 @@ func TestCompileIndexedSourceChildrenReachCompilerStageCapabilities(t *testing.T
 	if len(output.Stages) == 0 || output.Stages[0].ID != recipe.ConstructionSourceProjectionID {
 		t.Fatalf("compiled source stages = %#v", output.Stages)
 	}
-	stageColumns := make(map[string]lower.CompiledOutputColumn)
+	stageColumns := make(map[string]facade.CompiledOutputColumn)
 	for _, column := range output.Stages[0].Columns {
 		if !column.Internal {
 			stageColumns[column.Name] = column
@@ -551,7 +549,7 @@ func TestCompileIndexedSourceChildrenReachCompilerStageCapabilities(t *testing.T
 	if len(stageColumns) != len(compiled.EmittedColumns) {
 		t.Fatalf("source stage has %d public columns, compiler emitted %d: %#v", len(stageColumns), len(compiled.EmittedColumns), stageColumns)
 	}
-	var filterColumn lower.CompiledOutputColumn
+	var filterColumn facade.CompiledOutputColumn
 	var sharedCountID string
 	for _, emission := range compiled.EmittedColumns {
 		column, ok := stageColumns[emission.PublicColumn]

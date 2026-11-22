@@ -5,18 +5,18 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	semanticpkg "github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
-func BuildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context semanticpkg.ExecutionContext, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
+func BuildGenericPhysicalPlanWithPolicy(output recipeplan.OutputPlan, context recipeplan.ExecutionContext, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
 	return buildGenericPhysicalPlanWithPolicy(output, context, policy, nil)
 }
 
-func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context semanticpkg.ExecutionContext, policy ir.PhysicalOptimizationPolicy, lowerer semanticFieldProjectionLowerer) (ir.PhysicalPlan, error) {
+func buildGenericPhysicalPlanWithPolicy(output recipeplan.OutputPlan, context recipeplan.ExecutionContext, policy ir.PhysicalOptimizationPolicy, lowerer semanticFieldProjectionLowerer) (ir.PhysicalPlan, error) {
 	if strings.TrimSpace(context.Project) == "" {
 		return ir.PhysicalPlan{}, fmt.Errorf("semantic plan project is required")
 	}
-	if err := semanticpkg.ValidateSemanticGraph(output.Root); err != nil {
+	if err := recipeplan.ValidateSemanticGraph(output.Root); err != nil {
 		return ir.PhysicalPlan{}, err
 	}
 	physical := ir.PhysicalPlan{
@@ -53,7 +53,7 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 		return ir.PhysicalPlan{}, err
 	}
 	var err error
-	var expansionPath []semanticpkg.SemanticNode
+	var expansionPath []recipeplan.SemanticNode
 	selectedRouteOccurrences := map[string]struct{}{}
 	if expansion := output.RowExpansion; expansion != nil {
 		expansionPath, err = semanticExpansionOwnerPath(output.Root, expansion.Owner)
@@ -84,8 +84,8 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 		}
 		rootBindings[expansion.ItemBinding] = physicalSemanticBinding{ResourceType: itemType, Source: ir.PhysicalValue{Variable: expansion.ItemBinding}}
 	}
-	var walk func(parent semanticpkg.SemanticNode, parentVariable, projectionPrefix string, bindings map[string]physicalSemanticBinding) error
-	walk = func(parent semanticpkg.SemanticNode, parentVariable, projectionPrefix string, bindings map[string]physicalSemanticBinding) error {
+	var walk func(parent recipeplan.SemanticNode, parentVariable, projectionPrefix string, bindings map[string]physicalSemanticBinding) error
+	walk = func(parent recipeplan.SemanticNode, parentVariable, projectionPrefix string, bindings map[string]physicalSemanticBinding) error {
 		for _, child := range parent.Children {
 			childBindings := clonePhysicalSemanticBindings(bindings)
 			if routeBinding, selectedRoute := expansionBindings[child.OccurrenceID]; selectedRoute {
@@ -199,7 +199,7 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 	return physical, nil
 }
 
-func physicalNodeNeedsMaterializedSet(node semanticpkg.SemanticNode) bool {
+func physicalNodeNeedsMaterializedSet(node recipeplan.SemanticNode) bool {
 	if len(node.Fields) != 0 || len(node.Filters) != 0 || len(node.Pivots) != 0 || len(node.OwnerRecords) != 0 || len(node.Aggregates) != 0 || len(node.Slices) != 0 || len(node.DynamicMaps) != 0 {
 		return true
 	}
@@ -211,7 +211,7 @@ func physicalNodeNeedsMaterializedSet(node semanticpkg.SemanticNode) bool {
 	return false
 }
 
-func appendProjectScope(operations []ir.PhysicalOperation, variables []string, relationship string, node semanticpkg.SemanticNode) []ir.PhysicalOperation {
+func appendProjectScope(operations []ir.PhysicalOperation, variables []string, relationship string, node recipeplan.SemanticNode) []ir.PhysicalOperation {
 	right := ir.PhysicalValue{BindKey: "project"}
 	for _, variable := range variables {
 		operations = append(operations, ir.PhysicalOperation{
@@ -227,7 +227,7 @@ func appendProjectScope(operations []ir.PhysicalOperation, variables []string, r
 	return operations
 }
 
-func appendDatasetGenerationScope(operations []ir.PhysicalOperation, variables []string, relationship string, node semanticpkg.SemanticNode) []ir.PhysicalOperation {
+func appendDatasetGenerationScope(operations []ir.PhysicalOperation, variables []string, relationship string, node recipeplan.SemanticNode) []ir.PhysicalOperation {
 	right := ir.PhysicalValue{BindKey: datasetGenerationBindKey}
 	for _, variable := range variables {
 		operations = append(operations, ir.PhysicalOperation{
@@ -243,7 +243,7 @@ func appendDatasetGenerationScope(operations []ir.PhysicalOperation, variables [
 	return operations
 }
 
-func appendAuthScope(operations []ir.PhysicalOperation, scopedValues []ir.PhysicalValue, resultVariable string, node semanticpkg.SemanticNode) []ir.PhysicalOperation {
+func appendAuthScope(operations []ir.PhysicalOperation, scopedValues []ir.PhysicalValue, resultVariable string, node recipeplan.SemanticNode) []ir.PhysicalOperation {
 	inputs := append([]ir.PhysicalValue(nil), scopedValues...)
 	inputs = append(inputs, ir.PhysicalValue{BindKey: "auth_resource_paths"}, ir.PhysicalValue{BindKey: "auth_resource_paths_unrestricted"})
 	operations = append(operations, ir.PhysicalOperation{

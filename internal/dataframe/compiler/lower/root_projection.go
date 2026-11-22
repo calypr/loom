@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
@@ -29,18 +29,18 @@ func clonePhysicalSemanticBindings(bindings map[string]physicalSemanticBinding) 
 
 type semanticFieldProjectionLowerer func(
 	physical *ir.PhysicalPlan,
-	node semantic.SemanticNode,
+	node recipeplan.SemanticNode,
 	index int,
-	field semantic.SemanticField,
+	field recipeplan.SemanticField,
 	source ir.PhysicalValue,
 	bindings map[string]physicalSemanticBinding,
 ) (ir.PhysicalProjection, error)
 
-func lowerSemanticFieldProjection(physical *ir.PhysicalPlan, node semantic.SemanticNode, index int, field semantic.SemanticField, source ir.PhysicalValue, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer) (ir.PhysicalProjection, error) {
+func lowerSemanticFieldProjection(physical *ir.PhysicalPlan, node recipeplan.SemanticNode, index int, field recipeplan.SemanticField, source ir.PhysicalValue, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer) (ir.PhysicalProjection, error) {
 	if lowerer != nil {
 		return lowerer(physical, node, index, field, source, bindings)
 	}
-	selection, err := semantic.ResolveSemanticField(node.ResourceType, node.Alias, index, field)
+	selection, err := recipeplan.ResolveSemanticField(node.ResourceType, node.Alias, index, field)
 	if err != nil {
 		return ir.PhysicalProjection{}, err
 	}
@@ -90,7 +90,7 @@ func physicalProjectionPresence(source ir.PhysicalValue, selectors ...spec.Selec
 	return &ir.PhysicalProjectionPresence{Source: source, Paths: paths}
 }
 
-func lowerSemanticFieldProjections(physical *ir.PhysicalPlan, node semantic.SemanticNode, source ir.PhysicalValue, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer) ([]ir.PhysicalProjection, error) {
+func lowerSemanticFieldProjections(physical *ir.PhysicalPlan, node recipeplan.SemanticNode, source ir.PhysicalValue, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer) ([]ir.PhysicalProjection, error) {
 	projections := make([]ir.PhysicalProjection, 0, len(node.Fields))
 	for index, field := range node.Fields {
 		projection, err := lowerSemanticFieldProjection(physical, node, index, field, source, bindings, lowerer)
@@ -102,7 +102,7 @@ func lowerSemanticFieldProjections(physical *ir.PhysicalPlan, node semantic.Sema
 	return projections, nil
 }
 
-func rootPhysicalProjections(physical *ir.PhysicalPlan, root semantic.SemanticNode, fields []ir.PhysicalProjection, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer) ([]ir.PhysicalProjection, error) {
+func rootPhysicalProjections(physical *ir.PhysicalPlan, root recipeplan.SemanticNode, fields []ir.PhysicalProjection, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer) ([]ir.PhysicalProjection, error) {
 	projections := []ir.PhysicalProjection{{Name: "_key", Value: ir.PhysicalValue{Variable: "root", Path: []string{"_key"}}}}
 	if fields != nil {
 		projections = append(projections, fields...)
@@ -116,7 +116,7 @@ func rootPhysicalProjections(physical *ir.PhysicalPlan, root semantic.SemanticNo
 	return projections, nil
 }
 
-func semanticNodePhysicalProjections(physical *ir.PhysicalPlan, node semantic.SemanticNode, source ir.PhysicalValue, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer, prefix string) ([]ir.PhysicalProjection, error) {
+func semanticNodePhysicalProjections(physical *ir.PhysicalPlan, node recipeplan.SemanticNode, source ir.PhysicalValue, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer, prefix string) ([]ir.PhysicalProjection, error) {
 	fields, err := lowerSemanticFieldProjections(physical, node, source, bindings, lowerer)
 	if err != nil {
 		return nil, err
@@ -157,7 +157,7 @@ func semanticNodePhysicalProjections(physical *ir.PhysicalPlan, node semantic.Se
 	return projections, nil
 }
 
-func physicalOwnerRecordsExpression(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, operation semantic.SemanticOwnerRecords) (ir.PhysicalExpression, error) {
+func physicalOwnerRecordsExpression(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, operation recipeplan.SemanticOwnerRecords) (ir.PhysicalExpression, error) {
 	if strings.TrimSpace(operation.Key.Version) != "" {
 		return ir.PhysicalExpression{}, fmt.Errorf("OWNER_RECORDS does not support Coding version matching")
 	}
@@ -186,7 +186,7 @@ func physicalOwnerRecordsExpression(physical *ir.PhysicalPlan, resourceType stri
 	}, nil
 }
 
-func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, pivot semantic.SemanticPivot, prefix string) ([]ir.PhysicalProjection, error) {
+func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, pivot recipeplan.SemanticPivot, prefix string) ([]ir.PhysicalProjection, error) {
 	if len(pivot.Columns) == 0 {
 		return nil, fmt.Errorf("pivot %q requires bounded columns", pivot.Name)
 	}
@@ -273,7 +273,7 @@ func deferredExpressionVariableExists(physical ir.PhysicalPlan, variable string)
 	return false
 }
 
-func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, aggregate semantic.SemanticAggregate, sourceIsSet bool) (ir.PhysicalExpression, error) {
+func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, aggregate recipeplan.SemanticAggregate, sourceIsSet bool) (ir.PhysicalExpression, error) {
 	op := ir.PhysicalAggregateOperation(strings.ToUpper(strings.TrimSpace(aggregate.Operation)))
 	switch op {
 	case ir.PhysicalCountAggregate, ir.PhysicalCountDistinctAggregate, ir.PhysicalExistsAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalSumAggregate, ir.PhysicalMeanAggregate, ir.PhysicalFirstAggregate, ir.PhysicalContainsAllAggregate, ir.PhysicalRequireOneAggregate, ir.PhysicalCollectAggregate, ir.PhysicalFirstOrderedAggregate:
@@ -362,14 +362,14 @@ func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string,
 	return ir.PhysicalExpression{Kind: ir.PhysicalAggregateExpression, Cardinality: cardinality, NullBehavior: nullBehavior, Aggregate: &aggregatePhysical}, nil
 }
 
-func aggregateProjectionName(aggregate semantic.SemanticAggregate, prefix string) string {
+func aggregateProjectionName(aggregate recipeplan.SemanticAggregate, prefix string) string {
 	if strings.TrimSpace(aggregate.OutputName) != "" {
 		return aggregate.OutputName
 	}
 	return prefix + aggregate.Name
 }
 
-func physicalSliceExpression(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, slice semantic.SemanticSlice) (ir.PhysicalExpression, error) {
+func physicalSliceExpression(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, slice recipeplan.SemanticSlice) (ir.PhysicalExpression, error) {
 	if slice.Limit <= 0 {
 		return ir.PhysicalExpression{}, fmt.Errorf("slice %q requires positive limit", slice.Name)
 	}
@@ -442,7 +442,7 @@ func physicalSliceExpression(physical *ir.PhysicalPlan, resourceType string, sou
 	return ir.PhysicalExpression{Kind: ir.PhysicalSliceExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Slice: &physicalSlice}, nil
 }
 
-func appendRootPhysicalFilters(physical *ir.PhysicalPlan, root semantic.SemanticNode) error {
+func appendRootPhysicalFilters(physical *ir.PhysicalPlan, root recipeplan.SemanticNode) error {
 	for index, filter := range root.Filters {
 		if err := spec.ValidateTypedFilterForResource(root.ResourceType, filter); err != nil {
 			return fmt.Errorf("root filter %q: %w", filter.FieldRef, err)

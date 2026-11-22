@@ -15,7 +15,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
@@ -66,11 +66,11 @@ func TestNumericAggregateLiteralValuesAgainstArango(t *testing.T) {
 			if err := client.InsertBatchRaw(ctx, "Observation", []json.RawMessage{raw}, false, "document"); err != nil {
 				t.Fatal(err)
 			}
-			root := semantic.SemanticNode{Alias: "root", ResourceType: "Observation", Aggregates: []semantic.SemanticAggregate{
+			root := recipeplan.SemanticNode{Alias: "root", ResourceType: "Observation", Aggregates: []recipeplan.SemanticAggregate{
 				{Name: "sum_value", OutputName: "sum_value", Operation: "SUM", Selector: &selector},
 				{Name: "mean_value", OutputName: "mean_value", Operation: "MEAN", Selector: &selector},
 			}}
-			physical, buildErr := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: root}, semantic.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
+			physical, buildErr := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: root}, recipeplan.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
 			if buildErr != nil {
 				t.Fatal(buildErr)
 			}
@@ -265,14 +265,14 @@ func TestExplicitGroupRowsAgainstArango(t *testing.T) {
 }
 
 func compileGroupRowsQuery(project, generation, revisionID, policy string) ([]CompiledQuery, error) {
-	plan, err := semantic.BuildRecipePlan(recipe.Bundle{
+	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "explicit groups", TranslationVersion: "test",
 		Outputs: []recipe.Output{{Name: "Grouped", RootResourceType: "Observation", RowGrain: "groups", GroupRows: &recipe.GroupRows{RevisionID: revisionID, UnassignedMemberPolicy: policy}}},
 	}, recipe.RuntimeBindings{Project: project, SelectionProject: project, DatasetGeneration: generation})
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
 	if err != nil {
 		return nil, err
 	}
@@ -379,12 +379,12 @@ func TestUnitNormalizationLiteralValuesAgainstArango(t *testing.T) {
 			if resolveErr != nil {
 				t.Fatal(resolveErr)
 			}
-			root := semantic.SemanticNode{Alias: "root", ResourceType: "Observation", Aggregates: []semantic.SemanticAggregate{{
+			root := recipeplan.SemanticNode{Alias: "root", ResourceType: "Observation", Aggregates: []recipeplan.SemanticAggregate{{
 				Name: "normalized", OutputName: "normalized", Operation: "REQUIRE_ONE", Selector: &valueSelector,
 				UnitSystemSelector: &systemSelector, UnitCodeSelector: &codeSelector,
 				UnitNormalization: &unit.UnitNormalization{Target: policy.Target, Dimension: dimension, Rules: rules},
 			}}}
-			physical, buildErr := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: root}, semantic.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
+			physical, buildErr := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: root}, recipeplan.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
 			if buildErr != nil {
 				t.Fatal(buildErr)
 			}
@@ -457,8 +457,8 @@ func TestExtensionCompilerLiteralValuesAgainstArango(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			binding := &fhirschema.ExtensionBinding{OwnerPath: "extension[].extension[]", URLPath: []string{tc.parent, "urn:leaf"}, ValuePath: tc.path, LogicalType: tc.kind}
-			root := semantic.SemanticNode{Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{Name: "extension", Columns: []string{"feature"}, ColumnAliases: map[string]string{"feature": "feature"}, ProjectionMode: tc.mode, ExtensionCorrelation: binding}}}
-			physical, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: root}, semantic.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
+			root := recipeplan.SemanticNode{Alias: "root", ResourceType: "Observation", Pivots: []recipeplan.SemanticPivot{{Name: "extension", Columns: []string{"feature"}, ColumnAliases: map[string]string{"feature": "feature"}, ProjectionMode: tc.mode, ExtensionCorrelation: binding}}}
+			physical, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: root}, recipeplan.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -535,12 +535,12 @@ func TestCorrelatedCompilerLiteralValuesAgainstArango(t *testing.T) {
 			if err := client.InsertBatchRaw(ctx, "Observation", []json.RawMessage{raw}, false, "document"); err != nil {
 				t.Fatal(err)
 			}
-			root := semantic.SemanticNode{Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{Name: "feature", Columns: []string{tc.code}, ColumnAliases: map[string]string{tc.code: "height_cm"}, ProjectionMode: tc.mode, Correlation: binding, CorrelationSystem: tc.system, CorrelationCode: tc.code, StringifyValue: kind == "string"}}}
+			root := recipeplan.SemanticNode{Alias: "root", ResourceType: "Observation", Pivots: []recipeplan.SemanticPivot{{Name: "feature", Columns: []string{tc.code}, ColumnAliases: map[string]string{tc.code: "height_cm"}, ProjectionMode: tc.mode, Correlation: binding, CorrelationSystem: tc.system, CorrelationCode: tc.code, StringifyValue: kind == "string"}}}
 			var lastQuery string
 			var lastBinds map[string]any
-			query := func(node semantic.SemanticNode) []map[string]any {
+			query := func(node recipeplan.SemanticNode) []map[string]any {
 				t.Helper()
-				physical, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: node}, semantic.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
+				physical, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: node}, recipeplan.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -627,13 +627,13 @@ func TestOwnerRecordsPreserveRepeatedFHIRValuesAgainstArango(t *testing.T) {
 	}
 	heightBinding := binding("valueQuantity.value", "decimal", []string{"valueQuantity"})
 	heightBinding.UnitPath = "valueQuantity.unit"
-	root := semantic.SemanticNode{Alias: "root", ResourceType: "Observation", OwnerRecords: []semantic.SemanticOwnerRecords{
+	root := recipeplan.SemanticNode{Alias: "root", ResourceType: "Observation", OwnerRecords: []recipeplan.SemanticOwnerRecords{
 		{Name: "height_records", FieldRef: "component", Binding: heightBinding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "height"}},
 		{Name: "flag_records", FieldRef: "component", Binding: binding("valueBoolean", "boolean", []string{"valueBoolean"}), Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "flag"}},
 		{Name: "text_records", FieldRef: "component", Binding: binding("valueString", "string", []string{"valueString"}), Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "text"}},
 		{Name: "multi_records", FieldRef: "component", Binding: binding("valueCodeableConcept.coding[].code", "string", []string{"valueCodeableConcept"}), Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "multi"}},
 	}}
-	physical, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: root}, semantic.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
+	physical, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: root}, recipeplan.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -768,15 +768,15 @@ func TestContributorPredicatesRemainFeatureLocalAgainstArango(t *testing.T) {
 		return &spec.TypedFilter{FieldRef: "observation-status", Selector: "status", FieldKind: spec.FilterString,
 			Operator: spec.FilterEquals, Values: []spec.FilterValue{{Kind: spec.FilterString, String: &value}}}
 	}
-	root := semantic.SemanticNode{
+	root := recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Fields: []semantic.SemanticField{testSemanticField("patient_id", spec.Selector{Steps: []spec.SelectorStep{{Field: "id"}}}, spec.ProjectionFirst)},
-		Children: []semantic.SemanticNode{
-			{Alias: "registered_observations", ResourceType: "Observation", EdgeLabel: "subject_Patient", Aggregates: []semantic.SemanticAggregate{{Name: "registered_count", OutputName: "registered_count", Operation: "COUNT", Predicate: predicate("registered")}}},
-			{Alias: "cancelled_observations", ResourceType: "Observation", EdgeLabel: "subject_Patient", Aggregates: []semantic.SemanticAggregate{{Name: "cancelled_count", OutputName: "cancelled_count", Operation: "COUNT", Predicate: predicate("cancelled")}}},
+		Fields: []recipeplan.SemanticField{testSemanticField("patient_id", spec.Selector{Steps: []spec.SelectorStep{{Field: "id"}}}, spec.ProjectionFirst)},
+		Children: []recipeplan.SemanticNode{
+			{Alias: "registered_observations", ResourceType: "Observation", EdgeLabel: "subject_Patient", Aggregates: []recipeplan.SemanticAggregate{{Name: "registered_count", OutputName: "registered_count", Operation: "COUNT", Predicate: predicate("registered")}}},
+			{Alias: "cancelled_observations", ResourceType: "Observation", EdgeLabel: "subject_Patient", Aggregates: []recipeplan.SemanticAggregate{{Name: "cancelled_count", OutputName: "cancelled_count", Operation: "COUNT", Predicate: predicate("cancelled")}}},
 		},
 	}
-	physical, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: root}, semantic.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
+	physical, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: root}, recipeplan.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -809,7 +809,7 @@ func TestContributorPredicatesRemainFeatureLocalAgainstArango(t *testing.T) {
 	}
 
 	root.Children[0].MatchMode = spec.TraversalMatchRequired
-	requiredPhysical, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: root}, semantic.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
+	requiredPhysical, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: root}, recipeplan.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1055,13 +1055,13 @@ func runRecipeExpansionQuery(t *testing.T, ctx context.Context, client *store.Cl
 
 func compileRecipeExpansionQuery(t *testing.T, project, generation string, output recipe.Output) ([]CompiledQuery, error) {
 	t.Helper()
-	plan, err := semantic.BuildRecipePlan(recipe.Bundle{
+	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "literal-occurrence-expansion", TranslationVersion: "test", Outputs: []recipe.Output{output},
 	}, recipe.RuntimeBindings{Project: project, DatasetGeneration: generation})
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
 	if err != nil {
 		return nil, err
 	}

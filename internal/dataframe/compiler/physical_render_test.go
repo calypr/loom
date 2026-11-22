@@ -7,19 +7,19 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func TestRenderPhysicalPlanGenericNavigation(t *testing.T) {
-	plan, err := buildGenericPhysicalPlanWithContext(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlanWithContext(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias:        "root",
 		ResourceType: "Patient",
-		Children: []semantic.SemanticNode{{
+		Children: []recipeplan.SemanticNode{{
 			Alias:        "specimen",
 			ResourceType: "Specimen",
 			EdgeLabel:    "subject_Patient",
 		}},
-	}}, semantic.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}})
+	}}, recipeplan.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,15 +72,15 @@ func TestRenderPhysicalPlanGenericNavigation(t *testing.T) {
 }
 
 func TestRenderPhysicalPlanTraversalSetsPreserveRootRowGrain(t *testing.T) {
-	plan, err := buildGenericPhysicalPlanWithContext(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlanWithContext(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Children: []semantic.SemanticNode{{
+		Children: []recipeplan.SemanticNode{{
 			Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
-			Children: []semantic.SemanticNode{{
+			Children: []recipeplan.SemanticNode{{
 				Alias: "file", ResourceType: "DocumentReference", EdgeLabel: "subject_Specimen",
 			}},
 		}},
-	}}, semantic.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}})
+	}}, recipeplan.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestRenderPhysicalPlanTraversalSetsPreserveRootRowGrain(t *testing.T) {
 }
 
 func TestRenderPhysicalPlanIsDeterministicAndCopiesBindVars(t *testing.T) {
-	plan, err := buildGenericPhysicalPlanWithContext(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}}, semantic.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}})
+	plan, err := buildGenericPhysicalPlanWithContext(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient"}}, recipeplan.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestRenderPhysicalPlanIsDeterministicAndCopiesBindVars(t *testing.T) {
 }
 
 func TestRenderPhysicalPlanNestedObjectExpression(t *testing.T) {
-	plan, err := buildGenericPhysicalPlanWithContext(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}}, semantic.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}})
+	plan, err := buildGenericPhysicalPlanWithContext(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient"}}, recipeplan.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,7 @@ func TestRenderPhysicalPlanNestedObjectExpression(t *testing.T) {
 }
 
 func TestRenderPhysicalPlanObjectExpressionOmitsNullFields(t *testing.T) {
-	plan, err := buildGenericPhysicalPlanWithContext(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}}, semantic.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}})
+	plan, err := buildGenericPhysicalPlanWithContext(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient"}}, recipeplan.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestRenderPhysicalPlanObjectExpressionOmitsNullFields(t *testing.T) {
 }
 
 func TestPhysicalPlanValidateRejectsRecursiveObjectExpression(t *testing.T) {
-	plan, err := buildGenericPhysicalPlanWithContext(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}}, semantic.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}})
+	plan, err := buildGenericPhysicalPlanWithContext(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient"}}, recipeplan.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestPhysicalPlanValidateRejectsRecursiveObjectExpression(t *testing.T) {
 func TestRenderPhysicalPlanRejectsUnsupportedOrAmbiguousOperations(t *testing.T) {
 	newPlan := func(t *testing.T) ir.PhysicalPlan {
 		t.Helper()
-		plan, err := buildGenericPhysicalPlanWithContext(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}}, semantic.ExecutionContext{Project: "project-1"})
+		plan, err := buildGenericPhysicalPlanWithContext(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient"}}, recipeplan.ExecutionContext{Project: "project-1"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -337,7 +337,7 @@ func TestRenderPhysicalPlanRejectsUnsupportedOrAmbiguousOperations(t *testing.T)
 }
 
 func TestRenderPhysicalPlanRejectsMissingGenericScope(t *testing.T) {
-	plan, err := buildGenericPhysicalPlanWithContext(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}}, semantic.ExecutionContext{Project: "project-1"})
+	plan, err := buildGenericPhysicalPlanWithContext(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient"}}, recipeplan.ExecutionContext{Project: "project-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,12 +350,12 @@ func TestRenderPhysicalPlanRejectsMissingGenericScope(t *testing.T) {
 }
 
 func TestRenderPhysicalPlanRejectsMisboundGenericEdgeTypeDiscriminator(t *testing.T) {
-	plan, err := buildGenericPhysicalPlanWithContext(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlanWithContext(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Children: []semantic.SemanticNode{{
+		Children: []recipeplan.SemanticNode{{
 			Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
 		}},
-	}}, semantic.ExecutionContext{Project: "project-1"})
+	}}, recipeplan.ExecutionContext{Project: "project-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +372,7 @@ func TestRenderPhysicalPlanRejectsMisboundGenericEdgeTypeDiscriminator(t *testin
 }
 
 func TestRenderPhysicalPlanKeepsCollectionAndProjectionValuesOutOfAQL(t *testing.T) {
-	plan, err := buildGenericPhysicalPlanWithContext(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}}, semantic.ExecutionContext{Project: "project-1"})
+	plan, err := buildGenericPhysicalPlanWithContext(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient"}}, recipeplan.ExecutionContext{Project: "project-1"})
 	if err != nil {
 		t.Fatal(err)
 	}

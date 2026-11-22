@@ -3,16 +3,16 @@ package load
 import (
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/ingest/source"
 	"testing"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/ingest"
 	"github.com/calypr/loom/internal/ingest/generation"
 )
 
 func TestNormalizeIngestionFailures(t *testing.T) {
-	preflight := &ingest.PreflightError{Report: ingest.PreflightReport{Issues: []ingest.PreflightIssue{{Code: "invalid_json", File: "Patient.ndjson", ResourceType: "Patient", Row: 2, Message: "raw parser detail"}}}}
+	preflight := &source.PreflightError{Report: source.PreflightReport{Issues: []source.PreflightIssue{{Code: "invalid_json", File: "Patient.ndjson", ResourceType: "Patient", Row: 2, Message: "raw parser detail"}}}}
 	userErr, ok := dataframeerrors.AsUserError(normalizeError(preflight))
 	if !ok || userErr.Code() != "INGEST_PREFLIGHT_FAILED" || userErr.Retryable() {
 		t.Fatalf("preflight normalized = %#v", userErr)

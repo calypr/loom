@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 const (
@@ -15,7 +15,7 @@ const (
 	populationSourceCollectionBindKey  = "population_source_collection"
 )
 
-func configurePopulationRootSource(physical *ir.PhysicalPlan, output semantic.SemanticNode, population *semantic.SemanticPopulation, context semantic.ExecutionContext, policy ir.PhysicalOptimizationPolicy) error {
+func configurePopulationRootSource(physical *ir.PhysicalPlan, output recipeplan.SemanticNode, population *recipeplan.SemanticPopulation, context recipeplan.ExecutionContext, policy ir.PhysicalOptimizationPolicy) error {
 	if population == nil {
 		return nil
 	}
@@ -51,7 +51,7 @@ func configurePopulationRootSource(physical *ir.PhysicalPlan, output semantic.Se
 		source.MemberFilters = append(source.MemberFilters, ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{Operator: "EQUALS", Left: ir.PhysicalValue{Variable: memberVariable, Path: []string{filter.field}}, Right: &right}})
 	}
 
-	populationNode := semantic.SemanticNode{Alias: "population", ResourceType: population.ResourceType}
+	populationNode := recipeplan.SemanticNode{Alias: "population", ResourceType: population.ResourceType}
 	source.ResourceOperations = append(source.ResourceOperations, ir.PhysicalOperation{Kind: ir.PhysicalCollectionScanOp, Source: ir.PhysicalSource{SemanticNode: "population", ResourceType: population.ResourceType}, CollectionScan: &ir.PhysicalCollectionScan{Variable: sourceVariable, CollectionBindKey: populationSourceCollectionBindKey}})
 	source.ResourceOperations = appendProjectScope(source.ResourceOperations, []string{sourceVariable}, "", populationNode)
 	source.ResourceOperations = appendDatasetGenerationScope(source.ResourceOperations, []string{sourceVariable}, "", populationNode)
@@ -88,7 +88,7 @@ func configurePopulationRootSource(physical *ir.PhysicalPlan, output semantic.Se
 		for key, value := range result.BindVars {
 			physical.BindVars[key] = value
 		}
-		node := semantic.SemanticNode{Alias: "population", ResourceType: types[index], EdgeLabel: step.Relationship}
+		node := recipeplan.SemanticNode{Alias: "population", ResourceType: types[index], EdgeLabel: step.Relationship}
 		source.ResourceOperations = append(source.ResourceOperations, ir.PhysicalOperation{Kind: ir.PhysicalTraversalOp, Source: ir.PhysicalSource{SemanticNode: "population", ResourceType: types[index], Relationship: step.Relationship}, Traversal: &result.Traversal})
 		source.ResourceOperations = appendProjectScope(source.ResourceOperations, []string{edgeVariable, targetVariable}, step.Relationship, node)
 		source.ResourceOperations = appendDatasetGenerationScope(source.ResourceOperations, []string{edgeVariable, targetVariable}, step.Relationship, node)

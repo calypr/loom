@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -399,7 +400,7 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lower.BindGroupRelatedOccurrenceSource(compilerContext, recipeCoding); err != nil {
+	if _, err := facade.BindGroupRelatedOccurrenceSource(compilerContext, recipeCoding); err != nil {
 		t.Fatalf("compiler rebind of resolved Coding BINDING: %v", err)
 	}
 

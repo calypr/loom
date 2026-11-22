@@ -8,11 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func emptyCommandWorkspace() Workspace {
@@ -420,18 +419,18 @@ func TestApplySemanticSelectionsWritesTypedIdentifierBindingFromResolvedPlan(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation := codedconcept.Observation{
-		SchemaVersion: codedconcept.ObservationSchemaVersion,
-		Source:        codedconcept.Source{Type: "Patient", Path: "identifier[]"},
-		Key:           codedconcept.Key{Selector: "identifier[].system", System: "urn:study:case-id", Display: "Case identifier"},
-		Value:         codedconcept.Value{Selector: "identifier[].value", Type: "string"},
-		OwningScope:   "identifier[]", LogicalType: "string", Completeness: codedconcept.Complete,
-		Status: "SUPPORTED", RuleHint: "IDENTIFIER_SYSTEM_VALUE", RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
+	observation := semantic.Observation{
+		SchemaVersion: semantic.ObservationSchemaVersion,
+		Source:        semantic.Source{Type: "Patient", Path: "identifier[]"},
+		Key:           semantic.Key{Selector: "identifier[].system", System: "urn:study:case-id", Display: "Case identifier"},
+		Value:         semantic.Value{Selector: "identifier[].value", Type: "string"},
+		OwningScope:   "identifier[]", LogicalType: "string", Completeness: semantic.CompletenessComplete,
+		Status: "SUPPORTED", RuleHint: "IDENTIFIER_SYSTEM_VALUE", RuleVersion: strconv.Itoa(semantic.SemanticObservationRuleVersion),
 	}
 	plan := ResolveSemanticSelectionPlan(observation)
 	updated, results, err := ApplyCommands(workspace, catalogSnapshot, "add-identifier", []Command{{
 		Type: CommandAddSemanticSelections, OutputID: created[0].OutputID, ContextToken: "context",
-		SemanticSelections: []SemanticSelection{{ConceptID: "case-id", BindingID: "identifier-binding", RouteEdgeIDs: []string{}, ProjectionMode: "VALUE", ResolvedObservation: &semanticinventory.Entry{ConceptID: "case-id", BindingID: "identifier-binding", Observation: observation}}},
+		SemanticSelections: []SemanticSelection{{ConceptID: "case-id", BindingID: "identifier-binding", RouteEdgeIDs: []string{}, ProjectionMode: "VALUE", ResolvedObservation: &semantic.Entry{ConceptID: "case-id", BindingID: "identifier-binding", Observation: observation}}},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -539,16 +538,16 @@ func semanticSelectionCatalog() CatalogSnapshot {
 	return catalogSnapshot
 }
 
-func semanticSelectionEntry(conceptID, bindingID, system, code, version string) *semanticinventory.Entry {
-	return &semanticinventory.Entry{
+func semanticSelectionEntry(conceptID, bindingID, system, code, version string) *semantic.Entry {
+	return &semantic.Entry{
 		ConceptID: conceptID,
 		BindingID: bindingID,
-		Observation: codedconcept.Observation{
-			SchemaVersion: codedconcept.ObservationSchemaVersion,
-			Source:        codedconcept.Source{Type: "Observation", Path: "code"},
-			Key:           codedconcept.Key{Selector: "code.coding[]", System: system, Version: version, Code: code, Display: "Observed label"},
-			Value:         codedconcept.Value{Selector: "valueQuantity.value", Type: "decimal"},
-			ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: codedconcept.Complete, Status: "SUPPORTED", RuleHint: codedconcept.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
+		Observation: semantic.Observation{
+			SchemaVersion: semantic.ObservationSchemaVersion,
+			Source:        semantic.Source{Type: "Observation", Path: "code"},
+			Key:           semantic.Key{Selector: "code.coding[]", System: system, Version: version, Code: code, Display: "Observed label"},
+			Value:         semantic.Value{Selector: "valueQuantity.value", Type: "decimal"},
+			ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: semantic.CompletenessComplete, Status: "SUPPORTED", RuleHint: semantic.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semantic.SemanticObservationRuleVersion),
 		},
 	}
 }

@@ -3,17 +3,18 @@ package projectconfig
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+
 	"github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 )
@@ -143,19 +144,19 @@ func viewBuilderPublicationFixture() (execution.Resolved, publication.BundleExec
 	}
 	resolved := execution.Resolved{
 		Bundle: bundle, StoredRecipeDigest: digest, ResolvedSchemaDigest: "schema-v1",
-		Semantic: semantic.ResolvedRecipePlan{
+		Semantic: recipeplan.ResolvedRecipePlan{
 			ResolvedSchemaDigest: "schema-v1", ScopeDigest: "scope-v1", SourceGeneration: "generation-v1",
-			SemanticPlan: semantic.RecipePlan{Bindings: recipe.RuntimeBindings{
+			SemanticPlan: recipeplan.RecipePlan{Bindings: recipe.RuntimeBindings{
 				Project: "HTAN_INT-BForePC", DatasetGeneration: "generation-v1",
 				AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"HTAN_INT-BForePC"},
 			}},
 		},
-		Compiled: lower.CompiledRecipe{
+		Compiled: facade.CompiledRecipe{
 			RecipeDigest: digest, TranslationVersion: bundle.TranslationVersion,
 			ResolvedSchemaDigest: "compiler-schema-v0", ScopeDigest: "scope-v1", SourceGeneration: "generation-v1",
-			Outputs: []lower.CompiledRecipeOutput{{
+			Outputs: []facade.CompiledRecipeOutput{{
 				Name: "Documents", RootResourceType: "DocumentReference", RootColumnNaming: recipe.RootColumnNamingPrefixed,
-				OutputSchema: []lower.CompiledOutputColumn{
+				OutputSchema: []facade.CompiledOutputColumn{
 					{ID: "document-id", Name: "id", Label: "Document ID", Kind: "string", Cardinality: "required_one"},
 					{ID: "status", Name: "status", Label: "Document status", Kind: "code", Cardinality: "optional_one", Nullable: true},
 					{ID: "extension-tag", Name: "extension_tag", Label: "Extension tag", SemanticPath: "DocumentReference.extension.tag", Kind: "string", Cardinality: "optional_one", Nullable: true, Discovered: true},

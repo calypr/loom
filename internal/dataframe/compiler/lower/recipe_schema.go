@@ -7,11 +7,11 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
-func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynamicMetadata []DynamicColumnMetadata, derivedTypes map[string]derivedColumnMetadata) ([]CompiledOutputColumn, error) {
+func recipeOutputSchema(plan ir.PhysicalPlan, output recipeplan.OutputPlan, dynamicMetadata []DynamicColumnMetadata, derivedTypes map[string]derivedColumnMetadata) ([]CompiledOutputColumn, error) {
 	if output.GroupRows != nil {
 		columns := []CompiledOutputColumn{
 			{ID: "group_revision_id", Name: "group_revision_id", Label: "Group revision ID", SemanticPath: "groups.revision_id", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Nullable: false, Internal: true, Identity: true},
@@ -21,7 +21,7 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 			{ID: "members", Name: "members", Label: "Group members", SemanticPath: "groups.members", Kind: string(expression.KindObject), Cardinality: string(expression.Many), Nullable: false},
 			{ID: "__loom_row_id", Name: "__loom_row_id", Label: "Group row identity", SemanticPath: "groups.identity", Kind: string(expression.KindObject), Cardinality: string(expression.RequiredOne), Nullable: false, Internal: true, Identity: true},
 		}
-		byID := make(map[string]semantic.SemanticField, len(output.Root.Fields))
+		byID := make(map[string]recipeplan.SemanticField, len(output.Root.Fields))
 		for _, field := range output.Root.Fields {
 			byID[field.ColumnID] = field
 		}
@@ -100,8 +100,8 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 		addLogical(name, semanticPath, kind, cardinality, typ.Cardinality.Optional(), discovered, normalizedUnit)
 	}
 	origins := make(map[string]*CompiledSourceOrigin)
-	var addNode func(semantic.SemanticNode, string, string)
-	addNode = func(node semantic.SemanticNode, prefix, sourcePath string) {
+	var addNode func(recipeplan.SemanticNode, string, string)
+	addNode = func(node recipeplan.SemanticNode, prefix, sourcePath string) {
 		for _, field := range node.Fields {
 			name := prefix + field.Name
 			addType(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, field.FieldRef, field.Expr.Expression), field.Expr.Type, field.Discovered, nil)

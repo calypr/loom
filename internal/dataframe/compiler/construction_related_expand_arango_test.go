@@ -15,7 +15,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
@@ -651,11 +651,11 @@ func TestRelatedFieldReadsExactExpandedRecordAfterFilterAgainstArango(t *testing
 		AuthResourcePaths: []string{"/allowed"},
 	}
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -751,11 +751,11 @@ func compileRelatedExpandOracleQuery(t *testing.T, output recipe.Output, project
 		Project: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeUnrestricted,
 	}
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatalf("build related-expansion recipe plan: %v", err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
 	if err != nil {
 		t.Fatalf("resolve related-expansion recipe plan: %v", err)
 	}
@@ -869,11 +869,11 @@ func compileRelatedExpandCountQuery(t *testing.T, output recipe.Output) Compiled
 		AuthScopeMode: authscope.ReadScopeUnrestricted,
 	}
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatalf("build related expansion count recipe: %v", err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
 	if err != nil {
 		t.Fatalf("resolve related expansion count recipe: %v", err)
 	}
@@ -1084,8 +1084,8 @@ func TestTerminalRepeatedPrimitiveSelectorValuesAgainstArango(t *testing.T) {
 	for _, mode := range []ir.PhysicalSelectorExecutionMode{ir.PhysicalSelectorGeneric, ir.PhysicalSelectorConditionalArray} {
 		t.Run(string(mode), func(t *testing.T) {
 			plan, err := buildGenericPhysicalPlanWithContext(
-				semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}},
-				semantic.ExecutionContext{
+				recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient"}},
+				recipeplan.ExecutionContext{
 					Project: project, DatasetGeneration: generation, AuthResourcePaths: []string{"/allowed"},
 					AuthScopeMode: authscope.ReadScopeRestricted,
 				},

@@ -9,7 +9,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func TestGroupedPivotPreviewWindowRunsAfterReshapedRows(t *testing.T) {
@@ -103,11 +103,11 @@ func compileTableReshapePhysicalPlan(t *testing.T, reshape *oracleReshape) ir.Ph
 			},
 		}, reshape)},
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/ingest/row"
+	"github.com/calypr/loom/internal/ingest/source"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,7 +16,6 @@ import (
 
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	publication "github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/ingest"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -123,9 +124,9 @@ func TestGenerationLoadPreflightRunsBeforeOptionRejectionOrBackend(t *testing.T)
 			events = append(events, event)
 		},
 	})
-	var preflightErr *ingest.PreflightError
+	var preflightErr *source.PreflightError
 	if !errors.As(err, &preflightErr) {
-		t.Fatalf("Load() error = %T %v, want ingest.PreflightError", err, err)
+		t.Fatalf("Load() error = %T %v, want source.PreflightError", err, err)
 	}
 	if summary.SchemaIdentity == nil || summary.Preflight.Valid() {
 		t.Fatalf("Load() summary = %#v, want schema evidence and invalid preflight", summary)
@@ -169,30 +170,30 @@ func TestGenerationLoadEmptyDirectoryDoesNotOpenBackend(t *testing.T) {
 	}
 }
 
-func generationRowErrorSample(file string, line int, resourceType string) ingest.RowErrorSample {
-	return ingest.RowErrorSample{
+func generationRowErrorSample(file string, line int, resourceType string) row.RowErrorSample {
+	return row.RowErrorSample{
 		File:         file,
 		Line:         line,
 		ResourceType: resourceType,
-		Category:     string(ingest.RowErrorValidation),
+		Category:     string(row.RowErrorValidation),
 		Message:      fmt.Sprintf("%s row %d: invalid payload", file, line),
 	}
 }
 
-func generationRowErrorSamples(file string, resourceType string, lines ...int) []ingest.RowErrorSample {
-	samples := make([]ingest.RowErrorSample, 0, len(lines))
+func generationRowErrorSamples(file string, resourceType string, lines ...int) []row.RowErrorSample {
+	samples := make([]row.RowErrorSample, 0, len(lines))
 	for _, line := range lines {
 		samples = append(samples, generationRowErrorSample(file, line, resourceType))
 	}
 	return samples
 }
 
-func generationRowErrorKey(sample ingest.RowErrorSample) string {
+func generationRowErrorKey(sample row.RowErrorSample) string {
 	return fmt.Sprintf("%s:%d", sample.File, sample.Line)
 }
 
 func TestSelectGenerationRowErrorSamplesCoversEveryFailingFile(t *testing.T) {
-	candidates := [][]ingest.RowErrorSample{
+	candidates := [][]row.RowErrorSample{
 		generationRowErrorSamples("Condition.ndjson", "Condition", 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
 		generationRowErrorSamples("Medication.ndjson", "Medication", 1, 2, 3),
 		generationRowErrorSamples("Patient.ndjson", "Patient", 1, 2),
@@ -203,7 +204,7 @@ func TestSelectGenerationRowErrorSamplesCoversEveryFailingFile(t *testing.T) {
 		t.Fatalf("samples = %d, want at most %d", len(samples), rowErrorSampleLimit)
 	}
 
-	perFile := map[string][]ingest.RowErrorSample{}
+	perFile := map[string][]row.RowErrorSample{}
 	for _, sample := range samples {
 		perFile[sample.File] = append(perFile[sample.File], sample)
 	}
@@ -246,7 +247,7 @@ func TestSelectGenerationRowErrorSamplesCoversEveryFailingFile(t *testing.T) {
 	}
 }
 
-func generationRowErrorKeys(samples []ingest.RowErrorSample) []string {
+func generationRowErrorKeys(samples []row.RowErrorSample) []string {
 	keys := make([]string, 0, len(samples))
 	for _, sample := range samples {
 		keys = append(keys, generationRowErrorKey(sample))
@@ -256,7 +257,7 @@ func generationRowErrorKeys(samples []ingest.RowErrorSample) []string {
 
 func TestSelectGenerationRowErrorSamplesIsBoundedAndDeterministic(t *testing.T) {
 	const failingFileCount = 25
-	candidates := make([][]ingest.RowErrorSample, 0, failingFileCount+1)
+	candidates := make([][]row.RowErrorSample, 0, failingFileCount+1)
 	for i := 0; i < failingFileCount; i++ {
 		file := fmt.Sprintf("Patient-%02d.ndjson", i)
 		candidates = append(candidates, generationRowErrorSamples(file, "Patient", 1, 2, 3))
@@ -280,7 +281,7 @@ func TestSelectGenerationRowErrorSamplesIsBoundedAndDeterministic(t *testing.T) 
 
 func TestSelectGenerationRowErrorSamplesEdges(t *testing.T) {
 	t.Run("clean load returns no samples", func(t *testing.T) {
-		for _, candidates := range [][][]ingest.RowErrorSample{nil, {}, {nil}, {{}, {}}} {
+		for _, candidates := range [][][]row.RowErrorSample{nil, {}, {nil}, {{}, {}}} {
 			if samples := selectGenerationRowErrorSamples(candidates); len(samples) != 0 {
 				t.Fatalf("selectGenerationRowErrorSamples(%v) = %v, want no samples", candidates, samples)
 			}
@@ -289,7 +290,7 @@ func TestSelectGenerationRowErrorSamplesEdges(t *testing.T) {
 
 	t.Run("duplicates consume no budget and cannot repeat", func(t *testing.T) {
 		duplicate := generationRowErrorSample("Patient.ndjson", 7, "Patient")
-		candidates := [][]ingest.RowErrorSample{
+		candidates := [][]row.RowErrorSample{
 			{duplicate, duplicate, duplicate},
 			generationRowErrorSamples("Observation.ndjson", "Observation", 1, 2),
 		}
@@ -308,7 +309,7 @@ func TestSelectGenerationRowErrorSamplesEdges(t *testing.T) {
 	})
 
 	t.Run("selection keeps file then line order", func(t *testing.T) {
-		candidates := [][]ingest.RowErrorSample{
+		candidates := [][]row.RowErrorSample{
 			generationRowErrorSamples("Patient.ndjson", "Patient", 2, 9),
 			{},
 			generationRowErrorSamples("Practitioner.ndjson", "Practitioner", 3, 4, 5),
@@ -327,10 +328,10 @@ func TestSelectGenerationRowErrorSamplesEdges(t *testing.T) {
 	})
 
 	t.Run("input candidates are not mutated", func(t *testing.T) {
-		candidates := [][]ingest.RowErrorSample{
+		candidates := [][]row.RowErrorSample{
 			generationRowErrorSamples("Patient.ndjson", "Patient", 1, 2, 3),
 		}
-		before := append([]ingest.RowErrorSample(nil), candidates[0]...)
+		before := append([]row.RowErrorSample(nil), candidates[0]...)
 		selectGenerationRowErrorSamples(candidates)
 		if !reflect.DeepEqual(before, candidates[0]) {
 			t.Fatalf("selector mutated per-file candidates: %v then %v", before, candidates[0])
@@ -339,7 +340,7 @@ func TestSelectGenerationRowErrorSamplesEdges(t *testing.T) {
 }
 
 func TestGenerationRowErrorSamplesCoverEveryFailingStagedFile(t *testing.T) {
-	schema := ingest.LoadRuntimeFHIRSchema()
+	schema := source.LoadRuntimeFHIRSchema()
 	dir := t.TempDir()
 	invalid := "{\n"
 
@@ -348,7 +349,7 @@ func TestGenerationRowErrorSamplesCoverEveryFailingStagedFile(t *testing.T) {
 	writePreflightFixture(t, dir, "Observation.ndjson", invalid+invalid)
 	writePreflightFixture(t, dir, "Patient.ndjson", `{"resourceType":"Patient","id":"patient-1"}`+"\n")
 
-	files, err := ingest.DiscoverNDJSON(dir)
+	files, err := source.DiscoverNDJSON(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +361,7 @@ func TestGenerationRowErrorSamplesCoverEveryFailingStagedFile(t *testing.T) {
 	insert := func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error { return nil }
 
 	var totals fileLoadResult
-	var candidates [][]ingest.RowErrorSample
+	var candidates [][]row.RowErrorSample
 	for _, file := range files {
 		result, err := fileLoader{options: opts, client: nil, schema: schema, datasetGeneration: "generation-a", overwrite: false, insert: insert}.load(context.Background(), file, time.Now(), 0, 0)
 		if err != nil {
@@ -386,7 +387,7 @@ func TestGenerationRowErrorSamplesCoverEveryFailingStagedFile(t *testing.T) {
 	}
 	perFile := map[string][]int{}
 	for _, sample := range samples {
-		if sample.Category != string(ingest.RowErrorValidation) || sample.Message == "" ||
+		if sample.Category != string(row.RowErrorValidation) || sample.Message == "" ||
 			sample.ResourceType != strings.TrimSuffix(sample.File, ".ndjson") {
 			t.Fatalf("sample = %+v, want a validation sample for its resource file", sample)
 		}
@@ -422,19 +423,19 @@ func TestGenerationRowErrorSamplesCoverEveryFailingStagedFile(t *testing.T) {
 }
 
 func TestGenerationRowErrorSamplesLeaveCleanLoadWithoutSamples(t *testing.T) {
-	schema := ingest.LoadRuntimeFHIRSchema()
+	schema := source.LoadRuntimeFHIRSchema()
 	dir := t.TempDir()
 	writePreflightFixture(t, dir, "Patient.ndjson", `{"resourceType":"Patient","id":"patient-1"}`+"\n")
 	writePreflightFixture(t, dir, "Practitioner.ndjson", `{"resourceType":"Practitioner","id":"practitioner-1"}`+"\n")
 
-	files, err := ingest.DiscoverNDJSON(dir)
+	files, err := source.DiscoverNDJSON(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	opts := normalizeLoadOptions(LoadOptions{Project: "project-a", WriterCount: 2, WorkerCount: 2})
 	insert := func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error { return nil }
 
-	var candidates [][]ingest.RowErrorSample
+	var candidates [][]row.RowErrorSample
 	var totals fileLoadResult
 	for _, file := range files {
 		result, err := fileLoader{options: opts, client: nil, schema: schema, datasetGeneration: "generation-a", overwrite: false, insert: insert}.load(context.Background(), file, time.Now(), 0, 0)
@@ -469,7 +470,7 @@ func TestSortedGenerationCatalogKeysKeepFullIdentityDistinct(t *testing.T) {
 
 func loadGenerationSchemaIdentity(t *testing.T) publication.SchemaSnapshot {
 	t.Helper()
-	identity, err := ingest.LoadSchemaSnapshot()
+	identity, err := source.LoadSchemaSnapshot()
 	if err != nil {
 		t.Fatalf("load schema identity: %v", err)
 	}

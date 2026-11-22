@@ -3,6 +3,7 @@ package importedsource
 import (
 	"context"
 	"encoding/json"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
 	"reflect"
 	"strings"
@@ -10,7 +11,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 
@@ -296,9 +297,9 @@ func TestImportedSourceEditRebuildsRealSchemaAndPreservesPin(t *testing.T) {
 
 func TestPinnedFieldBindingsCoverOriginalSlotsWithoutBorrowingCollisionWinner(t *testing.T) {
 	output := recipe.Output{Name: "Example", RootResourceType: "Specimen", RowGrain: "specimen", Fields: []recipe.Field{{Name: "shadowed", Expr: recipe.Expression{Select: "root.id"}}, {Name: "visible", Expr: recipe.Expression{Select: "root.status"}}}}
-	columns := []lower.CompiledOutputColumn{
-		{ID: "dynamic_winner", Name: "shadowed", SourceOrigin: &lower.CompiledSourceOrigin{SourceKind: "DYNAMIC_COLUMN", SourcePath: "dynamicColumns[0]"}},
-		{ID: "visible_id", Name: "visible", SourceOrigin: &lower.CompiledSourceOrigin{SourceKind: "FIELD_GROUP", SourcePath: "fields"}},
+	columns := []facade.CompiledOutputColumn{
+		{ID: "dynamic_winner", Name: "shadowed", SourceOrigin: &facade.CompiledSourceOrigin{SourceKind: "DYNAMIC_COLUMN", SourcePath: "dynamicColumns[0]"}},
+		{ID: "visible_id", Name: "visible", SourceOrigin: &facade.CompiledSourceOrigin{SourceKind: "FIELD_GROUP", SourcePath: "fields"}},
 	}
 	got, err := pinnedFieldBindingIDs(output, columns)
 	if err != nil {
@@ -472,7 +473,7 @@ func TestImportedSourceDiscoveredCollisionPreservesWinnerIdentity(t *testing.T) 
 func TestGeneratedNativeKeyRebindingRejectsAmbiguousContributorsAtomically(t *testing.T) {
 	before := []importedProjectionFact{{ColumnID: "old-a", Owner: "traversals[0].extensionColumns[0]", Kind: "EXTENSION_COLUMN", Key: "leaf-url", SemanticKey: "parent-a/leaf"}, {ColumnID: "old-b", Owner: "traversals[0].extensionColumns[0]", Kind: "EXTENSION_COLUMN", Key: "leaf-url", SemanticKey: "parent-b/leaf"}}
 	after := []importedProjectionFact{{ColumnID: "new-a", Owner: before[0].Owner, Kind: before[0].Kind, Key: before[0].Key, SemanticKey: "parent-b/leaf"}, {ColumnID: "new-b", Owner: before[0].Owner, Kind: before[0].Kind, Key: before[0].Key, SemanticKey: "parent-a/leaf"}}
-	candidate := lower.CompiledRecipeOutput{OutputSchema: []lower.CompiledOutputColumn{{ID: "new-a", Name: "renamed-b"}, {ID: "new-b", Name: "renamed-a"}}}
+	candidate := facade.CompiledRecipeOutput{OutputSchema: []facade.CompiledOutputColumn{{ID: "new-a", Name: "renamed-b"}, {ID: "new-b", Name: "renamed-a"}}}
 	if err := rebindImportedGeneratedProjectionIDs(&candidate, before, after); err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +483,7 @@ func TestGeneratedNativeKeyRebindingRejectsAmbiguousContributorsAtomically(t *te
 	after[1].SemanticKey = "unknown-parent/leaf"
 	candidate.OutputSchema[0].ID = "new-a"
 	candidate.OutputSchema[1].ID = "new-b"
-	original := append([]lower.CompiledOutputColumn(nil), candidate.OutputSchema...)
+	original := append([]facade.CompiledOutputColumn(nil), candidate.OutputSchema...)
 	if err := rebindImportedGeneratedProjectionIDs(&candidate, before, after); err == nil || !reflect.DeepEqual(candidate.OutputSchema, original) {
 		t.Fatal("ambiguous native key selected an arbitrary contributor or changed partial state")
 	}
@@ -838,10 +839,10 @@ func TestImportedSourceNewNativeKeysRemainStableAcrossNamingAndReload(t *testing
 }
 
 func TestNewNativeKeyIDsExcludeMutablePresentationAndRejectLeafAmbiguity(t *testing.T) {
-	makeCandidate := func(ids ...string) *lower.CompiledRecipeOutput {
-		c := &lower.CompiledRecipeOutput{Name: "Output"}
+	makeCandidate := func(ids ...string) *facade.CompiledRecipeOutput {
+		c := &facade.CompiledRecipeOutput{Name: "Output"}
 		for _, id := range ids {
-			c.OutputSchema = append(c.OutputSchema, lower.CompiledOutputColumn{ID: id, Name: "mutable_" + id})
+			c.OutputSchema = append(c.OutputSchema, facade.CompiledOutputColumn{ID: id, Name: "mutable_" + id})
 		}
 		return c
 	}
@@ -874,7 +875,7 @@ func TestNewNativeKeyIDsExcludeMutablePresentationAndRejectLeafAmbiguity(t *test
 	}
 	other.LeafKey = extension.LeafKey
 	b = makeCandidate(extension.ColumnID, other.ColumnID)
-	original := append([]lower.CompiledOutputColumn(nil), b.OutputSchema...)
+	original := append([]facade.CompiledOutputColumn(nil), b.OutputSchema...)
 	if err := rebindImportedGeneratedProjectionIDs(b, nil, []importedProjectionFact{extension, other}); err == nil || !reflect.DeepEqual(original, b.OutputSchema) {
 		t.Fatal("ambiguous new native leaves were assigned arbitrary or partial identities")
 	}

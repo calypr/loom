@@ -3,16 +3,16 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/projectid"
 )
 
-const maxConstructionColumnPopulationIDs = compiler.MaxColumnPopulationBatch
+const maxConstructionColumnPopulationIDs = facade.MaxColumnPopulationBatch
 
 type ConstructionColumnPopulationRequest struct {
 	Project              string   `json:"-"`

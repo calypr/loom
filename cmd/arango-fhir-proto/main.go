@@ -24,8 +24,8 @@ import (
 	publication "github.com/calypr/loom/internal/dataset"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
-	"github.com/calypr/loom/internal/ingest/backfill"
 	"github.com/calypr/loom/internal/ingest/generation"
+	"github.com/calypr/loom/internal/semantic/backfill"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 

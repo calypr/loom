@@ -5,7 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func TestSemanticCodeableConceptDisplayProjection(t *testing.T) {
@@ -64,7 +64,7 @@ func TestSemanticCodeableConceptDisplayProjection(t *testing.T) {
 			observation := observeCodeableConceptValue(t, test.value)
 			if observation.Value.Selector != "valueCodeableConcept.text" ||
 				!reflect.DeepEqual(observation.Value.FallbackSelectors, []string{"valueCodeableConcept.coding[].display"}) ||
-				!observation.Value.FallbackOnBlankString || observation.Status != codedconcept.StatusUnsupportedValueProjection || len(observation.Examples) != 0 {
+				!observation.Value.FallbackOnBlankString || observation.Status != semantic.StatusUnsupportedValueProjection || len(observation.Examples) != 0 {
 				t.Fatalf("missing coding display fallback = %#v, want unsupported with no examples", observation)
 			}
 		})
@@ -102,7 +102,7 @@ func TestSemanticCodeableConceptDisplayProjectionWithinExtensionKeepsRelativeExa
 	t.Fatal("extension CodeableConcept semantic observation was not retained")
 }
 
-func observeCodeableConceptValue(t *testing.T, value map[string]any) codedconcept.Observation {
+func observeCodeableConceptValue(t *testing.T, value map[string]any) semantic.Observation {
 	t.Helper()
 	p := NewProfilerForGeneration("project", "generation", "scope", "Observation", nil)
 	p.ObservePayload(map[string]any{
@@ -114,11 +114,11 @@ func observeCodeableConceptValue(t *testing.T, value map[string]any) codedconcep
 	}, map[string]float64{})
 	for _, document := range p.Documents() {
 		for _, observation := range document.SemanticObservations {
-			if observation.RuleHint == codedconcept.RuleHintCodedValueV1 && observation.Key.Code == "stage" {
+			if observation.RuleHint == semantic.RuleHintCodedValueV1 && observation.Key.Code == "stage" {
 				return observation
 			}
 		}
 	}
 	t.Fatal("Observation value was not retained in the semantic catalog")
-	return codedconcept.Observation{}
+	return semantic.Observation{}
 }

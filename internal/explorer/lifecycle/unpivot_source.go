@@ -3,11 +3,11 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"sort"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -55,7 +55,7 @@ func validateConstructionUnpivotSourceSelections(selections []ConstructionUnpivo
 }
 
 func unpivotSourceLogicalTypeIsTableScalar(logicalType string) bool {
-	_, ok := lower.TableReshapeScalarKind(logicalType)
+	_, ok := facade.TableReshapeScalarKind(logicalType)
 	return ok
 }
 
@@ -73,7 +73,7 @@ func unpivotMeltKindsSatisfiable(kinds []string) bool {
 		if !unpivotSourceLogicalTypeIsMeltEligible(kind) {
 			return false
 		}
-		class, ok := lower.TableReshapeScalarKind(kind)
+		class, ok := facade.TableReshapeScalarKind(kind)
 		if !ok {
 			return false
 		}

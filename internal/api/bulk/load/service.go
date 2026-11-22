@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	ingestevent "github.com/calypr/loom/internal/ingest/event"
 	"log/slog"
 
 	dataframepublication "github.com/calypr/loom/internal/dataframe/publication"
 	publication "github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/ingest"
 	"github.com/calypr/loom/internal/ingest/generation"
 )
 
@@ -55,13 +55,13 @@ type DataframeReleaseStore interface {
 	GetPointer(context.Context, string) (dataframepublication.BundlePointer, error)
 }
 
-type GenerationLoader func(context.Context, GenerationLoadRequest, ingest.EventSink) (generation.LoadSummary, error)
+type GenerationLoader func(context.Context, GenerationLoadRequest, ingestevent.EventSink) (generation.LoadSummary, error)
 
 type IngestRunner struct {
 	BaseOptions generation.LoadOptions
 }
 
-func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadRequest, sink ingest.EventSink) (generation.LoadSummary, error) {
+func (r IngestRunner) RunGeneration(ctx context.Context, req GenerationLoadRequest, sink ingestevent.EventSink) (generation.LoadSummary, error) {
 	ref, err := publication.NewRef(req.Project, req.Generation)
 	if err != nil {
 		return generation.LoadSummary{}, err

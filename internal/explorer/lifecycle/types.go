@@ -7,7 +7,6 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
@@ -15,6 +14,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 type ReceiptReader func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
@@ -49,9 +49,9 @@ type Config struct {
 
 	SelectionMembersCollection         string
 	Capability                         ports.CapabilityResolver
-	SemanticInventory                  func(context.Context, semanticinventory.PageOptions) (semanticinventory.Page, error)
+	SemanticInventory                  func(context.Context, semantic.PageOptions) (semantic.Page, error)
 	SemanticCoverage                   func(context.Context, catalogarango.SemanticCoverageLookupOptions) (catalogarango.SemanticCoverageLookupResult, error)
-	ResolveSemanticInventorySelections func(context.Context, semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error)
+	ResolveSemanticInventorySelections func(context.Context, semantic.ResolveOptions) (semantic.ResolveResult, error)
 
 	InterpretationRepository explorer.InterpretationRepository
 

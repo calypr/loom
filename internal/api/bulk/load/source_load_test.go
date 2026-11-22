@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/ingest/row"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -14,7 +15,6 @@ import (
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	"github.com/calypr/loom/internal/ingest"
 	"github.com/calypr/loom/internal/ingest/sourceload"
 )
 
@@ -243,13 +243,13 @@ func TestSourceLoadTruncatedMultipartIsInvalidRequest(t *testing.T) {
 }
 
 func TestSourceLoadValidationErrorUsesBoundedSafeDetails(t *testing.T) {
-	issues := make([]ingest.RowErrorSample, 101)
-	issues[0] = ingest.RowErrorSample{
+	issues := make([]row.RowErrorSample, 101)
+	issues[0] = row.RowErrorSample{
 		File: "META/Patient.ndjson", Line: 7, ResourceType: "Patient", Category: "validation",
 		Message: `META/Patient.ndjson row 7: required field "identifier" is missing from Patient.`,
 	}
 	for index := 1; index < len(issues); index++ {
-		issues[index] = ingest.RowErrorSample{
+		issues[index] = row.RowErrorSample{
 			File: "META/Patient.ndjson", Line: index + 7, ResourceType: "Patient", Category: "validation",
 			Message: "patient-payload secret=private",
 		}

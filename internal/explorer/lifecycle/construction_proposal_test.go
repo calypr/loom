@@ -4,11 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -1113,7 +1112,7 @@ func TestConstructionWorkspaceCompatibilityKeysMatchCompilerCombineTypeRules(t *
 		{logical: "string", cardinality: "many"},
 		{logical: "quantity", cardinality: "required_one"},
 	} {
-		logical, physical, err := lower.ConstructionCombineColumnType(recipe.StageColumn{Type: test.logical})
+		logical, physical, err := facade.ConstructionCombineColumnType(recipe.StageColumn{Type: test.logical})
 		if err != nil {
 			gotJoin, gotAppend := constructionCombineCompatibilityKeys(test.logical, test.cardinality, test.nullable)
 			if gotJoin != "" || gotAppend != "" {
@@ -1125,8 +1124,8 @@ func TestConstructionWorkspaceCompatibilityKeysMatchCompilerCombineTypeRules(t *
 		if test.nullable {
 			physicalType = "Nullable(" + physicalType + ")"
 		}
-		wantJoin, joinOK := ir.ClickHouseCombineScalarBaseType(physicalType, ir.PhysicalCombineKeyJoin)
-		wantAppend, appendOK := ir.ClickHouseCombineScalarBaseType(physicalType, ir.PhysicalCombineAppend)
+		wantJoin, joinOK := facade.ClickHouseCombineScalarBaseType(physicalType, facade.PhysicalCombineKeyJoin)
+		wantAppend, appendOK := facade.ClickHouseCombineScalarBaseType(physicalType, facade.PhysicalCombineAppend)
 		if test.cardinality == "many" {
 			joinOK, appendOK = false, false
 		}

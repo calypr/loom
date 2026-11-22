@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/semantic"
 	"github.com/google/uuid"
 )
 
@@ -267,10 +267,10 @@ func semanticGroupFixtureBinding(t *testing.T, system, version, codingPath strin
 			map[string]any{"system": system, "version": version, "code": "binding-witness", "display": "Binding witness"},
 		}}}},
 	}
-	var contribution semanticinventory.Contribution
-	if err := semanticinventory.NewEmitter("semantic-group-fixture", "generation").ObservePayload(
+	var contribution semantic.Contribution
+	if err := semantic.NewEmitter("semantic-group-fixture", "generation").ObservePayload(
 		payload, "Observation", "", sourceID,
-		func(value semanticinventory.Contribution) {
+		func(value semantic.Contribution) {
 			if value.Observation.Source.Path == codingPath && value.Observation.Key.System == system && value.Observation.Key.Version == version {
 				contribution = value
 			}
@@ -281,12 +281,12 @@ func semanticGroupFixtureBinding(t *testing.T, system, version, codingPath strin
 	if contribution.BindingID == "" || contribution.Observation.Source.Path != codingPath {
 		t.Fatalf("semantic Coding binding witness = %#v, want generated path %q", contribution, codingPath)
 	}
-	family := semanticinventory.FamilyReference{
-		BindingID: contribution.BindingID, SourceKind: semanticinventory.SourceRetained,
+	family := semantic.FamilyReference{
+		BindingID: contribution.BindingID, SourceKind: semantic.SourceRetained,
 		ResourceType: "Observation", SourcePath: codingPath, System: system, Version: version,
 	}
-	familyID = semanticinventory.FamilyID(family)
-	return contribution.BindingID, familyID, strconv.Itoa(semanticinventory.SemanticObservationRuleVersion)
+	familyID = semantic.FamilyID(family)
+	return contribution.BindingID, familyID, strconv.Itoa(semantic.SemanticObservationRuleVersion)
 }
 
 func semanticGroupComponent(system, version, code, display string) map[string]any {
@@ -309,7 +309,7 @@ func semanticGroupArangoOutput(
 		"semanticCategory": map[string]any{
 			"kind": "BINDING", "bindingId": bindingID, "ruleVersion": ruleVersion,
 			"familyId": familyID, "system": system, "version": version,
-			"sourceKind":   semanticinventory.SourceRetained,
+			"sourceKind":   semantic.SourceRetained,
 			"resourceType": "Observation", "codingPath": codingPath,
 		},
 	}

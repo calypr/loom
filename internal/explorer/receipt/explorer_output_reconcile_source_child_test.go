@@ -1,10 +1,10 @@
 package receipt
 
 import (
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -82,9 +82,9 @@ func TestAuthoredConstructionOutputsResolveCompilerSourceChildren(t *testing.T) 
 				Columns:      []authoringv2.Column{{ColumnID: "family_slot", Column: "family"}},
 				Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{test.step}},
 			}
-			compiled := lower.CompiledRecipeOutput{Stages: []lower.CompiledStageDescriptor{{
+			compiled := facade.CompiledRecipeOutput{Stages: []facade.CompiledStageDescriptor{{
 				ID:      recipe.ConstructionSourceProjectionID,
-				Columns: []lower.CompiledOutputColumn{{ID: childID, Name: "family_0", Label: "Family [0]", SourceChild: child}},
+				Columns: []facade.CompiledOutputColumn{{ID: childID, Name: "family_0", Label: "Family [0]", SourceChild: child}},
 			}}}
 			authored := make(map[string]AuthoredOutputColumn)
 			if err := AuthoredConstructionOutputsWithCombineInputs(document, authored, compiled, nil, capability.Snapshot{}); err != nil {

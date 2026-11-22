@@ -7,7 +7,7 @@ import (
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func TestRecipeBundleFromInputMapsRichGraphQLShape(t *testing.T) {
@@ -52,7 +52,7 @@ func TestRecipeBundleFromInputMapsRichGraphQLShape(t *testing.T) {
 	if bundle.Outputs[0].Traversals[0].MatchMode != recipe.MatchRequired || len(bundle.Outputs[0].Traversals[0].Filters) != 1 {
 		t.Fatalf("traversal semantics = %#v", bundle.Outputs[0].Traversals[0])
 	}
-	if _, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "generation"}); err != nil {
+	if _, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "generation"}); err != nil {
 		t.Fatalf("mapped bundle does not build semantically: %v", err)
 	}
 }

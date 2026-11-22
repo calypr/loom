@@ -5,14 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/bootstrap"
+	"github.com/calypr/loom/internal/ingest/source"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
+	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -38,7 +39,7 @@ func TestIngestPerf(t *testing.T) {
 	if meta == "" {
 		t.Skip("set LOOM_INGEST_PERF_META to run the ingestion benchmark")
 	}
-	files, err := ingest.DiscoverNDJSON(meta)
+	files, err := source.DiscoverNDJSON(meta)
 	if err != nil || len(files) == 0 {
 		t.Fatalf("discover files in %q: %d files, %v", meta, len(files), err)
 	}
@@ -68,7 +69,7 @@ func TestIngestPerf(t *testing.T) {
 			bytes += int64(len(doc))
 		}
 		class := "vertices"
-		if collection == ingest.EdgeCollection || collection == semanticinventory.Collection || collection == semanticinventory.EntryCollection {
+		if collection == bootstrap.EdgeCollection || collection == semantic.Collection || collection == semantic.EntryCollection {
 			class = collection
 		}
 		mu.Lock()
@@ -101,7 +102,7 @@ func TestIngestPerf(t *testing.T) {
 		return nil
 	}
 
-	schema := ingest.LoadRuntimeFHIRSchema()
+	schema := source.LoadRuntimeFHIRSchema()
 	opts := normalizeLoadOptions(LoadOptions{Project: "perf-project", MetaDir: meta, AuthResourcePath: "/programs/perf/projects/p"})
 	generation := os.Getenv("LOOM_INGEST_PERF_GEN")
 	start := time.Now()

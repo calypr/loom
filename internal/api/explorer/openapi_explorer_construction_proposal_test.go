@@ -13,8 +13,6 @@ import (
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -26,6 +24,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	receiptapi "github.com/calypr/loom/internal/explorer/receipt"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/semantic"
 	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 	"github.com/gofiber/fiber/v3"
@@ -635,24 +634,24 @@ func TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata
 		},
 	}
 
-	familyReference := semanticinventory.FamilyReference{
-		BindingID: "binding_specimen_type", SourceKind: semanticinventory.SourceRetained,
+	familyReference := semantic.FamilyReference{
+		BindingID: "binding_specimen_type", SourceKind: semantic.SourceRetained,
 		ResourceType: "Specimen", SourcePath: "Specimen.type.coding[]", System: "urn:example:specimen-type",
 	}
-	familyReference.FamilyID = semanticinventory.FamilyID(familyReference)
-	family := semanticinventory.Family{
+	familyReference.FamilyID = semantic.FamilyID(familyReference)
+	family := semantic.Family{
 		FamilyReference: familyReference,
-		Source:          codedconcept.Source{Type: "Specimen", Path: "Specimen.type.coding[]"},
+		Source:          semantic.Source{Type: "Specimen", Path: "Specimen.type.coding[]"},
 		KeySelector:     "type.coding[]",
-		Value: codedconcept.Value{
+		Value: semantic.Value{
 			Selector: "type.coding[].display", Type: "string",
 			FallbackSelectors: []string{"type.coding[].code"}, FallbackOnBlankString: true,
 		},
-		LogicalType: "string", SchemaVersion: codedconcept.ObservationSchemaVersion,
-		RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion), Completeness: codedconcept.Complete,
+		LogicalType: "string", SchemaVersion: semantic.ObservationSchemaVersion,
+		RuleVersion: strconv.Itoa(semantic.SemanticObservationRuleVersion), Completeness: semantic.CompletenessComplete,
 		Status: "SUPPORTED", Population: 12,
 	}
-	buildID := semanticinventory.BuildID("project-a", "generation-a")
+	buildID := semantic.BuildID("project-a", "generation-a")
 
 	workspace, err := authoringv2.DecodeWorkspace(constructionfixtures.BaselineExplorerWorkspace())
 	if err != nil {
@@ -711,7 +710,7 @@ func TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata
 	}
 	previewCalls := 0
 	var previewContractErr error
-	var resolvedFamilyReferences []semanticinventory.FamilyReference
+	var resolvedFamilyReferences []semantic.FamilyReference
 	config := lifecycle.Config{
 		Capability: ports.CapabilityResolver{
 			ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
@@ -722,19 +721,19 @@ func TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata
 			},
 			Catalog: authoringv2.CatalogFromCapability,
 		},
-		SemanticInventory: func(context.Context, semanticinventory.PageOptions) (semanticinventory.Page, error) {
-			return semanticinventory.Page{
-				State:    semanticinventory.Complete,
-				Build:    semanticinventory.Build{BuildID: buildID, State: semanticinventory.Complete},
-				Families: []semanticinventory.Family{family},
+		SemanticInventory: func(context.Context, semantic.PageOptions) (semantic.Page, error) {
+			return semantic.Page{
+				State:    semantic.Complete,
+				Build:    semantic.Build{BuildID: buildID, State: semantic.Complete},
+				Families: []semantic.Family{family},
 			}, nil
 		},
-		ResolveSemanticInventorySelections: func(_ context.Context, options semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
-			resolvedFamilyReferences = append([]semanticinventory.FamilyReference(nil), options.FamilyReferences...)
-			return semanticinventory.ResolveResult{
-				State:    semanticinventory.Complete,
-				Build:    semanticinventory.Build{BuildID: buildID, State: semanticinventory.Complete},
-				Families: []semanticinventory.Family{family},
+		ResolveSemanticInventorySelections: func(_ context.Context, options semantic.ResolveOptions) (semantic.ResolveResult, error) {
+			resolvedFamilyReferences = append([]semantic.FamilyReference(nil), options.FamilyReferences...)
+			return semantic.ResolveResult{
+				State:    semantic.Complete,
+				Build:    semantic.Build{BuildID: buildID, State: semantic.Complete},
+				Families: []semantic.Family{family},
 			}, nil
 		},
 		CompileReceipt: func(ctx context.Context, request ports.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {

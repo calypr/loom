@@ -3,7 +3,7 @@ package generation
 import (
 	"context"
 	"errors"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/source"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	"os"
 	"path/filepath"
@@ -13,7 +13,7 @@ import (
 func TestLoadReturnsPreflightReportBeforeOpeningArango(t *testing.T) {
 	dir := t.TempDir()
 	writePreflightFixture(t, dir, "Unknown.ndjson", `{"resourceType":"Unknown"}`+"\n")
-	wantIdentity, err := ingest.LoadSchemaSnapshot()
+	wantIdentity, err := source.LoadSchemaSnapshot()
 	if err != nil {
 		t.Fatalf("load expected schema identity: %v", err)
 	}
@@ -38,9 +38,9 @@ func TestLoadReturnsPreflightReportBeforeOpeningArango(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected preflight error")
 	}
-	var preflightErr *ingest.PreflightError
+	var preflightErr *source.PreflightError
 	if !errors.As(err, &preflightErr) {
-		t.Fatalf("Load() error = %T %v, want ingest.PreflightError", err, err)
+		t.Fatalf("Load() error = %T %v, want source.PreflightError", err, err)
 	}
 	if summary.Preflight.Valid() || len(summary.Preflight.Issues) != 1 {
 		t.Fatalf("Load() preflight summary = %+v", summary.Preflight)

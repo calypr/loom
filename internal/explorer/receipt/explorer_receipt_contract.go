@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"log/slog"
 	"net/http"
@@ -16,8 +17,6 @@ import (
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -67,7 +66,7 @@ func CompileConstructionSourceStage(ctx context.Context, request ports.Construct
 		if output.Name != request.OutputID {
 			continue
 		}
-		descriptor, err := lower.DescribeConstructionSourceStage(output.OutputSchema, document.RootResourceType, &output.Plan)
+		descriptor, err := facade.DescribeConstructionSourceStage(output.OutputSchema, document.RootResourceType, &output.Plan)
 		if err != nil {
 			return explorer.ReceiptConstructionStage{}, err
 		}
@@ -200,7 +199,7 @@ func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilit
 		}
 	}
 	compileResolvedDuration = time.Since(compileResolvedStarted)
-	combineInputSchemas := make(map[string]map[int]ir.ResolvedClickHouseTable)
+	combineInputSchemas := make(map[string]map[int]facade.ResolvedClickHouseTable)
 	for _, output := range resolved.Compiled.Outputs {
 		combine := output.Plan.ClickHouseCombine
 		if combine == nil {
@@ -312,7 +311,7 @@ func Compile(ctx context.Context, request ports.CompileReceiptRequest, capabilit
 }
 
 func ClassifyRecipeError(err error) error {
-	var invalidAnchor *lower.RelatedEligibilityAnchorError
+	var invalidAnchor *facade.RelatedEligibilityAnchorError
 	if errors.As(err, &invalidAnchor) {
 		return &explorercompilation.Error{
 			Stage: "construction", Code: "CONSTRUCTION_ANCHOR_INVALID",
@@ -320,7 +319,7 @@ func ClassifyRecipeError(err error) error {
 			Details: map[string]any{"stepId": invalidAnchor.StepID}, Cause: err,
 		}
 	}
-	var invalidRelatedSourceAnchor *lower.RelatedSourceAnchorError
+	var invalidRelatedSourceAnchor *facade.RelatedSourceAnchorError
 	if errors.As(err, &invalidRelatedSourceAnchor) {
 		message := "This related source does not match the current table rows. Reopen the step and choose a source for this table."
 		if invalidRelatedSourceAnchor.Reason == "root_resource_changed" {
@@ -335,7 +334,7 @@ func ClassifyRecipeError(err error) error {
 			Message: message, Details: details, Cause: err,
 		}
 	}
-	var reducerType *lower.PivotReducerTypeError
+	var reducerType *facade.PivotReducerTypeError
 	if errors.As(err, &reducerType) {
 		return &explorercompilation.Error{
 			Stage: "construction", Code: "PIVOT_REDUCER_REQUIRES_NUMERIC",

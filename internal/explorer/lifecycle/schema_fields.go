@@ -9,10 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"sort"
 	"strings"
 
-	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/projectid"
@@ -137,8 +137,8 @@ func (b *fieldBrowse) SearchSchemaFields(ctx context.Context, request SearchSche
 			observedPaths[candidate.FieldPath] = struct{}{}
 		}
 	}
-	descriptors := compilerprobe.SchemaFieldDescriptors(resourceType)
-	matched := make([]compilerprobe.SchemaFieldDescriptor, 0, len(descriptors))
+	descriptors := facade.SchemaFieldDescriptors(resourceType)
+	matched := make([]facade.SchemaFieldDescriptor, 0, len(descriptors))
 	for _, descriptor := range descriptors {
 		if _, observed := observedPaths[descriptor.Path]; observed {
 			continue
@@ -188,7 +188,7 @@ func (b *fieldBrowse) SearchSchemaFields(ctx context.Context, request SearchSche
 			Label: resourceType + "." + descriptor.Path, LogicalType: descriptor.PrimitiveType,
 			Cardinality: descriptor.Cardinality,
 		}
-		proof, proofErr := compilerprobe.ProbeProjection(ctx, compilerprobe.CandidateRequest{
+		proof, proofErr := facade.ProbeProjection(ctx, facade.CandidateRequest{
 			Scope: constructionCompilerScope(authorized), RootResourceType: resourceType,
 			ResourceType: resourceType, Selector: descriptor.Path,
 			FieldRef: resourceType + "." + descriptor.Path,

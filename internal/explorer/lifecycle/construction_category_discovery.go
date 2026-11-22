@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"strconv"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/expression"
@@ -437,17 +437,17 @@ func (s constructionScanFlow) discoverConstructionCategories(ctx context.Context
 	applyAuthorizedScope(&bindings, base.authorized, false)
 	scan, err := s.scanCategories(ctx, base.receipt, bindings, dataframeexecution.CategoryScanRequest{
 		Output: request.OutputID, StageID: request.StageID, ColumnID: request.CategoryColumnID,
-		ValueColumnID: request.ValueColumnID, MaxValues: compiler.MaxCategoryScanValues, RequireValue: true,
+		ValueColumnID: request.ValueColumnID, MaxValues: facade.MaxCategoryScanValues, RequireValue: true,
 	})
 	if err != nil {
 		return ConstructionCategoryDiscoveryResponse{}, classifyConstructionCategoryScanError(ctx, err)
 	}
 	proof := scan.Proof
-	overflow := scan.Overflow || len(scan.Values) > compiler.MaxCategoryScanValues
+	overflow := scan.Overflow || len(scan.Values) > facade.MaxCategoryScanValues
 	if (!overflow && !scan.ConclusiveMissing && !scan.Complete) ||
 		proof.Version != 2 || proof.Output != request.OutputID || proof.StageID != request.StageID ||
 		proof.ColumnID != request.CategoryColumnID || proof.ValueColumnID != request.ValueColumnID ||
-		proof.Column != category.Name || proof.MaxValues != compiler.MaxCategoryScanValues ||
+		proof.Column != category.Name || proof.MaxValues != facade.MaxCategoryScanValues ||
 		proof.Kind != category.Type || proof.Cardinality != string(category.Cardinality) || !proof.ValuePresenceRequired ||
 		strings.TrimSpace(proof.OutputSchemaDigest) == "" || strings.TrimSpace(proof.PlanFingerprint) == "" ||
 		strings.TrimSpace(proof.QueryFingerprint) == "" || strings.TrimSpace(proof.Fingerprint) == "" ||
@@ -459,7 +459,7 @@ func (s constructionScanFlow) discoverConstructionCategories(ctx context.Context
 			SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
 			OutputID: request.OutputID, StageID: responseStageID, CategoryColumnID: request.CategoryColumnID,
 			ValueColumnID: request.ValueColumnID, Outcome: constructionCategoryDiscoveryLimitExceeded,
-			Categories: []ConstructionDiscoveredCategory{}, Limit: compiler.MaxCategoryScanValues,
+			Categories: []ConstructionDiscoveredCategory{}, Limit: facade.MaxCategoryScanValues,
 			Message: "This field has more than 256 category values in the current rows. Choose another category field or filter rows before pivoting.",
 		}, nil
 	}
@@ -528,7 +528,7 @@ func classifyConstructionCategoryScanError(ctx context.Context, err error) error
 	if errors.Is(err, explorer.ErrReceiptRecompileRequired) {
 		return conflict(stage, "RECEIPT_RECOMPILE_REQUIRED", "the compiled receipt no longer matches the current construction; refresh and try again", nil, cause)
 	}
-	if refusal, ok := compiler.CategoryScanRefusalCodeOf(err); ok {
+	if refusal, ok := facade.CategoryScanRefusalCodeOf(err); ok {
 		return unprocessable(stage, string(refusal), "complete compiler-owned pivot categories are unavailable for this stage and pair", cause)
 	}
 	if userErr, ok := dataframeerrors.AsUserError(err); ok {

@@ -3,14 +3,13 @@ package fieldprofile
 import (
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/semantic"
 	"slices"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/calypr/loom/internal/catalog/internal/digest"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
+	"github.com/calypr/loom/internal/digest"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -22,10 +21,10 @@ func NewProfilerForGenerationWithLimits(project, datasetGeneration, authResource
 	return &Profiler{
 		project:                  project,
 		datasetGeneration:        strings.TrimSpace(datasetGeneration),
-		semanticInventoryBuildID: semanticinventory.BuildID(project, datasetGeneration),
+		semanticInventoryBuildID: semantic.BuildID(project, datasetGeneration),
 		authResourcePath:         authResourcePath,
 		resourceType:             resourceType,
-		semanticSourceKind:       semanticinventory.SourceFile,
+		semanticSourceKind:       semantic.SourceFile,
 		limits:                   limits,
 		shapeCache:               cache,
 		stats:                    make(map[string]*fieldCatalogStats),
@@ -37,7 +36,7 @@ func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]flo
 	return p.observePayload(payload, timings, "", nil, nil, "", nil)
 }
 
-func (p *Profiler) ObservePayloadWithInventory(payload map[string]any, timings map[string]float64, sourceID string, sink semanticinventory.ObservationSink) error {
+func (p *Profiler) ObservePayloadWithInventory(payload map[string]any, timings map[string]float64, sourceID string, sink semantic.ObservationSink) error {
 	return p.observePayload(payload, timings, sourceID, sink, nil, "", nil)
 }
 
@@ -45,7 +44,7 @@ func (p *Profiler) observePayload(
 	payload map[string]any,
 	timings map[string]float64,
 	sourceID string,
-	semanticSink semanticinventory.ObservationSink,
+	semanticSink semantic.ObservationSink,
 	emissionSink SemanticCoverageEmissionSink,
 	schemaIdentity string,
 	coverageSink SemanticCoverageSourceSink,
@@ -232,7 +231,7 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 		distinctValues := append([]string(nil), stat.distinctValues...)
 		pivotColumns := append([]string(nil), stat.pivotColumns...)
 		extensionValues := append([]ExtensionValueObservation(nil), stat.extensionValues...)
-		semanticObservations := make([]codedconcept.Observation, 0, len(stat.semanticObservations))
+		semanticObservations := make([]semantic.Observation, 0, len(stat.semanticObservations))
 		for _, observation := range stat.semanticObservations {
 			semanticObservations = append(semanticObservations, semanticObservationValues(observation))
 		}
@@ -249,7 +248,7 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 			key := strings.Join([]string{observation.Source.Canonical, observation.OwningScope, observation.Key.System, observation.Key.Code, observation.Key.Selector}, "\x00")
 			if len(mixedChoices[key]) > 1 {
 				observation.Status = "MIXED_CHOICE"
-				observation.Completeness = codedconcept.Partial
+				observation.Completeness = semantic.Partial
 			}
 		}
 		sort.Slice(semanticObservations, func(i, j int) bool {

@@ -5,7 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/row"
+	"github.com/calypr/loom/internal/ingest/source"
 	"strings"
 
 	datasetarango "github.com/calypr/loom/internal/dataset/arango"
@@ -51,9 +52,9 @@ type SourceLoadStatus struct {
 }
 
 type SourceFileValidationError struct {
-	Issues      []ingest.RowErrorSample `json:"issues"`
-	TotalErrors int64                   `json:"total_errors"`
-	Truncated   bool                    `json:"truncated"`
+	Issues      []row.RowErrorSample `json:"issues"`
+	TotalErrors int64                `json:"total_errors"`
+	Truncated   bool                 `json:"truncated"`
 }
 
 func (e *SourceFileValidationError) Error() string {
@@ -92,7 +93,7 @@ const sourceLoadCollection = "loom_source_loads"
 type RepositorySourceLoader struct {
 	client          *arangostore.Client
 	datasets        *datasetarango.Store
-	schema          *ingest.RuntimeFHIRSchema
+	schema          *source.RuntimeFHIRSchema
 	batchSize       int
 	writeAPI        string
 	validateProject func(context.Context, string) error
@@ -115,7 +116,7 @@ func NewRepositorySourceLoader(cfg SourceLoadPublisherConfig) (*RepositorySource
 		cfg.WriteAPI = "import"
 	}
 	return &RepositorySourceLoader{
-		client: cfg.Client, datasets: cfg.DatasetStore, schema: ingest.LoadRuntimeFHIRSchema(),
+		client: cfg.Client, datasets: cfg.DatasetStore, schema: source.LoadRuntimeFHIRSchema(),
 		batchSize: cfg.BatchSize, writeAPI: cfg.WriteAPI, validateProject: cfg.ValidateProject,
 		materialize: cfg.MaterializeAndSelect,
 	}, nil

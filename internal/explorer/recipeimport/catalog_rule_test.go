@@ -2,9 +2,8 @@ package recipeimport
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"testing"
-
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	recipeschema "github.com/calypr/loom/internal/dataframe/recipe/schema"
@@ -102,9 +101,9 @@ func TestNewCatalogRuleKeepsSeparateColumnOwnership(t *testing.T) {
 		Occurrences: []authoringv2.NetworkOccurrence{{OccurrenceID: "base"}},
 		Bindings:    []authoringv2.NetworkColumnBinding{{ColumnID: "status"}, {ColumnID: "description"}},
 	}
-	columns := []lower.CompiledOutputColumn{
-		{ID: "status", SourceOrigin: &lower.CompiledSourceOrigin{OccurrenceID: "base", SourceKind: SourcePlanCatalogProjection, SourceKey: effective.CatalogProjections[0].Name}},
-		{ID: "description", SourceOrigin: &lower.CompiledSourceOrigin{OccurrenceID: "base", SourceKind: SourcePlanCatalogProjection, SourceKey: effective.CatalogProjections[1].Name}},
+	columns := []facade.CompiledOutputColumn{
+		{ID: "status", SourceOrigin: &facade.CompiledSourceOrigin{OccurrenceID: "base", SourceKind: SourcePlanCatalogProjection, SourceKey: effective.CatalogProjections[0].Name}},
+		{ID: "description", SourceOrigin: &facade.CompiledSourceOrigin{OccurrenceID: "base", SourceKind: SourcePlanCatalogProjection, SourceKey: effective.CatalogProjections[1].Name}},
 	}
 	bound, err := BindCompiledNetwork(network, columns, &plan)
 	if err != nil {

@@ -3,14 +3,14 @@ package projectconfig
 import (
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-func projectConfigPublicColumnName(output recipe.Output, column lower.CompiledOutputColumn) (string, error) {
+func projectConfigPublicColumnName(output recipe.Output, column facade.CompiledOutputColumn) (string, error) {
 	name := strings.TrimSpace(column.Name)
 	if name == "" {
 		return "", errors.New("public column name is empty")
@@ -42,14 +42,14 @@ func validProjectConfigLogicalType(value string) bool {
 	}
 }
 
-func projectConfigScalarCapabilities(column lower.CompiledOutputColumn) (filterable, chartable bool) {
+func projectConfigScalarCapabilities(column facade.CompiledOutputColumn) (filterable, chartable bool) {
 	if column.Cardinality == "many" || column.Kind == "object" {
 		return false, false
 	}
 	return true, true
 }
 
-func projectConfigColumnShape(column lower.CompiledOutputColumn) string {
+func projectConfigColumnShape(column facade.CompiledOutputColumn) string {
 	if column.Cardinality == "many" {
 		if column.Kind == "object" {
 			return "record_list"

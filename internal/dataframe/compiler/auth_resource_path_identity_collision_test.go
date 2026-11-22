@@ -3,7 +3,7 @@ package compiler
 import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"testing"
 )
 
@@ -19,11 +19,11 @@ func TestAuthResourcePathProjectionPreservesOpaqueColumnIDCollision(t *testing.T
 	}
 	for _, include := range []bool{false, true} {
 		bindings := recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation", IncludeAuthResourcePath: include}
-		plan, err := semantic.BuildRecipePlan(bundle, bindings)
+		plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 		if err != nil {
 			t.Fatal(err)
 		}
-		resolved, err := semantic.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
+		resolved, err := recipeplan.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
 		if err != nil {
 			t.Fatal(err)
 		}

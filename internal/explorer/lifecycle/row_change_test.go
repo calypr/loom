@@ -5,16 +5,16 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -96,15 +96,15 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 		if err != nil {
 			return explorercompilation.WorkspaceResult{}, err
 		}
-		plan, err := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: snapshot.Identity.Generation})
+		plan, err := recipeplan.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: snapshot.Identity.Generation})
 		if err != nil {
 			return explorercompilation.WorkspaceResult{}, err
 		}
-		resolved, err := semantic.ResolveRecipePlan(plan, snapshot.Identity.AuthorizationScopeDigest, snapshot.Identity.Generation)
+		resolved, err := recipeplan.ResolveRecipePlan(plan, snapshot.Identity.AuthorizationScopeDigest, snapshot.Identity.Generation)
 		if err != nil {
 			return explorercompilation.WorkspaceResult{}, err
 		}
-		if _, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy()); err != nil {
+		if _, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy()); err != nil {
 			return explorercompilation.WorkspaceResult{}, err
 		}
 		return compiled, nil
@@ -342,16 +342,16 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 	if err != nil {
 		t.Fatalf("compile full replacement recipe before target-only preview selection: %v", err)
 	}
-	targetPlan, err := semantic.BuildRecipePlan(selectedCompiled.Bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: snapshot.Identity.Generation})
+	targetPlan, err := recipeplan.BuildRecipePlan(selectedCompiled.Bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: snapshot.Identity.Generation})
 	if err != nil {
 		t.Fatal(err)
 	}
-	targetResolved, err := semantic.ResolveRecipePlan(targetPlan, snapshot.Identity.AuthorizationScopeDigest, snapshot.Identity.Generation)
+	targetResolved, err := recipeplan.ResolveRecipePlan(targetPlan, snapshot.Identity.AuthorizationScopeDigest, snapshot.Identity.Generation)
 	if err != nil {
 		t.Fatal(err)
 	}
 	targetResolved.SemanticPlan.Bindings.OutputNames = []string{"patients"}
-	targetLowered, err := lower.CompileResolvedRecipePlan(targetResolved, ir.DefaultPhysicalOptimizationPolicy())
+	targetLowered, err := facade.CompileResolvedRecipePlan(targetResolved, facade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -897,15 +897,15 @@ func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *test
 		if compileErr != nil {
 			return explorercompilation.WorkspaceResult{}, compileErr
 		}
-		plan, compileErr := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: snapshot.Identity.Generation})
+		plan, compileErr := recipeplan.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: snapshot.Identity.Generation})
 		if compileErr != nil {
 			return explorercompilation.WorkspaceResult{}, compileErr
 		}
-		resolved, compileErr := semantic.ResolveRecipePlan(plan, snapshot.Identity.AuthorizationScopeDigest, snapshot.Identity.Generation)
+		resolved, compileErr := recipeplan.ResolveRecipePlan(plan, snapshot.Identity.AuthorizationScopeDigest, snapshot.Identity.Generation)
 		if compileErr != nil {
 			return explorercompilation.WorkspaceResult{}, compileErr
 		}
-		if _, compileErr := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy()); compileErr != nil {
+		if _, compileErr := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy()); compileErr != nil {
 			return explorercompilation.WorkspaceResult{}, compileErr
 		}
 		return compiled, nil

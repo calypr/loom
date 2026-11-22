@@ -1,18 +1,18 @@
 package receipt
 
 import (
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
-func deriveSourceReconcileFixture(t *testing.T) (authoringv2.Document, lower.CompiledRecipeOutput, capability.Snapshot, authoringv2.ConstructionSourceProjection) {
+func deriveSourceReconcileFixture(t *testing.T) (authoringv2.Document, facade.CompiledRecipeOutput, capability.Snapshot, authoringv2.ConstructionSourceProjection) {
 	t.Helper()
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{
@@ -56,9 +56,9 @@ func deriveSourceReconcileFixture(t *testing.T) (authoringv2.Document, lower.Com
 			}},
 		},
 	}
-	compiled := lower.CompiledRecipeOutput{Stages: []lower.CompiledStageDescriptor{{
+	compiled := facade.CompiledRecipeOutput{Stages: []facade.CompiledStageDescriptor{{
 		ID: recipe.ConstructionSourceProjectionID,
-		Columns: []lower.CompiledOutputColumn{
+		Columns: []facade.CompiledOutputColumn{
 			{ID: "patient-col", Name: "patient_id", Label: "Patient ID", Kind: "string", Cardinality: "optional_one"},
 			{ID: projection.ColumnID, Name: projectionName, Label: projection.Label, SemanticPath: projection.FieldPath, Kind: projection.LogicalType, Cardinality: "optional_one"},
 		},

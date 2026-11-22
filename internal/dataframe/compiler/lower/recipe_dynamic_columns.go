@@ -7,11 +7,11 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPlan, resolvedColumns map[string][]semantic.ResolvedColumn) ([]DynamicColumnMetadata, error) {
+func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output recipeplan.OutputPlan, resolvedColumns map[string][]recipeplan.ResolvedColumn) ([]DynamicColumnMetadata, error) {
 	dynamics := flattenRecipeDynamicMaps(output.Root)
 	if len(dynamics) == 0 {
 		return nil, nil
@@ -136,8 +136,8 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 				outputKey = column.Column.SourceKey
 			}
 			origin := &CompiledSourceOrigin{SourceKey: dynamic.SourceFamilyKey, OutputKey: outputKey, SourceKind: kind, SourcePath: strings.TrimSuffix(dynamic.Source.SourcePath, ".source"), ValueMode: string(dynamic.ValueMode.Normalized())}
-			var findOrigin func(semantic.SemanticNode)
-			findOrigin = func(node semantic.SemanticNode) {
+			var findOrigin func(recipeplan.SemanticNode)
+			findOrigin = func(node recipeplan.SemanticNode) {
 				for _, owned := range node.DynamicMaps {
 					if owned.Name == dynamic.Name && owned.Source.SourcePath == dynamic.Source.SourcePath && owned.ScopeAlias == dynamic.ScopeAlias {
 						origin.OccurrenceID = node.OccurrenceID
@@ -171,7 +171,7 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 	return metadata, nil
 }
 
-func lowerDynamicExcludedSourceKeys(dynamic semantic.SemanticDynamicMap) []string {
+func lowerDynamicExcludedSourceKeys(dynamic recipeplan.SemanticDynamicMap) []string {
 	disabled := make(map[string]bool, len(dynamic.OutputOverrides))
 	for _, override := range dynamic.OutputOverrides {
 		disabled[override.Key] = !override.Enabled
@@ -189,10 +189,10 @@ func lowerDynamicExcludedSourceKeys(dynamic semantic.SemanticDynamicMap) []strin
 	return excluded
 }
 
-func flattenRecipeDynamicMaps(root semantic.SemanticNode) []semantic.SemanticDynamicMap {
-	result := make([]semantic.SemanticDynamicMap, 0)
-	var walk func(semantic.SemanticNode)
-	walk = func(node semantic.SemanticNode) {
+func flattenRecipeDynamicMaps(root recipeplan.SemanticNode) []recipeplan.SemanticDynamicMap {
+	result := make([]recipeplan.SemanticDynamicMap, 0)
+	var walk func(recipeplan.SemanticNode)
+	walk = func(node recipeplan.SemanticNode) {
 		result = append(result, node.DynamicMaps...)
 		for _, child := range node.Children {
 			walk(child)
@@ -202,7 +202,7 @@ func flattenRecipeDynamicMaps(root semantic.SemanticNode) []semantic.SemanticDyn
 	return result
 }
 
-func recipeDynamicMapKey(output string, dynamic semantic.SemanticDynamicMap) string {
+func recipeDynamicMapKey(output string, dynamic recipeplan.SemanticDynamicMap) string {
 	if dynamic.ScopeAlias == "" || dynamic.ScopeAlias == "root" {
 		return output + ":" + dynamic.Name
 	}
@@ -226,7 +226,7 @@ func nextDynamicBindKey(bindVars map[string]any, name string, index int) string 
 	}
 }
 
-func lowerDynamicItemExpression(input semantic.SemanticExpression, bindVars map[string]any, resourceType string) (ir.PhysicalExpression, error) {
+func lowerDynamicItemExpression(input recipeplan.SemanticExpression, bindVars map[string]any, resourceType string) (ir.PhysicalExpression, error) {
 	if input.Expression.Selector != nil && strings.EqualFold(strings.TrimSpace(input.Expression.Selector.Context), "item") {
 		selector, err := spec.ParseSelector(input.Expression.Selector.Path)
 		if err != nil {

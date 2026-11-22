@@ -7,13 +7,13 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	aql "github.com/calypr/loom/internal/dataframe/compiler/render/aql"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func TestGenericPhysicalPlanRestrictedEmptyScopeBindsFalse(t *testing.T) {
 	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(
-		semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}},
-		semantic.ExecutionContext{Project: "P1", AuthScopeMode: authscope.ReadScopeRestricted},
+		recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient"}},
+		recipeplan.ExecutionContext{Project: "P1", AuthScopeMode: authscope.ReadScopeRestricted},
 		ir.DefaultPhysicalOptimizationPolicy(),
 	)
 	if err != nil {

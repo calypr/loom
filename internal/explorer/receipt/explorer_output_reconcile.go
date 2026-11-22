@@ -2,11 +2,10 @@ package receipt
 
 import (
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"sort"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -111,7 +110,7 @@ func ReconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 func ReconcileFinalOutputMetadataWithCombineInputs(
 	translated explorercompilation.WorkspaceResult,
 	resolved dataframeexecution.Resolved,
-	combineInputs map[string]map[int]ir.ResolvedClickHouseTable,
+	combineInputs map[string]map[int]facade.ResolvedClickHouseTable,
 	rowSourceSnapshot capability.Snapshot,
 ) (explorercompilation.WorkspaceResult, error) {
 	if len(translated.Bundle.Outputs) != len(resolved.Bundle.Outputs) || len(resolved.Bundle.Outputs) != len(resolved.Compiled.Outputs) {
@@ -129,7 +128,7 @@ func ReconcileFinalOutputMetadataWithCombineInputs(
 		return explorercompilation.WorkspaceResult{}, fmt.Errorf("translated output contract is inconsistent: %w", err)
 	}
 
-	compiledByOutput := make(map[string]lower.CompiledRecipeOutput, len(resolved.Compiled.Outputs))
+	compiledByOutput := make(map[string]facade.CompiledRecipeOutput, len(resolved.Compiled.Outputs))
 	for _, output := range resolved.Compiled.Outputs {
 		if strings.TrimSpace(output.Name) == "" {
 			return explorercompilation.WorkspaceResult{}, fmt.Errorf("compiled output identity is required")
@@ -429,7 +428,7 @@ func orderReconciledOutputColumns(contract *explorer.PublicOutputContract, prese
 	}
 }
 
-func explicitGroupOutputEmission(document authoringv2.Document, outputID string, column lower.CompiledOutputColumn) (explorer.EmittedColumn, bool, error) {
+func explicitGroupOutputEmission(document authoringv2.Document, outputID string, column facade.CompiledOutputColumn) (explorer.EmittedColumn, bool, error) {
 	if document.Rows.Kind != authoringv2.RowDefinitionGroups || document.Rows.Groups == nil ||
 		document.Rows.Groups.Source.Kind != authoringv2.GroupSourceExplicit || document.Rows.Groups.Source.Explicit == nil {
 		return explorer.EmittedColumn{}, false, nil
@@ -481,7 +480,7 @@ func explicitGroupEmissionID(revisionID, column string) string {
 	return "explicit-group:" + revisionID + ":" + column
 }
 
-func compiledFilterSourceSlotMatches(compiledOutput lower.CompiledRecipeOutput, projection authoringv2.ConstructionSourceProjection) bool {
+func compiledFilterSourceSlotMatches(compiledOutput facade.CompiledRecipeOutput, projection authoringv2.ConstructionSourceProjection) bool {
 	if len(compiledOutput.Stages) == 0 || compiledOutput.Stages[0].ID != recipe.ConstructionSourceProjectionID {
 		return false
 	}
@@ -498,11 +497,11 @@ func compiledFilterSourceSlotMatches(compiledOutput lower.CompiledRecipeOutput, 
 	return false
 }
 
-func compiledDeriveSourceSlotMatches(compiledOutput lower.CompiledRecipeOutput, projection authoringv2.ConstructionSourceProjection) bool {
+func compiledDeriveSourceSlotMatches(compiledOutput facade.CompiledRecipeOutput, projection authoringv2.ConstructionSourceProjection) bool {
 	return compiledFilterSourceSlotMatches(compiledOutput, projection)
 }
 
-func compiledUnpivotSourceSlotMatches(compiledOutput lower.CompiledRecipeOutput, projection authoringv2.ConstructionSourceProjection) bool {
+func compiledUnpivotSourceSlotMatches(compiledOutput facade.CompiledRecipeOutput, projection authoringv2.ConstructionSourceProjection) bool {
 	return compiledFilterSourceSlotMatches(compiledOutput, projection)
 }
 
@@ -512,8 +511,8 @@ func authoredOutputColumns(workspace authoringv2.Workspace) (map[string]authorin
 
 func AuthoredOutputColumnsWithCombineInputs(
 	workspace authoringv2.Workspace,
-	compiledOutputs map[string]lower.CompiledRecipeOutput,
-	combineInputs map[string]map[int]ir.ResolvedClickHouseTable,
+	compiledOutputs map[string]facade.CompiledRecipeOutput,
+	combineInputs map[string]map[int]facade.ResolvedClickHouseTable,
 	rowSourceSnapshot capability.Snapshot,
 ) (map[string]authoringv2.Document, map[string]map[string]AuthoredOutputColumn, error) {
 	documents := make(map[string]authoringv2.Document, len(workspace.Documents))
@@ -552,14 +551,14 @@ func AuthoredOutputColumnsWithCombineInputs(
 }
 
 func authoredConstructionOutputs(document authoringv2.Document, authored map[string]AuthoredOutputColumn) error {
-	return AuthoredConstructionOutputsWithCombineInputs(document, authored, lower.CompiledRecipeOutput{}, nil, capability.Snapshot{})
+	return AuthoredConstructionOutputsWithCombineInputs(document, authored, facade.CompiledRecipeOutput{}, nil, capability.Snapshot{})
 }
 
 func AuthoredConstructionOutputsWithCombineInputs(
 	document authoringv2.Document,
 	authored map[string]AuthoredOutputColumn,
-	compiledOutput lower.CompiledRecipeOutput,
-	resolvedInputs map[int]ir.ResolvedClickHouseTable,
+	compiledOutput facade.CompiledRecipeOutput,
+	resolvedInputs map[int]facade.ResolvedClickHouseTable,
 	rowSourceSnapshot capability.Snapshot,
 ) error {
 	if document.Construction == nil {
@@ -652,8 +651,8 @@ func AuthoredConstructionOutputsWithCombineInputs(
 }
 
 func combineProjectionInputName(
-	compiledOutput lower.CompiledRecipeOutput,
-	resolvedInputs map[int]ir.ResolvedClickHouseTable,
+	compiledOutput facade.CompiledRecipeOutput,
+	resolvedInputs map[int]facade.ResolvedClickHouseTable,
 	inputIndex int,
 	columnID string,
 ) (string, error) {
@@ -786,7 +785,7 @@ type constructedColumnProfile struct {
 	Chartable             bool
 }
 
-func constructedOutputProfileFor(quality ConstructedOutputQuality, column lower.CompiledOutputColumn) (constructedColumnProfile, error) {
+func constructedOutputProfileFor(quality ConstructedOutputQuality, column facade.CompiledOutputColumn) (constructedColumnProfile, error) {
 	cardinality := expression.Cardinality(column.Cardinality)
 	if cardinality == expression.Many {
 		if quality.Shape != "array" {
@@ -941,7 +940,7 @@ func sortedUniqueColumns(columns []string) ([]string, error) {
 	return result, nil
 }
 
-func indexPresentations(values []explorercompilation.PresentationConfig, outputs map[string]lower.CompiledRecipeOutput) (map[string]explorercompilation.PresentationConfig, error) {
+func indexPresentations(values []explorercompilation.PresentationConfig, outputs map[string]facade.CompiledRecipeOutput) (map[string]explorercompilation.PresentationConfig, error) {
 	presentations := make(map[string]explorercompilation.PresentationConfig, len(values))
 	for _, presentation := range values {
 		if _, ok := outputs[presentation.OutputID]; !ok {
@@ -974,7 +973,7 @@ func presentationColumnByName(presentation explorercompilation.PresentationConfi
 	return explorercompilation.PresentationColumn{}, false
 }
 
-func applyCompiledColumnMetadata(emitted *explorer.EmittedColumn, column lower.CompiledOutputColumn) error {
+func applyCompiledColumnMetadata(emitted *explorer.EmittedColumn, column facade.CompiledOutputColumn) error {
 	if emitted == nil || emitted.PublicColumn != column.Name || strings.TrimSpace(column.Kind) == "" || strings.TrimSpace(column.Cardinality) == "" {
 		return fmt.Errorf("compiled public column identity, kind, or cardinality is missing")
 	}

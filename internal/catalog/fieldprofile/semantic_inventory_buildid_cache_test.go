@@ -1,7 +1,7 @@
 package fieldprofile
 
 import (
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
+	"github.com/calypr/loom/internal/semantic"
 	"testing"
 )
 
@@ -25,7 +25,7 @@ func TestProfilerReusesSemanticInventoryBuildIDAcrossContributions(t *testing.T)
 	}
 
 	for index, sourceID := range []string{"Observations.ndjson#1", "Observations.ndjson#2"} {
-		var contributions []semanticinventory.Contribution
+		var contributions []semantic.Contribution
 		err := profiler.ObservePayloadWithInventory(
 			map[string]any{
 				"resourceType": "Observation",
@@ -36,7 +36,7 @@ func TestProfilerReusesSemanticInventoryBuildIDAcrossContributions(t *testing.T)
 			},
 			map[string]float64{},
 			sourceID,
-			func(contribution semanticinventory.Contribution) {
+			func(contribution semantic.Contribution) {
 				contributions = append(contributions, contribution)
 			},
 		)
@@ -47,8 +47,8 @@ func TestProfilerReusesSemanticInventoryBuildIDAcrossContributions(t *testing.T)
 			t.Fatalf("source %q contributions = %d, want %d", sourceID, len(contributions), len(wantKeys[index]))
 		}
 		for ordinal, contribution := range contributions {
-			if contribution.Key != wantKeys[index][ordinal] || contribution.Ordinal != ordinal || contribution.SourceKind != semanticinventory.SourceFile {
-				t.Fatalf("source %q contribution identity = key %q ordinal %d source kind %q, want key %q ordinal %d source kind %q", sourceID, contribution.Key, contribution.Ordinal, contribution.SourceKind, wantKeys[index][ordinal], ordinal, semanticinventory.SourceFile)
+			if contribution.Key != wantKeys[index][ordinal] || contribution.Ordinal != ordinal || contribution.SourceKind != semantic.SourceFile {
+				t.Fatalf("source %q contribution identity = key %q ordinal %d source kind %q, want key %q ordinal %d source kind %q", sourceID, contribution.Key, contribution.Ordinal, contribution.SourceKind, wantKeys[index][ordinal], ordinal, semantic.SourceFile)
 			}
 			if contribution.BuildID != wantBuildID {
 				t.Fatalf("source %q contribution build ID = %q, want cached ID %q", sourceID, contribution.BuildID, wantBuildID)

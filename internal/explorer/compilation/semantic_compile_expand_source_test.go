@@ -3,13 +3,12 @@ package compilation
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
@@ -72,21 +71,21 @@ func expandCompileStep(payload *authoringv2.ConstructionExpandedFieldSource) aut
 	}
 }
 
-func expandCompileLower(t *testing.T, document authoringv2.Document, snapshot capability.Snapshot) lower.CompiledRecipe {
+func expandCompileLower(t *testing.T, document authoringv2.Document, snapshot capability.Snapshot) facade.CompiledRecipe {
 	t.Helper()
 	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot)
 	if err != nil {
 		t.Fatalf("BUG-002/004: compile signed expand state: %v", err)
 	}
-	plan, err := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"})
+	plan, err := recipeplan.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"})
 	if err != nil {
 		t.Fatalf("build plan: %v", err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-a", "generation-a")
 	if err != nil {
 		t.Fatalf("resolve plan: %v", err)
 	}
-	lowered, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	lowered, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("lower: %v", err)
 	}

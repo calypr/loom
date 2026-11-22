@@ -15,7 +15,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func TestNestedExtensionColumnsKeepAncestorOwnersAgainstArango(t *testing.T) {
@@ -33,11 +33,11 @@ func TestNestedExtensionColumnsKeepAncestorOwnersAgainstArango(t *testing.T) {
 		Name: "Patient", RootResourceType: "Patient", RowGrain: "patient",
 		ExtensionColumns: []recipe.ExtensionColumn{{Name: "extensions", ColumnPrefix: extensionStringPointer(""), Source: recipe.Expression{Select: "root.extension[]"}, Columns: columns, MaxColumns: 4}},
 	}}}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "extension-ancestry", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "extension-ancestry", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}

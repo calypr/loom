@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	ingestevent "github.com/calypr/loom/internal/ingest/event"
 	"testing"
 	"time"
 
@@ -11,13 +12,12 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframepublication "github.com/calypr/loom/internal/dataframe/publication"
 	publication "github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/ingest"
 	"github.com/calypr/loom/internal/ingest/generation"
 )
 
 type activationGenerationRunner struct{}
 
-func (activationGenerationRunner) RunGeneration(context.Context, GenerationLoadRequest, ingest.EventSink) (generation.LoadSummary, error) {
+func (activationGenerationRunner) RunGeneration(context.Context, GenerationLoadRequest, ingestevent.EventSink) (generation.LoadSummary, error) {
 	return generation.LoadSummary{}, nil
 }
 
@@ -90,7 +90,7 @@ type activationCapturingRunner struct {
 	calls   int
 }
 
-func (r *activationCapturingRunner) RunGeneration(_ context.Context, request GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
+func (r *activationCapturingRunner) RunGeneration(_ context.Context, request GenerationLoadRequest, _ ingestevent.EventSink) (generation.LoadSummary, error) {
 	r.calls++
 	r.request = request
 	return generation.LoadSummary{}, nil

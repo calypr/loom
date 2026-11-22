@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/bootstrap"
+	"github.com/calypr/loom/internal/ingest/identity"
+	"github.com/calypr/loom/internal/ingest/row"
 	"github.com/calypr/loom/internal/testkit/arangotest"
 	"os"
 	"path/filepath"
@@ -14,9 +16,9 @@ import (
 	"time"
 
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	publication "github.com/calypr/loom/internal/dataset"
 	datasetarango "github.com/calypr/loom/internal/dataset/arango"
+	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -65,7 +67,7 @@ func TestRepositorySourceLoaderArangoResumeCopyAndEmptyReplacement(t *testing.T)
 		t.Fatalf("construct source loader: %v", err)
 	}
 	t.Log("source-load loader constructed")
-	if err := client.Bootstrap(ctx, ingest.BootstrapSpecWithReporter([]string{"BodyStructure"}, false, nil)); err != nil {
+	if err := client.Bootstrap(ctx, bootstrap.BootstrapSpecWithReporter([]string{"BodyStructure"}, false, nil)); err != nil {
 		t.Fatalf("bootstrap copy-query control: %v", err)
 	}
 	copyQuery := `FOR doc IN @@collection
@@ -178,10 +180,10 @@ RETURN {document: doc}`
 	if len(repairedEdges) != 3 {
 		t.Fatalf("copied Patient edge count = %d, want 3", len(repairedEdges))
 	}
-	organizationKey := "Organization/" + ingest.GenerationDocumentKeyWithFormat(project, repairedActive.Release.Generation, "Organization", ingest.SanitizeKey("org-1"), publication.IdentityFormatCompact)
+	organizationKey := "Organization/" + identity.GenerationDocumentKeyWithFormat(project, repairedActive.Release.Generation, "Organization", row.SanitizeKey("org-1"), publication.IdentityFormatCompact)
 	patientKeys := map[string]bool{}
 	for _, id := range []string{"patient-1", "patient-2", "patient-3"} {
-		patientKeys["Patient/"+ingest.GenerationDocumentKeyWithFormat(project, repairedActive.Release.Generation, "Patient", ingest.SanitizeKey(id), publication.IdentityFormatCompact)] = true
+		patientKeys["Patient/"+identity.GenerationDocumentKeyWithFormat(project, repairedActive.Release.Generation, "Patient", row.SanitizeKey(id), publication.IdentityFormatCompact)] = true
 	}
 	for _, edge := range repairedEdges {
 		if edge.SourceFile != "Patient" {
@@ -227,10 +229,10 @@ RETURN {document: doc}`
 	if len(clearedEdges) != 3 {
 		t.Fatalf("empty replacement retained %d Patient edges, want 3", len(clearedEdges))
 	}
-	clearedOrganizationKey := "Organization/" + ingest.GenerationDocumentKeyWithFormat(project, clearedActive.Release.Generation, "Organization", ingest.SanitizeKey("org-1"), publication.IdentityFormatCompact)
+	clearedOrganizationKey := "Organization/" + identity.GenerationDocumentKeyWithFormat(project, clearedActive.Release.Generation, "Organization", row.SanitizeKey("org-1"), publication.IdentityFormatCompact)
 	clearedPatientKeys := map[string]bool{}
 	for _, id := range []string{"patient-1", "patient-2", "patient-3"} {
-		clearedPatientKeys["Patient/"+ingest.GenerationDocumentKeyWithFormat(project, clearedActive.Release.Generation, "Patient", ingest.SanitizeKey(id), publication.IdentityFormatCompact)] = true
+		clearedPatientKeys["Patient/"+identity.GenerationDocumentKeyWithFormat(project, clearedActive.Release.Generation, "Patient", row.SanitizeKey(id), publication.IdentityFormatCompact)] = true
 	}
 	for _, edge := range clearedEdges {
 		if edge.SourceFile != "Patient" || !clearedPatientKeys[edge.From] || edge.To != clearedOrganizationKey {
@@ -257,7 +259,7 @@ RETURN {document: doc}`
 		t.Fatal(err)
 	}
 	unrestricted := true
-	page, err := store.PageSemanticInventory(ctx, semanticinventory.PageOptions{
+	page, err := store.PageSemanticInventory(ctx, semantic.PageOptions{
 		Project: project, DatasetGeneration: replacement.Generation, ResourceType: "Patient",
 		AuthResourcePathsUnrestricted: &unrestricted,
 	})
@@ -276,9 +278,9 @@ func assertCopiedSourceLoadInventory(t *testing.T, ctx context.Context, client *
 		t.Fatal(err)
 	}
 	unrestricted := true
-	entries := func(generation string) []semanticinventory.Entry {
+	entries := func(generation string) []semantic.Entry {
 		t.Helper()
-		page, err := store.PageSemanticInventory(ctx, semanticinventory.PageOptions{
+		page, err := store.PageSemanticInventory(ctx, semantic.PageOptions{
 			Project: project, DatasetGeneration: generation, ResourceType: "Patient", AuthResourcePathsUnrestricted: &unrestricted,
 		})
 		if err != nil {
@@ -327,8 +329,8 @@ RETURN UNSET(doc, "_id", "_rev")`, 10, map[string]any{"project": project, "gener
 		}
 		sourceKey := sourceLoadString(sourceEntry["_key"])
 		targetKey := sourceLoadString(targetEntry["_key"])
-		wantKey := semanticinventory.EntryKey(project, target,
-			semanticinventory.BuildID(project, target), sourceLoadString(targetEntry["source_kind"]),
+		wantKey := semantic.EntryKey(project, target,
+			semantic.BuildID(project, target), sourceLoadString(targetEntry["source_kind"]),
 			sourceLoadString(targetEntry["auth_resource_path"]), sourceLoadString(targetEntry["binding_id"]),
 			sourceLoadString(targetEntry["concept_id"]))
 		if targetKey != wantKey || targetKey == sourceKey {

@@ -7,13 +7,12 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *testing.T) {
@@ -33,11 +32,11 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 	snapshot.Candidates = []capability.Candidate{candidate, fallbackCandidate}
 	anchor := codedPivotSemanticEntry("concept-stage-one", "stage-binding", "urn:stage", "stage-one", "Stage I")
 	added := codedPivotSemanticEntry("concept-stage-two", "stage-binding", "urn:stage", "stage-two", "Stage II")
-	entries := map[string]semanticinventory.Entry{
+	entries := map[string]semantic.Entry{
 		anchor.ConceptID: anchor,
 		added.ConceptID:  added,
 	}
-	buildID := semanticinventory.BuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
+	buildID := semantic.BuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
 	contextToken, err := semanticInventoryContextToken(snapshot, "explorer-a", "Observation", buildID)
 	if err != nil {
 		t.Fatal(err)
@@ -46,12 +45,12 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 	if !ok {
 		t.Fatal("current fallback selectors must resolve to exact compiler-proved candidates")
 	}
-	families := frameSourceFamilies(snapshot, []semanticinventory.Entry{anchor})
+	families := frameSourceFamilies(snapshot, []semantic.Entry{anchor})
 	if len(families) != 1 {
 		t.Fatalf("current CodeableConcept text + coding.display family count = %d, want 1", len(families))
 	}
 	family := families[0]
-	if family.Family.SchemaVersion != codedconcept.ObservationSchemaVersion || family.Family.RuleVersion != strconv.Itoa(semanticinventory.SemanticObservationRuleVersion) ||
+	if family.Family.SchemaVersion != semantic.ObservationSchemaVersion || family.Family.RuleVersion != strconv.Itoa(semantic.SemanticObservationRuleVersion) ||
 		family.Family.ResourceType != "Observation" || family.Family.SourcePath != "code" ||
 		family.Family.KeyPath != "code.coding[]" || family.Family.ValuePath != "valueCodeableConcept.text" ||
 		family.Family.LogicalType != "string" {
@@ -78,7 +77,7 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 	}
 
 	priorFamily := family.Family
-	priorFamily.BindingID = semanticinventory.LegacySemanticBindingIDV1(anchor.Observation)
+	priorFamily.BindingID = semantic.LegacySemanticBindingIDV1(anchor.Observation)
 	priorFamily.SchemaVersion = 3
 	priorFamily.RuleVersion = "4"
 	priorFamily.ValueFallbacks = nil
@@ -108,7 +107,7 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 			Capabilities: []explorer.ReceiptConstructionOperationChoice{{Kind: string(recipe.ConstructionCodedPivotOp), Supported: true}},
 		}},
 	}
-	service := &Service{config: Config{ResolveSemanticInventorySelections: func(_ context.Context, options semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
+	service := &Service{config: Config{ResolveSemanticInventorySelections: func(_ context.Context, options semantic.ResolveOptions) (semantic.ResolveResult, error) {
 		if options.Project != "project-a" || options.DatasetGeneration != "generation-a" || options.AuthResourcePathsUnrestricted == nil || !*options.AuthResourcePathsUnrestricted ||
 			len(options.References) != 1 || options.References[0].BindingID != "stage-binding" {
 			t.Fatalf("semantic reauthorization scope = %#v", options)
@@ -117,7 +116,7 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 		if !ok {
 			t.Fatalf("unexpected semantic inventory reference: %#v", options.References[0])
 		}
-		return semanticAuthoringInventory(snapshot, []semanticinventory.Entry{entry}), nil
+		return semanticAuthoringInventory(snapshot, []semantic.Entry{entry}), nil
 	}}}
 
 	candidateConstruction := base.construction
@@ -173,12 +172,12 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 	assertLifecycleError(t, err, ports.ClassUnprocessable, "INVALID_FRAME_SOURCE")
 }
 
-func codedPivotSemanticEntry(conceptID, bindingID, system, code, display string) semanticinventory.Entry {
+func codedPivotSemanticEntry(conceptID, bindingID, system, code, display string) semantic.Entry {
 	observation := semanticFrameCompatibilityObservation("codeable concept")
 	observation.Key.System = system
 	observation.Key.Code = code
 	observation.Key.Display = display
-	return semanticinventory.Entry{
+	return semantic.Entry{
 		ConceptID: conceptID, BindingID: bindingID,
 		Observation: observation,
 	}

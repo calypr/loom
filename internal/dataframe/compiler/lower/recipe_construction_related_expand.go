@@ -10,7 +10,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
@@ -90,7 +90,7 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedExpand(
 	}
 
 	anchorVariable := allocateConstructionVariable(lowerer.usedVariables, fmt.Sprintf("related_expand_%d_anchor", stepIndex), stepIndex)
-	anchorNode := semantic.SemanticNode{Alias: anchorNodeID, ResourceType: anchorResourceType}
+	anchorNode := recipeplan.SemanticNode{Alias: anchorNodeID, ResourceType: anchorResourceType}
 	subplan := ir.PhysicalSubplan{Captures: []string{inputRow}}
 	if anchorKind == "root" || anchorKind == "rootContributors" {
 		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
@@ -145,7 +145,7 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedExpand(
 		for key, value := range traversal.BindVars {
 			lowerer.plan.BindVars[key] = value
 		}
-		child := semantic.SemanticNode{Alias: hop.ToNodeID, ResourceType: hop.ToResourceType, EdgeLabel: hop.Relationship}
+		child := recipeplan.SemanticNode{Alias: hop.ToNodeID, ResourceType: hop.ToResourceType, EdgeLabel: hop.Relationship}
 		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
 			Kind: ir.PhysicalTraversalOp, Source: ir.PhysicalSource{
 				SemanticNode: child.Alias, ResourceType: child.ResourceType, Relationship: hop.Relationship,

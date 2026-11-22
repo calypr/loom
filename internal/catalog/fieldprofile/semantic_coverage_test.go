@@ -4,14 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/semantic"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/fhir/schema"
-	fhirsemantic "github.com/calypr/loom/internal/fhir/semantic"
 )
 
 func TestSemanticCoverageCensusCountsOwnersAndCodingsByConcretePath(t *testing.T) {
@@ -377,16 +375,16 @@ func semanticCoveragePath(census SemanticCoverageCensus, kind SemanticCoverageOc
 	return SemanticCoveragePathAggregate{}, false
 }
 
-func findMemberFactForCoverage(facts []fhirsemantic.MemberFact, canonicalPath string) (fhirsemantic.MemberFact, bool) {
+func findMemberFactForCoverage(facts []semantic.MemberFact, canonicalPath string) (semantic.MemberFact, bool) {
 	for _, fact := range facts {
 		if fact.CanonicalPath == canonicalPath {
 			return fact, true
 		}
 	}
-	return fhirsemantic.MemberFact{}, false
+	return semantic.MemberFact{}, false
 }
 
-func hasWalkDiagnostic(diagnostics []fhirsemantic.WalkDiagnostic, code fhirsemantic.WalkDiagnosticCode, canonicalPath string) bool {
+func hasWalkDiagnostic(diagnostics []semantic.WalkDiagnostic, code semantic.WalkDiagnosticCode, canonicalPath string) bool {
 	for _, diagnostic := range diagnostics {
 		if diagnostic.Code == code && diagnostic.CanonicalPath == canonicalPath {
 			return true
@@ -497,7 +495,7 @@ func TestSemanticCoverageIgnoresOnlyRootLoomMetadata(t *testing.T) {
 	unknownPaths := map[string]bool{}
 	unknownCanonicalPaths := map[string]bool{}
 	for _, diagnostic := range census.Diagnostics {
-		if diagnostic.Code == fhirsemantic.WalkUnknownMember {
+		if diagnostic.Code == semantic.WalkUnknownMember {
 			unknownPaths[diagnostic.OwnerPath] = true
 			unknownCanonicalPaths[diagnostic.CanonicalPath] = true
 		}
@@ -548,8 +546,8 @@ func TestSemanticCoverageCensusDispatchesContainedResourceAndLegacyWalkerStaysAb
 		t.Fatalf("contained code aggregate lost its exact owner/boundary: %#v", containedCode)
 	}
 
-	var legacyFacts []fhirsemantic.MemberFact
-	legacyDiagnostics, err := fhirsemantic.WalkMembers(index, "Observation", payload, func(fact fhirsemantic.MemberFact) error {
+	var legacyFacts []semantic.MemberFact
+	legacyDiagnostics, err := semantic.WalkMembers(index, "Observation", payload, func(fact semantic.MemberFact) error {
 		legacyFacts = append(legacyFacts, fact)
 		return nil
 	})
@@ -559,7 +557,7 @@ func TestSemanticCoverageCensusDispatchesContainedResourceAndLegacyWalkerStaysAb
 	if _, found := findMemberFactForCoverage(legacyFacts, "contained[].code"); found {
 		t.Fatalf("legacy emitter walker crossed abstract Resource boundary: %#v", legacyFacts)
 	}
-	if !hasWalkDiagnostic(legacyDiagnostics, fhirsemantic.WalkUnknownMember, "contained[].code") {
+	if !hasWalkDiagnostic(legacyDiagnostics, semantic.WalkUnknownMember, "contained[].code") {
 		t.Fatalf("legacy abstract Resource diagnostic missing: %#v", legacyDiagnostics)
 	}
 
@@ -572,10 +570,10 @@ func TestSemanticCoverageCensusDispatchesContainedResourceAndLegacyWalkerStaysAb
 	if err != nil {
 		t.Fatalf("build Bundle/Resource union fixture schema: %v", err)
 	}
-	var bundleFacts []fhirsemantic.MemberFact
-	bundleDiagnostics, err := fhirsemantic.WalkMembers(unionIndex, "Bundle", json.RawMessage(`{
+	var bundleFacts []semantic.MemberFact
+	bundleDiagnostics, err := semantic.WalkMembers(unionIndex, "Bundle", json.RawMessage(`{
 		"resourceType":"Bundle","type":"collection","entry":[{"resource":{"resourceType":"Observation","status":"final","code":{"coding":[{"system":"urn:test","code":"nested"}]}}}]
-	}`), func(fact fhirsemantic.MemberFact) error {
+	}`), func(fact semantic.MemberFact) error {
 		bundleFacts = append(bundleFacts, fact)
 		return nil
 	})
@@ -583,7 +581,7 @@ func TestSemanticCoverageCensusDispatchesContainedResourceAndLegacyWalkerStaysAb
 		t.Fatalf("legacy Bundle fixture walk: %v", err)
 	}
 	if _, found := findMemberFactForCoverage(bundleFacts, "entry[].resource.code"); found ||
-		!hasWalkDiagnostic(bundleDiagnostics, fhirsemantic.WalkUnknownMember, "entry[].resource.code") {
+		!hasWalkDiagnostic(bundleDiagnostics, semantic.WalkUnknownMember, "entry[].resource.code") {
 		t.Fatalf("synthetic Bundle fixture established unsupported union traversal: facts=%#v diagnostics=%#v", bundleFacts, bundleDiagnostics)
 	}
 }
@@ -615,11 +613,11 @@ func TestSemanticCoverageResourceBoundarySignatureKeepsRepeatedAndHeterogeneousO
 			continue
 		}
 		switch path.ResourceBoundarySignature {
-		case semanticCoverageResourceBoundarySignature([]fhirsemantic.ResourceBoundary{{
+		case semanticCoverageResourceBoundarySignature([]semantic.ResourceBoundary{{
 			CanonicalPath: "contained[]", ResourceType: "Observation",
 		}}):
 			observation = path
-		case semanticCoverageResourceBoundarySignature([]fhirsemantic.ResourceBoundary{{
+		case semanticCoverageResourceBoundarySignature([]semantic.ResourceBoundary{{
 			CanonicalPath: "contained[]", ResourceType: "Condition",
 		}}):
 			condition = path
@@ -680,7 +678,7 @@ func TestSemanticCoverageResourceBoundarySignatureRetainsNestedChain(t *testing.
 	if err != nil {
 		t.Fatalf("census nested contained resources: %v", err)
 	}
-	want := semanticCoverageResourceBoundarySignature([]fhirsemantic.ResourceBoundary{
+	want := semanticCoverageResourceBoundarySignature([]semantic.ResourceBoundary{
 		{CanonicalPath: "contained[]", ResourceType: "Observation"},
 		{CanonicalPath: "contained[].contained[]", ResourceType: "Condition"},
 	})
@@ -729,7 +727,7 @@ func TestSemanticCoverageUnresolvedResourceDiscriminatorsStayPartial(t *testing.
 			if census.Status != SemanticCoverageCensusPartial || !containsCoverageGap(census.IncompleteGaps, SemanticCoverageGapUnknownSubtrees) {
 				t.Fatalf("unresolved subtype did not retain a partial gap: status=%q gaps=%#v", census.Status, census.IncompleteGaps)
 			}
-			if !hasWalkDiagnostic(census.Diagnostics, fhirsemantic.WalkUnresolvedResourceType, "contained[]") {
+			if !hasWalkDiagnostic(census.Diagnostics, semantic.WalkUnresolvedResourceType, "contained[]") {
 				t.Fatalf("unresolved discriminator diagnostic missing: %#v", census.Diagnostics)
 			}
 		})
@@ -740,7 +738,7 @@ func TestSemanticCoverageUnresolvedResourceDiscriminatorsStayPartial(t *testing.
 	if err != nil {
 		t.Fatalf("census unknown object: %v", err)
 	}
-	if unknownCensus.Counts.CodeableConceptOwners != 0 || !hasWalkDiagnostic(unknownCensus.Diagnostics, fhirsemantic.WalkUnknownMember, "mystery") {
+	if unknownCensus.Counts.CodeableConceptOwners != 0 || !hasWalkDiagnostic(unknownCensus.Diagnostics, semantic.WalkUnknownMember, "mystery") {
 		t.Fatalf("unknown object was dispatched based on a discriminator: counts=%#v diagnostics=%#v", unknownCensus.Counts, unknownCensus.Diagnostics)
 	}
 }
@@ -858,7 +856,7 @@ func TestSemanticCoverageEmissionEvidencePreservesSameCodeRepeatedOwners(t *test
 			},
 		},
 	}
-	var semantic []semanticinventory.Contribution
+	var semanticContributions []semantic.Contribution
 	var emissions []SemanticCoverageEmissionEvidence
 	var coverage []SemanticCoverageSourceContribution
 	if err := observeRetainedPayloadWithCoverage("coverage-test", "generation-1",
@@ -867,7 +865,9 @@ func TestSemanticCoverageEmissionEvidencePreservesSameCodeRepeatedOwners(t *test
 		"scope-a",
 		"retained:Observation/repeated-owner",
 		"schema-sha256-test",
-		func(contribution semanticinventory.Contribution) { semantic = append(semantic, contribution) },
+		func(contribution semantic.Contribution) {
+			semanticContributions = append(semanticContributions, contribution)
+		},
 		func(evidence SemanticCoverageEmissionEvidence) { emissions = append(emissions, evidence) },
 		func(contribution SemanticCoverageSourceContribution) error {
 			coverage = append(coverage, contribution)
@@ -876,8 +876,8 @@ func TestSemanticCoverageEmissionEvidencePreservesSameCodeRepeatedOwners(t *test
 	); err != nil {
 		t.Fatalf("observe payload with coverage: %v", err)
 	}
-	if len(semantic) != 2 || len(emissions) != 2 {
-		t.Fatalf("semantic observations/evidence = %d/%d, want two repeated owners", len(semantic), len(emissions))
+	if len(semanticContributions) != 2 || len(emissions) != 2 {
+		t.Fatalf("semantic observations/evidence = %d/%d, want two repeated owners", len(semanticContributions), len(emissions))
 	}
 	if len(coverage) != 1 || coverage[0].SourceRecordCount != 1 {
 		t.Fatalf("source coverage contributions = %#v, want one source-level aggregate", coverage)
@@ -900,14 +900,14 @@ func TestSemanticCoverageEmissionEvidencePreservesSameCodeRepeatedOwners(t *test
 		if evidence.Status != "SUPPORTED" || evidence.KeySelector != "code.coding[]" || evidence.ValueSelector != "valueQuantity.value" || len(evidence.Roles) == 0 {
 			t.Errorf("evidence[%d] selectors/status/roles = %q %q %q %#v", index, evidence.Status, evidence.KeySelector, evidence.ValueSelector, evidence.Roles)
 		}
-		if semantic[index].ConceptID != semantic[0].ConceptID || semantic[index].BindingID != semantic[0].BindingID {
-			t.Errorf("same-code emissions acquired different semantic identities: %#v", semantic)
+		if semanticContributions[index].ConceptID != semanticContributions[0].ConceptID || semanticContributions[index].BindingID != semanticContributions[0].BindingID {
+			t.Errorf("same-code emissions acquired different semantic identities: %#v", semanticContributions)
 		}
-		if semantic[index].Example != wantExamples[index] || len(semantic[index].Observation.ObservedUnits) == 0 || semantic[index].Observation.ObservedUnits[0] != wantUnits[index] {
-			t.Errorf("semantic[%d] example/unit = %q/%#v", index, semantic[index].Example, semantic[index].Observation.ObservedUnits)
+		if semanticContributions[index].Example != wantExamples[index] || len(semanticContributions[index].Observation.ObservedUnits) == 0 || semanticContributions[index].Observation.ObservedUnits[0] != wantUnits[index] {
+			t.Errorf("semanticContributions[%d] example/unit = %q/%#v", index, semanticContributions[index].Example, semanticContributions[index].Observation.ObservedUnits)
 		}
 	}
-	if semantic[0].Example == semantic[1].Example {
+	if semanticContributions[0].Example == semanticContributions[1].Example {
 		t.Fatal("same-code repeated owners lost their distinct value examples")
 	}
 }
@@ -954,7 +954,7 @@ func TestSemanticCoverageCollapsesSupportedCodedConceptsByExactFamilyScope(t *te
 	if codingFacet == nil || codingFacet.Disposition != SemanticCoverageSemanticDisposition || len(codingFacet.References) != 2 {
 		t.Fatalf("CodeableConcept coding facet disposition/references = %#v, want semantic with one family per version", codingFacet)
 	}
-	families := make(map[string]semanticinventory.FamilyReference)
+	families := make(map[string]semantic.FamilyReference)
 	for _, reference := range codingPath.References {
 		if reference.Kind != SemanticCoverageFamilyReference || reference.ConceptID != "" {
 			t.Errorf("supported CODED_CONCEPT was not collapsed to a family reference: %#v", reference)
@@ -967,19 +967,19 @@ func TestSemanticCoverageCollapsesSupportedCodedConceptsByExactFamilyScope(t *te
 			t.Errorf("family reference for exact version %q is missing: %#v", version, families)
 			continue
 		}
-		if family.FamilyID == "" || family.BindingID == "" || family.SourceKind != semanticinventory.SourceRetained || family.ResourceType != "Observation" || family.SourcePath != "code.coding[]" || family.System != "urn:test" {
+		if family.FamilyID == "" || family.BindingID == "" || family.SourceKind != semantic.SourceRetained || family.ResourceType != "Observation" || family.SourcePath != "code.coding[]" || family.System != "urn:test" {
 			t.Errorf("family identity lost exact source/binding/system/version scope: %#v", family)
 		}
 	}
 	versionOne := families["v1"]
 	otherVersion := versionOne
 	otherVersion.Version = "v2"
-	if semanticinventory.FamilyID(versionOne) == semanticinventory.FamilyID(otherVersion) {
+	if semantic.FamilyID(versionOne) == semantic.FamilyID(otherVersion) {
 		t.Fatal("family identity merged distinct versions")
 	}
 	otherBinding := versionOne
 	otherBinding.BindingID = "different-binding"
-	if semanticinventory.FamilyID(versionOne) == semanticinventory.FamilyID(otherBinding) {
+	if semantic.FamilyID(versionOne) == semantic.FamilyID(otherBinding) {
 		t.Fatal("family identity merged distinct bindings")
 	}
 }
@@ -1193,7 +1193,7 @@ func TestSemanticCoverageClassifiesIdentifierExtensionAndPrimitiveCode(t *testin
 
 func TestCoverageAuditVersionsStayOutsideInventoryBuildIdentity(t *testing.T) {
 	project, generation := "coverage-version-test", "generation-1"
-	currentBuildID := semanticinventory.BuildID(project, generation)
+	currentBuildID := semantic.BuildID(project, generation)
 	const completedBuildID = "0db6cdbf350b0873a8b40257fd56a7f6487930cd6f66bea53ac0d302a9eb7fb1"
 	if currentBuildID != completedBuildID {
 		t.Fatalf("coverage-only versioning changed the semantic-v3 inventory build ID: got %q, want completed build %q", currentBuildID, completedBuildID)
@@ -1202,11 +1202,11 @@ func TestCoverageAuditVersionsStayOutsideInventoryBuildIdentity(t *testing.T) {
 	if SemanticCoverageRuleVersion != 1 || SemanticCoverageStorageFormatVersion != 1 {
 		t.Fatalf("coverage audit versions = %d/%d, want separate v1 markers", SemanticCoverageRuleVersion, SemanticCoverageStorageFormatVersion)
 	}
-	observation := codedconcept.Observation{
-		SchemaVersion: codedconcept.ObservationSchemaVersion,
-		Source:        codedconcept.Source{Type: "Observation", Path: "component[]"},
-		Key:           codedconcept.Key{Selector: "code.coding[]", System: "urn:test", Version: "v1", Code: "same"},
-		Value:         codedconcept.Value{Selector: "valueQuantity.value", Type: "decimal"},
+	observation := semantic.Observation{
+		SchemaVersion: semantic.ObservationSchemaVersion,
+		Source:        semantic.Source{Type: "Observation", Path: "component[]"},
+		Key:           semantic.Key{Selector: "code.coding[]", System: "urn:test", Version: "v1", Code: "same"},
+		Value:         semantic.Value{Selector: "valueQuantity.value", Type: "decimal"},
 		RuleVersion:   "5",
 	}
 	profiler := NewProfilerForGenerationWithLimits(project, generation, "", "Observation", nil, ProfileLimits{})
@@ -1217,7 +1217,7 @@ func TestCoverageAuditVersionsStayOutsideInventoryBuildIdentity(t *testing.T) {
 	if contribution.BindingID != "f023b734da3591fdc95dd4cb380e85db8f53c8aa3c3f9ce6109f36deda91a710" {
 		t.Fatalf("coverage-only update changed stable binding identity: %s", contribution.BindingID)
 	}
-	familyID := semanticinventory.FamilyID(semanticinventory.FamilyReference{
+	familyID := semantic.FamilyID(semantic.FamilyReference{
 		BindingID: contribution.BindingID, SourceKind: contribution.SourceKind,
 		ResourceType: contribution.Observation.Source.Type, SourcePath: contribution.Observation.Source.Path,
 		System: contribution.Observation.Key.System, Version: contribution.Observation.Key.Version,
@@ -1228,8 +1228,8 @@ func TestCoverageAuditVersionsStayOutsideInventoryBuildIdentity(t *testing.T) {
 	if contribution.BuildID != currentBuildID {
 		t.Fatalf("semantic contribution build ID = %q, want current coverage build %q", contribution.BuildID, currentBuildID)
 	}
-	if semanticinventory.SemanticObservationRuleVersion != 5 || codedconcept.ObservationSchemaVersion != 4 {
-		t.Fatalf("coverage-only update changed observation versions: rule=%d schema=%d", semanticinventory.SemanticObservationRuleVersion, codedconcept.ObservationSchemaVersion)
+	if semantic.SemanticObservationRuleVersion != 5 || semantic.ObservationSchemaVersion != 4 {
+		t.Fatalf("coverage-only update changed observation versions: rule=%d schema=%d", semantic.SemanticObservationRuleVersion, semantic.ObservationSchemaVersion)
 	}
 }
 
@@ -1238,7 +1238,7 @@ func (p *Profiler) ObservePayloadWithCoverage(
 	timings map[string]float64,
 	sourceID string,
 	schemaIdentity string,
-	semanticSink semanticinventory.ObservationSink,
+	semanticSink semantic.ObservationSink,
 	emissionSink SemanticCoverageEmissionSink,
 	coverageSink SemanticCoverageSourceSink,
 ) error {
@@ -1254,7 +1254,7 @@ func observeRetainedPayloadWithCoverage(project, generation string,
 	authResourcePath string,
 	sourceID string,
 	schemaIdentity string,
-	semanticSink semanticinventory.ObservationSink,
+	semanticSink semantic.ObservationSink,
 	emissionSink SemanticCoverageEmissionSink,
 	coverageSink SemanticCoverageSourceSink,
 ) error {
@@ -1270,11 +1270,11 @@ func observeRetainedPayloadWithCoverage(project, generation string,
 	p := Profiler{
 		project:                  project,
 		datasetGeneration:        strings.TrimSpace(generation),
-		semanticInventoryBuildID: semanticinventory.BuildID(project, generation),
+		semanticInventoryBuildID: semantic.BuildID(project, generation),
 		authResourcePath:         authResourcePath,
 		resourceType:             resourceType,
 		semanticOnly:             true,
-		semanticSourceKind:       semanticinventory.SourceRetained,
+		semanticSourceKind:       semantic.SourceRetained,
 	}
 	rawPaths := make(map[string]struct{})
 	for _, field := range buildShapePlan(payload).fields {

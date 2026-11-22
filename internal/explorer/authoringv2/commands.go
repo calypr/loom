@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 const (
@@ -271,12 +271,12 @@ type ResolvedConstructionChoice struct {
 }
 
 type SemanticSelection struct {
-	ConceptID           string                   `json:"conceptId"`
-	BindingID           string                   `json:"bindingId"`
-	RouteEdgeIDs        []string                 `json:"routeEdgeIds"`
-	ProjectionMode      string                   `json:"projectionMode"`
-	Title               string                   `json:"title,omitempty"`
-	ResolvedObservation *semanticinventory.Entry `json:"-"`
+	ConceptID           string          `json:"conceptId"`
+	BindingID           string          `json:"bindingId"`
+	RouteEdgeIDs        []string        `json:"routeEdgeIds"`
+	ProjectionMode      string          `json:"projectionMode"`
+	Title               string          `json:"title,omitempty"`
+	ResolvedObservation *semantic.Entry `json:"-"`
 }
 
 func (s *SemanticSelection) UnmarshalJSON(raw []byte) error {

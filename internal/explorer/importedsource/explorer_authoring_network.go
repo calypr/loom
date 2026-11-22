@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -86,7 +86,7 @@ func (r Sources) RemoveOutput(
 	if err != nil {
 		return authoringv2.Document{}, err
 	}
-	var compiledSchema []lower.CompiledOutputColumn
+	var compiledSchema []facade.CompiledOutputColumn
 	for _, compiled := range resolved.resolved.Compiled.Outputs {
 		if compiled.Name == ref.Output {
 			compiledSchema = compiled.OutputSchema
@@ -382,7 +382,7 @@ func bindPinnedFieldRemoval(
 	if network == nil {
 		return fmt.Errorf("authoring network is required")
 	}
-	var schema []lower.CompiledOutputColumn
+	var schema []facade.CompiledOutputColumn
 	if requiresPristineProjectionIdentity(original, document.ImportedSource) {
 		schema = current.pinnedSchemas[original.Name]
 	} else {

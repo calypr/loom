@@ -3,7 +3,7 @@ package fieldprofile
 import (
 	"testing"
 
-	fhirsemantic "github.com/calypr/loom/internal/fhir/semantic"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func TestSemanticCoverageBoundarySignaturesDefaultEmpty(t *testing.T) {
@@ -25,8 +25,8 @@ func TestSemanticCoverageDiagnosticSamplingDoesNotBlockCompleteProof(t *testing.
 		Status: SemanticCoverageCensusComplete,
 	}
 	for index := 0; index < semanticCoverageMaxDiagnostics+1; index++ {
-		census.Diagnostics = append(census.Diagnostics, fhirsemantic.WalkDiagnostic{
-			Code: fhirsemantic.WalkDiagnosticCode("MISSING_REQUIRED_ELEMENT"),
+		census.Diagnostics = append(census.Diagnostics, semantic.WalkDiagnostic{
+			Code: semantic.WalkDiagnosticCode("MISSING_REQUIRED_ELEMENT"),
 		})
 	}
 	contribution, err := ReconcileSemanticCoverage(census, nil, nil)

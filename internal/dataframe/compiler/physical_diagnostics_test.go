@@ -4,17 +4,17 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestRichConsumerDiagnosticsClassifiesOnlyIdenticalExpressions(t *testing.T) {
 	selector := spec.Selector{Steps: []spec.SelectorStep{{Field: "id"}}}
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Children: []semantic.SemanticNode{{
+		Children: []recipeplan.SemanticNode{{
 			Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient",
-			Aggregates: []semantic.SemanticAggregate{
+			Aggregates: []recipeplan.SemanticAggregate{
 				{Name: "count_a", Operation: "COUNT"},
 				{Name: "count_b", Operation: "COUNT"},
 				{Name: "distinct_ids", Operation: "DISTINCT_VALUES", Selector: &selector},

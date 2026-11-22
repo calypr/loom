@@ -3,9 +3,9 @@ package lifecycle
 import (
 	"encoding/base64"
 	"encoding/json"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
 
-	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -32,7 +32,7 @@ func resolveSchemaFieldCandidate(snapshot capability.Snapshot, candidateID strin
 	if !ok || !node.Populated || !validSHA256Digest(snapshot.Identity.SchemaDigest) {
 		return capability.Candidate{}, false
 	}
-	for _, field := range compilerprobe.SchemaFieldDescriptors(node.ResourceType) {
+	for _, field := range facade.SchemaFieldDescriptors(node.ResourceType) {
 		if field.Path != identity[2] {
 			continue
 		}

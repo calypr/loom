@@ -6,21 +6,20 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func TestSemanticInventoryCategoryPageLimitsMixedSelections(t *testing.T) {
-	build := semanticinventory.NewBuild("project", "generation", "")
-	build.State = semanticinventory.Complete
-	build.EntryIndexVersion = semanticinventory.EntryIndexVersion
+	build := semantic.NewBuild("project", "generation", "")
+	build.State = semantic.Complete
+	build.EntryIndexVersion = semantic.EntryIndexVersion
 	family := categoryTestFamily()
-	measurement := semanticinventory.Entry{
+	measurement := semantic.Entry{
 		BindingID: "measurement-binding", ConceptID: "measurement-concept",
-		Observation: codedconcept.Observation{
-			RuleHint: codedconcept.RuleHintCodedValueV1,
-			Key:      codedconcept.Key{System: "urn:measure", Code: "glucose"},
-			Value:    codedconcept.Value{Selector: "valueQuantity.value", Type: "number"},
+		Observation: semantic.Observation{
+			RuleHint: semantic.RuleHintCodedValueV1,
+			Key:      semantic.Key{System: "urn:measure", Code: "glucose"},
+			Value:    semantic.Value{Selector: "valueQuantity.value", Type: "number"},
 		},
 	}
 	const selectionID = `family:["Specimen","type.coding[]","urn:specimen",""]`
@@ -37,9 +36,9 @@ func TestSemanticInventoryCategoryPageLimitsMixedSelections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		opts := semanticinventory.PageOptions{
+		opts := semantic.PageOptions{
 			Project: "project", DatasetGeneration: "generation", Limit: 1,
-			SelectionMode:                 semanticinventory.SystemVersionCategory,
+			SelectionMode:                 semantic.SystemVersionCategory,
 			AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(false),
 			AuthResourcePaths:             []string{"scope-b", "scope-a", "scope-a"},
 		}
@@ -50,7 +49,7 @@ func TestSemanticInventoryCategoryPageLimitsMixedSelections(t *testing.T) {
 		if len(page.Entries)+len(page.Families) != 1 || page.NextCursor == "" {
 			t.Fatalf("mixed page did not retain one selection and a cursor: %#v", page)
 		}
-		bindingID, selectedID, err := semanticinventory.DecodeCursor(page.NextCursor, opts, build.BuildID)
+		bindingID, selectedID, err := semantic.DecodeCursor(page.NextCursor, opts, build.BuildID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -70,12 +69,12 @@ func TestSemanticInventoryCategoryPageLimitsMixedSelections(t *testing.T) {
 
 func TestResolveSemanticInventoryFamilyUsesCurrentInventoryScope(t *testing.T) {
 	for _, indexed := range []bool{true, false} {
-		build := semanticinventory.NewBuild("project", "generation", "")
-		build.State = semanticinventory.Complete
-		collection := semanticinventory.Collection
+		build := semantic.NewBuild("project", "generation", "")
+		build.State = semantic.Complete
+		collection := semantic.Collection
 		if indexed {
-			build.EntryIndexVersion = semanticinventory.EntryIndexVersion
-			collection = semanticinventory.EntryCollection
+			build.EntryIndexVersion = semantic.EntryIndexVersion
+			collection = semantic.EntryCollection
 		}
 		family := categoryTestFamily()
 		client := &evidenceClient{rows: map[string][]map[string]any{
@@ -86,17 +85,17 @@ func TestResolveSemanticInventoryFamilyUsesCurrentInventoryScope(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		opts := semanticinventory.ResolveOptions{
+		opts := semantic.ResolveOptions{
 			Project: "project", DatasetGeneration: "generation",
 			AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(false),
 			AuthResourcePaths:             []string{"scope-a"},
-			FamilyReferences:              []semanticinventory.FamilyReference{family.FamilyReference},
+			FamilyReferences:              []semantic.FamilyReference{family.FamilyReference},
 		}
 		result, err := adapter.ResolveSemanticInventorySelections(context.Background(), opts)
 		if !indexed {
 			if err != ErrSemanticInventoryCategoryIndexUnavailable || len(result.Families) != 0 ||
 				!reflect.DeepEqual(client.queries, []string{semanticInventoryBuildByKeyAQL}) ||
-				!reflect.DeepEqual(client.collectionChecks, []string{semanticinventory.BuildCollection}) {
+				!reflect.DeepEqual(client.collectionChecks, []string{semantic.BuildCollection}) {
 				t.Fatalf("unindexed family resolution did not fail before accessing inventory: %#v, %v, queries %#v, collections %#v", result, err, client.queries, client.collectionChecks)
 			}
 			continue
@@ -124,10 +123,10 @@ func TestResolveSemanticInventoryFamilyUsesCurrentInventoryScope(t *testing.T) {
 }
 
 func TestSemanticInventoryCategoryPageRequiresEntryIndexAndPreservesExactFallback(t *testing.T) {
-	build := semanticinventory.NewBuild("project", "generation", "")
-	build.State = semanticinventory.Complete
-	entry := semanticinventory.Entry{BindingID: "binding", ConceptID: "concept"}
-	for _, mode := range []semanticinventory.SelectionMode{"", semanticinventory.ExactConcept, semanticinventory.SystemVersionCategory} {
+	build := semantic.NewBuild("project", "generation", "")
+	build.State = semantic.Complete
+	entry := semantic.Entry{BindingID: "binding", ConceptID: "concept"}
+	for _, mode := range []semantic.SelectionMode{"", semantic.ExactConcept, semantic.SystemVersionCategory} {
 		client := &evidenceClient{rows: map[string][]map[string]any{
 			semanticInventoryBuildsAQL: {semanticInventoryTestRow(t, build)},
 			semanticInventoryPageAQL:   {semanticInventoryTestRow(t, entry)},
@@ -136,28 +135,28 @@ func TestSemanticInventoryCategoryPageRequiresEntryIndexAndPreservesExactFallbac
 		if err != nil {
 			t.Fatal(err)
 		}
-		page, err := adapter.PageSemanticInventory(context.Background(), semanticinventory.PageOptions{
+		page, err := adapter.PageSemanticInventory(context.Background(), semantic.PageOptions{
 			Project: "project", DatasetGeneration: "generation", SelectionMode: mode,
 		})
-		if mode == semanticinventory.SystemVersionCategory {
+		if mode == semantic.SystemVersionCategory {
 			if err != ErrSemanticInventoryCategoryIndexUnavailable || len(page.Entries)+len(page.Families) != 0 ||
 				!reflect.DeepEqual(client.queries, []string{semanticInventoryBuildsAQL}) ||
-				!reflect.DeepEqual(client.collectionChecks, []string{semanticinventory.BuildCollection}) {
+				!reflect.DeepEqual(client.collectionChecks, []string{semantic.BuildCollection}) {
 				t.Fatalf("unindexed category page did not fail before accessing inventory: %#v, %v, queries %#v, collections %#v", page, err, client.queries, client.collectionChecks)
 			}
 			continue
 		}
 		if err != nil || len(page.Entries) != 1 || page.Entries[0].ConceptID != entry.ConceptID ||
 			!reflect.DeepEqual(client.queries, []string{semanticInventoryBuildsAQL, semanticInventoryPageAQL}) ||
-			client.vars[1]["@inventory"] != semanticinventory.Collection {
+			client.vars[1]["@inventory"] != semantic.Collection {
 			t.Fatalf("exact mode %q lost its legacy query and contribution fallback: %#v, %v, queries %#v", mode, page, err, client.queries)
 		}
 	}
 }
 
 func TestResolveSemanticInventoryMixedSelectionsRequireEntryIndex(t *testing.T) {
-	build := semanticinventory.NewBuild("project", "generation", "")
-	build.State = semanticinventory.Complete
+	build := semantic.NewBuild("project", "generation", "")
+	build.State = semantic.Complete
 	family := categoryTestFamily()
 	client := &evidenceClient{rows: map[string][]map[string]any{
 		semanticInventoryBuildByKeyAQL: {semanticInventoryTestRow(t, build)},
@@ -166,32 +165,32 @@ func TestResolveSemanticInventoryMixedSelectionsRequireEntryIndex(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = adapter.ResolveSemanticInventorySelections(context.Background(), semanticinventory.ResolveOptions{
+	_, err = adapter.ResolveSemanticInventorySelections(context.Background(), semantic.ResolveOptions{
 		Project: "project", DatasetGeneration: "generation",
 		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(false),
-		References:                    []semanticinventory.Reference{{BindingID: "measurement-binding", ConceptID: "measurement-concept"}},
-		FamilyReferences:              []semanticinventory.FamilyReference{family.FamilyReference},
+		References:                    []semantic.Reference{{BindingID: "measurement-binding", ConceptID: "measurement-concept"}},
+		FamilyReferences:              []semantic.FamilyReference{family.FamilyReference},
 	})
 	if err != ErrSemanticInventoryCategoryIndexUnavailable ||
 		!reflect.DeepEqual(client.queries, []string{semanticInventoryBuildByKeyAQL}) ||
-		!reflect.DeepEqual(client.collectionChecks, []string{semanticinventory.BuildCollection}) {
+		!reflect.DeepEqual(client.collectionChecks, []string{semantic.BuildCollection}) {
 		t.Fatalf("mixed category resolution reached contribution fallback: %v, queries %#v, collections %#v", err, client.queries, client.collectionChecks)
 	}
 }
 
 func TestResolveSemanticInventoryFamilyRejectsTamperedReferences(t *testing.T) {
 	family := categoryTestFamily()
-	for name, change := range map[string]func(*semanticinventory.FamilyReference){
-		"version": func(ref *semanticinventory.FamilyReference) { ref.Version = "v1" },
-		"system":  func(ref *semanticinventory.FamilyReference) { ref.System = "urn:other" },
-		"source":  func(ref *semanticinventory.FamilyReference) { ref.SourcePath = "category.coding[]" },
-		"empty system": func(ref *semanticinventory.FamilyReference) {
+	for name, change := range map[string]func(*semantic.FamilyReference){
+		"version": func(ref *semantic.FamilyReference) { ref.Version = "v1" },
+		"system":  func(ref *semantic.FamilyReference) { ref.System = "urn:other" },
+		"source":  func(ref *semantic.FamilyReference) { ref.SourcePath = "category.coding[]" },
+		"empty system": func(ref *semantic.FamilyReference) {
 			ref.System = ""
-			ref.FamilyID = semanticinventory.FamilyID(*ref)
+			ref.FamilyID = semantic.FamilyID(*ref)
 		},
-		"unknown source kind": func(ref *semanticinventory.FamilyReference) {
+		"unknown source kind": func(ref *semantic.FamilyReference) {
 			ref.SourceKind = "unknown"
-			ref.FamilyID = semanticinventory.FamilyID(*ref)
+			ref.FamilyID = semantic.FamilyID(*ref)
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -202,10 +201,10 @@ func TestResolveSemanticInventoryFamilyRejectsTamperedReferences(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = adapter.ResolveSemanticInventorySelections(context.Background(), semanticinventory.ResolveOptions{
+			_, err = adapter.ResolveSemanticInventorySelections(context.Background(), semantic.ResolveOptions{
 				Project: "project", DatasetGeneration: "generation",
 				AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(false),
-				FamilyReferences:              []semanticinventory.FamilyReference{ref},
+				FamilyReferences:              []semantic.FamilyReference{ref},
 			})
 			if err != ErrInvalidSemanticInventorySelection || len(client.queries) != 0 {
 				t.Fatalf("invalid reference reached the inventory: %v, %#v", err, client.queries)
@@ -214,19 +213,19 @@ func TestResolveSemanticInventoryFamilyRejectsTamperedReferences(t *testing.T) {
 	}
 }
 
-func categoryTestFamily() semanticinventory.Family {
-	family := semanticinventory.Family{
-		FamilyReference: semanticinventory.FamilyReference{
-			BindingID: "binding", SourceKind: semanticinventory.SourceFile,
+func categoryTestFamily() semantic.Family {
+	family := semantic.Family{
+		FamilyReference: semantic.FamilyReference{
+			BindingID: "binding", SourceKind: semantic.SourceFile,
 			ResourceType: "Specimen", SourcePath: "type.coding[]", System: "urn:specimen", Version: "",
 		},
-		Source:      codedconcept.Source{Type: "Specimen", Path: "type.coding[]"},
+		Source:      semantic.Source{Type: "Specimen", Path: "type.coding[]"},
 		KeySelector: "type.coding[]",
-		Value: codedconcept.Value{
+		Value: semantic.Value{
 			Selector: "type.coding[].display", Type: "string", FallbackSelectors: []string{"type.coding[].code"}, FallbackOnBlankString: true,
 		},
 		Population: 2, Examples: []string{"Normal"}, ExamplesTruncated: true,
 	}
-	family.FamilyID = semanticinventory.FamilyID(family.FamilyReference)
+	family.FamilyID = semantic.FamilyID(family.FamilyReference)
 	return family
 }

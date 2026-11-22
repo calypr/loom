@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
+	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
@@ -262,8 +262,8 @@ func openSemanticCoverageResourceIntegration(t *testing.T) (context.Context, *ar
 	generation := strings.ReplaceAll(uuid.NewString(), "-", "")
 	identity := SemanticCoverageBuildIdentity{
 		Project: project, DatasetGeneration: generation,
-		BuildID:        semanticinventory.BuildID(project, generation),
-		SchemaIdentity: strings.Repeat("b", 64), SourceKind: semanticinventory.SourceRetained,
+		BuildID:        semantic.BuildID(project, generation),
+		SchemaIdentity: strings.Repeat("b", 64), SourceKind: semantic.SourceRetained,
 	}
 	t.Cleanup(func() {
 		cleanup := `FOR d IN fhir_semantic_coverage

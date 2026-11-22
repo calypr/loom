@@ -3,11 +3,12 @@ package receipt
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"log/slog"
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	executionarango "github.com/calypr/loom/internal/dataframe/execution/arango"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -197,7 +198,7 @@ func (r Runtime) MaterializeReceipt(ctx context.Context, receipt *explorer.Compi
 }
 
 func NewCombineInputSchemaResolver(reader reciperuntime.ExactMaterializationReader, withPins dataframeexecution.WithExecutionReadPins, scopes *authscope.ScopeResolver) CombineInputSchemaResolver {
-	return func(ctx context.Context, output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings) (ResolvedCombineInputSchema, error) {
+	return func(ctx context.Context, output facade.CompiledRecipeOutput, bindings recipe.RuntimeBindings) (ResolvedCombineInputSchema, error) {
 		return ExactPublishedCombineInputSchemas(ctx, output, bindings, reader, withPins, scopes)
 	}
 }

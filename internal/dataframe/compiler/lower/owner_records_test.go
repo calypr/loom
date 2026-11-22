@@ -6,7 +6,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -21,16 +21,16 @@ func TestOwnerRecordsLowerToOneTypedArrayProjection(t *testing.T) {
 		LogicalType: "decimal",
 		UnitPath:    "valueQuantity.unit",
 	}
-	plan, err := BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias:        "root",
 		ResourceType: "Observation",
-		OwnerRecords: []semantic.SemanticOwnerRecords{{
+		OwnerRecords: []recipeplan.SemanticOwnerRecords{{
 			Name:     "height_records",
 			FieldRef: "component",
 			Binding:  binding,
 			Key:      fhirschema.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
 		}},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,10 +79,10 @@ func TestOwnerRecordsPlanRejectsMissingMetadataBind(t *testing.T) {
 		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
 		SystemPath: "system", CodePath: "code", ValuePath: "valueString", LogicalType: "string",
 	}
-	plan, err := BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Observation",
-		OwnerRecords: []semantic.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code"}}},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+		OwnerRecords: []recipeplan.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code"}}},
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,10 +109,10 @@ func TestOwnerRecordsRejectCodingValueScope(t *testing.T) {
 		ValueScope: fhirschema.CorrelatedValueScopeCoding, SystemPath: "system", CodePath: "code",
 		ValuePath: "display", LogicalType: "string",
 	}
-	_, err := BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+	_, err := BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Observation",
-		OwnerRecords: []semantic.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code"}}},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+		OwnerRecords: []recipeplan.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code"}}},
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err == nil || !strings.Contains(err.Error(), "OWNER_RECORDS does not support Coding value scope") {
 		t.Fatalf("owner-record Coding value scope error = %v", err)
 	}
@@ -123,10 +123,10 @@ func TestOwnerRecordsRejectCodingVersion(t *testing.T) {
 		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
 		SystemPath: "system", CodePath: "code", ValuePath: "valueString", LogicalType: "string",
 	}
-	_, err := BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+	_, err := BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Observation",
-		OwnerRecords: []semantic.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code", Version: "v2"}}},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+		OwnerRecords: []recipeplan.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code", Version: "v2"}}},
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err == nil || !strings.Contains(err.Error(), "OWNER_RECORDS does not support Coding version matching") {
 		t.Fatalf("owner-record Coding version error = %v", err)
 	}
@@ -137,10 +137,10 @@ func TestOwnerRecordsPhysicalIRRejectsCodingValueScope(t *testing.T) {
 		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
 		SystemPath: "system", CodePath: "code", ValuePath: "valueString", LogicalType: "string",
 	}
-	plan, err := BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Observation",
-		OwnerRecords: []semantic.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code"}}},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+		OwnerRecords: []recipeplan.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code"}}},
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

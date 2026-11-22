@@ -1,11 +1,9 @@
 package fieldprofile
 
 import (
-	"github.com/calypr/loom/internal/catalog/codedconcept"
+	"github.com/calypr/loom/internal/semantic"
 	"strings"
 	"testing"
-
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 )
 
 func TestSemanticInventoryKeepsIdentifierTypeCodingRaw(t *testing.T) {
@@ -22,7 +20,7 @@ func TestSemanticInventoryKeepsIdentifierTypeCodingRaw(t *testing.T) {
 			}}},
 		}},
 	}
-	var semantic []semanticinventory.Contribution
+	var semanticContributions []semantic.Contribution
 	var emissions []SemanticCoverageEmissionEvidence
 	var coverage SemanticCoverageSourceContribution
 	if err := observeRetainedPayloadWithCoverage("identifier-type-test", "generation-1",
@@ -31,7 +29,9 @@ func TestSemanticInventoryKeepsIdentifierTypeCodingRaw(t *testing.T) {
 		"scope-a",
 		"retained:Patient/identifier-type",
 		"schema-sha256-test",
-		func(contribution semanticinventory.Contribution) { semantic = append(semantic, contribution) },
+		func(contribution semantic.Contribution) {
+			semanticContributions = append(semanticContributions, contribution)
+		},
 		func(evidence SemanticCoverageEmissionEvidence) { emissions = append(emissions, evidence) },
 		func(contribution SemanticCoverageSourceContribution) error {
 			coverage = contribution
@@ -41,10 +41,10 @@ func TestSemanticInventoryKeepsIdentifierTypeCodingRaw(t *testing.T) {
 		t.Fatalf("observe Identifier.type with coverage: %v", err)
 	}
 
-	var identifier *semanticinventory.Contribution
+	var identifier *semantic.Contribution
 	var identifierTypeEmission bool
-	for index := range semantic {
-		contribution := &semantic[index]
+	for index := range semanticContributions {
+		contribution := &semanticContributions[index]
 		if contribution.Observation.RuleHint == "IDENTIFIER_SYSTEM_VALUE" {
 			identifier = contribution
 		}
@@ -56,8 +56,8 @@ func TestSemanticInventoryKeepsIdentifierTypeCodingRaw(t *testing.T) {
 		identifier.Observation.Key.Selector != "identifier[].system" || identifier.Observation.Value.Selector != "identifier[].value" {
 		t.Fatalf("Identifier namespace/value family changed: %#v", identifier)
 	}
-	if identifierTypeEmission || len(semantic) != 1 {
-		t.Fatalf("Identifier.type Coding must remain raw beside Identifier.system/value; contributions=%#v", semantic)
+	if identifierTypeEmission || len(semanticContributions) != 1 {
+		t.Fatalf("Identifier.type Coding must remain raw beside Identifier.system/value; contributions=%#v", semanticContributions)
 	}
 	coding := findContributionCoveragePath(t, coverage, SemanticCoverageCoding, "identifier[].type.coding[]")
 	if coding.Kind != SemanticCoverageCoding || coding.Disposition == SemanticCoverageSemanticDisposition || len(emissions) != 1 || emissions[0].SourcePath != "identifier[]" {
@@ -91,17 +91,17 @@ func TestSemanticInventoryKeepsIdentifierTypeCodingInsideExtensionURLAncestry(t 
 			},
 		},
 	}
-	var semantic []semanticinventory.Contribution
-	emitter := semanticinventory.NewEmitter("identifier-type-test", "generation-1")
-	if err := emitter.ObservePayload(payload, "Patient", "scope-a", "retained:Patient/extension-identifiers", func(contribution semanticinventory.Contribution) {
-		semantic = append(semantic, contribution)
+	var semanticContributions []semantic.Contribution
+	emitter := semantic.NewEmitter("identifier-type-test", "generation-1")
+	if err := emitter.ObservePayload(payload, "Patient", "scope-a", "retained:Patient/extension-identifiers", func(contribution semantic.Contribution) {
+		semanticContributions = append(semanticContributions, contribution)
 	}); err != nil {
 		t.Fatalf("observe Extension.valueIdentifier: %v", err)
 	}
 
-	identifiers := map[string]semanticinventory.Contribution{}
-	byExtensionURL := map[string]semanticinventory.Contribution{}
-	for _, contribution := range semantic {
+	identifiers := map[string]semantic.Contribution{}
+	byExtensionURL := map[string]semantic.Contribution{}
+	for _, contribution := range semanticContributions {
 		observation := contribution.Observation
 		switch observation.RuleHint {
 		case "IDENTIFIER_SYSTEM_VALUE":
@@ -110,7 +110,7 @@ func TestSemanticInventoryKeepsIdentifierTypeCodingInsideExtensionURLAncestry(t 
 			if len(observation.ExtensionURLPath) == 1 {
 				byExtensionURL[observation.ExtensionURLPath[0]] = contribution
 			}
-		case codedconcept.RuleHintCodedConceptV1:
+		case semantic.RuleHintCodedConceptV1:
 			if strings.Contains(observation.Source.Path, "valueIdentifier.type.coding[]") {
 				t.Fatalf("Identifier.type under Extension escaped URL scoping: %#v", contribution)
 			}

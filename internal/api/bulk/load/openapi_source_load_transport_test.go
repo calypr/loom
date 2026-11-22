@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/ingest/row"
 	"io"
 	"mime/multipart"
 	"net"
@@ -18,7 +19,6 @@ import (
 	loomapi "github.com/calypr/loom/api/loomapi"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/ingest"
 	"github.com/calypr/loom/internal/ingest/sourceload"
 	"github.com/gofiber/fiber/v3"
 	"github.com/valyala/fasthttp"
@@ -41,7 +41,7 @@ func (*sourceLoadValidationLoader) Status(context.Context, string, string) (sour
 func (loader *sourceLoadValidationLoader) UploadFile(context.Context, string, string, string, string) (sourceload.SourceFileReceipt, error) {
 	loader.uploadCalls++
 	return sourceload.SourceFileReceipt{}, &sourceload.SourceFileValidationError{
-		Issues: []ingest.RowErrorSample{{
+		Issues: []row.RowErrorSample{{
 			File: "META/BodyStructure.ndjson", Line: 32, ResourceType: "BodyStructure", Category: "validation",
 			Message: `META/BodyStructure.ndjson row 32: required field "includedStructure" is missing from BodyStructure.`,
 		}},

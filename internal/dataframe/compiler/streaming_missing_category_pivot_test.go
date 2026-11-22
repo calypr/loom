@@ -10,7 +10,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testing.T) {
@@ -25,11 +25,11 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 		TranslationVersion:  "test",
 		Outputs:             []recipe.Output{output},
 	}
-	semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
+	semanticPlan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(semanticPlan, bindings.Project, bindings.DatasetGeneration)
+	resolved, err := recipeplan.ResolveRecipePlan(semanticPlan, bindings.Project, bindings.DatasetGeneration)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,11 +133,11 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
 		Name:                identityOutput.Name, TranslationVersion: "test", Outputs: []recipe.Output{identityOutput},
 	}
-	identityPlan, err := semantic.BuildRecipePlan(identityBundle, bindings)
+	identityPlan, err := recipeplan.BuildRecipePlan(identityBundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	identityResolved, err := semantic.ResolveRecipePlan(identityPlan, bindings.Project, bindings.DatasetGeneration)
+	identityResolved, err := recipeplan.ResolveRecipePlan(identityPlan, bindings.Project, bindings.DatasetGeneration)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,11 +199,11 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 		TranslationVersion:  "test",
 		Outputs:             []recipe.Output{assertionOutput},
 	}
-	assertionPlan, err := semantic.BuildRecipePlan(assertionBundle, bindings)
+	assertionPlan, err := recipeplan.BuildRecipePlan(assertionBundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertionResolved, err := semantic.ResolveRecipePlan(assertionPlan, bindings.Project, bindings.DatasetGeneration)
+	assertionResolved, err := recipeplan.ResolveRecipePlan(assertionPlan, bindings.Project, bindings.DatasetGeneration)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,11 +272,11 @@ func TestStreamingMissingCategoryPivotIndexFallsBackWithoutScalarKeyProof(t *tes
 		TranslationVersion:  "test",
 		Outputs:             []recipe.Output{output},
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
 	if err != nil {
 		t.Fatal(err)
 	}

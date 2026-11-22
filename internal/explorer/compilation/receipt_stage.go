@@ -2,16 +2,15 @@ package compilation
 
 import (
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
-
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 )
 
-func constructionColumnSourceKey(origin lower.CompiledSourceOrigin, semanticPath string) string {
+func constructionColumnSourceKey(origin facade.CompiledSourceOrigin, semanticPath string) string {
 	if origin.OccurrenceID == "" || origin.ResourceType == "" {
 		return ""
 	}
@@ -24,7 +23,7 @@ func constructionColumnSourceKey(origin lower.CompiledSourceOrigin, semanticPath
 	return origin.OccurrenceID + "|" + origin.ResourceType + "|" + path
 }
 
-func ReceiptConstructionStageFromDescriptor(descriptor lower.CompiledStageDescriptor) (explorer.ReceiptConstructionStage, error) {
+func ReceiptConstructionStageFromDescriptor(descriptor facade.CompiledStageDescriptor) (explorer.ReceiptConstructionStage, error) {
 	stage := explorer.ReceiptConstructionStage{
 		ID: descriptor.ID, InputStageID: descriptor.InputStageID, Operation: descriptor.Operation,
 		RowIdentityColumn: descriptor.RowIdentityColumn,

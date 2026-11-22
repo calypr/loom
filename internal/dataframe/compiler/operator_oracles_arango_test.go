@@ -15,7 +15,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
@@ -662,11 +662,11 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 
 func compileOracleBundle(t *testing.T, bundle recipe.Bundle, project, generation string) lower.CompiledRecipe {
 	t.Helper()
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: project, DatasetGeneration: generation})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: project, DatasetGeneration: generation})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope-s04", generation)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-s04", generation)
 	if err != nil {
 		t.Fatal(err)
 	}

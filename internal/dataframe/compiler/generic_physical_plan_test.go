@@ -9,22 +9,22 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
 func TestBuildGenericPhysicalPlanNavigationSkeleton(t *testing.T) {
-	output := semantic.OutputPlan{
-		Root: semantic.SemanticNode{
+	output := recipeplan.OutputPlan{
+		Root: recipeplan.SemanticNode{
 			Alias: "root", ResourceType: "Patient",
-			Children: []semantic.SemanticNode{{
+			Children: []recipeplan.SemanticNode{{
 				Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
-				Children: []semantic.SemanticNode{{Alias: "file", ResourceType: "DocumentReference", EdgeLabel: "subject_Specimen"}},
+				Children: []recipeplan.SemanticNode{{Alias: "file", ResourceType: "DocumentReference", EdgeLabel: "subject_Specimen"}},
 			}},
 		},
 	}
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(output, semantic.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}}, ir.DefaultPhysicalOptimizationPolicy())
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(output, recipeplan.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestBuildGenericPhysicalPlanNavigationSkeleton(t *testing.T) {
 }
 
 func TestBuildGenericPhysicalPlanEmptyAuthScopeIsExplicit(t *testing.T) {
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Observation"}})
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Observation"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,9 +78,9 @@ func TestBuildGenericPhysicalPlanEmptyAuthScopeIsExplicit(t *testing.T) {
 
 func TestBuildAndRenderGenericPhysicalPlanOptionalChildFieldsAndFilters(t *testing.T) {
 	wantID := "file-1"
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []recipeplan.SemanticNode{{
 		Alias: "file", ResourceType: "DocumentReference", EdgeLabel: "subject_Patient",
-		Fields:  []semantic.SemanticField{{Name: "file_id", FieldRef: "DocumentReference.id", Expr: semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionFirst}},
+		Fields:  []recipeplan.SemanticField{{Name: "file_id", FieldRef: "DocumentReference.id", Expr: recipeplan.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionFirst}},
 		Filters: []spec.TypedFilter{{FieldRef: "DocumentReference.id", Selector: "id", FieldKind: spec.FilterString, Operator: spec.FilterEquals, Values: []spec.FilterValue{{Kind: spec.FilterString, String: &wantID}}}},
 	}}},
 	})
@@ -109,13 +109,13 @@ func TestBuildAndRenderGenericPhysicalPlanOptionalChildFieldsAndFilters(t *testi
 }
 
 func TestBuildAndRenderGenericPhysicalPlanReducesDirectChildFieldsOnce(t *testing.T) {
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []recipeplan.SemanticNode{{
 		Alias: "file", ResourceType: "DocumentReference", EdgeLabel: "subject_Patient",
-		Fields: []semantic.SemanticField{
-			{Name: "file_id", FieldRef: "DocumentReference.id", Expr: semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionFirst},
-			{Name: "description", FieldRef: "DocumentReference.description", Expr: semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "description"})}, Projection: spec.ProjectionFirst},
-			{Name: "titles", FieldRef: "DocumentReference.content[].attachment.title", Expr: semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "content[].attachment.title"})}, Projection: spec.ProjectionArray},
-			{Name: "distinct_titles", FieldRef: "DocumentReference.content[].attachment.title", Expr: semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "content[].attachment.title"})}, Projection: spec.ProjectionDistinctArray},
+		Fields: []recipeplan.SemanticField{
+			{Name: "file_id", FieldRef: "DocumentReference.id", Expr: recipeplan.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionFirst},
+			{Name: "description", FieldRef: "DocumentReference.description", Expr: recipeplan.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "description"})}, Projection: spec.ProjectionFirst},
+			{Name: "titles", FieldRef: "DocumentReference.content[].attachment.title", Expr: recipeplan.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "content[].attachment.title"})}, Projection: spec.ProjectionArray},
+			{Name: "distinct_titles", FieldRef: "DocumentReference.content[].attachment.title", Expr: recipeplan.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "content[].attachment.title"})}, Projection: spec.ProjectionDistinctArray},
 		},
 	}}}})
 	if err != nil {
@@ -140,16 +140,16 @@ func TestBuildAndRenderGenericPhysicalPlanReducesDirectChildFieldsOnce(t *testin
 }
 
 func TestCompileRecipeOutputPreservesMixedChildDependencyOrder(t *testing.T) {
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Children: []semantic.SemanticNode{{
+		Children: []recipeplan.SemanticNode{{
 			Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
-			Fields: []semantic.SemanticField{{
+			Fields: []recipeplan.SemanticField{{
 				Name: "specimen_id", FieldRef: "Specimen.id",
-				Expr:       semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})},
+				Expr:       recipeplan.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})},
 				Projection: spec.ProjectionFirst,
 			}},
-			Children: []semantic.SemanticNode{{
+			Children: []recipeplan.SemanticNode{{
 				Alias: "file", ResourceType: "DocumentReference", EdgeLabel: "subject_Specimen",
 			}},
 		}},
@@ -177,15 +177,15 @@ func TestCompileRecipeOutputPreservesMixedChildDependencyOrder(t *testing.T) {
 
 func TestBuildAndRenderGenericPhysicalPlanNestedOptionalFieldsAndAggregates(t *testing.T) {
 	id := "file-1"
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Children: []semantic.SemanticNode{{
+		Children: []recipeplan.SemanticNode{{
 			Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
-			Children: []semantic.SemanticNode{{
+			Children: []recipeplan.SemanticNode{{
 				Alias: "file", ResourceType: "DocumentReference", EdgeLabel: "subject_Specimen",
-				Fields:     []semantic.SemanticField{{Name: "id", Expr: semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionFirst}},
+				Fields:     []recipeplan.SemanticField{{Name: "id", Expr: recipeplan.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionFirst}},
 				Filters:    []spec.TypedFilter{{FieldRef: "DocumentReference.id", Selector: "id", FieldKind: spec.FilterString, Operator: spec.FilterEquals, Values: []spec.FilterValue{{Kind: spec.FilterString, String: &id}}}},
-				Aggregates: []semantic.SemanticAggregate{{Name: "count", Operation: "COUNT"}},
+				Aggregates: []recipeplan.SemanticAggregate{{Name: "count", Operation: "COUNT"}},
 			}},
 		}},
 	},
@@ -224,18 +224,18 @@ func TestBuildAndRenderGenericPhysicalPlanNestedOptionalFieldsAndAggregates(t *t
 
 func TestBuildAndRenderGenericPhysicalPlanAggregates(t *testing.T) {
 	gender := spec.Selector{Steps: []spec.SelectorStep{{Field: "gender"}}}
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Aggregates: []semantic.SemanticAggregate{
+		Aggregates: []recipeplan.SemanticAggregate{
 			{Name: "patient_count", Operation: "COUNT"},
 			{Name: "gender_value_count", Operation: "COUNT", Selector: &gender},
 			{Name: "genders", Operation: "DISTINCT_VALUES", Selector: &gender},
 			{Name: "one_gender", Operation: "REQUIRE_ONE", Selector: &gender},
 			{Name: "all_genders", Operation: "COLLECT", Selector: &gender},
 		},
-		Children: []semantic.SemanticNode{{
+		Children: []recipeplan.SemanticNode{{
 			Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
-			Aggregates: []semantic.SemanticAggregate{{Name: "count", Operation: "COUNT"}},
+			Aggregates: []recipeplan.SemanticAggregate{{Name: "count", Operation: "COUNT"}},
 		}},
 	},
 	})
@@ -285,22 +285,22 @@ func TestBuildAndRenderOrderedContributorWindowAggregate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	window := &semantic.SemanticContributorWindow{
+	window := &recipeplan.SemanticContributorWindow{
 		Timestamp: timestamp, Anchor: anchor, AnchorResource: "Patient",
 		LowerOffset: -86400, UpperOffset: 0, LowerInclusive: true, UpperInclusive: true,
 		Precision: "INSTANT",
 	}
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Children: []semantic.SemanticNode{{
+		Children: []recipeplan.SemanticNode{{
 			Alias: "observation", ResourceType: "Observation", EdgeLabel: "subject_Patient",
-			Aggregates: []semantic.SemanticAggregate{
+			Aggregates: []recipeplan.SemanticAggregate{
 				{
 					Name: "latest_height", Operation: "FIRST_ORDERED", Selector: &value,
 					UnitSystemSelector: &system, UnitCodeSelector: &code,
 					UnitNormalization: &unit.UnitNormalization{Target: policy.Target, Dimension: dimension, Rules: rules},
 					ContributorWindow: window,
-					Ordering:          &semantic.SemanticTemporalOrdering{Timestamp: timestamp, Direction: "DESC", TiePolicy: "REQUIRE_UNIQUE"},
+					Ordering:          &recipeplan.SemanticTemporalOrdering{Timestamp: timestamp, Direction: "DESC", TiePolicy: "REQUIRE_UNIQUE"},
 				},
 				{
 					Name: "sum_height", Operation: "SUM", Selector: &value,
@@ -372,12 +372,12 @@ func TestBuildAndRenderOrderedContributorWindowAggregate(t *testing.T) {
 func TestBuildAndRenderGenericPhysicalPlanRepresentativeSlices(t *testing.T) {
 	gender := spec.Selector{Steps: []spec.SelectorStep{{Field: "gender"}}}
 	title := spec.Selector{Steps: []spec.SelectorStep{{Field: "content", Iterate: true}, {Field: "attachment"}, {Field: "title"}}}
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Slices: []semantic.SemanticSlice{{Name: "representative", Limit: 2, Predicate: &gender, PredicateEquals: "female", Fields: []semantic.SemanticField{testSemanticField("gender", gender, spec.ProjectionFirst)}}},
-		Children: []semantic.SemanticNode{{
+		Slices: []recipeplan.SemanticSlice{{Name: "representative", Limit: 2, Predicate: &gender, PredicateEquals: "female", Fields: []recipeplan.SemanticField{testSemanticField("gender", gender, spec.ProjectionFirst)}}},
+		Children: []recipeplan.SemanticNode{{
 			Alias: "file", ResourceType: "DocumentReference", EdgeLabel: "subject_Patient",
-			Slices: []semantic.SemanticSlice{{Name: "representative_files", Limit: 1, Fields: []semantic.SemanticField{testSemanticField("title", title, spec.ProjectionFirst)}}},
+			Slices: []recipeplan.SemanticSlice{{Name: "representative_files", Limit: 1, Fields: []recipeplan.SemanticField{testSemanticField("title", title, spec.ProjectionFirst)}}},
 		}},
 	},
 	})
@@ -403,12 +403,12 @@ func TestBuildAndRenderGenericPhysicalPlanRepresentativeSlices(t *testing.T) {
 
 func TestBuildAndRenderGenericPhysicalPlanAggregatePredicates(t *testing.T) {
 	status := spec.Selector{Steps: []spec.SelectorStep{{Field: "id"}}}
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Aggregates: []semantic.SemanticAggregate{{Name: "female_count", Operation: "COUNT", Predicate: &spec.TypedFilter{FieldRef: "Patient.gender", Selector: "gender", FieldKind: spec.FilterString, Operator: spec.FilterEquals, Values: []spec.FilterValue{{Kind: spec.FilterString, String: stringPtr("female")}}}}},
-		Children: []semantic.SemanticNode{{
+		Aggregates: []recipeplan.SemanticAggregate{{Name: "female_count", Operation: "COUNT", Predicate: &spec.TypedFilter{FieldRef: "Patient.gender", Selector: "gender", FieldKind: spec.FilterString, Operator: spec.FilterEquals, Values: []spec.FilterValue{{Kind: spec.FilterString, String: stringPtr("female")}}}}},
+		Children: []recipeplan.SemanticNode{{
 			Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
-			Aggregates: []semantic.SemanticAggregate{{Name: "available_count", Operation: "COUNT_DISTINCT", Selector: &status, Predicate: &spec.TypedFilter{FieldRef: "Specimen.status", Selector: "status", FieldKind: spec.FilterString, Operator: spec.FilterEquals, Values: []spec.FilterValue{{Kind: spec.FilterString, String: stringPtr("available")}}}}},
+			Aggregates: []recipeplan.SemanticAggregate{{Name: "available_count", Operation: "COUNT_DISTINCT", Selector: &status, Predicate: &spec.TypedFilter{FieldRef: "Specimen.status", Selector: "status", FieldKind: spec.FilterString, Operator: spec.FilterEquals, Values: []spec.FilterValue{{Kind: spec.FilterString, String: stringPtr("available")}}}}},
 		}},
 	},
 	})
@@ -429,11 +429,11 @@ func TestBuildAndRenderGenericPhysicalPlanAggregatePredicates(t *testing.T) {
 
 func TestBuildAndRenderGenericPhysicalPlanContainsAll(t *testing.T) {
 	typeCode := spec.Selector{Steps: []spec.SelectorStep{{Field: "type"}, {Field: "coding", Iterate: true}, {Field: "code"}}}
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Children: []semantic.SemanticNode{{
+		Children: []recipeplan.SemanticNode{{
 			Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
-			Aggregates: []semantic.SemanticAggregate{{Name: "paired", Operation: "CONTAINS_ALL", Selector: &typeCode, RequiredValues: []string{"Tumor", "Normal"}}},
+			Aggregates: []recipeplan.SemanticAggregate{{Name: "paired", Operation: "CONTAINS_ALL", Selector: &typeCode, RequiredValues: []string{"Tumor", "Normal"}}},
 		}},
 	}})
 	if err != nil {
@@ -461,16 +461,16 @@ func TestBuildAndRenderGenericPhysicalPlanContainsAll(t *testing.T) {
 func TestBuildGenericPhysicalPlanPreparesSelectorsAcrossRichConsumers(t *testing.T) {
 	status := spec.Selector{Steps: []spec.SelectorStep{{Field: "id"}}}
 	policy := ir.DefaultPhysicalOptimizationPolicy().WithRule(ir.PhysicalOptimizationRuleCompactProjection, false).WithRule(ir.PhysicalOptimizationRulePreparedSelectors, true)
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Children: []semantic.SemanticNode{{
+		Children: []recipeplan.SemanticNode{{
 			Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient",
-			Aggregates: []semantic.SemanticAggregate{{Name: "status_count", Operation: "COUNT_DISTINCT", Selector: &status}},
-			Pivots:     []semantic.SemanticPivot{{Name: "status_values", ColumnSelector: status, ValueSelector: status, Columns: []string{"active", "resolved"}}},
-			Slices:     []semantic.SemanticSlice{{Name: "representative", Limit: 1, Fields: []semantic.SemanticField{testSemanticField("status", status, "")}}},
+			Aggregates: []recipeplan.SemanticAggregate{{Name: "status_count", Operation: "COUNT_DISTINCT", Selector: &status}},
+			Pivots:     []recipeplan.SemanticPivot{{Name: "status_values", ColumnSelector: status, ValueSelector: status, Columns: []string{"active", "resolved"}}},
+			Slices:     []recipeplan.SemanticSlice{{Name: "representative", Limit: 1, Fields: []recipeplan.SemanticField{testSemanticField("status", status, "")}}},
 		}},
 	},
-	}, semantic.ExecutionContext{Project: "p"}, policy)
+	}, recipeplan.ExecutionContext{Project: "p"}, policy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -546,15 +546,15 @@ func TestPreparedSelectorsPreserveFallbackExtraction(t *testing.T) {
 	primary := spec.Selector{Steps: []spec.SelectorStep{{Field: "id"}}}
 	fallback := spec.Selector{Steps: []spec.SelectorStep{{Field: "code"}}}
 	policy := ir.DefaultPhysicalOptimizationPolicy().WithRule(ir.PhysicalOptimizationRulePreparedSelectors, true)
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Children: []semantic.SemanticNode{{
+		Children: []recipeplan.SemanticNode{{
 			Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient",
-			Fields:     []semantic.SemanticField{testSemanticFieldWithFallback("status_with_fallback", primary, fallback)},
-			Aggregates: []semantic.SemanticAggregate{{Name: "status_count", Operation: "COUNT_DISTINCT", Selector: &primary}},
+			Fields:     []recipeplan.SemanticField{testSemanticFieldWithFallback("status_with_fallback", primary, fallback)},
+			Aggregates: []recipeplan.SemanticAggregate{{Name: "status_count", Operation: "COUNT_DISTINCT", Selector: &primary}},
 		}},
 	},
-	}, semantic.ExecutionContext{Project: "p"}, policy)
+	}, recipeplan.ExecutionContext{Project: "p"}, policy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -588,7 +588,7 @@ func TestPreparedSelectorsPreserveFallbackExtraction(t *testing.T) {
 func TestBuildAndRenderGenericPhysicalPlanPivots(t *testing.T) {
 	key := spec.Selector{Steps: []spec.SelectorStep{{Field: "code"}, {Field: "coding", Iterate: true}, {Field: "display"}}}
 	value := spec.Selector{Steps: []spec.SelectorStep{{Field: "text"}}}
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Condition", Pivots: []semantic.SemanticPivot{{Name: "lab_values", ColumnSelector: key, ValueSelector: value, Columns: []string{"female", "male"}}}}})
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Condition", Pivots: []recipeplan.SemanticPivot{{Name: "lab_values", ColumnSelector: key, ValueSelector: value, Columns: []string{"female", "male"}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -613,12 +613,12 @@ func TestBuildAndRenderGenericPhysicalPlanPivots(t *testing.T) {
 
 func TestChildPivotRetainsPayloadForDeferredEvaluation(t *testing.T) {
 	code := spec.Selector{Steps: []spec.SelectorStep{{Field: "code"}, {Field: "coding", Iterate: true}, {Field: "display"}}}
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{
-		Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{
+		Root: recipeplan.SemanticNode{
 			Alias: "root", ResourceType: "Patient",
-			Children: []semantic.SemanticNode{{
+			Children: []recipeplan.SemanticNode{{
 				Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient",
-				Pivots: []semantic.SemanticPivot{{Name: "code_values", ColumnSelector: code, ValueSelector: code, Columns: []string{"active"}}},
+				Pivots: []recipeplan.SemanticPivot{{Name: "code_values", ColumnSelector: code, ValueSelector: code, Columns: []string{"active"}}},
 			}},
 		},
 	})
@@ -663,7 +663,7 @@ func TestRenderGenericPivotFlattensRepeatedItemSource(t *testing.T) {
 	codeText := spec.Selector{Steps: []spec.SelectorStep{{Field: "code"}, {Field: "text"}}}
 	valueString := spec.Selector{Steps: []spec.SelectorStep{{Field: "valueString"}}}
 	componentItems := spec.Selector{Steps: []spec.SelectorStep{{Field: "component", Iterate: true}}}
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Observation", Pivots: []recipeplan.SemanticPivot{{
 		Name: "component_values", ColumnSelector: codeText, ValueSelector: valueString,
 		ItemSource: componentItems, ItemResourceType: "ObservationComponent", Columns: []string{"Component"},
 	}}},
@@ -683,16 +683,16 @@ func TestRenderGenericPivotFlattensRepeatedItemSource(t *testing.T) {
 func TestBuildGenericPhysicalPlanRejectsUnsupportedSemanticFeatures(t *testing.T) {
 	tests := []struct {
 		name string
-		root semantic.SemanticNode
+		root recipeplan.SemanticNode
 		want string
 	}{
-		{"unknown root", semantic.SemanticNode{Alias: "root", ResourceType: "Unknown"}, "not represented"},
-		{"child filter with incomplete type metadata", semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{{Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient", Filters: []spec.TypedFilter{{FieldRef: "status"}}}}}, "unknown filter field kind"},
-		{"unknown traversal", semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{{Alias: "medication", ResourceType: "Medication", EdgeLabel: "missing"}}}, "not represented"},
+		{"unknown root", recipeplan.SemanticNode{Alias: "root", ResourceType: "Unknown"}, "not represented"},
+		{"child filter with incomplete type metadata", recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []recipeplan.SemanticNode{{Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient", Filters: []spec.TypedFilter{{FieldRef: "status"}}}}}, "unknown filter field kind"},
+		{"unknown traversal", recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []recipeplan.SemanticNode{{Alias: "medication", ResourceType: "Medication", EdgeLabel: "missing"}}}, "not represented"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: test.root})
+			_, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: test.root})
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v; want substring %q", err, test.want)
 			}

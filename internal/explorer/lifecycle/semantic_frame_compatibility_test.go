@@ -9,25 +9,24 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func TestSemanticEntryReauthorizesPriorPrimaryOnlyFrameFamilies(t *testing.T) {
 	for _, kind := range []string{"quantity", "codeable concept"} {
 		t.Run(kind, func(t *testing.T) {
 			observation := semanticFrameCompatibilityObservation(kind)
-			currentEntry := semanticinventory.Entry{ConceptID: "concept", BindingID: "current-binding", Observation: observation}
+			currentEntry := semantic.Entry{ConceptID: "concept", BindingID: "current-binding", Observation: observation}
 			currentFamily := semanticFrameCompatibilityFamily(t, currentEntry)
 			priorFamily := currentFamily
-			priorFamily.BindingID = semanticinventory.LegacySemanticBindingIDV1(observation)
-			priorFamily.SchemaVersion = codedconcept.ObservationSchemaVersion - 1
-			priorFamily.RuleVersion = strconv.Itoa(semanticinventory.SemanticObservationRuleVersion - 1)
+			priorFamily.BindingID = semantic.LegacySemanticBindingIDV1(observation)
+			priorFamily.SchemaVersion = semantic.ObservationSchemaVersion - 1
+			priorFamily.RuleVersion = strconv.Itoa(semantic.SemanticObservationRuleVersion - 1)
 			priorFamily.ValueFallbacks = nil
 			priorFamily.FallbackOnBlankString = false
 
@@ -64,7 +63,7 @@ func TestSemanticEntryReauthorizesPriorPrimaryOnlyFrameFamilies(t *testing.T) {
 				{name: "wrong choice arm", mutate: func(f *capability.SemanticFrameFamily) { f.ChoiceArms = []string{"valueString"} }},
 				{name: "wrong source path", mutate: func(f *capability.SemanticFrameFamily) { f.SourcePath = "other" }},
 				{name: "schema only changed", mutate: func(f *capability.SemanticFrameFamily) {
-					f.RuleVersion = strconv.Itoa(semanticinventory.SemanticObservationRuleVersion)
+					f.RuleVersion = strconv.Itoa(semantic.SemanticObservationRuleVersion)
 				}},
 				{name: "unknown old versions", mutate: func(f *capability.SemanticFrameFamily) { f.SchemaVersion--; f.RuleVersion = "1" }},
 			} {
@@ -101,12 +100,12 @@ func TestLegacyCodeableConceptFrameCategoryEditKeepsPrimaryOnlyBinding(t *testin
 	snapshot := readySnapshot("project-a", "generation-a", "legacy-frame-snapshot", scope)
 	snapshot.Nodes = []capability.Node{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}}
 	observation := semanticFrameCompatibilityObservation("codeable concept")
-	entry := semanticinventory.Entry{ConceptID: "stage-concept", BindingID: "current-binding", Observation: observation}
+	entry := semantic.Entry{ConceptID: "stage-concept", BindingID: "current-binding", Observation: observation}
 	currentFamily := semanticFrameCompatibilityFamily(t, entry)
 	priorFamily := currentFamily
-	priorFamily.BindingID = semanticinventory.LegacySemanticBindingIDV1(observation)
-	priorFamily.SchemaVersion = codedconcept.ObservationSchemaVersion - 1
-	priorFamily.RuleVersion = strconv.Itoa(semanticinventory.SemanticObservationRuleVersion - 1)
+	priorFamily.BindingID = semantic.LegacySemanticBindingIDV1(observation)
+	priorFamily.SchemaVersion = semantic.ObservationSchemaVersion - 1
+	priorFamily.RuleVersion = strconv.Itoa(semantic.SemanticObservationRuleVersion - 1)
 	priorFamily.ValueFallbacks = nil
 	priorFamily.FallbackOnBlankString = false
 	frame, err := authoringv2.NewFrameDefinition(
@@ -141,20 +140,20 @@ func TestLegacyCodeableConceptFrameCategoryEditKeepsPrimaryOnlyBinding(t *testin
 			Cardinality: primary.Cardinality, ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &fieldChoice,
 		}}, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
 	}
-	buildID := semanticinventory.BuildID("project-a", "generation-a")
+	buildID := semantic.BuildID("project-a", "generation-a")
 	unrelated := entry
 	unrelated.ConceptID = "unrelated-concept"
 	unrelated.BindingID = "unrelated-current-binding"
 	unrelated.Observation.Source.Path = "anotherValue"
 	unrelated.Observation.Source.Canonical = "Observation.anotherValue"
-	resolver := func(_ context.Context, options semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
+	resolver := func(_ context.Context, options semantic.ResolveOptions) (semantic.ResolveResult, error) {
 		if options.Project != "project-a" || options.DatasetGeneration != "generation-a" ||
 			options.AuthResourcePathsUnrestricted == nil || *options.AuthResourcePathsUnrestricted ||
 			!reflect.DeepEqual(options.AuthResourcePaths, scope.AuthResourcePaths) ||
-			!reflect.DeepEqual(options.References, []semanticinventory.Reference{{ConceptID: entry.ConceptID, BindingID: entry.BindingID}}) {
+			!reflect.DeepEqual(options.References, []semantic.Reference{{ConceptID: entry.ConceptID, BindingID: entry.BindingID}}) {
 			t.Fatalf("category reauthorization changed project/generation/auth/selection scope: %#v", options)
 		}
-		return semanticAuthoringInventory(snapshot, []semanticinventory.Entry{entry}), nil
+		return semanticAuthoringInventory(snapshot, []semantic.Entry{entry}), nil
 	}
 	service := newTestService(t, store, Config{
 		Capability: ports.CapabilityResolver{
@@ -163,16 +162,16 @@ func TestLegacyCodeableConceptFrameCategoryEditKeepsPrimaryOnlyBinding(t *testin
 			},
 			Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot },
 		},
-		SemanticInventory: func(_ context.Context, options semanticinventory.PageOptions) (semanticinventory.Page, error) {
+		SemanticInventory: func(_ context.Context, options semantic.PageOptions) (semantic.Page, error) {
 			if options.Project != "project-a" || options.DatasetGeneration != "generation-a" ||
 				options.AuthResourcePathsUnrestricted == nil || *options.AuthResourcePathsUnrestricted ||
 				!reflect.DeepEqual(options.AuthResourcePaths, scope.AuthResourcePaths) || options.ResourceType != "Observation" || options.BindingID != "" {
 				t.Fatalf("frame browse lost its exact project/generation/auth/binding scope: %#v", options)
 			}
-			return semanticinventory.Page{
-				State:   semanticinventory.Complete,
-				Build:   semanticinventory.Build{BuildID: buildID, State: semanticinventory.Complete},
-				Entries: []semanticinventory.Entry{entry, unrelated},
+			return semantic.Page{
+				State:   semantic.Complete,
+				Build:   semantic.Build{BuildID: buildID, State: semantic.Complete},
+				Entries: []semantic.Entry{entry, unrelated},
 			}, nil
 		},
 		ResolveSemanticInventorySelections: resolver,
@@ -187,7 +186,7 @@ func TestLegacyCodeableConceptFrameCategoryEditKeepsPrimaryOnlyBinding(t *testin
 	}
 	choiceSource, ok := browsed.Entries[0].ConstructionChoice.Source.(capability.SemanticBindingChoiceSource)
 	if !ok || browsed.Entries[0].ValueSelector != observation.Value.Selector || choiceSource.ValueSelector != observation.Value.Selector ||
-		choiceSource.SchemaVersion != codedconcept.ObservationSchemaVersion || choiceSource.RuleVersion != strconv.Itoa(semanticinventory.SemanticObservationRuleVersion) ||
+		choiceSource.SchemaVersion != semantic.ObservationSchemaVersion || choiceSource.RuleVersion != strconv.Itoa(semantic.SemanticObservationRuleVersion) ||
 		len(choiceSource.ValueFallbacks) != 0 || choiceSource.FallbackOnBlankString {
 		t.Fatalf("legacy category choice acquired current fallback behavior: item=%#v source=%#v", browsed.Entries[0], browsed.Entries[0].ConstructionChoice.Source)
 	}
@@ -258,12 +257,12 @@ func TestLegacyPrimaryOnlyFrameCompatibilityDoesNotChangeExtensionBindings(t *te
 
 func TestCodedPivotSourcePreservesPriorPrimaryOnlyFamily(t *testing.T) {
 	observation := semanticFrameCompatibilityObservation("codeable concept")
-	entry := semanticinventory.Entry{ConceptID: "stage", BindingID: "current-binding", Observation: observation}
+	entry := semantic.Entry{ConceptID: "stage", BindingID: "current-binding", Observation: observation}
 	currentFamily := semanticFrameCompatibilityFamily(t, entry)
 	priorFamily := currentFamily
-	priorFamily.BindingID = semanticinventory.LegacySemanticBindingIDV1(observation)
-	priorFamily.SchemaVersion = semanticinventory.SemanticObservationLegacyV1SchemaVersion
-	priorFamily.RuleVersion = strconv.Itoa(semanticinventory.SemanticObservationLegacyV1RuleVersion)
+	priorFamily.BindingID = semantic.LegacySemanticBindingIDV1(observation)
+	priorFamily.SchemaVersion = semantic.SemanticObservationLegacyV1SchemaVersion
+	priorFamily.RuleVersion = strconv.Itoa(semantic.SemanticObservationLegacyV1RuleVersion)
 	priorFamily.ValueFallbacks = nil
 	priorFamily.FallbackOnBlankString = false
 	route := []capability.ConstructionRouteStep{{
@@ -305,17 +304,17 @@ func TestCodedPivotSourcePreservesPriorPrimaryOnlyFamily(t *testing.T) {
 	}
 }
 
-func semanticFrameCompatibilityObservation(kind string) codedconcept.Observation {
-	observation := codedconcept.Observation{
-		SchemaVersion: codedconcept.ObservationSchemaVersion,
-		Source:        codedconcept.Source{Type: "Observation", Canonical: "Observation.code", Path: "code"},
-		Key:           codedconcept.Key{Selector: "code.coding[]", System: "urn:study", Code: "stage"},
-		ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: codedconcept.Complete,
-		Status: "SUPPORTED", RuleHint: codedconcept.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
-		Value: codedconcept.Value{Selector: "valueQuantity.value", Type: "decimal"},
+func semanticFrameCompatibilityObservation(kind string) semantic.Observation {
+	observation := semantic.Observation{
+		SchemaVersion: semantic.ObservationSchemaVersion,
+		Source:        semantic.Source{Type: "Observation", Canonical: "Observation.code", Path: "code"},
+		Key:           semantic.Key{Selector: "code.coding[]", System: "urn:study", Code: "stage"},
+		ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: semantic.CompletenessComplete,
+		Status: "SUPPORTED", RuleHint: semantic.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semantic.SemanticObservationRuleVersion),
+		Value: semantic.Value{Selector: "valueQuantity.value", Type: "decimal"},
 	}
 	if kind == "codeable concept" {
-		observation.Value = codedconcept.Value{
+		observation.Value = semantic.Value{
 			Selector: "valueCodeableConcept.text", Type: "string",
 			FallbackSelectors: []string{"valueCodeableConcept.coding[].display"}, FallbackOnBlankString: true,
 		}
@@ -325,7 +324,7 @@ func semanticFrameCompatibilityObservation(kind string) codedconcept.Observation
 	return observation
 }
 
-func semanticFrameCompatibilityFamily(t *testing.T, entry semanticinventory.Entry) capability.SemanticFrameFamily {
+func semanticFrameCompatibilityFamily(t *testing.T, entry semantic.Entry) capability.SemanticFrameFamily {
 	t.Helper()
 	plan := authoringv2.ResolveSemanticSelectionPlan(entry.Observation)
 	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil {

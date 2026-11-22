@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/source"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +12,7 @@ import (
 	"time"
 
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
+	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -23,7 +23,7 @@ func TestLoadFilePersistsSemanticInventoryFromSharedEmitter(t *testing.T) {
 	if err := os.WriteFile(file, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	schema := ingest.LoadRuntimeFHIRSchema()
+	schema := source.LoadRuntimeFHIRSchema()
 	opts := normalizeLoadOptions(LoadOptions{
 		Project:     "project",
 		MetaDir:     root,
@@ -36,7 +36,7 @@ func TestLoadFilePersistsSemanticInventoryFromSharedEmitter(t *testing.T) {
 		if collection == catalogarango.SemanticCoverageCollection {
 			t.Fatalf("normal generation load wrote optional semantic coverage collection %q", collection)
 		}
-		if collection == semanticinventory.Collection || collection == semanticinventory.EntryCollection {
+		if collection == semantic.Collection || collection == semantic.EntryCollection {
 			inventoryCollectionWrites = append(inventoryCollectionWrites, collection)
 		}
 		return nil
@@ -52,8 +52,8 @@ func TestLoadFilePersistsSemanticInventoryFromSharedEmitter(t *testing.T) {
 		t.Fatalf("inventory writes=%v batches=%d runs=%d rows=%d validation=%d sample=%s", inventoryCollectionWrites, result.SemanticInventoryBatches, len(result.SemanticInventoryEntryRuns), result.Rows, result.ValidationErrors, message)
 	}
 	var inventoryDocs []json.RawMessage
-	err = mergeSemanticInventoryEntryRuns(context.Background(), result.SemanticInventoryEntryRuns, func(partial semanticinventory.EntryPartial) error {
-		document := semanticinventory.EntryDocument(partial, "project", "generation-1", semanticinventory.BuildID("project", "generation-1"), semanticinventory.SourceFile)
+	err = mergeSemanticInventoryEntryRuns(context.Background(), result.SemanticInventoryEntryRuns, func(partial semantic.EntryPartial) error {
+		document := semantic.EntryDocument(partial, "project", "generation-1", semantic.BuildID("project", "generation-1"), semantic.SourceFile)
 		encoded, err := json.Marshal(document)
 		if err != nil {
 			return err
@@ -81,10 +81,10 @@ func TestLoadFilePersistsSemanticInventoryFromSharedEmitter(t *testing.T) {
 	ownerOptions.SourceFileOwner = "Observation"
 	var uploadedEntries []json.RawMessage
 	result, err = fileLoader{options: ownerOptions, client: nil, schema: schema, datasetGeneration: "generation-1", overwrite: false, insert: func(_ context.Context, _ *arangostore.Client, collection string, docs []json.RawMessage, overwrite bool, _ string) error {
-		if collection == semanticinventory.Collection {
+		if collection == semantic.Collection {
 			t.Fatal("single-file upload wrote raw inventory contributions")
 		}
-		if collection == semanticinventory.EntryCollection {
+		if collection == semantic.EntryCollection {
 			if !overwrite {
 				t.Fatal("single-file inventory entry write must replace prior rows")
 			}
@@ -112,7 +112,7 @@ func TestLoadFileWaitsForInventorySpillOwnershipAfterWriterFailure(t *testing.T)
 		t.Fatal(err)
 	}
 	opts := normalizeLoadOptions(LoadOptions{Project: "project", MetaDir: root, BatchSize: 1, WorkerCount: 1, WriterCount: 1, FailFast: true})
-	_, err = fileLoader{options: opts, client: nil, schema: ingest.LoadRuntimeFHIRSchema(), datasetGeneration: "generation-1", overwrite: false, insert: func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
+	_, err = fileLoader{options: opts, client: nil, schema: source.LoadRuntimeFHIRSchema(), datasetGeneration: "generation-1", overwrite: false, insert: func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error {
 		return errors.New("forced writer failure")
 	}}.load(context.Background(), file, time.Now(), 0, 0)
 	if err == nil || !strings.Contains(err.Error(), "forced writer failure") {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"reflect"
 	"strings"
@@ -24,8 +25,6 @@ import (
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/published"
@@ -40,7 +39,7 @@ import (
 )
 
 func TestClassifyReceiptRecipeErrorPreservesPivotReducerValidation(t *testing.T) {
-	cause := fmt.Errorf("compile output: %w", &lower.PivotReducerTypeError{Policy: recipe.PivotDuplicateMin, ValueColumn: "specimen_id"})
+	cause := fmt.Errorf("compile output: %w", &facade.PivotReducerTypeError{Policy: recipe.PivotDuplicateMin, ValueColumn: "specimen_id"})
 	classified := ClassifyRecipeError(cause)
 	var diagnostic *explorercompilation.Error
 	if !errors.As(classified, &diagnostic) || diagnostic.Code != "PIVOT_REDUCER_REQUIRES_NUMERIC" || diagnostic.Stage != "construction" {
@@ -56,7 +55,7 @@ func TestClassifyReceiptRecipeErrorPreservesPivotReducerValidation(t *testing.T)
 }
 
 func TestClassifyReceiptRecipeErrorIdentifiesInvalidRelatedRowAnchor(t *testing.T) {
-	cause := fmt.Errorf("compile output: %w", &lower.RelatedEligibilityAnchorError{StepID: "related_step"})
+	cause := fmt.Errorf("compile output: %w", &facade.RelatedEligibilityAnchorError{StepID: "related_step"})
 	classified := ClassifyRecipeError(cause)
 	var diagnostic *explorercompilation.Error
 	if !errors.As(classified, &diagnostic) || diagnostic.Code != "CONSTRUCTION_ANCHOR_INVALID" || diagnostic.Stage != "construction" {
@@ -68,7 +67,7 @@ func TestClassifyReceiptRecipeErrorIdentifiesInvalidRelatedRowAnchor(t *testing.
 }
 
 func TestClassifyReceiptRecipeErrorSanitizesInvalidRelatedSourceAnchor(t *testing.T) {
-	cause := fmt.Errorf("compile output: %w", &lower.RelatedSourceAnchorError{
+	cause := fmt.Errorf("compile output: %w", &facade.RelatedSourceAnchorError{
 		OutputID: "specimens", StepID: "related_status", Reason: "row_identity_changed",
 	})
 	classified := ClassifyRecipeError(cause)
@@ -734,7 +733,7 @@ func TestResolvedOutputFingerprintExcludesOptimizerAndTransientProvenance(t *tes
 	}
 	before := beforeArtifacts["patients"]
 	resolved.Compiled.Outputs[0].OutputSchema[0].Discovered = !resolved.Compiled.Outputs[0].OutputSchema[0].Discovered
-	resolved.Compiled.Outputs[0].OptimizedPlan.OptimizationPolicy.Decisions = append(resolved.Compiled.Outputs[0].OptimizedPlan.OptimizationPolicy.Decisions, ir.PhysicalOptimizationDecision{Reason: "diagnostic-only"})
+	resolved.Compiled.Outputs[0].OptimizedPlan.OptimizationPolicy.Decisions = append(resolved.Compiled.Outputs[0].OptimizedPlan.OptimizationPolicy.Decisions, facade.PhysicalOptimizationDecision{Reason: "diagnostic-only"})
 	afterArtifacts, _, err := ResolvedOutputArtifacts(resolved)
 	if err != nil {
 		t.Fatal(err)
@@ -924,7 +923,7 @@ func TestPreviewSourceIdentityDoesNotChangeUnpivotReceiptArtifacts(t *testing.T)
 	}, func(map[string]any) error { return nil }); err != nil {
 		t.Fatalf("Builder preview failed while lowering the Unpivot execution plan: %v", err)
 	}
-	if !strings.Contains(renderedQuery, ir.PreviewSourceResourceIDColumn) {
+	if !strings.Contains(renderedQuery, facade.PreviewSourceResourceIDColumn) {
 		t.Fatalf("Builder preview query omitted source identity projection: %q", renderedQuery)
 	}
 }
@@ -1075,7 +1074,7 @@ func TestCompileExplorerReceiptReconcilesSparsePublishedAppendWithExactSourceSch
 		pinned = append([]string(nil), executionIDs...)
 		return visit(ctx)
 	})
-	resolveSchemas := func(ctx context.Context, output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings) (ResolvedCombineInputSchema, error) {
+	resolveSchemas := func(ctx context.Context, output facade.CompiledRecipeOutput, bindings recipe.RuntimeBindings) (ResolvedCombineInputSchema, error) {
 		return ExactPublishedCombineInputSchemas(ctx, output, bindings, reader, withPins, nil)
 	}
 

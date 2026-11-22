@@ -3,13 +3,13 @@ package projectconfig
 import (
 	"encoding/json"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/explorer"
 	explorerconfig "github.com/calypr/loom/internal/explorer/config"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
@@ -220,8 +220,8 @@ func TestPrepareProjectConfigsForPublicationPreservesStaleChoicesAndHidesView(t 
 	}
 }
 
-func filterCompiledSchema(columns []lower.CompiledOutputColumn, omitID string) []lower.CompiledOutputColumn {
-	filtered := make([]lower.CompiledOutputColumn, 0, len(columns))
+func filterCompiledSchema(columns []facade.CompiledOutputColumn, omitID string) []facade.CompiledOutputColumn {
+	filtered := make([]facade.CompiledOutputColumn, 0, len(columns))
 	for _, column := range columns {
 		if column.ID != omitID {
 			filtered = append(filtered, column)

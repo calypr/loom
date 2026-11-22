@@ -5,7 +5,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func TestRecipeOutputSchemaUsesPhysicalArrayShapeForOptionalSemanticField(t *testing.T) {
@@ -20,11 +20,11 @@ func TestRecipeOutputSchemaUsesPhysicalArrayShapeForOptionalSemanticField(t *tes
 			},
 		}}},
 	}}}
-	output := semantic.OutputPlan{
+	output := recipeplan.OutputPlan{
 		Name: "specimens", RootResourceType: "Specimen",
-		Root: semantic.SemanticNode{ResourceType: "Specimen", Fields: []semantic.SemanticField{{
+		Root: recipeplan.SemanticNode{ResourceType: "Specimen", Fields: []recipeplan.SemanticField{{
 			Name: "concept_values", FieldRef: "Observation.component[].valueString",
-			Expr: semantic.SemanticExpression{Type: expression.Type{
+			Expr: recipeplan.SemanticExpression{Type: expression.Type{
 				Kind: expression.KindString, Cardinality: expression.OptionalOne,
 			}},
 		}}},
@@ -52,9 +52,9 @@ func TestRecipeOutputSchemaPreservesCorrelatedPivotListForm(t *testing.T) {
 					},
 				}}},
 			}}}
-			output := semantic.OutputPlan{
+			output := recipeplan.OutputPlan{
 				Name: "specimens", RootResourceType: "Specimen",
-				Root: semantic.SemanticNode{ResourceType: "Specimen", Pivots: []semantic.SemanticPivot{{
+				Root: recipeplan.SemanticNode{ResourceType: "Specimen", Pivots: []recipeplan.SemanticPivot{{
 					Name: "disease", ValueKind: expression.KindString,
 					Columns:        []string{"primary_disease_type"},
 					ColumnAliases:  map[string]string{"primary_disease_type": "concept_values"},

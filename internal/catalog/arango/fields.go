@@ -8,9 +8,9 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/catalog/codedconcept"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func (s *FieldStore) DiscoverFields(ctx context.Context, opts fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
@@ -84,7 +84,7 @@ func (s *FieldStore) DiscoverFieldEnrichment(ctx context.Context, opts catalog.F
 			return nil
 		}
 		field.ResourceType = resourceType
-		result.Values = append(result.Values, catalog.FieldEnrichmentObservation{Project: field.Project, DatasetGeneration: field.DatasetGeneration, AuthResourcePath: field.AuthResourcePath, ResourceType: field.ResourceType, Path: field.Path, Kind: field.Kind, DocCount: field.DocCount, MaxItems: field.MaxItems, SampleCount: field.SampleCount, DistinctValues: append([]string(nil), field.DistinctValues...), DistinctTruncated: field.DistinctTruncated, ExtensionValues: append([]fieldprofile.ExtensionValueObservation(nil), field.ExtensionValues...), SemanticObservations: append([]codedconcept.Observation(nil), field.SemanticObservations...), PivotCandidate: field.PivotCandidate, PivotKind: field.PivotKind, PivotColumns: append([]string(nil), field.PivotColumns...), PivotFamily: field.PivotFamily, PivotColumnSelect: field.PivotColumnSelect, PivotValueSelect: field.PivotValueSelect, PivotItemSource: field.PivotItemSource, PivotItemResourceType: field.PivotItemResourceType, PivotValueSelectors: append([]string(nil), field.PivotValueSelectors...)})
+		result.Values = append(result.Values, catalog.FieldEnrichmentObservation{Project: field.Project, DatasetGeneration: field.DatasetGeneration, AuthResourcePath: field.AuthResourcePath, ResourceType: field.ResourceType, Path: field.Path, Kind: field.Kind, DocCount: field.DocCount, MaxItems: field.MaxItems, SampleCount: field.SampleCount, DistinctValues: append([]string(nil), field.DistinctValues...), DistinctTruncated: field.DistinctTruncated, ExtensionValues: append([]fieldprofile.ExtensionValueObservation(nil), field.ExtensionValues...), SemanticObservations: append([]semantic.Observation(nil), field.SemanticObservations...), PivotCandidate: field.PivotCandidate, PivotKind: field.PivotKind, PivotColumns: append([]string(nil), field.PivotColumns...), PivotFamily: field.PivotFamily, PivotColumnSelect: field.PivotColumnSelect, PivotValueSelect: field.PivotValueSelect, PivotItemSource: field.PivotItemSource, PivotItemResourceType: field.PivotItemResourceType, PivotValueSelectors: append([]string(nil), field.PivotValueSelectors...)})
 
 		if truncated, ok := row["enrichment_truncated"].(bool); ok && truncated {
 			result.Truncated = true

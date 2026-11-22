@@ -2,13 +2,14 @@ package receipt
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
 	"testing"
 
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -128,7 +129,7 @@ func filterSourceF1Refuse(t *testing.T, tampered authoringv2.ConstructionSourceP
 	if tampered.ColumnID != honest.ColumnID || tampered.OwnerStepID != honest.OwnerStepID {
 		t.Fatal("tampered probe must keep honest owner and column identity")
 	}
-	compiledByOutput := map[string]lower.CompiledRecipeOutput{}
+	compiledByOutput := map[string]facade.CompiledRecipeOutput{}
 	for _, output := range resolved.Compiled.Outputs {
 		compiledByOutput[output.Name] = output
 	}
@@ -156,7 +157,7 @@ func TestConstructionFilterSourceReconcileRefusesLogicalTypeFlip(t *testing.T) {
 func TestConstructionFilterSourceReconcileClaimsHonestProjection(t *testing.T) {
 	snapshot := filterSourceF1Snapshot()
 	workspace, resolved := filterSourceF1Compile(t, snapshot)
-	compiledByOutput := map[string]lower.CompiledRecipeOutput{}
+	compiledByOutput := map[string]facade.CompiledRecipeOutput{}
 	for _, output := range resolved.Compiled.Outputs {
 		compiledByOutput[output.Name] = output
 	}
@@ -168,7 +169,7 @@ func TestConstructionFilterSourceReconcileClaimsHonestProjection(t *testing.T) {
 func TestConstructionFilterSourceReconcileClaimsOnlyWithAuthorizedSnapshot(t *testing.T) {
 	armedSnapshot := filterSourceF1Snapshot()
 	workspace, resolved := filterSourceF1Compile(t, armedSnapshot)
-	compiledByOutput := map[string]lower.CompiledRecipeOutput{}
+	compiledByOutput := map[string]facade.CompiledRecipeOutput{}
 	for _, output := range resolved.Compiled.Outputs {
 		compiledByOutput[output.Name] = output
 	}

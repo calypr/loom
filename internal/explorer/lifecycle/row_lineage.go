@@ -3,9 +3,9 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -20,11 +20,11 @@ func (s *Service) RowLineage(ctx context.Context, request RowLineageRequest) (Ro
 	if request.Offset < 0 {
 		return RowLineageResult{}, unprocessable("rowLineage", "INVALID_ROW_LINEAGE_OFFSET", "offset cannot be negative", nil)
 	}
-	if request.Limit < 0 || request.Limit > compiler.MaxRowLineageContributors {
+	if request.Limit < 0 || request.Limit > facade.MaxRowLineageContributors {
 		return RowLineageResult{}, unprocessable("rowLineage", "INVALID_ROW_LINEAGE_LIMIT", "limit must be between 1 and 100", nil)
 	}
 	if request.Limit == 0 {
-		request.Limit = compiler.DefaultRowLineageLimit
+		request.Limit = facade.DefaultRowLineageLimit
 	}
 	if s.config.Capability.ForExecution == nil || s.config.RowLineage == nil {
 		return RowLineageResult{}, unavailable("rowLineage", "ROW_LINEAGE_UNAVAILABLE", "row lineage is not configured", nil)
@@ -62,7 +62,7 @@ func (s *Service) RowLineage(ctx context.Context, request RowLineageRequest) (Ro
 		if errors.Is(err, dataframeexecution.ErrRowLineageRowNotFound) {
 			return RowLineageResult{}, notFound("rowLineage", "PREVIEW_ROW_NOT_FOUND", "rowId does not exist in the receipt output", err)
 		}
-		var unsupported *compiler.RowLineageUnsupportedError
+		var unsupported *facade.RowLineageUnsupportedError
 		if errors.As(err, &unsupported) {
 			return RowLineageResult{}, unprocessable("rowLineage", unsupported.Capability.ReasonCode,
 				"row lineage is unavailable for this construction operation", err)

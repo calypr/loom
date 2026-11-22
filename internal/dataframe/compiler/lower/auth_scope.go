@@ -2,7 +2,7 @@ package lower
 
 import (
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func effectiveAuthScopeUnrestricted(paths []string, mode authscope.ReadScopeMode) bool {
@@ -19,6 +19,6 @@ func effectiveAuthScopeUnrestricted(paths []string, mode authscope.ReadScopeMode
 	}
 }
 
-func semanticAuthScopeUnrestricted(context semantic.ExecutionContext) bool {
+func semanticAuthScopeUnrestricted(context recipeplan.ExecutionContext) bool {
 	return effectiveAuthScopeUnrestricted(context.AuthResourcePaths, context.AuthScopeMode)
 }

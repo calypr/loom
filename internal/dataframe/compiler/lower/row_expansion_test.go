@@ -9,7 +9,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/testkit"
 )
@@ -457,13 +457,13 @@ func TestCompileRecipeRelatedExpansionReusesDeepOwnerRoute(t *testing.T) {
 
 func compileExpansionRecipeOutput(t *testing.T, output recipe.Output) CompiledRecipeOutput {
 	t.Helper()
-	plan, err := semantic.BuildRecipePlan(recipe.Bundle{
+	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "row-expansion", TranslationVersion: "test", Outputs: []recipe.Output{output},
 	}, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,8 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func TestSemanticObservationsKeepCodingPairAndOwnerScope(t *testing.T) {
@@ -33,11 +32,11 @@ func TestSemanticObservationsKeepCodingPairAndOwnerScope(t *testing.T) {
 	}
 	p.ObservePayload(payload, map[string]float64{})
 	documents := p.Documents()
-	var observations []codedconcept.Observation
+	var observations []semantic.Observation
 	for _, document := range documents {
 		observations = append(observations, document.SemanticObservations...)
 	}
-	byPair := map[string]codedconcept.Observation{}
+	byPair := map[string]semantic.Observation{}
 	for _, observation := range observations {
 		if observation.OwningScope != "component[]" || observation.Key.Code != "shared" {
 			continue
@@ -52,10 +51,10 @@ func TestSemanticObservationsKeepCodingPairAndOwnerScope(t *testing.T) {
 	}
 	pairedValues := 0
 	for _, observation := range observations {
-		if observation.RuleHint == codedconcept.RuleHintCodedValueV1 && observation.OwningScope == "component[]" && observation.Key.Code == "shared" {
+		if observation.RuleHint == semantic.RuleHintCodedValueV1 && observation.OwningScope == "component[]" && observation.Key.Code == "shared" {
 			pairedValues++
 		}
-		if observation.RuleHint == codedconcept.RuleHintCodedConceptV1 && observation.OwningScope == "component[]" && observation.Key.Code == "shared" {
+		if observation.RuleHint == semantic.RuleHintCodedConceptV1 && observation.OwningScope == "component[]" && observation.Key.Code == "shared" {
 			t.Fatalf("paired CodeableConcept was also emitted as standalone: %#v", observation)
 		}
 		if len(observation.ExtensionURLPath) == 2 && observation.ExtensionURLPath[0] == "parent" && observation.ExtensionURLPath[1] == "leaf" {
@@ -104,14 +103,14 @@ func TestStandaloneCodingScopesObserveEachIdentifiedCodingAtItsOwnerScope(t *tes
 		}},
 	}
 
-	var contributions []semanticinventory.Contribution
-	emitter := semanticinventory.NewEmitter("project", "generation")
-	emitter.ObservePayload(payload, "Observation", "scope", "observation-1", func(contribution semanticinventory.Contribution) {
+	var contributions []semantic.Contribution
+	emitter := semantic.NewEmitter("project", "generation")
+	emitter.ObservePayload(payload, "Observation", "scope", "observation-1", func(contribution semantic.Contribution) {
 		contributions = append(contributions, contribution)
 	})
-	byCode := map[string]semanticinventory.Contribution{}
+	byCode := map[string]semantic.Contribution{}
 	for _, contribution := range contributions {
-		if contribution.Observation.RuleHint == codedconcept.RuleHintCodedConceptV1 {
+		if contribution.Observation.RuleHint == semantic.RuleHintCodedConceptV1 {
 			byCode[contribution.Observation.Key.Code] = contribution
 		}
 	}
@@ -180,14 +179,14 @@ func TestStandaloneScalarCodingChoiceUsesRepeatedOwnerAndExcludesIdentifierAndEx
 		}},
 	}
 
-	var contributions []semanticinventory.Contribution
-	emitter := semanticinventory.NewEmitter("project", "generation")
-	emitter.ObservePayload(payload, "Task", "scope", "task-1", func(contribution semanticinventory.Contribution) {
+	var contributions []semantic.Contribution
+	emitter := semantic.NewEmitter("project", "generation")
+	emitter.ObservePayload(payload, "Task", "scope", "task-1", func(contribution semantic.Contribution) {
 		contributions = append(contributions, contribution)
 	})
-	var standalone []semanticinventory.Contribution
+	var standalone []semantic.Contribution
 	for _, contribution := range contributions {
-		if contribution.Observation.RuleHint == codedconcept.RuleHintCodedConceptV1 {
+		if contribution.Observation.RuleHint == semantic.RuleHintCodedConceptV1 {
 			standalone = append(standalone, contribution)
 		}
 	}
@@ -238,12 +237,12 @@ func TestSemanticObservationProjectionNeedsObservedScalar(t *testing.T) {
 		selector string
 		status   string
 	}{
-		{name: "coding-only CodeableConcept", arm: "valueCodeableConcept", value: map[string]any{"coding": []any{map[string]any{"system": "http://snomed.info/sct", "code": "1222593009"}}}, selector: "valueCodeableConcept.text", status: codedconcept.StatusUnsupportedValueProjection},
-		{name: "blank CodeableConcept text", arm: "valueCodeableConcept", value: map[string]any{"text": "  ", "coding": []any{map[string]any{"system": "http://snomed.info/sct", "code": "1222593009"}}}, selector: "valueCodeableConcept.text", status: codedconcept.StatusUnsupportedValueProjection},
-		{name: "Quantity without value", arm: "valueQuantity", value: map[string]any{"unit": "days"}, selector: "valueQuantity.value", status: codedconcept.StatusUnsupportedValueProjection},
-		{name: "Period without start", arm: "valuePeriod", value: map[string]any{"end": "2026-09-01"}, selector: "valuePeriod.start", status: codedconcept.StatusUnsupportedValueProjection},
-		{name: "Range without low value", arm: "valueRange", value: map[string]any{"low": map[string]any{"unit": "days"}}, selector: "valueRange.low.value", status: codedconcept.StatusUnsupportedValueProjection},
-		{name: "Ratio without numerator value", arm: "valueRatio", value: map[string]any{"numerator": map[string]any{"unit": "mg"}}, selector: "valueRatio.numerator.value", status: codedconcept.StatusUnsupportedValueProjection},
+		{name: "coding-only CodeableConcept", arm: "valueCodeableConcept", value: map[string]any{"coding": []any{map[string]any{"system": "http://snomed.info/sct", "code": "1222593009"}}}, selector: "valueCodeableConcept.text", status: semantic.StatusUnsupportedValueProjection},
+		{name: "blank CodeableConcept text", arm: "valueCodeableConcept", value: map[string]any{"text": "  ", "coding": []any{map[string]any{"system": "http://snomed.info/sct", "code": "1222593009"}}}, selector: "valueCodeableConcept.text", status: semantic.StatusUnsupportedValueProjection},
+		{name: "Quantity without value", arm: "valueQuantity", value: map[string]any{"unit": "days"}, selector: "valueQuantity.value", status: semantic.StatusUnsupportedValueProjection},
+		{name: "Period without start", arm: "valuePeriod", value: map[string]any{"end": "2026-09-01"}, selector: "valuePeriod.start", status: semantic.StatusUnsupportedValueProjection},
+		{name: "Range without low value", arm: "valueRange", value: map[string]any{"low": map[string]any{"unit": "days"}}, selector: "valueRange.low.value", status: semantic.StatusUnsupportedValueProjection},
+		{name: "Ratio without numerator value", arm: "valueRatio", value: map[string]any{"numerator": map[string]any{"unit": "mg"}}, selector: "valueRatio.numerator.value", status: semantic.StatusUnsupportedValueProjection},
 		{name: "CodeableConcept with text", arm: "valueCodeableConcept", value: map[string]any{"text": "Stage I"}, selector: "valueCodeableConcept.text", status: "SUPPORTED"},
 	}
 	for _, test := range tests {
@@ -259,7 +258,7 @@ func TestSemanticObservationProjectionNeedsObservedScalar(t *testing.T) {
 
 			for _, document := range p.Documents() {
 				for _, observation := range document.SemanticObservations {
-					if observation.RuleHint != codedconcept.RuleHintCodedValueV1 || observation.Key.Code != "stage" {
+					if observation.RuleHint != semantic.RuleHintCodedValueV1 || observation.Key.Code != "stage" {
 						continue
 					}
 					if observation.Value.Selector != test.selector || observation.Status != test.status {

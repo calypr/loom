@@ -16,7 +16,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
@@ -28,11 +28,11 @@ func TestConstructionPivotCellTraceUsesPreviewLiteralIdentity(t *testing.T) {
 		Outputs:             []recipe.Output{constructionPivotIdentityRecipeOutput()},
 	}
 	bindings := recipe.RuntimeBindings{Project: "trace-project", DatasetGeneration: "generation-a"}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "trace-project", "generation-a")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "trace-project", "generation-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,11 +238,11 @@ func TestSourceOnlyGroupRowsCellTraceMatchesPreviewObjectAndReturnsMemberField(t
 	}
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "grouped cell trace", TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	bindings := recipe.RuntimeBindings{Project: "trace-project", SelectionProject: "trace-project", DatasetGeneration: "generation-a"}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "trace-project", "generation-a")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "trace-project", "generation-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,14 +407,14 @@ func compileComposedCohortOutput(t *testing.T, appendPivot bool) lower.CompiledR
 			Outputs: []recipe.StageColumn{{ID: "group_id", Name: "group_id", Type: "string"}, {ID: "ordinal_pair_id", Name: "ordinal_pair", Type: "integer"}},
 		})
 	}
-	plan, err := semantic.BuildRecipePlan(recipe.Bundle{
+	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "cohort identity mismatch", TranslationVersion: "test",
 		Outputs: []recipe.Output{output},
 	}, recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project-a", DatasetGeneration: "generation-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "project-a", "generation-a")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "project-a", "generation-a")
 	if err != nil {
 		t.Fatal(err)
 	}

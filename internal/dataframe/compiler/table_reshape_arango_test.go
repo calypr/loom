@@ -15,7 +15,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -178,11 +178,11 @@ func TestConstructionTerminalPivotTwoScanPreviewMatchesCanonicalWindowAgainstAra
 		t.Helper()
 		bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
 		bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
-		plan, err := semantic.BuildRecipePlan(bundle, bindings)
+		plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 		if err != nil {
 			t.Fatalf("build two-scan Pivot fixture plan: %v", err)
 		}
-		resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+		resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
 		if err != nil {
 			t.Fatalf("resolve two-scan Pivot fixture plan: %v", err)
 		}
@@ -271,11 +271,11 @@ func TestDynamicConstructionPivotPreviewMatchesReducersAndNullCategoriesAgainstA
 		output := dynamicConstructionPivotOutput(policy)
 		bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
 		bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
-		plan, err := semantic.BuildRecipePlan(bundle, bindings)
+		plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 		if err != nil {
 			t.Fatalf("build %s plan: %v", policy, err)
 		}
-		resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+		resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
 		if err != nil {
 			t.Fatalf("resolve %s plan: %v", policy, err)
 		}
@@ -796,11 +796,11 @@ func TestS04GroupedPivotMaterializationPreservesAuthResourcePathAgainstArango(t 
 	output = bindOracleCurrentDerived(output)
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-auth-scope-pivot", TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation, IncludeAuthResourcePath: true}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1193,11 +1193,11 @@ func compileReshapeOracle(output recipe.Output, project, generation string, limi
 	output = bindOracleCurrentDerived(output)
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-table-reshape-oracle", TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		return lower.CompiledRecipeOutput{}, CompiledQuery{}, err
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
 	if err != nil {
 		return lower.CompiledRecipeOutput{}, CompiledQuery{}, err
 	}

@@ -11,8 +11,8 @@ import (
 
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/semantic"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -39,15 +39,15 @@ type RetainedSemanticInventoryPage struct {
 
 func (s *SemanticInventoryStore) PrepareSemanticInventoryBackfill(ctx context.Context) error {
 	return s.client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
-		{Name: semanticinventory.Collection, Indexes: [][]string{
+		{Name: semantic.Collection, Indexes: [][]string{
 			{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
 			{"project", "dataset_generation", "build_id", "source_id"},
 		}},
-		{Name: semanticinventory.EntryCollection, Indexes: [][]string{
+		{Name: semantic.EntryCollection, Indexes: [][]string{
 			{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
 			{"project", "dataset_generation", "build_id", "source_kind", "resource_type", "binding_id", "concept_id", "auth_resource_path"},
 		}},
-		{Name: semanticinventory.BuildCollection, Indexes: [][]string{
+		{Name: semantic.BuildCollection, Indexes: [][]string{
 			{"project", "dataset_generation"},
 		}},
 	}})
@@ -120,25 +120,25 @@ func (s *SemanticInventoryStore) retainedSourceFieldProfileExists(ctx context.Co
 	return found, err
 }
 
-func (s *SemanticInventoryStore) ClaimSemanticInventoryBackfill(ctx context.Context, build semanticinventory.Build, token string, lease time.Duration) (semanticinventory.Build, bool, error) {
-	if err := semanticinventory.ValidateBuild(build); err != nil {
-		return semanticinventory.Build{}, false, err
+func (s *SemanticInventoryStore) ClaimSemanticInventoryBackfill(ctx context.Context, build semantic.Build, token string, lease time.Duration) (semantic.Build, bool, error) {
+	if err := semantic.ValidateBuild(build); err != nil {
+		return semantic.Build{}, false, err
 	}
-	if build.SourceKind != semanticinventory.SourceRetained || strings.TrimSpace(token) == "" || lease <= 0 {
-		return semanticinventory.Build{}, false, errors.New("invalid semantic inventory backfill claim")
+	if build.SourceKind != semantic.SourceRetained || strings.TrimSpace(token) == "" || lease <= 0 {
+		return semantic.Build{}, false, errors.New("invalid semantic inventory backfill claim")
 	}
-	build.State = semanticinventory.Running
-	build.SourceCheckpoint = semanticinventory.Checkpoint{}
+	build.State = semantic.Running
+	build.SourceCheckpoint = semantic.Checkpoint{}
 	build.ScannedResources = 0
 	build.Checkpoint = ""
 	build.Diagnostics = nil
 	now := time.Now()
-	var claimed semanticinventory.Build
+	var claimed semantic.Build
 	found := false
 	err := s.client.QueryRows(ctx, claimSemanticInventoryBackfillAQL, 1, map[string]interface{}{
 		"key":              build.Key,
 		"build":            build,
-		"source_kind":      semanticinventory.SourceRetained,
+		"source_kind":      semantic.SourceRetained,
 		"token":            token,
 		"now":              now.UnixMilli(),
 		"lease_expires_at": now.Add(lease).UnixMilli(),
@@ -150,30 +150,30 @@ func (s *SemanticInventoryStore) ClaimSemanticInventoryBackfill(ctx context.Cont
 		return nil
 	})
 	if err != nil {
-		return semanticinventory.Build{}, false, fmt.Errorf("claim semantic inventory backfill: %w", err)
+		return semantic.Build{}, false, fmt.Errorf("claim semantic inventory backfill: %w", err)
 	}
 	if found {
 		return claimed, true, nil
 	}
 	current, exists, err := s.semanticInventoryBuildByKey(ctx, build.Key)
 	if err != nil {
-		return semanticinventory.Build{}, false, err
+		return semantic.Build{}, false, err
 	}
-	if exists && current.State == semanticinventory.Complete {
+	if exists && current.State == semantic.Complete {
 		return current, false, nil
 	}
-	return semanticinventory.Build{}, false, ErrSemanticInventoryClaimed
+	return semantic.Build{}, false, ErrSemanticInventoryClaimed
 }
 
-func (s *SemanticInventoryStore) RefreshSemanticInventorySourceAvailability(ctx context.Context, expected semanticinventory.Build) (semanticinventory.Build, bool, error) {
-	if err := semanticinventory.ValidateBuild(expected); err != nil {
-		return semanticinventory.Build{}, false, err
+func (s *SemanticInventoryStore) RefreshSemanticInventorySourceAvailability(ctx context.Context, expected semantic.Build) (semantic.Build, bool, error) {
+	if err := semantic.ValidateBuild(expected); err != nil {
+		return semantic.Build{}, false, err
 	}
-	if expected.State != semanticinventory.Complete || expected.SourceKind != semanticinventory.SourceRetained ||
-		expected.SourceAvailability != semanticinventory.SourceAvailabilityUnproven || len(expected.Diagnostics) != 0 || expected.AuthResourcePath != "" {
+	if expected.State != semantic.Complete || expected.SourceKind != semantic.SourceRetained ||
+		expected.SourceAvailability != semantic.SourceAvailabilityUnproven || len(expected.Diagnostics) != 0 || expected.AuthResourcePath != "" {
 		return expected, false, nil
 	}
-	var refreshed semanticinventory.Build
+	var refreshed semantic.Build
 	found := false
 	err := s.client.QueryRows(ctx, refreshSemanticInventorySourceAvailabilityAQL, 1, map[string]interface{}{
 		"key": expected.Key, "project": expected.Project, "dataset_generation": catalog.NormalizeDatasetGeneration(expected.DatasetGeneration),
@@ -186,7 +186,7 @@ func (s *SemanticInventoryStore) RefreshSemanticInventorySourceAvailability(ctx 
 		return nil
 	})
 	if err != nil {
-		return semanticinventory.Build{}, false, fmt.Errorf("refresh verified semantic inventory source availability: %w", err)
+		return semantic.Build{}, false, fmt.Errorf("refresh verified semantic inventory source availability: %w", err)
 	}
 	if !found {
 		return expected, false, nil
@@ -194,7 +194,7 @@ func (s *SemanticInventoryStore) RefreshSemanticInventorySourceAvailability(ctx 
 	return refreshed, true, nil
 }
 
-func (s *SemanticInventoryStore) AdvanceSemanticInventoryBackfill(ctx context.Context, build semanticinventory.Build, token string, expected semanticinventory.Checkpoint, next semanticinventory.Checkpoint, scanned int64, lease time.Duration) (semanticinventory.Build, error) {
+func (s *SemanticInventoryStore) AdvanceSemanticInventoryBackfill(ctx context.Context, build semantic.Build, token string, expected semantic.Checkpoint, next semantic.Checkpoint, scanned int64, lease time.Duration) (semantic.Build, error) {
 	now := time.Now()
 	return s.executeSemanticInventoryBackfill(ctx, advanceSemanticInventoryBackfillAQL, map[string]interface{}{
 		"key": build.Key, "token": token,
@@ -205,10 +205,10 @@ func (s *SemanticInventoryStore) AdvanceSemanticInventoryBackfill(ctx context.Co
 	})
 }
 
-func (s *SemanticInventoryStore) CompleteSemanticInventoryBackfill(ctx context.Context, build semanticinventory.Build, token string, expected semanticinventory.Checkpoint, scanned int64) (semanticinventory.Build, error) {
+func (s *SemanticInventoryStore) CompleteSemanticInventoryBackfill(ctx context.Context, build semantic.Build, token string, expected semantic.Checkpoint, scanned int64) (semantic.Build, error) {
 	materialized, err := s.EnsureSemanticInventoryEntries(ctx, build)
 	if err != nil {
-		return semanticinventory.Build{}, err
+		return semantic.Build{}, err
 	}
 	return s.executeSemanticInventoryBackfill(ctx, completeSemanticInventoryBackfillAQL, map[string]interface{}{
 		"key": materialized.Key, "token": token,
@@ -218,7 +218,7 @@ func (s *SemanticInventoryStore) CompleteSemanticInventoryBackfill(ctx context.C
 	})
 }
 
-func (s *SemanticInventoryStore) FailSemanticInventoryBackfill(ctx context.Context, build semanticinventory.Build, token, diagnostic string) error {
+func (s *SemanticInventoryStore) FailSemanticInventoryBackfill(ctx context.Context, build semantic.Build, token, diagnostic string) error {
 	if strings.TrimSpace(diagnostic) == "" {
 		diagnostic = "backfill failed"
 	}
@@ -231,8 +231,8 @@ func (s *SemanticInventoryStore) FailSemanticInventoryBackfill(ctx context.Conte
 	return err
 }
 
-func (s *SemanticInventoryStore) executeSemanticInventoryBackfill(ctx context.Context, query string, bindVars map[string]interface{}) (semanticinventory.Build, error) {
-	var updated semanticinventory.Build
+func (s *SemanticInventoryStore) executeSemanticInventoryBackfill(ctx context.Context, query string, bindVars map[string]interface{}) (semantic.Build, error) {
+	var updated semantic.Build
 	found := false
 	err := s.client.QueryRows(ctx, query, 1, bindVars, func(row map[string]any) error {
 		if err := decodeInventoryRow(row, &updated); err != nil {
@@ -242,52 +242,52 @@ func (s *SemanticInventoryStore) executeSemanticInventoryBackfill(ctx context.Co
 		return nil
 	})
 	if err != nil {
-		return semanticinventory.Build{}, fmt.Errorf("update semantic inventory backfill: %w", err)
+		return semantic.Build{}, fmt.Errorf("update semantic inventory backfill: %w", err)
 	}
 	if !found {
-		return semanticinventory.Build{}, ErrSemanticInventoryClaimLost
+		return semantic.Build{}, ErrSemanticInventoryClaimLost
 	}
 	return updated, nil
 }
 
-func (s *SemanticInventoryStore) BeginSemanticInventoryBuild(ctx context.Context, build semanticinventory.Build) error {
-	if err := semanticinventory.ValidateBuild(build); err != nil {
+func (s *SemanticInventoryStore) BeginSemanticInventoryBuild(ctx context.Context, build semantic.Build) error {
+	if err := semantic.ValidateBuild(build); err != nil {
 		return err
 	}
 	current, found, err := s.semanticInventoryBuildByKey(ctx, build.Key)
 	if err != nil {
 		return err
 	}
-	if found && current.State == semanticinventory.Complete {
+	if found && current.State == semantic.Complete {
 		return nil
 	}
-	build.State = semanticinventory.Running
+	build.State = semantic.Running
 	build.ScannedResources = 0
 	build.Checkpoint = ""
 	build.Diagnostics = nil
 	return s.writeSemanticInventoryBuild(ctx, build)
 }
 
-func (s *SemanticInventoryStore) AdvanceSemanticInventoryBuild(ctx context.Context, build semanticinventory.Build, scannedResources int64, checkpoint string) error {
-	if err := semanticinventory.ValidateBuild(build); err != nil {
+func (s *SemanticInventoryStore) AdvanceSemanticInventoryBuild(ctx context.Context, build semantic.Build, scannedResources int64, checkpoint string) error {
+	if err := semantic.ValidateBuild(build); err != nil {
 		return err
 	}
 	current, found, err := s.semanticInventoryBuildByKey(ctx, build.Key)
 	if err != nil {
 		return err
 	}
-	if found && current.State == semanticinventory.Complete {
+	if found && current.State == semantic.Complete {
 		return nil
 	}
-	build.State = semanticinventory.Running
+	build.State = semantic.Running
 	build.ScannedResources = max(scannedResources, 0)
 	build.Checkpoint = checkpoint
 	build.Diagnostics = nil
 	return s.writeSemanticInventoryBuild(ctx, build)
 }
 
-func (s *SemanticInventoryStore) CompleteSemanticInventoryBuild(ctx context.Context, build semanticinventory.Build, scannedResources int64, checkpoint string) error {
-	if err := semanticinventory.ValidateBuild(build); err != nil {
+func (s *SemanticInventoryStore) CompleteSemanticInventoryBuild(ctx context.Context, build semantic.Build, scannedResources int64, checkpoint string) error {
+	if err := semantic.ValidateBuild(build); err != nil {
 		return err
 	}
 	materialized, err := s.EnsureSemanticInventoryEntries(ctx, build)
@@ -295,23 +295,23 @@ func (s *SemanticInventoryStore) CompleteSemanticInventoryBuild(ctx context.Cont
 		return err
 	}
 	build = materialized
-	build.State = semanticinventory.Complete
+	build.State = semantic.Complete
 	build.ScannedResources = max(scannedResources, 0)
 	build.Checkpoint = checkpoint
 	build.Diagnostics = nil
 	return s.writeSemanticInventoryBuild(ctx, build)
 }
 
-func (s *SemanticInventoryStore) EnsureSemanticInventoryEntries(ctx context.Context, build semanticinventory.Build) (semanticinventory.Build, error) {
-	if err := semanticinventory.ValidateBuild(build); err != nil {
-		return semanticinventory.Build{}, err
+func (s *SemanticInventoryStore) EnsureSemanticInventoryEntries(ctx context.Context, build semantic.Build) (semantic.Build, error) {
+	if err := semantic.ValidateBuild(build); err != nil {
+		return semantic.Build{}, err
 	}
-	if build.EntryIndexVersion >= semanticinventory.EntryIndexVersion {
+	if build.EntryIndexVersion >= semantic.EntryIndexVersion {
 		return build, nil
 	}
 	sourceKind := build.SourceKind
 	if sourceKind == "" {
-		sourceKind = semanticinventory.SourceFile
+		sourceKind = semantic.SourceFile
 	}
 	if err := s.client.ExecuteAQL(ctx, materializeSemanticInventoryEntriesAQL, map[string]interface{}{
 		"project":            build.Project,
@@ -320,27 +320,27 @@ func (s *SemanticInventoryStore) EnsureSemanticInventoryEntries(ctx context.Cont
 		"source_kind":        sourceKind,
 		"observation_schema": build.ObservationSchema,
 	}); err != nil {
-		return semanticinventory.Build{}, fmt.Errorf("materialize semantic inventory entries: %w", err)
+		return semantic.Build{}, fmt.Errorf("materialize semantic inventory entries: %w", err)
 	}
-	build.EntryIndexVersion = semanticinventory.EntryIndexVersion
+	build.EntryIndexVersion = semantic.EntryIndexVersion
 	if err := s.writeSemanticInventoryBuild(ctx, build); err != nil {
-		return semanticinventory.Build{}, err
+		return semantic.Build{}, err
 	}
 	return build, nil
 }
 
-func (s *SemanticInventoryStore) FailSemanticInventoryBuild(ctx context.Context, build semanticinventory.Build, diagnostic string) error {
-	if err := semanticinventory.ValidateBuild(build); err != nil {
+func (s *SemanticInventoryStore) FailSemanticInventoryBuild(ctx context.Context, build semantic.Build, diagnostic string) error {
+	if err := semantic.ValidateBuild(build); err != nil {
 		return err
 	}
 	current, found, err := s.semanticInventoryBuildByKey(ctx, build.Key)
 	if err != nil {
 		return err
 	}
-	if found && current.State == semanticinventory.Complete {
+	if found && current.State == semantic.Complete {
 		return nil
 	}
-	build.State = semanticinventory.Failed
+	build.State = semantic.Failed
 	if found {
 		build.ScannedResources = current.ScannedResources
 		build.Checkpoint = current.Checkpoint
@@ -354,7 +354,7 @@ func (s *SemanticInventoryStore) FailSemanticInventoryBuild(ctx context.Context,
 	return s.writeSemanticInventoryBuild(ctx, build)
 }
 
-func (s *SemanticInventoryStore) WriteSemanticInventoryContributions(ctx context.Context, contributions []semanticinventory.Contribution, batchSize int) error {
+func (s *SemanticInventoryStore) WriteSemanticInventoryContributions(ctx context.Context, contributions []semantic.Contribution, batchSize int) error {
 	if len(contributions) == 0 {
 		return nil
 	}
@@ -375,72 +375,72 @@ func (s *SemanticInventoryStore) WriteSemanticInventoryContributions(ctx context
 			}
 			encoded = append(encoded, data)
 		}
-		if err := s.client.InsertBatchRaw(ctx, semanticinventory.Collection, encoded, true, ""); err != nil {
+		if err := s.client.InsertBatchRaw(ctx, semantic.Collection, encoded, true, ""); err != nil {
 			return fmt.Errorf("write semantic inventory contributions: %w", err)
 		}
 	}
 	return nil
 }
 
-func (s *SemanticInventoryStore) PageSemanticInventory(ctx context.Context, opts semanticinventory.PageOptions) (semanticinventory.Page, error) {
+func (s *SemanticInventoryStore) PageSemanticInventory(ctx context.Context, opts semantic.PageOptions) (semantic.Page, error) {
 	if strings.TrimSpace(opts.Project) == "" || catalog.NormalizeDatasetGeneration(opts.DatasetGeneration) == "" ||
-		(opts.SelectionMode != "" && opts.SelectionMode != semanticinventory.ExactConcept && opts.SelectionMode != semanticinventory.SystemVersionCategory) {
-		return semanticinventory.Page{}, ErrInvalidSemanticInventoryPage
+		(opts.SelectionMode != "" && opts.SelectionMode != semantic.ExactConcept && opts.SelectionMode != semantic.SystemVersionCategory) {
+		return semantic.Page{}, ErrInvalidSemanticInventoryPage
 	}
 	paths := append([]string(nil), opts.AuthResourcePaths...)
 	sort.Strings(paths)
 	paths = compactAuthPaths(paths)
 	unrestricted := catalog.EffectiveAuthResourcePathsUnrestricted(paths, opts.AuthResourcePathsUnrestricted)
 	limit := semanticInventoryLimit(opts.Limit)
-	buildsExist, err := s.client.CollectionExists(ctx, semanticinventory.BuildCollection)
+	buildsExist, err := s.client.CollectionExists(ctx, semantic.BuildCollection)
 	if err != nil {
-		return semanticinventory.Page{}, err
+		return semantic.Page{}, err
 	}
 	if !buildsExist {
-		return semanticinventory.Page{Entries: []semanticinventory.Entry{}, State: semanticinventory.Unknown}, nil
+		return semantic.Page{Entries: []semantic.Entry{}, State: semantic.Unknown}, nil
 	}
 	builds, err := s.semanticInventoryBuilds(ctx, opts.Project, catalog.NormalizeDatasetGeneration(opts.DatasetGeneration))
 	if err != nil {
-		return semanticinventory.Page{}, err
+		return semantic.Page{}, err
 	}
-	build, found := selectSemanticInventoryBuild(builds, semanticinventory.BuildID(opts.Project, opts.DatasetGeneration))
+	build, found := selectSemanticInventoryBuild(builds, semantic.BuildID(opts.Project, opts.DatasetGeneration))
 	if !found {
-		return semanticinventory.Page{Entries: []semanticinventory.Entry{}, State: semanticinventory.Unknown}, nil
+		return semantic.Page{Entries: []semantic.Entry{}, State: semantic.Unknown}, nil
 	}
-	page := semanticinventory.Page{Entries: []semanticinventory.Entry{}, Build: build, State: build.State}
+	page := semantic.Page{Entries: []semantic.Entry{}, Build: build, State: build.State}
 	if !unrestricted {
 		page.Build.ScannedResources = 0
 		page.Build.Checkpoint = ""
-		page.Build.SourceCheckpoint = semanticinventory.Checkpoint{}
+		page.Build.SourceCheckpoint = semantic.Checkpoint{}
 		page.Build.LeaseToken = ""
 		page.Build.LeaseExpiresAt = 0
 		page.Build.Diagnostics = nil
 		page.Build.AuthResourcePath = ""
 	}
-	if build.State != semanticinventory.Complete || build.BuildID == "" {
+	if build.State != semantic.Complete || build.BuildID == "" {
 		return page, nil
 	}
-	if opts.SelectionMode == semanticinventory.SystemVersionCategory && build.EntryIndexVersion < semanticinventory.EntryIndexVersion {
-		return semanticinventory.Page{}, ErrSemanticInventoryCategoryIndexUnavailable
+	if opts.SelectionMode == semantic.SystemVersionCategory && build.EntryIndexVersion < semantic.EntryIndexVersion {
+		return semantic.Page{}, ErrSemanticInventoryCategoryIndexUnavailable
 	}
 	sourceKind := build.SourceKind
 	if sourceKind == "" {
-		sourceKind = semanticinventory.SourceFile
+		sourceKind = semantic.SourceFile
 	}
-	inventoryCollection := semanticinventory.Collection
-	if build.EntryIndexVersion >= semanticinventory.EntryIndexVersion {
-		inventoryCollection = semanticinventory.EntryCollection
+	inventoryCollection := semantic.Collection
+	if build.EntryIndexVersion >= semantic.EntryIndexVersion {
+		inventoryCollection = semantic.EntryCollection
 	}
 	inventoryExists, err := s.client.CollectionExists(ctx, inventoryCollection)
 	if err != nil {
-		return semanticinventory.Page{}, err
+		return semantic.Page{}, err
 	}
 	if !inventoryExists {
-		return semanticinventory.Page{Entries: []semanticinventory.Entry{}, State: semanticinventory.Unknown}, nil
+		return semantic.Page{Entries: []semantic.Entry{}, State: semantic.Unknown}, nil
 	}
-	afterBindingID, afterConceptID, err := semanticinventory.DecodeCursor(opts.Cursor, opts, build.BuildID)
+	afterBindingID, afterConceptID, err := semantic.DecodeCursor(opts.Cursor, opts, build.BuildID)
 	if err != nil {
-		return semanticinventory.Page{}, err
+		return semantic.Page{}, err
 	}
 	vars := map[string]interface{}{
 		"@inventory":                       inventoryCollection,
@@ -461,14 +461,14 @@ func (s *SemanticInventoryStore) PageSemanticInventory(ctx context.Context, opts
 	count := 0
 	lastBindingID, lastSelectionID := "", ""
 	query := semanticInventoryPageAQL
-	if opts.SelectionMode == semanticinventory.SystemVersionCategory {
+	if opts.SelectionMode == semantic.SystemVersionCategory {
 		query = semanticInventoryCategoryPageAQL
 	}
 	if err := s.client.QueryRows(ctx, query, limit+1, vars, func(row map[string]any) error {
 		var item struct {
-			semanticinventory.Entry
-			Family      *semanticinventory.Family `json:"family"`
-			SelectionID string                    `json:"selection_id"`
+			semantic.Entry
+			Family      *semantic.Family `json:"family"`
+			SelectionID string           `json:"selection_id"`
 		}
 		if err := decodeInventoryRow(row, &item); err != nil {
 			return err
@@ -479,7 +479,7 @@ func (s *SemanticInventoryStore) PageSemanticInventory(ctx context.Context, opts
 		}
 		lastBindingID, lastSelectionID = item.BindingID, item.ConceptID
 		if item.Family != nil {
-			item.Family.FamilyID = semanticinventory.FamilyID(item.Family.FamilyReference)
+			item.Family.FamilyID = semantic.FamilyID(item.Family.FamilyReference)
 			page.Families = append(page.Families, *item.Family)
 			lastSelectionID = item.SelectionID
 		} else {
@@ -487,18 +487,18 @@ func (s *SemanticInventoryStore) PageSemanticInventory(ctx context.Context, opts
 		}
 		return nil
 	}); err != nil {
-		return semanticinventory.Page{}, fmt.Errorf("page semantic inventory: %w", err)
+		return semantic.Page{}, fmt.Errorf("page semantic inventory: %w", err)
 	}
 	if count > limit {
-		page.NextCursor = semanticinventory.EncodeCursor(opts, build.BuildID, lastBindingID, lastSelectionID)
+		page.NextCursor = semantic.EncodeCursor(opts, build.BuildID, lastBindingID, lastSelectionID)
 	}
 	return page, nil
 }
 
-func (s *SemanticInventoryStore) ResolveSemanticInventorySelections(ctx context.Context, opts semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
+func (s *SemanticInventoryStore) ResolveSemanticInventorySelections(ctx context.Context, opts semantic.ResolveOptions) (semantic.ResolveResult, error) {
 	selectionCount := len(opts.References) + len(opts.FamilyReferences)
 	if strings.TrimSpace(opts.Project) == "" || catalog.NormalizeDatasetGeneration(opts.DatasetGeneration) == "" || opts.AuthResourcePathsUnrestricted == nil || selectionCount == 0 || selectionCount > 100 {
-		return semanticinventory.ResolveResult{}, ErrInvalidSemanticInventorySelection
+		return semantic.ResolveResult{}, ErrInvalidSemanticInventorySelection
 	}
 	paths := append([]string(nil), opts.AuthResourcePaths...)
 	sort.Strings(paths)
@@ -508,54 +508,54 @@ func (s *SemanticInventoryStore) ResolveSemanticInventorySelections(ctx context.
 	seen := make(map[string]struct{}, len(opts.References))
 	for _, reference := range opts.References {
 		if strings.TrimSpace(reference.ConceptID) == "" || strings.TrimSpace(reference.BindingID) == "" {
-			return semanticinventory.ResolveResult{}, ErrInvalidSemanticInventorySelection
+			return semantic.ResolveResult{}, ErrInvalidSemanticInventorySelection
 		}
 		identity := reference.BindingID + "\x00" + reference.ConceptID
 		if _, ok := seen[identity]; ok {
-			return semanticinventory.ResolveResult{}, ErrInvalidSemanticInventorySelection
+			return semantic.ResolveResult{}, ErrInvalidSemanticInventorySelection
 		}
 		seen[identity] = struct{}{}
 		references = append(references, map[string]interface{}{"binding_id": reference.BindingID, "concept_id": reference.ConceptID})
 	}
-	familyReferences := make([]semanticinventory.FamilyReference, 0, len(opts.FamilyReferences))
+	familyReferences := make([]semantic.FamilyReference, 0, len(opts.FamilyReferences))
 	for _, reference := range opts.FamilyReferences {
-		if reference.FamilyID != semanticinventory.FamilyID(reference) || strings.TrimSpace(reference.BindingID) == "" ||
+		if reference.FamilyID != semantic.FamilyID(reference) || strings.TrimSpace(reference.BindingID) == "" ||
 			strings.TrimSpace(reference.System) == "" || strings.TrimSpace(reference.ResourceType) == "" || strings.TrimSpace(reference.SourcePath) == "" ||
-			(reference.SourceKind != semanticinventory.SourceFile && reference.SourceKind != semanticinventory.SourceRetained) {
-			return semanticinventory.ResolveResult{}, ErrInvalidSemanticInventorySelection
+			(reference.SourceKind != semantic.SourceFile && reference.SourceKind != semantic.SourceRetained) {
+			return semantic.ResolveResult{}, ErrInvalidSemanticInventorySelection
 		}
 		if _, ok := seen[reference.FamilyID]; ok {
-			return semanticinventory.ResolveResult{}, ErrInvalidSemanticInventorySelection
+			return semantic.ResolveResult{}, ErrInvalidSemanticInventorySelection
 		}
 		seen[reference.FamilyID] = struct{}{}
 		familyReferences = append(familyReferences, reference)
 	}
-	result := semanticinventory.ResolveResult{Entries: []semanticinventory.Entry{}, State: semanticinventory.Unknown}
-	buildsExist, err := s.client.CollectionExists(ctx, semanticinventory.BuildCollection)
+	result := semantic.ResolveResult{Entries: []semantic.Entry{}, State: semantic.Unknown}
+	buildsExist, err := s.client.CollectionExists(ctx, semantic.BuildCollection)
 	if err != nil {
-		return semanticinventory.ResolveResult{}, err
+		return semantic.ResolveResult{}, err
 	}
 	if !buildsExist {
 		return result, nil
 	}
-	buildID := semanticinventory.BuildID(opts.Project, opts.DatasetGeneration)
-	build, found, err := s.semanticInventoryBuildByKey(ctx, semanticinventory.BuildKey(opts.Project, opts.DatasetGeneration))
+	buildID := semantic.BuildID(opts.Project, opts.DatasetGeneration)
+	build, found, err := s.semanticInventoryBuildByKey(ctx, semantic.BuildKey(opts.Project, opts.DatasetGeneration))
 	if err != nil {
-		return semanticinventory.ResolveResult{}, err
+		return semantic.ResolveResult{}, err
 	}
 	if !found || build.BuildID != buildID {
 		return result, nil
 	}
 	result.Build, result.State = build, build.State
-	if build.State != semanticinventory.Complete {
+	if build.State != semantic.Complete {
 		return result, nil
 	}
-	if len(familyReferences) > 0 && build.EntryIndexVersion < semanticinventory.EntryIndexVersion {
-		return semanticinventory.ResolveResult{}, ErrSemanticInventoryCategoryIndexUnavailable
+	if len(familyReferences) > 0 && build.EntryIndexVersion < semantic.EntryIndexVersion {
+		return semantic.ResolveResult{}, ErrSemanticInventoryCategoryIndexUnavailable
 	}
 	sourceKind := build.SourceKind
 	if sourceKind == "" {
-		sourceKind = semanticinventory.SourceFile
+		sourceKind = semantic.SourceFile
 	}
 	query := semanticInventoryResolveSelectionsAQL
 	vars := map[string]interface{}{
@@ -567,29 +567,29 @@ func (s *SemanticInventoryStore) ResolveSemanticInventorySelections(ctx context.
 		"auth_resource_paths":              paths,
 		"references":                       references,
 	}
-	collection := semanticinventory.Collection
-	if build.EntryIndexVersion >= semanticinventory.EntryIndexVersion {
+	collection := semantic.Collection
+	if build.EntryIndexVersion >= semantic.EntryIndexVersion {
 		query = semanticInventoryResolveIndexedSelectionsAQL
-		collection = semanticinventory.EntryCollection
+		collection = semantic.EntryCollection
 		vars["observation_schema"] = build.ObservationSchema
 	}
 	inventoryExists, err := s.client.CollectionExists(ctx, collection)
 	if err != nil {
-		return semanticinventory.ResolveResult{}, err
+		return semantic.ResolveResult{}, err
 	}
 	if !inventoryExists {
-		return semanticinventory.ResolveResult{}, errors.New("semantic inventory collection is missing for a complete build")
+		return semantic.ResolveResult{}, errors.New("semantic inventory collection is missing for a complete build")
 	}
 	if len(references) > 0 {
 		if err := s.client.QueryRows(ctx, query, len(references), vars, func(row map[string]any) error {
-			var entry semanticinventory.Entry
+			var entry semantic.Entry
 			if err := decodeInventoryRow(row, &entry); err != nil {
 				return err
 			}
 			result.Entries = append(result.Entries, entry)
 			return nil
 		}); err != nil {
-			return semanticinventory.ResolveResult{}, fmt.Errorf("resolve semantic inventory selections: %w", err)
+			return semantic.ResolveResult{}, fmt.Errorf("resolve semantic inventory selections: %w", err)
 		}
 	}
 	if len(familyReferences) > 0 {
@@ -601,22 +601,22 @@ func (s *SemanticInventoryStore) ResolveSemanticInventorySelections(ctx context.
 			"references": familyReferences, "observation_schema": build.ObservationSchema,
 		}
 		if err := s.client.QueryRows(ctx, semanticInventoryResolveFamiliesAQL, len(familyReferences), familyVars, func(row map[string]any) error {
-			var family semanticinventory.Family
+			var family semantic.Family
 			if err := decodeInventoryRow(row, &family); err != nil {
 				return err
 			}
-			family.FamilyID = semanticinventory.FamilyID(family.FamilyReference)
+			family.FamilyID = semantic.FamilyID(family.FamilyReference)
 			result.Families = append(result.Families, family)
 			return nil
 		}); err != nil {
-			return semanticinventory.ResolveResult{}, fmt.Errorf("resolve semantic inventory families: %w", err)
+			return semantic.ResolveResult{}, fmt.Errorf("resolve semantic inventory families: %w", err)
 		}
 	}
 	return result, nil
 }
 
-func (s *SemanticInventoryStore) semanticInventoryBuildByKey(ctx context.Context, key string) (semanticinventory.Build, bool, error) {
-	var build semanticinventory.Build
+func (s *SemanticInventoryStore) semanticInventoryBuildByKey(ctx context.Context, key string) (semantic.Build, bool, error) {
+	var build semantic.Build
 	found := false
 	err := s.client.QueryRows(ctx, semanticInventoryBuildByKeyAQL, 1, map[string]interface{}{"key": key}, func(row map[string]any) error {
 		if err := decodeInventoryRow(row, &build); err != nil {
@@ -628,13 +628,13 @@ func (s *SemanticInventoryStore) semanticInventoryBuildByKey(ctx context.Context
 	return build, found, err
 }
 
-func (s *SemanticInventoryStore) semanticInventoryBuilds(ctx context.Context, project, generation string) ([]semanticinventory.Build, error) {
-	builds := make([]semanticinventory.Build, 0, 2)
+func (s *SemanticInventoryStore) semanticInventoryBuilds(ctx context.Context, project, generation string) ([]semantic.Build, error) {
+	builds := make([]semantic.Build, 0, 2)
 	err := s.client.QueryRows(ctx, semanticInventoryBuildsAQL, 32, map[string]interface{}{
 		"project":            project,
 		"dataset_generation": generation,
 	}, func(row map[string]any) error {
-		var build semanticinventory.Build
+		var build semantic.Build
 		if err := decodeInventoryRow(row, &build); err != nil {
 			return err
 		}
@@ -644,12 +644,12 @@ func (s *SemanticInventoryStore) semanticInventoryBuilds(ctx context.Context, pr
 	return builds, err
 }
 
-func (s *SemanticInventoryStore) writeSemanticInventoryBuild(ctx context.Context, build semanticinventory.Build) error {
+func (s *SemanticInventoryStore) writeSemanticInventoryBuild(ctx context.Context, build semantic.Build) error {
 	encoded, err := json.Marshal(build)
 	if err != nil {
 		return fmt.Errorf("encode semantic inventory build: %w", err)
 	}
-	if err := s.client.InsertBatchRaw(ctx, semanticinventory.BuildCollection, []json.RawMessage{encoded}, true, ""); err != nil {
+	if err := s.client.InsertBatchRaw(ctx, semantic.BuildCollection, []json.RawMessage{encoded}, true, ""); err != nil {
 		return fmt.Errorf("write semantic inventory build: %w", err)
 	}
 	return nil
@@ -666,28 +666,28 @@ func decodeInventoryRow(row map[string]any, out any) error {
 	return nil
 }
 
-func validateSemanticInventoryContribution(contribution semanticinventory.Contribution) error {
+func validateSemanticInventoryContribution(contribution semantic.Contribution) error {
 	if contribution.Key == "" || contribution.Project == "" || contribution.DatasetGeneration == "" || contribution.BuildID == "" || contribution.SourceID == "" || contribution.ConceptID == "" || contribution.BindingID == "" || contribution.Ordinal < 0 {
 		return fmt.Errorf("semantic inventory contribution is missing stable identity")
 	}
-	if contribution.BuildID != semanticinventory.BuildID(contribution.Project, contribution.DatasetGeneration) {
+	if contribution.BuildID != semantic.BuildID(contribution.Project, contribution.DatasetGeneration) {
 		return fmt.Errorf("semantic inventory contribution build does not match its generation")
 	}
 	return nil
 }
 
-func selectSemanticInventoryBuild(builds []semanticinventory.Build, currentBuildID string) (semanticinventory.Build, bool) {
+func selectSemanticInventoryBuild(builds []semantic.Build, currentBuildID string) (semantic.Build, bool) {
 	for _, build := range builds {
 		if build.BuildID == currentBuildID {
 			return build, true
 		}
 	}
-	return semanticinventory.Build{}, false
+	return semantic.Build{}, false
 }
 
 func semanticInventoryLimit(limit int) int {
-	if limit <= 0 || limit > semanticinventory.PageLimit {
-		return semanticinventory.PageLimit
+	if limit <= 0 || limit > semantic.PageLimit {
+		return semantic.PageLimit
 	}
 	return limit
 }

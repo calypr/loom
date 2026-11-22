@@ -6,7 +6,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"testing"
 )
 
@@ -43,11 +43,11 @@ func TestCatalogProjectionProvenanceKeepsOperationAndOutputKeys(t *testing.T) {
 		Name: "Patient", RootResourceType: "Patient", RowGrain: "resource",
 		Fields: []recipe.Field{{Name: "patient_gender", FieldRef: "gender", SourceKey: "patient_fields", Discovered: true, Expr: recipe.Expression{Select: "root.gender"}}},
 	}}}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}

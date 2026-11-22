@@ -14,7 +14,7 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func TestCompileResolvedRecipePlanLowersNonSelectorFieldAtGenericBoundary(t *testing.T) {
@@ -30,11 +30,11 @@ func TestCompileResolvedRecipePlanLowersNonSelectorFieldAtGenericBoundary(t *tes
 			Fields: []recipe.Field{{Name: "label", Expr: recipe.Expression{Call: "concat", Args: []recipe.Expression{literal("a"), literal("b")}}}},
 		}},
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,11 +79,11 @@ func TestCompileResolvedRecipePlanRejectsInvalidOutputSelection(t *testing.T) {
 		{"blank", []string{""}, "output name is required"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", OutputNames: tc.selects})
+			plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", OutputNames: tc.selects})
 			if err != nil {
 				t.Fatal(err)
 			}
-			resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+			resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -107,11 +107,11 @@ func TestCompileResolvedRecipePlanTypesOutputSelectionAsInvalidRequest(t *testin
 		{"blank", []string{"   "}, "output name is required", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", OutputNames: tc.selects})
+			plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", OutputNames: tc.selects})
 			if err != nil {
 				t.Fatal(err)
 			}
-			resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+			resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -150,11 +150,11 @@ func TestCompileResolvedRecipePlanTypesOutputSelectionAsInvalidRequest(t *testin
 
 func TestCompileResolvedRecipePlanProducesCanonicalPhysicalPlans(t *testing.T) {
 	bundle := compilerFixtureBundle(t)
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,11 +204,11 @@ func TestCompileResolvedRecipePlanLowersDocumentRefEnvelope(t *testing.T) {
 			Fields: []recipe.Field{{Name: "resource", Expr: recipe.Expression{Document: &recipe.DocumentRef{Context: "root"}}}},
 		}},
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,11 +247,11 @@ func TestCompileResolvedRecipePlanLowersDocumentRefEnvelope(t *testing.T) {
 
 func TestCompiledRecipeOutputSchemaMatchesFinalReturnProjectionOrder(t *testing.T) {
 	bundle := compilerFixtureBundle(t)
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,11 +304,11 @@ func TestTraversalColumnNamingAliasKeepsNestedPublicColumnsGloballyScoped(t *tes
 			}},
 		}},
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,11 +360,11 @@ func TestTraversalColumnNamingExactKeepsAuthoredNamesAcrossNestedTraversals(t *t
 			}},
 		}},
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,11 +402,11 @@ func TestTraversalColumnNamingDefaultsToPathForExistingRecipes(t *testing.T) {
 			}},
 		}},
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,13 +424,13 @@ func TestTraversalColumnNamingDefaultsToPathForExistingRecipes(t *testing.T) {
 
 func TestCompileResolvedRecipePlanUsesCanonicalUnnest(t *testing.T) {
 	bundle := compilerFixtureBundle(t)
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	group := plan.Outputs[len(plan.Outputs)-1]
-	plan.Outputs = []semantic.OutputPlan{group}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	plan.Outputs = []recipeplan.OutputPlan{group}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,12 +463,12 @@ func TestCompileGroupMemberKeepsRequiredRowIdentityNonNullable(t *testing.T) {
 	bundle.Outputs[1].Fields = append(bundle.Outputs[1].Fields, recipe.Field{
 		Name: "inactive", Expr: recipe.Expression{Select: "member.inactive"},
 	})
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan.Outputs = []semantic.OutputPlan{plan.Outputs[len(plan.Outputs)-1]}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	plan.Outputs = []recipeplan.OutputPlan{plan.Outputs[len(plan.Outputs)-1]}
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -514,11 +514,11 @@ func compilerFixtureBundle(t *testing.T) recipe.Bundle {
 func TestCompileResolvedRecipePlanLowersBoundedDynamicMap(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "dynamic", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}}, DynamicColumns: []recipe.DynamicColumn{{Name: "dynamic", Source: recipe.Expression{Select: "root.identifier[].value"}, Columns: []string{"x"}}}}}}
 	var err error
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -551,11 +551,11 @@ func TestCompileResolvedRecipePlanLowersBoundedDynamicMap(t *testing.T) {
 
 func TestCompileResolvedRecipePlanLowersDynamicItemLookup(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "dynamic-item", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}}, DynamicColumns: []recipe.DynamicColumn{{Name: "extension", Source: recipe.Expression{Select: "root.extension[]"}, Key: &recipe.Expression{Select: "item.url"}, Value: &recipe.Expression{Select: "item.url"}, Columns: []string{"http://example.org/code"}}}}}}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -601,11 +601,11 @@ func TestCompileExtensionColumnsPreservesAttachmentValuesAndNestedJSON(t *testin
 			},
 		}},
 	}}}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -692,11 +692,11 @@ func TestExtensionColumnOverwriteCollisionPreservesPinnedBehavior(t *testing.T) 
 		Fields:           []recipe.Field{{Name: "status", Expr: recipe.Expression{Select: "root.id"}}},
 		ExtensionColumns: []recipe.ExtensionColumn{{Name: "extensions", ColumnPrefix: &empty, Source: recipe.Expression{Select: "root.extension[]"}, MaxColumns: 2, Columns: []recipe.ExtensionColumnMapping{{Name: "status", URL: "https://example.org/status", SourcePath: "extension[]", ValuePath: "valueString", ValueType: "string"}}}},
 	}}}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "g")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "g")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -750,11 +750,11 @@ func TestNestedExtensionColumnKeepsLegacyScopeAliasName(t *testing.T) {
 		Name: "ResearchSubject", RootResourceType: "ResearchSubject", RowGrain: "study_enrollment",
 		Traversals: []recipe.Traversal{{Name: "subject_Patient", Alias: "occ_parent", ToResourceType: "Patient", MatchMode: recipe.MatchOptional, Traversals: []recipe.Traversal{{Name: "subject_Patient", Alias: "occ_child", ToResourceType: "Condition", MatchMode: recipe.MatchOptional, ExtensionColumns: []recipe.ExtensionColumn{extension}}}}},
 	}}}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p", DatasetGeneration: "g"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "g")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "g")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -790,11 +790,11 @@ func TestCompileResolvedRecipePlanOverwritesCollidingCompatibilityDynamicColumns
 			{Name: "category_keys", ColumnPrefix: &emptyPrefix, Source: recipe.Expression{Select: "root.category[].coding[]"}, Key: &recipe.Expression{Call: "last_segment", Args: []recipe.Expression{{Select: "item.system"}}}, Value: &recipe.Expression{Select: "item.display"}, Columns: []string{"HTAN_DATA_FILE_ID"}},
 		},
 	}}}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -818,11 +818,11 @@ func TestCompileResolvedRecipePlanOverwritesCollidingCompatibilityDynamicColumns
 
 func TestCompileResolvedRecipePlanRendersDynamicLookupThroughCanonicalRenderer(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "dynamic", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient", Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}}, DynamicColumns: []recipe.DynamicColumn{{Name: "dynamic", Source: recipe.Expression{Select: "root.identifier[].value"}, Columns: []string{"x"}}}}}}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -849,11 +849,11 @@ func TestWideDynamicFamilyUsesOneSourceComputation(t *testing.T) {
 		Fields:         []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
 		DynamicColumns: []recipe.DynamicColumn{{Name: "identifiers", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &recipe.Expression{Select: "item.value"}, Value: &recipe.Expression{Select: "item.value"}, Columns: columns}},
 	}}}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -876,11 +876,11 @@ func TestWideDynamicFamilyUsesOneSourceComputation(t *testing.T) {
 
 func TestCompileResolvedRecipePlanLowersTraversalDynamicMap(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "nested-dynamic", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "ResearchSubject", RootResourceType: "ResearchSubject", RowGrain: "study_enrollment", Traversals: []recipe.Traversal{{Name: "subject_Patient", ToResourceType: "Patient", Alias: "patient", DynamicColumns: []recipe.DynamicColumn{{Name: "identifiers", Source: recipe.Expression{Select: "patient.identifier[]"}, Key: &recipe.Expression{Select: "item.value"}, Columns: []string{"identifier"}}}}}}}}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -918,11 +918,11 @@ func TestCompileResolvedRecipePlanLowersTraversalDynamicMap(t *testing.T) {
 
 func TestCompileResolvedRecipePlanNamesTraversalDynamicMapExactly(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "nested-dynamic-exact", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "resource", TraversalColumnNaming: recipe.TraversalColumnNamingExact, Traversals: []recipe.Traversal{{Name: "subject_Patient", ToResourceType: "Patient", Alias: "patient", DynamicColumns: []recipe.DynamicColumn{{Name: "identifiers", ValueMode: recipe.ValueModeAll, Source: recipe.Expression{Select: "patient.identifier[]"}, Key: &recipe.Expression{Select: "item.value"}, Columns: []string{"identifier"}}}}}}}}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -956,11 +956,11 @@ func TestCompileResolvedRecipePlanCorrelatesRepeatedPivotItems(t *testing.T) {
 		Name: "Observation", RootResourceType: "Observation", RowGrain: "resource",
 		Pivots: []recipe.Pivot{{Name: "components", ColumnExpr: recipe.Expression{Select: "root.component[].code.coding[].display"}, ValueExpr: recipe.Expression{Select: "root.component[].valueString"}, ItemSource: recipe.Expression{Select: "root.component[]"}, ItemResourceType: "ObservationComponent", Columns: []string{"hemoglobin"}}},
 	}}}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -988,11 +988,11 @@ func TestCompiledRecipeOutputSchemaFlattensMixedObservationPivotToString(t *test
 			Columns:        []string{"Biospecimen"},
 		}},
 	}}}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1034,11 +1034,11 @@ func TestCompiledRecipeOutputSchemaPreservesAliasedPivotMetadata(t *testing.T) {
 			ColumnAliases: map[string]string{"Biospecimen": "biospecimen_value"},
 		}},
 	}}}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1067,11 +1067,11 @@ func TestCompiledRecipeOutputSchemaHonorsFirstProjectionCardinality(t *testing.T
 			ValueMode: recipe.ValueModeFirst,
 		}},
 	}}}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1100,11 +1100,11 @@ func TestCompiledRecipeSliceFieldsHonorValueModes(t *testing.T) {
 			{Name: "distinct", Expr: recipe.Expression{Select: "name[].given[]"}, ValueMode: recipe.ValueModeDistinct},
 		}}},
 	}}}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1148,11 +1148,11 @@ func TestCompileResolvedRecipePlanRejectsSanitizedPublicColumnCollision(t *testi
 		Name: "Observation", RootResourceType: "Observation", RowGrain: "resource",
 		Pivots: []recipe.Pivot{{Name: "component", ColumnExpr: recipe.Expression{Select: "root.component[].code.coding[].display"}, ValueExpr: recipe.Expression{Select: "root.component[].valueString"}, ItemSource: recipe.Expression{Select: "root.component[]"}, ItemResourceType: "ObservationComponent", Columns: []string{"a-b", "a_b"}}},
 	}}}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1192,11 +1192,11 @@ func TestRecipeExpressionOperationMatrixChecksLowersAndRenders(t *testing.T) {
 				Name: "Patient", RootResourceType: "Patient", RowGrain: "patient",
 				Fields: []recipe.Field{{Name: "value", Expr: recipe.Expression{Call: test.call, Args: test.args}}},
 			}}}
-			plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p"})
+			plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+			resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1238,11 +1238,11 @@ func TestCompileResolvedRecipePlanCarriesRichShapingIntoCanonicalIR(t *testing.T
 			}},
 		}},
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1292,11 +1292,11 @@ func TestCompileResolvedRecipePlanPreservesRestrictedEmptyAuthScope(t *testing.T
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			bindings := recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation", AuthScopeMode: test.mode}
-			plan, err := semantic.BuildRecipePlan(bundle, bindings)
+			plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 			if err != nil {
 				t.Fatal(err)
 			}
-			resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+			resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1321,11 +1321,11 @@ func TestCompileResolvedRecipePlanLowersRequiredTraversalFilter(t *testing.T) {
 			Filters: []recipe.Filter{{Select: "id", Operator: recipe.FilterExists}},
 		}},
 	}}}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatal(err)
 	}

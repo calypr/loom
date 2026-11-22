@@ -13,7 +13,7 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	publication "github.com/calypr/loom/internal/dataset"
 )
 
@@ -83,19 +83,19 @@ func (s *Service) discoverReferences(ctx context.Context, opts catalog.Populated
 	return s.discoverReferencesFn(ctx, opts)
 }
 
-func (s *Service) resolveRecipe(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (semantic.ResolvedRecipePlan, error) {
+func (s *Service) resolveRecipe(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (recipeplan.ResolvedRecipePlan, error) {
 	resolvedBundle, err := s.resolveRecipeBundle(ctx, bundle, bindings)
 	if err != nil {
-		return semantic.ResolvedRecipePlan{}, err
+		return recipeplan.ResolvedRecipePlan{}, err
 	}
-	plan, err := semantic.BuildRecipePlan(resolvedBundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(resolvedBundle, bindings)
 	if err != nil {
-		return semantic.ResolvedRecipePlan{}, err
+		return recipeplan.ResolvedRecipePlan{}, err
 	}
-	return semantic.ResolveRecipePlan(plan, "", bindings.DatasetGeneration)
+	return recipeplan.ResolveRecipePlan(plan, "", bindings.DatasetGeneration)
 }
 
-func compileSingleQuery(resolved semantic.ResolvedRecipePlan, limit int) (dataframeexecution.CompiledQuery, error) {
+func compileSingleQuery(resolved recipeplan.ResolvedRecipePlan, limit int) (dataframeexecution.CompiledQuery, error) {
 	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return dataframeexecution.CompiledQuery{}, err

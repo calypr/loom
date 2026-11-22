@@ -3,9 +3,9 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -21,7 +21,7 @@ func (s *Service) CellTrace(ctx context.Context, request CellTraceRequest) (Cell
 	if request.Offset < 0 {
 		return CellTraceResult{}, unprocessable("cellTrace", "INVALID_CELL_TRACE_OFFSET", "offset cannot be negative", nil)
 	}
-	if request.Limit < 0 || request.Limit > compiler.MaxCellTraceContributions {
+	if request.Limit < 0 || request.Limit > facade.MaxCellTraceContributions {
 		return CellTraceResult{}, unprocessable("cellTrace", "INVALID_CELL_TRACE_LIMIT", "limit must be between 1 and 100", nil)
 	}
 	if s.config.Capability.ForExecution == nil || s.config.CellTrace == nil {

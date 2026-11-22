@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func NewShapePlanCache() *ShapePlanCache {
@@ -410,13 +410,13 @@ func TestProfilerCoverageRetainsRawCodingPathWithUnrepresentedMetadata(t *testin
 		}}},
 	}
 	var contribution SemanticCoverageSourceContribution
-	var coverageSemantic []semanticinventory.Contribution
+	var coverageSemantic []semantic.Contribution
 	err := profiler.ObservePayloadWithCoverage(
 		payload,
 		map[string]float64{},
 		"retained:Observation/raw-coding",
 		"schema-sha256-test",
-		func(value semanticinventory.Contribution) { coverageSemantic = append(coverageSemantic, value) },
+		func(value semantic.Contribution) { coverageSemantic = append(coverageSemantic, value) },
 		nil,
 		func(value SemanticCoverageSourceContribution) error {
 			contribution = value
@@ -426,8 +426,8 @@ func TestProfilerCoverageRetainsRawCodingPathWithUnrepresentedMetadata(t *testin
 	if err != nil {
 		t.Fatalf("observe payload with coverage: %v", err)
 	}
-	var inventorySemantic []semanticinventory.Contribution
-	inventoryProfiler.ObservePayloadWithInventory(payload, map[string]float64{}, "retained:Observation/raw-coding", func(value semanticinventory.Contribution) {
+	var inventorySemantic []semantic.Contribution
+	inventoryProfiler.ObservePayloadWithInventory(payload, map[string]float64{}, "retained:Observation/raw-coding", func(value semantic.Contribution) {
 		inventorySemantic = append(inventorySemantic, value)
 	})
 	if !reflect.DeepEqual(profiler.Documents(), inventoryProfiler.Documents()) {

@@ -14,7 +14,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
@@ -30,11 +30,11 @@ func TestConstructionPivotSourceProjectionLivenessAgainstBindOnlyArango(t *testi
 		Outputs:             []recipe.Output{output},
 	}
 	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
 	if err != nil {
 		t.Fatal(err)
 	}

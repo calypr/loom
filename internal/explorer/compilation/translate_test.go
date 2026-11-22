@@ -3,15 +3,13 @@ package compilation
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
-	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
@@ -71,19 +69,19 @@ func TestCompileIndependentContributorOccurrencesPreservesOptionalPredicateScope
 		t.Fatalf("contributor predicate literals=%#v/%#v", traversals[0].Aggregates[0].Where.Values, traversals[1].Aggregates[0].Where.Values)
 	}
 
-	plan, err := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a"})
+	plan, err := recipeplan.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-a", "generation-a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	physical, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	physical, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical.Outputs[0].Plan)
+	rendered, err := facade.RenderPhysicalPlan(physical.Outputs[0].Plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,22 +155,22 @@ func TestCompileAuthoredRequiredRouteLowersToPopulationMatch(t *testing.T) {
 	if traversal.MatchMode != recipe.MatchRequired {
 		t.Fatalf("matchMode=%q, want REQUIRED", traversal.MatchMode)
 	}
-	plan, err := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a"})
+	plan, err := recipeplan.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-a", "generation-a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	physical, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	physical, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(physical.Outputs) != 1 || physical.Outputs[0].Plan.RequiredMatchReuseCount != 0 {
 		t.Fatalf("physical required route=%#v", physical.Outputs)
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical.Outputs[0].Plan)
+	rendered, err := facade.RenderPhysicalPlan(physical.Outputs[0].Plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -944,19 +942,19 @@ func TestCompileNumericAggregatesThroughV2RecipeAndPhysicalPlan(t *testing.T) {
 			t.Errorf("V2 %s output contract = %#v, want nullable decimal scalar", operation, column)
 		}
 	}
-	plan, err := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a"})
+	plan, err := recipeplan.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-a", "generation-a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	physical, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	physical, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical.Outputs[0].Plan)
+	rendered, err := facade.RenderPhysicalPlan(physical.Outputs[0].Plan)
 	if err != nil {
 		t.Fatal(err)
 	}

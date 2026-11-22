@@ -6,15 +6,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/google/uuid"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -117,7 +117,7 @@ func (r Sources) editSources(ctx context.Context, project string, authorized por
 			if err != nil {
 				return authoringv2.Document{}, err
 			}
-			var columns []lower.CompiledOutputColumn
+			var columns []facade.CompiledOutputColumn
 			for _, output := range pristine.resolved.Compiled.Outputs {
 				if output.Name == ref.Output {
 					columns = output.OutputSchema
@@ -317,7 +317,7 @@ func isImportedRecipeColumn(column authoringv2.Column) bool {
 	return column.Source.Kind == authoringv2.SourceImported && column.Source.Imported != nil
 }
 
-func pinnedFieldBindingIDs(output recipe.Output, columns []lower.CompiledOutputColumn) (map[string]string, error) {
+func pinnedFieldBindingIDs(output recipe.Output, columns []facade.CompiledOutputColumn) (map[string]string, error) {
 	result := map[string]string{}
 	for _, slot := range recipeimport.ImportedFieldSlots(output) {
 		matches := 0
@@ -352,7 +352,7 @@ type importedProjectionFact struct {
 	ColumnID, Owner, Kind, Key, SemanticKey, LeafKey string
 }
 
-func importedProjectionFacts(document authoringv2.Document, original recipe.Output, plan *authoringv2.ImportedSourcePlan, compiled lower.CompiledRecipeOutput, native semantic.OutputPlan, catalog authoringv2.CatalogSnapshot) ([]importedProjectionFact, error) {
+func importedProjectionFacts(document authoringv2.Document, original recipe.Output, plan *authoringv2.ImportedSourcePlan, compiled facade.CompiledRecipeOutput, native recipeplan.OutputPlan, catalog authoringv2.CatalogSnapshot) ([]importedProjectionFact, error) {
 	document.ImportedSource = plan
 	document.Columns = nil
 	for _, column := range compiled.OutputSchema {
@@ -393,8 +393,8 @@ func importedProjectionFacts(document authoringv2.Document, original recipe.Outp
 
 			key = origin.OutputKey
 			scope, _ := recipeimport.SourceOriginScope(origin.SourcePath)
-			var walk func(semantic.SemanticNode, string, string)
-			walk = func(node semantic.SemanticNode, path, prefix string) {
+			var walk func(recipeplan.SemanticNode, string, string)
+			walk = func(node recipeplan.SemanticNode, path, prefix string) {
 				occurrenceMatches := node.OccurrenceID == origin.OccurrenceID
 				if origin.OccurrenceID == "" {
 					occurrenceMatches = path == scope
@@ -409,7 +409,7 @@ func importedProjectionFacts(document authoringv2.Document, original recipe.Outp
 							continue
 						}
 						for _, pivotColumn := range pivot.Columns {
-							if lower.NativePivotColumnName(delimiter, pivot.Name, pivotColumn, pivot.ColumnAliases) != column.Name {
+							if facade.NativePivotColumnName(delimiter, pivot.Name, pivotColumn, pivot.ColumnAliases) != column.Name {
 								continue
 							}
 							count++
@@ -422,7 +422,7 @@ func importedProjectionFacts(document authoringv2.Document, original recipe.Outp
 					if path != "" {
 						childPath = fmt.Sprintf("%s.traversals[%d]", path, childIndex)
 					}
-					childPrefix := lower.NativeTraversalColumnPrefix(native.TraversalColumnNaming, prefix, child.Alias)
+					childPrefix := facade.NativeTraversalColumnPrefix(native.TraversalColumnNaming, prefix, child.Alias)
 					walk(child, childPath, childPrefix)
 				}
 			}
@@ -440,8 +440,8 @@ func importedProjectionFacts(document authoringv2.Document, original recipe.Outp
 			}
 		} else {
 			scope, _ := recipeimport.SourceOriginScope(origin.SourcePath)
-			var walk func(semantic.SemanticNode, string, string)
-			walk = func(node semantic.SemanticNode, path, prefix string) {
+			var walk func(recipeplan.SemanticNode, string, string)
+			walk = func(node recipeplan.SemanticNode, path, prefix string) {
 				occurrenceMatches := node.OccurrenceID == origin.OccurrenceID
 				if origin.OccurrenceID == "" {
 					occurrenceMatches = path == scope
@@ -465,7 +465,7 @@ func importedProjectionFacts(document authoringv2.Document, original recipe.Outp
 								continue
 							}
 							for _, value := range pivot.Columns {
-								if lower.NativePivotColumnName(delimiter, pivot.Name, value, pivot.ColumnAliases) == column.Name {
+								if facade.NativePivotColumnName(delimiter, pivot.Name, value, pivot.ColumnAliases) == column.Name {
 									count++
 									key = value
 								}
@@ -478,7 +478,7 @@ func importedProjectionFacts(document authoringv2.Document, original recipe.Outp
 					if path != "" {
 						childPath = fmt.Sprintf("%s.traversals[%d]", path, i)
 					}
-					walk(child, childPath, lower.NativeTraversalColumnPrefix(native.TraversalColumnNaming, prefix, child.Alias))
+					walk(child, childPath, facade.NativeTraversalColumnPrefix(native.TraversalColumnNaming, prefix, child.Alias))
 				}
 			}
 			walk(native.Root, "", "")
@@ -491,7 +491,7 @@ func importedProjectionFacts(document authoringv2.Document, original recipe.Outp
 	return facts, nil
 }
 
-func preserveImportedGeneratedIDs(document authoringv2.Document, original recipe.Output, plan *authoringv2.ImportedSourcePlan, baseline lower.CompiledRecipeOutput, baselineNative semantic.OutputPlan, candidate *lower.CompiledRecipeOutput, candidateNative semantic.OutputPlan, catalog authoringv2.CatalogSnapshot) error {
+func preserveImportedGeneratedIDs(document authoringv2.Document, original recipe.Output, plan *authoringv2.ImportedSourcePlan, baseline facade.CompiledRecipeOutput, baselineNative recipeplan.OutputPlan, candidate *facade.CompiledRecipeOutput, candidateNative recipeplan.OutputPlan, catalog authoringv2.CatalogSnapshot) error {
 	pristinePlan := recipeimport.SourcePlan(original)
 	before, err := importedProjectionFacts(document, original, &pristinePlan, baseline, baselineNative, catalog)
 	if err != nil {
@@ -504,7 +504,7 @@ func preserveImportedGeneratedIDs(document authoringv2.Document, original recipe
 	return rebindImportedGeneratedProjectionIDs(candidate, before, after)
 }
 
-func rebindImportedGeneratedProjectionIDs(candidate *lower.CompiledRecipeOutput, before, after []importedProjectionFact) error {
+func rebindImportedGeneratedProjectionIDs(candidate *facade.CompiledRecipeOutput, before, after []importedProjectionFact) error {
 	identityKey := func(f importedProjectionFact) string { return f.Owner + "\x00" + f.Kind + "\x00" + f.Key }
 	oldGroups, newGroups := map[string][]importedProjectionFact{}, map[string][]importedProjectionFact{}
 	for _, fact := range before {

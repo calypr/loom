@@ -1,6 +1,6 @@
 package fieldprofile
 
-import "github.com/calypr/loom/internal/catalog/codedconcept"
+import "github.com/calypr/loom/internal/semantic"
 
 const (
 	FieldCatalogCollection       = "fhir_field_catalog"
@@ -33,16 +33,16 @@ type FieldCatalogDocument struct {
 	EnrichmentTruncated bool                        `json:"enrichment_truncated"`
 	ExtensionValues     []ExtensionValueObservation `json:"extension_values,omitempty"`
 
-	SemanticObservations  []codedconcept.Observation `json:"semantic_observations,omitempty"`
-	PivotCandidate        bool                       `json:"pivot_candidate"`
-	PivotKind             string                     `json:"pivot_kind,omitempty"`
-	PivotColumns          []string                   `json:"pivot_columns,omitempty"`
-	PivotFamily           string                     `json:"pivot_family,omitempty"`
-	PivotColumnSelect     string                     `json:"pivot_column_selector,omitempty"`
-	PivotValueSelect      string                     `json:"pivot_value_selector,omitempty"`
-	PivotItemSource       string                     `json:"pivot_item_source,omitempty"`
-	PivotItemResourceType string                     `json:"pivot_item_resource_type,omitempty"`
-	PivotValueSelectors   []string                   `json:"pivot_value_selectors,omitempty"`
+	SemanticObservations  []semantic.Observation `json:"semantic_observations,omitempty"`
+	PivotCandidate        bool                   `json:"pivot_candidate"`
+	PivotKind             string                 `json:"pivot_kind,omitempty"`
+	PivotColumns          []string               `json:"pivot_columns,omitempty"`
+	PivotFamily           string                 `json:"pivot_family,omitempty"`
+	PivotColumnSelect     string                 `json:"pivot_column_selector,omitempty"`
+	PivotValueSelect      string                 `json:"pivot_value_selector,omitempty"`
+	PivotItemSource       string                 `json:"pivot_item_source,omitempty"`
+	PivotItemResourceType string                 `json:"pivot_item_resource_type,omitempty"`
+	PivotValueSelectors   []string               `json:"pivot_value_selectors,omitempty"`
 }
 
 type ExtensionValueObservation struct {
@@ -79,7 +79,7 @@ type PopulatedField struct {
 	DistinctValues        []string                    `json:"distinct_values,omitempty"`
 	DistinctTruncated     bool                        `json:"distinct_truncated"`
 	ExtensionValues       []ExtensionValueObservation `json:"extension_values,omitempty"`
-	SemanticObservations  []codedconcept.Observation  `json:"semantic_observations,omitempty"`
+	SemanticObservations  []semantic.Observation      `json:"semantic_observations,omitempty"`
 	PivotCandidate        bool                        `json:"pivot_candidate"`
 	PivotKind             string                      `json:"pivot_kind,omitempty"`
 	PivotColumns          []string                    `json:"pivot_columns,omitempty"`
@@ -99,7 +99,7 @@ type Profiler struct {
 	resourceType             string
 	semanticSourceKind       string
 	semanticOnly             bool
-	semanticExtractor        codedconcept.Extractor
+	semanticExtractor        semantic.Extractor
 	limits                   ProfileLimits
 	shapeCache               *ShapePlanCache
 	stats                    map[string]*fieldCatalogStats
@@ -133,7 +133,7 @@ type fieldCatalogStats struct {
 }
 
 type semanticObservationStats struct {
-	observation codedconcept.Observation
+	observation semantic.Observation
 	exampleSet  map[string]struct{}
 	unitSet     map[string]struct{}
 }

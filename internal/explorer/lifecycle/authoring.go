@@ -9,13 +9,13 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string) (*authoringv2.ApplyCommandsResponse, error) {
@@ -316,7 +316,7 @@ func (s *Service) prepareSemanticSelections(ctx context.Context, project, explor
 		return nil, conflict("commands", "STALE_SEMANTIC_CONTEXT", "the selected row root is not available in the current catalog snapshot", nil, nil)
 	}
 	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
-	references := make([]semanticinventory.Reference, 0, len(command.SemanticSelections))
+	references := make([]semantic.Reference, 0, len(command.SemanticSelections))
 	seen := make(map[string]struct{}, len(command.SemanticSelections))
 	for _, selection := range command.SemanticSelections {
 		identity := selection.BindingID + "\x00" + selection.ConceptID
@@ -324,9 +324,9 @@ func (s *Service) prepareSemanticSelections(ctx context.Context, project, explor
 			continue
 		}
 		seen[identity] = struct{}{}
-		references = append(references, semanticinventory.Reference{ConceptID: selection.ConceptID, BindingID: selection.BindingID})
+		references = append(references, semantic.Reference{ConceptID: selection.ConceptID, BindingID: selection.BindingID})
 	}
-	resolved, err := s.config.ResolveSemanticInventorySelections(ctx, semanticinventory.ResolveOptions{
+	resolved, err := s.config.ResolveSemanticInventorySelections(ctx, semantic.ResolveOptions{
 		Project:                       projectid.Legacy(authorized.Snapshot.Identity.Project),
 		DatasetGeneration:             authorized.Snapshot.Identity.Generation,
 		AuthResourcePathsUnrestricted: &unrestricted,
@@ -336,8 +336,8 @@ func (s *Service) prepareSemanticSelections(ctx context.Context, project, explor
 	if err != nil {
 		return nil, unavailable("catalog", "CATALOG_UNAVAILABLE", "the selected semantic inventory could not be resolved", err)
 	}
-	expectedBuildID := semanticinventory.BuildID(projectid.Legacy(authorized.Snapshot.Identity.Project), authorized.Snapshot.Identity.Generation)
-	if resolved.State != semanticinventory.Complete || resolved.Build.State != semanticinventory.Complete || resolved.Build.BuildID != expectedBuildID {
+	expectedBuildID := semantic.BuildID(projectid.Legacy(authorized.Snapshot.Identity.Project), authorized.Snapshot.Identity.Generation)
+	if resolved.State != semantic.Complete || resolved.Build.State != semantic.Complete || resolved.Build.BuildID != expectedBuildID {
 		return nil, conflict("catalog", "SEMANTIC_INVENTORY_UNAVAILABLE", "the current generation does not have a complete semantic inventory", nil, nil)
 	}
 	expectedContext, err := semanticInventoryContextToken(authorized.Snapshot, explorerID, document.RootResourceType, expectedBuildID)
@@ -347,7 +347,7 @@ func (s *Service) prepareSemanticSelections(ctx context.Context, project, explor
 	if command.ContextToken != expectedContext {
 		return nil, conflict("catalog", "STALE_SEMANTIC_CONTEXT", "reload the selected concepts before applying them", nil, nil)
 	}
-	byIdentity := make(map[string]semanticinventory.Entry, len(resolved.Entries))
+	byIdentity := make(map[string]semantic.Entry, len(resolved.Entries))
 	for _, entry := range resolved.Entries {
 		identity := entry.BindingID + "\x00" + entry.ConceptID
 		if _, exists := byIdentity[identity]; exists {

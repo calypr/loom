@@ -10,16 +10,16 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestCompileRecipeOutputPagePartitionsWideSourceProjection(t *testing.T) {
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Fields: []semantic.SemanticField{{
+		Fields: []recipeplan.SemanticField{{
 			Name: "id", FieldRef: "Patient.id",
-			Expr: semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionScalar,
+			Expr: recipeplan.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionScalar,
 		}},
 	}})
 	if err != nil {
@@ -78,7 +78,7 @@ func TestCompileRecipeOutputPagePartitionsWideSourceProjection(t *testing.T) {
 }
 
 func TestPreviewProjectionPartitionsRejectCardinalityChangingPlans(t *testing.T) {
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
 	}})
 	if err != nil {
@@ -91,11 +91,11 @@ func TestPreviewProjectionPartitionsRejectCardinalityChangingPlans(t *testing.T)
 }
 
 func TestCompileRecipeOutputPageSelectsRootsBeforeExpansion(t *testing.T) {
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Fields: []semantic.SemanticField{{
+		Fields: []recipeplan.SemanticField{{
 			Name: "id", FieldRef: "Patient.id",
-			Expr: semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionScalar,
+			Expr: recipeplan.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})}, Projection: spec.ProjectionScalar,
 		}},
 	}})
 	if err != nil {
@@ -178,11 +178,11 @@ func TestCompileRecipeOutputPageKeepsRelatedStageOutOfRootKeyDiscovery(t *testin
 	}
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "related-source-paging", TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	bindings := recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a"}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", bindings.DatasetGeneration)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-a", bindings.DatasetGeneration)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,11 +295,11 @@ func TestCompileRecipeOutputPageRetainsSinglePopulationComputation(t *testing.T)
 		}},
 	}
 	bindings := recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members"}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-a", "generation-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,11 +339,11 @@ func TestCompileRecipeOutputPageFiltersConstructionRowsBeforeRootWindow(t *testi
 		Outputs:             []recipe.Output{output},
 	}
 	bindings := recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a"}
-	semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
+	semanticPlan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(semanticPlan, "scope-a", bindings.DatasetGeneration)
+	resolved, err := recipeplan.ResolveRecipePlan(semanticPlan, "scope-a", bindings.DatasetGeneration)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,11 +389,11 @@ func TestCompileRecipeOutputPageFiltersRelatedConstructionRowsBeforeRootWindow(t
 		Outputs:             []recipe.Output{output},
 	}
 	bindings := recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a"}
-	semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
+	semanticPlan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(semanticPlan, "scope-a", bindings.DatasetGeneration)
+	resolved, err := recipeplan.ResolveRecipePlan(semanticPlan, "scope-a", bindings.DatasetGeneration)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,11 +463,11 @@ func TestCompileRecipeOutputPageFiltersMissingConstructionRowsBeforeRootWindow(t
 				Outputs:             []recipe.Output{output},
 			}
 			bindings := recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a"}
-			semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
+			semanticPlan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 			if err != nil {
 				t.Fatal(err)
 			}
-			resolved, err := semantic.ResolveRecipePlan(semanticPlan, "scope-a", bindings.DatasetGeneration)
+			resolved, err := recipeplan.ResolveRecipePlan(semanticPlan, "scope-a", bindings.DatasetGeneration)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -507,11 +507,11 @@ func TestCompileRecipeOutputPageDirectRootExistsOrdersPredicateBeforeLimit(t *te
 		Outputs:             []recipe.Output{output},
 	}
 	bindings := recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a"}
-	semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
+	semanticPlan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(semanticPlan, "scope-a", bindings.DatasetGeneration)
+	resolved, err := recipeplan.ResolveRecipePlan(semanticPlan, "scope-a", bindings.DatasetGeneration)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -585,11 +585,11 @@ func TestCompileRecipeOutputPageRendersEveryValueFilterBeforeRootWindow(t *testi
 				Outputs:             []recipe.Output{output},
 			}
 			bindings := recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a"}
-			semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
+			semanticPlan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 			if err != nil {
 				t.Fatal(err)
 			}
-			resolved, err := semantic.ResolveRecipePlan(semanticPlan, "scope-a", bindings.DatasetGeneration)
+			resolved, err := recipeplan.ResolveRecipePlan(semanticPlan, "scope-a", bindings.DatasetGeneration)
 			if err != nil {
 				t.Fatal(err)
 			}

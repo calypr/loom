@@ -7,7 +7,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
@@ -22,7 +22,7 @@ func (e *PivotReducerTypeError) Error() string {
 	return fmt.Sprintf("duplicate reducer %q requires a numeric value column", e.Policy)
 }
 
-func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroupedPivot, inputProjections []ir.PhysicalProjection, schema map[string]CompiledOutputColumn, projections map[string]ir.PhysicalProjection, usedVariables map[string]bool) (ir.PhysicalGroupedPivot, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
+func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot recipeplan.SemanticGroupedPivot, inputProjections []ir.PhysicalProjection, schema map[string]CompiledOutputColumn, projections map[string]ir.PhysicalProjection, usedVariables map[string]bool) (ir.PhysicalGroupedPivot, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
 	categoryColumn, err := requireTableScalarColumn(pivot.CategoryColumn, schema, projections)
 	if err != nil {
 		return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("category column: %w", err)
@@ -164,7 +164,7 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 	return physical, outputProjections, outputSchema, nil
 }
 
-func lowerRecipeUnpivot(plan *ir.PhysicalPlan, unpivot semantic.SemanticUnpivot, identity *spec.RowIdentity, inputProjections []ir.PhysicalProjection, schema map[string]CompiledOutputColumn, projections map[string]ir.PhysicalProjection, usedVariables map[string]bool) (ir.PhysicalUnpivot, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
+func lowerRecipeUnpivot(plan *ir.PhysicalPlan, unpivot recipeplan.SemanticUnpivot, identity *spec.RowIdentity, inputProjections []ir.PhysicalProjection, schema map[string]CompiledOutputColumn, projections map[string]ir.PhysicalProjection, usedVariables map[string]bool) (ir.PhysicalUnpivot, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
 	keyType := ""
 	valueType := ""
 	selected := make(map[string]bool, len(unpivot.Inputs))

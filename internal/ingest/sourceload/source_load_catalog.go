@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/source"
 
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func (p *RepositorySourceLoader) prepareCandidateSemanticInventory(ctx context.Context, record sourceLoadRecord) error {
@@ -16,13 +16,13 @@ func (p *RepositorySourceLoader) prepareCandidateSemanticInventory(ctx context.C
 	if err != nil {
 		return err
 	}
-	build := semanticinventory.NewBuild(record.Project, record.Generation, record.Plan.AuthResourcePath)
+	build := semantic.NewBuild(record.Project, record.Generation, record.Plan.AuthResourcePath)
 	if record.SourceGeneration != "" {
 		version, err := p.sourceSemanticInventoryEntryIndexVersion(ctx, record.Project, record.SourceGeneration)
 		if err != nil {
 			return err
 		}
-		if version >= semanticinventory.EntryIndexVersion {
+		if version >= semantic.EntryIndexVersion {
 			build.EntryIndexVersion = version
 		}
 	}
@@ -30,12 +30,12 @@ func (p *RepositorySourceLoader) prepareCandidateSemanticInventory(ctx context.C
 }
 
 func (p *RepositorySourceLoader) sourceSemanticInventoryEntryIndexVersion(ctx context.Context, project, generation string) (int, error) {
-	exists, err := p.client.CollectionExists(ctx, semanticinventory.BuildCollection)
+	exists, err := p.client.CollectionExists(ctx, semantic.BuildCollection)
 	if err != nil || !exists {
 		return 0, err
 	}
 	version := 0
-	key := semanticinventory.BuildKey(project, generation)
+	key := semantic.BuildKey(project, generation)
 	err = p.client.QueryRows(ctx, `FOR build IN fhir_semantic_inventory_builds
 FILTER build._key == @key
 LIMIT 1
@@ -47,7 +47,7 @@ RETURN {entry_index_version: NOT_NULL(build.entry_index_version, 0)}`, 1, map[st
 }
 
 func (p *RepositorySourceLoader) finalizeSourceLoadCandidate(ctx context.Context, record sourceLoadRecord) (int64, error) {
-	identity, err := ingest.LoadSchemaSnapshot()
+	identity, err := source.LoadSchemaSnapshot()
 	if err != nil {
 		return 0, err
 	}
@@ -87,7 +87,7 @@ func (p *RepositorySourceLoader) rebuildCandidateRelationshipCatalog(ctx context
     WITH COUNT INTO edge_count
   SORT project, dataset_generation, auth_resource_path, from_type, label, to_type
   RETURN {project, dataset_generation, auth_resource_path, from_type, label, to_type, edge_count}`
-	identity, err := ingest.LoadSchemaSnapshot()
+	identity, err := source.LoadSchemaSnapshot()
 	if err != nil {
 		return err
 	}

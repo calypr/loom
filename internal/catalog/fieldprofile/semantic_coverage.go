@@ -8,10 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/fhir/schema"
-	fhirsemantic "github.com/calypr/loom/internal/fhir/semantic"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 type SemanticCoverageOccurrenceKind string
@@ -111,7 +109,7 @@ type SemanticCoverageReference struct {
 	Kind          SemanticCoverageReferenceKind
 	ConceptID     string
 	BindingID     string
-	Family        semanticinventory.FamilyReference
+	Family        semantic.FamilyReference
 	CandidatePath string
 	ResourceType  string
 }
@@ -195,7 +193,7 @@ type SemanticCoverageEmissionSink func(SemanticCoverageEmissionEvidence)
 
 type SemanticCoverageSourceSink func(SemanticCoverageSourceContribution) error
 
-type semanticCoverageObservationEmitter func(codedconcept.Observation, []any, SemanticCoverageEmissionEvidence)
+type semanticCoverageObservationEmitter func(semantic.Observation, []any, SemanticCoverageEmissionEvidence)
 
 func semanticCoverageEmissionEvidence(
 	resourceType string,
@@ -205,7 +203,7 @@ func semanticCoverageEmissionEvidence(
 	conceptOwnerPath string,
 	keyOwnerPath string,
 	valueOwnerPath string,
-	observation codedconcept.Observation,
+	observation semantic.Observation,
 ) SemanticCoverageEmissionEvidence {
 	owner := semanticCoverageOwnerLocator(resourceType, sourceID, ownerPath)
 	if conceptOwnerPath == "" {
@@ -240,11 +238,11 @@ func semanticCoverageEmissionEvidence(
 		ValueSelector:         observation.Value.Selector,
 		FallbackSelectors:     append([]string(nil), observation.Value.FallbackSelectors...),
 		FallbackOnBlankString: observation.Value.FallbackOnBlankString,
-		SourceKind:            semanticinventory.SourceKind(sourceKind),
+		SourceKind:            semantic.SourceKind(sourceKind),
 		SourcePath:            observation.Source.Path,
 		RuleHint:              observation.RuleHint,
-		ConceptID:             semanticinventory.ConceptID(observation),
-		BindingID:             semanticinventory.BindingID(observation),
+		ConceptID:             semantic.ConceptID(observation),
+		BindingID:             semantic.BindingID(observation),
 		Status:                observation.Status,
 		Roles:                 roles,
 	}
@@ -368,15 +366,15 @@ type SemanticCoverageCensus struct {
 	Counts             SemanticCoverageCounts
 	EvidenceTruncated  bool
 	Paths              []SemanticCoveragePathAggregate
-	Diagnostics        []fhirsemantic.WalkDiagnostic
-	resourceBoundaries map[string]fhirsemantic.ResourceBoundary
+	Diagnostics        []semantic.WalkDiagnostic
+	resourceBoundaries map[string]semantic.ResourceBoundary
 	occurrences        []semanticCoverageOccurrence
 }
 
 type semanticCoverageOccurrence struct {
 	CanonicalPath      string
 	OwnerPath          string
-	ResourceBoundaries []fhirsemantic.ResourceBoundary
+	ResourceBoundaries []semantic.ResourceBoundary
 	Kind               SemanticCoverageOccurrenceKind
 	Presence           SemanticCoveragePresence
 	System             string
@@ -391,7 +389,7 @@ type semanticCoverageOccurrence struct {
 const semanticCoverageMaxOwnerPathWitnesses = 16
 const semanticCoverageMaxReferencesPerPath = 64
 const semanticCoverageMaxDiagnostics = 64
-const semanticCoverageMaxResourceBoundaries = fhirsemantic.WalkMembersWithResourceTypesMaxFacts
+const semanticCoverageMaxResourceBoundaries = semantic.WalkMembersWithResourceTypesMaxFacts
 
 func joinCoveragePath(prefix, member string) string {
 	if prefix == "" {
@@ -444,7 +442,7 @@ func CensusSemanticCoverage(index *schema.Index, resourceType, sourceID string, 
 			ResourceType: resourceType,
 		},
 		Status:             SemanticCoverageCensusComplete,
-		resourceBoundaries: make(map[string]fhirsemantic.ResourceBoundary),
+		resourceBoundaries: make(map[string]semantic.ResourceBoundary),
 	}
 	aggregates := make(map[string]*SemanticCoveragePathAggregate)
 	resourceTypes := schema.ResourceTypes()
@@ -452,12 +450,12 @@ func CensusSemanticCoverage(index *schema.Index, resourceType, sourceID string, 
 	for typeIndex, allowedType := range resourceTypes {
 		allowedResourceTypes[typeIndex] = schema.ResourceType(allowedType)
 	}
-	diagnostics, walkErr := fhirsemantic.WalkMembersWithResourceTypes(
+	diagnostics, walkErr := semantic.WalkMembersWithResourceTypes(
 		index,
 		schema.DefinitionName(resourceType),
 		walkPayload,
 		allowedResourceTypes,
-		func(fact fhirsemantic.MemberFact) error {
+		func(fact semantic.MemberFact) error {
 			for _, boundary := range fact.ResourceBoundaries {
 				if _, exists := census.resourceBoundaries[boundary.OwnerPath]; exists {
 					continue
@@ -472,7 +470,7 @@ func CensusSemanticCoverage(index *schema.Index, resourceType, sourceID string, 
 		},
 	)
 	if walkErr != nil {
-		var limitErr *fhirsemantic.WalkLimitError
+		var limitErr *semantic.WalkLimitError
 		if !errors.As(walkErr, &limitErr) {
 			return SemanticCoverageCensus{}, fmt.Errorf("census semantic coverage for %q source %q: %w", resourceType, sourceID, walkErr)
 		}
@@ -480,8 +478,8 @@ func CensusSemanticCoverage(index *schema.Index, resourceType, sourceID string, 
 		if !hasSemanticCoverageGap(census.IncompleteGaps, SemanticCoverageGapWalkerLimit) {
 			census.IncompleteGaps = append(census.IncompleteGaps, SemanticCoverageGapWalkerLimit)
 		}
-		diagnostics = append(diagnostics, fhirsemantic.WalkDiagnostic{
-			Code: fhirsemantic.WalkDiagnosticCode("WALK_LIMIT_" + string(limitErr.Kind)),
+		diagnostics = append(diagnostics, semantic.WalkDiagnostic{
+			Code: semantic.WalkDiagnosticCode("WALK_LIMIT_" + string(limitErr.Kind)),
 		})
 	}
 	census.Diagnostics = diagnostics
@@ -510,7 +508,7 @@ func CensusSemanticCoverage(index *schema.Index, resourceType, sourceID string, 
 
 func recordSemanticCoverageFact(
 	index *schema.Index,
-	fact fhirsemantic.MemberFact,
+	fact semantic.MemberFact,
 	census *SemanticCoverageCensus,
 	aggregates map[string]*SemanticCoveragePathAggregate,
 ) error {
@@ -538,7 +536,7 @@ func recordSemanticCoverageFact(
 	if err != nil {
 		return fmt.Errorf("classify presence at %q: %w", fact.OwnerPath, err)
 	}
-	resourceBoundaries := append([]fhirsemantic.ResourceBoundary(nil), fact.ResourceBoundaries...)
+	resourceBoundaries := append([]semantic.ResourceBoundary(nil), fact.ResourceBoundaries...)
 	resourceBoundarySignature := semanticCoverageResourceBoundarySignature(resourceBoundaries)
 	for _, kind := range kinds {
 		key := strings.Join([]string{string(kind), fact.CanonicalPath, resourceBoundarySignature}, "\x00")
@@ -723,12 +721,12 @@ func incrementSemanticCoverageOccurrenceCount(
 
 func recordSemanticCoverageUnknownSubtrees(
 	payload []byte,
-	diagnostics []fhirsemantic.WalkDiagnostic,
+	diagnostics []semantic.WalkDiagnostic,
 	census *SemanticCoverageCensus,
 	aggregates map[string]*SemanticCoveragePathAggregate,
 ) error {
 	for _, diagnostic := range diagnostics {
-		if diagnostic.Code != fhirsemantic.WalkUnknownMember && diagnostic.Code != fhirsemantic.WalkUnresolvedResourceType {
+		if diagnostic.Code != semantic.WalkUnknownMember && diagnostic.Code != semantic.WalkUnresolvedResourceType {
 			continue
 		}
 		raw, ok, err := rawJSONAtConcretePath(payload, diagnostic.OwnerPath)
@@ -788,7 +786,7 @@ func recordSemanticCoverageUnknownSubtrees(
 				census.IncompleteGaps = append(census.IncompleteGaps, SemanticCoverageGapUnknownSubtrees)
 			}
 		}
-		if diagnostic.Code == fhirsemantic.WalkUnresolvedResourceType {
+		if diagnostic.Code == semantic.WalkUnresolvedResourceType {
 			census.Status = SemanticCoverageCensusPartial
 			if !hasSemanticCoverageGap(census.IncompleteGaps, SemanticCoverageGapUnknownSubtrees) {
 				census.IncompleteGaps = append(census.IncompleteGaps, SemanticCoverageGapUnknownSubtrees)
@@ -798,7 +796,7 @@ func recordSemanticCoverageUnknownSubtrees(
 	return nil
 }
 
-func semanticCoverageResourceBoundarySignature(boundaries []fhirsemantic.ResourceBoundary) string {
+func semanticCoverageResourceBoundarySignature(boundaries []semantic.ResourceBoundary) string {
 	if len(boundaries) == 0 {
 		return ""
 	}
@@ -817,10 +815,10 @@ func writeSemanticCoverageLengthPrefixed(builder *strings.Builder, value string)
 }
 
 func semanticCoverageResourceBoundariesAtPath(
-	boundariesByOwner map[string]fhirsemantic.ResourceBoundary,
+	boundariesByOwner map[string]semantic.ResourceBoundary,
 	ownerPath string,
-) []fhirsemantic.ResourceBoundary {
-	var boundaries []fhirsemantic.ResourceBoundary
+) []semantic.ResourceBoundary {
+	var boundaries []semantic.ResourceBoundary
 	for candidate := ownerPath; candidate != ""; {
 		if boundary, ok := boundariesByOwner[candidate]; ok {
 			boundaries = append(boundaries, boundary)
@@ -903,7 +901,7 @@ func semanticCoveragePresence(value json.RawMessage) (SemanticCoveragePresence, 
 
 func recordSemanticCoverageDirectFacets(
 	index *schema.Index,
-	fact fhirsemantic.MemberFact,
+	fact semantic.MemberFact,
 	aggregate *SemanticCoveragePathAggregate,
 	counts *SemanticCoverageCounts,
 	occurrence *semanticCoverageOccurrence,
@@ -1177,7 +1175,7 @@ func ReconcileSemanticCoverage(
 			break
 		}
 		reason := SemanticCoverageReasonIncompleteSource
-		if diagnostic.Code == fhirsemantic.WalkUnknownMember {
+		if diagnostic.Code == semantic.WalkUnknownMember {
 			reason = SemanticCoverageReasonUnknownSchemaMember
 		}
 		diagnostics = append(diagnostics, SemanticCoverageDiagnostic{
@@ -1211,7 +1209,7 @@ func ReconcileSemanticCoverage(
 		Complete:                    complete,
 	}
 	if identity.Project != "" && strings.TrimSpace(identity.DatasetGeneration) != "" {
-		contribution.BuildID = semanticinventory.BuildID(identity.Project, identity.DatasetGeneration)
+		contribution.BuildID = semantic.BuildID(identity.Project, identity.DatasetGeneration)
 	}
 	return contribution, nil
 }
@@ -1269,7 +1267,7 @@ func semanticCoverageTruncatedContribution(
 		Complete:                    false,
 	}
 	if identity.Project != "" && strings.TrimSpace(identity.DatasetGeneration) != "" {
-		contribution.BuildID = semanticinventory.BuildID(identity.Project, identity.DatasetGeneration)
+		contribution.BuildID = semantic.BuildID(identity.Project, identity.DatasetGeneration)
 	}
 	return contribution
 }
@@ -1281,7 +1279,7 @@ func semanticCoverageDiagnostics(census SemanticCoverageCensus) ([]SemanticCover
 			return diagnostics, true
 		}
 		reason := SemanticCoverageReasonIncompleteSource
-		if diagnostic.Code == fhirsemantic.WalkUnknownMember {
+		if diagnostic.Code == semantic.WalkUnknownMember {
 			reason = SemanticCoverageReasonUnknownSchemaMember
 		}
 		diagnostics = append(diagnostics, SemanticCoverageDiagnostic{
@@ -1555,10 +1553,10 @@ func appendSemanticCoverageFacetReference(facet *SemanticCoverageFacetAggregate,
 }
 
 func semanticCoverageReferenceFromEvidence(evidence SemanticCoverageEmissionEvidence) (SemanticCoverageReference, bool) {
-	if evidence.RuleHint != codedconcept.RuleHintCodedConceptV1 || strings.TrimSpace(evidence.KeySystem) == "" {
+	if evidence.RuleHint != semantic.RuleHintCodedConceptV1 || strings.TrimSpace(evidence.KeySystem) == "" {
 		return SemanticCoverageReference{}, false
 	}
-	family := semanticinventory.FamilyReference{
+	family := semantic.FamilyReference{
 		BindingID:    evidence.BindingID,
 		SourceKind:   evidence.SourceKind,
 		ResourceType: evidence.Owner.ResourceType,
@@ -1566,7 +1564,7 @@ func semanticCoverageReferenceFromEvidence(evidence SemanticCoverageEmissionEvid
 		System:       evidence.KeySystem,
 		Version:      evidence.KeyVersion,
 	}
-	family.FamilyID = semanticinventory.FamilyID(family)
+	family.FamilyID = semantic.FamilyID(family)
 	return SemanticCoverageReference{Kind: SemanticCoverageFamilyReference, BindingID: evidence.BindingID, Family: family}, true
 }
 
@@ -1663,7 +1661,7 @@ func semanticCoverageOccurrenceReason(
 			return SemanticCoverageReasonMissingCode
 		case "MIXED_CHOICE":
 			return SemanticCoverageReasonMixedChoice
-		case codedconcept.StatusUnsupportedValueProjection, "UNRESOLVED_VALUE_TYPE":
+		case semantic.StatusUnsupportedValueProjection, "UNRESOLVED_VALUE_TYPE":
 			return SemanticCoverageReasonUnsupportedValueProjection
 		}
 	}

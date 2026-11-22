@@ -3,10 +3,10 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"sort"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -347,7 +347,7 @@ func groupFieldCompilerContext(
 	base constructionBase,
 	stage explorer.ReceiptConstructionStage,
 	fieldContext *explorer.ReceiptConstructionGroupFieldSourceContext,
-) (*lower.CompiledGroupFieldSourceContext, error) {
+) (*facade.CompiledGroupFieldSourceContext, error) {
 	if fieldContext == nil || stage.ID != fieldContext.SourceStageID || fieldContext.SourceShapeID == "" ||
 		base.document.Route.OccurrenceID == "" || base.document.RootResourceType == "" {
 		return nil, fmt.Errorf("compiler context has incomplete stage or root occurrence facts")
@@ -358,14 +358,14 @@ func groupFieldCompilerContext(
 	if base.document.Route.ResourceType != base.document.RootResourceType {
 		return nil, fmt.Errorf("source document root occurrence resource differs from its root type")
 	}
-	context := &lower.CompiledGroupFieldSourceContext{
+	context := &facade.CompiledGroupFieldSourceContext{
 		SourceStageID: fieldContext.SourceStageID, SourceShapeID: fieldContext.SourceShapeID,
 		SourceIdentityColumn: fieldContext.SourceIdentityColumn,
 		RootOccurrenceID:     base.document.Route.OccurrenceID, RootResourceType: base.document.RootResourceType,
-		FieldOwners: make([]lower.CompiledGroupFieldOwner, 0, len(fieldContext.FieldOwners)),
+		FieldOwners: make([]facade.CompiledGroupFieldOwner, 0, len(fieldContext.FieldOwners)),
 	}
 	for _, owner := range fieldContext.FieldOwners {
-		context.FieldOwners = append(context.FieldOwners, lower.CompiledGroupFieldOwner{
+		context.FieldOwners = append(context.FieldOwners, facade.CompiledGroupFieldOwner{
 			Role: owner.Role, OccurrenceID: owner.OccurrenceID, OwnerResourceType: owner.OwnerResourceType,
 			ResourceType: owner.ResourceType, BoundarySelector: owner.BoundarySelector, StepIndex: owner.StepIndex,
 		})
@@ -374,7 +374,7 @@ func groupFieldCompilerContext(
 }
 
 func resolveRelatedGroupSource(
-	context *lower.CompiledGroupFieldSourceContext,
+	context *facade.CompiledGroupFieldSourceContext,
 	valueKind string,
 	anchor constructionGroupRelatedAnchor,
 	route []capability.ConstructionRouteStep,
@@ -405,7 +405,7 @@ func resolveRelatedGroupSource(
 	if valueKind == "CODING_IDENTITY" {
 		related.OrdinalSemantics = recipe.ConstructionGroupRelatedOrdinalSemanticsZeroBasedPosition
 	}
-	return lower.ResolveGroupRelatedOccurrenceSource(context, valueKind, related)
+	return facade.ResolveGroupRelatedOccurrenceSource(context, valueKind, related)
 }
 
 func groupFieldSourceChoiceFromRelated(

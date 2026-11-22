@@ -6,8 +6,8 @@ import (
 	"strconv"
 
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/catalog/codedconcept"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func generation(value string) any {
@@ -111,7 +111,7 @@ func decodeExtensionValues(value any) ([]fieldprofile.ExtensionValueObservation,
 	return result, nil
 }
 
-func decodeSemanticObservations(value any) ([]codedconcept.Observation, error) {
+func decodeSemanticObservations(value any) ([]semantic.Observation, error) {
 	if value == nil {
 		return nil, nil
 	}
@@ -126,13 +126,13 @@ func decodeSemanticObservations(value any) ([]codedconcept.Observation, error) {
 			return nil, fmt.Errorf("unsupported semantic observation slice type %T", value)
 		}
 	}
-	result := make([]codedconcept.Observation, 0, len(items))
+	result := make([]semantic.Observation, 0, len(items))
 	for i, item := range items {
 		row, ok := item.(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("unsupported semantic observation type %T at index %d", item, i)
 		}
-		observation := codedconcept.Observation{}
+		observation := semantic.Observation{}
 		var err error
 		if version, versionErr := decodeInt64(row["schema_version"]); versionErr != nil {
 			return nil, versionErr
@@ -143,7 +143,7 @@ func decodeSemanticObservations(value any) ([]codedconcept.Observation, error) {
 		observation.ChoiceArm = stringValue(row["choice_arm"])
 		observation.LogicalType = stringValue(row["logical_type"])
 		observation.Status = stringValue(row["status"])
-		observation.Completeness = codedconcept.Completeness(stringValue(row["completeness"]))
+		observation.Completeness = semantic.Completeness(stringValue(row["completeness"]))
 		observation.RuleHint = stringValue(row["rule_hint"])
 		observation.RuleVersion = stringValue(row["rule_version"])
 		if observation.Population, err = decodeInt64(row["population"]); err != nil {
@@ -165,10 +165,10 @@ func decodeSemanticObservations(value any) ([]codedconcept.Observation, error) {
 			return nil, err
 		}
 		if source, ok := row["source"].(map[string]any); ok {
-			observation.Source = codedconcept.Source{Canonical: stringValue(source["canonical"]), Type: stringValue(source["type"]), Profile: stringValue(source["profile"]), Path: stringValue(source["path"])}
+			observation.Source = semantic.Source{Canonical: stringValue(source["canonical"]), Type: stringValue(source["type"]), Profile: stringValue(source["profile"]), Path: stringValue(source["path"])}
 		}
 		if key, ok := row["key"].(map[string]any); ok {
-			observation.Key = codedconcept.Key{Selector: stringValue(key["selector"]), System: stringValue(key["system"]), Version: stringValue(key["version"]), Code: stringValue(key["code"]), Display: stringValue(key["display"])}
+			observation.Key = semantic.Key{Selector: stringValue(key["selector"]), System: stringValue(key["system"]), Version: stringValue(key["version"]), Code: stringValue(key["code"]), Display: stringValue(key["display"])}
 		}
 		if value, ok := row["value"].(map[string]any); ok {
 			fallbackSelectors, err := decodeStrings(value["fallback_selectors"])
@@ -179,7 +179,7 @@ func decodeSemanticObservations(value any) ([]codedconcept.Observation, error) {
 			if err != nil {
 				return nil, fmt.Errorf("decode semantic observation blank fallback: %w", err)
 			}
-			observation.Value = codedconcept.Value{
+			observation.Value = semantic.Value{
 				Selector: stringValue(value["selector"]), Type: stringValue(value["type"]),
 				FallbackSelectors: fallbackSelectors, FallbackOnBlankString: fallbackOnBlankString,
 			}

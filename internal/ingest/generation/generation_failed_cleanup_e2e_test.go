@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	publication "github.com/calypr/loom/internal/dataset"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
+	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -123,7 +123,7 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 			t.Errorf("PIN 4 | re-load of failed generation returned %v, want ErrManifestAlreadyExists", err)
 		}
 
-		buildState, buildDiagnostic, buildCount, found, err := failLegReadBuildState(ctx, client, semanticinventory.BuildCollection, project, "gen-fault")
+		buildState, buildDiagnostic, buildCount, found, err := failLegReadBuildState(ctx, client, semantic.BuildCollection, project, "gen-fault")
 		if err != nil {
 			t.Fatalf("PIN 5 inventory readback: %v", err)
 		}
@@ -133,8 +133,8 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 		if buildCount != 1 {
 			t.Errorf("PIN 5 | %d build documents for the failed generation, want exactly 1 (a stale duplicate can mask the paired failure by scan order)", buildCount)
 		}
-		if buildState != string(semanticinventory.Failed) {
-			t.Errorf("PIN 5 | inventory build state %q, want %q", buildState, semanticinventory.Failed)
+		if buildState != string(semantic.Failed) {
+			t.Errorf("PIN 5 | inventory build state %q, want %q", buildState, semantic.Failed)
 		}
 		if !strings.Contains(buildDiagnostic, "is incomplete") || !strings.Contains(buildDiagnostic, "FAILLEG_FAULT/gen-fault") {
 			t.Errorf("PIN 5b | inventory build diagnostics %q, want the specific load failure propagated (contains %q and the dataset ref)", buildDiagnostic, "is incomplete")

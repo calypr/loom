@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/ingest/bootstrap"
 	"sort"
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	publication "github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -39,7 +39,7 @@ func (writer generationInventoryWriter) writeRuns(ctx context.Context, inventory
 			insertCtx := arangostore.WithRawInsertObserver(ctx, func(bytes int64, duration time.Duration) {
 				writer.stats.record("semantic_inventory", generationWriteSample{bytes: bytes, duration: duration})
 			})
-			if err := ingest.InsertRawDocuments(insertCtx, writer.client, semanticinventory.EntryCollection, batch, true, writer.writeAPI); err != nil {
+			if err := bootstrap.InsertRawDocuments(insertCtx, writer.client, semantic.EntryCollection, batch, true, writer.writeAPI); err != nil {
 				return err
 			}
 			summary.StageSeconds["semantic_inventory_insert"] += time.Since(insertStart).Seconds()
@@ -47,9 +47,9 @@ func (writer generationInventoryWriter) writeRuns(ctx context.Context, inventory
 			batch = make([]json.RawMessage, 0, writer.batchSize)
 			return nil
 		}
-		mergeErr := mergeSemanticInventoryEntryRuns(ctx, inventoryRunsByResource[resourceType], func(partial semanticinventory.EntryPartial) error {
-			document := semanticinventory.EntryDocument(partial, writer.dataset.Project, catalog.NormalizeDatasetGeneration(writer.dataset.Generation),
-				semanticinventory.BuildID(writer.dataset.Project, writer.dataset.Generation), semanticinventory.SourceFile)
+		mergeErr := mergeSemanticInventoryEntryRuns(ctx, inventoryRunsByResource[resourceType], func(partial semantic.EntryPartial) error {
+			document := semantic.EntryDocument(partial, writer.dataset.Project, catalog.NormalizeDatasetGeneration(writer.dataset.Generation),
+				semantic.BuildID(writer.dataset.Project, writer.dataset.Generation), semantic.SourceFile)
 			encoded, encodeErr := json.Marshal(document)
 			if encodeErr != nil {
 				return encodeErr

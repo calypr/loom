@@ -8,7 +8,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func workspaceOutputCaptureRequired(output lower.CompiledRecipeOutput) bool {
@@ -26,7 +26,7 @@ func workspaceOutputCaptureRequired(output lower.CompiledRecipeOutput) bool {
 	return false
 }
 
-func CompileResolvedRecipePlanWithPolicy(resolved semantic.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) ([]CompiledQuery, error) {
+func CompileResolvedRecipePlanWithPolicy(resolved recipeplan.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) ([]CompiledQuery, error) {
 	compiled, err := lower.CompileResolvedRecipePlan(resolved, policy)
 	if err != nil {
 		return nil, err

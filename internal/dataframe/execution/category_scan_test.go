@@ -15,7 +15,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func compiledCategoryScan(max int) compiler.CompiledCategoryScanQuery {
@@ -352,11 +352,11 @@ func TestScanCategoriesExecutesExactConstructionStagePrefix(t *testing.T) {
 		Outputs:             []recipe.Output{executionConstructionTraceOutput()},
 	}
 	bindings := recipe.RuntimeBindings{Project: "category-scan-project", DatasetGeneration: "generation-1"}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolvedPlan, err := semantic.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
+	resolvedPlan, err := recipeplan.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
 	if err != nil {
 		t.Fatal(err)
 	}

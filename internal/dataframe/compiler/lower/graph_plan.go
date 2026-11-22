@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
@@ -14,7 +14,7 @@ const (
 	graphLookaheadBindKey         = "graph_limit"
 )
 
-func BuildGraphPhysicalPlan(output semantic.OutputPlan, context semantic.ExecutionContext, limit int, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
+func BuildGraphPhysicalPlan(output recipeplan.OutputPlan, context recipeplan.ExecutionContext, limit int, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
 	if limit < 1 || limit > 10000 {
 		return ir.PhysicalPlan{}, fmt.Errorf("graph limit must be between 1 and 10000")
 	}
@@ -22,7 +22,7 @@ func BuildGraphPhysicalPlan(output semantic.OutputPlan, context semantic.Executi
 		return ir.PhysicalPlan{}, fmt.Errorf("semantic plan project is required")
 	}
 	output.Root = normalizeGraphMatchModes(output.Root)
-	if err := semantic.ValidateSemanticGraph(output.Root); err != nil {
+	if err := recipeplan.ValidateSemanticGraph(output.Root); err != nil {
 		return ir.PhysicalPlan{}, err
 	}
 	if countGraphTraversals(output.Root) > maxGraphTraversalDeclarations {
@@ -75,8 +75,8 @@ func BuildGraphPhysicalPlan(output semantic.OutputPlan, context semantic.Executi
 		pathSets = append(pathSets, "path_root")
 	}
 	routeOrder := 1
-	var walk func(parent semantic.SemanticNode, sourcePathSet string) error
-	walk = func(parent semantic.SemanticNode, sourcePathSet string) error {
+	var walk func(parent recipeplan.SemanticNode, sourcePathSet string) error
+	walk = func(parent recipeplan.SemanticNode, sourcePathSet string) error {
 		for _, child := range parent.Children {
 			index := routeOrder
 			routeOrder++
@@ -135,9 +135,9 @@ func BuildGraphPhysicalPlan(output semantic.OutputPlan, context semantic.Executi
 	return physical, nil
 }
 
-func normalizeGraphMatchModes(node semantic.SemanticNode) semantic.SemanticNode {
+func normalizeGraphMatchModes(node recipeplan.SemanticNode) recipeplan.SemanticNode {
 	copy := node
-	copy.Children = make([]semantic.SemanticNode, len(node.Children))
+	copy.Children = make([]recipeplan.SemanticNode, len(node.Children))
 	for index, child := range node.Children {
 		childCopy := normalizeGraphMatchModes(child)
 		if strings.TrimSpace(string(childCopy.MatchMode)) == "" {
@@ -148,34 +148,34 @@ func normalizeGraphMatchModes(node semantic.SemanticNode) semantic.SemanticNode 
 	return copy
 }
 
-func graphRequiredSemiJoinRoot(node semantic.SemanticNode) semantic.SemanticNode {
+func graphRequiredSemiJoinRoot(node recipeplan.SemanticNode) recipeplan.SemanticNode {
 	copy := node
-	copy.Children = make([]semantic.SemanticNode, len(node.Children))
+	copy.Children = make([]recipeplan.SemanticNode, len(node.Children))
 	for index, child := range node.Children {
 		copy.Children[index] = graphRequiredSemiJoinNode(child, true)
 	}
 	return copy
 }
 
-func graphRequiredSemiJoinNode(node semantic.SemanticNode, ancestorsRequired bool) semantic.SemanticNode {
+func graphRequiredSemiJoinNode(node recipeplan.SemanticNode, ancestorsRequired bool) recipeplan.SemanticNode {
 	copy := node
 	if !ancestorsRequired {
 		copy.MatchMode = spec.TraversalMatchOptional
 	}
 	childAncestorsRequired := ancestorsRequired && node.MatchMode.Required()
-	copy.Children = make([]semantic.SemanticNode, len(node.Children))
+	copy.Children = make([]recipeplan.SemanticNode, len(node.Children))
 	for index, child := range node.Children {
 		copy.Children[index] = graphRequiredSemiJoinNode(child, childAncestorsRequired)
 	}
 	return copy
 }
 
-func CompileResolvedGraphPlan(resolved semantic.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
+func CompileResolvedGraphPlan(resolved recipeplan.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
 	if len(resolved.SemanticPlan.Outputs) != 1 {
 		return ir.PhysicalPlan{}, fmt.Errorf("graph query requires exactly one output, got %d", len(resolved.SemanticPlan.Outputs))
 	}
 	output := resolved.SemanticPlan.Outputs[0]
-	context := semantic.ExecutionContext{
+	context := recipeplan.ExecutionContext{
 		Project:           resolved.SemanticPlan.Bindings.Project,
 		DatasetGeneration: resolved.SemanticPlan.Bindings.DatasetGeneration,
 		AuthResourcePaths: append([]string(nil), resolved.SemanticPlan.Bindings.AuthResourcePaths...),
@@ -184,14 +184,14 @@ func CompileResolvedGraphPlan(resolved semantic.ResolvedRecipePlan, limit int, p
 	return BuildGraphPhysicalPlan(output, context, limit, policy)
 }
 
-func graphAlias(node semantic.SemanticNode, fallback string) string {
+func graphAlias(node recipeplan.SemanticNode, fallback string) string {
 	if strings.TrimSpace(node.Alias) != "" {
 		return node.Alias
 	}
 	return fallback
 }
 
-func countGraphTraversals(node semantic.SemanticNode) int {
+func countGraphTraversals(node recipeplan.SemanticNode) int {
 	count := len(node.Children)
 	for _, child := range node.Children {
 		count += countGraphTraversals(child)
@@ -199,9 +199,9 @@ func countGraphTraversals(node semantic.SemanticNode) int {
 	return count
 }
 
-func graphHasRequiredTraversal(node semantic.SemanticNode) bool {
-	var walk func(semantic.SemanticNode, bool) bool
-	walk = func(parent semantic.SemanticNode, requiredPrefix bool) bool {
+func graphHasRequiredTraversal(node recipeplan.SemanticNode) bool {
+	var walk func(recipeplan.SemanticNode, bool) bool
+	walk = func(parent recipeplan.SemanticNode, requiredPrefix bool) bool {
 		for _, child := range parent.Children {
 			mode := child.MatchMode
 			if strings.TrimSpace(string(mode)) == "" {
@@ -220,7 +220,7 @@ func graphHasRequiredTraversal(node semantic.SemanticNode) bool {
 	return walk(node, true)
 }
 
-func validateGraphNode(node semantic.SemanticNode, root bool) error {
+func validateGraphNode(node recipeplan.SemanticNode, root bool) error {
 	if !root && node.MatchMode != spec.TraversalMatchRequired && node.MatchMode != spec.TraversalMatchOptional && node.MatchMode != "" {
 		return fmt.Errorf("graph traversal %q has invalid match mode %q", node.Alias, node.MatchMode)
 	}
@@ -235,7 +235,7 @@ func validateGraphNode(node semantic.SemanticNode, root bool) error {
 	return nil
 }
 
-func appendGraphPathFilters(operations *[]ir.PhysicalOperation, node semantic.SemanticNode, targetVariable string, binds map[string]any) error {
+func appendGraphPathFilters(operations *[]ir.PhysicalOperation, node recipeplan.SemanticNode, targetVariable string, binds map[string]any) error {
 	for index, filter := range node.Filters {
 		if err := spec.ValidateTypedFilterForResource(node.ResourceType, filter); err != nil {
 			return fmt.Errorf("graph traversal %q filter %q: %w", node.Alias, filter.FieldRef, err)

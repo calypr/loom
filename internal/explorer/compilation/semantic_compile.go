@@ -3,7 +3,8 @@ package compilation
 import (
 	"context"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
@@ -137,7 +138,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 					expanded.LogicalType != projection.LogicalType || expanded.FHIRType != projection.FHIRType {
 					return Result{}, fail("capability", "STALE_EXPANDED_SOURCE_SCHEMA", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "signed expanded field no longer names a direct-root many-cardinality non-reference array", map[string]any{"fieldPath": path}, err)
 				}
-				if _, ok := lower.TableReshapeScalarKind(candidate.LogicalType); !ok {
+				if _, ok := facade.TableReshapeScalarKind(candidate.LogicalType); !ok {
 					return Result{}, fail("capability", "UNSUPPORTED_EXPANDED_SOURCE_KIND", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "expanded array items are not a compiler-accepted scalar kind", map[string]any{"fieldPath": path, "logicalType": candidate.LogicalType}, nil)
 				}
 			} else if repeated || facts.Shape != fhirschema.RowPathScalar || facts.Cardinality != fhirschema.RowCardinalityOne {

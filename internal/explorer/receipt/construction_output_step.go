@@ -3,8 +3,8 @@ package receipt
 import (
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"strings"
@@ -14,8 +14,8 @@ type constructionOutputStep struct {
 	document          authoringv2.Document
 	step              authoringv2.ConstructionStep
 	stepIndex         int
-	compiledOutput    lower.CompiledRecipeOutput
-	resolvedInputs    map[int]ir.ResolvedClickHouseTable
+	compiledOutput    facade.CompiledRecipeOutput
+	resolvedInputs    map[int]facade.ResolvedClickHouseTable
 	rowSourceSnapshot capability.Snapshot
 	authored          map[string]AuthoredOutputColumn
 	nextAuthored      map[string]AuthoredOutputColumn

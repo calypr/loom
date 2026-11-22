@@ -2,11 +2,11 @@ package receipt
 
 import (
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/unit"
@@ -165,7 +165,7 @@ func TestAuthoredOutputColumnsDeduplicatesDirectInputsInAuthoringOrder(t *testin
 func TestConstructedOutputProfileRequiresArrayPolicyForManyCardinality(t *testing.T) {
 	_, err := constructedOutputProfileFor(
 		ConstructedOutputQuality{Lossless: true, StructuralSuitability: "scalar"},
-		lower.CompiledOutputColumn{Name: "statuses", Kind: "string", Cardinality: "many"},
+		facade.CompiledOutputColumn{Name: "statuses", Kind: "string", Cardinality: "many"},
 	)
 	if err == nil || !strings.Contains(err.Error(), "requires an explicit array policy") {
 		t.Fatalf("many-valued constructed output without array policy error = %v", err)
@@ -203,7 +203,7 @@ func TestRelatedSourceOutputProfileMatchesSelectedForm(t *testing.T) {
 			if err := authoredConstructionOutputs(document, authored); err != nil {
 				t.Fatal(err)
 			}
-			profile, err := constructedOutputProfileFor(authored[columnName].Quality, lower.CompiledOutputColumn{
+			profile, err := constructedOutputProfileFor(authored[columnName].Quality, facade.CompiledOutputColumn{
 				Name: columnName, Kind: test.kind, Cardinality: test.cardinality,
 			})
 			if err != nil {
@@ -412,8 +412,8 @@ func TestReconcileFinalOutputMetadataResolvesGroupedSameNameKeyLineage(t *testin
 	}
 	resolved := dataframeexecution.Resolved{
 		Bundle: bundle,
-		Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{
-			Name: "body-structures", OutputSchema: []lower.CompiledOutputColumn{{
+		Compiled: facade.CompiledRecipe{Outputs: []facade.CompiledRecipeOutput{{
+			Name: "body-structures", OutputSchema: []facade.CompiledOutputColumn{{
 				Name: columnName, Kind: "string", Cardinality: "optional_one", Nullable: true,
 			}},
 		}}},
@@ -484,9 +484,9 @@ func TestReconcileFinalOutputMetadataPublishesOnlyScalarGroupOutputs(t *testing.
 	}
 	resolved := dataframeexecution.Resolved{
 		Bundle: bundle,
-		Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{
+		Compiled: facade.CompiledRecipe{Outputs: []facade.CompiledRecipeOutput{{
 			Name: "body-structures",
-			OutputSchema: []lower.CompiledOutputColumn{
+			OutputSchema: []facade.CompiledOutputColumn{
 				{Name: keyOutputName, SemanticPath: "construction:group_by_active", Kind: "boolean", Cardinality: "optional_one", Nullable: true},
 				{Name: countOutputName, SemanticPath: "construction:group_by_active", Kind: "integer", Cardinality: "required_one"},
 				{Name: "internal_identity", SemanticPath: "internal:identity", Kind: "string", Cardinality: "required_one", Identity: true},
@@ -594,7 +594,7 @@ func TestReconcileFinalOutputMetadataPreservesInheritedExplicitGroupKeyThroughEx
 	}
 	resolved := dataframeexecution.Resolved{
 		Bundle: bundle,
-		Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{Name: outputID, OutputSchema: []lower.CompiledOutputColumn{
+		Compiled: facade.CompiledRecipe{Outputs: []facade.CompiledRecipeOutput{{Name: outputID, OutputSchema: []facade.CompiledOutputColumn{
 			{Name: "group_label", SemanticPath: "groups.label", Kind: "string", Cardinality: "required_one"},
 			{Name: genderItem, SemanticPath: "construction:group-by-gender", Kind: "string", Cardinality: "optional_one", Nullable: true},
 			{Name: "row_count", SemanticPath: "construction:group-by-gender", Kind: "integer", Cardinality: "required_one"},
@@ -665,9 +665,9 @@ func TestReconcileFinalOutputMetadataPublishesExplicitGroupRowsSchema(t *testing
 	}
 	resolved := dataframeexecution.Resolved{
 		Bundle: bundle,
-		Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{
+		Compiled: facade.CompiledRecipe{Outputs: []facade.CompiledRecipeOutput{{
 			Name: outputID,
-			OutputSchema: []lower.CompiledOutputColumn{
+			OutputSchema: []facade.CompiledOutputColumn{
 				{Name: "group_revision_id", Kind: "string", Cardinality: "required_one", Internal: true, Identity: true},
 				{Name: "group_id", Kind: "string", Cardinality: "required_one", Identity: true},
 				{Name: "group_label", SemanticPath: "groups.label", Kind: "string", Cardinality: "required_one"},
@@ -720,8 +720,8 @@ func TestReconcileFinalOutputMetadataPublishesExplicitGroupRowsSchema(t *testing
 		withMember.Presentations[0].Columns = append([]explorercompilation.PresentationColumn(nil), translated.Presentations[0].Columns...)
 		withMember.Presentations[0].Columns[0].Order = 3
 		memberResolved := resolved
-		memberResolved.Compiled.Outputs = append([]lower.CompiledRecipeOutput(nil), resolved.Compiled.Outputs...)
-		memberResolved.Compiled.Outputs[0].OutputSchema = append(append([]lower.CompiledOutputColumn(nil), compiledOutput.OutputSchema...), lower.CompiledOutputColumn{
+		memberResolved.Compiled.Outputs = append([]facade.CompiledRecipeOutput(nil), resolved.Compiled.Outputs...)
+		memberResolved.Compiled.Outputs[0].OutputSchema = append(append([]facade.CompiledOutputColumn(nil), compiledOutput.OutputSchema...), facade.CompiledOutputColumn{
 			Name: source.PublicColumn, Kind: source.LogicalType, Cardinality: source.Cardinality, Nullable: source.Nullable,
 		})
 		got, err := ReconcileFinalOutputMetadata(withMember, memberResolved)
@@ -736,11 +736,11 @@ func TestReconcileFinalOutputMetadataPublishesExplicitGroupRowsSchema(t *testing
 			t.Fatalf("cohort column order changed across reconciliation: got %v, want [0 1 2 3]", orders)
 		}
 	})
-	compiledOutput.OutputSchema = append(append([]lower.CompiledOutputColumn(nil), compiledOutput.OutputSchema...), lower.CompiledOutputColumn{
+	compiledOutput.OutputSchema = append(append([]facade.CompiledOutputColumn(nil), compiledOutput.OutputSchema...), facade.CompiledOutputColumn{
 		Name: "group_count", Kind: "integer", Cardinality: "required_one",
 	})
 	resolvedWithUnknownGroupField := resolved
-	resolvedWithUnknownGroupField.Compiled.Outputs = []lower.CompiledRecipeOutput{compiledOutput}
+	resolvedWithUnknownGroupField.Compiled.Outputs = []facade.CompiledRecipeOutput{compiledOutput}
 	if _, err := ReconcileFinalOutputMetadata(translated, resolvedWithUnknownGroupField); err == nil || !strings.Contains(err.Error(), "no translated emission or authored table-shape identity") {
 		t.Fatalf("unmapped compiler group output error = %v", err)
 	}
@@ -772,7 +772,7 @@ func TestAuthoredOutputColumnsKeepsExactRelatedFieldScalarAndSource(t *testing.T
 	if field.CandidateID != "status-candidate" || field.NodeID != "observation-node" || field.SourceResourceType != "Observation" || field.SourcePath != "status" {
 		t.Fatalf("exact field source metadata = %#v", field)
 	}
-	profile, err := constructedOutputProfileFor(field.Quality, lower.CompiledOutputColumn{Name: status.Name, Kind: "string", Cardinality: "optional_one"})
+	profile, err := constructedOutputProfileFor(field.Quality, facade.CompiledOutputColumn{Name: status.Name, Kind: "string", Cardinality: "optional_one"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -818,9 +818,9 @@ func TestReconcileFinalOutputMetadataUsesAuthoredReshapeOutputs(t *testing.T) {
 			}},
 		},
 	}
-	resolved := dataframeexecution.Resolved{Bundle: bundle, Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{
-		{Name: "pivoted", OutputSchema: []lower.CompiledOutputColumn{{Name: "patient_id", Kind: "string", Cardinality: "required_one"}, {Name: "systolic", Kind: "decimal", Cardinality: "optional_one", Nullable: true}, {Name: "adjusted_systolic", Kind: "decimal", Cardinality: "optional_one", Nullable: true}}},
-		{Name: "unpivoted", OutputSchema: []lower.CompiledOutputColumn{{Name: "measure_name", Kind: "string", Cardinality: "required_one"}, {Name: "measure_value", Kind: "decimal", Cardinality: "optional_one", Nullable: true}}},
+	resolved := dataframeexecution.Resolved{Bundle: bundle, Compiled: facade.CompiledRecipe{Outputs: []facade.CompiledRecipeOutput{
+		{Name: "pivoted", OutputSchema: []facade.CompiledOutputColumn{{Name: "patient_id", Kind: "string", Cardinality: "required_one"}, {Name: "systolic", Kind: "decimal", Cardinality: "optional_one", Nullable: true}, {Name: "adjusted_systolic", Kind: "decimal", Cardinality: "optional_one", Nullable: true}}},
+		{Name: "unpivoted", OutputSchema: []facade.CompiledOutputColumn{{Name: "measure_name", Kind: "string", Cardinality: "required_one"}, {Name: "measure_value", Kind: "decimal", Cardinality: "optional_one", Nullable: true}}},
 	}}}
 	reconciled, err := ReconcileFinalOutputMetadata(translated, resolved)
 	if err != nil {
@@ -877,7 +877,7 @@ func reconciliationFixture() (explorercompilation.WorkspaceResult, dataframeexec
 	}
 	resolved := dataframeexecution.Resolved{
 		Bundle: bundle,
-		Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{Name: "patients", OutputSchema: []lower.CompiledOutputColumn{
+		Compiled: facade.CompiledRecipe{Outputs: []facade.CompiledRecipeOutput{{Name: "patients", OutputSchema: []facade.CompiledOutputColumn{
 			{Name: "patient_id", SemanticPath: "Patient.id", Kind: "string", Cardinality: "required_one", Nullable: false},
 			{Name: "score", SemanticPath: "Observation.score", Kind: "decimal", Cardinality: "required_one", Nullable: false, NormalizedUnit: &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg"}},
 			{Name: "scaled_score", SemanticPath: "derived:scale_score", Kind: "decimal", Cardinality: "optional_one", Nullable: true, NormalizedUnit: &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg"}},

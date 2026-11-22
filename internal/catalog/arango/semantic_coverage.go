@@ -14,7 +14,7 @@ import (
 
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
+	"github.com/calypr/loom/internal/semantic"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -940,7 +940,7 @@ func (s *SemanticCoverageStore) CompleteRetainedSemanticCoverageResource(
 	batchSize int,
 ) (int64, error) {
 	var certificationSourceRows int64
-	if identity.SourceKind != semanticinventory.SourceRetained {
+	if identity.SourceKind != semantic.SourceRetained {
 		return certificationSourceRows, ErrInvalidSemanticCoverageRead
 	}
 	if pageSize < 1 || pageSize > 1000 {
@@ -1832,7 +1832,7 @@ func semanticCoverageCatalogReference(reference semanticCoverageStoredReference)
 		if reference.Family == nil {
 			return fieldprofile.SemanticCoverageReference{}, false
 		}
-		result.Family = semanticinventory.FamilyReference{FamilyID: reference.Family.FamilyID, BindingID: reference.Family.BindingID, SourceKind: reference.Family.SourceKind, ResourceType: reference.Family.ResourceType, SourcePath: reference.Family.SourcePath, System: reference.Family.System, Version: reference.Family.Version}
+		result.Family = semantic.FamilyReference{FamilyID: reference.Family.FamilyID, BindingID: reference.Family.BindingID, SourceKind: reference.Family.SourceKind, ResourceType: reference.Family.ResourceType, SourcePath: reference.Family.SourcePath, System: reference.Family.System, Version: reference.Family.Version}
 		return result, result.Family.FamilyID != "" && result.Family.BindingID != "" && result.Family.System != ""
 	default:
 		return fieldprofile.SemanticCoverageReference{}, false
@@ -2098,7 +2098,7 @@ func (s *SemanticCoverageStore) LookupSemanticCoverage(ctx context.Context, opti
 		Project: options.Project, DatasetGeneration: catalog.NormalizeDatasetGeneration(options.DatasetGeneration),
 		BuildID: options.BuildID, SchemaIdentity: options.SchemaIdentity, SourceKind: options.SourceKind,
 	}
-	if options.BuildID != semanticinventory.BuildID(options.Project, identity.DatasetGeneration) {
+	if options.BuildID != semantic.BuildID(options.Project, identity.DatasetGeneration) {
 		result.Reason = "BUILD_ID_MISMATCH"
 		return result, nil
 	}

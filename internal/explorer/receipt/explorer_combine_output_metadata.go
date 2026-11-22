@@ -3,23 +3,23 @@ package receipt
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
 	reciperuntime "github.com/calypr/loom/internal/dataframe/recipe/runtime"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-type ResolvedCombineInputSchema map[int]ir.ResolvedClickHouseTable
+type ResolvedCombineInputSchema map[int]facade.ResolvedClickHouseTable
 
-type CombineInputSchemaResolver func(context.Context, lower.CompiledRecipeOutput, recipe.RuntimeBindings) (ResolvedCombineInputSchema, error)
+type CombineInputSchemaResolver func(context.Context, facade.CompiledRecipeOutput, recipe.RuntimeBindings) (ResolvedCombineInputSchema, error)
 
 func ExactPublishedCombineInputSchemas(
 	ctx context.Context,
-	output lower.CompiledRecipeOutput,
+	output facade.CompiledRecipeOutput,
 	bindings recipe.RuntimeBindings,
 	reader reciperuntime.ExactMaterializationReader,
 	withPins dataframeexecution.WithExecutionReadPins,

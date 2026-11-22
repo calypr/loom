@@ -2,7 +2,8 @@ package receipt
 
 import (
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"strings"
 )
@@ -28,7 +29,7 @@ func (stage constructionOutputStep) reconcileGroup() error {
 				strings.TrimSpace(category.CodingPath) == "" {
 				return fmt.Errorf("step %q semantic Group output %q has no resolved binding identity", step.ID, key.OutputColumnID)
 			}
-			var compiledKey *lower.CompiledOutputColumn
+			var compiledKey *facade.CompiledOutputColumn
 			for stageIndex := range compiledOutput.Stages {
 				stage := &compiledOutput.Stages[stageIndex]
 				if stage.ID != step.ID || stage.Operation != string(step.Operation.Kind) {

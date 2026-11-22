@@ -13,7 +13,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func TestCompileGroupedTablePivotUsesFrozenTypedCategoriesAndOrderedOutputs(t *testing.T) {
@@ -205,10 +205,10 @@ func TestLowerRecipeGroupedPivotLaterCategoriesDropSourceIdentityFields(t *testi
 			}}},
 		},
 	}
-	pivot := semantic.SemanticGroupedPivot{
+	pivot := recipeplan.SemanticGroupedPivot{
 		ConstructionID: "shape_pivot_identity", GroupKeys: []string{"group"},
 		CategoryColumn: "category", ValueColumn: "value",
-		Categories: []semantic.SemanticGroupedPivotCategory{
+		Categories: []recipeplan.SemanticGroupedPivotCategory{
 			{Key: tableScalarInteger(0), Output: "bucket_a", Label: "A"},
 			{Key: tableScalarInteger(1), Output: "bucket_b", Label: "B"},
 		},

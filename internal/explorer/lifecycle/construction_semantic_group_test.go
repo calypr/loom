@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func TestConstructionSemanticGroupChoicesPagesPastIneligibleFamilies(t *testing.T) {
@@ -19,27 +19,27 @@ func TestConstructionSemanticGroupChoicesPagesPastIneligibleFamilies(t *testing.
 	ineligible := eligible
 	ineligible.Source.Path = "Observation.unadvertised.coding[]"
 	ineligible.SourcePath = "Observation.unadvertised.coding[]"
-	ineligible.FamilyID = semanticinventory.FamilyID(ineligible.FamilyReference)
-	buildID := semanticinventory.BuildID("project-a", "generation-a")
+	ineligible.FamilyID = semantic.FamilyID(ineligible.FamilyReference)
+	buildID := semantic.BuildID("project-a", "generation-a")
 	var cursors []string
 	service := &Service{config: Config{
-		SemanticInventory: func(_ context.Context, options semanticinventory.PageOptions) (semanticinventory.Page, error) {
+		SemanticInventory: func(_ context.Context, options semantic.PageOptions) (semantic.Page, error) {
 			cursors = append(cursors, options.Cursor)
 			if options.Project != "project-a" || options.DatasetGeneration != "generation-a" ||
-				options.ResourceType != "Observation" || options.SelectionMode != semanticinventory.SystemVersionCategory ||
+				options.ResourceType != "Observation" || options.SelectionMode != semantic.SystemVersionCategory ||
 				options.Limit != constructionSemanticGroupChoiceLimit || options.AuthResourcePathsUnrestricted == nil || !*options.AuthResourcePathsUnrestricted {
 				t.Fatalf("semantic Group inventory request lost exact snapshot scope: %#v", options)
 			}
-			page := semanticinventory.Page{
-				State: semanticinventory.Complete,
-				Build: semanticinventory.Build{BuildID: buildID, State: semanticinventory.Complete},
+			page := semantic.Page{
+				State: semantic.Complete,
+				Build: semantic.Build{BuildID: buildID, State: semantic.Complete},
 			}
 			switch options.Cursor {
 			case "":
-				page.Families = []semanticinventory.Family{ineligible}
+				page.Families = []semantic.Family{ineligible}
 				page.NextCursor = "next-page"
 			case "next-page":
-				page.Families = []semanticinventory.Family{eligible}
+				page.Families = []semantic.Family{eligible}
 			default:
 				t.Fatalf("unexpected semantic inventory cursor %q", options.Cursor)
 			}
@@ -65,7 +65,7 @@ func TestConstructionSemanticGroupChoicesPagesPastIneligibleFamilies(t *testing.
 	if !ok || identity.SnapshotToken != snapshot.Token || identity.BuildID != buildID ||
 		source.GroupOutputID != "patients" || source.GroupStageID != stage.ID ||
 		source.ConceptID != eligible.FamilyID || source.BindingID != eligible.BindingID ||
-		source.SourceKind != semanticinventory.SourceRetained || source.ResourceType != "Observation" ||
+		source.SourceKind != semantic.SourceRetained || source.ResourceType != "Observation" ||
 		source.SourcePath != "Observation.code.coding[]" || source.System != eligible.System || source.Version != eligible.Version ||
 		source.RuleVersion != eligible.RuleVersion {
 		t.Fatalf("semantic Group choice identity = %#v, source=%#v, want exact stage/output/family scope", identity, source)
@@ -80,9 +80,9 @@ func TestConstructionSemanticGroupChoicesRequireDirectRootCodedCapability(t *tes
 		{Kind: "GROUP", Supported: true}, {Kind: "CODED_PIVOT", Supported: false},
 	}
 	service := &Service{config: Config{
-		SemanticInventory: func(context.Context, semanticinventory.PageOptions) (semanticinventory.Page, error) {
+		SemanticInventory: func(context.Context, semantic.PageOptions) (semantic.Page, error) {
 			calls++
-			return semanticinventory.Page{}, nil
+			return semantic.Page{}, nil
 		},
 	}}
 	choices, incomplete, err := service.constructionSemanticGroupChoices(context.Background(), base, "patients", stage)
@@ -93,10 +93,10 @@ func TestConstructionSemanticGroupChoicesRequireDirectRootCodedCapability(t *tes
 
 func TestConstructionSemanticGroupChoicesMarksBoundedInventoryIncomplete(t *testing.T) {
 	snapshot, base, stage, eligible := semanticGroupChoicesTestSetup(t)
-	buildID := semanticinventory.BuildID("project-a", "generation-a")
+	buildID := semantic.BuildID("project-a", "generation-a")
 	calls := 0
 	service := &Service{config: Config{
-		SemanticInventory: func(_ context.Context, options semanticinventory.PageOptions) (semanticinventory.Page, error) {
+		SemanticInventory: func(_ context.Context, options semantic.PageOptions) (semantic.Page, error) {
 			wantCursor := ""
 			if calls > 0 {
 				wantCursor = fmt.Sprintf("page-%d", calls)
@@ -104,13 +104,13 @@ func TestConstructionSemanticGroupChoicesMarksBoundedInventoryIncomplete(t *test
 			if options.Cursor != wantCursor {
 				t.Fatalf("page %d cursor = %q, want %q", calls+1, options.Cursor, wantCursor)
 			}
-			page := semanticinventory.Page{
-				State:      semanticinventory.Complete,
-				Build:      semanticinventory.Build{BuildID: buildID, State: semanticinventory.Complete},
+			page := semantic.Page{
+				State:      semantic.Complete,
+				Build:      semantic.Build{BuildID: buildID, State: semantic.Complete},
 				NextCursor: fmt.Sprintf("page-%d", calls+1),
 			}
 			if calls == 0 {
-				page.Families = []semanticinventory.Family{eligible}
+				page.Families = []semantic.Family{eligible}
 			}
 			calls++
 			return page, nil
@@ -128,8 +128,8 @@ func TestConstructionSemanticGroupChoicesClassifiesInventoryReadFailure(t *testi
 	base.snapshot = snapshot
 	readErr := errors.New("semantic inventory backend offline")
 	service := &Service{config: Config{
-		SemanticInventory: func(context.Context, semanticinventory.PageOptions) (semanticinventory.Page, error) {
-			return semanticinventory.Page{}, readErr
+		SemanticInventory: func(context.Context, semantic.PageOptions) (semantic.Page, error) {
+			return semantic.Page{}, readErr
 		},
 	}}
 	choices, incomplete, err := service.constructionSemanticGroupChoices(context.Background(), base, "patients", stage)
@@ -145,7 +145,7 @@ func TestConstructionSemanticGroupChoicesClassifiesInventoryReadFailure(t *testi
 	}
 }
 
-func semanticGroupChoicesTestSetup(t *testing.T) (capability.Snapshot, constructionBase, explorer.ReceiptConstructionStage, semanticinventory.Family) {
+func semanticGroupChoicesTestSetup(t *testing.T) (capability.Snapshot, constructionBase, explorer.ReceiptConstructionStage, semantic.Family) {
 	t.Helper()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := readySnapshot("project-a", "generation-a", "semantic-group-snapshot", scope)
@@ -159,7 +159,7 @@ func semanticGroupChoicesTestSetup(t *testing.T) (capability.Snapshot, construct
 	codeCandidate.ID, codeCandidate.FieldPath, codeCandidate.Label = "observation-code", "code.coding[].code", "Code"
 	snapshot.Candidates = []capability.Candidate{candidate, codeCandidate}
 	family := testCodedCategoryFamily(
-		semanticinventory.SourceRetained, "Observation", "Observation.code.coding[]", "urn:semantic-group-test", "v1",
+		semantic.SourceRetained, "Observation", "Observation.code.coding[]", "urn:semantic-group-test", "v1",
 	)
 	if !semanticGroupFamilyReady(family) {
 		entry := semanticInventoryEntryForFamily(family)

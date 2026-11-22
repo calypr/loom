@@ -13,7 +13,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/testkit/arangotest"
 )
@@ -49,8 +49,8 @@ func TestCorrelatedScalarSelectorsPreserveOwnersAgainstArango(t *testing.T) {
 		}}, want: []any{float64(0), float64(111)}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			root := semantic.SemanticNode{Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{Name: "feature", Columns: []string{"shared"}, ColumnAliases: map[string]string{"shared": "selected"}, ProjectionMode: "ALL", Correlation: tc.binding, CorrelationSystem: "A", CorrelationCode: "shared", CorrelationVersion: "v2", StringifyValue: tc.binding.LogicalType == "string"}}}
-			plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: root}, semantic.ExecutionContext{Project: "selector-parity", DatasetGeneration: "generation"}, ir.DefaultPhysicalOptimizationPolicy())
+			root := recipeplan.SemanticNode{Alias: "root", ResourceType: "Observation", Pivots: []recipeplan.SemanticPivot{{Name: "feature", Columns: []string{"shared"}, ColumnAliases: map[string]string{"shared": "selected"}, ProjectionMode: "ALL", Correlation: tc.binding, CorrelationSystem: "A", CorrelationCode: "shared", CorrelationVersion: "v2", StringifyValue: tc.binding.LogicalType == "string"}}}
+			plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: root}, recipeplan.ExecutionContext{Project: "selector-parity", DatasetGeneration: "generation"}, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}

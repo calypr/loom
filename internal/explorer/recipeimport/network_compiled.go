@@ -2,14 +2,14 @@ package recipeimport
 
 import (
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strconv"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-func BindCompiledNetwork(network authoringv2.AuthoringNetwork, columns []lower.CompiledOutputColumn, plans ...*authoringv2.ImportedSourcePlan) (authoringv2.AuthoringNetwork, error) {
+func BindCompiledNetwork(network authoringv2.AuthoringNetwork, columns []facade.CompiledOutputColumn, plans ...*authoringv2.ImportedSourcePlan) (authoringv2.AuthoringNetwork, error) {
 	if len(plans) != 1 || plans[0] == nil {
 		return authoringv2.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: exact source descriptors are required")
 	}

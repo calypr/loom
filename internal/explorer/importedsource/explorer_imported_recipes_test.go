@@ -2,13 +2,14 @@ package importedsource
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"testing"
 
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 
@@ -16,7 +17,7 @@ import (
 )
 
 func TestImportedSourceSchemaPreservesCompilerFacts(t *testing.T) {
-	columns := []lower.CompiledOutputColumn{
+	columns := []facade.CompiledOutputColumn{
 		{ID: "internal", Name: "__loom_row_id", Kind: "string", Cardinality: "required_one", Internal: true, Identity: true},
 		{ID: "identifier", Name: "identifier", Label: "Participant", Kind: "string", Cardinality: "optional_one", Nullable: true, SemanticPath: "root.identifier"},
 		{ID: "codes", Name: "codes", Kind: "string", Cardinality: "many"},
@@ -89,7 +90,7 @@ func TestImportedSourceResolutionRejectsChangedPinsAndForeignScopes(t *testing.T
 }
 
 func TestBindImportedSourceIDsPreservesExistingAndSeparatesOutputs(t *testing.T) {
-	schema := []lower.CompiledOutputColumn{{Name: "identifier", SemanticPath: "root.identifier"}, {ID: "existing", Name: "age"}, {Name: "__loom_row_id", Internal: true, Identity: true}}
+	schema := []facade.CompiledOutputColumn{{Name: "identifier", SemanticPath: "root.identifier"}, {ID: "existing", Name: "age"}, {Name: "__loom_row_id", Internal: true, Identity: true}}
 	first := bindImportedSourceIDs("Patient", schema)
 	again := bindImportedSourceIDs("Patient", schema)
 	other := bindImportedSourceIDs("Specimen", schema)

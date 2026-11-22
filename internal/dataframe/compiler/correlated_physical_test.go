@@ -8,7 +8,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/expression"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -18,12 +18,12 @@ func correlatedPhysicalBinding() *fhirschema.CorrelatedBinding {
 }
 
 func TestCorrelatedPhysicalProjectionScopesCodingAndValueToOwner(t *testing.T) {
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
-		Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
+		Alias: "root", ResourceType: "Observation", Pivots: []recipeplan.SemanticPivot{{
 			Name: "shared", Columns: []string{"shared"}, ColumnSelector: mustSelector(t, "code.coding[].code"), ValueSelector: mustSelector(t, "valueQuantity.value"), ValueKind: expression.KindDecimal,
 			Correlation: correlatedPhysicalBinding(), CorrelationSystem: "urn:study:A", CorrelationCode: "shared",
 		}},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,12 +55,12 @@ func TestCorrelatedPhysicalProjectionPreservesDeclaredReductionAndAlias(t *testi
 		{mode: "FIRST", want: "FIRST(SORTED(__correlation_flat_values))"},
 	} {
 		t.Run(test.mode, func(t *testing.T) {
-			plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
-				Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{
+			plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
+				Alias: "root", ResourceType: "Observation", Pivots: []recipeplan.SemanticPivot{{
 					Name: "correlated_family", Columns: []string{"shared"}, ColumnAliases: map[string]string{"shared": "height_cm"}, ProjectionMode: test.mode,
 					Correlation: correlatedPhysicalBinding(), CorrelationSystem: "urn:study:A", CorrelationCode: "shared",
 				}},
-			}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+			}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -105,12 +105,12 @@ func TestCorrelatedPhysicalProjectionPreservesDeclaredReductionAndAlias(t *testi
 func TestCorrelatedPhysicalProjectionMarksUnsupportedChoiceArm(t *testing.T) {
 	binding := correlatedPhysicalBinding()
 	binding.ChoiceArms = []string{"valueQuantity"}
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
-		Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
+		Alias: "root", ResourceType: "Observation", Pivots: []recipeplan.SemanticPivot{{
 			Name: "correlated_family", Columns: []string{"shared"}, ColumnAliases: map[string]string{"shared": "height_cm"}, ProjectionMode: "VALUE",
 			Correlation: binding, CorrelationSystem: "urn:study:A", CorrelationCode: "shared",
 		}},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,12 +127,12 @@ func TestCorrelatedPhysicalStringAllPreservesArrayAndDeduplicatesCodingAliases(t
 	binding := correlatedPhysicalBinding()
 	binding.ValuePath = "valueString"
 	binding.LogicalType = "string"
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
-		Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
+		Alias: "root", ResourceType: "Observation", Pivots: []recipeplan.SemanticPivot{{
 			Name: "correlated_family", Columns: []string{"shared"}, ColumnAliases: map[string]string{"shared": "height_cm"}, ProjectionMode: "ALL", StringifyValue: true,
 			Correlation: binding, CorrelationSystem: "urn:study:A", CorrelationCode: "shared",
 		}},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,12 +153,12 @@ func TestCorrelatedPhysicalStringAllPreservesArrayAndDeduplicatesCodingAliases(t
 
 func TestCorrelatedPhysicalFilterUsesSameCodingBinding(t *testing.T) {
 	code := "shared"
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Observation", Filters: []spec.TypedFilter{{
 			FieldRef: "Observation.component_code", Selector: "code.coding[].code", FieldKind: spec.FilterCode, Repeated: true, Quantifier: spec.QuantifierAny, Operator: spec.FilterEquals,
 			Values: []spec.FilterValue{{Kind: spec.FilterCode, Code: &spec.CodeValue{System: "urn:study:B", Code: code}}}, Correlation: correlatedPhysicalBinding(),
 		}},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,12 +181,12 @@ func TestCorrelatedPhysicalVersionedFilterMatchesSameCodingVersion(t *testing.T)
 	binding.ValuePath = "display"
 	binding.LogicalType = "string"
 	binding.ChoiceArms = nil
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Observation", Filters: []spec.TypedFilter{{
 			FieldRef: "Observation.component_code", Selector: "code.coding[].code", FieldKind: spec.FilterCode, Repeated: true, Quantifier: spec.QuantifierAny, Operator: spec.FilterEquals,
 			Values: []spec.FilterValue{{Kind: spec.FilterCode, Code: &spec.CodeValue{System: "urn:study:A", Code: "shared", Version: "v2"}}}, Correlation: binding,
 		}},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,12 +218,12 @@ func TestCorrelatedPhysicalProjectionReadsValueFromMatchedCoding(t *testing.T) {
 	binding.FallbackOnBlankString = true
 	binding.ChoiceArms = nil
 	binding.LogicalType = "string"
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
-		Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
+		Alias: "root", ResourceType: "Observation", Pivots: []recipeplan.SemanticPivot{{
 			Name: "shared", Columns: []string{"shared"}, ProjectionMode: "ALL",
 			Correlation: binding, CorrelationSystem: "urn:study:A", CorrelationCode: "shared", CorrelationVersion: "v2",
 		}},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,12 +264,12 @@ func TestCorrelatedPhysicalVersionlessKeyMatchesOnlyMissingOrNullVersion(t *test
 	binding.ValuePath = "display"
 	binding.LogicalType = "string"
 	binding.ChoiceArms = nil
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
-		Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
+		Alias: "root", ResourceType: "Observation", Pivots: []recipeplan.SemanticPivot{{
 			Name: "shared", Columns: []string{"shared"}, Correlation: binding,
 			CorrelationSystem: "urn:study:A", CorrelationCode: "shared", CorrelationVersion: "",
 		}},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,9 +291,9 @@ func TestCorrelatedPhysicalTaskSingletonCodingPivotAndFilter(t *testing.T) {
 		SystemPath: "system", CodePath: "code", VersionPath: "version", ValuePath: "display",
 		ValueFallback: []string{"code"}, FallbackOnBlankString: true, LogicalType: "string",
 	}
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Task",
-		Pivots: []semantic.SemanticPivot{{
+		Pivots: []recipeplan.SemanticPivot{{
 			Name: "task_code", Columns: []string{"shared"}, ProjectionMode: "ALL", Correlation: binding,
 			CorrelationSystem: "urn:study:A", CorrelationCode: "shared", CorrelationVersion: "v2",
 		}},
@@ -301,7 +301,7 @@ func TestCorrelatedPhysicalTaskSingletonCodingPivotAndFilter(t *testing.T) {
 			FieldRef: "Task.input_code", Selector: "input[].valueCoding.code", FieldKind: spec.FilterCode, Repeated: true, Quantifier: spec.QuantifierAny, Operator: spec.FilterEquals,
 			Values: []spec.FilterValue{{Kind: spec.FilterCode, Code: &spec.CodeValue{System: "urn:study:A", Code: "shared", Version: "v2"}}}, Correlation: binding,
 		}},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,12 +351,12 @@ func TestCorrelatedPhysicalFilterReadsValueFromMatchedCoding(t *testing.T) {
 	binding.FallbackOnBlankString = true
 	binding.ChoiceArms = nil
 	binding.LogicalType = "string"
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Observation", Filters: []spec.TypedFilter{{
 			FieldRef: "Observation.component_code", Selector: "code.coding[].code", FieldKind: spec.FilterCode, Repeated: true, Quantifier: spec.QuantifierAny, Operator: spec.FilterEquals,
 			Values: []spec.FilterValue{{Kind: spec.FilterCode, Code: &spec.CodeValue{System: "urn:study:A", Code: "shared"}}}, Correlation: binding,
 		}},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,11 +412,11 @@ func TestCorrelatedPhysicalCodingScopeValidatesValuesAgainstCoding(t *testing.T)
 			binding.ValueFallback = []string{"code"}
 			binding.ChoiceArms = nil
 			binding.LogicalType = "string"
-			plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
-				Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{
+			plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
+				Alias: "root", ResourceType: "Observation", Pivots: []recipeplan.SemanticPivot{{
 					Name: "shared", Columns: []string{"shared"}, Correlation: binding, CorrelationSystem: "urn:study:A", CorrelationCode: "shared",
 				}},
-			}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+			}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -442,12 +442,12 @@ func TestExtensionPhysicalProjectionKeepsNestedURLAndValueScope(t *testing.T) {
 	binding := &fhirschema.ExtensionBinding{
 		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string", ChoiceArms: []string{"valueString"},
 	}
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
-		Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
+		Alias: "root", ResourceType: "Observation", Pivots: []recipeplan.SemanticPivot{{
 			Name: "extension_family", Columns: []string{"left_leaf"}, ColumnAliases: map[string]string{"left_leaf": "left_leaf"}, ProjectionMode: "ALL",
 			ExtensionCorrelation: binding,
 		}},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -473,9 +473,9 @@ func TestExtensionPhysicalProjectionMakesWrongArmExplicit(t *testing.T) {
 	binding := &fhirschema.ExtensionBinding{
 		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string",
 	}
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
-		Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{Name: "extension_family", Columns: []string{"leaf"}, ColumnAliases: map[string]string{"leaf": "leaf"}, ExtensionCorrelation: binding}},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
+		Alias: "root", ResourceType: "Observation", Pivots: []recipeplan.SemanticPivot{{Name: "extension_family", Columns: []string{"leaf"}, ColumnAliases: map[string]string{"leaf": "leaf"}, ExtensionCorrelation: binding}},
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,9 +490,9 @@ func TestExtensionPhysicalProjectionMakesWrongArmExplicit(t *testing.T) {
 
 func TestExtensionPhysicalProjectionReducesAllOwnersTogether(t *testing.T) {
 	binding := &fhirschema.ExtensionBinding{OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string"}
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
-		Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{Name: "extension_family", Columns: []string{"leaf"}, ProjectionMode: "VALUE", ExtensionCorrelation: binding}},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
+		Alias: "root", ResourceType: "Observation", Pivots: []recipeplan.SemanticPivot{{Name: "extension_family", Columns: []string{"leaf"}, ProjectionMode: "VALUE", ExtensionCorrelation: binding}},
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -506,14 +506,14 @@ func TestExtensionPhysicalProjectionReducesAllOwnersTogether(t *testing.T) {
 }
 
 func TestCorrelatedPhysicalFiltersKeepIndependentTerminologyBinds(t *testing.T) {
-	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Observation", Filters: []spec.TypedFilter{
 			{FieldRef: "first", Selector: "code.coding[].code", FieldKind: spec.FilterCode, Repeated: true, Quantifier: spec.QuantifierAny, Operator: spec.FilterEquals,
 				Values: []spec.FilterValue{{Kind: spec.FilterCode, Code: &spec.CodeValue{System: "urn:study:A", Code: "shared"}}}, Correlation: correlatedPhysicalBinding()},
 			{FieldRef: "second", Selector: "code.coding[].code", FieldKind: spec.FilterCode, Repeated: true, Quantifier: spec.QuantifierAny, Operator: spec.FilterEquals,
 				Values: []spec.FilterValue{{Kind: spec.FilterCode, Code: &spec.CodeValue{System: "urn:study:B", Code: "shared"}}}, Correlation: correlatedPhysicalBinding()},
 		},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -537,12 +537,12 @@ func TestCorrelatedPhysicalFiltersKeepIndependentTerminologyBinds(t *testing.T) 
 }
 
 func TestCorrelatedPhysicalFilterRejectsUnsupportedOperator(t *testing.T) {
-	_, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+	_, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Observation", Filters: []spec.TypedFilter{{
 			FieldRef: "not_equals", Selector: "code.coding[].code", FieldKind: spec.FilterCode, Repeated: true, Quantifier: spec.QuantifierAny, Operator: spec.FilterNotEquals,
 			Values: []spec.FilterValue{{Kind: spec.FilterCode, Code: &spec.CodeValue{System: "urn:study:A", Code: "shared"}}}, Correlation: correlatedPhysicalBinding(),
 		}},
-	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err == nil || !strings.Contains(err.Error(), "supports only EQUALS") {
 		t.Fatalf("unsupported correlated operator error = %v", err)
 	}

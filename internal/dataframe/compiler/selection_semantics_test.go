@@ -3,13 +3,13 @@ package compiler
 import (
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestResolveSemanticFieldScalarAuto(t *testing.T) {
 	selector, _ := spec.ParseSelector("gender")
-	got, err := semantic.ResolveSemanticField("Patient", "root", 0, testSemanticField("gender", selector, ""))
+	got, err := recipeplan.ResolveSemanticField("Patient", "root", 0, testSemanticField("gender", selector, ""))
 	if err != nil {
 		t.Fatalf("ResolveSemanticField: %v", err)
 	}
@@ -20,7 +20,7 @@ func TestResolveSemanticFieldScalarAuto(t *testing.T) {
 
 func TestResolveSemanticFieldDetectsRepeatedAncestor(t *testing.T) {
 	selector, _ := spec.ParseSelector("name[].family")
-	got, err := semantic.ResolveSemanticField("Patient", "root", 0, testSemanticField("family", selector, ""))
+	got, err := recipeplan.ResolveSemanticField("Patient", "root", 0, testSemanticField("family", selector, ""))
 	if err != nil {
 		t.Fatalf("ResolveSemanticField: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestResolveSemanticFieldValueModes(t *testing.T) {
 	}
 	for _, test := range tests {
 		projection := map[string]spec.ProjectionMode{"FIRST": spec.ProjectionFirst, "ALL": spec.ProjectionArray, "DISTINCT": spec.ProjectionDistinctArray}[test.mode]
-		got, err := semantic.ResolveSemanticField("Patient", "root", 0, testSemanticField("id", selector, projection))
+		got, err := recipeplan.ResolveSemanticField("Patient", "root", 0, testSemanticField("id", selector, projection))
 		if err != nil {
 			t.Errorf("mode %s: %v", test.mode, err)
 			continue
@@ -62,17 +62,17 @@ func TestResolveSemanticFieldRejectsInvalidSemantics(t *testing.T) {
 	tests := []struct {
 		name         string
 		resourceType string
-		field        semantic.SemanticField
+		field        recipeplan.SemanticField
 	}{
 		{"unknown resource", "Imaginary", testSemanticField("x", valid, "")},
 		{"unknown path", "Patient", testSemanticField("x", missing, "")},
 		{"invalid value mode", "Patient", testSemanticField("x", valid, "invalid")},
 		{"implicit array traversal", "Patient", testSemanticField("x", implicitArray, "")},
-		{"empty selector", "Patient", semantic.SemanticField{Name: "x"}},
+		{"empty selector", "Patient", recipeplan.SemanticField{Name: "x"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := semantic.ResolveSemanticField(test.resourceType, "root", 0, test.field); err == nil {
+			if _, err := recipeplan.ResolveSemanticField(test.resourceType, "root", 0, test.field); err == nil {
 				t.Fatal("invalid selection unexpectedly succeeded")
 			}
 		})

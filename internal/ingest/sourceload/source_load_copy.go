@@ -7,20 +7,22 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/ingest/bootstrap"
+	"github.com/calypr/loom/internal/ingest/identity"
+	"github.com/calypr/loom/internal/ingest/source"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	publication "github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func (p *RepositorySourceLoader) copyGenerationForward(ctx context.Context, record sourceLoadRecord, identityFormat string) error {
-	identity, err := ingest.LoadSchemaSnapshot()
+	identity, err := source.LoadSchemaSnapshot()
 	if err != nil {
 		return err
 	}
@@ -52,7 +54,7 @@ func (p *RepositorySourceLoader) copyGenerationForward(ctx context.Context, reco
 		if err != nil {
 			return err
 		}
-		copyCurrentFileEntries = version >= semanticinventory.EntryIndexVersion
+		copyCurrentFileEntries = version >= semantic.EntryIndexVersion
 	}
 	for _, resourceType := range identity.GeneratedResourceTypes {
 		if err := ctx.Err(); err != nil {
@@ -65,16 +67,16 @@ func (p *RepositorySourceLoader) copyGenerationForward(ctx context.Context, reco
 			return fmt.Errorf("copy source generation resource %s: %w", resourceType, err)
 		}
 	}
-	if err := p.copySourceCollection(ctx, ingest.EdgeCollection, record.SourceGeneration, record.Project, record.Generation, copyEdgeDocument(record.Project, record.Generation, record.SourceGeneration, selectedTypes, identityFormat)); err != nil {
+	if err := p.copySourceCollection(ctx, bootstrap.EdgeCollection, record.SourceGeneration, record.Project, record.Generation, copyEdgeDocument(record.Project, record.Generation, record.SourceGeneration, selectedTypes, identityFormat)); err != nil {
 		return fmt.Errorf("copy source generation edges: %w", err)
 	}
 	if err := p.copySourceCollection(ctx, fieldprofile.FieldCatalogCollection, record.SourceGeneration, record.Project, record.Generation, copyCatalogDocument(fieldprofile.FieldCatalogCollection, record.Project, record.Generation, selectedTypes)); err != nil {
 		return fmt.Errorf("copy source generation field catalog: %w", err)
 	}
-	if err := p.copySourceCollection(ctx, semanticinventory.Collection, record.SourceGeneration, record.Project, record.Generation, copySemanticInventoryDocument(record.Project, record.Generation, selectedTypes)); err != nil {
+	if err := p.copySourceCollection(ctx, semantic.Collection, record.SourceGeneration, record.Project, record.Generation, copySemanticInventoryDocument(record.Project, record.Generation, selectedTypes)); err != nil {
 		return fmt.Errorf("copy source generation semantic inventory: %w", err)
 	}
-	if err := p.copySourceCollection(ctx, semanticinventory.EntryCollection, record.SourceGeneration, record.Project, record.Generation, copySemanticInventoryEntryDocument(record.Project, record.Generation, selectedTypes, copyCurrentFileEntries)); err != nil {
+	if err := p.copySourceCollection(ctx, semantic.EntryCollection, record.SourceGeneration, record.Project, record.Generation, copySemanticInventoryEntryDocument(record.Project, record.Generation, selectedTypes, copyCurrentFileEntries)); err != nil {
 		return fmt.Errorf("copy source generation semantic inventory entries: %w", err)
 	}
 	return nil
@@ -115,7 +117,7 @@ FILTER doc._key > @after_key
 SORT doc._key
 LIMIT @limit
 RETURN {document: doc}`
-	if collection == ingest.EdgeCollection {
+	if collection == bootstrap.EdgeCollection {
 		query = `FOR doc IN @@collection OPTIONS { indexHint: "primary", forceIndexHint: true }
 FILTER doc.project == @project
 FILTER (@source_generation == "" AND NOT_NULL(doc.dataset_generation, "") == "") OR doc.dataset_generation == @source_generation
@@ -192,7 +194,7 @@ func copyVertexDocument(resourceType, project, generation, identityFormat string
 		if sourceLoadString(doc["project"]) != project {
 			return nil, fmt.Errorf("vertex project does not match source-load project")
 		}
-		logicalKey := sourceLoadString(doc[ingest.LogicalKeyField])
+		logicalKey := sourceLoadString(doc[identity.LogicalKeyField])
 		if logicalKey == "" {
 			logicalKey = sourceLoadString(doc["_key"])
 		}
@@ -201,10 +203,10 @@ func copyVertexDocument(resourceType, project, generation, identityFormat string
 		}
 		delete(doc, "_id")
 		delete(doc, "_rev")
-		doc[ingest.LogicalKeyField] = logicalKey
-		doc[ingest.GenerationIdentityField] = generation
+		doc[identity.LogicalKeyField] = logicalKey
+		doc[identity.GenerationIdentityField] = generation
 		doc["source_file"] = resourceType
-		doc["_key"] = ingest.GenerationDocumentKeyWithFormat(project, generation, resourceType, logicalKey, identityFormat)
+		doc["_key"] = identity.GenerationDocumentKeyWithFormat(project, generation, resourceType, logicalKey, identityFormat)
 		return json.Marshal(doc)
 	}
 }
@@ -259,7 +261,7 @@ func copyEdgeDocument(project, generation, sourceGeneration string, selectedType
 		if sourceLoadSelectsTypeNames(selectedTypes, owner) {
 			return nil, nil
 		}
-		logicalKey := sourceLoadString(doc[ingest.LogicalKeyField])
+		logicalKey := sourceLoadString(doc[identity.LogicalKeyField])
 		if logicalKey == "" {
 			logicalKey = sourceLoadString(doc["_key"])
 		}
@@ -271,15 +273,15 @@ func copyEdgeDocument(project, generation, sourceGeneration string, selectedType
 		doc["_to"] = to
 		delete(doc, "_id")
 		delete(doc, "_rev")
-		namespaced, err := ingest.NamespaceEdgeDocumentWithFormat(jsonRawDocument(doc), project, generation, identityFormat)
+		namespaced, err := identity.NamespaceEdgeDocumentWithFormat(jsonRawDocument(doc), project, generation, identityFormat)
 		if err != nil {
 			return nil, err
 		}
-		rebased, err := ingest.DecodeTopLevelDocument(namespaced)
+		rebased, err := identity.DecodeTopLevelDocument(namespaced)
 		if err != nil {
 			return nil, err
 		}
-		rebased["source_file"] = json.RawMessage(ingest.QuoteDocumentString(owner))
+		rebased["source_file"] = json.RawMessage(identity.QuoteDocumentString(owner))
 		encoded, err := json.Marshal(rebased)
 		return encoded, err
 	}
@@ -298,7 +300,7 @@ func copyCatalogDocument(collection, project, generation string, selectedTypes [
 			return nil, fmt.Errorf("catalog record has no key")
 		}
 		doc["_key"] = sourceLoadCopiedCatalogKey(collection, project, generation, oldKey)
-		doc[ingest.GenerationIdentityField] = generation
+		doc[identity.GenerationIdentityField] = generation
 		return json.Marshal(doc)
 	}
 }
@@ -319,7 +321,7 @@ func copySemanticInventoryDocument(project, generation string, selectedTypes []s
 		if resourceType == "" || sourceID == "" {
 			return nil, fmt.Errorf("semantic inventory contribution is missing its source identity")
 		}
-		buildID := semanticinventory.BuildID(project, generation)
+		buildID := semantic.BuildID(project, generation)
 		ordinal := numericInt64(doc["ordinal"])
 		authPath := sourceLoadString(doc["auth_resource_path"])
 		sourceKind := sourceLoadString(doc["source_kind"])
@@ -348,13 +350,13 @@ func copySemanticInventoryEntryDocument(project, generation string, selectedType
 		if resourceType == "" || bindingID == "" || conceptID == "" || sourceKind == "" {
 			return nil, fmt.Errorf("semantic inventory entry is missing its stable identity")
 		}
-		if sourceKind == semanticinventory.SourceFile && !copyCurrentFileEntries {
+		if sourceKind == semantic.SourceFile && !copyCurrentFileEntries {
 			return nil, nil
 		}
-		buildID := semanticinventory.BuildID(project, generation)
+		buildID := semantic.BuildID(project, generation)
 		doc["dataset_generation"] = generation
 		doc["build_id"] = buildID
-		doc["_key"] = semanticinventory.EntryKey(project, generation, buildID, sourceKind,
+		doc["_key"] = semantic.EntryKey(project, generation, buildID, sourceKind,
 			sourceLoadString(doc["auth_resource_path"]), bindingID, conceptID)
 		return json.Marshal(doc)
 	}
@@ -390,7 +392,7 @@ func (p *RepositorySourceLoader) validateSourceLoadSelectedScopes(ctx context.Co
 		}
 	}
 	collections := append([]string(nil), selectedTypes...)
-	collections = append(collections, fieldprofile.FieldCatalogCollection, semanticinventory.Collection, semanticinventory.EntryCollection)
+	collections = append(collections, fieldprofile.FieldCatalogCollection, semantic.Collection, semantic.EntryCollection)
 	for _, collection := range collections {
 		if exists, err := p.client.CollectionExists(ctx, collection); err != nil {
 			return err
@@ -405,7 +407,7 @@ FILTER NOT_NULL(doc.auth_resource_path, "") != @auth_resource_path
 LIMIT 1
 RETURN {mismatch: true}`
 		fieldName := "resourceType"
-		if collection == fieldprofile.FieldCatalogCollection || collection == semanticinventory.Collection || collection == semanticinventory.EntryCollection {
+		if collection == fieldprofile.FieldCatalogCollection || collection == semantic.Collection || collection == semantic.EntryCollection {
 			fieldName = "resource_type"
 		}
 		found, err := arangostore.QueryHasRow(ctx, p.client, query, 1, map[string]any{
@@ -420,7 +422,7 @@ RETURN {mismatch: true}`
 			return &SourcePublishMigrationRequiredError{Reason: "selected resource rows use a different authorization path"}
 		}
 	}
-	if exists, err := p.client.CollectionExists(ctx, ingest.EdgeCollection); err != nil {
+	if exists, err := p.client.CollectionExists(ctx, bootstrap.EdgeCollection); err != nil {
 		return err
 	} else if exists {
 		found, err := arangostore.QueryHasRow(ctx, p.client, `FOR edge IN fhir_edge
@@ -447,7 +449,7 @@ func (p *RepositorySourceLoader) requireMutableSourceCopySafe(ctx context.Contex
 	if base.Mode != "mutable" {
 		return nil
 	}
-	identity, err := ingest.LoadSchemaSnapshot()
+	identity, err := source.LoadSchemaSnapshot()
 	if err != nil {
 		return err
 	}
@@ -482,7 +484,7 @@ LIMIT 1 RETURN {found: true}`, 1, map[string]any{"@collection": resourceType, "p
 			return &SourcePublishMigrationRequiredError{Reason: "partial update cannot copy unversioned mutable-root rows safely"}
 		}
 	}
-	for _, collection := range []string{fieldprofile.FieldCatalogCollection, semanticinventory.Collection, semanticinventory.EntryCollection} {
+	for _, collection := range []string{fieldprofile.FieldCatalogCollection, semantic.Collection, semantic.EntryCollection} {
 		if exists, err := p.client.CollectionExists(ctx, collection); err != nil {
 			return err
 		} else if !exists {
@@ -499,7 +501,7 @@ LIMIT 1 RETURN {found: true}`, 1, map[string]any{"@collection": collection, "pro
 			return &SourcePublishMigrationRequiredError{Reason: "partial update cannot copy unversioned mutable-root catalogs safely"}
 		}
 	}
-	if exists, err := p.client.CollectionExists(ctx, ingest.EdgeCollection); err != nil {
+	if exists, err := p.client.CollectionExists(ctx, bootstrap.EdgeCollection); err != nil {
 		return err
 	} else if exists {
 		found, err := arangostore.QueryHasRow(ctx, p.client, `FOR edge IN fhir_edge
@@ -523,7 +525,7 @@ func sourceLoadString(value any) string {
 
 func semanticInventoryContributionKey(project, generation, authPath, resourceType, buildID, sourceID string, ordinal int, sourceKind string) string {
 	parts := []string{"semantic-inventory-contribution/v1", project, catalog.NormalizeDatasetGeneration(generation), authPath, resourceType, buildID, sourceID, strconv.Itoa(ordinal)}
-	if sourceKind == semanticinventory.SourceRetained {
+	if sourceKind == semantic.SourceRetained {
 		parts = append(parts, sourceKind)
 	}
 	hash := sha256.New()

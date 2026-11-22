@@ -7,10 +7,10 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
-func CompileResolvedGraphQueryWithPolicy(resolved semantic.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledQuery, error) {
+func CompileResolvedGraphQueryWithPolicy(resolved recipeplan.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledQuery, error) {
 	if limit < 1 || limit > 10000 {
 		return CompiledQuery{}, fmt.Errorf("graph limit must be between 1 and 10000")
 	}

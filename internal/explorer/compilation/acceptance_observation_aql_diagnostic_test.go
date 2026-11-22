@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"net/http"
 	"os"
 	"strings"
@@ -15,12 +16,9 @@ import (
 	driver "github.com/arangodb/go-driver/v2/arangodb"
 	"github.com/arangodb/go-driver/v2/connection"
 	"github.com/arangodb/go-driver/v2/utils"
-	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
-	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -77,22 +75,22 @@ func TestAcceptanceObservationContributorAQLAndBinds(t *testing.T) {
 		t.Fatalf("compile locked fixture contributor columns: %v", err)
 	}
 	runtimeBindings := recipe.RuntimeBindings{Project: "acceptance", DatasetGeneration: "tcga-brca-locked"}
-	plan, err := semantic.BuildRecipePlan(compiled.Bundle, runtimeBindings)
+	plan, err := recipeplan.BuildRecipePlan(compiled.Bundle, runtimeBindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "acceptance-scope", "tcga-brca-locked")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "acceptance-scope", "tcga-brca-locked")
 	if err != nil {
 		t.Fatal(err)
 	}
-	physical, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	physical, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(physical.Outputs) != 1 {
 		t.Fatalf("physical outputs = %d, want 1", len(physical.Outputs))
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical.Outputs[0].Plan)
+	rendered, err := facade.RenderPhysicalPlan(physical.Outputs[0].Plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +128,7 @@ func TestAcceptanceObservationContributorAQLAndBinds(t *testing.T) {
 func executeAcceptanceObservationAQL(
 	t *testing.T,
 	endpoint, database string,
-	output lower.CompiledRecipeOutput,
+	output facade.CompiledRecipeOutput,
 	bindings recipe.RuntimeBindings,
 	query string,
 	bindVars map[string]any,
@@ -310,7 +308,7 @@ func executeAcceptanceObservationAQL(
 	expectValues("direct-render", rawRows[0])
 	previewBindings := bindings.Clone()
 	previewBindings.PreviewLimit = 25
-	full, err := compiler.CompileRecipeOutputWithPolicy(output, previewBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	full, err := facade.CompileRecipeOutputWithPolicy(output, previewBindings, 25, facade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile production full-preview query: %v", err)
 	}
@@ -321,7 +319,7 @@ func executeAcceptanceObservationAQL(
 	t.Logf("production full-preview AQL:\n%s\nBINDVARS: %s", full.Query, fullBindLog)
 	fullRows := execute("production-full", full.Query, cloneBinds(full.BindVars))
 	expectValues("production-full", fullRows[0])
-	page, err := compiler.CompileRecipeOutputPageWithPolicy(output, previewBindings, 1, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := facade.CompileRecipeOutputPageWithPolicy(output, previewBindings, 1, facade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile production selected-root page: %v", err)
 	}
@@ -331,7 +329,7 @@ func executeAcceptanceObservationAQL(
 	}
 	t.Logf("production selected-root page rows AQL:\n%s\nBINDVARS: %s", page.RowsQuery, pageRowsBindLog)
 	keyBinds := cloneBinds(page.RootKeysBindVars)
-	keyBinds[compiler.RootPageAfterKeyBind] = ""
+	keyBinds[facade.RootPageAfterKeyBind] = ""
 	keyBinds = cloneBinds(keyBinds)
 	rootKeys := make([]string, 0, 1)
 	if err := store.QueryRows(ctx, page.RootKeysQuery, 10, keyBinds, func(row map[string]any) error {
@@ -348,7 +346,7 @@ func executeAcceptanceObservationAQL(
 		t.Fatalf("production root-key page = %#v, want [p1]", rootKeys)
 	}
 	pageBinds := cloneBinds(page.RowsBindVars)
-	pageBinds[compiler.RootPageKeysBind] = rootKeys
+	pageBinds[facade.RootPageKeysBind] = rootKeys
 	pagedRows := execute("production-paged", page.RowsQuery, pageBinds)
 	expectValues("production-paged", pagedRows[0])
 	for _, column := range []string{"age_at_diagnosis_days", "diagnostic_method", "days_to_death", "earliest_collection_day", "latest_collection_day"} {

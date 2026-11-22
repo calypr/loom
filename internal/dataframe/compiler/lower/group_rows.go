@@ -7,11 +7,11 @@ import (
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeexpr "github.com/calypr/loom/internal/dataframe/expression"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/projectid"
 )
 
-func buildGroupRowsPhysicalPlan(output semantic.OutputPlan, context semantic.ExecutionContext) (ir.PhysicalPlan, error) {
+func buildGroupRowsPhysicalPlan(output recipeplan.OutputPlan, context recipeplan.ExecutionContext) (ir.PhysicalPlan, error) {
 	groups := output.GroupRows
 	if groups == nil || output.RowGrain != "groups" {
 		return ir.PhysicalPlan{}, fmt.Errorf("grouped physical plan requires groups row grain and a pinned revision")
@@ -62,7 +62,7 @@ func buildGroupRowsPhysicalPlan(output semantic.OutputPlan, context semantic.Exe
 		ResourceTypeBindKey: "resource_type", PolicyBindKey: "group_rows_unassigned_policy",
 		AuthResourcePathsBindKey: "auth_resource_paths", AuthUnrestrictedBindKey: "auth_resource_paths_unrestricted",
 	}
-	fields := make(map[string]semantic.SemanticField, len(output.Root.Fields))
+	fields := make(map[string]recipeplan.SemanticField, len(output.Root.Fields))
 	for _, field := range output.Root.Fields {
 		fields[field.ColumnID] = field
 	}
@@ -109,7 +109,7 @@ func buildGroupRowsPhysicalPlan(output semantic.OutputPlan, context semantic.Exe
 	return plan, nil
 }
 
-func buildCohortGroupRows(output semantic.OutputPlan, context semantic.ExecutionContext) (ir.PhysicalGroupRows, map[string]any, error) {
+func buildCohortGroupRows(output recipeplan.OutputPlan, context recipeplan.ExecutionContext) (ir.PhysicalGroupRows, map[string]any, error) {
 	plan, err := buildGroupRowsPhysicalPlan(output, context)
 	if err != nil {
 		return ir.PhysicalGroupRows{}, nil, err

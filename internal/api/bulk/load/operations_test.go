@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	ingestevent "github.com/calypr/loom/internal/ingest/event"
 	"io"
 	"mime/multipart"
 	"os"
@@ -16,14 +17,13 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	publication "github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/ingest"
 	"github.com/calypr/loom/internal/ingest/generation"
 	"github.com/gofiber/fiber/v3"
 )
 
 type fakeGenerationRunner struct{ req GenerationLoadRequest }
 
-func (r *fakeGenerationRunner) RunGeneration(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
+func (r *fakeGenerationRunner) RunGeneration(_ context.Context, req GenerationLoadRequest, _ ingestevent.EventSink) (generation.LoadSummary, error) {
 	r.req = req
 	return generation.LoadSummary{Files: 2, VerticesInserted: 4}, nil
 }
@@ -188,7 +188,7 @@ type recordingGenerationRunner struct {
 	err      error
 }
 
-func (r *recordingGenerationRunner) RunGeneration(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
+func (r *recordingGenerationRunner) RunGeneration(_ context.Context, req GenerationLoadRequest, _ ingestevent.EventSink) (generation.LoadSummary, error) {
 	r.req = req
 	r.calls++
 	r.contents = map[string]string{}

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func physicalPathEquals(left, right []string) bool {
@@ -130,15 +130,15 @@ func TestValidateGenericPhysicalPlanScopeRejectsMissingMisboundAndReorderedScope
 
 func genericScopePhysicalPlan(t *testing.T) ir.PhysicalPlan {
 	t.Helper()
-	plan, err := buildGenericPhysicalPlanWithContext(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlanWithContext(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Children: []semantic.SemanticNode{{
+		Children: []recipeplan.SemanticNode{{
 			Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
-			Children: []semantic.SemanticNode{{
+			Children: []recipeplan.SemanticNode{{
 				Alias: "file", ResourceType: "DocumentReference", EdgeLabel: "subject_Specimen",
 			}},
 		}},
-	}}, semantic.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}})
+	}}, recipeplan.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}})
 	if err != nil {
 		t.Fatalf("BuildGenericPhysicalPlan() error = %v", err)
 	}

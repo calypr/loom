@@ -3,19 +3,19 @@ package load
 import (
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/ingest/row"
 	"net/http"
 	"strings"
 	"testing"
 
 	fhir "github.com/calypr/loom/fhir/model"
 	httpapi "github.com/calypr/loom/internal/api/http"
-	"github.com/calypr/loom/internal/ingest"
 	"github.com/calypr/loom/internal/ingest/sourceload"
 )
 
 func TestRowValidationResponseExplainsFileAndField(t *testing.T) {
 	cause := &fhir.MissingRequiredFieldError{Field: "includedStructure"}
-	err := fmt.Errorf("stage source: %w", &ingest.RowError{
+	err := fmt.Errorf("stage source: %w", &row.RowError{
 		File: "BodyStructure.ndjson", Row: 1, ResourceType: "BodyStructure", Category: "validation", Cause: cause,
 	})
 	mapped := httpapi.MapDataframeError(normalizeError(err), "row-test")
@@ -33,7 +33,7 @@ func TestRowValidationResponseExplainsFileAndField(t *testing.T) {
 }
 
 func TestRowValidationResponseDoesNotExposeOpaqueCause(t *testing.T) {
-	err := &ingest.RowError{File: "Patient.ndjson", Row: 2, ResourceType: "Patient", Category: "validation",
+	err := &row.RowError{File: "Patient.ndjson", Row: 2, ResourceType: "Patient", Category: "validation",
 		Cause: errors.New("password=private patient-payload")}
 	mapped := httpapi.MapDataframeError(normalizeError(err), "safe-row")
 	if mapped.Status != http.StatusUnprocessableEntity || strings.Contains(mapped.Body.Error.Message, "private") ||
@@ -44,7 +44,7 @@ func TestRowValidationResponseDoesNotExposeOpaqueCause(t *testing.T) {
 
 func TestInternalRowFailuresKeepServerStatus(t *testing.T) {
 	for _, category := range []string{"generation", "edge"} {
-		err := &ingest.RowError{File: "Patient.ndjson", Row: 2, ResourceType: "Patient", Category: category,
+		err := &row.RowError{File: "Patient.ndjson", Row: 2, ResourceType: "Patient", Category: category,
 			Cause: errors.New("internal invariant failed")}
 		mapped := httpapi.MapDataframeError(normalizeError(err), "internal-row")
 		if mapped.Status != http.StatusInternalServerError || mapped.Body.Error.Code != "INTERNAL_ERROR" ||

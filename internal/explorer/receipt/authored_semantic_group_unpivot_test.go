@@ -1,9 +1,9 @@
 package receipt
 
 import (
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
@@ -45,14 +45,14 @@ func TestAuthoredSemanticGroupOutputCanBeRemovedByDownstreamUnpivot(t *testing.T
 			},
 		}},
 	}
-	compiled := lower.CompiledRecipeOutput{
-		OutputSchema: []lower.CompiledOutputColumn{
+	compiled := facade.CompiledRecipeOutput{
+		OutputSchema: []facade.CompiledOutputColumn{
 			{ID: "row_count", Name: "row_count", Kind: "integer", Cardinality: "required_one"},
 			{ID: "measure_key", Name: "measure", Kind: "string", Cardinality: "required_one"},
 			{ID: "measure_value", Name: "measure_value", Kind: "string", Cardinality: "required_one"},
 		},
-		Stages: []lower.CompiledStageDescriptor{
-			{ID: "semantic_group", Operation: "GROUP", Columns: []lower.CompiledOutputColumn{{ID: "specimen_type_group", Name: "specimen_type_group", SemanticPath: semanticPath}}},
+		Stages: []facade.CompiledStageDescriptor{
+			{ID: "semantic_group", Operation: "GROUP", Columns: []facade.CompiledOutputColumn{{ID: "specimen_type_group", Name: "specimen_type_group", SemanticPath: semanticPath}}},
 			{ID: "unpivot_semantic_key", Operation: "UNPIVOT"},
 		},
 	}

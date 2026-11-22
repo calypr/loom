@@ -6,11 +6,11 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, parent semantic.SemanticNode, parentVariable string, child semantic.SemanticNode, projectionPrefix string, policy ir.PhysicalOptimizationPolicy, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer) (ir.PhysicalSet, []ir.PhysicalProjection, error) {
+func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, parent recipeplan.SemanticNode, parentVariable string, child recipeplan.SemanticNode, projectionPrefix string, policy ir.PhysicalOptimizationPolicy, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer) (ir.PhysicalSet, []ir.PhysicalProjection, error) {
 	prefix := fmt.Sprintf("child_set_%d", setIndex)
 	targetVariable := fmt.Sprintf("%s_node", prefix)
 	edgeVariable := fmt.Sprintf("%s_edge", prefix)
@@ -139,7 +139,7 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 	return set, projections, nil
 }
 
-func buildPhysicalChildRouteScope(physical *ir.PhysicalPlan, child semantic.SemanticNode, edgeVariable, targetVariable, prefix string) ([]ir.PhysicalOperation, error) {
+func buildPhysicalChildRouteScope(physical *ir.PhysicalPlan, child recipeplan.SemanticNode, edgeVariable, targetVariable, prefix string) ([]ir.PhysicalOperation, error) {
 	scope := appendProjectScope(nil, []string{edgeVariable, targetVariable}, child.EdgeLabel, child)
 	scope = appendDatasetGenerationScope(scope, []string{edgeVariable, targetVariable}, child.EdgeLabel, child)
 	scope = appendAuthScope(scope, []ir.PhysicalValue{{Variable: edgeVariable, Path: []string{"auth_resource_path"}}, {Variable: targetVariable, Path: []string{"auth_resource_path"}}}, prefix+"_scope_allowed", child)
@@ -192,7 +192,7 @@ func buildPhysicalChildRouteScope(physical *ir.PhysicalPlan, child semantic.Sema
 	return scope, nil
 }
 
-func compactPhysicalSetOutput(node semantic.SemanticNode) *ir.PhysicalSetOutput {
+func compactPhysicalSetOutput(node recipeplan.SemanticNode) *ir.PhysicalSetOutput {
 	fields := []ir.PhysicalSetOutputField{
 		ir.PhysicalSetGraphIDField,
 		ir.PhysicalSetKeyField,

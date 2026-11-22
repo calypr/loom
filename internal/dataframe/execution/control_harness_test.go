@@ -10,7 +10,7 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 type Control struct {
@@ -33,7 +33,7 @@ func (c Control) Validate(ctx context.Context, name string, bindings recipe.Runt
 			return Validation{}, fmt.Errorf("resolve recipe schema: %w", err)
 		}
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		return Validation{}, err
 	}
@@ -43,10 +43,10 @@ func (c Control) Validate(ctx context.Context, name string, bindings recipe.Runt
 	return Validation{Entry: entry, Plan: plan}, nil
 }
 
-func (c Control) Explain(ctx context.Context, name string, bindings recipe.RuntimeBindings) (semantic.RecipePlanExplanation, error) {
+func (c Control) Explain(ctx context.Context, name string, bindings recipe.RuntimeBindings) (recipeplan.RecipePlanExplanation, error) {
 	validated, err := c.Validate(ctx, name, bindings)
 	if err != nil {
-		return semantic.RecipePlanExplanation{}, err
+		return recipeplan.RecipePlanExplanation{}, err
 	}
 	return validated.Plan.Explain(), nil
 }
@@ -88,13 +88,13 @@ func (c Control) ExplainPhysical(ctx context.Context, name string, bindings reci
 	return result, nil
 }
 
-func (c Control) Resolve(ctx context.Context, name string, bindings recipe.RuntimeBindings) (semantic.ResolvedRecipePlan, error) {
+func (c Control) Resolve(ctx context.Context, name string, bindings recipe.RuntimeBindings) (recipeplan.ResolvedRecipePlan, error) {
 	if c.Engine == nil {
-		return semantic.ResolvedRecipePlan{}, fmt.Errorf("recipe engine is required")
+		return recipeplan.ResolvedRecipePlan{}, fmt.Errorf("recipe engine is required")
 	}
 	resolved, err := c.Engine.Resolve(ctx, name, bindings)
 	if err != nil {
-		return semantic.ResolvedRecipePlan{}, err
+		return recipeplan.ResolvedRecipePlan{}, err
 	}
 	return resolved.Semantic, nil
 }
@@ -144,9 +144,9 @@ func outputRows(resolved Resolved, rows map[string][]map[string]any) []OutputRow
 
 var _ interface {
 	Validate(context.Context, string, recipe.RuntimeBindings) (Validation, error)
-	Explain(context.Context, string, recipe.RuntimeBindings) (semantic.RecipePlanExplanation, error)
+	Explain(context.Context, string, recipe.RuntimeBindings) (recipeplan.RecipePlanExplanation, error)
 	ExplainPhysical(context.Context, string, recipe.RuntimeBindings, bool) (PhysicalExplanation, error)
-	Resolve(context.Context, string, recipe.RuntimeBindings) (semantic.ResolvedRecipePlan, error)
+	Resolve(context.Context, string, recipe.RuntimeBindings) (recipeplan.ResolvedRecipePlan, error)
 	Preview(context.Context, string, recipe.RuntimeBindings) (Preview, error)
 } = Control{}
 

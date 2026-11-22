@@ -3,13 +3,14 @@ package load
 import (
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/ingest/row"
+	"github.com/calypr/loom/internal/ingest/source"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/ingest"
 	"github.com/calypr/loom/internal/ingest/generation"
 	"github.com/calypr/loom/internal/ingest/sourceload"
 )
@@ -18,7 +19,7 @@ func normalizeError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var row *ingest.RowError
+	var row *row.RowError
 	if errors.As(err, &row) {
 		code := dataframeerrors.CodeInternalError
 		if row.Category == "validation" {
@@ -58,7 +59,7 @@ func normalizeError(err error) error {
 				"edgeErrors":       resourceIncomplete.EdgeErrors,
 			}))
 	}
-	var preflight *ingest.PreflightError
+	var preflight *source.PreflightError
 	if errors.As(err, &preflight) {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeIngestPreflightFailed, "", dataframeerrors.WithDetails(preflightErrorDetails(preflight)))
 	}
@@ -130,7 +131,7 @@ func sourceLoadValidationDetails(validation *sourceload.SourceFileValidationErro
 	}
 }
 
-func safeSourceLoadIssueMessage(sample ingest.RowErrorSample) string {
+func safeSourceLoadIssueMessage(sample row.RowErrorSample) string {
 	if sample.Category == "validation" {
 		if field, ok := missingRequiredField(sample); ok {
 			return fmt.Sprintf("Required field %q is missing.", field)
@@ -146,7 +147,7 @@ func safeSourceLoadIssueMessage(sample ingest.RowErrorSample) string {
 	return "Loom could not process this row."
 }
 
-func missingRequiredField(sample ingest.RowErrorSample) (string, bool) {
+func missingRequiredField(sample row.RowErrorSample) (string, bool) {
 	message := strings.TrimSpace(sample.Message)
 	const shortPrefix = "required field '"
 	const shortSuffix = "' is missing"
@@ -184,7 +185,7 @@ func safeSchemaFieldName(value string) bool {
 	return true
 }
 
-func preflightErrorDetails(err *ingest.PreflightError) map[string]any {
+func preflightErrorDetails(err *source.PreflightError) map[string]any {
 	if err == nil || len(err.Report.Issues) == 0 {
 		return nil
 	}

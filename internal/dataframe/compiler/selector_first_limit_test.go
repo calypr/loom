@@ -6,16 +6,16 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/expression"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestRenderFirstProjectionStopsSelectorAfterFirstValue(t *testing.T) {
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Fields: []semantic.SemanticField{{
+		Fields: []recipeplan.SemanticField{{
 			Name: "extension_url", FieldRef: "Patient.extension[].url",
-			Expr:       semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "extension[].url"})},
+			Expr:       recipeplan.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "extension[].url"})},
 			Projection: spec.ProjectionFirst,
 		}},
 	}})
@@ -32,11 +32,11 @@ func TestRenderFirstProjectionStopsSelectorAfterFirstValue(t *testing.T) {
 }
 
 func TestRenderArrayProjectionRetainsEverySelectorValue(t *testing.T) {
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Fields: []semantic.SemanticField{{
+		Fields: []recipeplan.SemanticField{{
 			Name: "extension_urls", FieldRef: "Patient.extension[].url",
-			Expr:       semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "extension[].url"})},
+			Expr:       recipeplan.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "extension[].url"})},
 			Projection: spec.ProjectionArray,
 		}},
 	}})
@@ -55,17 +55,17 @@ func TestRenderArrayProjectionRetainsEverySelectorValue(t *testing.T) {
 func TestRenderChildSelectorLimitsOnlyWhenEveryConsumerUsesFirst(t *testing.T) {
 	build := func(projections ...spec.ProjectionMode) string {
 		t.Helper()
-		fields := make([]semantic.SemanticField, 0, len(projections))
+		fields := make([]recipeplan.SemanticField, 0, len(projections))
 		for index, projection := range projections {
-			fields = append(fields, semantic.SemanticField{
+			fields = append(fields, recipeplan.SemanticField{
 				Name: "title_" + string(rune('a'+index)), FieldRef: "DocumentReference.content[].attachment.title",
-				Expr:       semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "content[].attachment.title"})},
+				Expr:       recipeplan.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "content[].attachment.title"})},
 				Projection: projection,
 			})
 		}
-		plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+		plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 			Alias: "root", ResourceType: "Patient",
-			Children: []semantic.SemanticNode{{
+			Children: []recipeplan.SemanticNode{{
 				Alias: "document", ResourceType: "DocumentReference", EdgeLabel: "subject_Patient", Fields: fields,
 			}},
 		}})

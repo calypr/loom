@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -188,9 +188,9 @@ func TestUnpivotSourceWhitelistIsTheCompilerDecision(t *testing.T) {
 		"":          {false, ""},
 	}
 	for kind, want := range corpus {
-		class, ok := lower.TableReshapeScalarKind(kind)
+		class, ok := facade.TableReshapeScalarKind(kind)
 		if ok != want.admitted || (ok && class != want.class) {
-			t.Fatalf("lower.TableReshapeScalarKind(%q) = (%q,%v), want (%q,%v)", kind, class, ok, want.class, want.admitted)
+			t.Fatalf("facade.TableReshapeScalarKind(%q) = (%q,%v), want (%q,%v)", kind, class, ok, want.class, want.admitted)
 		}
 		if got := unpivotSourceLogicalTypeIsTableScalar(kind); got != want.admitted {
 			t.Fatalf("unpivotSourceLogicalTypeIsTableScalar(%q) = %v, want %v (channel drifted from the compiler decision)", kind, got, want.admitted)

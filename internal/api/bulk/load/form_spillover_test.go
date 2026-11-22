@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	ingestevent "github.com/calypr/loom/internal/ingest/event"
 	"mime/multipart"
 	"os"
 	"path/filepath"
@@ -15,7 +16,6 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/ingest"
 	"github.com/calypr/loom/internal/ingest/generation"
 )
 
@@ -32,7 +32,7 @@ type spilloverRunner struct {
 	otherBytesAt  int64
 }
 
-func (r *spilloverRunner) RunGeneration(_ context.Context, req GenerationLoadRequest, _ ingest.EventSink) (generation.LoadSummary, error) {
+func (r *spilloverRunner) RunGeneration(_ context.Context, req GenerationLoadRequest, _ ingestevent.EventSink) (generation.LoadSummary, error) {
 	r.project = req.Project
 	r.stagedAt = nil
 	r.spillsAtLoad = nil

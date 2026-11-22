@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
+	"github.com/calypr/loom/internal/semantic"
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -489,10 +489,10 @@ func TestSemanticCoverageBuildMaterializesExactAuthAndBuildSummaries(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	buildID := semanticinventory.BuildID("project", "generation")
+	buildID := semantic.BuildID("project", "generation")
 	identity := SemanticCoverageBuildIdentity{
 		Project: "project", DatasetGeneration: "generation", BuildID: buildID,
-		SchemaIdentity: "schema-identity", SourceKind: semanticinventory.SourceRetained,
+		SchemaIdentity: "schema-identity", SourceKind: semantic.SourceRetained,
 	}
 	if err := adapter.BeginSemanticCoverageBuild(context.Background(), identity); err != nil {
 		t.Fatalf("begin coverage build: %v", err)
@@ -566,10 +566,10 @@ func TestSemanticCoverageIncompleteReplayCannotReuseCompletedMarkerOrSummary(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	buildID := semanticinventory.BuildID("project", "generation")
+	buildID := semantic.BuildID("project", "generation")
 	identity := SemanticCoverageBuildIdentity{
 		Project: "project", DatasetGeneration: "generation", BuildID: buildID,
-		SchemaIdentity: "schema-identity", SourceKind: semanticinventory.SourceRetained,
+		SchemaIdentity: "schema-identity", SourceKind: semantic.SourceRetained,
 	}
 	contribution := semanticCoverageFixtureContribution()
 	contribution.BuildID = buildID
@@ -617,8 +617,8 @@ func TestSemanticCoverageMaterializationKeepsUnauthorizedPartitionSeparate(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	buildID := semanticinventory.BuildID("project", "generation")
-	identity := SemanticCoverageBuildIdentity{Project: "project", DatasetGeneration: "generation", BuildID: buildID, SchemaIdentity: "schema", SourceKind: semanticinventory.SourceRetained}
+	buildID := semantic.BuildID("project", "generation")
+	identity := SemanticCoverageBuildIdentity{Project: "project", DatasetGeneration: "generation", BuildID: buildID, SchemaIdentity: "schema", SourceKind: semantic.SourceRetained}
 	if err := adapter.BeginSemanticCoverageBuild(context.Background(), identity); err != nil {
 		t.Fatal(err)
 	}
@@ -665,8 +665,8 @@ func TestFacetProofTruncationKeepsExactCandidateRaw(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	buildID := semanticinventory.BuildID("project", "generation")
-	identity := SemanticCoverageBuildIdentity{Project: "project", DatasetGeneration: "generation", BuildID: buildID, SchemaIdentity: "schema", SourceKind: semanticinventory.SourceRetained}
+	buildID := semantic.BuildID("project", "generation")
+	identity := SemanticCoverageBuildIdentity{Project: "project", DatasetGeneration: "generation", BuildID: buildID, SchemaIdentity: "schema", SourceKind: semantic.SourceRetained}
 	if err := adapter.BeginSemanticCoverageBuild(context.Background(), identity); err != nil {
 		t.Fatal(err)
 	}
@@ -694,10 +694,10 @@ func TestSemanticCoverageExactFacetIgnoresRawSiblingAndOwnerDisposition(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	buildID := semanticinventory.BuildID("project", "generation")
+	buildID := semantic.BuildID("project", "generation")
 	identity := SemanticCoverageBuildIdentity{
 		Project: "project", DatasetGeneration: "generation", BuildID: buildID,
-		SchemaIdentity: "schema", SourceKind: semanticinventory.SourceRetained,
+		SchemaIdentity: "schema", SourceKind: semantic.SourceRetained,
 	}
 	contribution := semanticCoverageFixtureContribution()
 	contribution.BuildID = buildID
@@ -746,8 +746,8 @@ func TestIncompletePathlessPartitionCannotBorrowProofFromAnotherAuthorizedPartit
 	if err != nil {
 		t.Fatal(err)
 	}
-	buildID := semanticinventory.BuildID("project", "generation")
-	identity := SemanticCoverageBuildIdentity{Project: "project", DatasetGeneration: "generation", BuildID: buildID, SchemaIdentity: "schema", SourceKind: semanticinventory.SourceRetained}
+	buildID := semantic.BuildID("project", "generation")
+	identity := SemanticCoverageBuildIdentity{Project: "project", DatasetGeneration: "generation", BuildID: buildID, SchemaIdentity: "schema", SourceKind: semantic.SourceRetained}
 	if err := adapter.BeginSemanticCoverageBuild(context.Background(), identity); err != nil {
 		t.Fatal(err)
 	}
@@ -790,8 +790,8 @@ func TestEmptySchemaCoverageBuildAndLookupRemainUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	buildID := semanticinventory.BuildID("project", "generation")
-	identity := SemanticCoverageBuildIdentity{Project: "project", DatasetGeneration: "generation", BuildID: buildID, SourceKind: semanticinventory.SourceRetained}
+	buildID := semantic.BuildID("project", "generation")
+	identity := SemanticCoverageBuildIdentity{Project: "project", DatasetGeneration: "generation", BuildID: buildID, SourceKind: semantic.SourceRetained}
 	if err := adapter.BeginSemanticCoverageBuild(context.Background(), identity); err != nil {
 		t.Fatalf("begin empty-schema build: %v", err)
 	}
@@ -826,8 +826,8 @@ func TestSemanticCoverageCandidateLookupConsidersEveryBoundarySignature(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	buildID := semanticinventory.BuildID("project", "generation")
-	identity := SemanticCoverageBuildIdentity{Project: "project", DatasetGeneration: "generation", BuildID: buildID, SchemaIdentity: "schema", SourceKind: semanticinventory.SourceRetained}
+	buildID := semantic.BuildID("project", "generation")
+	identity := SemanticCoverageBuildIdentity{Project: "project", DatasetGeneration: "generation", BuildID: buildID, SchemaIdentity: "schema", SourceKind: semantic.SourceRetained}
 	if err := adapter.BeginSemanticCoverageBuild(context.Background(), identity); err != nil {
 		t.Fatal(err)
 	}
@@ -881,10 +881,10 @@ func TestSemanticCoverageMaterializerCountsOverlappingFacetsOncePerSource(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	buildID := semanticinventory.BuildID("project", "generation")
+	buildID := semantic.BuildID("project", "generation")
 	identity := SemanticCoverageBuildIdentity{
 		Project: "project", DatasetGeneration: "generation", BuildID: buildID,
-		SchemaIdentity: "schema", SourceKind: semanticinventory.SourceRetained,
+		SchemaIdentity: "schema", SourceKind: semantic.SourceRetained,
 	}
 	contribution := semanticCoverageFixtureContribution()
 	contribution.BuildID = buildID
@@ -919,10 +919,10 @@ func TestSemanticCoverageLookupRejectsStorageFormatMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	buildID := semanticinventory.BuildID("project", "generation")
+	buildID := semantic.BuildID("project", "generation")
 	identity := SemanticCoverageBuildIdentity{
 		Project: "project", DatasetGeneration: "generation", BuildID: buildID,
-		SchemaIdentity: "schema", SourceKind: semanticinventory.SourceRetained,
+		SchemaIdentity: "schema", SourceKind: semantic.SourceRetained,
 	}
 	contribution := semanticCoverageFixtureContribution()
 	contribution.BuildID = buildID
@@ -955,8 +955,8 @@ func TestSemanticCoverageReadFailureCannotPublishComplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	buildID := semanticinventory.BuildID("project", "generation")
-	identity := SemanticCoverageBuildIdentity{Project: "project", DatasetGeneration: "generation", BuildID: buildID, SchemaIdentity: "schema", SourceKind: semanticinventory.SourceRetained}
+	buildID := semantic.BuildID("project", "generation")
+	identity := SemanticCoverageBuildIdentity{Project: "project", DatasetGeneration: "generation", BuildID: buildID, SchemaIdentity: "schema", SourceKind: semantic.SourceRetained}
 	if err := adapter.BeginSemanticCoverageBuild(context.Background(), identity); err != nil {
 		t.Fatal(err)
 	}
@@ -992,8 +992,8 @@ func TestSemanticCoverageSummaryWriteFailureCannotPublishComplete(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	buildID := semanticinventory.BuildID("project", "generation")
-	identity := SemanticCoverageBuildIdentity{Project: "project", DatasetGeneration: "generation", BuildID: buildID, SchemaIdentity: "schema", SourceKind: semanticinventory.SourceRetained}
+	buildID := semantic.BuildID("project", "generation")
+	identity := SemanticCoverageBuildIdentity{Project: "project", DatasetGeneration: "generation", BuildID: buildID, SchemaIdentity: "schema", SourceKind: semantic.SourceRetained}
 	if err := adapter.BeginSemanticCoverageBuild(context.Background(), identity); err != nil {
 		t.Fatal(err)
 	}
@@ -1035,10 +1035,10 @@ func TestCompleteRetainedSemanticCoverageResourceReturnsCertificationSourceRows(
 	if err != nil {
 		t.Fatal(err)
 	}
-	buildID := semanticinventory.BuildID("project", "generation")
+	buildID := semantic.BuildID("project", "generation")
 	identity := SemanticCoverageBuildIdentity{
 		Project: "project", DatasetGeneration: "generation", BuildID: buildID,
-		SchemaIdentity: "schema", SourceKind: semanticinventory.SourceRetained,
+		SchemaIdentity: "schema", SourceKind: semantic.SourceRetained,
 	}
 	contribution := semanticCoverageFixtureContribution()
 	contribution.BuildID = buildID
@@ -1063,7 +1063,7 @@ func TestSemanticCoverageLookupPropagatesErrorsAndSeparatesBuildStates(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	buildID := semanticinventory.BuildID("project", "generation")
+	buildID := semantic.BuildID("project", "generation")
 	identity := SemanticCoverageBuildIdentity{Project: "project", DatasetGeneration: "generation", BuildID: buildID, SchemaIdentity: "schema", SourceKind: "file"}
 	if err := adapter.BeginSemanticCoverageBuild(context.Background(), identity); err != nil {
 		t.Fatal(err)
@@ -1099,8 +1099,8 @@ func TestSemanticCoverageUnrestrictedLookupBindsAnEmptyAuthArray(t *testing.T) {
 	project, generation := "project", "generation"
 	_, err = adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
 		Project: project, DatasetGeneration: generation,
-		BuildID:        semanticinventory.BuildID(project, generation),
-		SchemaIdentity: "schema", SourceKind: semanticinventory.SourceRetained,
+		BuildID:        semantic.BuildID(project, generation),
+		SchemaIdentity: "schema", SourceKind: semantic.SourceRetained,
 		AuthResourcePathsUnrestricted: true,
 		Candidates:                    []SemanticCoverageCandidatePath{{ResourceType: "Specimen", CanonicalPath: "status"}},
 	})
@@ -1120,7 +1120,7 @@ func TestWriteSemanticCoverageFailureKeepsBuildUnavailableAfterReplayStarts(t *t
 		t.Fatal(err)
 	}
 	contribution := semanticCoverageFixtureContribution()
-	contribution.BuildID = semanticinventory.BuildID(contribution.Identity.Project, contribution.Identity.DatasetGeneration)
+	contribution.BuildID = semantic.BuildID(contribution.Identity.Project, contribution.Identity.DatasetGeneration)
 	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), contribution.BuildID, []fieldprofile.SemanticCoverageSourceContribution{contribution}, 10); err != nil {
 		t.Fatalf("write initial source: %v", err)
 	}
@@ -1160,7 +1160,7 @@ func semanticCoverageFixtureContribution() fieldprofile.SemanticCoverageSourceCo
 	return fieldprofile.SemanticCoverageSourceContribution{
 		Identity: fieldprofile.SemanticCoverageSourceIdentity{
 			Project: "project", DatasetGeneration: "generation", AuthResourcePath: "Patient/authorized",
-			SchemaIdentity: "schema-identity", SourceKind: semanticinventory.SourceRetained,
+			SchemaIdentity: "schema-identity", SourceKind: semantic.SourceRetained,
 			SourceID: "Observation/source-1", ResourceType: "Observation",
 		},
 		BuildID: "build-1", SourceRecordCount: 1,
@@ -1173,13 +1173,13 @@ func semanticCoverageFixtureContribution() fieldprofile.SemanticCoverageSourceCo
 			Facets: []fieldprofile.SemanticCoverageFacetAggregate{
 				{Path: "coding[].code", Kind: "code", Disposition: fieldprofile.SemanticCoverageSemanticDisposition, OccurrenceCount: 3, References: []fieldprofile.SemanticCoverageReference{
 					{Kind: fieldprofile.SemanticCoverageExactReference, ConceptID: "concept-1", BindingID: "binding-1"},
-					{Kind: fieldprofile.SemanticCoverageFamilyReference, Family: semanticinventory.FamilyReference{FamilyID: "family-1", BindingID: "binding-family", SourceKind: "retained_vertex", ResourceType: "Observation", SourcePath: "component[].code", System: "urn:family", Version: "v2"}},
+					{Kind: fieldprofile.SemanticCoverageFamilyReference, Family: semantic.FamilyReference{FamilyID: "family-1", BindingID: "binding-family", SourceKind: "retained_vertex", ResourceType: "Observation", SourcePath: "component[].code", System: "urn:family", Version: "v2"}},
 				}},
 				{Path: "coding[].userSelected", Kind: "boolean", Disposition: fieldprofile.SemanticCoverageRawRetainedDisposition, Reason: fieldprofile.SemanticCoverageReasonUnrepresentedMetadata, OccurrenceCount: 1},
 			},
 			References: []fieldprofile.SemanticCoverageReference{
 				{Kind: fieldprofile.SemanticCoverageExactReference, ConceptID: "concept-1", BindingID: "binding-1"},
-				{Kind: fieldprofile.SemanticCoverageFamilyReference, Family: semanticinventory.FamilyReference{
+				{Kind: fieldprofile.SemanticCoverageFamilyReference, Family: semantic.FamilyReference{
 					FamilyID: "family-1", BindingID: "binding-family", SourceKind: "retained_vertex", ResourceType: "Observation",
 					SourcePath: "component[].code", System: "urn:family", Version: "v2",
 				}},

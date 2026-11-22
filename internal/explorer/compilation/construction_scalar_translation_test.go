@@ -2,19 +2,19 @@ package compilation
 
 import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"reflect"
 	"testing"
 )
 
-func constructionRecipePlanForScalarTest(t *testing.T, operation authoringv2.ConstructionOperation, sources, outputs []recipe.StageColumn) *semantic.RecipePlan {
+func constructionRecipePlanForScalarTest(t *testing.T, operation authoringv2.ConstructionOperation, sources, outputs []recipe.StageColumn) *recipeplan.RecipePlan {
 	t.Helper()
 	mapped, err := recipeConstructionOperation(operation)
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := semantic.BuildRecipePlan(recipe.Bundle{
+	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
 		Name:                "construction-translation",
 		TranslationVersion:  "test",

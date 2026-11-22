@@ -8,7 +8,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func TestConstructionPreviewPushesLeadingRootIDFilterAndRetainsStagePredicate(t *testing.T) {
@@ -91,11 +91,11 @@ func compileConstructionRootIDTestOutput(t *testing.T, output recipe.Output, bin
 		TranslationVersion:  "construction-root-id-preview",
 		Outputs:             []recipe.Output{output},
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", bindings.DatasetGeneration)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-a", bindings.DatasetGeneration)
 	if err != nil {
 		t.Fatal(err)
 	}

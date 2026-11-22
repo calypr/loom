@@ -17,9 +17,8 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/catalog/codedconcept"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
+	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
@@ -36,38 +35,38 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 	}
 	project := "c01-" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	generation := strings.ReplaceAll(uuid.NewString(), "-", "")
-	buildsExist, err := client.CollectionExists(ctx, semanticinventory.BuildCollection)
+	buildsExist, err := client.CollectionExists(ctx, semantic.BuildCollection)
 	if err != nil {
 		t.Fatal(err)
 	}
-	inventoryExists, err := client.CollectionExists(ctx, semanticinventory.Collection)
+	inventoryExists, err := client.CollectionExists(ctx, semantic.Collection)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !buildsExist && !inventoryExists {
-		legacyPage, err := store.PageSemanticInventory(ctx, semanticinventory.PageOptions{Project: project, DatasetGeneration: generation})
-		if err != nil || legacyPage.State != semanticinventory.Unknown || len(legacyPage.Entries) != 0 {
+		legacyPage, err := store.PageSemanticInventory(ctx, semantic.PageOptions{Project: project, DatasetGeneration: generation})
+		if err != nil || legacyPage.State != semantic.Unknown || len(legacyPage.Entries) != 0 {
 			t.Fatalf("database without inventory collections page = state %q entries %d err %v", legacyPage.State, len(legacyPage.Entries), err)
 		}
 	}
 	if err := client.Bootstrap(ctx, arangostore.BootstrapSpec{Collections: []arangostore.CollectionSpec{
-		{Name: semanticinventory.Collection, Indexes: [][]string{
+		{Name: semantic.Collection, Indexes: [][]string{
 			{"project", "dataset_generation", "build_id"},
 			{"project", "dataset_generation", "auth_resource_path", "resource_type", "binding_id", "concept_id"},
 			{"project", "dataset_generation", "build_id", "binding_id", "concept_id", "auth_resource_path"},
 			{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
 			{"project", "dataset_generation", "build_id", "source_id"},
 		}},
-		{Name: semanticinventory.EntryCollection, Indexes: [][]string{
+		{Name: semantic.EntryCollection, Indexes: [][]string{
 			{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
 			{"project", "dataset_generation", "build_id", "source_kind", "resource_type", "binding_id", "concept_id", "auth_resource_path"},
 		}},
-		{Name: semanticinventory.BuildCollection, Indexes: [][]string{{"project", "dataset_generation"}}},
+		{Name: semantic.BuildCollection, Indexes: [][]string{{"project", "dataset_generation"}}},
 	}}); err != nil {
 		t.Fatal(err)
 	}
 
-	options := semanticinventory.PageOptions{
+	options := semantic.PageOptions{
 		Project:                       project,
 		DatasetGeneration:             generation,
 		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(false),
@@ -75,10 +74,10 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 		Limit:                         1000,
 	}
 	page, err := store.PageSemanticInventory(ctx, options)
-	if err != nil || page.State != semanticinventory.Unknown || len(page.Entries) != 0 {
+	if err != nil || page.State != semantic.Unknown || len(page.Entries) != 0 {
 		t.Fatalf("unmarked generation page = state %q entries %d err %v, want unknown and empty", page.State, len(page.Entries), err)
 	}
-	build := semanticinventory.NewBuild(project, generation, "")
+	build := semantic.NewBuild(project, generation, "")
 	if err := store.BeginSemanticInventoryBuild(ctx, build); err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +85,7 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	page, err = store.PageSemanticInventory(ctx, options)
-	if err != nil || page.State != semanticinventory.Running || len(page.Entries) != 0 {
+	if err != nil || page.State != semantic.Running || len(page.Entries) != 0 {
 		t.Fatalf("running generation page = state %q entries %d err %v, want hidden incomplete data", page.State, len(page.Entries), err)
 	}
 	if page.Build.ScannedResources != 0 || page.Build.Checkpoint != "" || len(page.Build.Diagnostics) != 0 {
@@ -120,7 +119,7 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 	}
 
 	page, err = store.PageSemanticInventory(ctx, options)
-	if err != nil || page.State != semanticinventory.Complete {
+	if err != nil || page.State != semantic.Complete {
 		t.Fatalf("completed scope page state=%q err=%v", page.State, err)
 	}
 	if page.Build.ScannedResources != 0 || page.Build.Checkpoint != "" || len(page.Build.Diagnostics) != 0 || page.Build.AuthResourcePath != "" {
@@ -167,12 +166,12 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 	}
 	options.Cursor = firstPage.NextCursor
 	options.AuthResourcePaths = []string{"scope-b"}
-	if _, err := store.PageSemanticInventory(ctx, options); err != semanticinventory.ErrSemanticInventoryCursorMismatch {
+	if _, err := store.PageSemanticInventory(ctx, options); err != semantic.ErrSemanticInventoryCursorMismatch {
 		t.Fatalf("cursor reused under different auth path: %v", err)
 	}
 
 	failedGeneration := generation + "-failed"
-	failedBuild := semanticinventory.NewBuild(project, failedGeneration, "scope-a")
+	failedBuild := semantic.NewBuild(project, failedGeneration, "scope-a")
 	if err := store.BeginSemanticInventoryBuild(ctx, failedBuild); err != nil {
 		t.Fatal(err)
 	}
@@ -186,13 +185,13 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 	if err != nil || !found || persistedFailure.ScannedResources != 9 || persistedFailure.Checkpoint != "private/failed-source.ndjson" {
 		t.Fatalf("failed build watermark = %+v found=%v err=%v, want latest progress preserved", persistedFailure, found, err)
 	}
-	failedPage, err := store.PageSemanticInventory(ctx, semanticinventory.PageOptions{
+	failedPage, err := store.PageSemanticInventory(ctx, semantic.PageOptions{
 		Project:                       project,
 		DatasetGeneration:             failedGeneration,
 		AuthResourcePaths:             []string{"scope-a"},
 		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(false),
 	})
-	if err != nil || failedPage.State != semanticinventory.Failed || len(failedPage.Entries) != 0 || len(failedPage.Build.Diagnostics) != 0 {
+	if err != nil || failedPage.State != semantic.Failed || len(failedPage.Entries) != 0 || len(failedPage.Build.Diagnostics) != 0 {
 		t.Fatalf("failed restricted page = %+v err %v", failedPage, err)
 	}
 	if failedPage.Build.ScannedResources != 0 || failedPage.Build.Checkpoint != "" {
@@ -220,37 +219,37 @@ func TestSemanticInventoryMaterializationMatchesFileAggregationAgainstArango(t *
 		t.Fatal(err)
 	}
 	if err := owned.Client.Bootstrap(ctx, arangostore.BootstrapSpec{Collections: []arangostore.CollectionSpec{
-		{Name: semanticinventory.Collection},
-		{Name: semanticinventory.EntryCollection},
-		{Name: semanticinventory.BuildCollection},
+		{Name: semantic.Collection},
+		{Name: semantic.EntryCollection},
+		{Name: semantic.BuildCollection},
 	}}); err != nil {
 		t.Fatal(err)
 	}
 	project := "aggregation-" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	fixtures := []semanticinventory.Contribution{
+	fixtures := []semantic.Contribution{
 		inventoryAggregationFixture("a", 1, false),
 		inventoryAggregationFixture("a", 2, true),
 		inventoryAggregationFixture("a", 1, false),
 		inventoryAggregationFixture("Z", 1, false),
 	}
-	var rowLevel, aggregated []semanticinventory.Entry
+	var rowLevel, aggregated []semantic.Entry
 	var rawPopulation int64
 	for _, fixture := range fixtures {
 		rawPopulation += fixture.Observation.Population
 	}
 	for index, generation := range []string{"row-level", "aggregated"} {
-		build := semanticinventory.NewBuild(project, generation, "scope")
+		build := semantic.NewBuild(project, generation, "scope")
 		if err := store.BeginSemanticInventoryBuild(ctx, build); err != nil {
 			t.Fatal(err)
 		}
-		contributions := make([]semanticinventory.Contribution, 0, len(fixtures))
-		aggregator := semanticinventory.NewAggregator(project, generation, "scope", "Observation", "META/Observation.ndjson")
+		contributions := make([]semantic.Contribution, 0, len(fixtures))
+		aggregator := semantic.NewAggregator(project, generation, "scope", "Observation", "META/Observation.ndjson")
 		for ordinal, fixture := range fixtures {
 			fixture.Project = project
 			fixture.DatasetGeneration = generation
 			fixture.BuildID = build.BuildID
 			fixture.AuthResourcePath = "scope"
-			fixture.SourceKind = semanticinventory.SourceFile
+			fixture.SourceKind = semantic.SourceFile
 			fixture.SourceID = fmt.Sprintf("META/Observation.ndjson#%d", ordinal+1)
 			fixture.Ordinal = ordinal
 			fixture.Key = fmt.Sprintf("row-%d-%s", ordinal, generation)
@@ -281,22 +280,22 @@ func TestSemanticInventoryMaterializationMatchesFileAggregationAgainstArango(t *
 		if err := store.CompleteSemanticInventoryBuild(ctx, build, rawPopulation, "META/Observation.ndjson"); err != nil {
 			t.Fatal(err)
 		}
-		if build.EntryIndexVersion != semanticinventory.EntryIndexVersion {
-			t.Fatalf("entry index version = %d, want %d", build.EntryIndexVersion, semanticinventory.EntryIndexVersion)
+		if build.EntryIndexVersion != semantic.EntryIndexVersion {
+			t.Fatalf("entry index version = %d, want %d", build.EntryIndexVersion, semantic.EntryIndexVersion)
 		}
-		page, err := store.PageSemanticInventory(ctx, semanticinventory.PageOptions{
+		page, err := store.PageSemanticInventory(ctx, semantic.PageOptions{
 			Project: project, DatasetGeneration: generation,
 			AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(true), Limit: 10,
 		})
-		if err != nil || page.State != semanticinventory.Complete {
+		if err != nil || page.State != semantic.Complete {
 			t.Fatalf("page state=%s err=%v", page.State, err)
 		}
-		resolved, err := store.ResolveSemanticInventorySelections(ctx, semanticinventory.ResolveOptions{
+		resolved, err := store.ResolveSemanticInventorySelections(ctx, semantic.ResolveOptions{
 			Project: project, DatasetGeneration: generation,
 			AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(true),
-			References:                    []semanticinventory.Reference{{BindingID: "binding", ConceptID: "concept"}},
+			References:                    []semantic.Reference{{BindingID: "binding", ConceptID: "concept"}},
 		})
-		if err != nil || resolved.State != semanticinventory.Complete {
+		if err != nil || resolved.State != semantic.Complete {
 			t.Fatalf("resolve state=%s err=%v", resolved.State, err)
 		}
 		if index == 0 {
@@ -322,17 +321,17 @@ func TestSemanticInventoryMaterializationMatchesFileAggregationAgainstArango(t *
 	}
 }
 
-func inventoryAggregationFixture(display string, population int64, truncated bool) semanticinventory.Contribution {
-	return semanticinventory.Contribution{
+func inventoryAggregationFixture(display string, population int64, truncated bool) semantic.Contribution {
+	return semantic.Contribution{
 		Project: "project", DatasetGeneration: "generation", AuthResourcePath: "scope", ResourceType: "Observation",
-		BuildID: semanticinventory.BuildID("project", "generation"), SourceKind: semanticinventory.SourceFile,
+		BuildID: semantic.BuildID("project", "generation"), SourceKind: semantic.SourceFile,
 		SourceID: "META/Observation.ndjson#1", Ordinal: 0, ConceptID: "concept", BindingID: "binding", Example: display,
-		Observation: codedconcept.Observation{
+		Observation: semantic.Observation{
 			SchemaVersion: 4,
-			Source:        codedconcept.Source{Canonical: "canonical", Type: "Observation", Profile: "profile", Path: "path"},
-			Key:           codedconcept.Key{Selector: "code", System: "urn:system", Version: "1", Code: "code", Display: display},
-			Value:         codedconcept.Value{Selector: "value", Type: "string", FallbackSelectors: []string{"a", "b"}},
-			OwningScope:   "scope", ObservedUnits: []string{display}, Completeness: codedconcept.Complete,
+			Source:        semantic.Source{Canonical: "canonical", Type: "Observation", Profile: "profile", Path: "path"},
+			Key:           semantic.Key{Selector: "code", System: "urn:system", Version: "1", Code: "code", Display: display},
+			Value:         semantic.Value{Selector: "value", Type: "string", FallbackSelectors: []string{"a", "b"}},
+			OwningScope:   "scope", ObservedUnits: []string{display}, Completeness: semantic.CompletenessComplete,
 			Population: population, Examples: []string{display}, ExamplesTruncated: truncated,
 		},
 	}
@@ -353,9 +352,9 @@ func TestSemanticInventoryFallbackPolicySurvivesMaterializationAndReadback(t *te
 
 	project := "c01-fallback-" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	generation := strings.ReplaceAll(uuid.NewString(), "-", "")
-	build := semanticinventory.NewBuild(project, generation, "")
-	build.SourceKind = semanticinventory.SourceRetained
-	build.SourceAvailability = semanticinventory.SourceAvailabilityVerified
+	build := semantic.NewBuild(project, generation, "")
+	build.SourceKind = semantic.SourceRetained
+	build.SourceAvailability = semantic.SourceAvailabilityVerified
 	if err := store.BeginSemanticInventoryBuild(ctx, build); err != nil {
 		t.Fatal(err)
 	}
@@ -364,8 +363,8 @@ func TestSemanticInventoryFallbackPolicySurvivesMaterializationAndReadback(t *te
 		"26c7500c-f54f-5229-b5a7-a6757614bc21",
 		"64704041-c4da-5375-aac0-88f951f78344",
 	}
-	emitter := semanticinventory.NewEmitter(project, generation)
-	contributions := make([]semanticinventory.Contribution, 0, len(witnessIDs))
+	emitter := semantic.NewEmitter(project, generation)
+	contributions := make([]semantic.Contribution, 0, len(witnessIDs))
 	for _, id := range witnessIDs {
 		payload := map[string]any{
 			"resourceType": "Observation",
@@ -377,7 +376,7 @@ func TestSemanticInventoryFallbackPolicySurvivesMaterializationAndReadback(t *te
 				"system": "http://snomed.info/sct", "code": "1222593009", "display": "Stage I",
 			}}},
 		}
-		emitter.ObservePayload(payload, "Observation", "scope-a", "retained:Observation/"+id, func(contribution semanticinventory.Contribution) {
+		emitter.ObservePayload(payload, "Observation", "scope-a", "retained:Observation/"+id, func(contribution semantic.Contribution) {
 			contributions = append(contributions, contribution)
 		})
 	}
@@ -389,7 +388,7 @@ func TestSemanticInventoryFallbackPolicySurvivesMaterializationAndReadback(t *te
 	}
 	orderedFallbacks := []string{"valueCodeableConcept.coding[].display", "valueCodeableConcept.text"}
 	orderedBindingID := ""
-	for _, contribution := range append([]semanticinventory.Contribution(nil), contributions...) {
+	for _, contribution := range append([]semantic.Contribution(nil), contributions...) {
 		ordered := contribution
 		ordered.SourceID += ":ordered-fallback-policy"
 		ordered.Key = "ordered-policy-" + uuid.NewString()
@@ -402,17 +401,17 @@ func TestSemanticInventoryFallbackPolicySurvivesMaterializationAndReadback(t *te
 		}
 		contributions = append(contributions, ordered)
 	}
-	legacy := semanticinventory.Contribution{
+	legacy := semantic.Contribution{
 		Key: "legacy-primary-only", Project: project, DatasetGeneration: generation,
 		AuthResourcePath: "scope-a", ResourceType: "Observation", BuildID: build.BuildID,
-		SourceKind: semanticinventory.SourceRetained, SourceID: "retained:Observation/legacy-primary-only",
+		SourceKind: semantic.SourceRetained, SourceID: "retained:Observation/legacy-primary-only",
 		ConceptID: "legacy-primary-only-concept", BindingID: "legacy-primary-only-binding",
-		Observation: codedconcept.Observation{
-			SchemaVersion: codedconcept.ObservationSchemaVersion,
-			Source:        codedconcept.Source{Type: "Observation", Path: "valueQuantity.value"},
-			Key:           codedconcept.Key{Selector: "code.coding[]", System: "urn:legacy", Code: "primary-only"},
-			Value:         codedconcept.Value{Selector: "valueQuantity.value", Type: "decimal"},
-			LogicalType:   "decimal", Population: 1, Completeness: codedconcept.Complete,
+		Observation: semantic.Observation{
+			SchemaVersion: semantic.ObservationSchemaVersion,
+			Source:        semantic.Source{Type: "Observation", Path: "valueQuantity.value"},
+			Key:           semantic.Key{Selector: "code.coding[]", System: "urn:legacy", Code: "primary-only"},
+			Value:         semantic.Value{Selector: "valueQuantity.value", Type: "decimal"},
+			LogicalType:   "decimal", Population: 1, Completeness: semantic.CompletenessComplete,
 			Status: "SUPPORTED", RuleHint: "OBSERVATION_CODE_VALUE", RuleVersion: "4",
 		},
 	}
@@ -425,7 +424,7 @@ func TestSemanticInventoryFallbackPolicySurvivesMaterializationAndReadback(t *te
 	}
 
 	unrestricted := false
-	options := semanticinventory.PageOptions{
+	options := semantic.PageOptions{
 		Project: project, DatasetGeneration: generation,
 		AuthResourcePathsUnrestricted: &unrestricted, AuthResourcePaths: []string{"scope-a"}, Limit: 10,
 	}
@@ -433,7 +432,7 @@ func TestSemanticInventoryFallbackPolicySurvivesMaterializationAndReadback(t *te
 	if len(entries) != 3 {
 		t.Fatalf("materialized semantic entries = %d, want two coded fallback policies and one primary-only row: %#v", len(entries), entries)
 	}
-	var fallbackEntry, orderedEntry, legacyEntry semanticinventory.Entry
+	var fallbackEntry, orderedEntry, legacyEntry semantic.Entry
 	for _, entry := range entries {
 		switch {
 		case entry.BindingID == contributions[0].BindingID:
@@ -458,12 +457,12 @@ func TestSemanticInventoryFallbackPolicySurvivesMaterializationAndReadback(t *te
 		t.Fatalf("materialized legacy primary-only defaults = %#v", legacyEntry)
 	}
 
-	references := []semanticinventory.Reference{
+	references := []semantic.Reference{
 		{ConceptID: fallbackEntry.ConceptID, BindingID: fallbackEntry.BindingID},
 		{ConceptID: orderedEntry.ConceptID, BindingID: orderedEntry.BindingID},
 		{ConceptID: legacyEntry.ConceptID, BindingID: legacyEntry.BindingID},
 	}
-	resolved, err := store.ResolveSemanticInventorySelections(ctx, semanticinventory.ResolveOptions{
+	resolved, err := store.ResolveSemanticInventorySelections(ctx, semantic.ResolveOptions{
 		Project: project, DatasetGeneration: generation,
 		AuthResourcePathsUnrestricted: &unrestricted, AuthResourcePaths: []string{"scope-a"}, References: references,
 	})
@@ -474,7 +473,7 @@ func TestSemanticInventoryFallbackPolicySurvivesMaterializationAndReadback(t *te
 		!reflect.DeepEqual(got.FallbackSelectors, []string{"valueCodeableConcept.coding[].display"}) || !got.FallbackOnBlankString {
 		t.Fatalf("resolved fallback policy = %#v", got)
 	}
-	resolvedByBinding := make(map[string]semanticinventory.Entry, len(resolved.Entries))
+	resolvedByBinding := make(map[string]semantic.Entry, len(resolved.Entries))
 	for _, entry := range resolved.Entries {
 		resolvedByBinding[entry.BindingID] = entry
 	}
@@ -490,7 +489,7 @@ func TestSemanticInventoryFallbackPolicySurvivesMaterializationAndReadback(t *te
 	}
 }
 
-func semanticBindingIDForIntegrationTest(observation codedconcept.Observation) string {
+func semanticBindingIDForIntegrationTest(observation semantic.Observation) string {
 	parts := []string{
 		"semantic-binding/v2",
 		observation.Source.Type,
@@ -533,10 +532,10 @@ func TestSemanticInventorySelectionResolverAggregatesAuthorizedIndexedRows(t *te
 	}
 	project := "c01-resolve-" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	generation := strings.ReplaceAll(uuid.NewString(), "-", "")
-	build := semanticinventory.NewBuild(project, generation, "")
-	build.SourceKind = semanticinventory.SourceRetained
-	build.SourceAvailability = semanticinventory.SourceAvailabilityVerified
-	build.EntryIndexVersion = semanticinventory.EntryIndexVersion
+	build := semantic.NewBuild(project, generation, "")
+	build.SourceKind = semantic.SourceRetained
+	build.SourceAvailability = semantic.SourceAvailabilityVerified
+	build.EntryIndexVersion = semantic.EntryIndexVersion
 	if err := store.BeginSemanticInventoryBuild(ctx, build); err != nil {
 		t.Fatal(err)
 	}
@@ -547,16 +546,16 @@ func TestSemanticInventorySelectionResolverAggregatesAuthorizedIndexedRows(t *te
 		if scope == "scope-b" {
 			unit = "mmol/L"
 		}
-		observation := codedconcept.Observation{
-			SchemaVersion: codedconcept.ObservationSchemaVersion,
-			Source:        codedconcept.Source{Type: "Observation", Path: "code"},
-			Key:           codedconcept.Key{Selector: "code.coding[]", System: "urn:c01", Code: "shared", Display: "Label " + scope},
-			Value:         codedconcept.Value{Selector: "valueQuantity.value", Type: "decimal"},
+		observation := semantic.Observation{
+			SchemaVersion: semantic.ObservationSchemaVersion,
+			Source:        semantic.Source{Type: "Observation", Path: "code"},
+			Key:           semantic.Key{Selector: "code.coding[]", System: "urn:c01", Code: "shared", Display: "Label " + scope},
+			Value:         semantic.Value{Selector: "valueQuantity.value", Type: "decimal"},
 			LogicalType:   "decimal",
 			ObservedUnits: []string{unit},
 			Population:    1,
 			Examples:      []string{"Observation/" + scope},
-			Completeness:  codedconcept.Complete,
+			Completeness:  semantic.CompletenessComplete,
 			Status:        "SUPPORTED",
 			RuleHint:      "OBSERVATION_CODE_VALUE",
 			RuleVersion:   "3",
@@ -580,12 +579,12 @@ func TestSemanticInventorySelectionResolverAggregatesAuthorizedIndexedRows(t *te
 		}
 		rows = append(rows, encoded)
 	}
-	privateObservation := codedconcept.Observation{
-		SchemaVersion: codedconcept.ObservationSchemaVersion,
-		Source:        codedconcept.Source{Type: "Observation", Path: "code"},
-		Key:           codedconcept.Key{Selector: "code.coding[]", System: "urn:c01", Code: "scope-b-only", Display: "Private label"},
-		Value:         codedconcept.Value{Selector: "valueQuantity.value", Type: "decimal"},
-		LogicalType:   "decimal", Population: 1, Completeness: codedconcept.Complete,
+	privateObservation := semantic.Observation{
+		SchemaVersion: semantic.ObservationSchemaVersion,
+		Source:        semantic.Source{Type: "Observation", Path: "code"},
+		Key:           semantic.Key{Selector: "code.coding[]", System: "urn:c01", Code: "scope-b-only", Display: "Private label"},
+		Value:         semantic.Value{Selector: "valueQuantity.value", Type: "decimal"},
+		LogicalType:   "decimal", Population: 1, Completeness: semantic.CompletenessComplete,
 		Status: "SUPPORTED", RuleHint: "OBSERVATION_CODE_VALUE", RuleVersion: "3",
 	}
 	privateRow, err := json.Marshal(map[string]any{
@@ -605,19 +604,19 @@ func TestSemanticInventorySelectionResolverAggregatesAuthorizedIndexedRows(t *te
 		t.Fatal(err)
 	}
 	rows = append(rows, privateRow)
-	if err := client.InsertBatchRaw(ctx, semanticinventory.EntryCollection, rows, true, ""); err != nil {
+	if err := client.InsertBatchRaw(ctx, semantic.EntryCollection, rows, true, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.CompleteSemanticInventoryBuild(ctx, build, 3, ""); err != nil {
 		t.Fatal(err)
 	}
-	resolve := func(paths []string, unrestricted bool) semanticinventory.ResolveResult {
+	resolve := func(paths []string, unrestricted bool) semantic.ResolveResult {
 		t.Helper()
-		result, err := store.ResolveSemanticInventorySelections(ctx, semanticinventory.ResolveOptions{
+		result, err := store.ResolveSemanticInventorySelections(ctx, semantic.ResolveOptions{
 			Project: project, DatasetGeneration: generation,
 			AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(unrestricted),
 			AuthResourcePaths:             paths,
-			References:                    []semanticinventory.Reference{{ConceptID: conceptID, BindingID: bindingID}},
+			References:                    []semantic.Reference{{ConceptID: conceptID, BindingID: bindingID}},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -628,11 +627,11 @@ func TestSemanticInventorySelectionResolverAggregatesAuthorizedIndexedRows(t *te
 	if len(a.Entries) != 1 || a.Entries[0].Observation.Population != 1 || a.Entries[0].Observation.Key.Display != "Label scope-a" {
 		t.Fatalf("scope-a resolver result = %+v", a)
 	}
-	unauthorized, err := store.ResolveSemanticInventorySelections(ctx, semanticinventory.ResolveOptions{
+	unauthorized, err := store.ResolveSemanticInventorySelections(ctx, semantic.ResolveOptions{
 		Project: project, DatasetGeneration: generation,
 		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(false),
 		AuthResourcePaths:             []string{"scope-a"},
-		References:                    []semanticinventory.Reference{{ConceptID: "concept-scope-b-only", BindingID: "binding-scope-b-only"}},
+		References:                    []semantic.Reference{{ConceptID: "concept-scope-b-only", BindingID: "binding-scope-b-only"}},
 	})
 	if err != nil || len(unauthorized.Entries) != 0 {
 		t.Fatalf("out-of-scope exact selection result = %+v err=%v", unauthorized, err)
@@ -700,7 +699,7 @@ func ingestSemanticInventoryFixture(ctx context.Context, store *Store, project, 
 	sourceFile := filepath.ToSlash(filepath.Clean(relative))
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
-	batch := make([]semanticinventory.Contribution, 0, 50)
+	batch := make([]semantic.Contribution, 0, 50)
 	profiler := fieldprofile.NewProfilerForGenerationWithLimits(project, generation, authPath, "Observation", nil, fieldprofile.DefaultProfileLimits())
 	flush := func() error {
 		if len(batch) == 0 {
@@ -720,7 +719,7 @@ func ingestSemanticInventoryFixture(ctx context.Context, store *Store, project, 
 			return err
 		}
 		sourceID := fmt.Sprintf("%s#%d", sourceFile, line)
-		profiler.ObservePayloadWithInventory(payload, map[string]float64{}, sourceID, func(contribution semanticinventory.Contribution) {
+		profiler.ObservePayloadWithInventory(payload, map[string]float64{}, sourceID, func(contribution semantic.Contribution) {
 			batch = append(batch, contribution)
 		})
 		if len(batch) >= 50 {
@@ -735,17 +734,17 @@ func ingestSemanticInventoryFixture(ctx context.Context, store *Store, project, 
 	return flush()
 }
 
-func collectSemanticInventoryPages(t *testing.T, ctx context.Context, store *Store, options semanticinventory.PageOptions) []semanticinventory.Entry {
+func collectSemanticInventoryPages(t *testing.T, ctx context.Context, store *Store, options semantic.PageOptions) []semantic.Entry {
 	t.Helper()
-	entries := make([]semanticinventory.Entry, 0)
+	entries := make([]semantic.Entry, 0)
 	options.Cursor = ""
 	for {
 		page, err := store.PageSemanticInventory(ctx, options)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(page.Entries) > semanticinventory.PageLimit {
-			t.Fatalf("page size %d exceeds maximum %d", len(page.Entries), semanticinventory.PageLimit)
+		if len(page.Entries) > semantic.PageLimit {
+			t.Fatalf("page size %d exceeds maximum %d", len(page.Entries), semantic.PageLimit)
 		}
 		entries = append(entries, page.Entries...)
 		if page.NextCursor == "" {
@@ -755,7 +754,7 @@ func collectSemanticInventoryPages(t *testing.T, ctx context.Context, store *Sto
 	}
 }
 
-func assertInventoryEntries(t *testing.T, entries []semanticinventory.Entry, expectedCodes []string, label string) {
+func assertInventoryEntries(t *testing.T, entries []semantic.Entry, expectedCodes []string, label string) {
 	t.Helper()
 	if len(entries) != len(expectedCodes) {
 		t.Fatalf("%s inventory rows = %d, want %d", label, len(entries), len(expectedCodes))
@@ -784,7 +783,7 @@ func assertInventoryEntries(t *testing.T, entries []semanticinventory.Entry, exp
 	}
 }
 
-func assertCodePopulation(t *testing.T, entries []semanticinventory.Entry, code string, want int64) {
+func assertCodePopulation(t *testing.T, entries []semantic.Entry, code string, want int64) {
 	t.Helper()
 	for _, entry := range entries {
 		if entry.Observation.Key.Code == code {
@@ -797,7 +796,7 @@ func assertCodePopulation(t *testing.T, entries []semanticinventory.Entry, code 
 	t.Fatalf("inventory is missing code %q", code)
 }
 
-func assertBoundedAggregateEvidence(t *testing.T, entries []semanticinventory.Entry, code string) {
+func assertBoundedAggregateEvidence(t *testing.T, entries []semantic.Entry, code string) {
 	t.Helper()
 	for _, entry := range entries {
 		if entry.Observation.Key.Code != code {

@@ -3,8 +3,8 @@ package catalog
 import (
 	"context"
 
-	"github.com/calypr/loom/internal/catalog/codedconcept"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 const (
@@ -149,7 +149,7 @@ type FieldEnrichmentObservation struct {
 	DistinctValues        []string                                 `json:"distinct_values,omitempty"`
 	DistinctTruncated     bool                                     `json:"distinct_truncated"`
 	ExtensionValues       []fieldprofile.ExtensionValueObservation `json:"extension_values,omitempty"`
-	SemanticObservations  []codedconcept.Observation               `json:"semantic_observations,omitempty"`
+	SemanticObservations  []semantic.Observation                   `json:"semantic_observations,omitempty"`
 	PivotCandidate        bool                                     `json:"pivot_candidate"`
 	PivotKind             string                                   `json:"pivot_kind,omitempty"`
 	PivotColumns          []string                                 `json:"pivot_columns,omitempty"`

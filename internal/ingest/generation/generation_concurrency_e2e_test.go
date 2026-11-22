@@ -13,9 +13,9 @@ import (
 
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	publication "github.com/calypr/loom/internal/dataset"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
+	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
@@ -50,9 +50,9 @@ func TestConcurrentGenerationMatchesSerialAgainstArango(t *testing.T) {
 		}
 		defer func() { _ = client.Close(context.Background()) }()
 		docs := make(map[string][]map[string]any)
-		collections := []string{semanticinventory.BuildCollection}
+		collections := []string{semantic.BuildCollection}
 		if !incomplete {
-			collections = append(collections, fieldprofile.FieldCatalogCollection, catalog.RelationshipCatalogCollection, semanticinventory.EntryCollection)
+			collections = append(collections, fieldprofile.FieldCatalogCollection, catalog.RelationshipCatalogCollection, semantic.EntryCollection)
 		}
 		for _, collection := range collections {
 			err := client.QueryRows(ctx, `FOR doc IN @@collection
@@ -71,7 +71,7 @@ RETURN UNSET(doc, "_id", "_rev")`, 50, map[string]any{
 				t.Fatalf("concurrency=%d collection %s returned no rows", concurrency, collection)
 			}
 		}
-		builds := docs[semanticinventory.BuildCollection]
+		builds := docs[semantic.BuildCollection]
 		if len(builds) != 1 || builds[0]["checkpoint"] != "z/Patient.ndjson" || numericInt64(builds[0]["scanned_resources"]) != 4 {
 			t.Fatalf("concurrency=%d unexpected checkpoint %+v", concurrency, builds)
 		}

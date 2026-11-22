@@ -5,8 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func TestSemanticInventoryEmitsBeyondBoundedFieldSummary(t *testing.T) {
@@ -16,8 +15,8 @@ func TestSemanticInventoryEmitsBeyondBoundedFieldSummary(t *testing.T) {
 	}
 	payload := map[string]any{"resourceType": "Observation", "component": components}
 	profiler := NewProfilerForGeneration("project", "generation", "scope-a", "Observation", nil)
-	contributions := make([]semanticinventory.Contribution, 0, len(components))
-	profiler.ObservePayloadWithInventory(payload, map[string]float64{}, "Observations.ndjson#1", func(contribution semanticinventory.Contribution) {
+	contributions := make([]semantic.Contribution, 0, len(components))
+	profiler.ObservePayloadWithInventory(payload, map[string]float64{}, "Observations.ndjson#1", func(contribution semantic.Contribution) {
 		contributions = append(contributions, contribution)
 	})
 
@@ -62,21 +61,21 @@ func TestSemanticInventoryEmitsBeyondBoundedFieldSummary(t *testing.T) {
 }
 
 func TestSemanticInventoryAggregatorCoalescesOnlyEqualReducerInputs(t *testing.T) {
-	base := semanticinventory.Contribution{
+	base := semantic.Contribution{
 		Project: "project", DatasetGeneration: "generation", AuthResourcePath: "scope",
-		ResourceType: "Observation", BuildID: semanticinventory.BuildID("project", "generation"), SourceID: "Observation.ndjson#1",
+		ResourceType: "Observation", BuildID: semantic.BuildID("project", "generation"), SourceID: "Observation.ndjson#1",
 		ConceptID: "concept", BindingID: "binding", Example: "example",
-		Observation: codedconcept.Observation{
+		Observation: semantic.Observation{
 			SchemaVersion: 4,
-			Source:        codedconcept.Source{Canonical: "canonical", Type: "Observation", Profile: "profile", Path: "value"},
-			Key:           codedconcept.Key{Selector: "code", System: "system", Version: "version", Code: "code", Display: "display"},
-			Value:         codedconcept.Value{Selector: "value", Type: "string", FallbackSelectors: []string{"a", "b"}, FallbackOnBlankString: true},
+			Source:        semantic.Source{Canonical: "canonical", Type: "Observation", Profile: "profile", Path: "value"},
+			Key:           semantic.Key{Selector: "code", System: "system", Version: "version", Code: "code", Display: "display"},
+			Value:         semantic.Value{Selector: "value", Type: "string", FallbackSelectors: []string{"a", "b"}, FallbackOnBlankString: true},
 			OwningScope:   "scope", ExtensionURLPath: []string{"extension", "url"}, ChoiceArm: "valueString",
-			LogicalType: "string", ObservedUnits: []string{"mg"}, Completeness: codedconcept.Complete,
+			LogicalType: "string", ObservedUnits: []string{"mg"}, Completeness: semantic.CompletenessComplete,
 			Population: 1, Examples: []string{"example"}, RuleHint: "rule", RuleVersion: "1",
 		},
 	}
-	aggregator := semanticinventory.NewAggregator("project", "generation", "scope", "Observation", "META/Observation.ndjson")
+	aggregator := semantic.NewAggregator("project", "generation", "scope", "Observation", "META/Observation.ndjson")
 	if err := aggregator.Add(base); err != nil {
 		t.Fatal(err)
 	}
@@ -112,8 +111,8 @@ func TestSemanticInventoryAggregatorCoalescesOnlyEqualReducerInputs(t *testing.T
 			}
 		}
 	}
-	retry := semanticinventory.NewAggregator("project", "generation", "scope", "Observation", "META/Observation.ndjson")
-	for _, contribution := range []semanticinventory.Contribution{base, duplicate, changed} {
+	retry := semantic.NewAggregator("project", "generation", "scope", "Observation", "META/Observation.ndjson")
+	for _, contribution := range []semantic.Contribution{base, duplicate, changed} {
 		if err := retry.Add(contribution); err != nil {
 			t.Fatal(err)
 		}
@@ -128,9 +127,9 @@ func TestRetainedSemanticEmitterEmitsBeyondSummaryCapWithoutRetainingScopeMaps(t
 	for i := range components {
 		components[i] = inventoryTestComponent(fmt.Sprintf("retained-%04d", i), "v1", "same label")
 	}
-	emitter := semanticinventory.NewEmitter("project", "generation")
-	contributions := make([]semanticinventory.Contribution, 0, len(components))
-	emitter.ObservePayload(map[string]any{"resourceType": "Observation", "component": components}, "Observation", "scope-a", "retained:Observation/key-1", func(contribution semanticinventory.Contribution) {
+	emitter := semantic.NewEmitter("project", "generation")
+	contributions := make([]semantic.Contribution, 0, len(components))
+	emitter.ObservePayload(map[string]any{"resourceType": "Observation", "component": components}, "Observation", "scope-a", "retained:Observation/key-1", func(contribution semantic.Contribution) {
 		contributions = append(contributions, contribution)
 	})
 	if len(contributions) != 1000 {
@@ -139,7 +138,7 @@ func TestRetainedSemanticEmitterEmitsBeyondSummaryCapWithoutRetainingScopeMaps(t
 	concepts := map[string]struct{}{}
 	for _, contribution := range contributions {
 		concepts[contribution.ConceptID] = struct{}{}
-		if contribution.SourceKind != semanticinventory.SourceRetained || contribution.AuthResourcePath != "scope-a" || contribution.SourceID != "retained:Observation/key-1" {
+		if contribution.SourceKind != semantic.SourceRetained || contribution.AuthResourcePath != "scope-a" || contribution.SourceID != "retained:Observation/key-1" {
 			t.Fatalf("retained contribution identity = %+v", contribution)
 		}
 		if len(contribution.Observation.Examples) > maxSemanticExamples {
@@ -205,11 +204,11 @@ func TestRetainedSemanticEmitterProjectsExactCodedGroupWitness(t *testing.T) {
 		},
 	}
 
-	emitter := semanticinventory.NewEmitter("loom_dev_cda_fhir", "cda-fhir-v1")
-	contributionsByID := make(map[string][]semanticinventory.Contribution, len(witness))
+	emitter := semantic.NewEmitter("loom_dev_cda_fhir", "cda-fhir-v1")
+	contributionsByID := make(map[string][]semantic.Contribution, len(witness))
 	for _, record := range witness {
 		record := record
-		emitter.ObservePayload(record.payload, "Observation", "", "retained:Observation/"+record.id, func(contribution semanticinventory.Contribution) {
+		emitter.ObservePayload(record.payload, "Observation", "", "retained:Observation/"+record.id, func(contribution semantic.Contribution) {
 			contributionsByID[record.id] = append(contributionsByID[record.id], contribution)
 		})
 	}
@@ -220,12 +219,12 @@ func TestRetainedSemanticEmitterProjectsExactCodedGroupWitness(t *testing.T) {
 		}
 		contribution := contributions[0]
 		observation := contribution.Observation
-		if contribution.SourceKind != semanticinventory.SourceRetained ||
+		if contribution.SourceKind != semantic.SourceRetained ||
 			contribution.ResourceType != "Observation" || contribution.SourceID != "retained:Observation/"+record.id ||
 			observation.Source.Path != "code" || observation.Key.System != "http://snomed.info/sct" || observation.Key.Code != "1222593009" ||
 			observation.Value.Selector != "valueCodeableConcept.text" ||
 			!reflect.DeepEqual(observation.Value.FallbackSelectors, []string{"valueCodeableConcept.coding[].display"}) ||
-			!observation.Value.FallbackOnBlankString || observation.Status != "SUPPORTED" || observation.RuleHint != codedconcept.RuleHintCodedValueV1 {
+			!observation.Value.FallbackOnBlankString || observation.Status != "SUPPORTED" || observation.RuleHint != semantic.RuleHintCodedValueV1 {
 			t.Fatalf("%s retained semantic contribution = %#v", record.id, contribution)
 		}
 	}
@@ -234,7 +233,7 @@ func TestRetainedSemanticEmitterProjectsExactCodedGroupWitness(t *testing.T) {
 		t.Fatalf("unpaired third observation contributions = %d, want one standalone coded concept", len(standalone))
 	}
 	observation := standalone[0].Observation
-	if observation.RuleHint != codedconcept.RuleHintCodedConceptV1 || observation.Source.Path != "code.coding[]" ||
+	if observation.RuleHint != semantic.RuleHintCodedConceptV1 || observation.Source.Path != "code.coding[]" ||
 		observation.OwningScope != "" || observation.Key.Selector != "code.coding[]" || observation.Key.System != "http://loinc.org" || observation.Key.Code != "81247-9" ||
 		observation.Value.Selector != "code.coding[].display" || !reflect.DeepEqual(observation.Value.FallbackSelectors, []string{"code.coding[].code"}) {
 		t.Fatalf("unpaired third observation standalone contribution = %#v", standalone[0])
@@ -246,14 +245,14 @@ func TestSemanticInventoryIdentitySeparatesCodingVersionButNotDisplay(t *testing
 	renamed := inventoryTestObservation("v1", "updated label")
 	newVersion := inventoryTestObservation("v2", "original label")
 
-	baseConcept := semanticinventory.ConceptID(base)
-	if got := semanticinventory.ConceptID(renamed); got != baseConcept {
+	baseConcept := semantic.ConceptID(base)
+	if got := semantic.ConceptID(renamed); got != baseConcept {
 		t.Fatalf("display-only concept ID = %q, want unchanged %q", got, baseConcept)
 	}
-	if got := semanticinventory.BindingID(renamed); got != semanticinventory.BindingID(base) {
-		t.Fatalf("display-only binding ID = %q, want unchanged %q", got, semanticinventory.BindingID(base))
+	if got := semantic.BindingID(renamed); got != semantic.BindingID(base) {
+		t.Fatalf("display-only binding ID = %q, want unchanged %q", got, semantic.BindingID(base))
 	}
-	if got := semanticinventory.ConceptID(newVersion); got == baseConcept {
+	if got := semantic.ConceptID(newVersion); got == baseConcept {
 		t.Fatalf("explicit Coding.version did not distinguish concepts: %q", got)
 	}
 }
@@ -266,48 +265,48 @@ func TestSemanticBindingIdentityIncludesValueFallbackPolicy(t *testing.T) {
 	withoutFallback := base
 	withoutFallback.Value.FallbackSelectors = nil
 	withoutFallback.Value.FallbackOnBlankString = false
-	if got, want := semanticinventory.BindingID(withoutFallback), semanticinventory.BindingID(base); got == want {
+	if got, want := semantic.BindingID(withoutFallback), semantic.BindingID(base); got == want {
 		t.Fatalf("fallback policy did not change binding identity: %q", got)
 	}
 	changedFallback := base
 	changedFallback.Value.FallbackSelectors = []string{"valueCodeableConcept.coding[].code"}
-	if got, want := semanticinventory.BindingID(changedFallback), semanticinventory.BindingID(base); got == want {
+	if got, want := semantic.BindingID(changedFallback), semantic.BindingID(base); got == want {
 		t.Fatalf("fallback selector did not change binding identity: %q", got)
 	}
 }
 
 func TestLegacySemanticBindingIDV1MatchesPinnedPrimaryOnlyDigest(t *testing.T) {
-	current := codedconcept.Observation{
-		SchemaVersion: codedconcept.ObservationSchemaVersion,
-		Source: codedconcept.Source{
+	current := semantic.Observation{
+		SchemaVersion: semantic.ObservationSchemaVersion,
+		Source: semantic.Source{
 			Type: "Observation", Profile: "http://example.org/Profile", Path: "valueCodeableConcept",
 			Canonical: "Observation.valueCodeableConcept",
 		},
-		Key:         codedconcept.Key{Selector: "code.coding[]", System: "urn:study", Code: "stage"},
+		Key:         semantic.Key{Selector: "code.coding[]", System: "urn:study", Code: "stage"},
 		OwningScope: "", ChoiceArm: "valueCodeableConcept", LogicalType: "string",
-		RuleHint: codedconcept.RuleHintCodedValueV1, RuleVersion: "5",
+		RuleHint: semantic.RuleHintCodedValueV1, RuleVersion: "5",
 		ExtensionURLPath: []string{"urn:outer", "urn:inner"},
-		Value: codedconcept.Value{
+		Value: semantic.Value{
 			Selector: "valueCodeableConcept.text", Type: "string",
 			FallbackSelectors: []string{"valueCodeableConcept.coding[].display"}, FallbackOnBlankString: true,
 		},
 	}
 	const want = "f00fb0de08f991fba1daef08c147104f1ffcd9f0e7ac2c9a85f3aba9376f56eb"
-	if got := semanticinventory.LegacySemanticBindingIDV1(current); got != want {
+	if got := semantic.LegacySemanticBindingIDV1(current); got != want {
 		t.Fatalf("legacy v1 binding ID = %q, want pinned pre-change digest %q", got, want)
 	}
 
 	legacy := current
-	legacy.SchemaVersion = semanticinventory.SemanticObservationLegacyV1SchemaVersion
+	legacy.SchemaVersion = semantic.SemanticObservationLegacyV1SchemaVersion
 	legacy.RuleVersion = "4"
 	legacy.Value.FallbackSelectors = nil
 	legacy.Value.FallbackOnBlankString = false
-	if got := semanticinventory.LegacySemanticBindingIDV1(legacy); got != want {
+	if got := semantic.LegacySemanticBindingIDV1(legacy); got != want {
 		t.Fatalf("primary-only v1 frame identity = %q, want %q", got, want)
 	}
 	changedExtensionOrder := current
 	changedExtensionOrder.ExtensionURLPath = []string{"urn:inner", "urn:outer"}
-	if got := semanticinventory.LegacySemanticBindingIDV1(changedExtensionOrder); got == want {
+	if got := semantic.LegacySemanticBindingIDV1(changedExtensionOrder); got == want {
 		t.Fatalf("legacy binding ID ignored ExtensionURLPath order: %q", got)
 	}
 }
@@ -330,30 +329,30 @@ func TestSemanticInventoryReplayIdentityIgnoresMapConstructionOrder(t *testing.T
 }
 
 func TestSemanticInventoryCursorBindsAuthorizedScopeAndClampsPageLimit(t *testing.T) {
-	options := semanticinventory.PageOptions{
+	options := semantic.PageOptions{
 		Project:                       "project",
 		DatasetGeneration:             "generation",
 		AuthResourcePaths:             []string{"scope-b", "scope-a", "scope-a"},
 		AuthResourcePathsUnrestricted: new(false),
 		Limit:                         1000,
 	}
-	cursor := semanticinventory.EncodeCursor(options, "build", "binding", "concept")
+	cursor := semantic.EncodeCursor(options, "build", "binding", "concept")
 	options.AuthResourcePaths = []string{"scope-a", "scope-b"}
-	options.Limit = semanticinventory.PageLimit
-	if _, _, err := semanticinventory.DecodeCursor(cursor, options, "build"); err != nil {
+	options.Limit = semantic.PageLimit
+	if _, _, err := semantic.DecodeCursor(cursor, options, "build"); err != nil {
 		t.Fatalf("equivalent scope and clamped limit rejected cursor: %v", err)
 	}
 	options.AuthResourcePaths = []string{"scope-a"}
-	if _, _, err := semanticinventory.DecodeCursor(cursor, options, "build"); err != semanticinventory.ErrSemanticInventoryCursorMismatch {
+	if _, _, err := semantic.DecodeCursor(cursor, options, "build"); err != semantic.ErrSemanticInventoryCursorMismatch {
 		t.Fatalf("changed authorization scope error = %v, want cursor mismatch", err)
 	}
 }
 
 func TestSemanticInventoryPageDigestBindsFrameBindingFilter(t *testing.T) {
-	options := semanticinventory.PageOptions{Project: "project", DatasetGeneration: "generation", ResourceType: "Observation"}
-	unfiltered := semanticinventory.PageDigest(options, "build", semanticinventory.PageLimit)
+	options := semantic.PageOptions{Project: "project", DatasetGeneration: "generation", ResourceType: "Observation"}
+	unfiltered := semantic.PageDigest(options, "build", semantic.PageLimit)
 	options.BindingID = "frame-binding"
-	filtered := semanticinventory.PageDigest(options, "build", semanticinventory.PageLimit)
+	filtered := semantic.PageDigest(options, "build", semantic.PageLimit)
 	if filtered == unfiltered {
 		t.Fatal("frame-scoped binding filter did not change semantic inventory cursor identity")
 	}
@@ -371,13 +370,13 @@ func inventoryTestComponent(code, version, display string) map[string]any {
 	}
 }
 
-func inventoryTestObservation(version, display string) codedconcept.Observation {
+func inventoryTestObservation(version, display string) semantic.Observation {
 	profiler := NewProfilerForGeneration("project", "generation", "scope-a", "Observation", nil)
-	var observation codedconcept.Observation
+	var observation semantic.Observation
 	profiler.ObservePayloadWithInventory(map[string]any{
 		"resourceType": "Observation",
 		"component":    []any{inventoryTestComponent("glucose", version, display)},
-	}, map[string]float64{}, "Observation.ndjson#1", func(contribution semanticinventory.Contribution) {
+	}, map[string]float64{}, "Observation.ndjson#1", func(contribution semantic.Contribution) {
 		observation = contribution.Observation
 	})
 	return observation
@@ -415,7 +414,7 @@ func inventoryTestPayload(reverse bool) map[string]any {
 func inventoryContributionIdentity(t *testing.T, profiler *Profiler, payload map[string]any) map[string]string {
 	t.Helper()
 	identities := make(map[string]string)
-	profiler.ObservePayloadWithInventory(payload, map[string]float64{}, "Observation.ndjson#1", func(contribution semanticinventory.Contribution) {
+	profiler.ObservePayloadWithInventory(payload, map[string]float64{}, "Observation.ndjson#1", func(contribution semantic.Contribution) {
 		identities[contribution.Key] = contribution.ConceptID + ":" + contribution.BindingID + ":" + fmt.Sprint(contribution.Ordinal)
 	})
 	return identities

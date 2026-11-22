@@ -5,14 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/source"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func sourceValidationFile(t *testing.T, body string) string {
@@ -24,9 +24,9 @@ func sourceValidationFile(t *testing.T, body string) string {
 	return path
 }
 
-func sourceValidationSchema(t *testing.T) *ingest.RuntimeFHIRSchema {
+func sourceValidationSchema(t *testing.T) *source.RuntimeFHIRSchema {
 	t.Helper()
-	schema := ingest.LoadRuntimeFHIRSchema()
+	schema := source.LoadRuntimeFHIRSchema()
 	return schema
 }
 
@@ -88,10 +88,10 @@ func TestSourceFileValidationChecksEveryResourceType(t *testing.T) {
 
 func TestCopySemanticInventoryEntryRekeysAndRespectsSourceVersion(t *testing.T) {
 	project, sourceGeneration, targetGeneration := "project", "source", "target"
-	buildID := semanticinventory.BuildID(project, sourceGeneration)
+	buildID := semantic.BuildID(project, sourceGeneration)
 	document := map[string]any{
 		"_key": "old-key", "project": project, "dataset_generation": sourceGeneration, "build_id": buildID,
-		"source_kind": semanticinventory.SourceFile, "auth_resource_path": "scope", "resource_type": "Observation",
+		"source_kind": semantic.SourceFile, "auth_resource_path": "scope", "resource_type": "Observation",
 		"binding_id": "binding", "concept_id": "concept", "observation": map[string]any{"population": 4},
 	}
 	transform := copySemanticInventoryEntryDocument(project, targetGeneration, []string{"Patient"}, true)
@@ -103,13 +103,13 @@ func TestCopySemanticInventoryEntryRekeysAndRespectsSourceVersion(t *testing.T) 
 	if err := json.Unmarshal(encoded, &copied); err != nil {
 		t.Fatal(err)
 	}
-	targetBuild := semanticinventory.BuildID(project, targetGeneration)
-	wantKey := semanticinventory.EntryKey(project, targetGeneration, targetBuild, semanticinventory.SourceFile, "scope", "binding", "concept")
+	targetBuild := semantic.BuildID(project, targetGeneration)
+	wantKey := semantic.EntryKey(project, targetGeneration, targetBuild, semantic.SourceFile, "scope", "binding", "concept")
 	if copied["_key"] != wantKey || copied["_key"] == "old-key" || copied["dataset_generation"] != targetGeneration || copied["build_id"] != targetBuild {
 		t.Fatalf("copied entry identity = %#v", copied)
 	}
 	if omitted, err := copySemanticInventoryEntryDocument(project, targetGeneration, nil, false)(sourceCopyRow{Document: map[string]any{
-		"project": project, "resource_type": "Observation", "binding_id": "binding", "concept_id": "concept", "source_kind": semanticinventory.SourceFile,
+		"project": project, "resource_type": "Observation", "binding_id": "binding", "concept_id": "concept", "source_kind": semantic.SourceFile,
 	}}); err != nil || omitted != nil {
 		t.Fatalf("stale file entry copy = %s, %v, want omitted", omitted, err)
 	}

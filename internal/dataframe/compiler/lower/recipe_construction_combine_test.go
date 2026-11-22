@@ -8,7 +8,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func TestCompileTerminalKeyJoinToTypedClickHousePlan(t *testing.T) {
@@ -161,11 +161,11 @@ func compileConstructionForCombineTest(output recipe.Output) (CompiledRecipeOutp
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "combine-test", TranslationVersion: "1",
 		Outputs: []recipe.Output{output},
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"})
 	if err != nil {
 		return CompiledRecipeOutput{}, err
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-a", "generation-a")
 	if err != nil {
 		return CompiledRecipeOutput{}, err
 	}

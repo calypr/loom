@@ -8,7 +8,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -145,11 +145,11 @@ func TestPlainTableAuthoredColumnIDReachesCompiledAndPublishedSchema(t *testing.
 	if err != nil {
 		t.Fatalf("compile authored workspace: %v", err)
 	}
-	semanticPlan, err := semantic.BuildRecipePlan(translated.Bundle, recipe.RuntimeBindings{Project: "project-a"})
+	semanticPlan, err := recipeplan.BuildRecipePlan(translated.Bundle, recipe.RuntimeBindings{Project: "project-a"})
 	if err != nil {
 		t.Fatalf("build semantic plan: %v", err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(semanticPlan, "scope-a", "generation-a")
+	resolved, err := recipeplan.ResolveRecipePlan(semanticPlan, "scope-a", "generation-a")
 	if err != nil {
 		t.Fatalf("resolve semantic plan: %v", err)
 	}

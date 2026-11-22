@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/calypr/loom/internal/catalog/internal/digest"
+	"github.com/calypr/loom/internal/digest"
 )
 
 const (

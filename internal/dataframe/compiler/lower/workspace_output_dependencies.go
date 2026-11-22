@@ -4,10 +4,10 @@ import (
 	"fmt"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
-func workspaceOutputIDs(output semantic.OutputPlan) []string {
+func workspaceOutputIDs(output recipeplan.OutputPlan) []string {
 	if output.Construction == nil {
 		return nil
 	}
@@ -22,7 +22,7 @@ func workspaceOutputIDs(output semantic.OutputPlan) []string {
 	return ids
 }
 
-func workspaceOutputDependencyOrder(outputs []semantic.OutputPlan) ([]int, error) {
+func workspaceOutputDependencyOrder(outputs []recipeplan.OutputPlan) ([]int, error) {
 	indexes := make(map[string]int, len(outputs))
 	for index, output := range outputs {
 		if _, duplicate := indexes[output.Name]; duplicate {
@@ -65,7 +65,7 @@ func workspaceOutputDependencyOrder(outputs []semantic.OutputPlan) ([]int, error
 	return order, nil
 }
 
-func compiledWorkspaceOutputSources(output semantic.OutputPlan, schemas map[string][]CompiledOutputColumn) []WorkspaceOutputSource {
+func compiledWorkspaceOutputSources(output recipeplan.OutputPlan, schemas map[string][]CompiledOutputColumn) []WorkspaceOutputSource {
 	if output.Construction == nil {
 		return nil
 	}

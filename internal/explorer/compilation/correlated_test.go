@@ -2,21 +2,18 @@ package compilation
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
-	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func TestCompileAuthoringCodedConceptCarriesSelectedVersionToRenderBinds(t *testing.T) {
@@ -28,20 +25,20 @@ func TestCompileAuthoringCodedConceptCarriesSelectedVersionToRenderBinds(t *test
 		{name: "unversioned", version: ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			observation := codedconcept.Observation{
-				SchemaVersion: codedconcept.ObservationSchemaVersion,
-				Source:        codedconcept.Source{Type: "Condition", Path: "code.coding[]"},
-				Key: codedconcept.Key{
+			observation := semantic.Observation{
+				SchemaVersion: semantic.ObservationSchemaVersion,
+				Source:        semantic.Source{Type: "Condition", Path: "code.coding[]"},
+				Key: semantic.Key{
 					Selector: "code.coding[]", System: "urn:example:condition", Version: test.version, Code: "condition-shared",
 				},
-				Value: codedconcept.Value{
+				Value: semantic.Value{
 					Selector: "code.coding[].display", Type: "string",
 					FallbackSelectors: []string{"code.coding[].code"}, FallbackOnBlankString: true,
 				},
-				Completeness: codedconcept.Complete,
+				Completeness: semantic.CompletenessComplete,
 				Status:       "SUPPORTED",
-				RuleHint:     codedconcept.RuleHintCodedConceptV1,
-				RuleVersion:  strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
+				RuleHint:     semantic.RuleHintCodedConceptV1,
+				RuleVersion:  strconv.Itoa(semantic.SemanticObservationRuleVersion),
 			}
 			selection := authoringv2.ResolveSemanticSelectionPlan(observation)
 			if selection.Source == nil || selection.Source.Lookup == nil || selection.Source.Lookup.Key == nil {
@@ -68,22 +65,22 @@ func TestCompileAuthoringCodedConceptCarriesSelectedVersionToRenderBinds(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
-			recipePlan, err := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"})
+			recipePlan, err := recipeplan.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			resolved, err := semantic.ResolveRecipePlan(recipePlan, "scope-a", "generation-a")
+			resolved, err := recipeplan.ResolveRecipePlan(recipePlan, "scope-a", "generation-a")
 			if err != nil {
 				t.Fatal(err)
 			}
-			physical, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+			physical, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
 			if len(physical.Outputs) != 1 {
 				t.Fatalf("physical outputs = %d, want 1", len(physical.Outputs))
 			}
-			rendered, err := aql.RenderPhysicalPlan(physical.Outputs[0].Plan)
+			rendered, err := facade.RenderPhysicalPlan(physical.Outputs[0].Plan)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -157,22 +154,22 @@ func TestCompileAuthoringSystemVersionCategoryUsesNonEmptyOutputAlias(t *testing
 		t.Fatalf("system-version category generated an empty or code-derived pivot alias: %#v", pivots[0])
 	}
 
-	recipePlan, err := semantic.BuildRecipePlan(result.Bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation-a"})
+	recipePlan, err := recipeplan.BuildRecipePlan(result.Bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation-a"})
 	if err != nil {
 		t.Fatalf("BuildRecipePlan: %v", err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(recipePlan, "scope-a", "generation-a")
+	resolved, err := recipeplan.ResolveRecipePlan(recipePlan, "scope-a", "generation-a")
 	if err != nil {
 		t.Fatalf("ResolveRecipePlan: %v", err)
 	}
-	physical, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	physical, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("CompileResolvedRecipePlan: %v", err)
 	}
 	if len(physical.Outputs) != 1 {
 		t.Fatalf("physical outputs = %d, want 1", len(physical.Outputs))
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical.Outputs[0].Plan)
+	rendered, err := facade.RenderPhysicalPlan(physical.Outputs[0].Plan)
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan: %v", err)
 	}

@@ -13,7 +13,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/store/clickhouse"
 )
@@ -101,7 +101,7 @@ func TestEngineStreamsNestedWorkspaceCombinesWithOnlyTerminalLimit(t *testing.T)
 	}
 	resolved := Resolved{
 		StoredRecipeDigest: strings.Repeat("a", 64),
-		Semantic:           semantic.ResolvedRecipePlan{SemanticPlan: semantic.RecipePlan{Bindings: bindings}},
+		Semantic:           recipeplan.ResolvedRecipePlan{SemanticPlan: recipeplan.RecipePlan{Bindings: bindings}},
 		Compiled:           lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{terminal}, WorkspaceDependencies: []lower.CompiledRecipeOutput{inner, leafA, leafB}},
 	}
 	stream, _, err := engine.outputStreams().streamForOutput(resolved, "terminal", 3)
@@ -730,7 +730,7 @@ func TestPublishedOnlyKeyJoinStreamsRepeatedOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	resolved := Resolved{
-		Semantic: semantic.ResolvedRecipePlan{SemanticPlan: semantic.RecipePlan{Bindings: bindings}},
+		Semantic: recipeplan.ResolvedRecipePlan{SemanticPlan: recipeplan.RecipePlan{Bindings: bindings}},
 		Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{output}},
 	}
 	stream, _, err := engine.outputStreams().streamForOutput(resolved, "joined", 0)

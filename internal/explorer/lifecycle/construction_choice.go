@@ -7,12 +7,11 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/projectid"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func (s *Service) prepareConstructionChoice(ctx context.Context, project, explorerID string, authorized ports.AuthorizedCapability, identities []capability.ConstructionChoiceIdentity, workspace authoringv2.Workspace, catalogSnapshot authoringv2.CatalogSnapshot, commands []authoringv2.Command) ([]authoringv2.Command, error) {
@@ -58,7 +57,7 @@ func (s *Service) prepareConstructionChoice(ctx context.Context, project, explor
 			if !ok {
 				return nil, invalidConstructionChoice("the semantic category no longer matches its saved frame source")
 			}
-			choiceEntries = map[string]semanticinventory.Entry{key: projected}
+			choiceEntries = map[string]semantic.Entry{key: projected}
 		}
 		var resolution authoringv2.ResolvedConstructionChoice
 		var title string
@@ -92,7 +91,7 @@ func frameForConstructionChoice(
 	document *authoringv2.Document,
 	frameID string,
 	identity capability.ConstructionChoiceIdentity,
-	entries map[string]semanticinventory.Entry,
+	entries map[string]semantic.Entry,
 ) (authoringv2.FrameDefinition, bool) {
 	frame, found := frameDefinitionForID(document, frameID)
 	if !found {
@@ -124,9 +123,9 @@ func frameDefinitionForID(document *authoringv2.Document, frameID string) (autho
 	return authoringv2.FrameDefinition{}, false
 }
 
-func (s *Service) resolveConstructionChoiceSemantics(ctx context.Context, project string, authorized ports.AuthorizedCapability, identities []capability.ConstructionChoiceIdentity) (map[string]semanticinventory.Entry, map[string]semanticinventory.Family, string, error) {
-	references := make([]semanticinventory.Reference, 0, len(identities))
-	familyReferences := make([]semanticinventory.FamilyReference, 0, len(identities))
+func (s *Service) resolveConstructionChoiceSemantics(ctx context.Context, project string, authorized ports.AuthorizedCapability, identities []capability.ConstructionChoiceIdentity) (map[string]semantic.Entry, map[string]semantic.Family, string, error) {
+	references := make([]semantic.Reference, 0, len(identities))
+	familyReferences := make([]semantic.FamilyReference, 0, len(identities))
 	seen := make(map[string]struct{}, len(identities))
 	seenFamilies := make(map[string]struct{}, len(identities))
 	for _, identity := range identities {
@@ -135,12 +134,12 @@ func (s *Service) resolveConstructionChoiceSemantics(ctx context.Context, projec
 			continue
 		}
 		key := semanticChoiceKey(source.ConceptID, source.BindingID)
-		if source.RuleHint == codedconcept.RuleHintCodedCategoryV1 {
+		if source.RuleHint == semantic.RuleHintCodedCategoryV1 {
 			if _, exists := seenFamilies[key]; exists {
 				continue
 			}
 			seenFamilies[key] = struct{}{}
-			familyReferences = append(familyReferences, semanticinventory.FamilyReference{
+			familyReferences = append(familyReferences, semantic.FamilyReference{
 				FamilyID: source.ConceptID, BindingID: source.BindingID, SourceKind: source.SourceKind,
 				ResourceType: source.ResourceType, SourcePath: source.SourcePath,
 				System: source.System, Version: source.Version,
@@ -151,7 +150,7 @@ func (s *Service) resolveConstructionChoiceSemantics(ctx context.Context, projec
 			continue
 		}
 		seen[key] = struct{}{}
-		references = append(references, semanticinventory.Reference{ConceptID: source.ConceptID, BindingID: source.BindingID})
+		references = append(references, semantic.Reference{ConceptID: source.ConceptID, BindingID: source.BindingID})
 	}
 	if len(references) == 0 && len(familyReferences) == 0 {
 		return nil, nil, "", nil
@@ -160,7 +159,7 @@ func (s *Service) resolveConstructionChoiceSemantics(ctx context.Context, projec
 		return nil, nil, "", unavailable("commands", "CATALOG_UNAVAILABLE", "semantic inventory resolution is not configured", nil)
 	}
 	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
-	resolved, err := s.config.ResolveSemanticInventorySelections(ctx, semanticinventory.ResolveOptions{
+	resolved, err := s.config.ResolveSemanticInventorySelections(ctx, semantic.ResolveOptions{
 		Project:                       projectid.Legacy(authorized.Snapshot.Identity.Project),
 		DatasetGeneration:             authorized.Snapshot.Identity.Generation,
 		AuthResourcePathsUnrestricted: &unrestricted,
@@ -170,15 +169,15 @@ func (s *Service) resolveConstructionChoiceSemantics(ctx context.Context, projec
 	if err != nil {
 		return nil, nil, "", unavailable("catalog", "CATALOG_UNAVAILABLE", "the selected semantic inventory could not be resolved", err)
 	}
-	expectedBuildID := semanticinventory.BuildID(projectid.Legacy(authorized.Snapshot.Identity.Project), authorized.Snapshot.Identity.Generation)
-	if resolved.State != semanticinventory.Complete || resolved.Build.State != semanticinventory.Complete || resolved.Build.BuildID != expectedBuildID {
+	expectedBuildID := semantic.BuildID(projectid.Legacy(authorized.Snapshot.Identity.Project), authorized.Snapshot.Identity.Generation)
+	if resolved.State != semantic.Complete || resolved.Build.State != semantic.Complete || resolved.Build.BuildID != expectedBuildID {
 		return nil, nil, "", conflict("catalog", "SEMANTIC_INVENTORY_UNAVAILABLE", "the current generation does not have a complete semantic inventory", nil, nil)
 	}
 	requested := make(map[string]struct{}, len(references))
 	for _, reference := range references {
 		requested[semanticChoiceKey(reference.ConceptID, reference.BindingID)] = struct{}{}
 	}
-	entries := make(map[string]semanticinventory.Entry, len(resolved.Entries))
+	entries := make(map[string]semantic.Entry, len(resolved.Entries))
 	for _, entry := range resolved.Entries {
 		key := semanticChoiceKey(entry.ConceptID, entry.BindingID)
 		if _, ok := requested[key]; !ok {
@@ -189,11 +188,11 @@ func (s *Service) resolveConstructionChoiceSemantics(ctx context.Context, projec
 		}
 		entries[key] = entry
 	}
-	requestedFamilies := make(map[string]semanticinventory.FamilyReference, len(familyReferences))
+	requestedFamilies := make(map[string]semantic.FamilyReference, len(familyReferences))
 	for _, reference := range familyReferences {
 		requestedFamilies[semanticChoiceKey(reference.FamilyID, reference.BindingID)] = reference
 	}
-	families := make(map[string]semanticinventory.Family, len(resolved.Families))
+	families := make(map[string]semantic.Family, len(resolved.Families))
 	for _, family := range resolved.Families {
 		key := semanticChoiceKey(family.FamilyID, family.BindingID)
 		reference, ok := requestedFamilies[key]
@@ -211,7 +210,7 @@ func (s *Service) resolveConstructionChoiceSemantics(ctx context.Context, projec
 	return entries, families, expectedBuildID, nil
 }
 
-func resolveSemanticConstructionChoice(ctx context.Context, authorized ports.AuthorizedCapability, snapshot capability.Snapshot, catalogSnapshot authoringv2.CatalogSnapshot, explorerID, rootResourceType, semanticContextToken, tokenBuildID, buildID string, entries map[string]semanticinventory.Entry, families map[string]semanticinventory.Family, selection authoringv2.ConstructionChoiceSelection, choiceIdentity capability.ConstructionChoiceIdentity, identity capability.SemanticBindingChoiceSource) (authoringv2.ResolvedConstructionChoice, string, error) {
+func resolveSemanticConstructionChoice(ctx context.Context, authorized ports.AuthorizedCapability, snapshot capability.Snapshot, catalogSnapshot authoringv2.CatalogSnapshot, explorerID, rootResourceType, semanticContextToken, tokenBuildID, buildID string, entries map[string]semantic.Entry, families map[string]semantic.Family, selection authoringv2.ConstructionChoiceSelection, choiceIdentity capability.ConstructionChoiceIdentity, identity capability.SemanticBindingChoiceSource) (authoringv2.ResolvedConstructionChoice, string, error) {
 	if strings.TrimSpace(buildID) == "" || tokenBuildID != buildID {
 		return authoringv2.ResolvedConstructionChoice{}, "", conflict("commands", "STALE_SEMANTIC_CONTEXT", "the semantic choice belongs to a different inventory build", nil, nil)
 	}
@@ -223,9 +222,9 @@ func resolveSemanticConstructionChoice(ctx context.Context, authorized ports.Aut
 		return authoringv2.ResolvedConstructionChoice{}, "", conflict("commands", "STALE_SEMANTIC_CONTEXT", "reload the semantic choice for the current table root and inventory build", nil, nil)
 	}
 	key := semanticChoiceKey(identity.ConceptID, identity.BindingID)
-	var entry semanticinventory.Entry
-	var selectedFamily *semanticinventory.Family
-	if identity.RuleHint == codedconcept.RuleHintCodedCategoryV1 {
+	var entry semantic.Entry
+	var selectedFamily *semantic.Family
+	if identity.RuleHint == semantic.RuleHintCodedCategoryV1 {
 		family, found := families[key]
 		if !found || family.FamilyID != identity.ConceptID || family.BindingID != identity.BindingID ||
 			family.SourceKind != identity.SourceKind || family.ResourceType != identity.ResourceType || family.SourcePath != identity.SourcePath ||

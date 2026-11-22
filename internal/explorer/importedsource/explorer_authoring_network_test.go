@@ -3,6 +3,7 @@ package importedsource
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
 	"reflect"
 	"strings"
@@ -10,7 +11,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 
@@ -235,10 +236,10 @@ func TestPinnedFieldRemovalUsesExactLegacySlotsAcrossRepeatedResourceOccurrences
 		},
 	}
 	plan := recipeimport.SourcePlan(output)
-	columns := []lower.CompiledOutputColumn{
-		{ID: "subject-id", Name: "patient_subject__id", SourceOrigin: &lower.CompiledSourceOrigin{SourceKind: "FIELD_GROUP", OccurrenceID: "patient_subject", SourcePath: "traversals[0].fields"}},
-		{ID: "performer-id", Name: "patient_performer__id", SourceOrigin: &lower.CompiledSourceOrigin{SourceKind: "FIELD_GROUP", OccurrenceID: "patient_performer", SourcePath: "traversals[1].fields"}},
-		{ID: "discovered-gender", Name: "gender", SourceOrigin: &lower.CompiledSourceOrigin{SourceKind: "CATALOG_PROJECTION", SourceKey: "patient_fields", OutputKey: "gender", OccurrenceID: "base", SourcePath: "catalogProjections[0]"}},
+	columns := []facade.CompiledOutputColumn{
+		{ID: "subject-id", Name: "patient_subject__id", SourceOrigin: &facade.CompiledSourceOrigin{SourceKind: "FIELD_GROUP", OccurrenceID: "patient_subject", SourcePath: "traversals[0].fields"}},
+		{ID: "performer-id", Name: "patient_performer__id", SourceOrigin: &facade.CompiledSourceOrigin{SourceKind: "FIELD_GROUP", OccurrenceID: "patient_performer", SourcePath: "traversals[1].fields"}},
+		{ID: "discovered-gender", Name: "gender", SourceOrigin: &facade.CompiledSourceOrigin{SourceKind: "CATALOG_PROJECTION", SourceKey: "patient_fields", OutputKey: "gender", OccurrenceID: "base", SourcePath: "catalogProjections[0]"}},
 	}
 	document := authoringv2.Document{
 		Output:         authoringv2.Output{ID: "observations"},
@@ -266,7 +267,7 @@ func TestPinnedFieldRemovalUsesExactLegacySlotsAcrossRepeatedResourceOccurrences
 		t.Fatal(err)
 	}
 	bound.ProjectedFields = authoringv2.ProjectedFieldsForDocument(document, bound)
-	current := importedRecipeResolution{resolved: dataframeexecution.Resolved{Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{Name: output.Name, OutputSchema: columns}}}}}
+	current := importedRecipeResolution{resolved: dataframeexecution.Resolved{Compiled: facade.CompiledRecipe{Outputs: []facade.CompiledRecipeOutput{{Name: output.Name, OutputSchema: columns}}}}}
 	if err := bindPinnedFieldRemoval(document, output, current, plan, &bound); err != nil {
 		t.Fatal(err)
 	}
@@ -300,8 +301,8 @@ func TestPinnedPivotOutputGetsExactRemovalIdentity(t *testing.T) {
 		Pivots: []recipe.Pivot{{Name: "components", Columns: []string{"urn:loinc|8480-6", "urn:loinc|8462-4"}, ColumnExpr: recipe.Expression{Select: "root.code"}, ValueExpr: recipe.Expression{Select: "root.value"}}},
 	}
 	plan := recipeimport.SourcePlan(output)
-	columns := []lower.CompiledOutputColumn{
-		{ID: "systolic", Name: "components__urn_loinc_8480_6", SourceOrigin: &lower.CompiledSourceOrigin{SourceKind: "PIVOT", SourceKey: "components", OutputKey: "urn:loinc|8480-6", OccurrenceID: "base", SourcePath: "pivots[0]"}},
+	columns := []facade.CompiledOutputColumn{
+		{ID: "systolic", Name: "components__urn_loinc_8480_6", SourceOrigin: &facade.CompiledSourceOrigin{SourceKind: "PIVOT", SourceKey: "components", OutputKey: "urn:loinc|8480-6", OccurrenceID: "base", SourcePath: "pivots[0]"}},
 	}
 	document := authoringv2.Document{
 		Output:         authoringv2.Output{ID: "observations"},
@@ -317,7 +318,7 @@ func TestPinnedPivotOutputGetsExactRemovalIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	bound.ProjectedFields = authoringv2.ProjectedFieldsForDocument(document, bound)
-	current := importedRecipeResolution{resolved: dataframeexecution.Resolved{Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{Name: output.Name, OutputSchema: columns}}}}}
+	current := importedRecipeResolution{resolved: dataframeexecution.Resolved{Compiled: facade.CompiledRecipe{Outputs: []facade.CompiledRecipeOutput{{Name: output.Name, OutputSchema: columns}}}}}
 	if err := bindPinnedFieldRemoval(document, output, current, plan, &bound); err != nil {
 		t.Fatal(err)
 	}
@@ -386,7 +387,7 @@ func TestExtensionOutputRemovalRequiresOpaqueCompilerKeyAndPreservesSibling(t *t
 			Columns: []recipe.ExtensionColumnMapping{{Name: "parent__status", URL: "https://example.test/parent/status", SourcePath: "extension[]", ValuePath: "valueString", ValueType: "string"}}}},
 	}
 	plan := recipeimport.SourcePlan(output)
-	columns := []lower.CompiledOutputColumn{{ID: "extension-status", Name: "extensions__parent__status", SourceOrigin: &lower.CompiledSourceOrigin{
+	columns := []facade.CompiledOutputColumn{{ID: "extension-status", Name: "extensions__parent__status", SourceOrigin: &facade.CompiledSourceOrigin{
 		SourceKind: "EXTENSION_COLUMN", SourceKey: "extensions", OutputKey: key, OccurrenceID: "base", SourcePath: "extensionColumns[0]",
 	}}}
 	document := authoringv2.Document{
@@ -401,7 +402,7 @@ func TestExtensionOutputRemovalRequiresOpaqueCompilerKeyAndPreservesSibling(t *t
 		t.Fatal(err)
 	}
 	bound.ProjectedFields = authoringv2.ProjectedFieldsForDocument(document, bound)
-	current := importedRecipeResolution{resolved: dataframeexecution.Resolved{Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{Name: output.Name, OutputSchema: columns}}}}}
+	current := importedRecipeResolution{resolved: dataframeexecution.Resolved{Compiled: facade.CompiledRecipe{Outputs: []facade.CompiledRecipeOutput{{Name: output.Name, OutputSchema: columns}}}}}
 	if err := bindPinnedFieldRemoval(document, output, current, plan, &bound); err != nil {
 		t.Fatal(err)
 	}

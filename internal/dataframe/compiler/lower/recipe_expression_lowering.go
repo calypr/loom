@@ -6,14 +6,14 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-func recipeFieldProjectionLowerer(output semantic.OutputPlan) semanticFieldProjectionLowerer {
+func recipeFieldProjectionLowerer(output recipeplan.OutputPlan) semanticFieldProjectionLowerer {
 	contexts := recipeExpressionContexts(output)
-	return func(physical *ir.PhysicalPlan, node semantic.SemanticNode, index int, field semantic.SemanticField, source ir.PhysicalValue, bindings map[string]physicalSemanticBinding) (ir.PhysicalProjection, error) {
+	return func(physical *ir.PhysicalPlan, node recipeplan.SemanticNode, index int, field recipeplan.SemanticField, source ir.PhysicalValue, bindings map[string]physicalSemanticBinding) (ir.PhysicalProjection, error) {
 		if field.Expr.Expression.Selector != nil {
 			selector := field.Expr.Expression.Selector
 			context := strings.TrimSpace(selector.Context)
@@ -25,7 +25,7 @@ func recipeFieldProjectionLowerer(output semantic.OutputPlan) semanticFieldProje
 				if !ok {
 					return ir.PhysicalProjection{}, fmt.Errorf("field %q expansion item context %q is not in physical scope", field.Name, context)
 				}
-				itemNode := semantic.SemanticNode{Alias: context, ResourceType: binding.ResourceType}
+				itemNode := recipeplan.SemanticNode{Alias: context, ResourceType: binding.ResourceType}
 				projection, err := lowerSemanticFieldProjection(physical, itemNode, index, field, binding.Source, bindings, nil)
 				if err != nil {
 					return ir.PhysicalProjection{}, err
@@ -78,9 +78,9 @@ func recipeFieldProjectionLowerer(output semantic.OutputPlan) semanticFieldProje
 }
 
 func bindRecipeFallbackSelectors(
-	output semantic.OutputPlan,
-	node semantic.SemanticNode,
-	field semantic.SemanticField,
+	output recipeplan.OutputPlan,
+	node recipeplan.SemanticNode,
+	field recipeplan.SemanticField,
 	nodeSource ir.PhysicalValue,
 	bindings map[string]physicalSemanticBinding,
 	contexts map[string]string,
@@ -143,7 +143,7 @@ func bindRecipeFallbackSelectors(
 }
 
 func recipeExpandedItemSelector(
-	expansion *semantic.SemanticRowExpansion,
+	expansion *recipeplan.SemanticRowExpansion,
 	context string,
 	selector spec.Selector,
 	bindings map[string]physicalSemanticBinding,
@@ -172,7 +172,7 @@ func recipeExpandedItemSelector(
 	return binding, relative, true
 }
 
-func recipeExpandedAncestorProjection(expansion *semantic.SemanticRowExpansion, context, fieldPath string) (ir.PhysicalUnnestAncestor, spec.Selector, string, bool) {
+func recipeExpandedAncestorProjection(expansion *recipeplan.SemanticRowExpansion, context, fieldPath string) (ir.PhysicalUnnestAncestor, spec.Selector, string, bool) {
 	projectionSelector, err := spec.ParseSelector(fieldPath)
 	if err != nil {
 		return ir.PhysicalUnnestAncestor{}, spec.Selector{}, "", false
@@ -180,7 +180,7 @@ func recipeExpandedAncestorProjection(expansion *semantic.SemanticRowExpansion, 
 	return recipeExpandedAncestorSelector(expansion, context, projectionSelector)
 }
 
-func recipeExpandedAncestorSelector(expansion *semantic.SemanticRowExpansion, context string, projectionSelector spec.Selector) (ir.PhysicalUnnestAncestor, spec.Selector, string, bool) {
+func recipeExpandedAncestorSelector(expansion *recipeplan.SemanticRowExpansion, context string, projectionSelector spec.Selector) (ir.PhysicalUnnestAncestor, spec.Selector, string, bool) {
 	if expansion == nil || context != expansion.Owner.Alias || expansion.Source.Expression.Selector == nil {
 		return ir.PhysicalUnnestAncestor{}, spec.Selector{}, "", false
 	}
@@ -340,10 +340,10 @@ func rewriteRecipeExpressionBinding(value *ir.PhysicalExpression, from string, s
 	}
 }
 
-func recipeExpressionContexts(output semantic.OutputPlan) map[string]string {
+func recipeExpressionContexts(output recipeplan.OutputPlan) map[string]string {
 	contexts := map[string]string{"root": output.RootResourceType}
-	var walk func(semantic.SemanticNode)
-	walk = func(node semantic.SemanticNode) {
+	var walk func(recipeplan.SemanticNode)
+	walk = func(node recipeplan.SemanticNode) {
 		for _, child := range node.Children {
 			contexts[child.Alias] = child.ResourceType
 			walk(child)
@@ -428,7 +428,7 @@ func physicalNullBehavior(behavior expression.NullBehavior) ir.PhysicalNullBehav
 	return ir.PhysicalPreserveNull
 }
 
-func appendRecipeIdentity(plan *ir.PhysicalPlan, output semantic.OutputPlan) error {
+func appendRecipeIdentity(plan *ir.PhysicalPlan, output recipeplan.OutputPlan) error {
 	if output.Identity == nil {
 		return nil
 	}
@@ -447,7 +447,7 @@ func appendRecipeIdentity(plan *ir.PhysicalPlan, output semantic.OutputPlan) err
 	return fmt.Errorf("canonical plan has no RETURN operation for identity")
 }
 
-func recipeRowExpansion(output semantic.OutputPlan) *semantic.SemanticRowExpansion {
+func recipeRowExpansion(output recipeplan.OutputPlan) *recipeplan.SemanticRowExpansion {
 	if output.RowExpansion != nil {
 		copy := *output.RowExpansion
 		return &copy

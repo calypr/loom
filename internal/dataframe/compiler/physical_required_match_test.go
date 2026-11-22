@@ -5,14 +5,14 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestRenderPhysicalPlanRequiredInboundTraversalMatch(t *testing.T) {
-	plan, err := buildGenericPhysicalPlanWithContext(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{{
+	plan, err := buildGenericPhysicalPlanWithContext(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []recipeplan.SemanticNode{{
 		Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", MatchMode: spec.TraversalMatchRequired,
-	}}}}, semantic.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}})
+	}}}}, recipeplan.ExecutionContext{Project: "project-1", AuthResourcePaths: []string{"/programs/p1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,9 +44,9 @@ func TestRenderPhysicalPlanRequiredInboundTraversalMatch(t *testing.T) {
 }
 
 func TestRenderPhysicalPlanRequiredOutboundResearchStudyMatch(t *testing.T) {
-	plan, err := buildGenericPhysicalPlanWithContext(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "ResearchSubject", Children: []semantic.SemanticNode{{
+	plan, err := buildGenericPhysicalPlanWithContext(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "ResearchSubject", Children: []recipeplan.SemanticNode{{
 		Alias: "study", ResourceType: "ResearchStudy", EdgeLabel: "study", MatchMode: spec.TraversalMatchRequired,
-	}}}}, semantic.ExecutionContext{Project: "project-1"})
+	}}}}, recipeplan.ExecutionContext{Project: "project-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,10 +67,10 @@ func TestRenderPhysicalPlanRequiredOutboundResearchStudyMatch(t *testing.T) {
 }
 
 func TestBuildPhysicalPlanRequiredTraversalWithFilterUsesTypedPredicate(t *testing.T) {
-	plan, err := buildGenericPhysicalPlanWithContext(semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []semantic.SemanticNode{{
+	plan, err := buildGenericPhysicalPlanWithContext(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient", Children: []recipeplan.SemanticNode{{
 		Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient", MatchMode: spec.TraversalMatchRequired,
 		Filters: []spec.TypedFilter{{FieldRef: "Condition.id", Selector: "id", FieldKind: spec.FilterString, Operator: spec.FilterExists}},
-	}}}}, semantic.ExecutionContext{Project: "project-1"})
+	}}}}, recipeplan.ExecutionContext{Project: "project-1"})
 	if err != nil {
 		t.Fatal(err)
 	}

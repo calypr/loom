@@ -13,7 +13,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer/capability"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
@@ -923,11 +923,11 @@ func expandedCodingGroupOutput(base recipe.Output, sourceContext lower.CompiledG
 func compileExpandedCodingGroupOutput(t *testing.T, output recipe.Output, bindings recipe.RuntimeBindings) (lower.CompiledRecipeOutput, error) {
 	t.Helper()
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		return lower.CompiledRecipeOutput{}, err
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
 	if err != nil {
 		return lower.CompiledRecipeOutput{}, err
 	}

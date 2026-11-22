@@ -7,13 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"sort"
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataset"
@@ -21,6 +21,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/projectid"
+	"github.com/calypr/loom/internal/semantic"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -119,7 +120,7 @@ func (r *Resolver) Resolve(ctx context.Context, project, requestedGeneration str
 		} else if getErr != nil && !errors.Is(getErr, capability.ErrNotFound) {
 			return nil, getErr
 		}
-		compiler := explorerCapabilityCompiler{scope: compilerprobe.Scope{
+		compiler := explorerCapabilityCompiler{scope: facade.Scope{
 			Project: storageProject, DatasetGeneration: generation,
 			AuthResourcePaths: append([]string(nil), scope.AuthResourcePaths...), AuthScopeMode: scope.Mode,
 		}}
@@ -478,7 +479,7 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 	return out
 }
 
-func semanticConceptValuePath(observation codedconcept.Observation) string {
+func semanticConceptValuePath(observation semantic.Observation) string {
 	selector := strings.Trim(strings.TrimSpace(observation.Value.Selector), ".")
 	selector = strings.TrimPrefix(selector, "root.")
 	if selector == "" {
@@ -492,16 +493,16 @@ func semanticConceptValuePath(observation codedconcept.Observation) string {
 	return scope + "." + selector
 }
 
-func semanticConceptOwnerPath(fieldPath string, observation codedconcept.Observation) bool {
+func semanticConceptOwnerPath(fieldPath string, observation semantic.Observation) bool {
 	fieldPath = strings.TrimPrefix(strings.Trim(strings.TrimSpace(fieldPath), "."), "root.")
 	ownerPath := strings.TrimPrefix(strings.Trim(strings.TrimSpace(observation.OwningScope), "."), "root.")
 	return fieldPath != "" && ownerPath != "" && fieldPath == ownerPath
 }
 
-type explorerCapabilityCompiler struct{ scope compilerprobe.Scope }
+type explorerCapabilityCompiler struct{ scope facade.Scope }
 
 func (c explorerCapabilityCompiler) ProbeNode(ctx context.Context, node capability.Node) (capability.NodeProof, error) {
-	result, err := compilerprobe.ProbeRoot(ctx, compilerprobe.RootRequest{Scope: c.scope, ResourceType: node.ResourceType})
+	result, err := facade.ProbeRoot(ctx, facade.RootRequest{Scope: c.scope, ResourceType: node.ResourceType})
 	if err != nil {
 		return capability.NodeProof{}, err
 	}
@@ -509,7 +510,7 @@ func (c explorerCapabilityCompiler) ProbeNode(ctx context.Context, node capabili
 }
 
 func (c explorerCapabilityCompiler) ProbeEdge(ctx context.Context, edge capability.Edge) (capability.EdgeProof, error) {
-	result, err := compilerprobe.ProbeTraversal(ctx, compilerprobe.TraversalRequest{Scope: c.scope, RootResourceType: edge.SourceResourceType, Traversal: compilerprobe.Traversal{FromResourceType: edge.SourceResourceType, EdgeLabel: edge.Label, ToResourceType: edge.TargetResourceType, MatchMode: spec.TraversalMatchOptional}})
+	result, err := facade.ProbeTraversal(ctx, facade.TraversalRequest{Scope: c.scope, RootResourceType: edge.SourceResourceType, Traversal: facade.Traversal{FromResourceType: edge.SourceResourceType, EdgeLabel: edge.Label, ToResourceType: edge.TargetResourceType, MatchMode: spec.TraversalMatchOptional}})
 	if err != nil {
 		return capability.EdgeProof{}, err
 	}
@@ -520,7 +521,7 @@ func (c explorerCapabilityCompiler) ProbeEdge(ctx context.Context, edge capabili
 }
 
 func (c explorerCapabilityCompiler) ProbeCandidate(ctx context.Context, candidate capability.Candidate) (capability.CandidateProof, error) {
-	result, err := compilerprobe.ProbeCandidate(ctx, compilerprobe.CandidateRequest{Scope: c.scope, RootResourceType: candidate.ResourceType, ResourceType: candidate.ResourceType, Selector: candidate.FieldPath})
+	result, err := facade.ProbeCandidate(ctx, facade.CandidateRequest{Scope: c.scope, RootResourceType: candidate.ResourceType, ResourceType: candidate.ResourceType, Selector: candidate.FieldPath})
 	if err != nil {
 		return capability.CandidateProof{}, err
 	}
@@ -633,7 +634,7 @@ func observedShapeKind(value string) string {
 	return value
 }
 
-func capabilitySemanticCandidate(value codedconcept.Observation) capability.ConceptCandidate {
+func capabilitySemanticCandidate(value semantic.Observation) capability.ConceptCandidate {
 	return capability.ConceptCandidate{
 		SourceResourceType: value.Source.Type, SourceCanonical: value.Source.Canonical,
 		SourceProfile: value.Source.Profile, SourcePath: value.Source.Path,

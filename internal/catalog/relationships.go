@@ -6,7 +6,7 @@ import (
 	"sort"
 
 	"github.com/bytedance/sonic"
-	"github.com/calypr/loom/internal/catalog/internal/digest"
+	"github.com/calypr/loom/internal/digest"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 

@@ -6,14 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"sort"
 	"strings"
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -711,7 +710,7 @@ func constructionCombineCompatibilityKeys(logicalType, cardinality string, nulla
 	if cardinality == "many" {
 		return "", ""
 	}
-	logical, physical, err := lower.ConstructionCombineColumnType(recipe.StageColumn{Type: logicalType})
+	logical, physical, err := facade.ConstructionCombineColumnType(recipe.StageColumn{Type: logicalType})
 	if err != nil {
 		return "", ""
 	}
@@ -719,10 +718,10 @@ func constructionCombineCompatibilityKeys(logicalType, cardinality string, nulla
 	if nullable {
 		physicalWithNullability = "Nullable(" + physical + ")"
 	}
-	if base, ok := ir.ClickHouseCombineScalarBaseType(physicalWithNullability, ir.PhysicalCombineKeyJoin); ok {
+	if base, ok := facade.ClickHouseCombineScalarBaseType(physicalWithNullability, facade.PhysicalCombineKeyJoin); ok {
 		joinKey = base
 	}
-	if base, ok := ir.ClickHouseCombineScalarBaseType(physicalWithNullability, ir.PhysicalCombineAppend); ok {
+	if base, ok := facade.ClickHouseCombineScalarBaseType(physicalWithNullability, facade.PhysicalCombineAppend); ok {
 		appendKey = logical + ":" + base
 	}
 	return joinKey, appendKey

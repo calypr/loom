@@ -6,11 +6,10 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func TestConstructionChoiceSearchReauthorizesSignedCategoryFamily(t *testing.T) {
@@ -28,7 +27,7 @@ func TestConstructionChoiceSearchReauthorizesSignedCategoryFamily(t *testing.T) 
 	codeCandidate.Label = "Observation code"
 	snapshot.Candidates = []capability.Candidate{displayCandidate, codeCandidate}
 	family := testCodedCategoryFamily("file", "Observation", "Observation.code.coding[]", "https://example.org/codes", "v1")
-	buildID := semanticinventory.BuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
+	buildID := semantic.BuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
 	contextToken, err := semanticInventoryContextToken(snapshot, "patients", "Patient", buildID)
 	if err != nil {
 		t.Fatal(err)
@@ -44,20 +43,20 @@ func TestConstructionChoiceSearchReauthorizesSignedCategoryFamily(t *testing.T) 
 			},
 			Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot },
 		},
-		ResolveSemanticInventorySelections: func(_ context.Context, options semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
-			expected := semanticinventory.FamilyReference{
+		ResolveSemanticInventorySelections: func(_ context.Context, options semantic.ResolveOptions) (semantic.ResolveResult, error) {
+			expected := semantic.FamilyReference{
 				FamilyID: family.FamilyID, BindingID: family.BindingID, SourceKind: family.SourceKind,
 				ResourceType: family.ResourceType, SourcePath: family.SourcePath, System: family.System, Version: family.Version,
 			}
-			if !reflect.DeepEqual(options.FamilyReferences, []semanticinventory.FamilyReference{expected}) || options.AuthResourcePathsUnrestricted == nil || !*options.AuthResourcePathsUnrestricted {
+			if !reflect.DeepEqual(options.FamilyReferences, []semantic.FamilyReference{expected}) || options.AuthResourcePathsUnrestricted == nil || !*options.AuthResourcePathsUnrestricted {
 				t.Fatalf("category resolution was not bound to the signed family and authorized scope: %#v", options)
 			}
-			return semanticinventory.ResolveResult{
-				Build: semanticinventory.Build{
+			return semantic.ResolveResult{
+				Build: semantic.Build{
 					Project: snapshot.Identity.Project, DatasetGeneration: snapshot.Identity.Generation,
-					BuildID: buildID, State: semanticinventory.Complete,
+					BuildID: buildID, State: semantic.Complete,
 				},
-				State: semanticinventory.Complete, Families: []semanticinventory.Family{family},
+				State: semantic.Complete, Families: []semantic.Family{family},
 			}, nil
 		},
 	})
@@ -66,7 +65,7 @@ func TestConstructionChoiceSearchReauthorizesSignedCategoryFamily(t *testing.T) 
 		Source: ConstructionChoiceSearchSource{
 			Kind: capability.ConstructionChoiceSourceSemantic, ContextToken: contextToken, BuildID: buildID,
 			ConceptID: family.FamilyID, BindingID: family.BindingID, ChoiceID: signed.ChoiceID,
-			SelectionMode: semanticinventory.SystemVersionCategory,
+			SelectionMode: semantic.SystemVersionCategory,
 		},
 	})
 	if err != nil || !result.Complete || len(result.Choices) != 1 {
@@ -81,7 +80,7 @@ func TestConstructionChoiceSearchReauthorizesSignedCategoryFamily(t *testing.T) 
 		t.Fatal(err)
 	}
 	source, ok := identity.Source.(capability.SemanticBindingChoiceSource)
-	if !ok || source.RuleHint != codedconcept.RuleHintCodedCategoryV1 || source.ConceptID != family.FamilyID || source.System != family.System || source.Version != family.Version || source.SourceKind != family.SourceKind {
+	if !ok || source.RuleHint != semantic.RuleHintCodedCategoryV1 || source.ConceptID != family.FamilyID || source.System != family.System || source.Version != family.Version || source.SourceKind != family.SourceKind {
 		t.Fatalf("route search returned an exact-code or unsigned source: %#v", identity.Source)
 	}
 	allSupported := false

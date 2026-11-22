@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"slices"
 	"strings"
@@ -13,12 +14,12 @@ import (
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
+
 	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/semantic"
 	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 )
 
@@ -752,7 +753,7 @@ func TestExplorerCapabilityCacheSeparatesFieldCoverageReadiness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiler := explorerCapabilityCompiler{scope: compilerprobe.Scope{
+	compiler := explorerCapabilityCompiler{scope: facade.Scope{
 		Project: "project-a", DatasetGeneration: "generation-a", AuthScopeMode: authscope.ReadScopeUnrestricted,
 	}}
 	baselineEvidence := makeEvidence(true)
@@ -873,12 +874,12 @@ func TestCapabilityEvidenceRetainsObservedOwnerFieldsAndSemanticSummary(t *testi
 		}}},
 		FieldEnrichment: catalog.FieldEnrichmentResult{Values: []catalog.FieldEnrichmentObservation{{
 			ResourceType: "Patient", Path: "identifier", Kind: "object", DocCount: 3, DistinctValues: []string{"urn:mrn"},
-			SemanticObservations: []codedconcept.Observation{{
-				SchemaVersion: codedconcept.ObservationSchemaVersion,
-				Source:        codedconcept.Source{Type: "Patient", Path: "identifier"},
-				Key:           codedconcept.Key{Selector: "system", System: "urn:mrn", Code: "MRN"},
-				Value:         codedconcept.Value{Selector: "value", Type: "string"},
-				OwningScope:   "identifier", Completeness: codedconcept.Complete, Status: "SUPPORTED", Population: 3,
+			SemanticObservations: []semantic.Observation{{
+				SchemaVersion: semantic.ObservationSchemaVersion,
+				Source:        semantic.Source{Type: "Patient", Path: "identifier"},
+				Key:           semantic.Key{Selector: "system", System: "urn:mrn", Code: "MRN"},
+				Value:         semantic.Value{Selector: "value", Type: "string"},
+				OwningScope:   "identifier", Completeness: semantic.CompletenessComplete, Status: "SUPPORTED", Population: 3,
 			}},
 		}}},
 	}

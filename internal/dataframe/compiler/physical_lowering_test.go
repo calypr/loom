@@ -4,15 +4,15 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestBuildPhysicalPlanUsesOutputPlanDirectly(t *testing.T) {
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias:        "root",
 		ResourceType: "Patient",
-		Children: []semantic.SemanticNode{{
+		Children: []recipeplan.SemanticNode{{
 			Alias:        "specimen",
 			ResourceType: "Specimen",
 			EdgeLabel:    "subject_Patient",
@@ -32,10 +32,10 @@ func TestBuildPhysicalPlanLowersRootSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan, err := buildGenericPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias:        "root",
 		ResourceType: "Patient",
-		Fields:       []semantic.SemanticField{testSemanticField("gender", selector, "")},
+		Fields:       []recipeplan.SemanticField{testSemanticField("gender", selector, "")},
 	},
 	})
 	if err != nil {

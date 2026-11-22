@@ -13,7 +13,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -559,11 +559,11 @@ func compileRelatedCategoryRuntimeScans(t *testing.T, definition recipe.Output, 
 func compileRelatedCategoryRuntimeScansWithBindings(t *testing.T, definition recipe.Output, bindings recipe.RuntimeBindings, maxValues int) (lower.CompiledRecipeOutput, CompiledQuery, CompiledCategoryScanQuery) {
 	t.Helper()
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: definition.Name, TranslationVersion: "related-category-test", Outputs: []recipe.Output{definition}}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
 	if err != nil {
 		t.Fatal(err)
 	}

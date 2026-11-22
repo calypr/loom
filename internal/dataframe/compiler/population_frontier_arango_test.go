@@ -15,7 +15,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -171,14 +171,14 @@ func TestPopulationMappingRepeatedRouteDeduplicatesScopedFrontiersAgainstArango(
 		SelectionMembersCollection: members, AuthScopeMode: authscope.ReadScopeRestricted,
 		AuthResourcePaths: []string{"/allowed"},
 	}
-	plan, err := semantic.BuildRecipePlan(recipe.Bundle{
+	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "population-frontier-regression",
 		TranslationVersion: "population-frontier-regression", Outputs: []recipe.Output{outputDefinition},
 	}, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope-"+suffix, generation)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-"+suffix, generation)
 	if err != nil {
 		t.Fatal(err)
 	}

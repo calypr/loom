@@ -16,14 +16,14 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/semantic"
 
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -284,11 +284,11 @@ func TestSemanticGroupProjectionFactorizationProjectsSimpleCodingArrayWhole(t *t
 	output := semanticGroupProjectionOutput(t, recipe.ConstructionGroupMissingKeyGroup,
 		bindingID, familyID, ruleVersion, system, version, codingPath)
 	bundle := semanticGroupProjectionBundle(output)
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatalf("build simple-path semantic Group plan: %v", err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
 	if err != nil {
 		t.Fatalf("resolve simple-path semantic Group plan: %v", err)
 	}
@@ -546,7 +546,7 @@ func semanticGroupProjectionOutputForResource(
 						{OutputColumnID: "category_id", SemanticCategory: &recipe.ConstructionGroupSemanticCategory{
 							Kind: "BINDING", BindingID: bindingID, RuleVersion: ruleVersion,
 							FamilyID: familyID, System: system, Version: version,
-							SourceKind:   semanticinventory.SourceRetained,
+							SourceKind:   semantic.SourceRetained,
 							ResourceType: resourceType, CodingPath: codingPath,
 						}},
 					},
@@ -581,10 +581,10 @@ func semanticGroupProjectionFixtureBindingForResource(t *testing.T, resourceType
 	default:
 		payload["component"] = []any{map[string]any{"code": map[string]any{"coding": []any{coding}}}}
 	}
-	var contribution semanticinventory.Contribution
-	if err := semanticinventory.NewEmitter("semantic-group-projection-fixture", "generation").ObservePayload(
+	var contribution semantic.Contribution
+	if err := semantic.NewEmitter("semantic-group-projection-fixture", "generation").ObservePayload(
 		payload, resourceType, "", sourceID,
-		func(value semanticinventory.Contribution) {
+		func(value semantic.Contribution) {
 			if value.Observation.Source.Path == codingPath && value.Observation.Key.System == system && value.Observation.Key.Version == version {
 				contribution = value
 			}
@@ -595,12 +595,12 @@ func semanticGroupProjectionFixtureBindingForResource(t *testing.T, resourceType
 	if contribution.BindingID == "" || contribution.Observation.Source.Path != codingPath {
 		t.Fatalf("semantic Coding binding witness = %#v, want generated path %q", contribution, codingPath)
 	}
-	family := semanticinventory.FamilyReference{
-		BindingID: contribution.BindingID, SourceKind: semanticinventory.SourceRetained,
+	family := semantic.FamilyReference{
+		BindingID: contribution.BindingID, SourceKind: semantic.SourceRetained,
 		ResourceType: resourceType, SourcePath: codingPath, System: system, Version: version,
 	}
-	familyID = semanticinventory.FamilyID(family)
-	return contribution.BindingID, familyID, strconv.Itoa(semanticinventory.SemanticObservationRuleVersion)
+	familyID = semantic.FamilyID(family)
+	return contribution.BindingID, familyID, strconv.Itoa(semantic.SemanticObservationRuleVersion)
 }
 
 func semanticGroupProjectionBindings(project, generation string) recipe.RuntimeBindings {

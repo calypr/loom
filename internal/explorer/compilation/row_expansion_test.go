@@ -3,14 +3,12 @@ package compilation
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
-	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
@@ -52,19 +50,19 @@ func TestCompileExpandedRowsBindsDeepExactOccurrenceAndIdentity(t *testing.T) {
 		t.Fatalf("expanded output contract does not match compiled evidence: %v", err)
 	}
 
-	plan, err := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a"})
+	plan, err := recipeplan.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a"})
 	if err != nil {
 		t.Fatalf("BuildRecipePlan: %v", err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-a", "generation-a")
 	if err != nil {
 		t.Fatalf("ResolveRecipePlan: %v", err)
 	}
-	physical, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	physical, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("CompileResolvedRecipePlan: %v", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical.Outputs[0].Plan)
+	rendered, err := facade.RenderPhysicalPlan(physical.Outputs[0].Plan)
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan: %v", err)
 	}

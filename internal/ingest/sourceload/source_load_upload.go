@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/ingest/bootstrap"
 	"io"
 	"log/slog"
 	"os"
@@ -16,10 +17,9 @@ import (
 
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	publication "github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/ingest"
 	"github.com/calypr/loom/internal/ingest/generation"
+	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -251,10 +251,10 @@ RETURN {updated: true}`, 1, map[string]any{
 func (p *RepositorySourceLoader) clearCandidateSourceFile(ctx context.Context, record sourceLoadRecord, path, owner, resourceType string) error {
 	targets := []struct{ collection, condition string }{
 		{resourceType, "doc.dataset_generation == @generation"},
-		{ingest.EdgeCollection, "doc.dataset_generation == @generation AND doc.source_file == @resource_type"},
+		{bootstrap.EdgeCollection, "doc.dataset_generation == @generation AND doc.source_file == @resource_type"},
 		{fieldprofile.FieldCatalogCollection, "doc.dataset_generation == @generation AND doc.resource_type == @resource_type"},
-		{semanticinventory.Collection, "doc.dataset_generation == @generation AND doc.resource_type == @resource_type"},
-		{semanticinventory.EntryCollection, "doc.dataset_generation == @generation AND doc.resource_type == @resource_type"},
+		{semantic.Collection, "doc.dataset_generation == @generation AND doc.resource_type == @resource_type"},
+		{semantic.EntryCollection, "doc.dataset_generation == @generation AND doc.resource_type == @resource_type"},
 	}
 	for _, target := range targets {
 		if exists, err := p.client.CollectionExists(ctx, target.collection); err != nil {

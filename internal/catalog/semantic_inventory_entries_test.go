@@ -4,35 +4,34 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func TestSemanticInventoryEntryAggregatorBuildsMaterializedEntries(t *testing.T) {
-	buildID := semanticinventory.BuildID("project", "generation")
-	aggregator := semanticinventory.NewEntryAggregator("project", "generation", "scope", "Observation", semanticinventory.SourceFile)
-	for _, contribution := range []semanticinventory.Contribution{
+	buildID := semantic.BuildID("project", "generation")
+	aggregator := semantic.NewEntryAggregator("project", "generation", "scope", "Observation", semantic.SourceFile)
+	for _, contribution := range []semantic.Contribution{
 		{
 			Project: "project", DatasetGeneration: "generation", AuthResourcePath: "scope", ResourceType: "Observation",
-			BuildID: buildID, SourceKind: semanticinventory.SourceFile, BindingID: "binding", ConceptID: "concept", Example: "Zebra",
-			Observation: codedconcept.Observation{
-				SchemaVersion: codedconcept.ObservationSchemaVersion,
-				Source:        codedconcept.Source{Canonical: "canonical", Type: "Observation", Path: "value"},
-				Key:           codedconcept.Key{Selector: "code.coding[]", System: "urn:system", Code: "c", Display: "Zulu"},
-				Value:         codedconcept.Value{Selector: "valueQuantity.value", Type: "decimal"},
-				ObservedUnits: []string{"mg", "mmol"}, Completeness: codedconcept.Complete, Population: 1,
+			BuildID: buildID, SourceKind: semantic.SourceFile, BindingID: "binding", ConceptID: "concept", Example: "Zebra",
+			Observation: semantic.Observation{
+				SchemaVersion: semantic.ObservationSchemaVersion,
+				Source:        semantic.Source{Canonical: "canonical", Type: "Observation", Path: "value"},
+				Key:           semantic.Key{Selector: "code.coding[]", System: "urn:system", Code: "c", Display: "Zulu"},
+				Value:         semantic.Value{Selector: "valueQuantity.value", Type: "decimal"},
+				ObservedUnits: []string{"mg", "mmol"}, Completeness: semantic.CompletenessComplete, Population: 1,
 			},
 		},
 		{
 			Project: "project", DatasetGeneration: "generation", AuthResourcePath: "scope", ResourceType: "Observation",
-			BuildID: buildID, SourceKind: semanticinventory.SourceFile, BindingID: "binding", ConceptID: "concept", Example: "Alpha",
-			Observation: codedconcept.Observation{
-				SchemaVersion:    codedconcept.ObservationSchemaVersion,
-				Source:           codedconcept.Source{Canonical: "canonical", Type: "Observation", Path: "value"},
-				Key:              codedconcept.Key{Selector: "code.coding[]", System: "urn:system", Code: "c", Display: "Alpha"},
-				Value:            codedconcept.Value{Selector: "valueQuantity.value", Type: "decimal", FallbackSelectors: []string{"valueQuantity.unit"}, FallbackOnBlankString: true},
+			BuildID: buildID, SourceKind: semantic.SourceFile, BindingID: "binding", ConceptID: "concept", Example: "Alpha",
+			Observation: semantic.Observation{
+				SchemaVersion:    semantic.ObservationSchemaVersion,
+				Source:           semantic.Source{Canonical: "canonical", Type: "Observation", Path: "value"},
+				Key:              semantic.Key{Selector: "code.coding[]", System: "urn:system", Code: "c", Display: "Alpha"},
+				Value:            semantic.Value{Selector: "valueQuantity.value", Type: "decimal", FallbackSelectors: []string{"valueQuantity.unit"}, FallbackOnBlankString: true},
 				ExtensionURLPath: []string{"http://example.org/extension"}, ObservedUnits: []string{"g"},
-				Completeness: codedconcept.Complete, Population: 1,
+				Completeness: semantic.CompletenessComplete, Population: 1,
 			},
 		},
 	} {
@@ -44,7 +43,7 @@ func TestSemanticInventoryEntryAggregatorBuildsMaterializedEntries(t *testing.T)
 	if len(values) != 1 {
 		t.Fatalf("entry aggregate groups = %d, want 1", len(values))
 	}
-	document := semanticinventory.EntryDocument(values[0], "project", "generation", buildID, semanticinventory.SourceFile)
+	document := semantic.EntryDocument(values[0], "project", "generation", buildID, semantic.SourceFile)
 	if document["example"] != "Alpha" || document["search_text"] != "observation value valuequantity.value urn:system c alpha" {
 		t.Fatalf("entry example/search = %v/%v", document["example"], document["search_text"])
 	}

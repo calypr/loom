@@ -2,13 +2,13 @@ package generation
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/ingest/bootstrap"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/semantic"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -66,9 +66,9 @@ func (flow fileWriteFlow) start(ctx, fileCtx context.Context, writeChan <-chan f
 					if writeStats != nil {
 						class := "vertex"
 						switch task.collection {
-						case ingest.EdgeCollection:
+						case bootstrap.EdgeCollection:
 							class = "edge"
-						case semanticinventory.Collection, semanticinventory.EntryCollection:
+						case semantic.Collection, semantic.EntryCollection:
 							class = "semantic_inventory"
 						}
 						insertCtx = arangostore.WithRawInsertObserver(fileCtx, func(bytes int64, duration time.Duration) {
@@ -85,14 +85,14 @@ func (flow fileWriteFlow) start(ctx, fileCtx context.Context, writeChan <-chan f
 					}
 					elapsed := time.Since(insertStart).Seconds()
 					switch task.collection {
-					case ingest.EdgeCollection:
+					case bootstrap.EdgeCollection:
 						localTimings["edge_insert"] += elapsed
 						atomic.AddInt64(flow.edgesInserted, int64(len(task.docs)))
 						if opts.fileInsertedCounters != nil {
 							atomic.AddInt64(&opts.fileInsertedCounters.edges, int64(len(task.docs)))
 						}
 						catalog.MergeRelationshipCounts(localRelationships, task.relationshipCounts)
-					case semanticinventory.Collection, semanticinventory.EntryCollection:
+					case semantic.Collection, semantic.EntryCollection:
 						localTimings["semantic_inventory_insert"] += elapsed
 						localTimings["semantic_inventory_batches"]++
 					default:

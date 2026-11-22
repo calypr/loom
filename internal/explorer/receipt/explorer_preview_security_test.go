@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -19,7 +20,7 @@ import (
 func TestValidateReceiptEnginePublicColumnsUsesExactPublicColumnSet(t *testing.T) {
 	snapshot := testAuthorizedCapabilitySnapshot(t, "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	receipt := testSecurityReceipt(t, snapshot, "patients", []string{"id", "name"})
-	resolved := dataframeexecution.Resolved{Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{Name: "patients", OutputSchema: []lower.CompiledOutputColumn{{Name: "id"}, {Name: "__loom_row_id", Internal: true}, {Name: "__loom_identity", Identity: true}, {Name: "name"}}}}}}
+	resolved := dataframeexecution.Resolved{Compiled: facade.CompiledRecipe{Outputs: []facade.CompiledRecipeOutput{{Name: "patients", OutputSchema: []facade.CompiledOutputColumn{{Name: "id"}, {Name: "__loom_row_id", Internal: true}, {Name: "__loom_identity", Identity: true}, {Name: "name"}}}}}}
 	if err := ValidateEnginePublicColumns(receipt, resolved); err != nil {
 		t.Fatal(err)
 	}
@@ -102,9 +103,9 @@ func TestValidateReceiptEnginePublicColumnsUsesExplicitGroupSchema(t *testing.T)
 	}
 
 	wrongSchema := resolved
-	wrongSchema.Compiled.Outputs = append([]lower.CompiledRecipeOutput(nil), resolved.Compiled.Outputs...)
-	wrongSchema.Compiled.Outputs[0].OutputSchema = append([]lower.CompiledOutputColumn(nil), resolved.Compiled.Outputs[0].OutputSchema...)
-	wrongSchema.Compiled.Outputs[0].OutputSchema = append(wrongSchema.Compiled.Outputs[0].OutputSchema, lower.CompiledOutputColumn{Name: "unexpected"})
+	wrongSchema.Compiled.Outputs = append([]facade.CompiledRecipeOutput(nil), resolved.Compiled.Outputs...)
+	wrongSchema.Compiled.Outputs[0].OutputSchema = append([]facade.CompiledOutputColumn(nil), resolved.Compiled.Outputs[0].OutputSchema...)
+	wrongSchema.Compiled.Outputs[0].OutputSchema = append(wrongSchema.Compiled.Outputs[0].OutputSchema, facade.CompiledOutputColumn{Name: "unexpected"})
 	var mismatch *ContractMismatch
 	if err := ValidateEnginePublicColumns(receipt, wrongSchema); !errors.As(err, &mismatch) || mismatch.Component != "output_execution" {
 		t.Fatalf("unexpected grouped output fingerprint error=%v, want output execution mismatch", err)

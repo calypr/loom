@@ -3,7 +3,7 @@ package generation
 import (
 	"context"
 	"encoding/json"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/row"
 	"github.com/calypr/loom/internal/testkit/arangotest"
 	"net/http"
 	"os"
@@ -30,9 +30,9 @@ func TestFB25SanitizeKeyCollisionLosesAcknowledgedWrite(t *testing.T) {
 	endpoint := kcollEndpoint(t)
 	directCollision := map[string]string{}
 	for _, pair := range [][2]string{{"coll/1", "coll_1"}} {
-		a, b := ingest.SanitizeKey(pair[0]), ingest.SanitizeKey(pair[1])
+		a, b := row.SanitizeKey(pair[0]), row.SanitizeKey(pair[1])
 		if a != b {
-			t.Fatalf("F-B25 probe premise lost — ingest.SanitizeKey(%q)=%q != ingest.SanitizeKey(%q)=%q", pair[0], a, pair[1], b)
+			t.Fatalf("F-B25 probe premise lost — row.SanitizeKey(%q)=%q != row.SanitizeKey(%q)=%q", pair[0], a, pair[1], b)
 		}
 		directCollision[pair[0]] = a
 	}

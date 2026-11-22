@@ -9,7 +9,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
 )
@@ -147,7 +147,7 @@ func outputSelectionError(message string, details map[string]any) error {
 	return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, message, options...)
 }
 
-func CompileResolvedRecipePlan(resolved semantic.ResolvedRecipePlan, policy ir.PhysicalOptimizationPolicy) (CompiledRecipe, error) {
+func CompileResolvedRecipePlan(resolved recipeplan.ResolvedRecipePlan, policy ir.PhysicalOptimizationPolicy) (CompiledRecipe, error) {
 	semanticPlan := resolved.SemanticPlan
 	if semanticPlan.Version <= 0 || strings.TrimSpace(semanticPlan.RecipeDigest) == "" {
 		return CompiledRecipe{}, fmt.Errorf("resolved recipe plan is missing semantic provenance")
@@ -191,7 +191,7 @@ func CompileResolvedRecipePlan(resolved semantic.ResolvedRecipePlan, policy ir.P
 	}
 	needed := map[string]bool{}
 	if len(selected) > 0 {
-		byName := make(map[string]semantic.OutputPlan, len(semanticPlan.Outputs))
+		byName := make(map[string]recipeplan.OutputPlan, len(semanticPlan.Outputs))
 		for _, output := range semanticPlan.Outputs {
 			byName[output.Name] = output
 		}
@@ -272,7 +272,7 @@ func pruneUnmaterializedDynamicColumns(metadata []DynamicColumnMetadata, schema 
 	return nil
 }
 
-func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBindings, resolvedColumns map[string][]semantic.ResolvedColumn, policy ir.PhysicalOptimizationPolicy, workspaceOutputSchemas map[string][]CompiledOutputColumn) (CompiledRecipeOutput, error) {
+func compileRecipeOutput(output recipeplan.OutputPlan, bindings recipe.RuntimeBindings, resolvedColumns map[string][]recipeplan.ResolvedColumn, policy ir.PhysicalOptimizationPolicy, workspaceOutputSchemas map[string][]CompiledOutputColumn) (CompiledRecipeOutput, error) {
 	composedCohort := output.GroupRows != nil && output.Construction != nil && len(output.Construction.Steps) > 0
 	identity, ok := spec.DefaultRowIdentity(spec.RowGrain(output.RowGrain))
 	if !ok {
@@ -284,7 +284,7 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 		}
 		identity.Fields = append(identity.Fields, "__loom_expansion_identity")
 	}
-	context := semantic.ExecutionContext{
+	context := recipeplan.ExecutionContext{
 		Project:                    bindings.Project,
 		DatasetGeneration:          bindings.DatasetGeneration,
 		AuthResourcePaths:          append([]string(nil), bindings.AuthResourcePaths...),
@@ -452,7 +452,7 @@ func overwritePublicReturnProjectionCollisions(plan *ir.PhysicalPlan) {
 	}
 }
 
-func groupRowValueColumnTransformations(output semantic.OutputPlan) []recipe.ColumnTransformation {
+func groupRowValueColumnTransformations(output recipeplan.OutputPlan) []recipe.ColumnTransformation {
 	if output.GroupRows == nil || len(output.GroupRows.RowValues) == 0 {
 		return output.ColumnTransformations
 	}
@@ -475,11 +475,11 @@ func groupRowValueColumnTransformations(output semantic.OutputPlan) []recipe.Col
 	return remaining
 }
 
-func describeGroupRowsStages(output semantic.OutputPlan, outputSchema []CompiledOutputColumn) ([]CompiledStageDescriptor, string, error) {
+func describeGroupRowsStages(output recipeplan.OutputPlan, outputSchema []CompiledOutputColumn) ([]CompiledStageDescriptor, string, error) {
 	if output.GroupRows == nil {
 		return nil, "", fmt.Errorf("explicit group rows are required")
 	}
-	fields := make(map[string]semantic.SemanticField, len(output.Root.Fields))
+	fields := make(map[string]recipeplan.SemanticField, len(output.Root.Fields))
 	for _, field := range output.Root.Fields {
 		fields[field.ColumnID] = field
 	}
@@ -512,10 +512,10 @@ func describeGroupRowsStages(output semantic.OutputPlan, outputSchema []Compiled
 	return []CompiledStageDescriptor{source, groupRows}, rowIdentity, nil
 }
 
-func validateSemanticOutputNames(output semantic.OutputPlan) error {
+func validateSemanticOutputNames(output recipeplan.OutputPlan) error {
 	seen := make(map[string]string)
-	var walk func(semantic.SemanticNode, string) error
-	walk = func(node semantic.SemanticNode, prefix string) error {
+	var walk func(recipeplan.SemanticNode, string) error
+	walk = func(node recipeplan.SemanticNode, prefix string) error {
 		name := func(local string) string {
 			if prefix == "" {
 				return local

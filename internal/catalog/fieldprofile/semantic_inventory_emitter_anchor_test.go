@@ -4,8 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func TestSemanticInventoryEmitterIgnoresRepeatedCodeableConceptAnchor(t *testing.T) {
@@ -24,10 +23,10 @@ func TestSemanticInventoryEmitterIgnoresRepeatedCodeableConceptAnchor(t *testing
 		},
 	}
 
-	var coded []semanticinventory.Contribution
-	semanticinventory.NewEmitter("project", "generation").ObservePayload(
-		payload, "Observation", "", "retained:Observation/witness", func(contribution semanticinventory.Contribution) {
-			if contribution.Observation.RuleHint == codedconcept.RuleHintCodedValueV1 {
+	var coded []semantic.Contribution
+	semantic.NewEmitter("project", "generation").ObservePayload(
+		payload, "Observation", "", "retained:Observation/witness", func(contribution semantic.Contribution) {
+			if contribution.Observation.RuleHint == semantic.RuleHintCodedValueV1 {
 				coded = append(coded, contribution)
 			}
 		},
@@ -51,10 +50,10 @@ func TestSemanticInventoryEmitterStillRejectsAmbiguousScalarConceptAnchors(t *te
 		"valueString":  "observed",
 	}
 
-	var coded []semanticinventory.Contribution
-	semanticinventory.NewEmitter("project", "generation").ObservePayload(
-		payload, "Observation", "", "retained:Observation/ambiguous", func(contribution semanticinventory.Contribution) {
-			if contribution.Observation.RuleHint == codedconcept.RuleHintCodedValueV1 {
+	var coded []semantic.Contribution
+	semantic.NewEmitter("project", "generation").ObservePayload(
+		payload, "Observation", "", "retained:Observation/ambiguous", func(contribution semantic.Contribution) {
+			if contribution.Observation.RuleHint == semantic.RuleHintCodedValueV1 {
 				coded = append(coded, contribution)
 			}
 		},
@@ -70,11 +69,11 @@ func TestSemanticInventoryEmitterVersionThreeMatchesCompletedBuild(t *testing.T)
 	const completedBuildID = "606e1763ce95aa39de168217ba8b584090bfe34e09741a7931da67cd0b8810bb"
 	const completedBuildKey = "sib_890163afc080cf6e9134a49b09667b93161a47c03862b39ac25459e1be2f6f27"
 
-	build := semanticinventory.NewBuild(project, generation, "")
-	if semanticinventory.EmitterVersion != 3 || build.BuildID != completedBuildID || build.BuildID != semanticinventory.BuildID(project, generation) {
-		t.Fatalf("semantic-v3 build identity = %d/%q, want completed build %q", semanticinventory.EmitterVersion, build.BuildID, completedBuildID)
+	build := semantic.NewBuild(project, generation, "")
+	if semantic.EmitterVersion != 3 || build.BuildID != completedBuildID || build.BuildID != semantic.BuildID(project, generation) {
+		t.Fatalf("semantic-v3 build identity = %d/%q, want completed build %q", semantic.EmitterVersion, build.BuildID, completedBuildID)
 	}
-	if build.Key != completedBuildKey || build.Key != semanticinventory.BuildKey(project, generation) {
+	if build.Key != completedBuildKey || build.Key != semantic.BuildKey(project, generation) {
 		t.Fatalf("semantic-v3 build key = %q, want completed build key %q", build.Key, completedBuildKey)
 	}
 
@@ -84,10 +83,10 @@ func TestSemanticInventoryEmitterVersionThreeMatchesCompletedBuild(t *testing.T)
 	}
 	const wantConceptID = "e7a9d88ce655cd0e8a3a8a293f68a87455049f579fbc1ba767d625faa1462133"
 	const wantBindingID = "45665d85e72ad3c6da5aba8c4554cfa7c194c8e3b9c95b8c43aee78724ee13b3"
-	if got := semanticinventory.ConceptID(observation); got != wantConceptID {
+	if got := semantic.ConceptID(observation); got != wantConceptID {
 		t.Fatalf("semantic-v3 concept ID = %q, want completed ID %q", got, wantConceptID)
 	}
-	if got := semanticinventory.BindingID(observation); got != wantBindingID {
+	if got := semantic.BindingID(observation); got != wantBindingID {
 		t.Fatalf("semantic-v3 binding ID = %q, want completed ID %q", got, wantBindingID)
 	}
 }

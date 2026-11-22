@@ -5,21 +5,21 @@ import (
 	"fmt"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-func appendRequiredTraversalMatchFilters(physical *ir.PhysicalPlan, root semantic.SemanticNode) error {
+func appendRequiredTraversalMatchFilters(physical *ir.PhysicalPlan, root recipeplan.SemanticNode) error {
 	return appendRequiredTraversalMatchFiltersExcept(physical, root, nil)
 }
 
-func appendRequiredTraversalMatchFiltersExcept(physical *ir.PhysicalPlan, root semantic.SemanticNode, selectedOccurrences map[string]struct{}) error {
+func appendRequiredTraversalMatchFiltersExcept(physical *ir.PhysicalPlan, root recipeplan.SemanticNode, selectedOccurrences map[string]struct{}) error {
 	nextMatch := 0
 	seen := map[string]struct{}{}
-	var walk func(semantic.SemanticNode, []semantic.SemanticNode, bool) error
-	walk = func(parent semantic.SemanticNode, route []semantic.SemanticNode, requiredPrefix bool) error {
+	var walk func(recipeplan.SemanticNode, []recipeplan.SemanticNode, bool) error
+	walk = func(parent recipeplan.SemanticNode, route []recipeplan.SemanticNode, requiredPrefix bool) error {
 		for _, child := range parent.Children {
-			next := append(append([]semantic.SemanticNode(nil), route...), child)
+			next := append(append([]recipeplan.SemanticNode(nil), route...), child)
 			childRequired := child.MatchMode.Required()
 			_, selectedRouteStep := selectedOccurrences[child.OccurrenceID]
 			if childRequired && requiredPrefix && !selectedRouteStep {
@@ -53,7 +53,7 @@ func appendRequiredTraversalMatchFiltersExcept(physical *ir.PhysicalPlan, root s
 	return walk(root, nil, true)
 }
 
-func requiredSemanticRouteKey(rootResourceType string, route []semantic.SemanticNode) (string, error) {
+func requiredSemanticRouteKey(rootResourceType string, route []recipeplan.SemanticNode) (string, error) {
 	type step struct {
 		ResourceType string
 		EdgeLabel    string
@@ -73,7 +73,7 @@ func requiredSemanticRouteKey(rootResourceType string, route []semantic.Semantic
 	return string(encoded), nil
 }
 
-func buildRequiredTraversalExists(physical *ir.PhysicalPlan, matchIndex int, root semantic.SemanticNode, routeNodes []semantic.SemanticNode) (ir.PhysicalPredicateExpression, error) {
+func buildRequiredTraversalExists(physical *ir.PhysicalPlan, matchIndex int, root recipeplan.SemanticNode, routeNodes []recipeplan.SemanticNode) (ir.PhysicalPredicateExpression, error) {
 	if len(routeNodes) == 0 {
 		return ir.PhysicalPredicateExpression{}, fmt.Errorf("required traversal match %d has no route steps", matchIndex)
 	}

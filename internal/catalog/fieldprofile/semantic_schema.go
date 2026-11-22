@@ -4,17 +4,17 @@ import (
 	"bytes"
 	"encoding/json"
 
-	"github.com/calypr/loom/internal/catalog/codedconcept"
 	"github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func (p *Profiler) observeSchemaSemantics(
 	index *schema.Index,
 	payload map[string]any,
 	profile string,
-	emit func(codedconcept.Observation, []any),
+	emit func(semantic.Observation, []any),
 ) error {
-	return p.observeSchemaSemanticsWithEvidence(index, payload, profile, "", func(observation codedconcept.Observation, examples []any, _ SemanticCoverageEmissionEvidence) {
+	return p.observeSchemaSemanticsWithEvidence(index, payload, profile, "", func(observation semantic.Observation, examples []any, _ SemanticCoverageEmissionEvidence) {
 		emit(observation, examples)
 	})
 }
@@ -26,12 +26,12 @@ func (p *Profiler) observeSchemaSemanticsWithEvidence(
 	sourceID string,
 	emit semanticCoverageObservationEmitter,
 ) error {
-	return p.semanticExtractor.Extract(index, p.resourceType, payload, profile, func(record codedconcept.Record) {
+	return p.semanticExtractor.Extract(index, p.resourceType, payload, profile, func(record semantic.Record) {
 		p.recordSchemaSemanticObservation(record, sourceID, emit)
 	})
 }
 
-func (p *Profiler) recordSchemaSemanticObservation(record codedconcept.Record, sourceID string, emit semanticCoverageObservationEmitter) {
+func (p *Profiler) recordSchemaSemanticObservation(record semantic.Record, sourceID string, emit semanticCoverageObservationEmitter) {
 	if stat := p.ensureSemanticStat(record.StoragePath); stat != nil {
 		stat.addSemanticObservation(record.Observation, record.Examples)
 	}

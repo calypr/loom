@@ -3,10 +3,10 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"strings"
 
-	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -150,14 +150,14 @@ func (s *Service) getAuthorizedPopulationSelection(ctx context.Context, project,
 }
 
 func provePopulationRoute(ctx context.Context, authorized ports.AuthorizedCapability, rootResourceType, terminalResourceType string, route []capability.ConstructionRouteStep) bool {
-	compilerRoute := make([]compilerprobe.Traversal, 0, len(route))
+	compilerRoute := make([]facade.Traversal, 0, len(route))
 	for _, step := range route {
 		matchMode := spec.TraversalMatchOptional
 		if step.MatchMode == string(spec.TraversalMatchRequired) {
 			matchMode = spec.TraversalMatchRequired
 		}
-		traversal := compilerprobe.Traversal{FromResourceType: step.FromResourceType, EdgeLabel: step.Relationship, ToResourceType: step.ToResourceType, MatchMode: matchMode}
-		proof, err := compilerprobe.ProbeTraversal(ctx, compilerprobe.TraversalRequest{
+		traversal := facade.Traversal{FromResourceType: step.FromResourceType, EdgeLabel: step.Relationship, ToResourceType: step.ToResourceType, MatchMode: matchMode}
+		proof, err := facade.ProbeTraversal(ctx, facade.TraversalRequest{
 			Scope: constructionCompilerScope(authorized), RootResourceType: step.FromResourceType, Traversal: traversal,
 		})
 		if err != nil || proof.Traversal == nil || string(proof.Traversal.StorageDirection) != step.StorageDirection {
@@ -165,7 +165,7 @@ func provePopulationRoute(ctx context.Context, authorized ports.AuthorizedCapabi
 		}
 		compilerRoute = append(compilerRoute, traversal)
 	}
-	_, err := compilerprobe.ProbeCandidate(ctx, compilerprobe.CandidateRequest{
+	_, err := facade.ProbeCandidate(ctx, facade.CandidateRequest{
 		Scope: constructionCompilerScope(authorized), RootResourceType: rootResourceType,
 		ResourceType: terminalResourceType, FieldRef: terminalResourceType + ".id", Selector: "id", Route: compilerRoute,
 	})

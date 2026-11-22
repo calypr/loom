@@ -8,7 +8,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -21,14 +21,14 @@ func TestCorrelatedSystemVersionSelectionPropagatesThroughPhysicalPlan(t *testin
 				SelectionScope: fhirschema.CorrelatedSelectionScopeSystemVersion,
 				SystemPath:     "system", CodePath: "code", ValuePath: "display", ValueFallback: []string{"code"}, LogicalType: "string",
 			}
-			plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+			plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 				Alias: "root", ResourceType: "Condition",
-				Pivots: []semantic.SemanticPivot{{Name: "diagnosis", Columns: []string{"category"}, Correlation: binding, CorrelationSystem: "urn:test", CorrelationVersion: version, ProjectionMode: "DISTINCT"}},
+				Pivots: []recipeplan.SemanticPivot{{Name: "diagnosis", Columns: []string{"category"}, Correlation: binding, CorrelationSystem: "urn:test", CorrelationVersion: version, ProjectionMode: "DISTINCT"}},
 				Filters: []spec.TypedFilter{{
 					FieldRef: "Condition.code", Selector: "code.coding[].code", FieldKind: spec.FilterCode, Repeated: true, Quantifier: spec.QuantifierAny,
 					Operator: spec.FilterEquals, Correlation: binding, Values: []spec.FilterValue{{Kind: spec.FilterCode, Code: &spec.CodeValue{System: "urn:test", Version: version}}},
 				}},
-			}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+			}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -87,9 +87,9 @@ func TestCorrelatedExplicitExactSelectionKeepsLegacyAQLAndBinds(t *testing.T) {
 			}
 			render := func() aql.RenderedPhysicalPlan {
 				t.Helper()
-				plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
-					Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{Name: "exact", Columns: []string{"normal"}, Correlation: binding, CorrelationSystem: "urn:test", CorrelationCode: "normal"}},
-				}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+				plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
+					Alias: "root", ResourceType: "Observation", Pivots: []recipeplan.SemanticPivot{{Name: "exact", Columns: []string{"normal"}, Correlation: binding, CorrelationSystem: "urn:test", CorrelationCode: "normal"}},
+				}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -2,10 +2,10 @@ package lifecycle
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -163,7 +163,7 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	incomplete = false
 	overflow = true
 	limited, err := service.DiscoverConstructionCategories(context.Background(), request)
-	if err != nil || limited.Outcome != constructionCategoryDiscoveryLimitExceeded || limited.Complete || limited.ProofFingerprint != "" || len(limited.Categories) != 0 || limited.Limit != compiler.MaxCategoryScanValues || limited.Message == "" {
+	if err != nil || limited.Outcome != constructionCategoryDiscoveryLimitExceeded || limited.Complete || limited.ProofFingerprint != "" || len(limited.Categories) != 0 || limited.Limit != facade.MaxCategoryScanValues || limited.Message == "" {
 		t.Fatalf("overflow scan result = %#v, error = %v", limited, err)
 	}
 	invalidProof = true
@@ -186,11 +186,11 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	}
 }
 
-func compilerCategoryScanProof(request ConstructionCategoryDiscoveryRequest, column explorer.ReceiptConstructionStageColumn) compiler.CategoryScanProof {
-	return compiler.CategoryScanProof{
+func compilerCategoryScanProof(request ConstructionCategoryDiscoveryRequest, column explorer.ReceiptConstructionStageColumn) facade.CategoryScanProof {
+	return facade.CategoryScanProof{
 		Version: 2, Output: request.OutputID, StageID: request.StageID, ColumnID: request.CategoryColumnID,
 		ValueColumnID: request.ValueColumnID, Column: column.Name, Kind: column.Type,
-		Cardinality: string(column.Cardinality), MaxValues: compiler.MaxCategoryScanValues, ValuePresenceRequired: true,
+		Cardinality: string(column.Cardinality), MaxValues: facade.MaxCategoryScanValues, ValuePresenceRequired: true,
 		OutputSchemaDigest: "schema", PlanFingerprint: "plan", QueryFingerprint: "query", Fingerprint: "proof",
 	}
 }

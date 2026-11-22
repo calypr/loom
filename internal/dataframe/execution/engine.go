@@ -20,7 +20,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/projectid"
 	"github.com/calypr/loom/internal/store/arango"
@@ -115,7 +115,7 @@ type Engine struct {
 
 type Resolved struct {
 	Bundle               recipe.Bundle
-	Semantic             semantic.ResolvedRecipePlan
+	Semantic             recipeplan.ResolvedRecipePlan
 	Compiled             lower.CompiledRecipe
 	StoredRecipeDigest   string
 	ResolvedSchemaDigest string
@@ -357,7 +357,7 @@ func (e *Engine) compileResolvedBundle(ctx context.Context, bundle recipe.Bundle
 			return Resolved{}, fmt.Errorf("digest resolved bundle: %w", err)
 		}
 	}
-	semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
+	semanticPlan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		return Resolved{}, err
 	}
@@ -367,7 +367,7 @@ func (e *Engine) compileResolvedBundle(ctx context.Context, bundle recipe.Bundle
 	if e.scopeDigest != nil {
 		scope = e.scopeDigest(bindings)
 	}
-	resolved, err := semantic.ResolveRecipePlan(semanticPlan, scope, bindings.DatasetGeneration)
+	resolved, err := recipeplan.ResolveRecipePlan(semanticPlan, scope, bindings.DatasetGeneration)
 	if err != nil {
 		return Resolved{}, err
 	}

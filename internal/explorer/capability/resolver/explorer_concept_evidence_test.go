@@ -2,26 +2,27 @@ package resolver
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
+
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func TestCapabilityEvidencePreservesConceptIdentityAndUnresolvedStatus(t *testing.T) {
 	input := catalog.CapabilityEvidence{FieldEnrichment: catalog.FieldEnrichmentResult{Values: []catalog.FieldEnrichmentObservation{{
 		ResourceType: "Observation", Path: "component[]", Kind: "array", DocCount: 2,
-		SemanticObservations: []codedconcept.Observation{{
-			Source:      codedconcept.Source{Type: "Observation", Path: "component[].code"},
-			OwningScope: "component[]", Key: codedconcept.Key{Selector: "code.coding[]", Code: "shared"},
-			Value:     codedconcept.Value{Selector: "valueQuantity.value"},
+		SemanticObservations: []semantic.Observation{{
+			Source:      semantic.Source{Type: "Observation", Path: "component[].code"},
+			OwningScope: "component[]", Key: semantic.Key{Selector: "code.coding[]", Code: "shared"},
+			Value:     semantic.Value{Selector: "valueQuantity.value"},
 			ChoiceArm: "valueQuantity", LogicalType: "decimal", ObservedUnits: []string{"cm"},
-			ExtensionURLPath: []string{"urn:parent", "urn:leaf"}, Completeness: codedconcept.Partial,
+			ExtensionURLPath: []string{"urn:parent", "urn:leaf"}, Completeness: semantic.Partial,
 			Status: "UNRESOLVED_SYSTEM", Population: 2, Examples: []string{"333"},
 		}},
 	}, {
@@ -57,13 +58,13 @@ func TestCapabilityEvidencePreservesConceptIdentityAndUnresolvedStatus(t *testin
 }
 
 func TestCapabilityConceptsSurviveBuilderProofOnScalarValuePath(t *testing.T) {
-	concept := func(system, code, status string, population int64) codedconcept.Observation {
-		return codedconcept.Observation{
-			Source:      codedconcept.Source{Type: "Observation", Canonical: "Observation.component", Path: "component[]"},
+	concept := func(system, code, status string, population int64) semantic.Observation {
+		return semantic.Observation{
+			Source:      semantic.Source{Type: "Observation", Canonical: "Observation.component", Path: "component[]"},
 			OwningScope: "component[]",
-			Key:         codedconcept.Key{Selector: "code.coding[]", System: system, Code: code},
-			Value:       codedconcept.Value{Selector: "valueQuantity.value", Type: "decimal"},
-			ChoiceArm:   "valueQuantity", LogicalType: "decimal", Completeness: codedconcept.Complete,
+			Key:         semantic.Key{Selector: "code.coding[]", System: system, Code: code},
+			Value:       semantic.Value{Selector: "valueQuantity.value", Type: "decimal"},
+			ChoiceArm:   "valueQuantity", LogicalType: "decimal", Completeness: semantic.CompletenessComplete,
 			Status: status, Population: population, Examples: []string{code},
 		}
 	}
@@ -72,7 +73,7 @@ func TestCapabilityConceptsSurviveBuilderProofOnScalarValuePath(t *testing.T) {
 		Relationships:     catalog.RelationshipObservationResult{Available: true, Complete: true},
 		FieldEnrichment: catalog.FieldEnrichmentResult{Available: true, Complete: true, Values: []catalog.FieldEnrichmentObservation{{
 			ResourceType: "Observation", Path: "component[]", Kind: "array", DocCount: 3,
-			SemanticObservations: []codedconcept.Observation{
+			SemanticObservations: []semantic.Observation{
 				concept("urn:study:A", "shared", "SUPPORTED", 1),
 				concept("urn:study:B", "shared", "SUPPORTED", 1),
 				concept("", "shared", "UNRESOLVED_SYSTEM", 1),
@@ -80,7 +81,7 @@ func TestCapabilityConceptsSurviveBuilderProofOnScalarValuePath(t *testing.T) {
 		}}},
 	}
 	evidence := capabilityEvidenceFromCatalog(input)
-	compiler := explorerCapabilityCompiler{scope: compilerprobe.Scope{Project: "project-a", DatasetGeneration: "generation-a", AuthScopeMode: authscope.ReadScopeUnrestricted}}
+	compiler := explorerCapabilityCompiler{scope: facade.Scope{Project: "project-a", DatasetGeneration: "generation-a", AuthScopeMode: authscope.ReadScopeUnrestricted}}
 	identity := capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", CompilerVersion: "test", ProtocolVersion: "test"}
 	snapshot, err := capability.NewBuilder(identity, evidence, capability.CompilerCallbacks{
 		Node: compiler.ProbeNode, Edge: compiler.ProbeEdge, Candidate: compiler.ProbeCandidate,

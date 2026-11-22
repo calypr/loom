@@ -10,12 +10,11 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
-	"github.com/calypr/loom/internal/catalog/codedconcept"
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func TestFieldPresentationCoverageBuildVersionPreservesSavedFrameIdentity(t *testing.T) {
@@ -29,7 +28,7 @@ func TestFieldPresentationCoverageBuildVersionPreservesSavedFrameIdentity(t *tes
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := readySnapshot(project, generation, "coverage-version-frame-snapshot", scope)
 	snapshot.Nodes = []capability.Node{{ID: "observation", ResourceType: "Observation", RowRootEligible: true, Populated: true}}
-	entry := semanticinventory.Entry{
+	entry := semantic.Entry{
 		ConceptID: conceptID, BindingID: bindingID,
 		Observation: semanticFrameCompatibilityObservation("quantity"),
 	}
@@ -62,7 +61,7 @@ func TestFieldPresentationCoverageBuildVersionPreservesSavedFrameIdentity(t *tes
 			ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &fieldChoice,
 		}}, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
 	}
-	newBuildID := semanticinventory.BuildID(project, generation)
+	newBuildID := semantic.BuildID(project, generation)
 	if previousBuildID == newBuildID {
 		t.Fatalf("coverage-versioned inventory build ID did not change: %q", newBuildID)
 	}
@@ -74,21 +73,21 @@ func TestFieldPresentationCoverageBuildVersionPreservesSavedFrameIdentity(t *tes
 			},
 			Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot },
 		},
-		SemanticInventory: func(_ context.Context, options semanticinventory.PageOptions) (semanticinventory.Page, error) {
+		SemanticInventory: func(_ context.Context, options semantic.PageOptions) (semantic.Page, error) {
 			if options.Project != project || options.DatasetGeneration != generation || options.ResourceType != "Observation" || options.BindingID != bindingID {
 				t.Fatalf("saved-frame browse scope changed: %#v", options)
 			}
-			return semanticinventory.Page{
-				State:   semanticinventory.Complete,
-				Build:   semanticinventory.Build{BuildID: currentBuildID, State: semanticinventory.Complete},
-				Entries: []semanticinventory.Entry{entry},
+			return semantic.Page{
+				State:   semantic.Complete,
+				Build:   semantic.Build{BuildID: currentBuildID, State: semantic.Complete},
+				Entries: []semantic.Entry{entry},
 			}, nil
 		},
-		ResolveSemanticInventorySelections: func(_ context.Context, options semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
-			if len(options.References) != 1 || options.References[0] != (semanticinventory.Reference{ConceptID: conceptID, BindingID: bindingID}) {
+		ResolveSemanticInventorySelections: func(_ context.Context, options semantic.ResolveOptions) (semantic.ResolveResult, error) {
+			if len(options.References) != 1 || options.References[0] != (semantic.Reference{ConceptID: conceptID, BindingID: bindingID}) {
 				t.Fatalf("saved selection identity changed during reauthorization: %#v", options.References)
 			}
-			return semanticAuthoringInventory(snapshot, []semanticinventory.Entry{entry}), nil
+			return semanticAuthoringInventory(snapshot, []semantic.Entry{entry}), nil
 		},
 	})
 	request := BrowseSemanticInventoryRequest{
@@ -218,19 +217,19 @@ func TestFieldPresentationReadsStayInsideCurrentAuthorizationScope(t *testing.T)
 		fixture.authorizationReads++
 		return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
-	fixture.service.config.SemanticInventory = func(_ context.Context, options semanticinventory.PageOptions) (semanticinventory.Page, error) {
+	fixture.service.config.SemanticInventory = func(_ context.Context, options semantic.PageOptions) (semantic.Page, error) {
 		fixture.inventoryReads++
 		if options.AuthResourcePathsUnrestricted == nil || *options.AuthResourcePathsUnrestricted ||
 			!reflect.DeepEqual(options.AuthResourcePaths, scope.AuthResourcePaths) {
 			t.Fatalf("semantic page escaped the current authorization path: %#v", options)
 		}
-		return semanticinventory.Page{
-			State: semanticinventory.Complete,
-			Build: semanticinventory.Build{
-				BuildID: fixture.buildID, State: semanticinventory.Complete, SourceKind: semanticinventory.SourceFile,
-				SourceAvailability: semanticinventory.SourceAvailabilityVerified,
+		return semantic.Page{
+			State: semantic.Complete,
+			Build: semantic.Build{
+				BuildID: fixture.buildID, State: semantic.Complete, SourceKind: semantic.SourceFile,
+				SourceAvailability: semantic.SourceAvailabilityVerified,
 			},
-			Entries: []semanticinventory.Entry{fixture.entry},
+			Entries: []semantic.Entry{fixture.entry},
 		}, nil
 	}
 	fixture.service.config.SemanticCoverage = func(_ context.Context, options catalogarango.SemanticCoverageLookupOptions) (catalogarango.SemanticCoverageLookupResult, error) {
@@ -240,7 +239,7 @@ func TestFieldPresentationReadsStayInsideCurrentAuthorizationScope(t *testing.T)
 		}
 		return fixture.coverageResult, nil
 	}
-	fixture.service.config.ResolveSemanticInventorySelections = func(_ context.Context, options semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
+	fixture.service.config.ResolveSemanticInventorySelections = func(_ context.Context, options semantic.ResolveOptions) (semantic.ResolveResult, error) {
 		if options.AuthResourcePathsUnrestricted == nil || *options.AuthResourcePathsUnrestricted ||
 			!reflect.DeepEqual(options.AuthResourcePaths, scope.AuthResourcePaths) {
 			t.Fatalf("replacement read escaped the current authorization path: %#v", options)
@@ -518,14 +517,14 @@ func assertFieldPresentationCodedFamilyProof(
 		ProjectionModes:    []capability.ProjectionMode{capability.ProjectionFirst, capability.ProjectionArray}, Populated: true,
 	}
 	snapshot.Candidates = []capability.Candidate{codeCandidate, displayCandidate}
-	family := testCodedCategoryFamily(semanticinventory.SourceFile, resourceType, resourceType+"."+ownerPath, "urn:example:"+strings.ToLower(resourceType)+"-code", "")
+	family := testCodedCategoryFamily(semantic.SourceFile, resourceType, resourceType+"."+ownerPath, "urn:example:"+strings.ToLower(resourceType)+"-code", "")
 	family.KeySelector = ownerPath
 	family.Value.Selector = displayPath
 	family.Value.FallbackSelectors = []string{codePath}
-	buildID := semanticinventory.BuildID(project, generation)
-	build := semanticinventory.Build{
-		BuildID: buildID, State: semanticinventory.Complete, SourceKind: semanticinventory.SourceFile,
-		SourceAvailability: semanticinventory.SourceAvailabilityVerified,
+	buildID := semantic.BuildID(project, generation)
+	build := semantic.Build{
+		BuildID: buildID, State: semantic.Complete, SourceKind: semantic.SourceFile,
+		SourceAvailability: semantic.SourceAvailabilityVerified,
 	}
 	codeChoice, err := capability.NewFieldConstructionChoice(snapshot.Token, codeCandidate)
 	if err != nil {
@@ -574,8 +573,8 @@ func assertFieldPresentationCodedFamilyProof(
 			},
 			Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot },
 		},
-		SemanticInventory: func(context.Context, semanticinventory.PageOptions) (semanticinventory.Page, error) {
-			return semanticinventory.Page{State: semanticinventory.Complete, Build: build, Families: []semanticinventory.Family{family}}, nil
+		SemanticInventory: func(context.Context, semantic.PageOptions) (semantic.Page, error) {
+			return semantic.Page{State: semantic.Complete, Build: build, Families: []semantic.Family{family}}, nil
 		},
 		SemanticCoverage: func(_ context.Context, options catalogarango.SemanticCoverageLookupOptions) (catalogarango.SemanticCoverageLookupResult, error) {
 			if len(options.Candidates) != 1 || options.Candidates[0] != (catalogarango.SemanticCoverageCandidatePath{ResourceType: codeCandidate.ResourceType, CanonicalPath: codeCandidate.FieldPath}) {
@@ -583,11 +582,11 @@ func assertFieldPresentationCodedFamilyProof(
 			}
 			return catalogarango.SemanticCoverageLookupResult{State: globalState, Candidates: []catalogarango.SemanticCoverageCandidateResult{coverage}}, nil
 		},
-		ResolveSemanticInventorySelections: func(_ context.Context, options semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
+		ResolveSemanticInventorySelections: func(_ context.Context, options semantic.ResolveOptions) (semantic.ResolveResult, error) {
 			if len(options.FamilyReferences) != 1 || options.FamilyReferences[0] != family.FamilyReference || len(options.References) != 0 {
 				t.Fatalf("family replacement was not resolved by its exact existing identity: %#v", options)
 			}
-			return semanticinventory.ResolveResult{Build: build, State: semanticinventory.Complete, Families: []semanticinventory.Family{family}}, nil
+			return semantic.ResolveResult{Build: build, State: semantic.Complete, Families: []semantic.Family{family}}, nil
 		},
 	})
 	request := BrowseSemanticInventoryRequest{
@@ -619,8 +618,8 @@ func assertFieldPresentationCodedFamilyProof(
 		}
 		replacement := ready.Replacements[0]
 		choiceSource, ok := replacement.ConstructionChoice.Source.(capability.SemanticBindingChoiceSource)
-		if !ok || replacement.SelectionMode != string(semanticinventory.SystemVersionCategory) ||
-			replacement.FamilyID != family.FamilyID || choiceSource.RuleHint != codedconcept.RuleHintCodedCategoryV1 ||
+		if !ok || replacement.SelectionMode != string(semantic.SystemVersionCategory) ||
+			replacement.FamilyID != family.FamilyID || choiceSource.RuleHint != semantic.RuleHintCodedCategoryV1 ||
 			choiceSource.SourceKind != family.SourceKind || choiceSource.System != family.System || choiceSource.Version != family.Version {
 			t.Fatalf("replacement is not a rendered existing coded category: %#v", replacement)
 		}
@@ -711,12 +710,12 @@ type fieldPresentationTestFixture struct {
 	service            *Service
 	snapshot           capability.Snapshot
 	candidate          capability.Candidate
-	entry              semanticinventory.Entry
+	entry              semantic.Entry
 	buildID            string
 	occurrenceID       string
 	rootResourceType   string
 	coverageResult     catalogarango.SemanticCoverageLookupResult
-	resolvedInventory  semanticinventory.ResolveResult
+	resolvedInventory  semantic.ResolveResult
 	authorizationReads int
 	inventoryReads     int
 	coverageReads      int
@@ -753,10 +752,10 @@ func newFieldPresentationTestFixture(t *testing.T, related bool) *fieldPresentat
 	snapshot.Candidates = []capability.Candidate{candidate}
 	entry := *semanticAuthoringEntry("concept-a", "binding-a", "urn:system:a", "code-a", "")
 	entry.Observation.Population = 4
-	buildID := semanticinventory.BuildID(project, generation)
-	build := semanticinventory.Build{
-		BuildID: buildID, State: semanticinventory.Complete, SourceKind: semanticinventory.SourceFile,
-		SourceAvailability: semanticinventory.SourceAvailabilityVerified,
+	buildID := semantic.BuildID(project, generation)
+	build := semantic.Build{
+		BuildID: buildID, State: semantic.Complete, SourceKind: semantic.SourceFile,
+		SourceAvailability: semantic.SourceAvailabilityVerified,
 	}
 	fieldChoice, err := capability.NewFieldConstructionChoice(snapshot.Token, candidate)
 	if err != nil {
@@ -817,7 +816,7 @@ func newFieldPresentationTestFixture(t *testing.T, related bool) *fieldPresentat
 		coverageResult: catalogarango.SemanticCoverageLookupResult{
 			State: catalogarango.SemanticCoverageBuildComplete, Candidates: []catalogarango.SemanticCoverageCandidateResult{coverage},
 		},
-		resolvedInventory: semanticAuthoringInventory(snapshot, []semanticinventory.Entry{entry}),
+		resolvedInventory: semanticAuthoringInventory(snapshot, []semantic.Entry{entry}),
 	}
 	fixture.resolvedInventory.Build = build
 	fixture.service = newTestService(t, store, Config{
@@ -828,24 +827,24 @@ func newFieldPresentationTestFixture(t *testing.T, related bool) *fieldPresentat
 			},
 			Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot },
 		},
-		SemanticInventory: func(_ context.Context, options semanticinventory.PageOptions) (semanticinventory.Page, error) {
+		SemanticInventory: func(_ context.Context, options semantic.PageOptions) (semantic.Page, error) {
 			fixture.inventoryReads++
 			if options.Project != project || options.DatasetGeneration != generation {
 				t.Fatalf("semantic page lost immutable scope: %#v", options)
 			}
-			return semanticinventory.Page{State: semanticinventory.Complete, Build: build, Entries: []semanticinventory.Entry{entry}}, nil
+			return semantic.Page{State: semantic.Complete, Build: build, Entries: []semantic.Entry{entry}}, nil
 		},
 		SemanticCoverage: func(_ context.Context, options catalogarango.SemanticCoverageLookupOptions) (catalogarango.SemanticCoverageLookupResult, error) {
 			fixture.coverageReads++
 			if options.Project != project || options.DatasetGeneration != generation || options.BuildID != buildID ||
-				options.SourceKind != semanticinventory.SourceFile || !options.AuthResourcePathsUnrestricted ||
+				options.SourceKind != semantic.SourceFile || !options.AuthResourcePathsUnrestricted ||
 				len(options.Candidates) != 1 || options.Candidates[0] != (catalogarango.SemanticCoverageCandidatePath{ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath}) {
 				t.Fatalf("coverage lookup lost exact bounded scope: %#v", options)
 			}
 			return fixture.coverageResult, nil
 		},
-		ResolveSemanticInventorySelections: func(_ context.Context, options semanticinventory.ResolveOptions) (semanticinventory.ResolveResult, error) {
-			if len(options.References) != 1 || options.References[0] != (semanticinventory.Reference{ConceptID: entry.ConceptID, BindingID: entry.BindingID}) {
+		ResolveSemanticInventorySelections: func(_ context.Context, options semantic.ResolveOptions) (semantic.ResolveResult, error) {
+			if len(options.References) != 1 || options.References[0] != (semantic.Reference{ConceptID: entry.ConceptID, BindingID: entry.BindingID}) {
 				t.Fatalf("replacement resolver did not receive the exact bounded reference: %#v", options)
 			}
 			return fixture.resolvedInventory, nil

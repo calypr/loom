@@ -9,7 +9,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func TestComposeClickHouseCombineRendersExactUnboundedAQLPrefix(t *testing.T) {
@@ -351,11 +351,11 @@ func compileCompositePrefixTestOutput(t *testing.T, output recipe.Output, bindin
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "composite-test",
 		TranslationVersion: "test", Outputs: []recipe.Output{output},
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatalf("BuildRecipePlan() error = %v", err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope-digest", bindings.DatasetGeneration)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-digest", bindings.DatasetGeneration)
 	if err != nil {
 		t.Fatalf("ResolveRecipePlan() error = %v", err)
 	}

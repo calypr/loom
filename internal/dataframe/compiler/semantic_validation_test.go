@@ -4,74 +4,74 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func TestValidateSemanticGraphAcceptsGeneratedAcyclicGraph(t *testing.T) {
-	plan := semanticValidationPlan(semantic.SemanticNode{
+	plan := semanticValidationPlan(recipeplan.SemanticNode{
 		Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
-		Children: []semantic.SemanticNode{{
+		Children: []recipeplan.SemanticNode{{
 			Alias: "file", ResourceType: "DocumentReference", EdgeLabel: "subject_Specimen",
 		}},
 	})
-	if err := semantic.ValidateSemanticGraph(plan.Root); err != nil {
+	if err := recipeplan.ValidateSemanticGraph(plan.Root); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestValidateSemanticGraphRejectsDuplicateAlias(t *testing.T) {
 	plan := semanticValidationPlan(
-		semantic.SemanticNode{Alias: "related", ResourceType: "Specimen", EdgeLabel: "subject_Patient"},
-		semantic.SemanticNode{Alias: "related", ResourceType: "Condition", EdgeLabel: "subject_Patient"},
+		recipeplan.SemanticNode{Alias: "related", ResourceType: "Specimen", EdgeLabel: "subject_Patient"},
+		recipeplan.SemanticNode{Alias: "related", ResourceType: "Condition", EdgeLabel: "subject_Patient"},
 	)
 	assertSemanticValidationError(t, plan, "alias \"related\" is not unique")
 }
 
 func TestValidateSemanticGraphRejectsUnknownRootAndTraversal(t *testing.T) {
-	unknownRoot := semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "InventedResource"}}
+	unknownRoot := recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "InventedResource"}}
 	assertSemanticValidationError(t, unknownRoot, "root resource type \"InventedResource\"")
 
-	unknownTraversal := semanticValidationPlan(semantic.SemanticNode{
+	unknownTraversal := semanticValidationPlan(recipeplan.SemanticNode{
 		Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "invented_edge",
 	})
 	assertSemanticValidationError(t, unknownTraversal, "is not represented by the active generated FHIR schema")
 }
 
 func TestValidateSemanticGraphAcceptsRepeatedSelfReference(t *testing.T) {
-	plan := semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan := recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Children: []semantic.SemanticNode{{
+		Children: []recipeplan.SemanticNode{{
 			Alias: "linked", ResourceType: "Patient", EdgeLabel: "link_other_Patient",
-			Children: []semantic.SemanticNode{{Alias: "linked_again", ResourceType: "Patient", EdgeLabel: "link_other_Patient"}},
+			Children: []recipeplan.SemanticNode{{Alias: "linked_again", ResourceType: "Patient", EdgeLabel: "link_other_Patient"}},
 		}},
 	}}
-	if err := semantic.ValidateSemanticGraph(plan.Root); err != nil {
+	if err := recipeplan.ValidateSemanticGraph(plan.Root); err != nil {
 		t.Fatalf("repeated self-reference should remain a valid finite query: %v", err)
 	}
 }
 
 func TestValidateSemanticGraphAllowsOneHopSelfReference(t *testing.T) {
-	plan := semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan := recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Children: []semantic.SemanticNode{{Alias: "linked", ResourceType: "Patient", EdgeLabel: "link_other_Patient"}},
+		Children: []recipeplan.SemanticNode{{Alias: "linked", ResourceType: "Patient", EdgeLabel: "link_other_Patient"}},
 	}}
-	if err := semantic.ValidateSemanticGraph(plan.Root); err != nil {
+	if err := recipeplan.ValidateSemanticGraph(plan.Root); err != nil {
 		t.Fatalf("one-hop self reference should remain a valid finite query: %v", err)
 	}
 }
 
 func TestValidateSemanticGraphAcceptsMoreThanFourHops(t *testing.T) {
-	plan := semantic.OutputPlan{Root: semantic.SemanticNode{
+	plan := recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Children: []semantic.SemanticNode{{
+		Children: []recipeplan.SemanticNode{{
 			Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
-			Children: []semantic.SemanticNode{{
+			Children: []recipeplan.SemanticNode{{
 				Alias: "file", ResourceType: "DocumentReference", EdgeLabel: "subject_Specimen",
-				Children: []semantic.SemanticNode{{
+				Children: []recipeplan.SemanticNode{{
 					Alias: "procedure", ResourceType: "Procedure", EdgeLabel: "report_DocumentReference",
-					Children: []semantic.SemanticNode{{
+					Children: []recipeplan.SemanticNode{{
 						Alias: "another_specimen", ResourceType: "Specimen", EdgeLabel: "collection_procedure",
-						Children: []semantic.SemanticNode{{
+						Children: []recipeplan.SemanticNode{{
 							Alias: "another_file", ResourceType: "DocumentReference", EdgeLabel: "subject_Specimen",
 						}},
 					}},
@@ -79,23 +79,23 @@ func TestValidateSemanticGraphAcceptsMoreThanFourHops(t *testing.T) {
 			}},
 		}},
 	}}
-	if err := semantic.ValidateSemanticGraph(plan.Root); err != nil {
+	if err := recipeplan.ValidateSemanticGraph(plan.Root); err != nil {
 		t.Fatalf("finite route longer than four hops should remain valid: %v", err)
 	}
 }
 
 func TestValidateSemanticGraphRejectsMalformedRoot(t *testing.T) {
-	assertSemanticValidationError(t, semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "patient", ResourceType: "Patient"}}, "root alias must be")
-	assertSemanticValidationError(t, semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", EdgeLabel: "subject"}}, "must not declare edge label")
+	assertSemanticValidationError(t, recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "patient", ResourceType: "Patient"}}, "root alias must be")
+	assertSemanticValidationError(t, recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient", EdgeLabel: "subject"}}, "must not declare edge label")
 }
 
-func semanticValidationPlan(children ...semantic.SemanticNode) semantic.OutputPlan {
-	return semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient", Children: children}}
+func semanticValidationPlan(children ...recipeplan.SemanticNode) recipeplan.OutputPlan {
+	return recipeplan.OutputPlan{Root: recipeplan.SemanticNode{Alias: "root", ResourceType: "Patient", Children: children}}
 }
 
-func assertSemanticValidationError(t *testing.T, plan semantic.OutputPlan, contains string) {
+func assertSemanticValidationError(t *testing.T, plan recipeplan.OutputPlan, contains string) {
 	t.Helper()
-	err := semantic.ValidateSemanticGraph(plan.Root)
+	err := recipeplan.ValidateSemanticGraph(plan.Root)
 	if err == nil || !strings.Contains(err.Error(), contains) {
 		t.Fatalf("error = %v, want substring %q", err, contains)
 	}

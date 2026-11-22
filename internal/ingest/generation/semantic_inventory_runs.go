@@ -11,7 +11,7 @@ import (
 	"slices"
 
 	"github.com/bytedance/sonic"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 const (
@@ -19,12 +19,12 @@ const (
 	semanticInventoryRunFanIn    = 16
 )
 
-func writeSemanticInventoryRun(aggregator *semanticinventory.Aggregator) (string, error) {
+func writeSemanticInventoryRun(aggregator *semantic.Aggregator) (string, error) {
 	values := aggregator.Values()
 	if len(values) == 0 {
 		return "", nil
 	}
-	path, err := createSemanticInventoryRun(func(emit func(semanticinventory.Contribution) error) error {
+	path, err := createSemanticInventoryRun(func(emit func(semantic.Contribution) error) error {
 		for _, value := range values {
 			if err := emit(value); err != nil {
 				return err
@@ -38,12 +38,12 @@ func writeSemanticInventoryRun(aggregator *semanticinventory.Aggregator) (string
 	return path, err
 }
 
-func writeSemanticInventoryEntryRun(aggregator *semanticinventory.EntryAggregator) (string, error) {
+func writeSemanticInventoryEntryRun(aggregator *semantic.EntryAggregator) (string, error) {
 	values := aggregator.Values()
 	if len(values) == 0 {
 		return "", nil
 	}
-	path, err := createSemanticInventoryEntryRun(func(emit func(semanticinventory.EntryPartial) error) error {
+	path, err := createSemanticInventoryEntryRun(func(emit func(semantic.EntryPartial) error) error {
 		for _, value := range values {
 			if err := emit(value); err != nil {
 				return err
@@ -57,14 +57,14 @@ func writeSemanticInventoryEntryRun(aggregator *semanticinventory.EntryAggregato
 	return path, err
 }
 
-func createSemanticInventoryEntryRun(write func(func(semanticinventory.EntryPartial) error) error) (string, error) {
+func createSemanticInventoryEntryRun(write func(func(semantic.EntryPartial) error) error) (string, error) {
 	file, err := os.CreateTemp("", "loom-semantic-entry-*.ndjson")
 	if err != nil {
 		return "", err
 	}
 	path := file.Name()
 	writer := bufio.NewWriterSize(file, 1<<20)
-	err = write(func(value semanticinventory.EntryPartial) error {
+	err = write(func(value semantic.EntryPartial) error {
 		encoded, err := sonic.ConfigFastest.Marshal(value)
 		if err != nil {
 			return err
@@ -91,7 +91,7 @@ type semanticInventoryEntryRun struct {
 	path    string
 	file    *os.File
 	scanner *bufio.Scanner
-	value   semanticinventory.EntryPartial
+	value   semantic.EntryPartial
 	key     string
 }
 
@@ -115,7 +115,7 @@ func (h *semanticInventoryEntryRunHeap) Pop() any {
 	return last
 }
 
-func mergeWorkerSemanticInventoryEntries(ctx context.Context, paths []string, workers []*semanticinventory.EntryAggregator, emit func(semanticinventory.EntryPartial) error) (err error) {
+func mergeWorkerSemanticInventoryEntries(ctx context.Context, paths []string, workers []*semantic.EntryAggregator, emit func(semantic.EntryPartial) error) (err error) {
 	defer func() {
 		for _, path := range paths {
 			if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) && err == nil {
@@ -164,7 +164,7 @@ func mergeWorkerSemanticInventoryEntries(ctx context.Context, paths []string, wo
 	return mergeSemanticInventoryEntryRuns(ctx, paths, emit)
 }
 
-func mergeSemanticInventoryEntryRuns(ctx context.Context, paths []string, emit func(semanticinventory.EntryPartial) error) error {
+func mergeSemanticInventoryEntryRuns(ctx context.Context, paths []string, emit func(semantic.EntryPartial) error) error {
 	paths = slices.Clone(paths)
 	slices.Sort(paths)
 	originalPaths := slices.Clone(paths)
@@ -181,7 +181,7 @@ func mergeSemanticInventoryEntryRuns(ctx context.Context, paths []string, emit f
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			path, err := createSemanticInventoryEntryRun(func(emit func(semanticinventory.EntryPartial) error) error {
+			path, err := createSemanticInventoryEntryRun(func(emit func(semantic.EntryPartial) error) error {
 				return mergeSemanticInventoryEntryRunGroup(ctx, group, emit)
 			})
 			if err != nil {
@@ -209,7 +209,7 @@ func removeSemanticInventoryRuns(paths []string) {
 	}
 }
 
-func mergeSemanticInventoryEntryRunGroup(ctx context.Context, paths []string, emit func(semanticinventory.EntryPartial) error) error {
+func mergeSemanticInventoryEntryRunGroup(ctx context.Context, paths []string, emit func(semantic.EntryPartial) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -240,7 +240,7 @@ func mergeSemanticInventoryEntryRunGroup(ctx context.Context, paths []string, em
 		}
 	}
 	heap.Init(&queue)
-	var pending *semanticinventory.EntryPartial
+	var pending *semantic.EntryPartial
 	for queue.Len() != 0 {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -249,7 +249,7 @@ func mergeSemanticInventoryEntryRunGroup(ctx context.Context, paths []string, em
 		if pending == nil {
 			value := run.value
 			pending = &value
-		} else if merged, same := semanticinventory.MergeEntryPartials(*pending, run.value); same {
+		} else if merged, same := semantic.MergeEntryPartials(*pending, run.value); same {
 			pending = &merged
 		} else {
 			if err := emit(*pending); err != nil {
@@ -279,22 +279,22 @@ func advanceSemanticInventoryEntryRun(run *semanticInventoryEntryRun) (bool, err
 		}
 		return false, nil
 	}
-	run.value = semanticinventory.EntryPartial{}
+	run.value = semantic.EntryPartial{}
 	if err := sonic.ConfigFastest.Unmarshal(run.scanner.Bytes(), &run.value); err != nil {
 		return false, fmt.Errorf("decode semantic inventory entry run %s: %w", run.path, err)
 	}
-	run.key = semanticinventory.EntryGroupOrderKey(run.value.Contribution)
+	run.key = semantic.EntryGroupOrderKey(run.value.Contribution)
 	return true, nil
 }
 
-func createSemanticInventoryRun(write func(func(semanticinventory.Contribution) error) error) (string, error) {
+func createSemanticInventoryRun(write func(func(semantic.Contribution) error) error) (string, error) {
 	file, err := os.CreateTemp("", "loom-semantic-inventory-*.ndjson")
 	if err != nil {
 		return "", err
 	}
 	path := file.Name()
 	writer := bufio.NewWriterSize(file, 1<<20)
-	err = write(func(value semanticinventory.Contribution) error {
+	err = write(func(value semantic.Contribution) error {
 		encoded, err := sonic.ConfigFastest.Marshal(value)
 		if err != nil {
 			return err
@@ -321,7 +321,7 @@ type semanticInventoryRun struct {
 	path    string
 	file    *os.File
 	scanner *bufio.Scanner
-	value   semanticinventory.Contribution
+	value   semantic.Contribution
 	key     string
 }
 
@@ -345,7 +345,7 @@ func (h *semanticInventoryRunHeap) Pop() any {
 	return last
 }
 
-func mergeSemanticInventoryRuns(ctx context.Context, paths []string, emit func(semanticinventory.Contribution) error) error {
+func mergeSemanticInventoryRuns(ctx context.Context, paths []string, emit func(semantic.Contribution) error) error {
 	paths = slices.Clone(paths)
 	slices.Sort(paths)
 	intermediate := make(map[string]struct{})
@@ -358,7 +358,7 @@ func mergeSemanticInventoryRuns(ctx context.Context, paths []string, emit func(s
 	for len(paths) > semanticInventoryRunFanIn {
 		next := make([]string, 0, (len(paths)+semanticInventoryRunFanIn-1)/semanticInventoryRunFanIn)
 		for group := range slices.Chunk(paths, semanticInventoryRunFanIn) {
-			path, err := createSemanticInventoryRun(func(emit func(semanticinventory.Contribution) error) error {
+			path, err := createSemanticInventoryRun(func(emit func(semantic.Contribution) error) error {
 				return mergeSemanticInventoryRunGroup(ctx, group, emit)
 			})
 			if err != nil {
@@ -380,7 +380,7 @@ func mergeSemanticInventoryRuns(ctx context.Context, paths []string, emit func(s
 	return mergeSemanticInventoryRunGroup(ctx, paths, emit)
 }
 
-func mergeSemanticInventoryRunGroup(ctx context.Context, paths []string, emit func(semanticinventory.Contribution) error) error {
+func mergeSemanticInventoryRunGroup(ctx context.Context, paths []string, emit func(semantic.Contribution) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -411,7 +411,7 @@ func mergeSemanticInventoryRunGroup(ctx context.Context, paths []string, emit fu
 		}
 	}
 	heap.Init(&queue)
-	var pending *semanticinventory.Contribution
+	var pending *semantic.Contribution
 	for queue.Len() != 0 {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -420,7 +420,7 @@ func mergeSemanticInventoryRunGroup(ctx context.Context, paths []string, emit fu
 		if pending == nil {
 			value := run.value
 			pending = &value
-		} else if merged, same := semanticinventory.MergeContributions(*pending, run.value); same {
+		} else if merged, same := semantic.MergeContributions(*pending, run.value); same {
 			pending = &merged
 		} else {
 			if err := emit(*pending); err != nil {
@@ -450,16 +450,16 @@ func advanceSemanticInventoryRun(run *semanticInventoryRun) (bool, error) {
 		}
 		return false, nil
 	}
-	var value semanticinventory.Contribution
+	var value semantic.Contribution
 	if err := sonic.ConfigFastest.Unmarshal(run.scanner.Bytes(), &value); err != nil {
 		return false, fmt.Errorf("decode semantic inventory run %s: %w", run.path, err)
 	}
 	run.value = value
-	run.key = semanticinventory.ContributionOrderKey(run.value)
+	run.key = semantic.ContributionOrderKey(run.value)
 	return true, nil
 }
 
-func encodeSemanticInventoryBatch(values []semanticinventory.Contribution, project, generation, authPath, resourceType, buildID, sourceID string, firstOrdinal int) ([]json.RawMessage, error) {
+func encodeSemanticInventoryBatch(values []semantic.Contribution, project, generation, authPath, resourceType, buildID, sourceID string, firstOrdinal int) ([]json.RawMessage, error) {
 	encoded := make([]json.RawMessage, 0, len(values))
 	for index, value := range values {
 		ordinal := firstOrdinal + index
@@ -468,10 +468,10 @@ func encodeSemanticInventoryBatch(values []semanticinventory.Contribution, proje
 		value.AuthResourcePath = authPath
 		value.ResourceType = resourceType
 		value.BuildID = buildID
-		value.SourceKind = semanticinventory.SourceFile
+		value.SourceKind = semantic.SourceFile
 		value.SourceID = sourceID
 		value.Ordinal = ordinal
-		value.Key = semanticinventory.ContributionKey(project, generation, authPath, resourceType, buildID, sourceID, ordinal)
+		value.Key = semantic.ContributionKey(project, generation, authPath, resourceType, buildID, sourceID, ordinal)
 		data, err := sonic.ConfigFastest.Marshal(value)
 		if err != nil {
 			return nil, fmt.Errorf("encode aggregated semantic inventory ordinal %d: %w", ordinal, err)

@@ -6,19 +6,19 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestValidateGenericPhysicalPlanScopeCoversLoweredNestedPlans(t *testing.T) {
 	t.Run("graph path extension scope", func(t *testing.T) {
-		plan, err := BuildGraphPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+		plan, err := BuildGraphPhysicalPlan(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 			Alias: "root", ResourceType: "Patient",
-			Children: []semantic.SemanticNode{{
+			Children: []recipeplan.SemanticNode{{
 				Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient",
 				MatchMode: "REQUIRED",
 			}},
-		}}, semantic.ExecutionContext{Project: "project"}, 100, ir.DefaultPhysicalOptimizationPolicy())
+		}}, recipeplan.ExecutionContext{Project: "project"}, 100, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("BuildGraphPhysicalPlan() error = %v", err)
 		}
@@ -77,17 +77,17 @@ func TestValidateGenericPhysicalPlanScopeCoversLoweredNestedPlans(t *testing.T) 
 	})
 
 	t.Run("correlated optional child", func(t *testing.T) {
-		plan, err := BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+		plan, err := BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 			Alias: "root", ResourceType: "Patient",
-			Children: []semantic.SemanticNode{{
+			Children: []recipeplan.SemanticNode{{
 				Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
-				Fields: []semantic.SemanticField{{
+				Fields: []recipeplan.SemanticField{{
 					Name: "specimen_id", FieldRef: "Specimen.id",
-					Expr:       semantic.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})},
+					Expr:       recipeplan.SemanticExpression{Expression: expression.Select(expression.SelectorRef{Path: "id"})},
 					Projection: spec.ProjectionFirst,
 				}},
 			}},
-		}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+		}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("BuildGenericPhysicalPlanWithPolicy() error = %v", err)
 		}

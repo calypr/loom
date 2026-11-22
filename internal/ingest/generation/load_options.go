@@ -3,11 +3,13 @@ package generation
 import (
 	"errors"
 	"fmt"
+	ingestevent "github.com/calypr/loom/internal/ingest/event"
+	"github.com/calypr/loom/internal/ingest/row"
+	"github.com/calypr/loom/internal/ingest/source"
 	"os"
 
 	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	publication "github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/ingest"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -31,7 +33,7 @@ type LoadOptions struct {
 	SourceFileOwner  string
 	IdentityFormat   string
 	WriteAPI         string
-	EventSink        ingest.EventSink
+	EventSink        ingestevent.EventSink
 
 	Dataset *publication.Ref
 
@@ -48,17 +50,17 @@ type LoadOptions struct {
 }
 
 type LoadSummary struct {
-	Files            int                     `json:"files"`
-	VerticesInserted int                     `json:"vertices_inserted"`
-	EdgesInserted    int                     `json:"edges_inserted"`
-	ValidationErrors int                     `json:"validation_errors"`
-	GenerationErrors int                     `json:"generation_errors"`
-	EdgeErrors       int                     `json:"edge_errors"`
-	BatchCounts      map[string]int          `json:"batch_counts,omitempty"`
-	Resources        map[string]int          `json:"resources"`
-	StageSeconds     map[string]float64      `json:"stage_seconds"`
-	Preflight        ingest.PreflightReport  `json:"preflight"`
-	RowErrors        []ingest.RowErrorSample `json:"row_errors,omitempty"`
+	Files            int                    `json:"files"`
+	VerticesInserted int                    `json:"vertices_inserted"`
+	EdgesInserted    int                    `json:"edges_inserted"`
+	ValidationErrors int                    `json:"validation_errors"`
+	GenerationErrors int                    `json:"generation_errors"`
+	EdgeErrors       int                    `json:"edge_errors"`
+	BatchCounts      map[string]int         `json:"batch_counts,omitempty"`
+	Resources        map[string]int         `json:"resources"`
+	StageSeconds     map[string]float64     `json:"stage_seconds"`
+	Preflight        source.PreflightReport `json:"preflight"`
+	RowErrors        []row.RowErrorSample   `json:"row_errors,omitempty"`
 
 	SchemaIdentity *publication.SchemaSnapshot `json:"schema_identity,omitempty"`
 

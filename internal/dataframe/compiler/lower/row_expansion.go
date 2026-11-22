@@ -5,22 +5,22 @@ import (
 	"strconv"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 type physicalExpansionBinding struct {
-	Node     semantic.SemanticNode
+	Node     recipeplan.SemanticNode
 	Variable string
 }
 
-func semanticExpansionOwnerPath(root semantic.SemanticNode, owner semantic.SemanticOccurrence) ([]semantic.SemanticNode, error) {
+func semanticExpansionOwnerPath(root recipeplan.SemanticNode, owner recipeplan.SemanticOccurrence) ([]recipeplan.SemanticNode, error) {
 	if owner.Alias == root.Alias && (owner.OccurrenceID == "" || owner.OccurrenceID == root.OccurrenceID) {
-		return []semantic.SemanticNode{root}, nil
+		return []recipeplan.SemanticNode{root}, nil
 	}
-	var matches [][]semantic.SemanticNode
-	var walk func(semantic.SemanticNode, []semantic.SemanticNode)
-	walk = func(node semantic.SemanticNode, path []semantic.SemanticNode) {
-		path = append(append([]semantic.SemanticNode(nil), path...), node)
+	var matches [][]recipeplan.SemanticNode
+	var walk func(recipeplan.SemanticNode, []recipeplan.SemanticNode)
+	walk = func(node recipeplan.SemanticNode, path []recipeplan.SemanticNode) {
+		path = append(append([]recipeplan.SemanticNode(nil), path...), node)
 		if node.OccurrenceID == owner.OccurrenceID && node.Alias == owner.Alias && node.ResourceType == owner.ResourceType {
 			matches = append(matches, path)
 			return
@@ -36,7 +36,7 @@ func semanticExpansionOwnerPath(root semantic.SemanticNode, owner semantic.Seman
 	return matches[0], nil
 }
 
-func appendRecipeRowExpansion(plan *ir.PhysicalPlan, output semantic.OutputPlan, path []semantic.SemanticNode, policy ir.PhysicalOptimizationPolicy) (map[string]physicalExpansionBinding, error) {
+func appendRecipeRowExpansion(plan *ir.PhysicalPlan, output recipeplan.OutputPlan, path []recipeplan.SemanticNode, policy ir.PhysicalOptimizationPolicy) (map[string]physicalExpansionBinding, error) {
 	expansion := output.RowExpansion
 	if expansion == nil {
 		return nil, nil
@@ -98,11 +98,11 @@ func appendRecipeRowExpansion(plan *ir.PhysicalPlan, output semantic.OutputPlan,
 	ancestors := recipeExpansionAncestors(source)
 	var emptyPolicy ir.PhysicalUnnestEmptyPolicy
 	switch expansion.EmptyPolicy {
-	case semantic.ExpansionExclude:
+	case recipeplan.ExpansionExclude:
 		emptyPolicy = ir.PhysicalUnnestExclude
-	case semantic.ExpansionPreserveParent:
+	case recipeplan.ExpansionPreserveParent:
 		emptyPolicy = ir.PhysicalUnnestPreserveParent
-	case semantic.ExpansionError:
+	case recipeplan.ExpansionError:
 		emptyPolicy = ir.PhysicalUnnestError
 	default:
 		return nil, fmt.Errorf("unsupported row expansion empty policy %q", expansion.EmptyPolicy)
@@ -147,7 +147,7 @@ func recipeExpansionAncestors(source ir.PhysicalExpression) []ir.PhysicalUnnestA
 	return ancestors
 }
 
-func appendRecipeExpansionIdentity(plan *ir.PhysicalPlan, output semantic.OutputPlan) error {
+func appendRecipeExpansionIdentity(plan *ir.PhysicalPlan, output recipeplan.OutputPlan) error {
 	if !output.ExpansionIdentity {
 		return nil
 	}
@@ -213,7 +213,7 @@ func maxExpansionIdentityIndex(route []ir.PhysicalUnnestRouteStep) int {
 	return len(route) - 1
 }
 
-func expansionItemResourceType(output semantic.OutputPlan) string {
+func expansionItemResourceType(output recipeplan.OutputPlan) string {
 	if output.RowExpansion == nil {
 		return ""
 	}

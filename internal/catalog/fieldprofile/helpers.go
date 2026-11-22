@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/calypr/loom/internal/catalog/internal/digest"
+	"github.com/calypr/loom/internal/digest"
 )
 
 func stringValue(value any) string {

@@ -7,18 +7,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"os"
 	"reflect"
 	"sort"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -246,15 +246,15 @@ func compileTraceReceipt(ctx context.Context, request ports.CompileReceiptReques
 		return nil, fmt.Errorf("compile trace workspace: %w", err)
 	}
 	bindings := recipe.RuntimeBindings{Project: request.Project, DatasetGeneration: snapshot.Identity.Generation}
-	plan, err := semantic.BuildRecipePlan(translated.Bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(translated.Bundle, bindings)
 	if err != nil {
 		return nil, fmt.Errorf("build trace semantic plan: %w", err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, snapshot.Identity.AuthorizationScopeDigest, snapshot.Identity.Generation)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, snapshot.Identity.AuthorizationScopeDigest, snapshot.Identity.Generation)
 	if err != nil {
 		return nil, fmt.Errorf("resolve trace recipe plan: %w", err)
 	}
-	lowered, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	lowered, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return nil, fmt.Errorf("lower trace recipe plan: %w", err)
 	}
@@ -314,7 +314,7 @@ func compileTraceReceipt(ctx context.Context, request ports.CompileReceiptReques
 	return receipt, nil
 }
 
-func traceReceiptStages(compiled lower.CompiledRecipe) map[string][]explorer.ReceiptConstructionStage {
+func traceReceiptStages(compiled facade.CompiledRecipe) map[string][]explorer.ReceiptConstructionStage {
 
 	var stages map[string][]explorer.ReceiptConstructionStage
 	for _, output := range compiled.Outputs {
@@ -358,7 +358,7 @@ func traceReceiptStages(compiled lower.CompiledRecipe) map[string][]explorer.Rec
 	return stages
 }
 
-func traceReceiptOutputSchemas(compiled lower.CompiledRecipe) map[string][]explorer.ReceiptCompiledOutputColumn {
+func traceReceiptOutputSchemas(compiled facade.CompiledRecipe) map[string][]explorer.ReceiptCompiledOutputColumn {
 	schemas := make(map[string][]explorer.ReceiptCompiledOutputColumn, len(compiled.Outputs))
 	for _, output := range compiled.Outputs {
 		columns := make([]explorer.ReceiptCompiledOutputColumn, 0, len(output.OutputSchema))
@@ -384,7 +384,7 @@ func traceOutputProvenance(columns []explorer.EmittedColumn) map[string]map[stri
 	return provenance
 }
 
-func traceOutputFingerprints(compiled lower.CompiledRecipe) (map[string]string, error) {
+func traceOutputFingerprints(compiled facade.CompiledRecipe) (map[string]string, error) {
 	fingerprints := make(map[string]string, len(compiled.Outputs))
 	for _, output := range compiled.Outputs {
 		encoded, err := json.Marshal(output.Plan)

@@ -7,7 +7,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
 func TestWorkspaceOutputResolverUsesFinalGroupAndPivotSchemas(t *testing.T) {
@@ -56,11 +56,11 @@ func TestWorkspaceOutputResolverUsesFinalGroupAndPivotSchemas(t *testing.T) {
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "workspace", TranslationVersion: "1",
 		Outputs: []recipe.Output{combined, grouped, pivoted},
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"})
 	if err != nil {
 		t.Fatalf("BuildRecipePlan: %v", err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-a", "generation-a")
 	if err != nil {
 		t.Fatalf("ResolveRecipePlan: %v", err)
 	}
@@ -123,11 +123,11 @@ func TestWorkspaceOutputResolverUsesFinalGroupAndPivotSchemas(t *testing.T) {
 	mismatched.Outputs[0].Construction = &construction
 	mismatched.Outputs[0].Construction.Steps[0].Outputs = append([]recipe.StageColumn(nil), bundle.Outputs[0].Construction.Steps[0].Outputs...)
 	mismatched.Outputs[0].Construction.Steps[0].Outputs[1].Type = "string"
-	mismatchPlan, err := semantic.BuildRecipePlan(mismatched, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"})
+	mismatchPlan, err := recipeplan.BuildRecipePlan(mismatched, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"})
 	if err != nil {
 		t.Fatalf("BuildRecipePlan(mismatched schema): %v", err)
 	}
-	mismatchResolved, err := semantic.ResolveRecipePlan(mismatchPlan, "scope-a", "generation-a")
+	mismatchResolved, err := recipeplan.ResolveRecipePlan(mismatchPlan, "scope-a", "generation-a")
 	if err != nil {
 		t.Fatalf("ResolveRecipePlan(mismatched schema): %v", err)
 	}

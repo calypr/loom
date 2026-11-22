@@ -11,9 +11,8 @@ import (
 	"testing"
 
 	"github.com/bytedance/sonic"
-	"github.com/calypr/loom/internal/catalog/codedconcept"
 	"github.com/calypr/loom/internal/fhir/schema"
-	fhirsemantic "github.com/calypr/loom/internal/fhir/semantic"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func TestSchemaSemanticDiscoveryUsesResolvedDatatypesUnderUnfamiliarNames(t *testing.T) {
@@ -75,13 +74,13 @@ func TestSchemaSemanticDiscoveryUsesResolvedDatatypesUnderUnfamiliarNames(t *tes
 		}},
 	}
 	var observations []schemaSemanticEmission
-	if err := p.observeSchemaSemantics(index, payload, "", func(observation codedconcept.Observation, examples []any) {
+	if err := p.observeSchemaSemantics(index, payload, "", func(observation semantic.Observation, examples []any) {
 		observations = append(observations, schemaSemanticEmission{observation: observation, examples: examples})
 	}); err != nil {
 		t.Fatalf("observeSchemaSemantics: %v", err)
 	}
 
-	coded := findSchemaObservation(t, observations, codedconcept.RuleHintCodedValueV1)
+	coded := findSchemaObservation(t, observations, semantic.RuleHintCodedValueV1)
 	if coded.observation.Source.Path != "measurements[]" || coded.observation.OwningScope != "measurements[]" || coded.observation.Key.Selector != "meaning.coding[]" {
 		t.Fatalf("coded owner = %#v", coded)
 	}
@@ -110,7 +109,7 @@ func TestSchemaSemanticDiscoveryUsesResolvedDatatypesUnderUnfamiliarNames(t *tes
 }
 
 type schemaSemanticEmission struct {
-	observation codedconcept.Observation
+	observation semantic.Observation
 	examples    []any
 }
 
@@ -203,8 +202,8 @@ func TestSchemaSemanticValueWalkMatchesByteWalkObservations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var byteFacts []fhirsemantic.MemberFact
-	if _, err := fhirsemantic.WalkMembers(index, "SignalPacket", raw, func(fact fhirsemantic.MemberFact) error {
+	var byteFacts []semantic.MemberFact
+	if _, err := semantic.WalkMembers(index, "SignalPacket", raw, func(fact semantic.MemberFact) error {
 		value, valid := decodeSemanticValue(fact.RawJSON)
 		if valid {
 			fact.Value = value
@@ -214,8 +213,8 @@ func TestSchemaSemanticValueWalkMatchesByteWalkObservations(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	var valueFacts []fhirsemantic.MemberFact
-	if _, err := fhirsemantic.WalkMemberValues(index, "SignalPacket", decoded, func(fact fhirsemantic.MemberFact) error {
+	var valueFacts []semantic.MemberFact
+	if _, err := semantic.WalkMemberValues(index, "SignalPacket", decoded, func(fact semantic.MemberFact) error {
 		valueFacts = append(valueFacts, fact)
 		return nil
 	}); err != nil {
@@ -244,17 +243,17 @@ func TestSchemaSemanticValueWalkMatchesByteWalkObservations(t *testing.T) {
 }
 
 type semanticEmissionForTest struct {
-	Observation codedconcept.Observation
+	Observation semantic.Observation
 	Examples    []any
 	Evidence    SemanticCoverageEmissionEvidence
 }
 
-func observeSchemaFactsForTest(t *testing.T, index *schema.Index, resourceType, sourceID string, payload map[string]any, facts []fhirsemantic.MemberFact) []semanticEmissionForTest {
+func observeSchemaFactsForTest(t *testing.T, index *schema.Index, resourceType, sourceID string, payload map[string]any, facts []semantic.MemberFact) []semanticEmissionForTest {
 	t.Helper()
 	profiler := NewProfilerForGeneration("project", "generation", "scope", resourceType, nil)
 	var emissions []semanticEmissionForTest
-	err := codedconcept.ExtractFacts(resourceType, "", payload, facts, func(record codedconcept.Record) {
-		profiler.recordSchemaSemanticObservation(record, sourceID, func(observation codedconcept.Observation, examples []any, evidence SemanticCoverageEmissionEvidence) {
+	err := semantic.ExtractFacts(resourceType, "", payload, facts, func(record semantic.Record) {
+		profiler.recordSchemaSemanticObservation(record, sourceID, func(observation semantic.Observation, examples []any, evidence SemanticCoverageEmissionEvidence) {
 			emissions = append(emissions, semanticEmissionForTest{observation, examples, evidence})
 		})
 	})
@@ -345,8 +344,8 @@ func TestSemanticValueWalkMatchesFixtureNDJSON(t *testing.T) {
 				file.Close()
 				t.Fatalf("%s:%d encode: %v", path, lineNumber, err)
 			}
-			var byteFacts []fhirsemantic.MemberFact
-			byteDiagnostics, err := fhirsemantic.WalkMembers(index, schema.DefinitionName(resourceType), encoded, func(fact fhirsemantic.MemberFact) error {
+			var byteFacts []semantic.MemberFact
+			byteDiagnostics, err := semantic.WalkMembers(index, schema.DefinitionName(resourceType), encoded, func(fact semantic.MemberFact) error {
 				value, valid := decodeSemanticValue(fact.RawJSON)
 				if valid {
 					fact.Value = value
@@ -358,8 +357,8 @@ func TestSemanticValueWalkMatchesFixtureNDJSON(t *testing.T) {
 				file.Close()
 				t.Fatalf("%s:%d byte walk: %v", path, lineNumber, err)
 			}
-			var valueFacts []fhirsemantic.MemberFact
-			valueDiagnostics, err := fhirsemantic.WalkMemberValues(index, schema.DefinitionName(resourceType), payload, func(fact fhirsemantic.MemberFact) error {
+			var valueFacts []semantic.MemberFact
+			valueDiagnostics, err := semantic.WalkMemberValues(index, schema.DefinitionName(resourceType), payload, func(fact semantic.MemberFact) error {
 				valueFacts = append(valueFacts, fact)
 				return nil
 			})
@@ -382,7 +381,7 @@ func TestSemanticValueWalkMatchesFixtureNDJSON(t *testing.T) {
 			}
 			oldEmissions := observeSchemaFactsForTest(t, index, resourceType, fmt.Sprintf("%s:%d", path, lineNumber), payload, byteFacts)
 			var newEmissions []semanticEmissionForTest
-			if err := profiler.observeSchemaSemanticsWithEvidence(index, payload, "", fmt.Sprintf("%s:%d", path, lineNumber), func(observation codedconcept.Observation, examples []any, evidence SemanticCoverageEmissionEvidence) {
+			if err := profiler.observeSchemaSemanticsWithEvidence(index, payload, "", fmt.Sprintf("%s:%d", path, lineNumber), func(observation semantic.Observation, examples []any, evidence SemanticCoverageEmissionEvidence) {
 				newEmissions = append(newEmissions, semanticEmissionForTest{observation, examples, evidence})
 			}); err != nil {
 				file.Close()
@@ -416,7 +415,7 @@ func TestSemanticProfilerRecoversAfterPartialWalk(t *testing.T) {
 		"extension":  []any{map[string]any{"url": "urn:example", "valueString": "discard"}},
 		"identifier": map[string]any{"system": "urn:invalid"},
 	}
-	if err := profiler.observeSchemaSemanticsWithEvidence(index, bad, "", "bad", func(codedconcept.Observation, []any, SemanticCoverageEmissionEvidence) {
+	if err := profiler.observeSchemaSemanticsWithEvidence(index, bad, "", "bad", func(semantic.Observation, []any, SemanticCoverageEmissionEvidence) {
 		t.Fatal("a partial walk emitted a semantic observation")
 	}); err == nil {
 		t.Fatal("expected the identifier to fail the member walk")
@@ -426,7 +425,7 @@ func TestSemanticProfilerRecoversAfterPartialWalk(t *testing.T) {
 	}
 	observe := func(profiler *Profiler) []semanticEmissionForTest {
 		var result []semanticEmissionForTest
-		err := profiler.observeSchemaSemanticsWithEvidence(index, good, "", "good", func(observation codedconcept.Observation, examples []any, evidence SemanticCoverageEmissionEvidence) {
+		err := profiler.observeSchemaSemanticsWithEvidence(index, good, "", "good", func(observation semantic.Observation, examples []any, evidence SemanticCoverageEmissionEvidence) {
 			result = append(result, semanticEmissionForTest{observation, examples, evidence})
 		})
 		if err != nil {

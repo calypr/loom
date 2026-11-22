@@ -5,9 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/unit"
 )
@@ -54,8 +53,8 @@ func ResolvedOutputArtifacts(resolved dataframeexecution.Resolved) (map[string]s
 			OutputSchema                     any
 			RowIdentity                      any
 			DynamicColumns                   any
-			Plan                             ir.PhysicalPlan
-		}{3, resolved.Compiled.Version, output.Name, output.RootResourceType, string(output.RowGrain), resolved.Semantic.ScopeDigest, resolved.Compiled.SourceGeneration, append([]string(nil), output.Columns...), columns, output.RowIdentity, dynamic, ir.CanonicalExecutionPhysicalPlan(output.Plan)})
+			Plan                             facade.PhysicalPlan
+		}{3, resolved.Compiled.Version, output.Name, output.RootResourceType, string(output.RowGrain), resolved.Semantic.ScopeDigest, resolved.Compiled.SourceGeneration, append([]string(nil), output.Columns...), columns, output.RowIdentity, dynamic, facade.CanonicalExecutionPhysicalPlan(output.Plan)})
 		if err != nil {
 			return nil, nil, fmt.Errorf("fingerprint output %q: %w", output.Name, err)
 		}
@@ -65,7 +64,7 @@ func ResolvedOutputArtifacts(resolved dataframeexecution.Resolved) (map[string]s
 	return result, provenance, nil
 }
 
-func applyReceiptColumnProvenance(output *lower.CompiledRecipeOutput, values map[string]string) error {
+func applyReceiptColumnProvenance(output *facade.CompiledRecipeOutput, values map[string]string) error {
 	if output == nil || len(values) != len(output.OutputSchema) {
 		return fmt.Errorf("output column provenance set changed")
 	}

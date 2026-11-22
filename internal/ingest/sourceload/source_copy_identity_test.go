@@ -3,7 +3,7 @@ package sourceload
 import (
 	"encoding/json"
 	publication "github.com/calypr/loom/internal/dataset"
-	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/ingest/identity"
 	"testing"
 )
 
@@ -35,7 +35,7 @@ func TestSourceCopyPreservesTheIdentityFormatOfAnInProgressManifest(t *testing.T
 			if wantFormat == "" {
 				wantFormat = publication.IdentityFormatLegacy
 			}
-			want := ingest.GenerationDocumentKeyWithFormat("project-a", "generation-a", "Patient", "patient-1", wantFormat)
+			want := identity.GenerationDocumentKeyWithFormat("project-a", "generation-a", "Patient", "patient-1", wantFormat)
 			if got := decoded.Key; got != want {
 				t.Fatalf("copied _key = %q, want %q", got, want)
 			}

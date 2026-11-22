@@ -5,17 +5,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"strings"
 
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -41,7 +41,7 @@ type importedRecipeResolution struct {
 	bundle        recipe.Bundle
 	resolved      dataframeexecution.Resolved
 	digest        string
-	pinnedSchemas map[string][]lower.CompiledOutputColumn
+	pinnedSchemas map[string][]facade.CompiledOutputColumn
 }
 
 func (r Sources) load(ctx context.Context, project, name, version, digest string, authorized ports.AuthorizedCapability, documents ...authoringv2.Document) (importedRecipeResolution, error) {
@@ -70,9 +70,9 @@ func (r Sources) load(ctx context.Context, project, name, version, digest string
 		return importedRecipeResolution{}, fmt.Errorf("the imported dataframe recipe changed; reload its exact source version")
 	}
 	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(project), SelectionProject: projectid.Canonical(project), DatasetGeneration: authorized.Snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode}
-	var pinnedSchemas map[string][]lower.CompiledOutputColumn
-	pinnedCompiled := map[string]lower.CompiledRecipeOutput{}
-	pinnedNative := map[string]semantic.OutputPlan{}
+	var pinnedSchemas map[string][]facade.CompiledOutputColumn
+	pinnedCompiled := map[string]facade.CompiledRecipeOutput{}
+	pinnedNative := map[string]recipeplan.OutputPlan{}
 	for _, document := range documents {
 		if document.ImportedRecipe == nil {
 			continue
@@ -90,7 +90,7 @@ func (r Sources) load(ctx context.Context, project, name, version, digest string
 		if err != nil {
 			return importedRecipeResolution{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the pinned dataframe projection could not be compiled", Cause: err}
 		}
-		pinnedSchemas = map[string][]lower.CompiledOutputColumn{}
+		pinnedSchemas = map[string][]facade.CompiledOutputColumn{}
 		for _, output := range pristine.Compiled.Outputs {
 			output.OutputSchema = bindImportedSourceIDs(output.Name, output.OutputSchema)
 			pinnedSchemas[output.Name] = output.OutputSchema
@@ -146,7 +146,7 @@ func (r Sources) load(ctx context.Context, project, name, version, digest string
 	if err != nil {
 		return importedRecipeResolution{}, &ports.Error{Class: ports.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the imported dataframe source could not be compiled", Cause: err}
 	}
-	resolved.Compiled.Outputs = append([]lower.CompiledRecipeOutput(nil), resolved.Compiled.Outputs...)
+	resolved.Compiled.Outputs = append([]facade.CompiledRecipeOutput(nil), resolved.Compiled.Outputs...)
 	for i := range resolved.Compiled.Outputs {
 		output := &resolved.Compiled.Outputs[i]
 		output.OutputSchema = bindImportedSourceIDs(output.Name, output.OutputSchema)
@@ -162,7 +162,7 @@ func (r Sources) load(ctx context.Context, project, name, version, digest string
 				if err != nil {
 					return importedRecipeResolution{}, err
 				}
-				var native *semantic.OutputPlan
+				var native *recipeplan.OutputPlan
 				for j := range resolved.Semantic.SemanticPlan.Outputs {
 					if resolved.Semantic.SemanticPlan.Outputs[j].Name == output.Name {
 						native = &resolved.Semantic.SemanticPlan.Outputs[j]
@@ -260,7 +260,7 @@ func (r Sources) Resolve(ctx context.Context, project string, workspace authorin
 	return result, nil
 }
 
-func importedSourceSchema(columns []lower.CompiledOutputColumn) ([]explorercompilation.ResolvedImportedSourceColumn, error) {
+func importedSourceSchema(columns []facade.CompiledOutputColumn) ([]explorercompilation.ResolvedImportedSourceColumn, error) {
 	result := make([]explorercompilation.ResolvedImportedSourceColumn, 0, len(columns))
 	for _, column := range columns {
 		if column.Internal || column.Identity {
@@ -302,7 +302,7 @@ func (r Sources) SourceStage(ctx context.Context, request ports.ConstructionSour
 		if output.Name != ref.Output {
 			continue
 		}
-		descriptor, err := lower.DescribeConstructionSourceStage(output.OutputSchema, request.Document.RootResourceType, &output.Plan)
+		descriptor, err := facade.DescribeConstructionSourceStage(output.OutputSchema, request.Document.RootResourceType, &output.Plan)
 		if err != nil {
 			return explorer.ReceiptConstructionStage{}, err
 		}
@@ -311,8 +311,8 @@ func (r Sources) SourceStage(ctx context.Context, request ports.ConstructionSour
 	return explorer.ReceiptConstructionStage{}, fmt.Errorf("the pinned source has no dataframe %q", ref.Output)
 }
 
-func bindImportedSourceIDs(output string, schema []lower.CompiledOutputColumn) []lower.CompiledOutputColumn {
-	bound := append([]lower.CompiledOutputColumn(nil), schema...)
+func bindImportedSourceIDs(output string, schema []facade.CompiledOutputColumn) []facade.CompiledOutputColumn {
+	bound := append([]facade.CompiledOutputColumn(nil), schema...)
 	for i := range bound {
 		column := &bound[i]
 		if column.ID != "" || column.Internal || column.Identity {

@@ -7,12 +7,11 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func TestCodedCategoryChoiceReauthorizesExactSystemVersionFamily(t *testing.T) {
@@ -37,7 +36,7 @@ func TestCodedCategoryChoiceReauthorizesExactSystemVersionFamily(t *testing.T) {
 	snapshot.Candidates = []capability.Candidate{candidate, codeCandidate}
 	family := testCodedCategoryFamily("file", "Medication", "Medication.code.coding[]", "https://www.ebi.ac.uk/chembl/compound_name", "v1")
 
-	buildID := semanticinventory.BuildID(project, generation)
+	buildID := semantic.BuildID(project, generation)
 	contextToken, err := semanticInventoryContextToken(snapshot, explorerID, "Medication", buildID)
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +50,7 @@ func TestCodedCategoryChoiceReauthorizesExactSystemVersionFamily(t *testing.T) {
 		t.Fatal(err)
 	}
 	choiceSource, ok := identity.Source.(capability.SemanticBindingChoiceSource)
-	if !ok || choiceSource.RuleHint != codedconcept.RuleHintCodedCategoryV1 || choiceSource.ConceptID != family.FamilyID ||
+	if !ok || choiceSource.RuleHint != semantic.RuleHintCodedCategoryV1 || choiceSource.ConceptID != family.FamilyID ||
 		choiceSource.BindingID != family.BindingID || choiceSource.SourceKind != family.SourceKind ||
 		choiceSource.System != family.System || choiceSource.Version != family.Version || choiceSource.Code != "" {
 		t.Fatalf("signed category source = %#v", identity.Source)
@@ -90,7 +89,7 @@ func TestCodedCategoryChoiceReauthorizesExactSystemVersionFamily(t *testing.T) {
 	resolved, _, err := resolveSemanticConstructionChoice(
 		context.Background(), ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
 		explorerID, "Medication", contextToken, buildID, buildID,
-		map[string]semanticinventory.Entry{}, map[string]semanticinventory.Family{semanticChoiceKey(family.FamilyID, family.BindingID): family},
+		map[string]semantic.Entry{}, map[string]semantic.Family{semanticChoiceKey(family.FamilyID, family.BindingID): family},
 		authoringv2.ConstructionChoiceSelection{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceAll}, identity, choiceSource,
 	)
 	if err != nil {
@@ -117,23 +116,23 @@ func TestIdentifierSemanticItemLabelIncludesItsNamespace(t *testing.T) {
 	}
 }
 
-func testCodedCategoryFamily(sourceKind, resourceType, sourcePath, system, version string) semanticinventory.Family {
-	reference := semanticinventory.FamilyReference{
+func testCodedCategoryFamily(sourceKind, resourceType, sourcePath, system, version string) semantic.Family {
+	reference := semantic.FamilyReference{
 		BindingID: "binding-" + resourceType, SourceKind: sourceKind, ResourceType: resourceType,
 		SourcePath: sourcePath, System: system, Version: version,
 	}
-	reference.FamilyID = semanticinventory.FamilyID(reference)
-	return semanticinventory.Family{
+	reference.FamilyID = semantic.FamilyID(reference)
+	return semantic.Family{
 		FamilyReference: reference,
-		Source:          codedconcept.Source{Type: resourceType, Path: sourcePath},
+		Source:          semantic.Source{Type: resourceType, Path: sourcePath},
 		KeySelector:     "code.coding[]",
-		Value: codedconcept.Value{
+		Value: semantic.Value{
 			Selector: "code.coding[].display", Type: "string",
 			FallbackSelectors: []string{"code.coding[].code"}, FallbackOnBlankString: true,
 		},
-		LogicalType: "string", SchemaVersion: codedconcept.ObservationSchemaVersion,
-		RuleVersion:  strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
-		Completeness: codedconcept.Complete, Status: "SUPPORTED", Population: 2,
+		LogicalType: "string", SchemaVersion: semantic.ObservationSchemaVersion,
+		RuleVersion:  strconv.Itoa(semantic.SemanticObservationRuleVersion),
+		Completeness: semantic.CompletenessComplete, Status: "SUPPORTED", Population: 2,
 		Examples: []string{"CARBOXYAMIDOTRIAZOLE", "another compound"},
 	}
 }

@@ -15,7 +15,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -212,14 +212,14 @@ func TestPopulationMappingRoutedCohortPreservesSelectedMembersAgainstArango(t *t
 		AuthScopeMode:              authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"},
 		IncludeRowIdentity: true,
 	}
-	plan, err := semantic.BuildRecipePlan(recipe.Bundle{
+	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "population-routed-cohort-mapping",
 		TranslationVersion: "population-routed-cohort-mapping", Outputs: []recipe.Output{output},
 	}, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, key("scope"), generation)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, key("scope"), generation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,14 +382,14 @@ FOR target IN @@roots
 	}
 
 	pivotOutput := routedPopulationGroupPivotCohortOutput(output.Population, cohortRevisionID, excludedPatientID)
-	pivotPlan, err := semantic.BuildRecipePlan(recipe.Bundle{
+	pivotPlan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "population-routed-group-pivot-cohort",
 		TranslationVersion: "population-routed-group-pivot-cohort", Outputs: []recipe.Output{pivotOutput},
 	}, bindings)
 	if err != nil {
 		t.Fatalf("build routed GROUP→PIVOT cohort recipe: %v", err)
 	}
-	pivotResolved, err := semantic.ResolveRecipePlan(pivotPlan, key("scope"), generation)
+	pivotResolved, err := recipeplan.ResolveRecipePlan(pivotPlan, key("scope"), generation)
 	if err != nil {
 		t.Fatalf("resolve routed GROUP→PIVOT cohort recipe: %v", err)
 	}
@@ -401,14 +401,14 @@ FOR target IN @@roots
 	preCohortOutput.Name = "RoutedGroupPivotPreCohort"
 	preCohortOutput.RowGrain = "patient"
 	preCohortOutput.GroupRows = nil
-	preCohortPlan, err := semantic.BuildRecipePlan(recipe.Bundle{
+	preCohortPlan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "population-routed-group-pivot-pre-cohort",
 		TranslationVersion: "population-routed-group-pivot-pre-cohort", Outputs: []recipe.Output{preCohortOutput},
 	}, bindings)
 	if err != nil {
 		t.Fatalf("build pre-cohort GROUP→PIVOT recipe: %v", err)
 	}
-	preCohortResolved, err := semantic.ResolveRecipePlan(preCohortPlan, key("scope"), generation)
+	preCohortResolved, err := recipeplan.ResolveRecipePlan(preCohortPlan, key("scope"), generation)
 	if err != nil {
 		t.Fatalf("resolve pre-cohort GROUP→PIVOT recipe: %v", err)
 	}
@@ -589,14 +589,14 @@ func TestPopulationMappingRoutedGroupPivotCohortCompilesFinalIdentity(t *testing
 		Project: "project", SelectionProject: "project", DatasetGeneration: "generation",
 		SelectionMembersCollection: "loom_explorer_selection_members", AuthScopeMode: authscope.ReadScopeUnrestricted,
 	}
-	plan, err := semantic.BuildRecipePlan(recipe.Bundle{
+	plan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "population-group-pivot-cohort",
 		TranslationVersion: "population-group-pivot-cohort", Outputs: []recipe.Output{output},
 	}, bindings)
 	if err != nil {
 		t.Fatalf("build routed GROUP→PIVOT cohort: %v", err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope", "generation")
 	if err != nil {
 		t.Fatalf("resolve routed GROUP→PIVOT cohort: %v", err)
 	}
@@ -705,14 +705,14 @@ func TestPopulationMappingRoutedGroupPivotCohortCompilesFinalIdentity(t *testing
 	preCohortOutput.Name = "RoutedGroupPivotPreCohort"
 	preCohortOutput.RowGrain = "patient"
 	preCohortOutput.GroupRows = nil
-	preCohortPlan, err := semantic.BuildRecipePlan(recipe.Bundle{
+	preCohortPlan, err := recipeplan.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "population-group-pivot-pre-cohort",
 		TranslationVersion: "population-group-pivot-pre-cohort", Outputs: []recipe.Output{preCohortOutput},
 	}, bindings)
 	if err != nil {
 		t.Fatalf("build pre-cohort GROUP→PIVOT: %v", err)
 	}
-	preCohortResolved, err := semantic.ResolveRecipePlan(preCohortPlan, "scope", "generation")
+	preCohortResolved, err := recipeplan.ResolveRecipePlan(preCohortPlan, "scope", "generation")
 	if err != nil {
 		t.Fatalf("resolve pre-cohort GROUP→PIVOT: %v", err)
 	}

@@ -13,13 +13,12 @@ import (
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/semantic"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -65,18 +64,18 @@ func TestBrowseSemanticInventoryThroughPublicAPI(t *testing.T) {
 		Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		}},
-		SemanticInventory: func(_ context.Context, opts semanticinventory.PageOptions) (semanticinventory.Page, error) {
+		SemanticInventory: func(_ context.Context, opts semantic.PageOptions) (semantic.Page, error) {
 			reads++
 			if opts.AuthResourcePathsUnrestricted == nil || *opts.AuthResourcePathsUnrestricted || len(opts.AuthResourcePaths) != 1 || opts.AuthResourcePaths[0] != "/allowed" || opts.Query != "glucose" || opts.Limit != 2 {
 				t.Fatalf("unsafe or lost browse options: %#v", opts)
 			}
-			return semanticinventory.Page{State: semanticinventory.Complete, Build: semanticinventory.Build{BuildID: "build", Checkpoint: "secret-checkpoint", ScannedResources: 9000}, Entries: []semanticinventory.Entry{{ConceptID: "concept", BindingID: "binding", Observation: codedconcept.Observation{
-				SchemaVersion: codedconcept.ObservationSchemaVersion,
-				Source:        codedconcept.Source{Type: "Observation", Path: "code"},
-				Key:           codedconcept.Key{Selector: "code.coding[]", Code: "glucose", System: "system"},
-				Value:         codedconcept.Value{Selector: "valueQuantity.value", Type: "decimal"},
-				ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: codedconcept.Complete,
-				Status: "SUPPORTED", RuleHint: codedconcept.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion), Population: 7,
+			return semantic.Page{State: semantic.Complete, Build: semantic.Build{BuildID: "build", Checkpoint: "secret-checkpoint", ScannedResources: 9000}, Entries: []semantic.Entry{{ConceptID: "concept", BindingID: "binding", Observation: semantic.Observation{
+				SchemaVersion: semantic.ObservationSchemaVersion,
+				Source:        semantic.Source{Type: "Observation", Path: "code"},
+				Key:           semantic.Key{Selector: "code.coding[]", Code: "glucose", System: "system"},
+				Value:         semantic.Value{Selector: "valueQuantity.value", Type: "decimal"},
+				ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: semantic.CompletenessComplete,
+				Status: "SUPPORTED", RuleHint: semantic.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semantic.SemanticObservationRuleVersion), Population: 7,
 			}}}}, nil
 		},
 	}
@@ -144,9 +143,9 @@ func TestBrowseSemanticInventoryOutputScopeReturnsTypedNotFound(t *testing.T) {
 		Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		}},
-		SemanticInventory: func(context.Context, semanticinventory.PageOptions) (semanticinventory.Page, error) {
+		SemanticInventory: func(context.Context, semantic.PageOptions) (semantic.Page, error) {
 			t.Fatal("output-scoped notFound must short-circuit before inventory reads")
-			return semanticinventory.Page{}, nil
+			return semantic.Page{}, nil
 		},
 	}
 	app := fiber.New()

@@ -3,16 +3,15 @@ package compilation
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/columntransform"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
-	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
@@ -51,7 +50,7 @@ func TestExactCategoryRecodeCompilesLowersAndRendersWithoutChangingShape(t *test
 	physical := compileRecipePhysicalPlan(t, compiled.Bundle)
 	plainPhysical := compileRecipePhysicalPlan(t, baseCompiled.Bundle)
 	transformedProjection := returnProjection(t, physical, "status")
-	if transformedProjection.Expression == nil || transformedProjection.Expression.Kind != ir.PhysicalCallExpression || transformedProjection.Expression.Call == nil || transformedProjection.Expression.Call.Name != "case" {
+	if transformedProjection.Expression == nil || transformedProjection.Expression.Kind != facade.PhysicalCallExpression || transformedProjection.Expression.Call == nil || transformedProjection.Expression.Call.Name != "case" {
 		t.Fatalf("status projection = %#v, want typed exact-recode expression", transformedProjection)
 	}
 	if !reflect.DeepEqual(returnProjection(t, physical, "untouched"), returnProjection(t, plainPhysical, "untouched")) {
@@ -64,12 +63,12 @@ func TestExactCategoryRecodeCompilesLowersAndRendersWithoutChangingShape(t *test
 		t.Fatalf("recode changed row-plan operation count: transformed=%d plain=%d", len(physical.Operations), len(plainPhysical.Operations))
 	}
 	for _, operation := range physical.Operations {
-		if operation.Kind == ir.PhysicalUnnestOp {
+		if operation.Kind == facade.PhysicalUnnestOp {
 			t.Fatal("scalar column recoding changed row membership with UNNEST")
 		}
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(physical)
+	rendered, err := facade.RenderPhysicalPlan(physical)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +84,7 @@ func TestExactCategoryRecodeCompilesLowersAndRendersWithoutChangingShape(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	keepRendered, err := aql.RenderPhysicalPlan(compileRecipePhysicalPlan(t, keepCompiled.Bundle))
+	keepRendered, err := facade.RenderPhysicalPlan(compileRecipePhysicalPlan(t, keepCompiled.Bundle))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,27 +186,27 @@ func exactRecodeDocument(transformation *columntransform.ValueTransformation) au
 	}
 }
 
-func compileRecipePhysicalPlan(t *testing.T, bundle recipe.Bundle) ir.PhysicalPlan {
+func compileRecipePhysicalPlan(t *testing.T, bundle recipe.Bundle) facade.PhysicalPlan {
 	t.Helper()
-	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation-a"})
+	plan, err := recipeplan.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	resolved, err := recipeplan.ResolveRecipePlan(plan, "scope-a", "generation-a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := facade.CompileResolvedRecipePlan(resolved, facade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	return compiled.Outputs[0].Plan
 }
 
-func returnProjection(t *testing.T, plan ir.PhysicalPlan, name string) ir.PhysicalProjection {
+func returnProjection(t *testing.T, plan facade.PhysicalPlan, name string) facade.PhysicalProjection {
 	t.Helper()
 	for _, operation := range plan.Operations {
-		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+		if operation.Kind != facade.PhysicalReturnOp || operation.Return == nil {
 			continue
 		}
 		for _, projection := range operation.Return.Projections {
@@ -217,7 +216,7 @@ func returnProjection(t *testing.T, plan ir.PhysicalPlan, name string) ir.Physic
 		}
 	}
 	t.Fatalf("physical RETURN has no %q projection", name)
-	return ir.PhysicalProjection{}
+	return facade.PhysicalProjection{}
 }
 
 func bindContains(values map[string]any, want any) bool {

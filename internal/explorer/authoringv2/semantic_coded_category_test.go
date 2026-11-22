@@ -4,9 +4,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog/codedconcept"
-	"github.com/calypr/loom/internal/catalog/semanticinventory"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 func TestResolveCodedCategoryPlanUsesSystemVersionScopeAndSameCodingFallback(t *testing.T) {
@@ -36,7 +35,7 @@ func TestResolveCodedCategoryRejectsAnExactCodeAndLegacyExactPlanRemainsExact(t 
 	}
 
 	exact := category
-	exact.RuleHint = codedconcept.RuleHintCodedConceptV1
+	exact.RuleHint = semantic.RuleHintCodedConceptV1
 	exact.Key.Code = "CARBOXYAMIDOTRIAZOLE"
 	plan := ResolveSemanticSelectionPlan(exact)
 	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil {
@@ -47,18 +46,18 @@ func TestResolveCodedCategoryRejectsAnExactCodeAndLegacyExactPlanRemainsExact(t 
 	}
 }
 
-func standaloneCodingCategoryObservation(version string) codedconcept.Observation {
-	return codedconcept.Observation{
-		SchemaVersion: codedconcept.ObservationSchemaVersion,
-		Source:        codedconcept.Source{Type: "Medication", Path: "Medication.code.coding[]"},
-		Key: codedconcept.Key{
+func standaloneCodingCategoryObservation(version string) semantic.Observation {
+	return semantic.Observation{
+		SchemaVersion: semantic.ObservationSchemaVersion,
+		Source:        semantic.Source{Type: "Medication", Path: "Medication.code.coding[]"},
+		Key: semantic.Key{
 			Selector: "code.coding[]", System: "https://www.ebi.ac.uk/chembl/compound_name", Version: version,
 		},
-		Value: codedconcept.Value{
+		Value: semantic.Value{
 			Selector: "code.coding[].display", Type: "string", FallbackSelectors: []string{"code.coding[].code"}, FallbackOnBlankString: true,
 		},
-		LogicalType: "string", Completeness: codedconcept.Complete, Status: "SUPPORTED",
-		RuleHint: codedconcept.RuleHintCodedCategoryV1, RuleVersion: strconv.Itoa(semanticinventory.SemanticObservationRuleVersion),
+		LogicalType: "string", Completeness: semantic.CompletenessComplete, Status: "SUPPORTED",
+		RuleHint: semantic.RuleHintCodedCategoryV1, RuleVersion: strconv.Itoa(semantic.SemanticObservationRuleVersion),
 	}
 }
 

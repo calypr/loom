@@ -14,7 +14,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -83,11 +83,11 @@ func TestConstructionPivotDeriveFilterUnpivotRowsAgainstArango(t *testing.T) {
 	output := constructionOracleOutput()
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "construction-oracle", TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,11 +272,11 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	}
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "related-source-oracle", TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeUnrestricted}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -441,11 +441,11 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 			step.Operation.RelatedSource.Form = form.name
 			step.Outputs[len(step.Outputs)-1].Name = form.column
 			bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
-			plan, err := semantic.BuildRecipePlan(bundle, bindings)
+			plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 			if err != nil {
 				t.Fatal(err)
 			}
-			resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+			resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -501,11 +501,11 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	output.Name = "related_source_exists"
 	output.Construction.Steps[1].Outputs[len(output.Construction.Steps[1].Outputs)-1].Name = "observation_status"
 	existsBundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
-	existsPlan, err := semantic.BuildRecipePlan(existsBundle, bindings)
+	existsPlan, err := recipeplan.BuildRecipePlan(existsBundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	existsResolved, err := semantic.ResolveRecipePlan(existsPlan, project, generation)
+	existsResolved, err := recipeplan.ResolveRecipePlan(existsPlan, project, generation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -609,11 +609,11 @@ func TestPagedConstructionEqualsFilterReturnsMatchingSourceRootFromArango(t *tes
 		TranslationVersion:  "construction-filter-root-page",
 		Outputs:             []recipe.Output{constructionEqualsPageOutput(targetID)},
 	}
-	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	plan, err := recipeplan.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	resolved, err := recipeplan.ResolveRecipePlan(plan, project, generation)
 	if err != nil {
 		t.Fatal(err)
 	}
