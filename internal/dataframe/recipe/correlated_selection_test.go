@@ -2,18 +2,17 @@ package recipe
 
 import (
 	"encoding/json"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 	"testing"
-
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestCorrelatedCategoryRecipeRequiresExplicitScopeAndOneColumn(t *testing.T) {
 	pivot := Pivot{
 		Name: "diagnosis", Columns: []string{"category"}, ProjectionMode: "DISTINCT", CorrelationSystem: "urn:test",
-		Correlation: &fhirschema.CorrelatedBinding{
+		Correlation: &fhirbinding.CorrelatedBinding{
 			KeyPath: "code.coding[]", SystemPath: "system", CodePath: "code", VersionPath: "version",
-			ValueScope: fhirschema.CorrelatedValueScopeCoding, SelectionScope: fhirschema.CorrelatedSelectionScopeSystemVersion,
+			ValueScope: fhirbinding.CorrelatedValueScopeCoding, SelectionScope: fhirbinding.CorrelatedSelectionScopeSystemVersion,
 			ValuePath: "display", ValueFallback: []string{"code"}, LogicalType: "string",
 		},
 	}
@@ -29,7 +28,7 @@ func TestCorrelatedCategoryRecipeRequiresExplicitScopeAndOneColumn(t *testing.T)
 	if err := decoded.validateAt("pivot", &budget); err != nil {
 		t.Fatalf("category recipe rejected: %v", err)
 	}
-	if decoded.Correlation == nil || decoded.Correlation.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion || decoded.CorrelationCode != "" {
+	if decoded.Correlation == nil || decoded.Correlation.SelectionScope != fhirbinding.CorrelatedSelectionScopeSystemVersion || decoded.CorrelationCode != "" {
 		t.Fatalf("category recipe round-trip = %#v", decoded)
 	}
 	for name, mutate := range map[string]func(*Pivot){
@@ -51,7 +50,7 @@ func TestCorrelatedCategoryRecipeRequiresExplicitScopeAndOneColumn(t *testing.T)
 	bundle := Bundle{
 		RecipeSchemaVersion: CurrentSchemaVersion, Name: "category", TranslationVersion: "test",
 		Outputs: []Output{{Name: "conditions", RootResourceType: "Condition", RowGrain: "condition", OwnerRecords: []OwnerRecordProjection{{
-			Name: "records", Binding: *decoded.Correlation, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "normal"},
+			Name: "records", Binding: *decoded.Correlation, Key: fhirbinding.CorrelatedKey{System: "urn:test", Code: "normal"},
 		}}}},
 	}
 	if err := bundle.Validate(); err == nil || !strings.Contains(err.Error(), "SYSTEM_VERSION") {

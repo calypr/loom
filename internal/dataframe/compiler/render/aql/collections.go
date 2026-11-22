@@ -2,13 +2,13 @@ package aql
 
 import (
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func (r *physicalPlanRenderer) renderObject(expression ir.PhysicalExpression) (string, error) {
@@ -281,7 +281,7 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
 	if !ok || len(columns) == 0 {
 		return "", fmt.Errorf("pivot columns bind %q is not a non-empty []string", columnsBindKey)
 	}
-	if correlation.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion && len(columns) != 1 {
+	if correlation.SelectionScope == fhirbinding.CorrelatedSelectionScopeSystemVersion && len(columns) != 1 {
 		return "", fmt.Errorf("SYSTEM_VERSION pivot requires exactly one output column")
 	}
 	owners, err := r.renderCorrelationOwners(correlation.Source, correlation.OwnerSelector)
@@ -321,7 +321,7 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
 	}
 	codeClause := fmt.Sprintf("FILTER POSITION(@%s, __correlation_code)", columnsBindKey)
 	pairKey := "__correlation_code"
-	if correlation.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion {
+	if correlation.SelectionScope == fhirbinding.CorrelatedSelectionScopeSystemVersion {
 		codeClause = ""
 		pairKey = "FIRST(@" + columnsBindKey + ")"
 	}

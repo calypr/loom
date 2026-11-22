@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"strings"
 	"testing"
@@ -14,7 +15,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestExactCategoryRecodeCompilesLowersAndRendersWithoutChangingShape(t *testing.T) {
@@ -99,11 +99,11 @@ func TestCodedValueRecodeCompilationExplainsLossOfSystemIdentity(t *testing.T) {
 	document.Route.ResourceType = "Observation"
 	document.Columns[0].OccurrenceID = authoringv2.RootOccurrenceID
 	document.Columns[0].Source = authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
-		Binding: &fhirschema.CorrelatedBinding{
+		Binding: &fhirbinding.CorrelatedBinding{
 			OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code",
 			ValuePath: "valueString", LogicalType: "string",
 		},
-		Key: &fhirschema.CorrelatedKey{System: "urn:study", Code: "active"},
+		Key: &fhirbinding.CorrelatedKey{System: "urn:study", Code: "active"},
 	}}
 	transform := columntransform.ValueTransformation{
 		Kind: columntransform.KindExactCategoryRecode,

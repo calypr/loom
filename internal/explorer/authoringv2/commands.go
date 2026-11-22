@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/columntransform"
@@ -1072,26 +1073,26 @@ func validateEditableSourcePolicy(document Document, catalog CatalogSnapshot, oc
 		return nil
 	}
 	if source.Lookup != nil && source.Lookup.Extension != nil && source.Kind == SourceExtensionByURL {
-		if _, err := fhirschema.ValidateExtensionBinding(occurrence.ResourceType, *source.Lookup.Extension); err != nil {
+		if _, err := fhirbinding.ValidateExtensionBinding(occurrence.ResourceType, *source.Lookup.Extension); err != nil {
 			return fmt.Errorf("source extension: %w", err)
 		}
 		return nil
 	}
 	if source.Lookup != nil && source.Lookup.Identifier != nil && source.Kind == SourceIdentifierBySystem {
-		if _, err := fhirschema.ValidateIdentifierBinding(occurrence.ResourceType, *source.Lookup.Identifier); err != nil {
+		if _, err := fhirbinding.ValidateIdentifierBinding(occurrence.ResourceType, *source.Lookup.Identifier); err != nil {
 			return fmt.Errorf("source identifier: %w", err)
 		}
 		return nil
 	}
 	if source.Lookup != nil && source.Lookup.Binding != nil && source.Kind == SourceCodedValue {
-		if _, err := fhirschema.ValidateCorrelatedBinding(occurrence.ResourceType, *source.Lookup.Binding); err != nil {
+		if _, err := fhirbinding.ValidateCorrelatedBinding(occurrence.ResourceType, *source.Lookup.Binding); err != nil {
 			return fmt.Errorf("source binding: %w", err)
 		}
 
 		return nil
 	}
 	if source.OwnerRecords != nil && source.Kind == SourceOwnerRecords {
-		if _, err := fhirschema.ValidateCorrelatedBinding(occurrence.ResourceType, source.OwnerRecords.Binding); err != nil {
+		if _, err := fhirbinding.ValidateCorrelatedBinding(occurrence.ResourceType, source.OwnerRecords.Binding); err != nil {
 			return fmt.Errorf("source owner records binding: %w", err)
 		}
 		return nil

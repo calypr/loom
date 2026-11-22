@@ -2,12 +2,12 @@ package lower
 
 import (
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func lowerConstructionCodedPivot(
@@ -57,7 +57,7 @@ func lowerConstructionCodedPivot(
 	constructionBind := nextTableReshapeBindKey(plan.BindVars, "reshape_construction")
 	plan.BindVars[constructionBind] = pivot.ConstructionID
 
-	correlatedBinding := fhirschema.CorrelatedBinding{
+	correlatedBinding := fhirbinding.CorrelatedBinding{
 		OwnerPath: pivot.Source.OwningScope, KeyPath: pivot.Source.KeyPath,
 		SystemPath: "system", CodePath: "code", ValuePath: pivot.Source.ValuePath,
 		ValueFallback: append([]string(nil), pivot.Source.ValueFallbacks...), FallbackOnBlankString: pivot.Source.FallbackOnBlankString,

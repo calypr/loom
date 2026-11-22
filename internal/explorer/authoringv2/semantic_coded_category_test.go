@@ -1,10 +1,10 @@
 package authoringv2
 
 import (
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strconv"
 	"testing"
 
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/semantic"
 )
 
@@ -17,7 +17,7 @@ func TestResolveCodedCategoryPlanUsesSystemVersionScopeAndSameCodingFallback(t *
 				t.Fatalf("category plan = %#v", plan)
 			}
 			binding := plan.Source.Lookup.Binding
-			if binding.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion || binding.ValueScope != fhirschema.CorrelatedValueScopeCoding || binding.VersionPath != "version" || binding.CodePath != "code" || binding.ValuePath != "display" || len(binding.ValueFallback) != 1 || binding.ValueFallback[0] != "code" || !binding.FallbackOnBlankString {
+			if binding.SelectionScope != fhirbinding.CorrelatedSelectionScopeSystemVersion || binding.ValueScope != fhirbinding.CorrelatedValueScopeCoding || binding.VersionPath != "version" || binding.CodePath != "code" || binding.ValuePath != "display" || len(binding.ValueFallback) != 1 || binding.ValueFallback[0] != "code" || !binding.FallbackOnBlankString {
 				t.Fatalf("category binding = %#v", binding)
 			}
 			if plan.Source.Lookup.Key.System != "https://www.ebi.ac.uk/chembl/compound_name" || plan.Source.Lookup.Key.Code != "" || plan.Source.Lookup.Key.Version != version {

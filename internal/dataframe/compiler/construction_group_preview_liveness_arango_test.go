@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"sort"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/fhir/schema"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -149,8 +149,8 @@ func TestSourceGroupPruningKeepsCorrelatedPivotALLValuesAgainstArango(t *testing
 	addEdge("research_subject_patient", "ResearchSubject", "research_subject_1", "Patient", "patient_1", "subject_Patient", "/allowed")
 	insert("fhir_edge", edges)
 
-	binding := &schema.CorrelatedBinding{
-		KeyPath: "type.coding[]", ValueScope: schema.CorrelatedValueScopeCoding,
+	binding := &fhirbinding.CorrelatedBinding{
+		KeyPath: "type.coding[]", ValueScope: fhirbinding.CorrelatedValueScopeCoding,
 		SystemPath: "system", CodePath: "code", VersionPath: "version",
 		ValuePath: "display", ValueFallback: []string{"code"}, FallbackOnBlankString: true, LogicalType: "string",
 	}
@@ -285,7 +285,7 @@ func sortedAnyStrings(value any) []string {
 	return result
 }
 
-func tumorGroupLivenessOutput(binding *schema.CorrelatedBinding) recipe.Output {
+func tumorGroupLivenessOutput(binding *fhirbinding.CorrelatedBinding) recipe.Output {
 	groupColumns := []recipe.StageColumn{
 		{ID: "onset_group", Name: "onset", Type: "string"},
 		{ID: "source_records", Name: "source_records", Type: "integer"},

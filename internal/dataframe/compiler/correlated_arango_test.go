@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"math"
 	"os"
 	"reflect"
@@ -18,7 +19,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/projectid"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
@@ -456,7 +456,7 @@ func TestExtensionCompilerLiteralValuesAgainstArango(t *testing.T) {
 		{"omitted choice arms expose mismatch", "urn:right", "ALL", "valueQuantity.value", "decimal", map[string]any{"status": "INVALID_CHOICE_ARM", "raw": []any{"right-only"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			binding := &fhirschema.ExtensionBinding{OwnerPath: "extension[].extension[]", URLPath: []string{tc.parent, "urn:leaf"}, ValuePath: tc.path, LogicalType: tc.kind}
+			binding := &fhirbinding.ExtensionBinding{OwnerPath: "extension[].extension[]", URLPath: []string{tc.parent, "urn:leaf"}, ValuePath: tc.path, LogicalType: tc.kind}
 			root := recipeplan.SemanticNode{Alias: "root", ResourceType: "Observation", Pivots: []recipeplan.SemanticPivot{{Name: "extension", Columns: []string{"feature"}, ColumnAliases: map[string]string{"feature": "feature"}, ProjectionMode: tc.mode, ExtensionCorrelation: binding}}}
 			physical, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: root}, recipeplan.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
@@ -526,7 +526,7 @@ func TestCorrelatedCompilerLiteralValuesAgainstArango(t *testing.T) {
 			if path == "" {
 				path, kind = "valueQuantity.value", "decimal"
 			}
-			binding := &fhirschema.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: path, LogicalType: kind}
+			binding := &fhirbinding.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: path, LogicalType: kind}
 			payload := map[string]any{"id": project, "resourceType": "Observation", "component": tc.components}
 			raw, err := json.Marshal(map[string]any{"_key": project, "id": project, "project": project, "project_id": project, "resourceType": "Observation", "payload": payload})
 			if err != nil {
@@ -619,8 +619,8 @@ func TestOwnerRecordsPreserveRepeatedFHIRValuesAgainstArango(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	binding := func(valuePath, logicalType string, choiceArms []string) fhirschema.CorrelatedBinding {
-		return fhirschema.CorrelatedBinding{
+	binding := func(valuePath, logicalType string, choiceArms []string) fhirbinding.CorrelatedBinding {
+		return fhirbinding.CorrelatedBinding{
 			OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code",
 			ValuePath: valuePath, LogicalType: logicalType, ChoiceArms: choiceArms,
 		}
@@ -628,10 +628,10 @@ func TestOwnerRecordsPreserveRepeatedFHIRValuesAgainstArango(t *testing.T) {
 	heightBinding := binding("valueQuantity.value", "decimal", []string{"valueQuantity"})
 	heightBinding.UnitPath = "valueQuantity.unit"
 	root := recipeplan.SemanticNode{Alias: "root", ResourceType: "Observation", OwnerRecords: []recipeplan.SemanticOwnerRecords{
-		{Name: "height_records", FieldRef: "component", Binding: heightBinding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "height"}},
-		{Name: "flag_records", FieldRef: "component", Binding: binding("valueBoolean", "boolean", []string{"valueBoolean"}), Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "flag"}},
-		{Name: "text_records", FieldRef: "component", Binding: binding("valueString", "string", []string{"valueString"}), Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "text"}},
-		{Name: "multi_records", FieldRef: "component", Binding: binding("valueCodeableConcept.coding[].code", "string", []string{"valueCodeableConcept"}), Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "multi"}},
+		{Name: "height_records", FieldRef: "component", Binding: heightBinding, Key: fhirbinding.CorrelatedKey{System: "urn:test", Code: "height"}},
+		{Name: "flag_records", FieldRef: "component", Binding: binding("valueBoolean", "boolean", []string{"valueBoolean"}), Key: fhirbinding.CorrelatedKey{System: "urn:test", Code: "flag"}},
+		{Name: "text_records", FieldRef: "component", Binding: binding("valueString", "string", []string{"valueString"}), Key: fhirbinding.CorrelatedKey{System: "urn:test", Code: "text"}},
+		{Name: "multi_records", FieldRef: "component", Binding: binding("valueCodeableConcept.coding[].code", "string", []string{"valueCodeableConcept"}), Key: fhirbinding.CorrelatedKey{System: "urn:test", Code: "multi"}},
 	}}
 	physical, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: root}, recipeplan.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {

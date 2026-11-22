@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 
@@ -32,11 +32,11 @@ func TestImportedRelationshipAddMatchRemoveRoundTripPreservesPin(t *testing.T) {
 	registry := &importedSourceRegistry{entry: recipe.Entry{Bundle: bundle, Digest: digest}}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry: registry, ScopeDigest: reciperuntime.ScopeDigest,
-		ResolveBundle: fielddiscovery.RecipeSchemaResolver(func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
+		ResolveBundle: fielddiscovery.RecipeSchemaResolver(func(_ context.Context, options fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
 			if options.ResourceType != "Patient" {
 				return nil, nil
 			}
-			return []fieldprofile.PopulatedField{{ResourceType: "Patient", Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"fixture-system"}}}, nil
+			return []fieldcatalog.PopulatedField{{ResourceType: "Patient", Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"fixture-system"}}}, nil
 		}, nil),
 		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
 			return errors.New("unexpected query during source editing")

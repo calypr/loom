@@ -2,10 +2,9 @@ package recipe
 
 import (
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"regexp"
 	"strings"
-
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 const (
@@ -124,7 +123,7 @@ func validateNodeShape(fields []Field, filters []Filter, pivots []Pivot, ownerRe
 		if err := check(projection.Name, p); err != nil {
 			return err
 		}
-		if projection.Binding.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion {
+		if projection.Binding.SelectionScope == fhirbinding.CorrelatedSelectionScopeSystemVersion {
 			return validationError("invalid_owner_records", p, "owner records does not support SYSTEM_VERSION selection scope")
 		}
 		if strings.TrimSpace(projection.Binding.OwnerPath) == "" || strings.TrimSpace(projection.Key.System) == "" || strings.TrimSpace(projection.Key.Code) == "" {

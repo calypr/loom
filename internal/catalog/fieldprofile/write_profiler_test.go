@@ -3,13 +3,13 @@ package fieldprofile
 import (
 	"encoding/json"
 	"errors"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/semantic"
 )
 
@@ -339,8 +339,8 @@ func TestFieldCatalogCodeableConceptPivotMetadata(t *testing.T) {
 	if found.PivotKind != pivotKindCodeableConcept {
 		t.Fatalf("pivot kind = %q, want %q", found.PivotKind, pivotKindCodeableConcept)
 	}
-	if found.PivotFamily != fhirschema.PivotFamilyCodeableConcept {
-		t.Fatalf("pivot family = %q, want %q", found.PivotFamily, fhirschema.PivotFamilyCodeableConcept)
+	if found.PivotFamily != fhirbinding.PivotFamilyCodeableConcept {
+		t.Fatalf("pivot family = %q, want %q", found.PivotFamily, fhirbinding.PivotFamilyCodeableConcept)
 	}
 	if found.PivotColumnSelect != "valueCodeableConcept.coding[].display" {
 		t.Fatalf("unexpected column selector: %q", found.PivotColumnSelect)
@@ -388,8 +388,8 @@ func TestFieldCatalogObservationPivotMetadata(t *testing.T) {
 	if found.PivotKind != pivotKindObservation {
 		t.Fatalf("pivot kind = %q, want %q", found.PivotKind, pivotKindObservation)
 	}
-	if found.PivotFamily != fhirschema.PivotFamilyObservationCodeValue {
-		t.Fatalf("pivot family = %q, want %q", found.PivotFamily, fhirschema.PivotFamilyObservationCodeValue)
+	if found.PivotFamily != fhirbinding.PivotFamilyObservationCodeValue {
+		t.Fatalf("pivot family = %q, want %q", found.PivotFamily, fhirbinding.PivotFamilyObservationCodeValue)
 	}
 	if found.PivotColumnSelect != "code.coding[].display" {
 		t.Fatalf("unexpected column selector: %q", found.PivotColumnSelect)

@@ -4,7 +4,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 )
 
 type SemanticNode struct {
@@ -59,19 +59,19 @@ type SemanticPivot struct {
 	Family                    string
 	Discovered                bool
 
-	Correlation        *fhirschema.CorrelatedBinding
+	Correlation        *fhirbinding.CorrelatedBinding
 	CorrelationSystem  string
 	CorrelationCode    string
 	CorrelationVersion string
 
-	ExtensionCorrelation *fhirschema.ExtensionBinding
+	ExtensionCorrelation *fhirbinding.ExtensionBinding
 }
 
 type SemanticOwnerRecords struct {
 	Name     string
 	FieldRef string
-	Binding  fhirschema.CorrelatedBinding
-	Key      fhirschema.CorrelatedKey
+	Binding  fhirbinding.CorrelatedBinding
+	Key      fhirbinding.CorrelatedKey
 }
 
 type SemanticAggregate struct {

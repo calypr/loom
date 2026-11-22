@@ -3,6 +3,7 @@ package capability
 import (
 	"context"
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -72,8 +73,8 @@ type OwnerRecordsRequest struct {
 	RootResourceType string
 	ResourceType     string
 	Route            []Traversal
-	Binding          fhirschema.CorrelatedBinding
-	Key              fhirschema.CorrelatedKey
+	Binding          fhirbinding.CorrelatedBinding
+	Key              fhirbinding.CorrelatedKey
 }
 
 type Options struct {
@@ -133,8 +134,8 @@ type CandidateCapability struct {
 
 type OwnerRecordsCapability struct {
 	ResourceType string
-	Binding      fhirschema.CorrelatedBinding
-	Key          fhirschema.CorrelatedKey
+	Binding      fhirbinding.CorrelatedBinding
+	Key          fhirbinding.CorrelatedKey
 	Rendered     Rendered
 }
 
@@ -301,7 +302,7 @@ func ProbeOwnerRecords(ctx context.Context, request OwnerRecordsRequest, options
 	if err != nil {
 		return Result{}, err
 	}
-	checked, err := fhirschema.ValidateCorrelatedBinding(resourceType, request.Binding)
+	checked, err := fhirbinding.ValidateCorrelatedBinding(resourceType, request.Binding)
 	if err != nil {
 		return Result{}, fmt.Errorf("owner records binding: %w", err)
 	}

@@ -2,6 +2,7 @@ package ir
 
 import (
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -250,7 +251,7 @@ func validatePhysicalPivot(pivot PhysicalPivotMap, defined map[string]bool, bind
 		aliases[alias] = key
 	}
 	if pivot.Correlation != nil {
-		if pivot.Correlation.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion && len(columns) != 1 {
+		if pivot.Correlation.SelectionScope == fhirbinding.CorrelatedSelectionScopeSystemVersion && len(columns) != 1 {
 			return fmt.Errorf("SYSTEM_VERSION pivot requires exactly one output column")
 		}
 		if err := validatePhysicalCorrelationWithCodeBind(*pivot.Correlation, defined, bindVars, false); err != nil {
@@ -279,9 +280,9 @@ func validatePhysicalCorrelationWithCodeBind(correlation PhysicalCorrelation, de
 		return err
 	}
 	switch correlation.SelectionScope {
-	case "", fhirschema.CorrelatedSelectionScopeExact:
-	case fhirschema.CorrelatedSelectionScopeSystemVersion:
-		if correlation.ValueScope != fhirschema.CorrelatedValueScopeCoding || correlation.VersionSelector == nil {
+	case "", fhirbinding.CorrelatedSelectionScopeExact:
+	case fhirbinding.CorrelatedSelectionScopeSystemVersion:
+		if correlation.ValueScope != fhirbinding.CorrelatedValueScopeCoding || correlation.VersionSelector == nil {
 			return fmt.Errorf("SYSTEM_VERSION selection scope requires CODING value scope and version selector")
 		}
 		if correlation.CodeBindKey != "" {
@@ -294,11 +295,11 @@ func validatePhysicalCorrelationWithCodeBind(correlation PhysicalCorrelation, de
 		return fmt.Errorf("correlation selection scope %q is unsupported", correlation.SelectionScope)
 	}
 	switch correlation.ValueScope {
-	case "", fhirschema.CorrelatedValueScopeOwner, fhirschema.CorrelatedValueScopeCoding:
+	case "", fhirbinding.CorrelatedValueScopeOwner, fhirbinding.CorrelatedValueScopeCoding:
 	default:
 		return fmt.Errorf("correlation value scope %q is unsupported", correlation.ValueScope)
 	}
-	if correlation.VersionSelector != nil && correlation.ValueScope != fhirschema.CorrelatedValueScopeCoding {
+	if correlation.VersionSelector != nil && correlation.ValueScope != fhirbinding.CorrelatedValueScopeCoding {
 		return fmt.Errorf("correlation version selector requires Coding value scope")
 	}
 	if correlation.VersionSelector == nil && correlation.VersionBindKey != "" {
@@ -320,7 +321,7 @@ func validatePhysicalCorrelationWithCodeBind(correlation PhysicalCorrelation, de
 		}
 	}
 	if len(correlation.ExtensionURLSelectors) > 0 {
-		if correlation.ValueScope == fhirschema.CorrelatedValueScopeCoding {
+		if correlation.ValueScope == fhirbinding.CorrelatedValueScopeCoding {
 			return fmt.Errorf("extension correlation does not support Coding value scope")
 		}
 		if correlation.VersionSelector != nil {
@@ -382,11 +383,11 @@ func validatePhysicalCorrelationWithCodeBind(correlation PhysicalCorrelation, de
 		if keyShape.Kind != fhirschema.FieldKindArray || keyShape.ElementKind != fhirschema.FieldKindObject || keyShape.Reference != correlation.KeyResource {
 			return fmt.Errorf("correlation key selector must resolve to an array of %s objects", correlation.KeyResource)
 		}
-	} else if correlation.ValueScope != fhirschema.CorrelatedValueScopeCoding || keyShape.Kind != fhirschema.FieldKindObject || keyShape.Reference != correlation.KeyResource {
+	} else if correlation.ValueScope != fhirbinding.CorrelatedValueScopeCoding || keyShape.Kind != fhirschema.FieldKindObject || keyShape.Reference != correlation.KeyResource {
 		return fmt.Errorf("singular correlation key selector requires a CODING-scoped %s object", correlation.KeyResource)
 	}
 	valueResource := ownerResource
-	if correlation.ValueScope == fhirschema.CorrelatedValueScopeCoding {
+	if correlation.ValueScope == fhirbinding.CorrelatedValueScopeCoding {
 		if correlation.KeyResource != "Coding" {
 			return fmt.Errorf("CODING correlation value scope requires Coding key resource, got %q", correlation.KeyResource)
 		}
@@ -450,7 +451,7 @@ func validatePhysicalCorrelationWithCodeBind(correlation PhysicalCorrelation, de
 		return fmt.Errorf("correlation value primitive %q is unsupported", correlation.ValuePrimitive)
 	}
 	matchBinds := map[string]string{"system": correlation.SystemBindKey}
-	if requireCodeBind && correlation.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion {
+	if requireCodeBind && correlation.SelectionScope != fhirbinding.CorrelatedSelectionScopeSystemVersion {
 		matchBinds["code"] = correlation.CodeBindKey
 	}
 	for name, key := range matchBinds {
@@ -463,7 +464,7 @@ func validatePhysicalCorrelationWithCodeBind(correlation PhysicalCorrelation, de
 		if _, ok := bindVars[key].(string); !ok {
 			return fmt.Errorf("correlation %s bind %q must be a string", name, key)
 		}
-		if correlation.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion && strings.TrimSpace(bindVars[key].(string)) == "" {
+		if correlation.SelectionScope == fhirbinding.CorrelatedSelectionScopeSystemVersion && strings.TrimSpace(bindVars[key].(string)) == "" {
 			return fmt.Errorf("SYSTEM_VERSION selection requires a non-empty system")
 		}
 	}

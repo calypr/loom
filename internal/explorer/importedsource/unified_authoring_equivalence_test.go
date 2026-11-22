@@ -3,14 +3,15 @@ package importedsource
 import (
 	"context"
 	"encoding/json"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 
@@ -21,7 +22,6 @@ import (
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/recipeimport"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 const (
@@ -81,7 +81,7 @@ func newUnifiedAuthoringFixture(t *testing.T) unifiedAuthoringFixture {
 	registry := &importedSourceRegistry{entry: recipe.Entry{Bundle: bundle, Digest: digest}}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry: registry, ScopeDigest: reciperuntime.ScopeDigest,
-		ResolveBundle: fielddiscovery.RecipeSchemaResolver(func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
+		ResolveBundle: fielddiscovery.RecipeSchemaResolver(func(context.Context, fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
 			return nil, nil
 		}, nil),
 		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
@@ -162,13 +162,13 @@ func addUnifiedAuthoringColumns(t *testing.T, document authoringv2.Document) aut
 			ColumnID: medCategoryColumnID, Column: "medication_category", Label: "Medication category", LogicalType: "string",
 			OccurrenceID: authoringv2.RootOccurrenceID,
 			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
-				Binding: &fhirschema.CorrelatedBinding{
-					OwnerPath: "category[]", KeyPath: "category[].coding[]", ValueScope: fhirschema.CorrelatedValueScopeCoding,
-					SelectionScope: fhirschema.CorrelatedSelectionScopeExact,
+				Binding: &fhirbinding.CorrelatedBinding{
+					OwnerPath: "category[]", KeyPath: "category[].coding[]", ValueScope: fhirbinding.CorrelatedValueScopeCoding,
+					SelectionScope: fhirbinding.CorrelatedSelectionScopeExact,
 					SystemPath:     "system", CodePath: "code", ValuePath: "display",
 					ValueFallback: []string{"code"}, FallbackOnBlankString: true, LogicalType: "string",
 				},
-				Key: &fhirschema.CorrelatedKey{System: "urn:example:medication-administration-category", Code: "inpatient"},
+				Key: &fhirbinding.CorrelatedKey{System: "urn:example:medication-administration-category", Code: "inpatient"},
 			}},
 			Table: &authoringv2.TablePresentation{Visible: &visible},
 		},

@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -9,19 +10,19 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-func LowerCorrelatedBinding(resourceType string, binding fhirschema.CorrelatedBinding, source ir.PhysicalValue, systemBindKey, codeBindKey string) (ir.PhysicalCorrelation, error) {
+func LowerCorrelatedBinding(resourceType string, binding fhirbinding.CorrelatedBinding, source ir.PhysicalValue, systemBindKey, codeBindKey string) (ir.PhysicalCorrelation, error) {
 	return LowerCorrelatedBindingWithVersion(resourceType, binding, source, systemBindKey, codeBindKey, "")
 }
 
-func LowerCorrelatedBindingWithVersion(resourceType string, binding fhirschema.CorrelatedBinding, source ir.PhysicalValue, systemBindKey, codeBindKey, versionBindKey string) (ir.PhysicalCorrelation, error) {
-	checked, err := fhirschema.ValidateCorrelatedBinding(resourceType, binding)
+func LowerCorrelatedBindingWithVersion(resourceType string, binding fhirbinding.CorrelatedBinding, source ir.PhysicalValue, systemBindKey, codeBindKey, versionBindKey string) (ir.PhysicalCorrelation, error) {
+	checked, err := fhirbinding.ValidateCorrelatedBinding(resourceType, binding)
 	if err != nil {
 		return ir.PhysicalCorrelation{}, err
 	}
-	if strings.TrimSpace(systemBindKey) == "" || (checked.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion && strings.TrimSpace(codeBindKey) == "") {
+	if strings.TrimSpace(systemBindKey) == "" || (checked.SelectionScope != fhirbinding.CorrelatedSelectionScopeSystemVersion && strings.TrimSpace(codeBindKey) == "") {
 		return ir.PhysicalCorrelation{}, fmt.Errorf("correlated binding system and code bind keys are required")
 	}
-	if checked.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion && codeBindKey != "" {
+	if checked.SelectionScope == fhirbinding.CorrelatedSelectionScopeSystemVersion && codeBindKey != "" {
 		return ir.PhysicalCorrelation{}, fmt.Errorf("SYSTEM_VERSION selection must not supply a code bind key")
 	}
 	if checked.VersionSelector != nil && strings.TrimSpace(versionBindKey) == "" {
@@ -45,10 +46,10 @@ func LowerCorrelatedBindingWithVersion(resourceType string, binding fhirschema.C
 	choiceSelectors := make([]spec.Selector, 0)
 	if len(choiceArms) > 0 {
 		valueResource := checked.OwnerResource
-		if checked.ValueScope == fhirschema.CorrelatedValueScopeCoding {
+		if checked.ValueScope == fhirbinding.CorrelatedValueScopeCoding {
 			valueResource = "Coding"
 		}
-		for _, option := range fhirschema.ChoiceValueSelectorOptions(valueResource) {
+		for _, option := range fhirbinding.ChoiceValueSelectorOptions(valueResource) {
 			selector, parseErr := spec.ParseSelector(fhirschema.SelectorExpression(option))
 			if parseErr != nil {
 				return ir.PhysicalCorrelation{}, fmt.Errorf("choice selector %q: %w", fhirschema.SelectorExpression(option), parseErr)
@@ -75,8 +76,8 @@ func LowerCorrelatedBindingWithVersion(resourceType string, binding fhirschema.C
 	return correlation, nil
 }
 
-func LowerExtensionBinding(resourceType string, binding fhirschema.ExtensionBinding, source ir.PhysicalValue, urlBindKeys []string) (ir.PhysicalCorrelation, error) {
-	checked, err := fhirschema.ValidateExtensionBinding(resourceType, binding)
+func LowerExtensionBinding(resourceType string, binding fhirbinding.ExtensionBinding, source ir.PhysicalValue, urlBindKeys []string) (ir.PhysicalCorrelation, error) {
+	checked, err := fhirbinding.ValidateExtensionBinding(resourceType, binding)
 	if err != nil {
 		return ir.PhysicalCorrelation{}, err
 	}
@@ -101,7 +102,7 @@ func LowerExtensionBinding(resourceType string, binding fhirschema.ExtensionBind
 	}
 	choiceSelectors := make([]spec.Selector, 0)
 	if len(choiceArms) > 0 {
-		for _, option := range fhirschema.ChoiceValueSelectorOptions(checked.OwnerResource) {
+		for _, option := range fhirbinding.ChoiceValueSelectorOptions(checked.OwnerResource) {
 			selector, parseErr := spec.ParseSelector(fhirschema.SelectorExpression(option))
 			if parseErr != nil {
 				return ir.PhysicalCorrelation{}, fmt.Errorf("choice selector %q: %w", fhirschema.SelectorExpression(option), parseErr)
@@ -117,11 +118,11 @@ func LowerExtensionBinding(resourceType string, binding fhirschema.ExtensionBind
 	}, nil
 }
 
-func LowerCorrelatedPredicateWithIdentity(physical *ir.PhysicalPlan, resourceType string, binding fhirschema.CorrelatedBinding, source ir.PhysicalValue, code spec.CodeValue, identity string) (ir.PhysicalPredicate, error) {
+func LowerCorrelatedPredicateWithIdentity(physical *ir.PhysicalPlan, resourceType string, binding fhirbinding.CorrelatedBinding, source ir.PhysicalValue, code spec.CodeValue, identity string) (ir.PhysicalPredicate, error) {
 	if physical == nil {
 		return ir.PhysicalPredicate{}, fmt.Errorf("physical plan is required")
 	}
-	if err := fhirschema.ValidateCorrelatedKey(binding.SelectionScope, fhirschema.CorrelatedKey{System: code.System, Code: code.Code, Version: code.Version}); err != nil {
+	if err := fhirbinding.ValidateCorrelatedKey(binding.SelectionScope, fhirbinding.CorrelatedKey{System: code.System, Code: code.Code, Version: code.Version}); err != nil {
 		return ir.PhysicalPredicate{}, err
 	}
 	suffix := sanitizeColumnName(source.Variable)
@@ -131,7 +132,7 @@ func LowerCorrelatedPredicateWithIdentity(physical *ir.PhysicalPlan, resourceTyp
 	systemKey := "correlated_system_" + suffix
 	codeKey := "correlated_code_" + suffix
 	physical.BindVars[systemKey] = code.System
-	if binding.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion {
+	if binding.SelectionScope == fhirbinding.CorrelatedSelectionScopeSystemVersion {
 		codeKey = ""
 	} else {
 		physical.BindVars[codeKey] = code.Code
@@ -144,7 +145,7 @@ func LowerCorrelatedPredicateWithIdentity(physical *ir.PhysicalPlan, resourceTyp
 	return correlatedPredicateWithVersionBinds(resourceType, binding, source, systemKey, codeKey, versionKey)
 }
 
-func correlatedPredicateWithVersionBinds(resourceType string, binding fhirschema.CorrelatedBinding, source ir.PhysicalValue, systemKey, codeKey, versionKey string) (ir.PhysicalPredicate, error) {
+func correlatedPredicateWithVersionBinds(resourceType string, binding fhirbinding.CorrelatedBinding, source ir.PhysicalValue, systemKey, codeKey, versionKey string) (ir.PhysicalPredicate, error) {
 	correlation, err := LowerCorrelatedBindingWithVersion(resourceType, binding, source, systemKey, codeKey, versionKey)
 	if err != nil {
 		return ir.PhysicalPredicate{}, err

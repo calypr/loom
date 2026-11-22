@@ -3,10 +3,10 @@ package arango
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"strconv"
 
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/semantic"
 )
 
@@ -81,7 +81,7 @@ func decodeStrings(value any) ([]string, error) {
 	}
 }
 
-func decodeExtensionValues(value any) ([]fieldprofile.ExtensionValueObservation, error) {
+func decodeExtensionValues(value any) ([]fieldcatalog.ExtensionValueObservation, error) {
 	if value == nil {
 		return nil, nil
 	}
@@ -96,7 +96,7 @@ func decodeExtensionValues(value any) ([]fieldprofile.ExtensionValueObservation,
 			return nil, fmt.Errorf("unsupported extension observation slice type %T", value)
 		}
 	}
-	result := make([]fieldprofile.ExtensionValueObservation, 0, len(items))
+	result := make([]fieldcatalog.ExtensionValueObservation, 0, len(items))
 	for i, item := range items {
 		row, ok := item.(map[string]any)
 		if !ok {
@@ -106,7 +106,7 @@ func decodeExtensionValues(value any) ([]fieldprofile.ExtensionValueObservation,
 		if err != nil {
 			return nil, fmt.Errorf("extension observation URL path: %w", err)
 		}
-		result = append(result, fieldprofile.ExtensionValueObservation{URL: stringValue(row["url"]), SourcePath: stringValue(row["source_path"]), ValuePath: stringValue(row["value_path"]), ValueType: stringValue(row["value_type"]), URLPath: urlPath})
+		result = append(result, fieldcatalog.ExtensionValueObservation{URL: stringValue(row["url"]), SourcePath: stringValue(row["source_path"]), ValuePath: stringValue(row["value_path"]), ValueType: stringValue(row["value_type"]), URLPath: urlPath})
 	}
 	return result, nil
 }
@@ -189,7 +189,7 @@ func decodeSemanticObservations(value any) ([]semantic.Observation, error) {
 	return result, nil
 }
 
-func decode(row map[string]any, out *fieldprofile.PopulatedField) error {
+func decode(row map[string]any, out *fieldcatalog.PopulatedField) error {
 	out.Project = stringValue(row["project"])
 	out.DatasetGeneration = stringValue(row["dataset_generation"])
 	out.AuthResourcePath = stringValue(row["auth_resource_path"])

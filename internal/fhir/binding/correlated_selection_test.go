@@ -1,4 +1,4 @@
-package schema
+package binding
 
 import (
 	"encoding/json"

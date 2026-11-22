@@ -2,13 +2,13 @@ package aql
 
 import (
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func correlationValueSource(correlation ir.PhysicalCorrelation, owner, coding string) string {
-	if correlation.ValueScope == fhirschema.CorrelatedValueScopeCoding {
+	if correlation.ValueScope == fhirbinding.CorrelatedValueScopeCoding {
 		return coding
 	}
 	return owner

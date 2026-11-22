@@ -1,20 +1,20 @@
 package aql
 
 import (
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestRenderSystemVersionSelectionKeepsCodesTogetherAndExcludesOtherScopes(t *testing.T) {
 	for _, version := range []string{"", "v2"} {
 		t.Run("version="+version, func(t *testing.T) {
-			binding := fhirschema.CorrelatedBinding{
-				KeyPath: "code.coding[]", VersionPath: "version", ValueScope: fhirschema.CorrelatedValueScopeCoding,
-				SelectionScope: fhirschema.CorrelatedSelectionScopeSystemVersion,
+			binding := fhirbinding.CorrelatedBinding{
+				KeyPath: "code.coding[]", VersionPath: "version", ValueScope: fhirbinding.CorrelatedValueScopeCoding,
+				SelectionScope: fhirbinding.CorrelatedSelectionScopeSystemVersion,
 				SystemPath:     "system", CodePath: "code", ValuePath: "display", ValueFallback: []string{"code"}, LogicalType: "string",
 			}
 			correlation, err := lower.LowerCorrelatedBindingWithVersion("Condition", binding, ir.PhysicalValue{BindKey: "fixture"}, "selected_system", "", "selected_version")

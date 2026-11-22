@@ -1,15 +1,14 @@
 package spec
 
 import (
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"testing"
-
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestCorrelatedCategoryFilterRequiresExplicitScope(t *testing.T) {
-	binding := &fhirschema.CorrelatedBinding{
+	binding := &fhirbinding.CorrelatedBinding{
 		KeyPath: "code.coding[]", SystemPath: "system", CodePath: "code", VersionPath: "version",
-		ValueScope: fhirschema.CorrelatedValueScopeCoding, SelectionScope: fhirschema.CorrelatedSelectionScopeSystemVersion,
+		ValueScope: fhirbinding.CorrelatedValueScopeCoding, SelectionScope: fhirbinding.CorrelatedSelectionScopeSystemVersion,
 		ValuePath: "display", ValueFallback: []string{"code"}, LogicalType: "string",
 	}
 	filter := TypedFilter{
@@ -27,7 +26,7 @@ func TestCorrelatedCategoryFilterRequiresExplicitScope(t *testing.T) {
 	if err := ValidateTypedFilterForResource("Condition", filter); err == nil {
 		t.Fatal("legacy exact filter accepted a blank code")
 	}
-	binding.SelectionScope = fhirschema.CorrelatedSelectionScopeSystemVersion
+	binding.SelectionScope = fhirbinding.CorrelatedSelectionScopeSystemVersion
 	filter.Values[0].Code.Code = "normal"
 	if err := ValidateTypedFilterForResource("Condition", filter); err == nil {
 		t.Fatal("category filter accepted a selected exact code")

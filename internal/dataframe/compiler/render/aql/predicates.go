@@ -2,11 +2,11 @@ package aql
 
 import (
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func (r *physicalPlanRenderer) renderPredicate(predicate ir.PhysicalPredicate) (string, error) {
@@ -80,11 +80,11 @@ func (r *physicalPlanRenderer) renderCorrelationPredicate(correlation ir.Physica
 	if err != nil {
 		return "", err
 	}
-	if correlation.SystemBindKey == "" || (correlation.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion && correlation.CodeBindKey == "") {
+	if correlation.SystemBindKey == "" || (correlation.SelectionScope != fhirbinding.CorrelatedSelectionScopeSystemVersion && correlation.CodeBindKey == "") {
 		return "", fmt.Errorf("correlation match binds are required")
 	}
 	codeClause := fmt.Sprintf("FILTER __correlation_code == @%s", correlation.CodeBindKey)
-	if correlation.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion {
+	if correlation.SelectionScope == fhirbinding.CorrelatedSelectionScopeSystemVersion {
 		codeClause = ""
 	}
 	valueSource := correlationValueSource(correlation, owner, coding)

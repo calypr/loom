@@ -2,6 +2,7 @@ package recipeplan
 
 import (
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -418,11 +419,11 @@ func buildRecipeExtensionPivots(items []recipe.ExtensionColumn, scope scopeFrame
 			if canonicalJSON {
 				logicalType = "string"
 			}
-			binding := &fhirschema.ExtensionBinding{
+			binding := &fhirbinding.ExtensionBinding{
 				OwnerPath: mapping.SourcePath, URLPath: urlPath, ValuePath: mapping.ValuePath,
 				CanonicalJSONValue: canonicalJSON, LogicalType: logicalType,
 			}
-			if _, err := fhirschema.ValidateExtensionBinding(resourceType, *binding); err != nil {
+			if _, err := fhirbinding.ValidateExtensionBinding(resourceType, *binding); err != nil {
 				return nil, err
 			}
 			columnPrefix := item.Name + "__" + mapping.Name

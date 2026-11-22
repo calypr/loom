@@ -2,11 +2,11 @@ package explorerapi
 
 import (
 	"encoding/json"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"testing"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestAuthoringWorkspaceColumnIDMatchesOpenAPIContract(t *testing.T) {
@@ -88,13 +88,13 @@ func TestSystemVersionCategoryColumnPassesOpenAPIAndExactEmptyCodeIsRejected(t *
 	column := authoringv2.Column{
 		Column: "condition_category", Label: "Condition category", OccurrenceID: authoringv2.RootOccurrenceID,
 		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
-			Binding: &fhirschema.CorrelatedBinding{
-				KeyPath: "code.coding[]", ValueScope: fhirschema.CorrelatedValueScopeCoding,
-				SelectionScope: fhirschema.CorrelatedSelectionScopeSystemVersion, VersionPath: "version",
+			Binding: &fhirbinding.CorrelatedBinding{
+				KeyPath: "code.coding[]", ValueScope: fhirbinding.CorrelatedValueScopeCoding,
+				SelectionScope: fhirbinding.CorrelatedSelectionScopeSystemVersion, VersionPath: "version",
 				SystemPath: "system", CodePath: "code", ValuePath: "display", LogicalType: "string",
 				ValueFallback: []string{"code"}, FallbackOnBlankString: true,
 			},
-			Key: &fhirschema.CorrelatedKey{System: "https://example.org/condition", Code: "", Version: ""},
+			Key: &fhirbinding.CorrelatedKey{System: "https://example.org/condition", Code: "", Version: ""},
 		}},
 	}
 	document := authoringv2.Document{

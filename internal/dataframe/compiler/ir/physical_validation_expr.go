@@ -2,9 +2,8 @@ package ir
 
 import (
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
-
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func validatePhysicalExpression(expression PhysicalExpression, defined map[string]bool, bindVars map[string]any) error {
@@ -99,7 +98,7 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 		if expression.OwnerRecords == nil {
 			return fmt.Errorf("expression payload does not match kind")
 		}
-		if expression.OwnerRecords.Correlation.ValueScope == fhirschema.CorrelatedValueScopeCoding {
+		if expression.OwnerRecords.Correlation.ValueScope == fhirbinding.CorrelatedValueScopeCoding {
 			return fmt.Errorf("owner records does not support Coding value scope")
 		}
 		if err := validatePhysicalCorrelation(expression.OwnerRecords.Correlation, defined, bindVars); err != nil {

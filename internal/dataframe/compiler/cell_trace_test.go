@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"strings"
 	"testing"
@@ -9,7 +10,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestCompileCellTraceUsesFinalValueAndStableIdentity(t *testing.T) {
@@ -307,12 +307,12 @@ func TestCompileCellTraceUsesOwnerRecordEvidenceAsContributions(t *testing.T) {
 		RootColumnNaming: recipe.RootColumnNamingExact,
 		OwnerRecords: []recipe.OwnerRecordProjection{{
 			Name: "height_records", FieldRef: "component[].valueQuantity.value",
-			Binding: fhirschema.CorrelatedBinding{
+			Binding: fhirbinding.CorrelatedBinding{
 				OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
 				SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value",
 				ChoiceArms: []string{"valueQuantity"}, LogicalType: "decimal",
 			},
-			Key: fhirschema.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
+			Key: fhirbinding.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
 		}},
 	})
 	compiled, err := CompileCellTraceOutputWithPolicy(output, "height_records", 0, 25, ir.DefaultPhysicalOptimizationPolicy())

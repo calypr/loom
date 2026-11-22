@@ -1,7 +1,8 @@
-package schema
+package binding
 
 import (
 	"fmt"
+	"github.com/calypr/loom/internal/fhir/schema"
 	"strings"
 )
 
@@ -57,46 +58,46 @@ type ExtensionBinding struct {
 
 type CorrelatedBindingSpec struct {
 	ResourceType          string
-	OwnerSelector         Selector
+	OwnerSelector         schema.Selector
 	OwnerResource         string
-	KeySelector           Selector
+	KeySelector           schema.Selector
 	KeyResource           string
 	KeyIsArray            bool
-	VersionSelector       *Selector
+	VersionSelector       *schema.Selector
 	ValueScope            CorrelatedValueScope
 	SelectionScope        CorrelatedSelectionScope
-	SystemSelector        Selector
-	CodeSelector          Selector
-	ValueSelector         Selector
-	ValueFallbacks        []Selector
+	SystemSelector        schema.Selector
+	CodeSelector          schema.Selector
+	ValueSelector         schema.Selector
+	ValueFallbacks        []schema.Selector
 	FallbackOnBlankString bool
 	ChoiceArms            []string
 	LogicalType           string
-	ValuePrimitive        PrimitiveKind
-	UnitSelector          *Selector
+	ValuePrimitive        schema.PrimitiveKind
+	UnitSelector          *schema.Selector
 }
 
 type ExtensionBindingSpec struct {
 	ResourceType          string
-	OwnerSelector         Selector
+	OwnerSelector         schema.Selector
 	OwnerResource         string
-	URLSelectors          []Selector
-	ValueSelector         Selector
+	URLSelectors          []schema.Selector
+	ValueSelector         schema.Selector
 	CanonicalJSONValue    bool
-	ValueFallbacks        []Selector
+	ValueFallbacks        []schema.Selector
 	FallbackOnBlankString bool
 	ChoiceArms            []string
 	LogicalType           string
-	ValuePrimitive        PrimitiveKind
-	UnitSelector          *Selector
+	ValuePrimitive        schema.PrimitiveKind
+	UnitSelector          *schema.Selector
 }
 
 func ValidateCorrelatedBinding(resourceType string, binding CorrelatedBinding) (CorrelatedBindingSpec, error) {
-	if !HasResource(resourceType) {
+	if !schema.HasResource(resourceType) {
 		return CorrelatedBindingSpec{}, fmt.Errorf("resource type %q is not represented by generated FHIR schema", resourceType)
 	}
-	ownerPath := CanonicalizePath(binding.OwnerPath)
-	keyPath := CanonicalizePath(binding.KeyPath)
+	ownerPath := schema.CanonicalizePath(binding.OwnerPath)
+	keyPath := schema.CanonicalizePath(binding.KeyPath)
 	if keyPath == "" {
 		return CorrelatedBindingSpec{}, fmt.Errorf("correlated keyPath is required")
 	}
@@ -107,14 +108,14 @@ func ValidateCorrelatedBinding(resourceType string, binding CorrelatedBinding) (
 		return CorrelatedBindingSpec{}, fmt.Errorf("correlated binding requires valuePath")
 	}
 	ownerResource := resourceType
-	ownerSelector := Selector{}
+	ownerSelector := schema.Selector{}
 	if ownerPath != "" {
 		var err error
-		ownerSelector, err = ParseSelector(ownerPath)
+		ownerSelector, err = schema.ParseSelector(ownerPath)
 		if err != nil {
 			return CorrelatedBindingSpec{}, fmt.Errorf("ownerPath: %w", err)
 		}
-		resolved, ok := ResolvePath(resourceType, ownerPath)
+		resolved, ok := schema.ResolvePath(resourceType, ownerPath)
 		if !ok || resolved.Property.Kind != "array" || strings.TrimSpace(resolved.Property.ItemRef) == "" {
 			return CorrelatedBindingSpec{}, fmt.Errorf("ownerPath %q must resolve to a repeated object", ownerPath)
 		}
@@ -127,7 +128,7 @@ func ValidateCorrelatedBinding(resourceType string, binding CorrelatedBinding) (
 	if ownerPath != "" {
 		keyRelative = strings.TrimPrefix(keyPath, ownerPath+".")
 	}
-	keyResolved, ok := ResolvePath(ownerResource, keyRelative)
+	keyResolved, ok := schema.ResolvePath(ownerResource, keyRelative)
 	if !ok {
 		return CorrelatedBindingSpec{}, fmt.Errorf("keyPath %q is not represented within owner scope", keyPath)
 	}
@@ -147,22 +148,22 @@ func ValidateCorrelatedBinding(resourceType string, binding CorrelatedBinding) (
 	if keyResource == "" {
 		return CorrelatedBindingSpec{}, fmt.Errorf("keyPath %q must resolve to a Coding object or repeated Coding array within owner scope", keyPath)
 	}
-	system, err := ParseSelector(binding.SystemPath)
+	system, err := schema.ParseSelector(binding.SystemPath)
 	if err != nil {
 		return CorrelatedBindingSpec{}, fmt.Errorf("systemPath: %w", err)
 	}
-	code, err := ParseSelector(binding.CodePath)
+	code, err := schema.ParseSelector(binding.CodePath)
 	if err != nil {
 		return CorrelatedBindingSpec{}, fmt.Errorf("codePath: %w", err)
 	}
-	if _, ok := ResolvePath(keyResource, CanonicalizePath(binding.SystemPath)); !ok {
+	if _, ok := schema.ResolvePath(keyResource, schema.CanonicalizePath(binding.SystemPath)); !ok {
 		return CorrelatedBindingSpec{}, fmt.Errorf("systemPath %q is not a field of Coding item %q", binding.SystemPath, keyResource)
 	}
-	if _, ok := ResolvePath(keyResource, CanonicalizePath(binding.CodePath)); !ok {
+	if _, ok := schema.ResolvePath(keyResource, schema.CanonicalizePath(binding.CodePath)); !ok {
 		return CorrelatedBindingSpec{}, fmt.Errorf("codePath %q is not a field of Coding item %q", binding.CodePath, keyResource)
 	}
 	valueResource := ownerResource
-	var versionSelector *Selector
+	var versionSelector *schema.Selector
 	switch binding.ValueScope {
 	case "", CorrelatedValueScopeOwner:
 		if !keyIsArray {
@@ -176,15 +177,15 @@ func ValidateCorrelatedBinding(resourceType string, binding CorrelatedBinding) (
 			return CorrelatedBindingSpec{}, fmt.Errorf("CODING value scope requires keyPath to resolve to Coding, got %q", keyResource)
 		}
 		valueResource = "Coding"
-		if versionPath := CanonicalizePath(binding.VersionPath); versionPath != "" {
+		if versionPath := schema.CanonicalizePath(binding.VersionPath); versionPath != "" {
 			if versionPath != "version" {
 				return CorrelatedBindingSpec{}, fmt.Errorf("versionPath %q must identify Coding.version", versionPath)
 			}
-			versionMetadata, ok := ResolveTerminalScalarMetadata("Coding", versionPath)
-			if !ok || versionMetadata.Primitive != PrimitiveString {
+			versionMetadata, ok := schema.ResolveTerminalScalarMetadata("Coding", versionPath)
+			if !ok || versionMetadata.Primitive != schema.PrimitiveString {
 				return CorrelatedBindingSpec{}, fmt.Errorf("versionPath %q must resolve to a string in Coding", versionPath)
 			}
-			selector, parseErr := ParseSelector(versionPath)
+			selector, parseErr := schema.ParseSelector(versionPath)
 			if parseErr != nil {
 				return CorrelatedBindingSpec{}, fmt.Errorf("versionPath: %w", parseErr)
 			}
@@ -232,24 +233,24 @@ func ValidateCorrelatedKey(scope CorrelatedSelectionScope, key CorrelatedKey) er
 }
 
 type checkedBindingValue struct {
-	ValueSelector         Selector
-	ValueFallbacks        []Selector
+	ValueSelector         schema.Selector
+	ValueFallbacks        []schema.Selector
 	FallbackOnBlankString bool
 	ChoiceArms            []string
 	LogicalType           string
-	ValuePrimitive        PrimitiveKind
-	UnitSelector          *Selector
+	ValuePrimitive        schema.PrimitiveKind
+	UnitSelector          *schema.Selector
 }
 
 func validateBindingValue(valueResource, valuePath string, valueFallback []string, fallbackOnBlankString bool, requestedChoiceArms []string, requestedLogicalType, unitPath string) (checkedBindingValue, error) {
-	valuePath = CanonicalizePath(valuePath)
+	valuePath = schema.CanonicalizePath(valuePath)
 	if valuePath == "" {
 		return checkedBindingValue{}, fmt.Errorf("valuePath is required")
 	}
-	if _, ok := ResolvePath(valueResource, valuePath); !ok {
+	if _, ok := schema.ResolvePath(valueResource, valuePath); !ok {
 		return checkedBindingValue{}, fmt.Errorf("valuePath %q is not represented in owner resource %q", valuePath, valueResource)
 	}
-	value, err := ParseSelector(valuePath)
+	value, err := schema.ParseSelector(valuePath)
 	if err != nil {
 		return checkedBindingValue{}, fmt.Errorf("valuePath: %w", err)
 	}
@@ -260,8 +261,8 @@ func validateBindingValue(valueResource, valuePath string, valueFallback []strin
 	if !ok {
 		return checkedBindingValue{}, fmt.Errorf("logicalType %q is unsupported", requestedLogicalType)
 	}
-	valueMetadata, ok := ResolveTerminalScalarMetadata(valueResource, valuePath)
-	if !ok || valueMetadata.Primitive == PrimitiveUnknown {
+	valueMetadata, ok := schema.ResolveTerminalScalarMetadata(valueResource, valuePath)
+	if !ok || valueMetadata.Primitive == schema.PrimitiveUnknown {
 		return checkedBindingValue{}, fmt.Errorf("valuePath %q does not resolve to a scalar in owner resource %q", valuePath, valueResource)
 	}
 	choiceArms := append([]string(nil), requestedChoiceArms...)
@@ -272,13 +273,13 @@ func validateBindingValue(valueResource, valuePath string, valueFallback []strin
 		}
 	}
 	valueArm := strings.TrimSuffix(strings.Split(valuePath, ".")[0], "[]")
-	valueArmMetadata, valueArmExists := ResolvePath(valueResource, valueArm)
+	valueArmMetadata, valueArmExists := schema.ResolvePath(valueResource, valueArm)
 	valueChoiceGroup := ""
 	if valueArmExists {
 		valueChoiceGroup = strings.TrimSpace(valueArmMetadata.Property.ChoiceGroup)
 	}
 	for index, arm := range choiceArms {
-		resolved, exists := ResolvePath(valueResource, arm)
+		resolved, exists := schema.ResolvePath(valueResource, arm)
 		choiceGroup := ""
 		if exists {
 			choiceGroup = strings.TrimSpace(resolved.Property.ChoiceGroup)
@@ -299,18 +300,18 @@ func validateBindingValue(valueResource, valuePath string, valueFallback []strin
 	if !correlatedPrimitiveCompatible(logicalType, valueMetadata.Primitive, len(choiceArms) > 1) {
 		return checkedBindingValue{}, fmt.Errorf("logicalType %q is incompatible with valuePath %q primitive %q", logicalType, valuePath, valueMetadata.Primitive)
 	}
-	fallbacks := make([]Selector, 0, len(valueFallback))
+	fallbacks := make([]schema.Selector, 0, len(valueFallback))
 	for index, fallbackPath := range valueFallback {
-		fallbackPath = CanonicalizePath(fallbackPath)
-		if _, ok := ResolvePath(valueResource, fallbackPath); !ok {
+		fallbackPath = schema.CanonicalizePath(fallbackPath)
+		if _, ok := schema.ResolvePath(valueResource, fallbackPath); !ok {
 			return checkedBindingValue{}, fmt.Errorf("valueFallback[%d] %q is not represented in owner resource %q", index, fallbackPath, valueResource)
 		}
-		fallback, parseErr := ParseSelector(fallbackPath)
+		fallback, parseErr := schema.ParseSelector(fallbackPath)
 		if parseErr != nil {
 			return checkedBindingValue{}, fmt.Errorf("valueFallback[%d]: %w", index, parseErr)
 		}
-		fallbackMetadata, metadataOK := ResolveTerminalScalarMetadata(valueResource, fallbackPath)
-		if !metadataOK || fallbackMetadata.Primitive == PrimitiveUnknown || !correlatedPrimitiveCompatible(logicalType, fallbackMetadata.Primitive, len(choiceArms) > 1) {
+		fallbackMetadata, metadataOK := schema.ResolveTerminalScalarMetadata(valueResource, fallbackPath)
+		if !metadataOK || fallbackMetadata.Primitive == schema.PrimitiveUnknown || !correlatedPrimitiveCompatible(logicalType, fallbackMetadata.Primitive, len(choiceArms) > 1) {
 			return checkedBindingValue{}, fmt.Errorf("valueFallback[%d] %q is incompatible with logicalType %q", index, fallbackPath, logicalType)
 		}
 		fallbackArm := strings.TrimSuffix(strings.Split(fallbackPath, ".")[0], "[]")
@@ -322,21 +323,21 @@ func validateBindingValue(valueResource, valuePath string, valueFallback []strin
 	if fallbackOnBlankString && (logicalType != "string" || len(fallbacks) == 0) {
 		return checkedBindingValue{}, fmt.Errorf("fallbackOnBlankString requires a string value and at least one fallback selector")
 	}
-	var unit *Selector
+	var unit *schema.Selector
 	if strings.TrimSpace(unitPath) == "" {
 		if inferred, ok := inferQuantityUnitSelector(valueResource, valuePath); ok {
 			unit = &inferred
 		}
 	} else {
-		unitSelector, parseErr := ParseSelector(CanonicalizePath(unitPath))
+		unitSelector, parseErr := schema.ParseSelector(schema.CanonicalizePath(unitPath))
 		if parseErr != nil {
 			return checkedBindingValue{}, fmt.Errorf("unitPath: %w", parseErr)
 		}
-		if _, ok := ResolvePath(valueResource, unitSelector.CanonicalPath()); !ok {
+		if _, ok := schema.ResolvePath(valueResource, unitSelector.CanonicalPath()); !ok {
 			return checkedBindingValue{}, fmt.Errorf("unitPath %q is not represented in owner resource %q", unitPath, valueResource)
 		}
-		unitMetadata, metadataOK := ResolveTerminalScalarMetadata(valueResource, unitSelector.CanonicalPath())
-		if !metadataOK || unitMetadata.Primitive != PrimitiveString {
+		unitMetadata, metadataOK := schema.ResolveTerminalScalarMetadata(valueResource, unitSelector.CanonicalPath())
+		if !metadataOK || unitMetadata.Primitive != schema.PrimitiveString {
 			return checkedBindingValue{}, fmt.Errorf("unitPath %q must resolve to a string", unitPath)
 		}
 		unit = &unitSelector
@@ -344,23 +345,23 @@ func validateBindingValue(valueResource, valuePath string, valueFallback []strin
 	return checkedBindingValue{ValueSelector: value, ValueFallbacks: fallbacks, FallbackOnBlankString: fallbackOnBlankString, ChoiceArms: choiceArms, LogicalType: logicalType, ValuePrimitive: valueMetadata.Primitive, UnitSelector: unit}, nil
 }
 
-func inferQuantityUnitSelector(valueResource, valuePath string) (Selector, bool) {
-	valuePath = CanonicalizePath(valuePath)
+func inferQuantityUnitSelector(valueResource, valuePath string) (schema.Selector, bool) {
+	valuePath = schema.CanonicalizePath(valuePath)
 	separator := strings.LastIndex(valuePath, ".")
 	if separator < 1 || valuePath[separator+1:] != "value" {
-		return Selector{}, false
+		return schema.Selector{}, false
 	}
 	parentPath := valuePath[:separator]
-	parent, ok := ResolvePath(valueResource, parentPath)
+	parent, ok := schema.ResolvePath(valueResource, parentPath)
 	if !ok || parent.PropertyRef != "Quantity" {
-		return Selector{}, false
+		return schema.Selector{}, false
 	}
 	unitPath := parentPath + ".unit"
-	metadata, ok := ResolveTerminalScalarMetadata(valueResource, unitPath)
-	if !ok || metadata.Primitive != PrimitiveString {
-		return Selector{}, false
+	metadata, ok := schema.ResolveTerminalScalarMetadata(valueResource, unitPath)
+	if !ok || metadata.Primitive != schema.PrimitiveString {
+		return schema.Selector{}, false
 	}
-	unit, err := ParseSelector(unitPath)
+	unit, err := schema.ParseSelector(unitPath)
 	return unit, err == nil
 }
 
@@ -395,9 +396,9 @@ func ValidateExtensionBinding(resourceType string, binding ExtensionBinding) (Ex
 			return ExtensionBindingSpec{}, err
 		}
 	}
-	urlSelectors := make([]Selector, extensionDepth)
+	urlSelectors := make([]schema.Selector, extensionDepth)
 	for index := range urlSelectors {
-		urlSelectors[index], _ = ParseSelector("url")
+		urlSelectors[index], _ = schema.ParseSelector("url")
 	}
 	return ExtensionBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: "Extension", URLSelectors: urlSelectors, ValueSelector: value.ValueSelector, CanonicalJSONValue: binding.CanonicalJSONValue, ValueFallbacks: value.ValueFallbacks, FallbackOnBlankString: value.FallbackOnBlankString, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, UnitSelector: value.UnitSelector}, nil
 }
@@ -407,13 +408,13 @@ func ValidateExtensionOwnerPath(resourceType, path string) error {
 	return err
 }
 
-func extensionOwnerPath(resourceType, path string) (Selector, int, error) {
-	if !HasResource(resourceType) {
-		return Selector{}, 0, fmt.Errorf("resource type %q is not represented by generated FHIR schema", resourceType)
+func extensionOwnerPath(resourceType, path string) (schema.Selector, int, error) {
+	if !schema.HasResource(resourceType) {
+		return schema.Selector{}, 0, fmt.Errorf("resource type %q is not represented by generated FHIR schema", resourceType)
 	}
-	ownerPath := CanonicalizePath(path)
+	ownerPath := schema.CanonicalizePath(path)
 	if ownerPath == "" {
-		return Selector{}, 0, fmt.Errorf("ownerPath is required")
+		return schema.Selector{}, 0, fmt.Errorf("ownerPath is required")
 	}
 	parts := strings.Split(ownerPath, ".")
 	baseParts := make([]string, 0, len(parts))
@@ -421,15 +422,15 @@ func extensionOwnerPath(resourceType, path string) (Selector, int, error) {
 	startedExtension := false
 	extensionDepth := 0
 	for index, part := range parts {
-		resolved, ok := ResolvePath(currentResource, part)
+		resolved, ok := schema.ResolvePath(currentResource, part)
 		if !ok {
-			return Selector{}, 0, fmt.Errorf("ownerPath segment %q is not represented in resource %q", part, currentResource)
+			return schema.Selector{}, 0, fmt.Errorf("ownerPath segment %q is not represented in resource %q", part, currentResource)
 		}
 		name := strings.TrimSuffix(part, "[]")
 		isExtension := name == "extension" && strings.HasSuffix(part, "[]")
 		if isExtension {
 			if resolved.Property.Kind != "array" || resolved.Property.ItemRef != "Extension" {
-				return Selector{}, 0, fmt.Errorf("ownerPath segment %q must be a repeated Extension", part)
+				return schema.Selector{}, 0, fmt.Errorf("ownerPath segment %q must be a repeated Extension", part)
 			}
 			startedExtension = true
 			extensionDepth++
@@ -437,42 +438,42 @@ func extensionOwnerPath(resourceType, path string) (Selector, int, error) {
 			continue
 		}
 		if startedExtension {
-			return Selector{}, 0, fmt.Errorf("ownerPath segment %q follows an extension boundary and is not allowed", part)
+			return schema.Selector{}, 0, fmt.Errorf("ownerPath segment %q follows an extension boundary and is not allowed", part)
 		}
 		if !strings.HasSuffix(part, "[]") && index == len(parts)-1 {
-			return Selector{}, 0, fmt.Errorf("ownerPath must end at a repeated extension")
+			return schema.Selector{}, 0, fmt.Errorf("ownerPath must end at a repeated extension")
 		}
 		baseParts = append(baseParts, part)
 		switch resolved.Property.Kind {
 		case "array":
 			if strings.TrimSpace(resolved.Property.ItemRef) == "" {
-				return Selector{}, 0, fmt.Errorf("ownerPath segment %q must resolve to a repeated object", part)
+				return schema.Selector{}, 0, fmt.Errorf("ownerPath segment %q must resolve to a repeated object", part)
 			}
 			currentResource = resolved.Property.ItemRef
 		case "object":
 			if strings.TrimSpace(resolved.Property.Ref) == "" {
-				return Selector{}, 0, fmt.Errorf("ownerPath segment %q must resolve to a named object", part)
+				return schema.Selector{}, 0, fmt.Errorf("ownerPath segment %q must resolve to a named object", part)
 			}
 			currentResource = resolved.Property.Ref
 		default:
-			return Selector{}, 0, fmt.Errorf("ownerPath segment %q is not an object boundary", part)
+			return schema.Selector{}, 0, fmt.Errorf("ownerPath segment %q is not an object boundary", part)
 		}
 	}
 	if extensionDepth == 0 {
-		return Selector{}, 0, fmt.Errorf("ownerPath must contain at least one repeated extension")
+		return schema.Selector{}, 0, fmt.Errorf("ownerPath must contain at least one repeated extension")
 	}
-	ownerSelector := Selector{}
+	ownerSelector := schema.Selector{}
 	if len(baseParts) > 0 {
 		basePath := strings.Join(baseParts, ".")
 		var err error
-		ownerSelector, err = ParseSelector(basePath)
+		ownerSelector, err = schema.ParseSelector(basePath)
 		if err != nil {
-			return Selector{}, 0, fmt.Errorf("ownerPath base: %w", err)
+			return schema.Selector{}, 0, fmt.Errorf("ownerPath base: %w", err)
 		}
-		resolved, ok := ResolvePath(resourceType, basePath)
+		resolved, ok := schema.ResolvePath(resourceType, basePath)
 		if !ok || !((resolved.Property.Kind == "array" && strings.TrimSpace(resolved.Property.ItemRef) != "") ||
 			(resolved.Property.Kind == "object" && strings.TrimSpace(resolved.Property.Ref) != "")) {
-			return Selector{}, 0, fmt.Errorf("ownerPath base %q must resolve to an object or repeated object", basePath)
+			return schema.Selector{}, 0, fmt.Errorf("ownerPath base %q must resolve to an object or repeated object", basePath)
 		}
 	}
 	return ownerSelector, extensionDepth, nil
@@ -499,31 +500,31 @@ func containsCorrelatedString(values []string, want string) bool {
 	return false
 }
 
-func correlatedPrimitiveCompatible(logicalType string, primitive PrimitiveKind, explicitMixed bool) bool {
+func correlatedPrimitiveCompatible(logicalType string, primitive schema.PrimitiveKind, explicitMixed bool) bool {
 	if explicitMixed && logicalType == "string" {
-		return primitive != PrimitiveUnknown
+		return primitive != schema.PrimitiveUnknown
 	}
 	switch logicalType {
 	case "string", "code":
-		return primitive == PrimitiveString
+		return primitive == schema.PrimitiveString
 	case "boolean":
-		return primitive == PrimitiveBoolean
+		return primitive == schema.PrimitiveBoolean
 	case "integer":
-		return primitive == PrimitiveInteger
+		return primitive == schema.PrimitiveInteger
 	case "decimal":
-		return primitive == PrimitiveDecimal
+		return primitive == schema.PrimitiveDecimal
 	case "number":
-		return primitive == PrimitiveDecimal || primitive == PrimitiveInteger
+		return primitive == schema.PrimitiveDecimal || primitive == schema.PrimitiveInteger
 	case "date":
-		return primitive == PrimitiveDate
+		return primitive == schema.PrimitiveDate
 	case "date_time":
-		return primitive == PrimitiveDateTime
+		return primitive == schema.PrimitiveDateTime
 	default:
 		return false
 	}
 }
 
-func mustParseSelector(path string) Selector {
-	selector, _ := ParseSelector(path)
+func mustParseSelector(path string) schema.Selector {
+	selector, _ := schema.ParseSelector(path)
 	return selector
 }

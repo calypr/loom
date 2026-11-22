@@ -2,6 +2,7 @@ package recipeplan
 
 import (
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"regexp"
 	"strings"
 
@@ -68,7 +69,7 @@ func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []re
 			return nil, fmt.Errorf("%s cannot carry both terminology and extension correlation", path)
 		}
 		if input.ExtensionCorrelation != nil {
-			checked, bindingErr := fhirschema.ValidateExtensionBinding(resourceType, *input.ExtensionCorrelation)
+			checked, bindingErr := fhirbinding.ValidateExtensionBinding(resourceType, *input.ExtensionCorrelation)
 			if bindingErr != nil {
 				return nil, fmt.Errorf("%s extensionCorrelation: %w", path, bindingErr)
 			}
@@ -81,14 +82,14 @@ func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []re
 			continue
 		}
 		if input.Correlation != nil {
-			checked, bindingErr := fhirschema.ValidateCorrelatedBinding(resourceType, *input.Correlation)
+			checked, bindingErr := fhirbinding.ValidateCorrelatedBinding(resourceType, *input.Correlation)
 			if bindingErr != nil {
 				return nil, fmt.Errorf("%s correlation: %w", path, bindingErr)
 			}
-			if err := fhirschema.ValidateCorrelatedKey(checked.SelectionScope, fhirschema.CorrelatedKey{System: input.CorrelationSystem, Code: input.CorrelationCode, Version: input.CorrelationVersion}); err != nil {
+			if err := fhirbinding.ValidateCorrelatedKey(checked.SelectionScope, fhirbinding.CorrelatedKey{System: input.CorrelationSystem, Code: input.CorrelationCode, Version: input.CorrelationVersion}); err != nil {
 				return nil, fmt.Errorf("%s correlation: %w", path, err)
 			}
-			if checked.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion && len(columns) != 1 {
+			if checked.SelectionScope == fhirbinding.CorrelatedSelectionScopeSystemVersion && len(columns) != 1 {
 				return nil, fmt.Errorf("%s SYSTEM_VERSION selection requires exactly one output column", path)
 			}
 			if strings.TrimSpace(input.CorrelationVersion) != "" && strings.TrimSpace(input.Correlation.VersionPath) == "" {
@@ -126,7 +127,7 @@ func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []re
 				return nil, fmt.Errorf("%s value selector: %w", path, err)
 			}
 		}
-		pivotSpec, err := fhirschema.ValidatePivotSelectors(validationResourceType, selectorSpecFromSelector(validationColumn), selectorSpecFromSelector(validationValue))
+		pivotSpec, err := fhirbinding.ValidatePivotSelectors(validationResourceType, selectorSpecFromSelector(validationColumn), selectorSpecFromSelector(validationValue))
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
@@ -217,7 +218,7 @@ func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []re
 	return out, nil
 }
 
-func cloneCorrelatedBinding(input *fhirschema.CorrelatedBinding) *fhirschema.CorrelatedBinding {
+func cloneCorrelatedBinding(input *fhirbinding.CorrelatedBinding) *fhirbinding.CorrelatedBinding {
 	if input == nil {
 		return nil
 	}
@@ -227,7 +228,7 @@ func cloneCorrelatedBinding(input *fhirschema.CorrelatedBinding) *fhirschema.Cor
 	return &copy
 }
 
-func cloneExtensionBinding(input *fhirschema.ExtensionBinding) *fhirschema.ExtensionBinding {
+func cloneExtensionBinding(input *fhirbinding.ExtensionBinding) *fhirbinding.ExtensionBinding {
 	if input == nil {
 		return nil
 	}
@@ -242,7 +243,7 @@ func lowerRecipeOwnerRecords(resourceType string, inputs []recipe.OwnerRecordPro
 	result := make([]SemanticOwnerRecords, 0, len(inputs))
 	for index, input := range inputs {
 		path := fmt.Sprintf("ownerRecords[%d]", index)
-		if input.Binding.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion {
+		if input.Binding.SelectionScope == fhirbinding.CorrelatedSelectionScopeSystemVersion {
 			return nil, fmt.Errorf("%s does not support SYSTEM_VERSION selection scope", path)
 		}
 		if err := validateRecipeRichName(input.Name, path+".name"); err != nil {
@@ -251,7 +252,7 @@ func lowerRecipeOwnerRecords(resourceType string, inputs []recipe.OwnerRecordPro
 		if strings.TrimSpace(input.Key.System) == "" || strings.TrimSpace(input.Key.Code) == "" {
 			return nil, fmt.Errorf("%s requires key.system and key.code", path)
 		}
-		checked, err := fhirschema.ValidateCorrelatedBinding(resourceType, input.Binding)
+		checked, err := fhirbinding.ValidateCorrelatedBinding(resourceType, input.Binding)
 		if err != nil {
 			return nil, fmt.Errorf("%s binding: %w", path, err)
 		}

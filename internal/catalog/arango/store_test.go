@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"reflect"
 	"sort"
 	"strconv"
@@ -97,7 +98,7 @@ func TestStoreUsesInjectedClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fields, err := adapter.DiscoverFields(context.Background(), fieldprofile.PopulatedFieldOptions{Project: "p"})
+	fields, err := adapter.DiscoverFields(context.Background(), fieldcatalog.PopulatedFieldOptions{Project: "p"})
 	if err != nil || len(fields) != 1 || fields[0].Path != "id" {
 		t.Fatalf("fields=%#v err=%v", fields, err)
 	}
@@ -119,7 +120,7 @@ func TestStorePreservesFieldMetadataAndRejectsMalformedRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fields, err := adapter.DiscoverFields(context.Background(), fieldprofile.PopulatedFieldOptions{Project: "p"})
+	fields, err := adapter.DiscoverFields(context.Background(), fieldcatalog.PopulatedFieldOptions{Project: "p"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +130,7 @@ func TestStorePreservesFieldMetadataAndRejectsMalformedRows(t *testing.T) {
 	}
 
 	client.row["doc_count"] = "bad"
-	if _, err := adapter.DiscoverFields(context.Background(), fieldprofile.PopulatedFieldOptions{Project: "p"}); err == nil {
+	if _, err := adapter.DiscoverFields(context.Background(), fieldcatalog.PopulatedFieldOptions{Project: "p"}); err == nil {
 		t.Fatal("malformed numeric field row was accepted")
 	}
 }

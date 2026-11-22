@@ -1,7 +1,8 @@
-package schema
+package binding
 
 import (
 	"encoding/json"
+	"github.com/calypr/loom/internal/fhir/schema"
 	"strings"
 	"testing"
 )
@@ -61,7 +62,7 @@ func TestValidateCorrelatedBindingUsesMatchedCodingValueScope(t *testing.T) {
 	}
 	if checked.ValueScope != CorrelatedValueScopeCoding || checked.KeyResource != "Coding" ||
 		checked.ValueSelector.CanonicalPath() != "display" || len(checked.ValueFallbacks) != 1 || checked.ValueFallbacks[0].CanonicalPath() != "code" ||
-		!checked.FallbackOnBlankString || checked.ValuePrimitive != PrimitiveString || checked.UnitSelector != nil {
+		!checked.FallbackOnBlankString || checked.ValuePrimitive != schema.PrimitiveString || checked.UnitSelector != nil {
 		t.Fatalf("checked same-Coding value binding = %#v", checked)
 	}
 }

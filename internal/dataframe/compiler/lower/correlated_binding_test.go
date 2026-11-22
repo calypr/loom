@@ -1,32 +1,32 @@
 package lower
 
 import (
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestLowerCorrelatedBindingPreservesCodingValueScope(t *testing.T) {
-	binding := fhirschema.CorrelatedBinding{
+	binding := fhirbinding.CorrelatedBinding{
 		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
-		ValueScope: fhirschema.CorrelatedValueScopeCoding, SystemPath: "system", CodePath: "code",
+		ValueScope: fhirbinding.CorrelatedValueScopeCoding, SystemPath: "system", CodePath: "code",
 		VersionPath: "version", ValuePath: "display", ValueFallback: []string{"code"}, FallbackOnBlankString: true, LogicalType: "string",
 	}
 	correlation, err := LowerCorrelatedBindingWithVersion("Observation", binding, ir.PhysicalValue{Variable: "root"}, "system", "code", "version")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if correlation.ValueScope != fhirschema.CorrelatedValueScopeCoding || !correlation.KeyIsArray || correlation.VersionSelector == nil || correlation.VersionSelector.CanonicalPath() != "version" || correlation.VersionBindKey != "version" || correlation.ValueSelector.CanonicalPath() != "display" ||
+	if correlation.ValueScope != fhirbinding.CorrelatedValueScopeCoding || !correlation.KeyIsArray || correlation.VersionSelector == nil || correlation.VersionSelector.CanonicalPath() != "version" || correlation.VersionBindKey != "version" || correlation.ValueSelector.CanonicalPath() != "display" ||
 		len(correlation.ValueFallbacks) != 1 || correlation.ValueFallbacks[0].CanonicalPath() != "code" || !correlation.FallbackOnBlankString {
 		t.Fatalf("lowered correlation = %#v", correlation)
 	}
 }
 
 func TestLowerCorrelatedBindingPreservesSingletonCodingKeyShape(t *testing.T) {
-	binding := fhirschema.CorrelatedBinding{
-		OwnerPath: "input[]", KeyPath: "input[].valueCoding", ValueScope: fhirschema.CorrelatedValueScopeCoding,
+	binding := fhirbinding.CorrelatedBinding{
+		OwnerPath: "input[]", KeyPath: "input[].valueCoding", ValueScope: fhirbinding.CorrelatedValueScopeCoding,
 		SystemPath: "system", CodePath: "code", VersionPath: "version", ValuePath: "display", LogicalType: "string",
 	}
 	correlation, err := LowerCorrelatedBindingWithVersion("Task", binding, ir.PhysicalValue{Variable: "root"}, "system", "code", "version")
@@ -39,7 +39,7 @@ func TestLowerCorrelatedBindingPreservesSingletonCodingKeyShape(t *testing.T) {
 }
 
 func TestLowerCorrelatedBindingLeavesLegacyVersionUnset(t *testing.T) {
-	binding := fhirschema.CorrelatedBinding{
+	binding := fhirbinding.CorrelatedBinding{
 		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
 		SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal",
 	}
@@ -53,16 +53,16 @@ func TestLowerCorrelatedBindingLeavesLegacyVersionUnset(t *testing.T) {
 }
 
 func TestLowerCorrelatedBindingPreservesExplicitSystemVersionSelection(t *testing.T) {
-	binding := fhirschema.CorrelatedBinding{
-		KeyPath: "code.coding[]", VersionPath: "version", ValueScope: fhirschema.CorrelatedValueScopeCoding,
-		SelectionScope: fhirschema.CorrelatedSelectionScopeSystemVersion,
+	binding := fhirbinding.CorrelatedBinding{
+		KeyPath: "code.coding[]", VersionPath: "version", ValueScope: fhirbinding.CorrelatedValueScopeCoding,
+		SelectionScope: fhirbinding.CorrelatedSelectionScopeSystemVersion,
 		SystemPath:     "system", CodePath: "code", ValuePath: "display", ValueFallback: []string{"code"}, LogicalType: "string",
 	}
 	correlation, err := LowerCorrelatedBindingWithVersion("Condition", binding, ir.PhysicalValue{Variable: "root"}, "system", "", "version")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if correlation.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion || correlation.CodeBindKey != "" || correlation.VersionBindKey != "version" {
+	if correlation.SelectionScope != fhirbinding.CorrelatedSelectionScopeSystemVersion || correlation.CodeBindKey != "" || correlation.VersionBindKey != "version" {
 		t.Fatalf("physical category = %#v", correlation)
 	}
 	if _, err := LowerCorrelatedBindingWithVersion("Condition", binding, ir.PhysicalValue{Variable: "root"}, "system", "code", "version"); err == nil {

@@ -3,7 +3,7 @@ package ir
 import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 )
 
 type PhysicalValue struct {
@@ -222,8 +222,8 @@ type PhysicalCorrelation struct {
 	ResourceType          string
 	OwnerResource         string
 	OwnerSelector         spec.Selector
-	ValueScope            fhirschema.CorrelatedValueScope
-	SelectionScope        fhirschema.CorrelatedSelectionScope
+	ValueScope            fhirbinding.CorrelatedValueScope
+	SelectionScope        fhirbinding.CorrelatedSelectionScope
 	KeyResource           string
 	KeySelector           spec.Selector
 	KeyIsArray            bool

@@ -1,10 +1,10 @@
 package authoringv2
 
 import (
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strconv"
 	"testing"
 
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/semantic"
 )
 
@@ -95,7 +95,7 @@ func TestResolveSemanticSelectionPlanStatusesAndTypedSources(t *testing.T) {
 	if identifierPlan.Source.Kind != SourceIdentifierBySystem || identifierPlan.Source.Lookup == nil || identifierPlan.Source.Lookup.Identifier == nil || identifierPlan.Source.Lookup.Match != "" || identifierPlan.Source.Lookup.Path != "" || identifierPlan.Source.Lookup.Binding != nil || identifierPlan.Source.Lookup.Extension != nil {
 		t.Fatalf("Identifier resolver emitted a legacy or mixed source: %#v", identifierPlan.Source)
 	}
-	if *identifierPlan.Source.Lookup.Identifier != (fhirschema.IdentifierBinding{OwnerPath: "identifier[]", SystemPath: "system", ValuePath: "value", SystemURI: "urn:study:case-id", LogicalType: "string"}) {
+	if *identifierPlan.Source.Lookup.Identifier != (fhirbinding.IdentifierBinding{OwnerPath: "identifier[]", SystemPath: "system", ValuePath: "value", SystemURI: "urn:study:case-id", LogicalType: "string"}) {
 		t.Fatalf("Identifier binding = %#v", identifierPlan.Source.Lookup.Identifier)
 	}
 	extensionPlan := ResolveSemanticSelectionPlan(extension)

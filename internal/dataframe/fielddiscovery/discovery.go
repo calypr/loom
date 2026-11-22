@@ -3,18 +3,18 @@ package fielddiscovery
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe/schema"
 )
 
 type FieldDiscovery struct {
-	Read func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error)
+	Read func(context.Context, fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error)
 }
 
-func NewFieldDiscovery(read func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error)) schema.Discovery {
+func NewFieldDiscovery(read func(context.Context, fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error)) schema.Discovery {
 	return FieldDiscovery{Read: read}
 }
 
@@ -35,7 +35,7 @@ func (d FieldDiscovery) Fields(ctx context.Context, scope schema.Scope, resource
 	if d.Read == nil {
 		return nil, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
-	fields, err := d.Read(ctx, fieldprofile.PopulatedFieldOptions{
+	fields, err := d.Read(ctx, fieldcatalog.PopulatedFieldOptions{
 		Project: scope.Project, DatasetGeneration: scope.DatasetGeneration,
 		AuthResourcePaths: append([]string(nil), scope.AuthResourcePaths...), AuthResourcePathsUnrestricted: unrestricted,
 		ResourceType: resourceType,
@@ -82,7 +82,7 @@ func discoveryError(err error) error {
 	}
 }
 
-func extensionObservations(fields []fieldprofile.ExtensionValueObservation) []schema.ExtensionValueObservation {
+func extensionObservations(fields []fieldcatalog.ExtensionValueObservation) []schema.ExtensionValueObservation {
 	values := make([]schema.ExtensionValueObservation, len(fields))
 	for i, value := range fields {
 		values[i] = schema.ExtensionValueObservation{URL: value.URL, SourcePath: value.SourcePath, ValuePath: value.ValuePath, ValueType: value.ValueType, URLPath: append([]string(nil), value.URLPath...)}

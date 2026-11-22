@@ -2,10 +2,10 @@ package queryapi
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -66,7 +66,7 @@ func (s *Service) Introspect(ctx context.Context, req IntrospectionRequest) (*In
 }
 
 func (s *Service) buildResourceHints(ctx context.Context, project, datasetGeneration string, scope authscope.ReadScope, resourceType string, traversals []catalog.PopulatedReference, includePivotOnlyFields bool) (ResourceHints, error) {
-	fields, err := s.discoverFields(ctx, fieldprofile.PopulatedFieldOptions{
+	fields, err := s.discoverFields(ctx, fieldcatalog.PopulatedFieldOptions{
 		Project:                       project,
 		DatasetGeneration:             datasetGeneration,
 		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(scope.Unrestricted()),
@@ -78,9 +78,9 @@ func (s *Service) buildResourceHints(ctx context.Context, project, datasetGenera
 		return ResourceHints{}, queryBackend(err)
 	}
 
-	pivotFields := []fieldprofile.PopulatedField{}
+	pivotFields := []fieldcatalog.PopulatedField{}
 	if includePivotOnlyFields {
-		pivotFields, err = s.discoverFields(ctx, fieldprofile.PopulatedFieldOptions{
+		pivotFields, err = s.discoverFields(ctx, fieldcatalog.PopulatedFieldOptions{
 			Project:                       project,
 			DatasetGeneration:             datasetGeneration,
 			AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(scope.Unrestricted()),
@@ -127,9 +127,9 @@ func (s *Service) buildRelatedResourceHints(ctx context.Context, project, datase
 	return out, nil
 }
 
-func normalizeFieldSlice(in []fieldprofile.PopulatedField) []fieldprofile.PopulatedField {
+func normalizeFieldSlice(in []fieldcatalog.PopulatedField) []fieldcatalog.PopulatedField {
 	if len(in) == 0 {
-		return []fieldprofile.PopulatedField{}
+		return []fieldcatalog.PopulatedField{}
 	}
 	for i := range in {
 		if in[i].DistinctValues == nil {

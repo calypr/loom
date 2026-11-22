@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -447,7 +448,7 @@ func semanticFixedLookup(column authoringv2.Column, resourceType, alias, leaf, l
 	case authoringv2.SourceIdentifierBySystem:
 		if column.Source.Lookup != nil && column.Source.Lookup.Identifier != nil {
 			binding := *column.Source.Lookup.Identifier
-			checked, err := fhirschema.ValidateIdentifierBinding(resourceType, binding)
+			checked, err := fhirbinding.ValidateIdentifierBinding(resourceType, binding)
 			if err != nil {
 				return recipe.DynamicColumn{}, fmt.Errorf("identifier binding: %w", err)
 			}
@@ -563,7 +564,7 @@ func semanticAggregate(column authoringv2.Column, alias, resourceType string, co
 }
 
 func quantityIdentityPaths(resourceType, valuePath string) (string, string, error) {
-	return fhirschema.QuantityIdentityPaths(resourceType, valuePath)
+	return fhirbinding.QuantityIdentityPaths(resourceType, valuePath)
 }
 
 func capabilityCandidate(snapshot capability.Snapshot, nodeID, candidateID string) (capability.Candidate, bool) {
@@ -634,7 +635,7 @@ func semanticCodedValuePivot(column authoringv2.Column, leaf string) (recipe.Piv
 	pivotName := "correlated_" + shortHash(column.Column+"\x00"+lookup.Key.System+"\x00"+lookup.Key.Code)
 	columns := []string{lookup.Key.Code}
 	columnAliases := map[string]string{lookup.Key.Code: leaf}
-	if lookup.Binding.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion {
+	if lookup.Binding.SelectionScope == fhirbinding.CorrelatedSelectionScopeSystemVersion {
 
 		pivotName = "correlated_category_" + shortHash(column.Column+"\x00"+lookup.Key.System+"\x00"+lookup.Key.Version+"\x00"+lookup.Binding.KeyPath)
 		columns = []string{leaf}

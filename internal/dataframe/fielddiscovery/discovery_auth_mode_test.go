@@ -2,18 +2,18 @@ package fielddiscovery
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/dataframe/recipe/schema"
 )
 
-func capturedOptions(t *testing.T, authScopeMode string) fieldprofile.PopulatedFieldOptions {
+func capturedOptions(t *testing.T, authScopeMode string) fieldcatalog.PopulatedFieldOptions {
 	t.Helper()
-	var got fieldprofile.PopulatedFieldOptions
-	read := func(_ context.Context, opts fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
+	var got fieldcatalog.PopulatedFieldOptions
+	read := func(_ context.Context, opts fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
 		got = opts
 		return nil, nil
 	}

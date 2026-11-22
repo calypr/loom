@@ -2,15 +2,15 @@ package fielddiscovery
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/dataframe/recipe/schema"
 )
 
 func TestRecipeFieldDiscoverySkipsLoomMetadata(t *testing.T) {
-	discovery := NewFieldDiscovery(func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
-		return []fieldprofile.PopulatedField{
+	discovery := NewFieldDiscovery(func(context.Context, fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
+		return []fieldcatalog.PopulatedField{
 			{ResourceType: "DocumentReference", Path: "project_id", Kind: "scalar"},
 			{ResourceType: "DocumentReference", Path: "status", Kind: "scalar"},
 		}, nil
@@ -26,8 +26,8 @@ func TestRecipeFieldDiscoverySkipsLoomMetadata(t *testing.T) {
 }
 
 func TestRecipeFieldDiscoveryCarriesExtensionObservations(t *testing.T) {
-	discovery := NewFieldDiscovery(func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
-		return []fieldprofile.PopulatedField{{ResourceType: "DocumentReference", Path: "content[].attachment.extension[].url", ExtensionValues: []fieldprofile.ExtensionValueObservation{{URL: "http://example.org/source_path", SourcePath: "content[].attachment.extension[]", ValuePath: "valueUrl", ValueType: "string"}}}}, nil
+	discovery := NewFieldDiscovery(func(context.Context, fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
+		return []fieldcatalog.PopulatedField{{ResourceType: "DocumentReference", Path: "content[].attachment.extension[].url", ExtensionValues: []fieldcatalog.ExtensionValueObservation{{URL: "http://example.org/source_path", SourcePath: "content[].attachment.extension[]", ValuePath: "valueUrl", ValueType: "string"}}}}, nil
 	})
 	fields, err := discovery.Fields(context.Background(), schema.Scope{}, "DocumentReference")
 	if err != nil {

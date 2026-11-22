@@ -2,10 +2,9 @@ package authoringv2
 
 import (
 	"encoding/json"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 	"testing"
-
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func correlatedAuthoringDocument(lookup *LookupSource) Document {
@@ -70,7 +69,7 @@ func TestOwnerRecordsSourceIsClosedAndSchemaValidated(t *testing.T) {
 		t.Fatalf("versioned owner-record key error = %v", err)
 	}
 	codingScoped := validOwnerRecordsSource()
-	codingScoped.Binding.ValueScope = fhirschema.CorrelatedValueScopeCoding
+	codingScoped.Binding.ValueScope = fhirbinding.CorrelatedValueScopeCoding
 	if err := ownerRecordsAuthoringDocument(codingScoped).Validate(); err == nil || !strings.Contains(err.Error(), "does not support Coding value scope or version matching") {
 		t.Fatalf("Coding-scoped owner-record binding error = %v", err)
 	}
@@ -78,8 +77,8 @@ func TestOwnerRecordsSourceIsClosedAndSchemaValidated(t *testing.T) {
 
 func validCorrelatedLookup() *LookupSource {
 	return &LookupSource{
-		Binding: &fhirschema.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"},
-		Key:     &fhirschema.CorrelatedKey{System: "urn:study:A", Code: "shared"},
+		Binding: &fhirbinding.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"},
+		Key:     &fhirbinding.CorrelatedKey{System: "urn:study:A", Code: "shared"},
 	}
 }
 
@@ -97,7 +96,7 @@ func TestCorrelatedLookupRequiresClosedSelectedKey(t *testing.T) {
 	if err := correlatedAuthoringDocument(missingKey).Validate(); err == nil || !strings.Contains(err.Error(), "lookup.key") {
 		t.Fatalf("missing correlated key error = %v", err)
 	}
-	legacyKey := &LookupSource{Match: "shared", Key: &fhirschema.CorrelatedKey{System: "urn:study:A", Code: "shared"}}
+	legacyKey := &LookupSource{Match: "shared", Key: &fhirbinding.CorrelatedKey{System: "urn:study:A", Code: "shared"}}
 	if err := correlatedAuthoringDocument(legacyKey).Validate(); err == nil || !strings.Contains(err.Error(), "lookup.binding") {
 		t.Fatalf("legacy key error = %v", err)
 	}
@@ -107,7 +106,7 @@ func TestCorrelatedLookupRequiresClosedSelectedKey(t *testing.T) {
 		t.Fatalf("version without versionPath error = %v", err)
 	}
 	versioned := validCorrelatedLookup()
-	versioned.Binding.ValueScope = fhirschema.CorrelatedValueScopeCoding
+	versioned.Binding.ValueScope = fhirbinding.CorrelatedValueScopeCoding
 	versioned.Binding.VersionPath = "version"
 	versioned.Binding.ValuePath = "display"
 	versioned.Binding.LogicalType = "string"
@@ -116,7 +115,7 @@ func TestCorrelatedLookupRequiresClosedSelectedKey(t *testing.T) {
 		t.Fatalf("versioned Coding lookup was rejected: %v", err)
 	}
 	unversioned := validCorrelatedLookup()
-	unversioned.Binding.ValueScope = fhirschema.CorrelatedValueScopeCoding
+	unversioned.Binding.ValueScope = fhirbinding.CorrelatedValueScopeCoding
 	unversioned.Binding.VersionPath = "version"
 	unversioned.Binding.ValuePath = "display"
 	unversioned.Binding.LogicalType = "string"
@@ -136,7 +135,7 @@ func TestCorrelatedBindingIsClosedToSupportedLookupKinds(t *testing.T) {
 }
 
 func validExtensionLookup() *LookupSource {
-	return &LookupSource{Extension: &fhirschema.ExtensionBinding{
+	return &LookupSource{Extension: &fhirbinding.ExtensionBinding{
 		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string", ChoiceArms: []string{"valueString"},
 	}}
 }
@@ -175,7 +174,7 @@ func identifierAuthoringDocument(lookup *LookupSource, kind string) Document {
 }
 
 func validIdentifierLookup() *LookupSource {
-	return &LookupSource{Identifier: &fhirschema.IdentifierBinding{
+	return &LookupSource{Identifier: &fhirbinding.IdentifierBinding{
 		OwnerPath: "identifier[]", SystemPath: "system", ValuePath: "value",
 		SystemURI: "urn:study:case-id", LogicalType: "string",
 	}}
@@ -190,10 +189,10 @@ func TestIdentifierLookupIsExclusiveAndLegacySourcesRemainReadable(t *testing.T)
 		"legacy match": func(lookup *LookupSource) { lookup.Match = "urn:study:case-id" },
 		"legacy path":  func(lookup *LookupSource) { lookup.Path = "identifier[]" },
 		"coding binding": func(lookup *LookupSource) {
-			lookup.Binding = &fhirschema.CorrelatedBinding{KeyPath: "identifier[]", SystemPath: "system", CodePath: "code", ValuePath: "value", LogicalType: "string"}
+			lookup.Binding = &fhirbinding.CorrelatedBinding{KeyPath: "identifier[]", SystemPath: "system", CodePath: "code", ValuePath: "value", LogicalType: "string"}
 		},
 		"extension binding": func(lookup *LookupSource) {
-			lookup.Extension = &fhirschema.ExtensionBinding{OwnerPath: "extension[]", URLPath: []string{"urn:leaf"}, ValuePath: "valueString", LogicalType: "string"}
+			lookup.Extension = &fhirbinding.ExtensionBinding{OwnerPath: "extension[]", URLPath: []string{"urn:leaf"}, ValuePath: "valueString", LogicalType: "string"}
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

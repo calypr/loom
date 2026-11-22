@@ -2,12 +2,12 @@ package queryapi
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"time"
 
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -19,7 +19,7 @@ import (
 
 type Service struct {
 	discoverReferencesFn   func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
-	discoverFieldsFn       func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error)
+	discoverFieldsFn       func(context.Context, fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error)
 	dataframes             *dataframeexecution.Service
 	scopeResolver          *authscope.ScopeResolver
 	activeManifestResolver publication.ActiveResolver
@@ -30,7 +30,7 @@ type Service struct {
 
 type Config struct {
 	DiscoverReferences func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
-	DiscoverFields     func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error)
+	DiscoverFields     func(context.Context, fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error)
 	Dataframes         *dataframeexecution.Service
 	ScopeResolver      *authscope.ScopeResolver
 
@@ -69,7 +69,7 @@ func (s *Service) clockNow() time.Time {
 	return time.Now()
 }
 
-func (s *Service) discoverFields(ctx context.Context, opts fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
+func (s *Service) discoverFields(ctx context.Context, opts fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
 	if s == nil || s.discoverFieldsFn == nil {
 		return nil, catalogUnavailable()
 	}

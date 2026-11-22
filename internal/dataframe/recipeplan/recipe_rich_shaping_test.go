@@ -1,24 +1,24 @@
 package recipeplan
 
 import (
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestLowerRecipeOwnerRecordsPreservesCheckedBindingAndSelectedKey(t *testing.T) {
-	binding := fhirschema.CorrelatedBinding{
+	binding := fhirbinding.CorrelatedBinding{
 		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
 		SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value",
 		ChoiceArms: []string{"valueQuantity"}, LogicalType: "decimal", UnitPath: "valueQuantity.unit",
 	}
 	items, err := lowerRecipeOwnerRecords("Observation", []recipe.OwnerRecordProjection{{
 		Name: "systolic_records", FieldRef: "Observation.component", Binding: binding,
-		Key: fhirschema.CorrelatedKey{System: "http://loinc.org", Code: "8480-6"},
+		Key: fhirbinding.CorrelatedKey{System: "http://loinc.org", Code: "8480-6"},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -65,9 +65,9 @@ func TestLowerRecipePivotsUsesGeneratedFamilyAndDeclaredColumns(t *testing.T) {
 }
 
 func TestLowerRecipeCorrelatedPivotPreservesSelectedVersion(t *testing.T) {
-	binding := &fhirschema.CorrelatedBinding{
+	binding := &fhirbinding.CorrelatedBinding{
 		OwnerPath: "input[]", KeyPath: "input[].valueCoding", VersionPath: "version",
-		ValueScope: fhirschema.CorrelatedValueScopeCoding, SystemPath: "system", CodePath: "code",
+		ValueScope: fhirbinding.CorrelatedValueScopeCoding, SystemPath: "system", CodePath: "code",
 		ValuePath: "display", LogicalType: "string",
 	}
 	pivots, err := lowerRecipePivots("Task", "root", newRootScope("Task"), []recipe.Pivot{{
@@ -91,9 +91,9 @@ func TestLowerRecipeCorrelatedPivotPreservesSelectedVersion(t *testing.T) {
 }
 
 func TestLowerRecipeCorrelatedCategoryPreservesExplicitScope(t *testing.T) {
-	binding := &fhirschema.CorrelatedBinding{
-		KeyPath: "code.coding[]", VersionPath: "version", ValueScope: fhirschema.CorrelatedValueScopeCoding,
-		SelectionScope: fhirschema.CorrelatedSelectionScopeSystemVersion,
+	binding := &fhirbinding.CorrelatedBinding{
+		KeyPath: "code.coding[]", VersionPath: "version", ValueScope: fhirbinding.CorrelatedValueScopeCoding,
+		SelectionScope: fhirbinding.CorrelatedSelectionScopeSystemVersion,
 		SystemPath:     "system", CodePath: "code", ValuePath: "display", ValueFallback: []string{"code"}, LogicalType: "string",
 	}
 	pivots, err := lowerRecipePivots("Condition", "root", newRootScope("Condition"), []recipe.Pivot{{
@@ -102,11 +102,11 @@ func TestLowerRecipeCorrelatedCategoryPreservesExplicitScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pivots) != 1 || pivots[0].Correlation.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion || pivots[0].CorrelationCode != "" || pivots[0].CorrelationVersion != "" {
+	if len(pivots) != 1 || pivots[0].Correlation.SelectionScope != fhirbinding.CorrelatedSelectionScopeSystemVersion || pivots[0].CorrelationCode != "" || pivots[0].CorrelationVersion != "" {
 		t.Fatalf("semantic category = %#v", pivots)
 	}
 	if _, err := lowerRecipeOwnerRecords("Condition", []recipe.OwnerRecordProjection{{
-		Name: "records", Binding: *binding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "normal"},
+		Name: "records", Binding: *binding, Key: fhirbinding.CorrelatedKey{System: "urn:test", Code: "normal"},
 	}}); err == nil || !strings.Contains(err.Error(), "SYSTEM_VERSION") {
 		t.Fatalf("category owner-record error = %v", err)
 	}

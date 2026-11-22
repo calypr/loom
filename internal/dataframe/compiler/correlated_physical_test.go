@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 	"testing"
 
@@ -10,11 +11,10 @@ import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-func correlatedPhysicalBinding() *fhirschema.CorrelatedBinding {
-	return &fhirschema.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"}
+func correlatedPhysicalBinding() *fhirbinding.CorrelatedBinding {
+	return &fhirbinding.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"}
 }
 
 func TestCorrelatedPhysicalProjectionScopesCodingAndValueToOwner(t *testing.T) {
@@ -176,7 +176,7 @@ func TestCorrelatedPhysicalFilterUsesSameCodingBinding(t *testing.T) {
 
 func TestCorrelatedPhysicalVersionedFilterMatchesSameCodingVersion(t *testing.T) {
 	binding := correlatedPhysicalBinding()
-	binding.ValueScope = fhirschema.CorrelatedValueScopeCoding
+	binding.ValueScope = fhirbinding.CorrelatedValueScopeCoding
 	binding.VersionPath = "version"
 	binding.ValuePath = "display"
 	binding.LogicalType = "string"
@@ -211,7 +211,7 @@ func TestCorrelatedPhysicalVersionedFilterMatchesSameCodingVersion(t *testing.T)
 
 func TestCorrelatedPhysicalProjectionReadsValueFromMatchedCoding(t *testing.T) {
 	binding := correlatedPhysicalBinding()
-	binding.ValueScope = fhirschema.CorrelatedValueScopeCoding
+	binding.ValueScope = fhirbinding.CorrelatedValueScopeCoding
 	binding.VersionPath = "version"
 	binding.ValuePath = "display"
 	binding.ValueFallback = []string{"code"}
@@ -259,7 +259,7 @@ func TestCorrelatedPhysicalProjectionReadsValueFromMatchedCoding(t *testing.T) {
 
 func TestCorrelatedPhysicalVersionlessKeyMatchesOnlyMissingOrNullVersion(t *testing.T) {
 	binding := correlatedPhysicalBinding()
-	binding.ValueScope = fhirschema.CorrelatedValueScopeCoding
+	binding.ValueScope = fhirbinding.CorrelatedValueScopeCoding
 	binding.VersionPath = "version"
 	binding.ValuePath = "display"
 	binding.LogicalType = "string"
@@ -286,8 +286,8 @@ func TestCorrelatedPhysicalVersionlessKeyMatchesOnlyMissingOrNullVersion(t *test
 }
 
 func TestCorrelatedPhysicalTaskSingletonCodingPivotAndFilter(t *testing.T) {
-	binding := &fhirschema.CorrelatedBinding{
-		OwnerPath: "input[]", KeyPath: "input[].valueCoding", ValueScope: fhirschema.CorrelatedValueScopeCoding,
+	binding := &fhirbinding.CorrelatedBinding{
+		OwnerPath: "input[]", KeyPath: "input[].valueCoding", ValueScope: fhirbinding.CorrelatedValueScopeCoding,
 		SystemPath: "system", CodePath: "code", VersionPath: "version", ValuePath: "display",
 		ValueFallback: []string{"code"}, FallbackOnBlankString: true, LogicalType: "string",
 	}
@@ -345,7 +345,7 @@ func TestCorrelatedPhysicalTaskSingletonCodingPivotAndFilter(t *testing.T) {
 
 func TestCorrelatedPhysicalFilterReadsValueFromMatchedCoding(t *testing.T) {
 	binding := correlatedPhysicalBinding()
-	binding.ValueScope = fhirschema.CorrelatedValueScopeCoding
+	binding.ValueScope = fhirbinding.CorrelatedValueScopeCoding
 	binding.ValuePath = "display"
 	binding.ValueFallback = []string{"code"}
 	binding.FallbackOnBlankString = true
@@ -404,7 +404,7 @@ func TestCorrelatedPhysicalCodingScopeValidatesValuesAgainstCoding(t *testing.T)
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			binding := correlatedPhysicalBinding()
-			binding.ValueScope = fhirschema.CorrelatedValueScopeCoding
+			binding.ValueScope = fhirbinding.CorrelatedValueScopeCoding
 			binding.ValuePath = "display"
 			if test.withVersion {
 				binding.VersionPath = "version"
@@ -439,7 +439,7 @@ func TestCorrelatedPhysicalCodingScopeValidatesValuesAgainstCoding(t *testing.T)
 }
 
 func TestExtensionPhysicalProjectionKeepsNestedURLAndValueScope(t *testing.T) {
-	binding := &fhirschema.ExtensionBinding{
+	binding := &fhirbinding.ExtensionBinding{
 		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string", ChoiceArms: []string{"valueString"},
 	}
 	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
@@ -470,7 +470,7 @@ func TestExtensionPhysicalProjectionKeepsNestedURLAndValueScope(t *testing.T) {
 }
 
 func TestExtensionPhysicalProjectionMakesWrongArmExplicit(t *testing.T) {
-	binding := &fhirschema.ExtensionBinding{
+	binding := &fhirbinding.ExtensionBinding{
 		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string",
 	}
 	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
@@ -489,7 +489,7 @@ func TestExtensionPhysicalProjectionMakesWrongArmExplicit(t *testing.T) {
 }
 
 func TestExtensionPhysicalProjectionReducesAllOwnersTogether(t *testing.T) {
-	binding := &fhirschema.ExtensionBinding{OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string"}
+	binding := &fhirbinding.ExtensionBinding{OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string"}
 	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Observation", Pivots: []recipeplan.SemanticPivot{{Name: "extension_family", Columns: []string{"leaf"}, ProjectionMode: "VALUE", ExtensionCorrelation: binding}},
 	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"strconv"
 	"testing"
@@ -13,7 +14,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/semantic"
 )
 
@@ -216,7 +216,7 @@ func TestLegacyCodeableConceptFrameCategoryEditKeepsPrimaryOnlyBinding(t *testin
 }
 
 func TestLegacyPrimaryOnlyFrameCompatibilityDoesNotChangeExtensionBindings(t *testing.T) {
-	lookup := &authoringv2.LookupSource{ProjectionMode: "FIRST", Extension: &fhirschema.ExtensionBinding{
+	lookup := &authoringv2.LookupSource{ProjectionMode: "FIRST", Extension: &fhirbinding.ExtensionBinding{
 		OwnerPath: "extension[]", URLPath: []string{"urn:study:stage"}, ValuePath: "valueString", LogicalType: "string", ChoiceArms: []string{"valueString"},
 	}}
 	document := authoringv2.Document{

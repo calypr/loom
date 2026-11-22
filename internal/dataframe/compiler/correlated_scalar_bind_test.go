@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"net/http"
 	"reflect"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
@@ -29,20 +29,20 @@ func TestCorrelatedScalarSelectorsPreserveOwnersAgainstArango(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name    string
-		binding *fhirschema.CorrelatedBinding
+		binding *fhirbinding.CorrelatedBinding
 		payload map[string]any
 		want    any
 	}{
-		{name: "owner quantity and duplicate coding", binding: &fhirschema.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"}, payload: map[string]any{"component": []any{
+		{name: "owner quantity and duplicate coding", binding: &fhirbinding.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"}, payload: map[string]any{"component": []any{
 			component([]any{coding("A", "shared", "v2", ""), coding("A", "shared", "v2", "")}, map[string]any{"valueQuantity": map[string]any{"value": 111}}),
 			component([]any{coding("B", "shared", "v2", ""), coding("A", "other", "v2", "")}, map[string]any{"valueQuantity": map[string]any{"value": 222}}),
 			component([]any{coding("A", "shared", "v2", "")}, map[string]any{"valueString": "wrong arm"}),
 		}}, want: map[string]any{"status": "INVALID_CHOICE_ARM", "raw": []any{"wrong arm"}}},
-		{name: "matched coding display and blank fallback", binding: &fhirschema.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", VersionPath: "version", ValuePath: "display", ValueFallback: []string{"code"}, FallbackOnBlankString: true, ValueScope: fhirschema.CorrelatedValueScopeCoding, LogicalType: "string"}, payload: map[string]any{"component": []any{
+		{name: "matched coding display and blank fallback", binding: &fhirbinding.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", VersionPath: "version", ValuePath: "display", ValueFallback: []string{"code"}, FallbackOnBlankString: true, ValueScope: fhirbinding.CorrelatedValueScopeCoding, LogicalType: "string"}, payload: map[string]any{"component": []any{
 			component([]any{coding("B", "shared", "v2", "decoy system"), coding("A", "shared", "v1", "decoy version"), coding("A", "shared", "v2", "chosen")}, map[string]any{}),
 			component([]any{coding("A", "shared", "v2", "  ")}, map[string]any{}),
 		}}, want: []any{"chosen", "shared"}},
-		{name: "owner quantity keeps zero and separate owners", binding: &fhirschema.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"}, payload: map[string]any{"component": []any{
+		{name: "owner quantity keeps zero and separate owners", binding: &fhirbinding.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"}, payload: map[string]any{"component": []any{
 			component([]any{coding("A", "shared", "v2", ""), coding("A", "shared", "v2", "")}, map[string]any{"valueQuantity": map[string]any{"value": 0}}),
 			component([]any{coding("B", "shared", "v2", ""), coding("A", "other", "v2", "")}, map[string]any{"valueQuantity": map[string]any{"value": 222}}),
 			component([]any{coding("A", "shared", "v2", "")}, map[string]any{"valueQuantity": map[string]any{"value": 111}}),

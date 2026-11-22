@@ -2,8 +2,8 @@ package catalog
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 
-	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/semantic"
 )
 
@@ -148,7 +148,7 @@ type FieldEnrichmentObservation struct {
 	SampleCount           int                                      `json:"sample_count"`
 	DistinctValues        []string                                 `json:"distinct_values,omitempty"`
 	DistinctTruncated     bool                                     `json:"distinct_truncated"`
-	ExtensionValues       []fieldprofile.ExtensionValueObservation `json:"extension_values,omitempty"`
+	ExtensionValues       []fieldcatalog.ExtensionValueObservation `json:"extension_values,omitempty"`
 	SemanticObservations  []semantic.Observation                   `json:"semantic_observations,omitempty"`
 	PivotCandidate        bool                                     `json:"pivot_candidate"`
 	PivotKind             string                                   `json:"pivot_kind,omitempty"`

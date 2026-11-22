@@ -2,6 +2,7 @@ package authoringv2
 
 import (
 	"encoding/json"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/explorer/capability"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/semantic"
 )
 
@@ -334,8 +334,8 @@ func TestApplyCommandsAcceptsCorrelatedLookupWithoutLegacyPath(t *testing.T) {
 		Tabs:      []Tab{{ID: "observations", Title: "Observations", OutputID: "observations", Order: 0, Visible: true}},
 	}
 	source := &ColumnSource{Kind: SourceCodedValue, Lookup: &LookupSource{
-		Binding: &fhirschema.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"},
-		Key:     &fhirschema.CorrelatedKey{System: "urn:study:A", Code: "shared"},
+		Binding: &fhirbinding.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"},
+		Key:     &fhirbinding.CorrelatedKey{System: "urn:study:A", Code: "shared"},
 	}}
 	updated, results, err := ApplyCommands(workspace, catalog, "add-correlated", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: source}})
 	if err != nil {
@@ -399,13 +399,13 @@ func TestApplySemanticSelectionsUsesStableIdentityAndServerRoutes(t *testing.T) 
 		}
 		stableSourceIDs[column.ColumnID] = true
 	}
-	keys := map[string]fhirschema.CorrelatedKey{}
+	keys := map[string]fhirbinding.CorrelatedKey{}
 	modes := map[string]string{}
 	for _, column := range document.Columns {
 		keys[column.Column] = *column.Source.Lookup.Key
 		modes[column.Column] = column.Source.Lookup.ProjectionMode
 	}
-	if keys[gotColumnIDs[0]] != (fhirschema.CorrelatedKey{System: "urn:system:a", Code: "shared"}) || keys[gotColumnIDs[1]] != (fhirschema.CorrelatedKey{System: "urn:system:b", Code: "shared"}) || keys[gotColumnIDs[2]].Code != "other" {
+	if keys[gotColumnIDs[0]] != (fhirbinding.CorrelatedKey{System: "urn:system:a", Code: "shared"}) || keys[gotColumnIDs[1]] != (fhirbinding.CorrelatedKey{System: "urn:system:b", Code: "shared"}) || keys[gotColumnIDs[2]].Code != "other" {
 		t.Fatalf("resolved coding keys = %#v", keys)
 	}
 	if modes[gotColumnIDs[0]] != "VALUE" || modes[gotColumnIDs[4]] != "FIRST" {
@@ -563,7 +563,7 @@ func TestApplyCommandsAcceptsAncestorAwareExtensionAndRejectsLegacyWrite(t *test
 		Documents: []Document{{Kind: Kind, Rows: RecordsRowDefinition(), Output: Output{ID: "observations", Title: "Observations"}, RootResourceType: "Observation", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"}}},
 		Tabs:      []Tab{{ID: "observations", Title: "Observations", OutputID: "observations", Order: 0, Visible: true}},
 	}
-	typed := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Extension: &fhirschema.ExtensionBinding{
+	typed := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Extension: &fhirbinding.ExtensionBinding{
 		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string",
 	}}}
 	updated, results, err := ApplyCommands(workspace, catalog, "add-extension", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: typed}})
@@ -577,13 +577,13 @@ func TestApplyCommandsAcceptsAncestorAwareExtensionAndRejectsLegacyWrite(t *test
 	if _, _, err := ApplyCommands(workspace, catalog, "legacy-extension", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: legacy}}); err == nil || !strings.Contains(err.Error(), "explicit typed binding") {
 		t.Fatalf("legacy extension write error = %v", err)
 	}
-	wrongArm := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Extension: &fhirschema.ExtensionBinding{
+	wrongArm := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Extension: &fhirbinding.ExtensionBinding{
 		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueInteger", LogicalType: "string",
 	}}}
 	if _, _, err := ApplyCommands(workspace, catalog, "wrong-extension-arm", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: wrongArm}}); err == nil || !strings.Contains(err.Error(), "incompatible") {
 		t.Fatalf("wrong extension arm error = %v", err)
 	}
-	missingParent := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Extension: &fhirschema.ExtensionBinding{
+	missingParent := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Extension: &fhirbinding.ExtensionBinding{
 		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:leaf"}, ValuePath: "valueString", LogicalType: "string",
 	}}}
 	if _, _, err := ApplyCommands(workspace, catalog, "missing-extension-parent", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: missingParent}}); err == nil || !strings.Contains(err.Error(), "one URL per extension boundary") {

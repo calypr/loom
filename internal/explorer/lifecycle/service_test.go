@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"sort"
 	"strings"
 	"testing"
@@ -24,7 +25,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestCompileMapsPivotReducerTypeDiagnosticToUnprocessable(t *testing.T) {
@@ -471,8 +471,8 @@ func TestApplyCommandsAcceptsCorrelatedLookupWithoutLegacyPathThroughService(t *
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandAddColumnSource, OutputID: "observations", OccurrenceID: authoringv2.RootOccurrenceID, Source: &authoringv2.ColumnSource{
 			Kind: authoringv2.SourceCodedValue,
 			Lookup: &authoringv2.LookupSource{
-				Binding: &fhirschema.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"},
-				Key:     &fhirschema.CorrelatedKey{System: "urn:study:A", Code: "shared"},
+				Binding: &fhirbinding.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"},
+				Key:     &fhirbinding.CorrelatedKey{System: "urn:study:A", Code: "shared"},
 			},
 		}}},
 	}

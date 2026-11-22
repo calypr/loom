@@ -3,9 +3,8 @@ package recipe
 import (
 	"encoding/json"
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
-
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 type Pivot struct {
@@ -25,13 +24,13 @@ type Pivot struct {
 	ProjectionMode string          `json:"projectionMode,omitempty"`
 	Discovery      *PivotDiscovery `json:"discovery,omitempty"`
 
-	Correlation        *fhirschema.CorrelatedBinding `json:"correlation,omitempty"`
-	CorrelationSystem  string                        `json:"correlationSystem,omitempty"`
-	CorrelationCode    string                        `json:"correlationCode,omitempty"`
-	CorrelationVersion string                        `json:"correlationVersion,omitempty"`
+	Correlation        *fhirbinding.CorrelatedBinding `json:"correlation,omitempty"`
+	CorrelationSystem  string                         `json:"correlationSystem,omitempty"`
+	CorrelationCode    string                         `json:"correlationCode,omitempty"`
+	CorrelationVersion string                         `json:"correlationVersion,omitempty"`
 
-	ExtensionCorrelation *fhirschema.ExtensionBinding `json:"extensionCorrelation,omitempty"`
-	Discovered           bool                         `json:"-"`
+	ExtensionCorrelation *fhirbinding.ExtensionBinding `json:"extensionCorrelation,omitempty"`
+	Discovered           bool                          `json:"-"`
 }
 
 type PivotOutputOverride struct {
@@ -41,10 +40,10 @@ type PivotOutputOverride struct {
 }
 
 type OwnerRecordProjection struct {
-	Name     string                       `json:"name"`
-	FieldRef string                       `json:"fieldRef,omitempty"`
-	Binding  fhirschema.CorrelatedBinding `json:"binding"`
-	Key      fhirschema.CorrelatedKey     `json:"key"`
+	Name     string                        `json:"name"`
+	FieldRef string                        `json:"fieldRef,omitempty"`
+	Binding  fhirbinding.CorrelatedBinding `json:"binding"`
+	Key      fhirbinding.CorrelatedKey     `json:"key"`
 }
 
 const (
@@ -73,23 +72,23 @@ func NormalizedPivotProjectionMode(mode string) string {
 
 func (p Pivot) MarshalJSON() ([]byte, error) {
 	type pivotJSON struct {
-		Name                 string                        `json:"name"`
-		FieldRef             string                        `json:"fieldRef,omitempty"`
-		ColumnExpr           *Expression                   `json:"columnExpr,omitempty"`
-		ValueExpr            *Expression                   `json:"valueExpr,omitempty"`
-		ValueFallbacks       []Expression                  `json:"valueFallbacks,omitempty"`
-		ItemSource           *Expression                   `json:"itemSource,omitempty"`
-		ItemResourceType     string                        `json:"itemResourceType,omitempty"`
-		Columns              []string                      `json:"columns"`
-		ColumnAliases        map[string]string             `json:"columnAliases,omitempty"`
-		OutputOverrides      []PivotOutputOverride         `json:"outputOverrides,omitempty"`
-		ProjectionMode       string                        `json:"projectionMode,omitempty"`
-		Discovery            *PivotDiscovery               `json:"discovery,omitempty"`
-		Correlation          *fhirschema.CorrelatedBinding `json:"correlation,omitempty"`
-		CorrelationSystem    string                        `json:"correlationSystem,omitempty"`
-		CorrelationCode      string                        `json:"correlationCode,omitempty"`
-		CorrelationVersion   string                        `json:"correlationVersion,omitempty"`
-		ExtensionCorrelation *fhirschema.ExtensionBinding  `json:"extensionCorrelation,omitempty"`
+		Name                 string                         `json:"name"`
+		FieldRef             string                         `json:"fieldRef,omitempty"`
+		ColumnExpr           *Expression                    `json:"columnExpr,omitempty"`
+		ValueExpr            *Expression                    `json:"valueExpr,omitempty"`
+		ValueFallbacks       []Expression                   `json:"valueFallbacks,omitempty"`
+		ItemSource           *Expression                    `json:"itemSource,omitempty"`
+		ItemResourceType     string                         `json:"itemResourceType,omitempty"`
+		Columns              []string                       `json:"columns"`
+		ColumnAliases        map[string]string              `json:"columnAliases,omitempty"`
+		OutputOverrides      []PivotOutputOverride          `json:"outputOverrides,omitempty"`
+		ProjectionMode       string                         `json:"projectionMode,omitempty"`
+		Discovery            *PivotDiscovery                `json:"discovery,omitempty"`
+		Correlation          *fhirbinding.CorrelatedBinding `json:"correlation,omitempty"`
+		CorrelationSystem    string                         `json:"correlationSystem,omitempty"`
+		CorrelationCode      string                         `json:"correlationCode,omitempty"`
+		CorrelationVersion   string                         `json:"correlationVersion,omitempty"`
+		ExtensionCorrelation *fhirbinding.ExtensionBinding  `json:"extensionCorrelation,omitempty"`
 	}
 	wire := pivotJSON{Name: p.Name, FieldRef: p.FieldRef, ValueFallbacks: p.ValueFallbacks, ItemResourceType: p.ItemResourceType, Columns: p.Columns, ColumnAliases: p.ColumnAliases, OutputOverrides: p.OutputOverrides, ProjectionMode: p.ProjectionMode, Discovery: p.Discovery, Correlation: p.Correlation, CorrelationSystem: p.CorrelationSystem, CorrelationCode: p.CorrelationCode, CorrelationVersion: p.CorrelationVersion, ExtensionCorrelation: p.ExtensionCorrelation}
 	if p.Correlation == nil && p.ExtensionCorrelation == nil && (p.Discovery == nil || !p.ColumnExpr.zero()) {
@@ -190,10 +189,10 @@ func (p Pivot) validateAt(path string, budget *int) error {
 		if p.Discovery != nil {
 			return validationError("ambiguous_correlation", path, "correlated pivot cannot use discovery")
 		}
-		if err := fhirschema.ValidateCorrelatedKey(p.Correlation.SelectionScope, fhirschema.CorrelatedKey{System: p.CorrelationSystem, Code: p.CorrelationCode, Version: p.CorrelationVersion}); err != nil {
+		if err := fhirbinding.ValidateCorrelatedKey(p.Correlation.SelectionScope, fhirbinding.CorrelatedKey{System: p.CorrelationSystem, Code: p.CorrelationCode, Version: p.CorrelationVersion}); err != nil {
 			return validationError("invalid_correlation", path+".correlation", err.Error())
 		}
-		if p.Correlation.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion && len(p.Columns) != 1 {
+		if p.Correlation.SelectionScope == fhirbinding.CorrelatedSelectionScopeSystemVersion && len(p.Columns) != 1 {
 			return validationError("invalid_correlation", path+".columns", "SYSTEM_VERSION selection requires exactly one output column")
 		}
 		if strings.TrimSpace(p.CorrelationVersion) != "" && strings.TrimSpace(p.Correlation.VersionPath) == "" {

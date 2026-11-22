@@ -2,13 +2,13 @@ package capability
 
 import (
 	"context"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func testScope() Scope {
@@ -194,14 +194,14 @@ func TestProbeCandidateSupportsRelatedOccurrence(t *testing.T) {
 }
 
 func TestProbeOwnerRecordsProvesRootAndRelatedBindings(t *testing.T) {
-	binding := fhirschema.CorrelatedBinding{
+	binding := fhirbinding.CorrelatedBinding{
 		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
 		SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value",
 		ChoiceArms: []string{"valueQuantity"}, LogicalType: "decimal", UnitPath: "valueQuantity.unit",
 	}
 	root, err := ProbeOwnerRecords(context.Background(), OwnerRecordsRequest{
 		Scope: testScope(), RootResourceType: "Observation", ResourceType: "Observation",
-		Binding: binding, Key: fhirschema.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
+		Binding: binding, Key: fhirbinding.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
 	})
 	if err != nil {
 		t.Fatalf("root owner records: %v", err)
@@ -214,7 +214,7 @@ func TestProbeOwnerRecordsProvesRootAndRelatedBindings(t *testing.T) {
 	related, err := ProbeOwnerRecords(context.Background(), OwnerRecordsRequest{
 		Scope: testScope(), RootResourceType: "Patient", ResourceType: "Observation",
 		Route:   []Traversal{{FromResourceType: "Patient", EdgeLabel: "subject_Patient", ToResourceType: "Observation", Alias: "observation"}},
-		Binding: binding, Key: fhirschema.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
+		Binding: binding, Key: fhirbinding.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
 	})
 	if err != nil {
 		t.Fatalf("related owner records: %v", err)
@@ -227,11 +227,11 @@ func TestProbeOwnerRecordsProvesRootAndRelatedBindings(t *testing.T) {
 func TestProbeOwnerRecordsRejectsUnprovedShapes(t *testing.T) {
 	base := OwnerRecordsRequest{
 		Scope: testScope(), ResourceType: "Observation",
-		Binding: fhirschema.CorrelatedBinding{
+		Binding: fhirbinding.CorrelatedBinding{
 			OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
 			SystemPath: "system", CodePath: "code", ValuePath: "valueString", LogicalType: "string",
 		},
-		Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code"},
+		Key: fhirbinding.CorrelatedKey{System: "urn:test", Code: "code"},
 	}
 	for _, mutate := range []func(*OwnerRecordsRequest){
 		func(request *OwnerRecordsRequest) {

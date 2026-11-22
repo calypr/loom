@@ -2,12 +2,12 @@ package authoringv2
 
 import (
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"regexp"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/dataframe/unit"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 const (
@@ -61,8 +61,8 @@ type ImportedSource struct {
 }
 
 type OwnerRecordsSource struct {
-	Binding fhirschema.CorrelatedBinding `json:"binding"`
-	Key     fhirschema.CorrelatedKey     `json:"key"`
+	Binding fhirbinding.CorrelatedBinding `json:"binding"`
+	Key     fhirbinding.CorrelatedKey     `json:"key"`
 }
 
 type UnitNormalizationPolicy struct {
@@ -175,13 +175,13 @@ type LookupSource struct {
 	Path           string `json:"path,omitempty"`
 	ProjectionMode string `json:"projectionMode,omitempty"`
 
-	Identifier *fhirschema.IdentifierBinding `json:"identifier,omitempty"`
+	Identifier *fhirbinding.IdentifierBinding `json:"identifier,omitempty"`
 
-	Binding *fhirschema.CorrelatedBinding `json:"binding,omitempty"`
+	Binding *fhirbinding.CorrelatedBinding `json:"binding,omitempty"`
 
-	Key *fhirschema.CorrelatedKey `json:"key,omitempty"`
+	Key *fhirbinding.CorrelatedKey `json:"key,omitempty"`
 
-	Extension *fhirschema.ExtensionBinding `json:"extension,omitempty"`
+	Extension *fhirbinding.ExtensionBinding `json:"extension,omitempty"`
 }
 
 type RelatedSelection struct {
@@ -685,7 +685,7 @@ func (s ColumnSource) validate(path string) error {
 			if s.Lookup.Binding == nil || s.Lookup.Key == nil {
 				return fmt.Errorf("%s codedValue source requires lookup.binding and lookup.key", path)
 			}
-			if err := fhirschema.ValidateCorrelatedKey(s.Lookup.Binding.SelectionScope, *s.Lookup.Key); err != nil {
+			if err := fhirbinding.ValidateCorrelatedKey(s.Lookup.Binding.SelectionScope, *s.Lookup.Key); err != nil {
 				return fmt.Errorf("%s codedValue source key: %w", path, err)
 			}
 			if strings.TrimSpace(s.Lookup.Key.Version) != "" && strings.TrimSpace(s.Lookup.Binding.VersionPath) == "" {
@@ -708,7 +708,7 @@ func (s ColumnSource) validate(path string) error {
 			return fmt.Errorf("%s ownerRecords source requires ownerRecords.binding.ownerPath and ownerRecords.key.system/code", path)
 		}
 		if strings.TrimSpace(s.OwnerRecords.Key.Version) != "" || strings.TrimSpace(s.OwnerRecords.Binding.VersionPath) != "" ||
-			s.OwnerRecords.Binding.ValueScope == fhirschema.CorrelatedValueScopeCoding {
+			s.OwnerRecords.Binding.ValueScope == fhirbinding.CorrelatedValueScopeCoding {
 			return fmt.Errorf("%s ownerRecords source does not support Coding value scope or version matching", path)
 		}
 	case SourceAggregate:
@@ -888,22 +888,22 @@ func (d Document) validateSemantic() error {
 			}
 		}
 		if column.Source.Lookup != nil && column.Source.Lookup.Binding != nil {
-			if _, err := fhirschema.ValidateCorrelatedBinding(occurrences[column.OccurrenceID].ResourceType, *column.Source.Lookup.Binding); err != nil {
+			if _, err := fhirbinding.ValidateCorrelatedBinding(occurrences[column.OccurrenceID].ResourceType, *column.Source.Lookup.Binding); err != nil {
 				return fmt.Errorf("%s.source.binding: %w", path, err)
 			}
 		}
 		if column.Source.OwnerRecords != nil {
-			if _, err := fhirschema.ValidateCorrelatedBinding(occurrences[column.OccurrenceID].ResourceType, column.Source.OwnerRecords.Binding); err != nil {
+			if _, err := fhirbinding.ValidateCorrelatedBinding(occurrences[column.OccurrenceID].ResourceType, column.Source.OwnerRecords.Binding); err != nil {
 				return fmt.Errorf("%s.source.ownerRecords.binding: %w", path, err)
 			}
 		}
 		if column.Source.Lookup != nil && column.Source.Lookup.Extension != nil {
-			if _, err := fhirschema.ValidateExtensionBinding(occurrences[column.OccurrenceID].ResourceType, *column.Source.Lookup.Extension); err != nil {
+			if _, err := fhirbinding.ValidateExtensionBinding(occurrences[column.OccurrenceID].ResourceType, *column.Source.Lookup.Extension); err != nil {
 				return fmt.Errorf("%s.source.extension: %w", path, err)
 			}
 		}
 		if column.Source.Lookup != nil && column.Source.Lookup.Identifier != nil {
-			if _, err := fhirschema.ValidateIdentifierBinding(occurrences[column.OccurrenceID].ResourceType, *column.Source.Lookup.Identifier); err != nil {
+			if _, err := fhirbinding.ValidateIdentifierBinding(occurrences[column.OccurrenceID].ResourceType, *column.Source.Lookup.Identifier); err != nil {
 				return fmt.Errorf("%s.source.identifier: %w", path, err)
 			}
 		}

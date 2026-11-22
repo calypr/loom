@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"log"
 	"path"
 	"sort"
@@ -92,7 +93,7 @@ func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resour
 		}
 		columns := map[string]struct{}{}
 		var columnSelect, valueSelect string
-		var pivotSpec fhirschema.PivotSpec
+		var pivotSpec fhirbinding.PivotSpec
 		var hasPivotSpec bool
 		for _, candidate := range candidates {
 			if !candidate.PivotCandidate {
@@ -109,7 +110,7 @@ func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resour
 				if candidate.PivotFamily == "observation_code_value" {
 					observedValuePath = candidate.PivotValueSelect
 				}
-				if spec, ok := fhirschema.DefaultPivotSpec(resourceType, candidate.Path, observedValuePath); ok {
+				if spec, ok := fhirbinding.DefaultPivotSpec(resourceType, candidate.Path, observedValuePath); ok {
 					pivotSpec, hasPivotSpec = spec, true
 
 					if candidate.PivotColumnSelect != "" {

@@ -3,14 +3,15 @@ package importedsource
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	"github.com/calypr/loom/internal/dataframe/fielddiscovery"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog/fieldprofile"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -21,7 +22,6 @@ import (
 	capabilityresolver "github.com/calypr/loom/internal/explorer/capability/resolver"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/recipeimport"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestRemoveFieldEditsLegacyPinAndPreservesAuthoredAddition(t *testing.T) {
@@ -80,8 +80,8 @@ func TestRemoveFieldEditsLegacyPinAndPreservesAuthoredAddition(t *testing.T) {
 	codedValue := authoringv2.Column{
 		ColumnID: "coded-value", Column: "identifier_type", Label: "Identifier type", OccurrenceID: authoringv2.RootOccurrenceID,
 		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
-			Binding: &fhirschema.CorrelatedBinding{OwnerPath: "identifier[]", KeyPath: "identifier[].type.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "value", LogicalType: "string"},
-			Key:     &fhirschema.CorrelatedKey{System: "urn:study:A", Code: "MRN"},
+			Binding: &fhirbinding.CorrelatedBinding{OwnerPath: "identifier[]", KeyPath: "identifier[].type.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "value", LogicalType: "string"},
+			Key:     &fhirbinding.CorrelatedKey{System: "urn:study:A", Code: "MRN"},
 		}},
 	}
 	document.Columns = append(document.Columns, authored, directField, codedValue)
@@ -420,9 +420,9 @@ func TestRemoveOutputDisablesExactNestedExtensionMappingAcrossReload(t *testing.
 	const parentA = "https://example.test/parent-a"
 	const parentB = "https://example.test/parent-b"
 	const statusURL = "https://example.test/status"
-	fields := []fieldprofile.PopulatedField{
-		{ResourceType: "DocumentReference", Path: "extension[].extension[].url", ExtensionValues: []fieldprofile.ExtensionValueObservation{{URL: statusURL, SourcePath: "extension[].extension[]", URLPath: []string{parentA}, ValuePath: "valueString", ValueType: "string"}}},
-		{ResourceType: "DocumentReference", Path: "extension[].extension[].url", ExtensionValues: []fieldprofile.ExtensionValueObservation{{URL: statusURL, SourcePath: "extension[].extension[]", URLPath: []string{parentB}, ValuePath: "valueString", ValueType: "string"}}},
+	fields := []fieldcatalog.PopulatedField{
+		{ResourceType: "DocumentReference", Path: "extension[].extension[].url", ExtensionValues: []fieldcatalog.ExtensionValueObservation{{URL: statusURL, SourcePath: "extension[].extension[]", URLPath: []string{parentA}, ValuePath: "valueString", ValueType: "string"}}},
+		{ResourceType: "DocumentReference", Path: "extension[].extension[].url", ExtensionValues: []fieldcatalog.ExtensionValueObservation{{URL: statusURL, SourcePath: "extension[].extension[]", URLPath: []string{parentB}, ValuePath: "valueString", ValueType: "string"}}},
 	}
 	output := recipe.Output{Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "file", ExtensionColumns: []recipe.ExtensionColumn{{Name: "extensions", Source: recipe.Expression{Select: "root.extension[]"}, MaxColumns: 8}}}
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "default", TranslationVersion: "v1", Outputs: []recipe.Output{output}}
@@ -436,7 +436,7 @@ func TestRemoveOutputDisablesExactNestedExtensionMappingAcrossReload(t *testing.
 		Registry:    registry,
 		QueryRows:   func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
 		ScopeDigest: reciperuntime.ScopeDigest,
-		ResolveBundle: fielddiscovery.RecipeSchemaResolver(func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
+		ResolveBundle: fielddiscovery.RecipeSchemaResolver(func(_ context.Context, options fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
 			if options.ResourceType != "DocumentReference" {
 				return nil, fmt.Errorf("unexpected discovery resource type %q", options.ResourceType)
 			}
@@ -535,7 +535,7 @@ func TestRemoveOutputDisablesExactDynamicKeyAndPreservesSibling(t *testing.T) {
 		Registry:    registry,
 		QueryRows:   func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
 		ScopeDigest: reciperuntime.ScopeDigest,
-		ResolveBundle: fielddiscovery.RecipeSchemaResolver(func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
+		ResolveBundle: fielddiscovery.RecipeSchemaResolver(func(context.Context, fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
 			return nil, nil
 		}, nil),
 	})

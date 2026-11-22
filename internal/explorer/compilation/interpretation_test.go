@@ -3,6 +3,7 @@ package compilation
 import (
 	"context"
 	"errors"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"strings"
 	"testing"
@@ -11,7 +12,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestResolveInterpretationsSelectsUniquePriorityRule(t *testing.T) {
@@ -108,8 +108,8 @@ func TestResolveInterpretationCandidateMatchesCodedValueSystemAndCode(t *testing
 	snapshot.Candidates = []capability.Candidate{candidate}
 	document := interpretationWorkspace("revision").Documents[0]
 	document.Columns[0].Source = authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
-		Binding: &fhirschema.CorrelatedBinding{ValuePath: candidate.FieldPath},
-		Key:     &fhirschema.CorrelatedKey{System: "urn:codes", Code: "active"},
+		Binding: &fhirbinding.CorrelatedBinding{ValuePath: candidate.FieldPath},
+		Key:     &fhirbinding.CorrelatedKey{System: "urn:codes", Code: "active"},
 	}}
 
 	resolution, err := ResolveInterpretationCandidate(document, document.Columns[0], snapshot)
@@ -133,7 +133,7 @@ func TestResolveInterpretationCandidateMatchesExtensionAncestry(t *testing.T) {
 	snapshot.Candidates = []capability.Candidate{candidate}
 	document := interpretationWorkspace("revision").Documents[0]
 	document.Columns[0].Source = authoringv2.ColumnSource{Kind: authoringv2.SourceExtensionByURL, Lookup: &authoringv2.LookupSource{
-		Extension: &fhirschema.ExtensionBinding{
+		Extension: &fhirbinding.ExtensionBinding{
 			OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent", "urn:leaf"}, ValuePath: "valueString",
 		},
 	}}
@@ -184,7 +184,7 @@ func TestResolveInterpretationCandidateNormalizesLegacyIdentifierSource(t *testi
 	legacy := document.Columns[0]
 	legacy.Source = authoringv2.ColumnSource{Kind: authoringv2.SourceIdentifierBySystem, Lookup: &authoringv2.LookupSource{Match: "urn:old-system", Path: candidate.FieldPath}}
 	modern := document.Columns[0]
-	modern.Source = authoringv2.ColumnSource{Kind: authoringv2.SourceIdentifierBySystem, Lookup: &authoringv2.LookupSource{Identifier: &fhirschema.IdentifierBinding{
+	modern.Source = authoringv2.ColumnSource{Kind: authoringv2.SourceIdentifierBySystem, Lookup: &authoringv2.LookupSource{Identifier: &fhirbinding.IdentifierBinding{
 		OwnerPath: "identifier[]", ValuePath: "value", SystemURI: "urn:old-system", LogicalType: "string",
 	}}}
 

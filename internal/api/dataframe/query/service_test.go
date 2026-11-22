@@ -3,6 +3,7 @@ package queryapi
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"reflect"
 	"sync"
 	"testing"
@@ -10,7 +11,6 @@ import (
 	"time"
 
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
-	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 )
@@ -138,15 +138,15 @@ func queryapiService(t *testing.T, backend *queryapiBackend, clock *controlledCl
 	t.Helper()
 	service := NewService(Config{
 		ActiveManifestResolver: &builderActiveManifestResolver{manifest: builderReadyManifest(t, "P1", "generation-1")},
-		DiscoverFields: func(_ context.Context, options fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
+		DiscoverFields: func(_ context.Context, options fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
 			backend.mu.Lock()
 			backend.fieldCalls++
 			backend.mu.Unlock()
 			switch options.ResourceType {
 			case "", "Patient":
-				return []fieldprofile.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar", DocCount: 1}}, nil
+				return []fieldcatalog.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar", DocCount: 1}}, nil
 			default:
-				return []fieldprofile.PopulatedField{}, nil
+				return []fieldcatalog.PopulatedField{}, nil
 			}
 		},
 		Dataframes: dataframeexecution.NewService(dataframeexecution.ServiceConfig{QueryRows: backend.queryRows}),

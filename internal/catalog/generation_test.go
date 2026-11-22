@@ -2,14 +2,13 @@ package catalog
 
 import (
 	"encoding/json"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"strings"
 	"testing"
-
-	"github.com/calypr/loom/internal/catalog/fieldprofile"
 )
 
 func TestCatalogGenerationResultContractsExposeGeneration(t *testing.T) {
-	fields, err := json.Marshal(fieldprofile.PopulatedField{DatasetGeneration: "generation-a", ResourceType: "Patient", Path: "id"})
+	fields, err := json.Marshal(fieldcatalog.PopulatedField{DatasetGeneration: "generation-a", ResourceType: "Patient", Path: "id"})
 	if err != nil {
 		t.Fatal(err)
 	}

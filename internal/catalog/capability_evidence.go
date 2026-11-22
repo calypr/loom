@@ -6,9 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"sort"
 
-	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	"github.com/calypr/loom/internal/semantic"
 )
 
@@ -115,7 +115,7 @@ func cloneFieldEnrichment(in []FieldEnrichmentObservation) []FieldEnrichmentObse
 		out[i].DistinctValues = append([]string(nil), in[i].DistinctValues...)
 		out[i].PivotColumns = append([]string(nil), in[i].PivotColumns...)
 		out[i].PivotValueSelectors = append([]string(nil), in[i].PivotValueSelectors...)
-		out[i].ExtensionValues = append([]fieldprofile.ExtensionValueObservation(nil), in[i].ExtensionValues...)
+		out[i].ExtensionValues = append([]fieldcatalog.ExtensionValueObservation(nil), in[i].ExtensionValues...)
 		for j := range out[i].ExtensionValues {
 			out[i].ExtensionValues[j].URLPath = append([]string(nil), in[i].ExtensionValues[j].URLPath...)
 		}

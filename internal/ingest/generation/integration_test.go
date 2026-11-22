@@ -2,13 +2,13 @@ package generation
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
-	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	publication "github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -65,7 +65,7 @@ func TestLoadAndQueryFixture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create catalog store: %v", err)
 	}
-	fields, err := catalogStore.DiscoverFields(ctx, fieldprofile.PopulatedFieldOptions{
+	fields, err := catalogStore.DiscoverFields(ctx, fieldcatalog.PopulatedFieldOptions{
 		Project:      "ARANGO_PROTO_TEST",
 		ResourceType: "Condition",
 		CursorBatch:  100,

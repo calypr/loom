@@ -3,17 +3,17 @@ package fielddiscovery
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"reflect"
 	"testing"
 
-	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe/schema"
 )
 
 func TestFieldDiscoveryMatchesStoredRecipeMetadataPolicy(t *testing.T) {
-	read := func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
-		return []fieldprofile.PopulatedField{
+	read := func(context.Context, fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
+		return []fieldcatalog.PopulatedField{
 			{ResourceType: "Observation", Path: "project_id", Kind: "scalar"},
 			{ResourceType: "Observation", Path: "status", Kind: "scalar", DistinctValues: []string{"final"}},
 			{ResourceType: "Observation", Path: "code", Kind: "codeable_concept", PivotCandidate: true, PivotFamily: "code", PivotColumns: []string{"system"}, PivotColumnSelect: "code.coding.system", PivotValueSelect: "code.coding.code", PivotItemSource: "code.coding", PivotItemResourceType: "Coding", PivotValueSelectors: []string{"code.coding.code"}},
@@ -33,9 +33,9 @@ func TestFieldDiscoveryMatchesStoredRecipeMetadataPolicy(t *testing.T) {
 }
 
 func TestFieldDiscoveryUsesRetryableBackendErrorForBothFailureForms(t *testing.T) {
-	for name, read := range map[string]func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error){
+	for name, read := range map[string]func(context.Context, fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error){
 		"nil reader": nil,
-		"backend reader": func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
+		"backend reader": func(context.Context, fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
 			return nil, errors.New("catalog unavailable")
 		},
 	} {

@@ -1,7 +1,8 @@
-package schema
+package binding
 
 import (
 	"fmt"
+	"github.com/calypr/loom/internal/fhir/schema"
 	"strings"
 )
 
@@ -15,55 +16,55 @@ type IdentifierBinding struct {
 
 type IdentifierBindingSpec struct {
 	ResourceType   string
-	OwnerSelector  Selector
+	OwnerSelector  schema.Selector
 	OwnerResource  string
-	SystemSelector Selector
-	ValueSelector  Selector
+	SystemSelector schema.Selector
+	ValueSelector  schema.Selector
 	SystemURI      string
 	LogicalType    string
-	ValuePrimitive PrimitiveKind
+	ValuePrimitive schema.PrimitiveKind
 }
 
 func ValidateIdentifierBinding(resourceType string, binding IdentifierBinding) (IdentifierBindingSpec, error) {
-	if !HasResource(resourceType) {
+	if !schema.HasResource(resourceType) {
 		return IdentifierBindingSpec{}, fmt.Errorf("resource type %q is not represented by generated FHIR schema", resourceType)
 	}
-	ownerPath := CanonicalizePath(binding.OwnerPath)
+	ownerPath := schema.CanonicalizePath(binding.OwnerPath)
 	if ownerPath == "" {
 		return IdentifierBindingSpec{}, fmt.Errorf("ownerPath is required")
 	}
-	ownerSelector, err := ParseSelector(ownerPath)
+	ownerSelector, err := schema.ParseSelector(ownerPath)
 	if err != nil {
 		return IdentifierBindingSpec{}, fmt.Errorf("ownerPath: %w", err)
 	}
-	owner, ok := ResolvePath(resourceType, ownerPath)
+	owner, ok := schema.ResolvePath(resourceType, ownerPath)
 	if !ok || owner.Property.Kind != "array" || owner.Property.ItemRef != "Identifier" {
 		return IdentifierBindingSpec{}, fmt.Errorf("ownerPath %q must resolve to a repeated Identifier", ownerPath)
 	}
 
-	systemPath := CanonicalizePath(binding.SystemPath)
+	systemPath := schema.CanonicalizePath(binding.SystemPath)
 	if systemPath != "system" {
 		return IdentifierBindingSpec{}, fmt.Errorf("systemPath must select Identifier.system")
 	}
-	systemSelector, err := ParseSelector(systemPath)
+	systemSelector, err := schema.ParseSelector(systemPath)
 	if err != nil {
 		return IdentifierBindingSpec{}, fmt.Errorf("systemPath: %w", err)
 	}
-	systemMetadata, ok := ResolveTerminalScalarMetadata("Identifier", systemPath)
-	if !ok || systemMetadata.Primitive != PrimitiveString {
+	systemMetadata, ok := schema.ResolveTerminalScalarMetadata("Identifier", systemPath)
+	if !ok || systemMetadata.Primitive != schema.PrimitiveString {
 		return IdentifierBindingSpec{}, fmt.Errorf("systemPath %q must resolve to a string in Identifier", systemPath)
 	}
 
-	valuePath := CanonicalizePath(binding.ValuePath)
+	valuePath := schema.CanonicalizePath(binding.ValuePath)
 	if valuePath != "value" {
 		return IdentifierBindingSpec{}, fmt.Errorf("valuePath must select Identifier.value")
 	}
-	valueSelector, err := ParseSelector(valuePath)
+	valueSelector, err := schema.ParseSelector(valuePath)
 	if err != nil {
 		return IdentifierBindingSpec{}, fmt.Errorf("valuePath: %w", err)
 	}
-	valueMetadata, ok := ResolveTerminalScalarMetadata("Identifier", valuePath)
-	if !ok || valueMetadata.Primitive != PrimitiveString {
+	valueMetadata, ok := schema.ResolveTerminalScalarMetadata("Identifier", valuePath)
+	if !ok || valueMetadata.Primitive != schema.PrimitiveString {
 		return IdentifierBindingSpec{}, fmt.Errorf("valuePath %q must resolve to a string in Identifier", valuePath)
 	}
 

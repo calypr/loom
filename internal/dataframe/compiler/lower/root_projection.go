@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -161,7 +162,7 @@ func physicalOwnerRecordsExpression(physical *ir.PhysicalPlan, resourceType stri
 	if strings.TrimSpace(operation.Key.Version) != "" {
 		return ir.PhysicalExpression{}, fmt.Errorf("OWNER_RECORDS does not support Coding version matching")
 	}
-	if operation.Binding.ValueScope == fhirschema.CorrelatedValueScopeCoding {
+	if operation.Binding.ValueScope == fhirbinding.CorrelatedValueScopeCoding {
 		return ir.PhysicalExpression{}, fmt.Errorf("OWNER_RECORDS does not support Coding value scope")
 	}
 	prefix := "owner_records_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(operation.Name)
@@ -215,13 +216,13 @@ func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, so
 		}
 		sharedExpression.Pivot.Correlation = &correlation
 	} else if pivot.Correlation != nil {
-		if err := fhirschema.ValidateCorrelatedKey(pivot.Correlation.SelectionScope, fhirschema.CorrelatedKey{System: pivot.CorrelationSystem, Code: pivot.CorrelationCode, Version: pivot.CorrelationVersion}); err != nil {
+		if err := fhirbinding.ValidateCorrelatedKey(pivot.Correlation.SelectionScope, fhirbinding.CorrelatedKey{System: pivot.CorrelationSystem, Code: pivot.CorrelationCode, Version: pivot.CorrelationVersion}); err != nil {
 			return nil, err
 		}
 		systemKey := columnsBindKey + "_system"
 		codeKey := columnsBindKey + "_code"
 		physical.BindVars[systemKey] = pivot.CorrelationSystem
-		if pivot.Correlation.SelectionScope == fhirschema.CorrelatedSelectionScopeSystemVersion {
+		if pivot.Correlation.SelectionScope == fhirbinding.CorrelatedSelectionScopeSystemVersion {
 			codeKey = ""
 		}
 		versionKey := ""

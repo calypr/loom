@@ -3,6 +3,7 @@ package compilation
 import (
 	"context"
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"strconv"
 	"strings"
@@ -12,7 +13,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/semantic"
 )
 
@@ -107,8 +107,8 @@ func TestCompileAuthoringCorrelatedLookupCarriesSelectedPair(t *testing.T) {
 		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Output"}, RootResourceType: "Observation",
 		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
 		Columns: []authoringv2.Column{{Column: "height_cm", Label: "Shared", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
-			Binding: &fhirschema.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"},
-			Key:     &fhirschema.CorrelatedKey{System: "urn:study:A", Code: "shared.code"},
+			Binding: &fhirbinding.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"},
+			Key:     &fhirbinding.CorrelatedKey{System: "urn:study:A", Code: "shared.code"},
 		}}}},
 	}
 	snapshot := fixtureSnapshotForProject("project")
@@ -131,13 +131,13 @@ func TestCompileAuthoringSystemVersionCategoryUsesNonEmptyOutputAlias(t *testing
 		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Output"}, RootResourceType: "Condition",
 		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Condition"},
 		Columns: []authoringv2.Column{{Column: "condition_category", Label: "Condition category", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
-			Binding: &fhirschema.CorrelatedBinding{
-				KeyPath: "code.coding[]", ValueScope: fhirschema.CorrelatedValueScopeCoding,
-				SelectionScope: fhirschema.CorrelatedSelectionScopeSystemVersion, SystemPath: "system", CodePath: "code",
+			Binding: &fhirbinding.CorrelatedBinding{
+				KeyPath: "code.coding[]", ValueScope: fhirbinding.CorrelatedValueScopeCoding,
+				SelectionScope: fhirbinding.CorrelatedSelectionScopeSystemVersion, SystemPath: "system", CodePath: "code",
 				ValuePath: "display", ValueFallback: []string{"code"}, FallbackOnBlankString: true,
 				VersionPath: "version", LogicalType: "string",
 			},
-			Key: &fhirschema.CorrelatedKey{System: "https://example.org/condition", Version: ""}, ProjectionMode: "ALL",
+			Key: &fhirbinding.CorrelatedKey{System: "https://example.org/condition", Version: ""}, ProjectionMode: "ALL",
 		}}}},
 	}
 	snapshot := fixtureSnapshotForProject("project")
@@ -147,7 +147,7 @@ func TestCompileAuthoringSystemVersionCategoryUsesNonEmptyOutputAlias(t *testing
 		t.Fatal(err)
 	}
 	pivots := result.Bundle.Outputs[0].Pivots
-	if len(pivots) != 1 || pivots[0].Correlation == nil || pivots[0].Correlation.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion || pivots[0].CorrelationCode != "" {
+	if len(pivots) != 1 || pivots[0].Correlation == nil || pivots[0].Correlation.SelectionScope != fhirbinding.CorrelatedSelectionScopeSystemVersion || pivots[0].CorrelationCode != "" {
 		t.Fatalf("compiled system-version category pivots = %#v", pivots)
 	}
 	if !reflect.DeepEqual(pivots[0].Columns, []string{"condition_category"}) || pivots[0].ColumnAliases["condition_category"] != "condition_category" {
@@ -192,7 +192,7 @@ func TestCompileAuthoringSystemVersionCategoryUsesNonEmptyOutputAlias(t *testing
 }
 
 func TestCompileAuthoringOwnerRecordsCarriesLosslessBinding(t *testing.T) {
-	binding := fhirschema.CorrelatedBinding{
+	binding := fhirbinding.CorrelatedBinding{
 		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
 		SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value",
 		ChoiceArms: []string{"valueQuantity"}, LogicalType: "decimal", UnitPath: "valueQuantity.unit",
@@ -203,7 +203,7 @@ func TestCompileAuthoringOwnerRecordsCarriesLosslessBinding(t *testing.T) {
 		Columns: []authoringv2.Column{{
 			Column: "height_records", Label: "Height records", LogicalType: "object", OccurrenceID: authoringv2.RootOccurrenceID,
 			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceOwnerRecords, OwnerRecords: &authoringv2.OwnerRecordsSource{
-				Binding: binding, Key: fhirschema.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
+				Binding: binding, Key: fhirbinding.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
 			}},
 		}},
 	}
@@ -235,8 +235,8 @@ func TestCompileCodedValueForMedicationRequestNestedOwner(t *testing.T) {
 		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "medications", Title: "Medication requests"}, RootResourceType: "MedicationRequest",
 		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "MedicationRequest"},
 		Columns: []authoringv2.Column{{Column: "daily_dose", Label: "Daily dose", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
-			Binding: &fhirschema.CorrelatedBinding{OwnerPath: ownerPath, KeyPath: keyPath, SystemPath: "system", CodePath: "code", ValuePath: valuePath, ChoiceArms: []string{"doseQuantity"}, LogicalType: "decimal"},
-			Key:     &fhirschema.CorrelatedKey{System: "http://example.org/dose-types", Code: "daily-dose"},
+			Binding: &fhirbinding.CorrelatedBinding{OwnerPath: ownerPath, KeyPath: keyPath, SystemPath: "system", CodePath: "code", ValuePath: valuePath, ChoiceArms: []string{"doseQuantity"}, LogicalType: "decimal"},
+			Key:     &fhirbinding.CorrelatedKey{System: "http://example.org/dose-types", Code: "daily-dose"},
 		}}}},
 	}
 	snapshot := fixtureSnapshotForProject("project")
@@ -263,7 +263,7 @@ func TestCompileAuthoringExtensionLookupCarriesOnlyTypedAncestry(t *testing.T) {
 	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
 		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Output"}, RootResourceType: "Observation",
 		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
-		Columns: []authoringv2.Column{{Column: "left_leaf", Label: "Left leaf", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceExtensionByURL, Lookup: &authoringv2.LookupSource{Extension: &fhirschema.ExtensionBinding{
+		Columns: []authoringv2.Column{{Column: "left_leaf", Label: "Left leaf", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceExtensionByURL, Lookup: &authoringv2.LookupSource{Extension: &fhirbinding.ExtensionBinding{
 			OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string", ChoiceArms: []string{"valueString"},
 		}, ProjectionMode: "ALL"}}}},
 	}
@@ -287,7 +287,7 @@ func TestCompileAuthoringIdentifierBindingLowersToSystemKeyedDynamicColumn(t *te
 		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Output"}, RootResourceType: "Patient",
 		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
 		Columns: []authoringv2.Column{{Column: "case_id", Label: "Case ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceIdentifierBySystem, Lookup: &authoringv2.LookupSource{ProjectionMode: "ALL",
-			Identifier: &fhirschema.IdentifierBinding{OwnerPath: "identifier[]", SystemPath: "system", ValuePath: "value", SystemURI: "urn:study:case-id", LogicalType: "string"},
+			Identifier: &fhirbinding.IdentifierBinding{OwnerPath: "identifier[]", SystemPath: "system", ValuePath: "value", SystemURI: "urn:study:case-id", LogicalType: "string"},
 		}}}},
 	}
 	snapshot := fixtureSnapshotForProject("project")

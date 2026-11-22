@@ -2,6 +2,7 @@ package spec
 
 import (
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
@@ -40,7 +41,7 @@ func ValidateTypedFilterForResource(resourceType string, filter TypedFilter) err
 				if strings.TrimSpace(value.Code.System) == "" {
 					return fmt.Errorf("filter %q correlated CODE requires a non-empty system", filter.FieldRef)
 				}
-				checked, err := fhirschema.ValidateCorrelatedBinding(resourceType, *filter.Correlation)
+				checked, err := fhirbinding.ValidateCorrelatedBinding(resourceType, *filter.Correlation)
 				if err != nil {
 					return fmt.Errorf("filter %q correlated binding: %w", filter.FieldRef, err)
 				}

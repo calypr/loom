@@ -2,6 +2,8 @@ package lifecycle
 
 import (
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 )
@@ -60,4 +62,20 @@ func requireExactIdentity(value, name string) error {
 
 func firstNonEmpty(values ...string) string {
 	return support.FirstNonEmpty(values...)
+}
+
+func resolveCapabilityRouteEdge(snapshot capability.Snapshot, parentNodeID string, parent, child authoringv2.RouteNode) (capability.Edge, error) {
+	return support.ResolveCapabilityRouteEdge(snapshot, parentNodeID, parent, child)
+}
+
+func reauthorizeConstructionRoute(snapshot capability.Snapshot, rootResourceType, targetNodeID string, route []capability.ConstructionRouteStep) ([]capability.ConstructionRouteStep, error) {
+	return support.ReauthorizeConstructionRoute(snapshot, rootResourceType, targetNodeID, route)
+}
+
+func reauthorizeConstructionRouteFromAnchor(snapshot capability.Snapshot, anchorNodeID, targetNodeID string, route []capability.ConstructionRouteStep) ([]capability.ConstructionRouteStep, error) {
+	return support.ReauthorizeConstructionRouteFromAnchor(snapshot, anchorNodeID, targetNodeID, route)
+}
+
+func routePathToOccurrence(root authoringv2.RouteNode, occurrenceID string) ([]authoringv2.RouteNode, bool) {
+	return support.RoutePathToOccurrence(root, occurrenceID)
 }

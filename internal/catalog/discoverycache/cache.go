@@ -5,13 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"sort"
 	"strings"
 	"sync"
 
 	"github.com/calypr/loom/internal/catalog"
-
-	"github.com/calypr/loom/internal/catalog/fieldprofile"
 )
 
 const (
@@ -65,15 +64,15 @@ func NewCacheWithOptions(options CacheOptions) *Cache {
 	}
 }
 
-func (c *Cache) DiscoverFields(fn func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error)) func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
-	return func(ctx context.Context, opts fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
+func (c *Cache) DiscoverFields(fn func(context.Context, fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error)) func(context.Context, fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
+	return func(ctx context.Context, opts fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
 		key, err := fieldKey(opts)
 		if err != nil {
 			return nil, err
 		}
 		cached, ok := c.get(cacheFields, key)
 		if ok {
-			return cloneFields(cached.([]fieldprofile.PopulatedField)), nil
+			return cloneFields(cached.([]fieldcatalog.PopulatedField)), nil
 		}
 		results, err := fn(ctx, opts)
 		if err != nil {
@@ -81,7 +80,7 @@ func (c *Cache) DiscoverFields(fn func(context.Context, fieldprofile.PopulatedFi
 		}
 		cached = cloneFields(results)
 		c.put(cacheFields, key, cached)
-		return cloneFields(cached.([]fieldprofile.PopulatedField)), nil
+		return cloneFields(cached.([]fieldcatalog.PopulatedField)), nil
 	}
 }
 
@@ -181,7 +180,7 @@ func cacheValueWeight(key string, value any) int {
 	return len(key) + len(encoded)
 }
 
-func fieldKey(opts fieldprofile.PopulatedFieldOptions) (string, error) {
+func fieldKey(opts fieldcatalog.PopulatedFieldOptions) (string, error) {
 	scope, err := authScopeKey(opts.AuthResourcePaths, opts.AuthResourcePathsUnrestricted)
 	if err != nil {
 		return "", err
@@ -227,11 +226,11 @@ func authScopeKey(paths []string, explicitUnrestricted *bool) (string, error) {
 	return "restricted:" + string(encoded), nil
 }
 
-func cloneFields(in []fieldprofile.PopulatedField) []fieldprofile.PopulatedField {
+func cloneFields(in []fieldcatalog.PopulatedField) []fieldcatalog.PopulatedField {
 	if len(in) == 0 {
-		return []fieldprofile.PopulatedField{}
+		return []fieldcatalog.PopulatedField{}
 	}
-	out := make([]fieldprofile.PopulatedField, len(in))
+	out := make([]fieldcatalog.PopulatedField, len(in))
 	for i := range in {
 		out[i] = in[i]
 		if in[i].DistinctValues != nil {
@@ -241,7 +240,7 @@ func cloneFields(in []fieldprofile.PopulatedField) []fieldprofile.PopulatedField
 			out[i].PivotColumns = append([]string(nil), in[i].PivotColumns...)
 		}
 		if in[i].ExtensionValues != nil {
-			out[i].ExtensionValues = append([]fieldprofile.ExtensionValueObservation(nil), in[i].ExtensionValues...)
+			out[i].ExtensionValues = append([]fieldcatalog.ExtensionValueObservation(nil), in[i].ExtensionValues...)
 			for j := range out[i].ExtensionValues {
 				out[i].ExtensionValues[j].URLPath = append([]string(nil), in[i].ExtensionValues[j].URLPath...)
 			}

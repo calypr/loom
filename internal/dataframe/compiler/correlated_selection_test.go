@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"strings"
 	"testing"
@@ -10,15 +11,14 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestCorrelatedSystemVersionSelectionPropagatesThroughPhysicalPlan(t *testing.T) {
 	for _, version := range []string{"", "v2"} {
 		t.Run("version="+version, func(t *testing.T) {
-			binding := &fhirschema.CorrelatedBinding{
-				KeyPath: "code.coding[]", VersionPath: "version", ValueScope: fhirschema.CorrelatedValueScopeCoding,
-				SelectionScope: fhirschema.CorrelatedSelectionScopeSystemVersion,
+			binding := &fhirbinding.CorrelatedBinding{
+				KeyPath: "code.coding[]", VersionPath: "version", ValueScope: fhirbinding.CorrelatedValueScopeCoding,
+				SelectionScope: fhirbinding.CorrelatedSelectionScopeSystemVersion,
 				SystemPath:     "system", CodePath: "code", ValuePath: "display", ValueFallback: []string{"code"}, LogicalType: "string",
 			}
 			plan, err := lower.BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
@@ -57,14 +57,14 @@ func TestCorrelatedSystemVersionSelectionPropagatesThroughPhysicalPlan(t *testin
 			for _, operation := range plan.DeferredExpressionLets {
 				if operation.ExpressionLet != nil && operation.ExpressionLet.Expression.Pivot != nil {
 					correlation := operation.ExpressionLet.Expression.Pivot.Correlation
-					if correlation == nil || correlation.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion {
+					if correlation == nil || correlation.SelectionScope != fhirbinding.CorrelatedSelectionScopeSystemVersion {
 						t.Fatalf("physical category lost scope: %#v", correlation)
 					}
 					correlation.SelectionScope = "ALL_CODES"
 					if err := plan.Validate(); err == nil {
 						t.Fatal("forged physical selection scope accepted")
 					}
-					correlation.SelectionScope = fhirschema.CorrelatedSelectionScopeSystemVersion
+					correlation.SelectionScope = fhirbinding.CorrelatedSelectionScopeSystemVersion
 					correlation.CodeBindKey = "unused"
 					plan.BindVars["unused"] = "normal"
 					if err := plan.Validate(); err == nil {
@@ -78,10 +78,10 @@ func TestCorrelatedSystemVersionSelectionPropagatesThroughPhysicalPlan(t *testin
 }
 
 func TestCorrelatedExplicitExactSelectionKeepsLegacyAQLAndBinds(t *testing.T) {
-	for _, valueScope := range []fhirschema.CorrelatedValueScope{"", fhirschema.CorrelatedValueScopeCoding} {
+	for _, valueScope := range []fhirbinding.CorrelatedValueScope{"", fhirbinding.CorrelatedValueScopeCoding} {
 		t.Run(string(valueScope), func(t *testing.T) {
-			binding := &fhirschema.CorrelatedBinding{KeyPath: "code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"}
-			if valueScope == fhirschema.CorrelatedValueScopeCoding {
+			binding := &fhirbinding.CorrelatedBinding{KeyPath: "code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"}
+			if valueScope == fhirbinding.CorrelatedValueScopeCoding {
 				binding.ValueScope, binding.ValuePath, binding.LogicalType, binding.VersionPath = valueScope, "display", "string", "version"
 				binding.ValueFallback = []string{"code"}
 			}
@@ -100,7 +100,7 @@ func TestCorrelatedExplicitExactSelectionKeepsLegacyAQLAndBinds(t *testing.T) {
 				return rendered
 			}
 			legacy := render()
-			binding.SelectionScope = fhirschema.CorrelatedSelectionScopeExact
+			binding.SelectionScope = fhirbinding.CorrelatedSelectionScopeExact
 			explicit := render()
 			if explicit.Query != legacy.Query || !reflect.DeepEqual(explicit.BindVars, legacy.BindVars) {
 				t.Fatal("explicit EXACT changed legacy AQL or bind values")

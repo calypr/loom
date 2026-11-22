@@ -3,11 +3,11 @@ package spec
 import (
 	"errors"
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 	"time"
 
 	fhir "github.com/calypr/loom/fhir/model"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 type FilterOperator string
@@ -66,13 +66,13 @@ type FilterValue struct {
 type TypedFilter struct {
 	FieldRef string `json:"fieldRef"`
 
-	Selector    string                        `json:"selector,omitempty"`
-	FieldKind   FilterValueKind               `json:"fieldKind"`
-	Repeated    bool                          `json:"repeated,omitempty"`
-	Quantifier  ArrayQuantifier               `json:"quantifier,omitempty"`
-	Operator    FilterOperator                `json:"operator"`
-	Values      []FilterValue                 `json:"values,omitempty"`
-	Correlation *fhirschema.CorrelatedBinding `json:"correlation,omitempty"`
+	Selector    string                         `json:"selector,omitempty"`
+	FieldKind   FilterValueKind                `json:"fieldKind"`
+	Repeated    bool                           `json:"repeated,omitempty"`
+	Quantifier  ArrayQuantifier                `json:"quantifier,omitempty"`
+	Operator    FilterOperator                 `json:"operator"`
+	Values      []FilterValue                  `json:"values,omitempty"`
+	Correlation *fhirbinding.CorrelatedBinding `json:"correlation,omitempty"`
 }
 
 func (f TypedFilter) Validate() error {
@@ -109,7 +109,7 @@ func (f TypedFilter) Validate() error {
 		return fmt.Errorf("operator %s is not compatible with %s", f.Operator, f.FieldKind)
 	}
 	for i, value := range f.Values {
-		requireCode := f.Correlation == nil || f.Correlation.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion
+		requireCode := f.Correlation == nil || f.Correlation.SelectionScope != fhirbinding.CorrelatedSelectionScopeSystemVersion
 		if err := value.validate(requireCode); err != nil {
 			return fmt.Errorf("filter value %d: %w", i, err)
 		}
@@ -134,7 +134,7 @@ func (f TypedFilter) Validate() error {
 			return errors.New("correlated filter requires one CODE value with system")
 		}
 		code := f.Values[0].Code
-		if err := fhirschema.ValidateCorrelatedKey(f.Correlation.SelectionScope, fhirschema.CorrelatedKey{System: code.System, Code: code.Code, Version: code.Version}); err != nil {
+		if err := fhirbinding.ValidateCorrelatedKey(f.Correlation.SelectionScope, fhirbinding.CorrelatedKey{System: code.System, Code: code.Code, Version: code.Version}); err != nil {
 			return err
 		}
 	}

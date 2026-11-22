@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"context"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"strings"
 	"testing"
@@ -11,7 +12,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/google/uuid"
 )
 
@@ -45,16 +45,16 @@ FOR document IN Observation
 		}}}},
 	}})
 
-	categoryBinding := &fhirschema.CorrelatedBinding{
+	categoryBinding := &fhirbinding.CorrelatedBinding{
 		OwnerPath: "component[]", KeyPath: "component[].code.coding[]", VersionPath: "version",
-		SelectionScope: fhirschema.CorrelatedSelectionScopeSystemVersion,
-		ValueScope:     fhirschema.CorrelatedValueScopeCoding,
+		SelectionScope: fhirbinding.CorrelatedSelectionScopeSystemVersion,
+		ValueScope:     fhirbinding.CorrelatedValueScopeCoding,
 		SystemPath:     "system", CodePath: "code", ValuePath: "display",
 		ValueFallback: []string{"code"}, FallbackOnBlankString: true, LogicalType: "string",
 	}
-	legacyExactBinding := &fhirschema.CorrelatedBinding{
+	legacyExactBinding := &fhirbinding.CorrelatedBinding{
 		OwnerPath: "component[]", KeyPath: "component[].code.coding[]", VersionPath: "version",
-		ValueScope: fhirschema.CorrelatedValueScopeCoding,
+		ValueScope: fhirbinding.CorrelatedValueScopeCoding,
 		SystemPath: "system", CodePath: "code", ValuePath: "display",
 		ValueFallback: []string{"code"}, FallbackOnBlankString: true, LogicalType: "string",
 	}

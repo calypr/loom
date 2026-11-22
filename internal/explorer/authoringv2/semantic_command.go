@@ -2,10 +2,10 @@ package authoringv2
 
 import (
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strconv"
 	"strings"
 
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/semantic"
 )
 
@@ -202,11 +202,11 @@ func resolveIdentifierSelectionPlan(observation semantic.Observation) SemanticSe
 	if ownerPath == "" || !systemOK || !valueOK || strings.TrimSpace(observation.Source.Type) == "" || logicalType == "" {
 		return semanticUnsupported("IDENTIFIER_BINDING_INCOMPLETE", "The catalog observation does not contain a complete Identifier system/value pair.")
 	}
-	binding := fhirschema.IdentifierBinding{
+	binding := fhirbinding.IdentifierBinding{
 		OwnerPath: ownerPath, SystemPath: systemPath, ValuePath: valuePath,
 		SystemURI: observation.Key.System, LogicalType: logicalType,
 	}
-	checked, err := fhirschema.ValidateIdentifierBinding(observation.Source.Type, binding)
+	checked, err := fhirbinding.ValidateIdentifierBinding(observation.Source.Type, binding)
 	if err != nil {
 		return semanticUnsupported("FHIR_BINDING_UNSUPPORTED", "The observed Identifier paths do not match the generated FHIR schema.")
 	}
@@ -237,13 +237,13 @@ func resolveExtensionSelectionPlan(observation semantic.Observation) SemanticSel
 	if ownerPath == "" || !valueOK || !fallbacksOK || logicalType == "" || len(observation.ExtensionURLPath) == 0 || strings.TrimSpace(observation.ChoiceArm) == "" {
 		return semanticUnsupported("EXTENSION_BINDING_INCOMPLETE", "The catalog observation does not contain a complete Extension URL/value binding.")
 	}
-	binding := fhirschema.ExtensionBinding{
+	binding := fhirbinding.ExtensionBinding{
 		OwnerPath: ownerPath, URLPath: append([]string(nil), observation.ExtensionURLPath...),
 		ValuePath: valuePath, ValueFallback: fallbackPaths,
 		FallbackOnBlankString: observation.Value.FallbackOnBlankString,
 		ChoiceArms:            []string{observation.ChoiceArm}, LogicalType: logicalType,
 	}
-	checked, err := fhirschema.ValidateExtensionBinding(observation.Source.Type, binding)
+	checked, err := fhirbinding.ValidateExtensionBinding(observation.Source.Type, binding)
 	if err != nil {
 		return semanticUnsupported("FHIR_BINDING_UNSUPPORTED", "The observed Extension paths do not match the generated FHIR schema.")
 	}
@@ -282,7 +282,7 @@ func resolveCodedValueSelectionPlan(observation semantic.Observation) SemanticSe
 	if strings.TrimSpace(observation.Source.Type) == "" || keyPath == "" || valuePath == "" || logicalType == "" {
 		return semanticUnsupported("CODED_VALUE_BINDING_INCOMPLETE", "The catalog observation does not contain a complete owner, coding key, and scalar value binding.")
 	}
-	binding := fhirschema.CorrelatedBinding{
+	binding := fhirbinding.CorrelatedBinding{
 		OwnerPath: ownerPath, KeyPath: qualifySemanticPath(ownerPath, keyPath),
 		SystemPath: "system", CodePath: "code", ValuePath: valuePath,
 		ValueFallback:         append([]string(nil), observation.Value.FallbackSelectors...),
@@ -292,7 +292,7 @@ func resolveCodedValueSelectionPlan(observation semantic.Observation) SemanticSe
 	if observation.ChoiceArm != "" {
 		binding.ChoiceArms = []string{observation.ChoiceArm}
 	}
-	checked, err := fhirschema.ValidateCorrelatedBinding(observation.Source.Type, binding)
+	checked, err := fhirbinding.ValidateCorrelatedBinding(observation.Source.Type, binding)
 	if err != nil {
 		return semanticUnsupported("FHIR_BINDING_UNSUPPORTED", "The observed coded-value paths do not match the generated FHIR schema.")
 	}
@@ -311,7 +311,7 @@ func resolveCodedValueSelectionPlan(observation semantic.Observation) SemanticSe
 	if checked.UnitSelector != nil {
 		binding.UnitPath = checked.UnitSelector.CanonicalPath()
 	}
-	lookup := &LookupSource{Binding: &binding, Key: &fhirschema.CorrelatedKey{System: observation.Key.System, Code: observation.Key.Code}}
+	lookup := &LookupSource{Binding: &binding, Key: &fhirbinding.CorrelatedKey{System: observation.Key.System, Code: observation.Key.Code}}
 	source := ColumnSource{Kind: SourceCodedValue, Lookup: lookup}
 	return semanticReadyPlan(source, checked.LogicalType, observation.Status)
 }
@@ -357,16 +357,16 @@ func resolveCodedCodingSelectionPlan(observation semantic.Observation, category 
 		}
 		fallbacks = append(fallbacks, fallbackInCoding)
 	}
-	binding := fhirschema.CorrelatedBinding{
+	binding := fhirbinding.CorrelatedBinding{
 		OwnerPath: ownerPath, KeyPath: keyPath, SystemPath: "system", CodePath: "code",
 		VersionPath: "version",
 		ValuePath:   valuePathInCoding, ValueFallback: fallbacks, FallbackOnBlankString: true,
-		LogicalType: "string", ValueScope: fhirschema.CorrelatedValueScopeCoding,
+		LogicalType: "string", ValueScope: fhirbinding.CorrelatedValueScopeCoding,
 	}
 	if category {
-		binding.SelectionScope = fhirschema.CorrelatedSelectionScopeSystemVersion
+		binding.SelectionScope = fhirbinding.CorrelatedSelectionScopeSystemVersion
 	}
-	checked, err := fhirschema.ValidateCorrelatedBinding(observation.Source.Type, binding)
+	checked, err := fhirbinding.ValidateCorrelatedBinding(observation.Source.Type, binding)
 	if err != nil {
 		return semanticUnsupported("FHIR_BINDING_UNSUPPORTED", "The observed Coding and its matching display do not match the generated FHIR schema.")
 	}
@@ -381,7 +381,7 @@ func resolveCodedCodingSelectionPlan(observation semantic.Observation, category 
 	binding.ValueScope = checked.ValueScope
 	binding.VersionPath = checked.VersionSelector.CanonicalPath()
 	binding.LogicalType = checked.LogicalType
-	lookup := &LookupSource{Binding: &binding, Key: &fhirschema.CorrelatedKey{System: observation.Key.System, Code: observation.Key.Code, Version: observation.Key.Version}}
+	lookup := &LookupSource{Binding: &binding, Key: &fhirbinding.CorrelatedKey{System: observation.Key.System, Code: observation.Key.Code, Version: observation.Key.Version}}
 	source := ColumnSource{Kind: SourceCodedValue, Lookup: lookup}
 	return semanticReadyPlan(source, checked.LogicalType, observation.Status)
 }

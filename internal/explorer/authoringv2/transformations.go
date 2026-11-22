@@ -1,6 +1,7 @@
 package authoringv2
 
 import (
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"sort"
 	"strings"
 
@@ -222,7 +223,7 @@ func isAdvertisedDateTime(candidate aggregateTransformCandidate, resourceType st
 
 func unitNormalizationCapabilities(candidate aggregateTransformCandidate) UnitNormalizationCapabilities {
 	result := UnitNormalizationCapabilities{Presets: []UnitNormalizationPresetCapability{}}
-	_, _, shapeErr := fhirschema.QuantityIdentityPaths(candidate.resourceType, canonicalTransformPath(candidate.fieldPath))
+	_, _, shapeErr := fhirbinding.QuantityIdentityPaths(candidate.resourceType, canonicalTransformPath(candidate.fieldPath))
 	if shapeErr != nil || !numericLogicalType(candidate.logicalType) || candidate.repeated || capability.IsRepeatedCardinality(candidate.cardinality) {
 		result.ReasonCode = "QUANTITY_VALUE_REQUIRED"
 		result.Reason = "unit normalization requires a scalar numeric value with Quantity system and code fields"

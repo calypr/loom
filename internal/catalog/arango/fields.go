@@ -3,6 +3,7 @@ package arango
 import (
 	"context"
 	"encoding/json"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"sort"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 	"github.com/calypr/loom/internal/semantic"
 )
 
-func (s *FieldStore) DiscoverFields(ctx context.Context, opts fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error) {
+func (s *FieldStore) DiscoverFields(ctx context.Context, opts fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error) {
 	if opts.CursorBatch <= 0 {
 		opts.CursorBatch = 1000
 	}
@@ -21,9 +22,9 @@ func (s *FieldStore) DiscoverFields(ctx context.Context, opts fieldprofile.Popul
 	if opts.ResourceType != "" {
 		vars["resource_type"] = opts.ResourceType
 	}
-	rows := []fieldprofile.PopulatedField{}
+	rows := []fieldcatalog.PopulatedField{}
 	err := s.client.QueryRows(ctx, populatedFieldsAQL, opts.CursorBatch, vars, func(row map[string]any) error {
-		var out fieldprofile.PopulatedField
+		var out fieldcatalog.PopulatedField
 		if err := decode(row, &out); err != nil {
 			return err
 		}
@@ -74,7 +75,7 @@ func (s *FieldStore) DiscoverFieldEnrichment(ctx context.Context, opts catalog.F
 			}
 			return nil
 		}
-		var field fieldprofile.PopulatedField
+		var field fieldcatalog.PopulatedField
 		if err := decode(row, &field); err != nil {
 			return err
 		}
@@ -84,7 +85,7 @@ func (s *FieldStore) DiscoverFieldEnrichment(ctx context.Context, opts catalog.F
 			return nil
 		}
 		field.ResourceType = resourceType
-		result.Values = append(result.Values, catalog.FieldEnrichmentObservation{Project: field.Project, DatasetGeneration: field.DatasetGeneration, AuthResourcePath: field.AuthResourcePath, ResourceType: field.ResourceType, Path: field.Path, Kind: field.Kind, DocCount: field.DocCount, MaxItems: field.MaxItems, SampleCount: field.SampleCount, DistinctValues: append([]string(nil), field.DistinctValues...), DistinctTruncated: field.DistinctTruncated, ExtensionValues: append([]fieldprofile.ExtensionValueObservation(nil), field.ExtensionValues...), SemanticObservations: append([]semantic.Observation(nil), field.SemanticObservations...), PivotCandidate: field.PivotCandidate, PivotKind: field.PivotKind, PivotColumns: append([]string(nil), field.PivotColumns...), PivotFamily: field.PivotFamily, PivotColumnSelect: field.PivotColumnSelect, PivotValueSelect: field.PivotValueSelect, PivotItemSource: field.PivotItemSource, PivotItemResourceType: field.PivotItemResourceType, PivotValueSelectors: append([]string(nil), field.PivotValueSelectors...)})
+		result.Values = append(result.Values, catalog.FieldEnrichmentObservation{Project: field.Project, DatasetGeneration: field.DatasetGeneration, AuthResourcePath: field.AuthResourcePath, ResourceType: field.ResourceType, Path: field.Path, Kind: field.Kind, DocCount: field.DocCount, MaxItems: field.MaxItems, SampleCount: field.SampleCount, DistinctValues: append([]string(nil), field.DistinctValues...), DistinctTruncated: field.DistinctTruncated, ExtensionValues: append([]fieldcatalog.ExtensionValueObservation(nil), field.ExtensionValues...), SemanticObservations: append([]semantic.Observation(nil), field.SemanticObservations...), PivotCandidate: field.PivotCandidate, PivotKind: field.PivotKind, PivotColumns: append([]string(nil), field.PivotColumns...), PivotFamily: field.PivotFamily, PivotColumnSelect: field.PivotColumnSelect, PivotValueSelect: field.PivotValueSelect, PivotItemSource: field.PivotItemSource, PivotItemResourceType: field.PivotItemResourceType, PivotValueSelectors: append([]string(nil), field.PivotValueSelectors...)})
 
 		if truncated, ok := row["enrichment_truncated"].(bool); ok && truncated {
 			result.Truncated = true
@@ -107,7 +108,7 @@ func (s *FieldStore) DiscoverFieldEnrichment(ctx context.Context, opts catalog.F
 	return result, nil
 }
 
-func (s *FieldStore) WriteFieldCatalog(ctx context.Context, collection string, docs []fieldprofile.FieldCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
+func (s *FieldStore) WriteFieldCatalog(ctx context.Context, collection string, docs []fieldcatalog.FieldCatalogDocument, batchSize int, overwrite bool, writeAPI string, timings map[string]float64) error {
 	if len(docs) == 0 {
 		return nil
 	}

@@ -3,12 +3,12 @@ package queryapi
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"strings"
 
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/catalog/fieldprofile"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -62,7 +62,7 @@ type scopedInputResolver struct {
 	project           string
 	datasetGeneration string
 	scope             authscope.ReadScope
-	discoverFields    func(context.Context, fieldprofile.PopulatedFieldOptions) ([]fieldprofile.PopulatedField, error)
+	discoverFields    func(context.Context, fieldcatalog.PopulatedFieldOptions) ([]fieldcatalog.PopulatedField, error)
 }
 
 type nodeInput struct {
@@ -94,7 +94,7 @@ func (r scopedInputResolver) resolveTraversalInputRefs(ctx context.Context, step
 }
 
 func (r scopedInputResolver) resolveNodeInputRefs(ctx context.Context, input nodeInput) error {
-	discovered, err := r.discoverFields(ctx, fieldprofile.PopulatedFieldOptions{
+	discovered, err := r.discoverFields(ctx, fieldcatalog.PopulatedFieldOptions{
 		Project:                       r.project,
 		DatasetGeneration:             r.datasetGeneration,
 		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(r.scope.Unrestricted()),
@@ -217,17 +217,17 @@ func (r scopedInputResolver) resolveNodeInputRefs(ctx context.Context, input nod
 	return nil
 }
 
-func resolvePivotFieldRef(resourceType string, discovered []fieldprofile.PopulatedField, fieldRef string) (fieldprofile.PopulatedField, error) {
+func resolvePivotFieldRef(resourceType string, discovered []fieldcatalog.PopulatedField, fieldRef string) (fieldcatalog.PopulatedField, error) {
 	fieldRef = strings.TrimSpace(fieldRef)
 	if fieldRef == "" {
-		return fieldprofile.PopulatedField{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+		return fieldcatalog.PopulatedField{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	for _, field := range discovered {
 		if defaultFieldRef(resourceType, field.Path) == fieldRef {
 			return field, nil
 		}
 	}
-	return fieldprofile.PopulatedField{}, dataframeerrors.NewError(dataframeerrors.CodeUnknownField, fmt.Sprintf("unknown pivot fieldRef %q for resourceType %q", fieldRef, resourceType))
+	return fieldcatalog.PopulatedField{}, dataframeerrors.NewError(dataframeerrors.CodeUnknownField, fmt.Sprintf("unknown pivot fieldRef %q for resourceType %q", fieldRef, resourceType))
 }
 
 func (s *Service) resolveReadScopeForGeneration(ctx context.Context, principal *authscope.Principal, project, datasetGeneration string, requested []string) (authscope.ReadScope, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -13,7 +14,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/recipeimport"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestRemoveProjectedFieldResolvesAuthoredOwnerAndEnforcesDraftAndAuthorization(t *testing.T) {
@@ -265,8 +265,8 @@ func projectedFieldRemovalFixture(t *testing.T, snapshot capability.Snapshot) (a
 	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, authoringv2.Column{
 		ColumnID: "coded-value", Column: "identifier_type", Label: "Identifier type", OccurrenceID: authoringv2.RootOccurrenceID,
 		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceCodedValue, Lookup: &authoringv2.LookupSource{
-			Binding: &fhirschema.CorrelatedBinding{OwnerPath: "identifier[]", KeyPath: "identifier[].type.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "value", LogicalType: "string"},
-			Key:     &fhirschema.CorrelatedKey{System: "urn:study:A", Code: "MRN"},
+			Binding: &fhirbinding.CorrelatedBinding{OwnerPath: "identifier[]", KeyPath: "identifier[].type.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "value", LogicalType: "string"},
+			Key:     &fhirbinding.CorrelatedKey{System: "urn:study:A", Code: "MRN"},
 		}},
 	})
 	other := authoringv2.Document{

@@ -1,17 +1,17 @@
 package lower
 
 import (
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestOwnerRecordsLowerToOneTypedArrayProjection(t *testing.T) {
-	binding := fhirschema.CorrelatedBinding{
+	binding := fhirbinding.CorrelatedBinding{
 		OwnerPath:   "component[]",
 		KeyPath:     "component[].code.coding[]",
 		SystemPath:  "system",
@@ -28,7 +28,7 @@ func TestOwnerRecordsLowerToOneTypedArrayProjection(t *testing.T) {
 			Name:     "height_records",
 			FieldRef: "component",
 			Binding:  binding,
-			Key:      fhirschema.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
+			Key:      fhirbinding.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
 		}},
 	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
@@ -75,13 +75,13 @@ func TestOwnerRecordsLowerToOneTypedArrayProjection(t *testing.T) {
 }
 
 func TestOwnerRecordsPlanRejectsMissingMetadataBind(t *testing.T) {
-	binding := fhirschema.CorrelatedBinding{
+	binding := fhirbinding.CorrelatedBinding{
 		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
 		SystemPath: "system", CodePath: "code", ValuePath: "valueString", LogicalType: "string",
 	}
 	plan, err := BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Observation",
-		OwnerRecords: []recipeplan.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code"}}},
+		OwnerRecords: []recipeplan.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirbinding.CorrelatedKey{System: "urn:test", Code: "code"}}},
 	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
@@ -104,14 +104,14 @@ func TestOwnerRecordsPlanRejectsMissingMetadataBind(t *testing.T) {
 }
 
 func TestOwnerRecordsRejectCodingValueScope(t *testing.T) {
-	binding := fhirschema.CorrelatedBinding{
+	binding := fhirbinding.CorrelatedBinding{
 		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
-		ValueScope: fhirschema.CorrelatedValueScopeCoding, SystemPath: "system", CodePath: "code",
+		ValueScope: fhirbinding.CorrelatedValueScopeCoding, SystemPath: "system", CodePath: "code",
 		ValuePath: "display", LogicalType: "string",
 	}
 	_, err := BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Observation",
-		OwnerRecords: []recipeplan.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code"}}},
+		OwnerRecords: []recipeplan.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirbinding.CorrelatedKey{System: "urn:test", Code: "code"}}},
 	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err == nil || !strings.Contains(err.Error(), "OWNER_RECORDS does not support Coding value scope") {
 		t.Fatalf("owner-record Coding value scope error = %v", err)
@@ -119,13 +119,13 @@ func TestOwnerRecordsRejectCodingValueScope(t *testing.T) {
 }
 
 func TestOwnerRecordsRejectCodingVersion(t *testing.T) {
-	binding := fhirschema.CorrelatedBinding{
+	binding := fhirbinding.CorrelatedBinding{
 		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
 		SystemPath: "system", CodePath: "code", ValuePath: "valueString", LogicalType: "string",
 	}
 	_, err := BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Observation",
-		OwnerRecords: []recipeplan.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code", Version: "v2"}}},
+		OwnerRecords: []recipeplan.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirbinding.CorrelatedKey{System: "urn:test", Code: "code", Version: "v2"}}},
 	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err == nil || !strings.Contains(err.Error(), "OWNER_RECORDS does not support Coding version matching") {
 		t.Fatalf("owner-record Coding version error = %v", err)
@@ -133,13 +133,13 @@ func TestOwnerRecordsRejectCodingVersion(t *testing.T) {
 }
 
 func TestOwnerRecordsPhysicalIRRejectsCodingValueScope(t *testing.T) {
-	binding := fhirschema.CorrelatedBinding{
+	binding := fhirbinding.CorrelatedBinding{
 		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
 		SystemPath: "system", CodePath: "code", ValuePath: "valueString", LogicalType: "string",
 	}
 	plan, err := BuildGenericPhysicalPlanWithPolicy(recipeplan.OutputPlan{Root: recipeplan.SemanticNode{
 		Alias: "root", ResourceType: "Observation",
-		OwnerRecords: []recipeplan.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code"}}},
+		OwnerRecords: []recipeplan.SemanticOwnerRecords{{Name: "records", FieldRef: "component", Binding: binding, Key: fhirbinding.CorrelatedKey{System: "urn:test", Code: "code"}}},
 	}}, recipeplan.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
@@ -158,7 +158,7 @@ func TestOwnerRecordsPhysicalIRRejectsCodingValueScope(t *testing.T) {
 	if correlation == nil {
 		t.Fatal("owner-record correlation is missing")
 	}
-	correlation.ValueScope = fhirschema.CorrelatedValueScopeCoding
+	correlation.ValueScope = fhirbinding.CorrelatedValueScopeCoding
 	if err := plan.Validate(); err == nil || !strings.Contains(err.Error(), "owner records does not support Coding value scope") {
 		t.Fatalf("owner-record IR Coding value scope error = %v", err)
 	}

@@ -2,6 +2,7 @@ package recipeimport
 
 import (
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"strings"
 
@@ -38,7 +39,7 @@ func validateDynamicRuleAddition(resourceType string, rule *authoringv2.Imported
 		if !reflect.DeepEqual(rule.Value, &value) || (!reflect.DeepEqual(rule.Key, &system) && !reflect.DeepEqual(rule.Key, &lastSystem)) {
 			return fmt.Errorf("identifier columns must use the system and value of the same Identifier item")
 		}
-		_, err := fhirschema.ValidateIdentifierBinding(resourceType, fhirschema.IdentifierBinding{
+		_, err := fhirbinding.ValidateIdentifierBinding(resourceType, fhirbinding.IdentifierBinding{
 			OwnerPath: "identifier[]", SystemPath: "system", ValuePath: "value",
 			SystemURI: "urn:loom:identifier-system", LogicalType: "string",
 		})
@@ -52,8 +53,8 @@ func validateDynamicRuleAddition(resourceType string, rule *authoringv2.Imported
 		if !ok || owner.Property.ItemRef != "CodeableConcept" {
 			return fmt.Errorf("%s.category[] must contain CodeableConcept items", resourceType)
 		}
-		_, err := fhirschema.ValidateCorrelatedBinding(resourceType, fhirschema.CorrelatedBinding{
-			OwnerPath: "category[]", KeyPath: "category[].coding[]", ValueScope: fhirschema.CorrelatedValueScopeCoding,
+		_, err := fhirbinding.ValidateCorrelatedBinding(resourceType, fhirbinding.CorrelatedBinding{
+			OwnerPath: "category[]", KeyPath: "category[].coding[]", ValueScope: fhirbinding.CorrelatedValueScopeCoding,
 			SystemPath: "system", CodePath: "code", ValuePath: "display", LogicalType: "string",
 		})
 		return err
@@ -111,7 +112,7 @@ func validateExtensionRuleAddition(resourceType string, rule *authoringv2.Import
 			return fmt.Errorf("extension columns require extension[] or a nested extension[] path")
 		}
 	}
-	return fhirschema.ValidateExtensionOwnerPath(resourceType, path)
+	return fhirbinding.ValidateExtensionOwnerPath(resourceType, path)
 }
 
 func validateCatalogRuleAddition(resourceType string, rule *authoringv2.ImportedCatalogParameters) error {

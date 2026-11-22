@@ -3,6 +3,7 @@ package fieldprofile
 import (
 	"errors"
 	"fmt"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"github.com/calypr/loom/internal/semantic"
 	"slices"
 	"sort"
@@ -373,7 +374,7 @@ func (p *Profiler) ensureStat(field *fieldPlan) *fieldCatalogStats {
 		extensionValueSet: make(map[string]struct{}),
 	}
 	if field.PivotCandidate {
-		if spec, ok := fhirschema.DefaultPivotSpec(p.resourceType, field.Path, ""); ok {
+		if spec, ok := fhirbinding.DefaultPivotSpec(p.resourceType, field.Path, ""); ok {
 			stat.pivotFamily = spec.Family
 			stat.pivotColumnSelect = fhirschema.SelectorExpression(spec.ColumnSelector)
 			stat.pivotValueSelect = fhirschema.SelectorExpression(spec.ValueSelector)
@@ -658,7 +659,7 @@ func (p *Profiler) observeObservationCodePivot(payload map[string]any) {
 	if _, hasText := codeValue["text"]; hasText {
 		columnSelector = "code.text"
 	}
-	stat.setPivotDefaults(fhirschema.PivotFamilyObservationCodeValue, columnSelector, valueSelector)
+	stat.setPivotDefaults(fhirbinding.PivotFamilyObservationCodeValue, columnSelector, valueSelector)
 	for _, col := range codeableConceptColumns(codeValue) {
 		p.addPivotColumnWithLimits(stat, col)
 	}

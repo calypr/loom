@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"reflect"
 	"strconv"
 	"testing"
@@ -10,7 +11,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/semantic"
 )
 
@@ -100,7 +100,7 @@ func TestCodedCategoryChoiceReauthorizesExactSystemVersionFamily(t *testing.T) {
 	}
 	binding := resolved.Source.Lookup.Binding
 	key := resolved.Source.Lookup.Key
-	if binding.SelectionScope != fhirschema.CorrelatedSelectionScopeSystemVersion || binding.ValueScope != fhirschema.CorrelatedValueScopeCoding ||
+	if binding.SelectionScope != fhirbinding.CorrelatedSelectionScopeSystemVersion || binding.ValueScope != fhirbinding.CorrelatedValueScopeCoding ||
 		binding.VersionPath != "version" || binding.CodePath != "code" || binding.ValuePath != "display" ||
 		!reflect.DeepEqual(binding.ValueFallback, []string{"code"}) || !binding.FallbackOnBlankString ||
 		key.System != family.System || key.Version != family.Version || key.Code != "" || resolved.Source.Lookup.ProjectionMode != string(capability.ConstructionChoiceAll) {
