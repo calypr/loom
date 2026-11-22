@@ -546,48 +546,13 @@ func (loader fileLoader) load(ctx context.Context, file string, start time.Time,
 		}
 		var mergeErr error
 		if strings.TrimSpace(opts.SourceFileOwner) == "" {
-			for _, worker := range workers {
-				path, spillErr := writeSemanticInventoryEntryRun(worker)
-				if spillErr != nil {
-					mergeErr = spillErr
-					break
-				}
-				if path != "" {
-					runs = append(runs, path)
-				}
-			}
+			runs, mergeErr = spillWorkerInventoryRuns(runs, workers)
 			inventoryRunsMu.Lock()
 			inventoryRuns = runs
 			inventoryRunsMu.Unlock()
 		} else {
-			batch := make([]json.RawMessage, 0, opts.BatchSize)
-			flush := func() error {
-				if len(batch) == 0 {
-					return nil
-				}
-				select {
-				case writeChan <- fileWriteTask{collection: semanticinventory.EntryCollection, docs: batch, replace: true}:
-					batch = make([]json.RawMessage, 0, opts.BatchSize)
-					return nil
-				case <-fileCtx.Done():
-					return fileCtx.Err()
-				}
-			}
-			mergeErr = mergeWorkerSemanticInventoryEntries(fileCtx, runs, workers, func(partial semanticinventory.EntryPartial) error {
-				document := semanticinventory.EntryDocument(partial, opts.Project, catalog.NormalizeDatasetGeneration(datasetGeneration), semanticinventory.BuildID(opts.Project, datasetGeneration), semanticinventory.SourceFile)
-				encoded, encodeErr := json.Marshal(document)
-				if encodeErr != nil {
-					return encodeErr
-				}
-				batch = append(batch, encoded)
-				if len(batch) == opts.BatchSize {
-					return flush()
-				}
-				return nil
-			})
-			if mergeErr == nil {
-				mergeErr = flush()
-			}
+			inventory := sourceFileInventory{project: opts.Project, generation: datasetGeneration, batchSize: opts.BatchSize}
+			mergeErr = inventory.enqueueEntries(fileCtx, runs, workers, writeChan)
 		}
 		if mergeErr != nil {
 			setPipelineErr(fmt.Errorf("merge semantic inventory entries for %s: %w", resourceType, mergeErr))
