@@ -21,6 +21,16 @@ files) plus `.cache/garden/rewrites.tsv` (the import edits that no file move can
 - 826 `internal/` test files, all white-box `package X` (five largest packages: 216 test files,
   212 white-box).
 
+## Execution status
+
+Landed on `internal-cleanup`:
+
+- 3A dead-code deletion.
+- 3C: `foundation/httpctx`, `dataframe/errors/authpolicy`, `server/sourcepublication`, `dataframe/recipeauth`, `dataframe/fielddiscovery`, `authscope` option move, `recipe/exec` merge, `viewbuilder` merge.
+- 3D: `catalog/discoverycache`, `internal/digest`, `explorer/config`, `explorer/selection`, `dataframe/semantic` -> `dataframe/recipeplan`, semantic package consolidation, ingest root split into `row`/`identity`/`source`/`bootstrap`/`event`, compiler facade, `cmd/arango-maintenance` merge.
+
+Still pending: `semantic/arango`, explorer lifecycle/arango/receipt-model splits, 3E shapes, 3F interfaces, 3U UI, full acceptance.
+
 ## Allowed layers
 
 Rank 0 `projectid`, `authscope`, `fhir/*`, `foundation/*` -> rank 1 `store/*` ->
@@ -51,7 +61,7 @@ Two rules are enforced beyond rank:
 | `store/clickhouse` | ClickHouse client, DDL, JSON values, query | client, `RenderCombine` caller |
 | `catalog` | Shared catalog identity/structural facts/read cache | `RelationshipKey`, `Cache`, catalog types |
 | `catalog/discoverycache` (new) | Bounded discovery cache | `Cache` |
-| `catalog/internal/digest` (new) | Catalog digest helper | `Digest` |
+| `internal/digest` (new) | Catalog/semantic digest helper | `Digest` |
 | `catalog/fieldcatalog` (new) | Field-profile read/write DTOs | `FieldCatalogDocument`, `PopulatedField` |
 | `catalog/fieldprofile` | Profiler and field-statistics writer | `Profiler` (semantic emission shrinks) |
 | `catalog/arango` | Catalog adapters over shared collections | `FieldStore`, `RelationshipStore`, `ResourceStore` |
@@ -262,7 +272,7 @@ white-box tests. They should be scheduled only after the first wave lands.
 | `dataframe/columntransform/*` | `dataframe/recipe` | merge |
 | `fhir/schema/{correlated,identifier,quantity,pivots}.go` | `fhir/binding` | move |
 | `catalog/{auth_scope.go,generation.go,cache.go}` | `authscope`, `projectid`, `catalog/discoverycache` | move |
-| `catalog/identity/*` | `catalog/internal/digest` | move |
+| `catalog/identity/*` | `internal/digest` | move (promoted for semantic reuse) |
 | `ingest/*` row/source/bootstrap/event files | `ingest/{row,source,bootstrap,event}` | split |
 | `ingest/backfill/*` | `semantic/backfill` | move |
 | `api/authpolicy/*` | `dataframe/errors/authpolicy` | move |

@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestRunRejectsInvalidMutationIntentBeforeOpeningDatabase(t *testing.T) {
+func TestWorkspaceRunRejectsInvalidMutationIntentBeforeOpeningDatabase(t *testing.T) {
 	var requests atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
@@ -31,7 +31,7 @@ func TestRunRejectsInvalidMutationIntentBeforeOpeningDatabase(t *testing.T) {
 			if migration == "" {
 				migration = "workspace"
 			}
-			err := run(server.URL, test.database, test.mode, test.authorize, migration)
+			err := runWorkspaceMigration(server.URL, test.database, test.mode, test.authorize, migration)
 			if err == nil || !strings.Contains(err.Error(), test.message) {
 				t.Fatalf("run error=%v, want %q", err, test.message)
 			}

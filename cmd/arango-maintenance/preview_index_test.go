@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestRunRejectsInvalidMutationIntentBeforeOpeningDatabase(t *testing.T) {
+func TestPreviewIndexRunRejectsInvalidMutationIntentBeforeOpeningDatabase(t *testing.T) {
 	var requests atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
@@ -25,7 +25,7 @@ func TestRunRejectsInvalidMutationIntentBeforeOpeningDatabase(t *testing.T) {
 		{name: "production database", database: "production", mode: "apply", authorize: true, message: "refusing database"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			err := run(server.URL, test.database, test.mode, test.authorize)
+			err := runPreviewIndexMigration(server.URL, test.database, test.mode, test.authorize)
 			if err == nil || !strings.Contains(err.Error(), test.message) {
 				t.Fatalf("run error=%v, want %q", err, test.message)
 			}
