@@ -49,6 +49,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
                         'artifacts.',
  'cmd/loom-repository': 'Preflight a repository checkout and launch Loom against its META and CONFIG data with an '
                         'owned Compose project.',
+ 'cmd/loom-repository/seed': 'Validate repository metadata and configuration and produce the source manifest.',
  'fhir/model': 'Expose generated FHIR resource models and their validation and edge extraction helpers.',
  'fhir/schema': 'Expose generated raw FHIR schema metadata tables.',
  'internal/acceptance': 'Fetch and cache the locked FHIR fixture, drive the real-data acceptance scenario, and verify '
@@ -66,7 +67,6 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/catalog/arango': 'Persist and retrieve catalog facts in ArangoDB.',
  'internal/catalog/discoverycache': 'Cache bounded field and relationship discovery results.',
  'internal/catalog/fieldprofile': 'Profile FHIR fields, retain shape plans and reconcile semantic evidence.',
- 'internal/ci': 'Exercise repository-wide Go formatting and vet gates, including injected fault detection.',
  'internal/dataframe/artifactformat': 'Encode published dataframe rows and metadata as downloadable artifacts.',
  'internal/dataframe/columntransform': 'Define closed, backend-neutral transformations over one selected output column '
                                        'value.',
@@ -138,10 +138,12 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
                                 'policy operations.',
  'internal/explorer/lifecycle/ports': 'Define adapter contracts for Explorer capabilities, receipts, execution, and '
                                       'errors.',
+ 'internal/explorer/lifecycle/support': 'Share lifecycle errors, request validation, and authorization-scope checks.',
  'internal/explorer/projectconfig': 'Prepare project configuration for publication and view building.',
  'internal/explorer/receipt': 'Compile, validate, preview, reconcile, and materialize Explorer receipts.',
  'internal/explorer/recipeimport': 'Translate imported recipe documents into authorized Explorer source plans and '
                                    'exact capability choices.',
+ 'internal/explorer/reconcile': 'Run generic ticker-driven reconciliation loops with bounded sweep deadlines.',
  'internal/explorer/selection': 'Own selection intents, revisions, membership digests, and validation.',
  'internal/fhir/schema': 'Add handwritten selector, traversal, pivot, and compiler semantics to generated FHIR '
                          'metadata.',
@@ -154,8 +156,6 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/ingest/source': 'Discover source files and preflight source schemas.',
  'internal/ingest/sourceload': 'Stage, validate, copy and publish repository source files.',
  'internal/projectid': 'Define canonical and legacy-compatible public project identity normalization.',
- 'internal/repositoryseed': 'Validate repository metadata and configuration, produce a source manifest, and refuse '
-                            'unmaterialized inputs before launch.',
  'internal/semantic': 'Walk FHIR members, extract coded concepts, and build semantic inventory and coverage.',
  'internal/semantic/backfill': 'Drive semantic inventory backfill over leased builds.',
  'internal/server': 'Compose storage, domain services, generated OpenAPI handlers and HTTP routes.',
@@ -176,6 +176,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/testkit/recipetest': 'Share receipt construction, workspace, and recipe registry fixtures.',
  'scripts': 'Hold repository developer, verification, migration, and release utilities that are not part of the Go '
             'module runtime packages.',
+ 'tests/ci': 'Exercise repository-wide Go formatting and vet gates, including injected fault detection.',
  'tests/conformance': 'Load and exercise the canonical dataframe compiler oracle corpus for conformance and '
                       'performance checks.',
  'tests/scripts': 'Hold explicit-file Go tests for standalone repository scripts.'}
