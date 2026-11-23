@@ -1,4 +1,4 @@
-package lifecycle
+package rowdef
 
 import (
 	"context"
@@ -7,36 +7,37 @@ import (
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 )
 
 func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRequest) (AssessRowChangeResult, error) {
 	if strings.TrimSpace(request.SnapshotToken) == "" || request.DraftVersion < 1 || strings.TrimSpace(request.DraftDigest) == "" || strings.TrimSpace(request.OutputID) == "" || strings.TrimSpace(request.RootNodeID) == "" {
-		return AssessRowChangeResult{}, malformed("row-change", "snapshotToken, draftVersion, draftDigest, outputId, and rootNodeId are required", nil)
+		return AssessRowChangeResult{}, support.Malformed("row-change", "snapshotToken, draftVersion, draftDigest, outputId, and rootNodeId are required", nil)
 	}
 	if s.config.Capability.Token == nil || s.config.Capability.Catalog == nil {
-		return AssessRowChangeResult{}, unavailable("row-change", "CAPABILITY_UNAVAILABLE", "Explorer capability lookup is not configured", nil)
+		return AssessRowChangeResult{}, support.Unavailable("row-change", "CAPABILITY_UNAVAILABLE", "Explorer capability lookup is not configured", nil)
 	}
-	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
+	owner, err := s.config.GetOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return AssessRowChangeResult{}, err
 	}
 	if owner.DraftVersion != request.DraftVersion || owner.DraftDigest != request.DraftDigest {
-		return AssessRowChangeResult{}, conflict("row-change", "DRAFT_CONFLICT", "the Explorer draft changed; reassess the row definition", nil, explorer.ErrDraftConflict)
+		return AssessRowChangeResult{}, support.Conflict("row-change", "DRAFT_CONFLICT", "the Explorer draft changed; reassess the row definition", nil, explorer.ErrDraftConflict)
 	}
 	workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
 	if err != nil {
-		return AssessRowChangeResult{}, conflict("row-change", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be assessed", nil, err)
+		return AssessRowChangeResult{}, support.Conflict("row-change", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be assessed", nil, err)
 	}
 	snapshot, err := s.config.Capability.Token(ctx, request.Project, request.SnapshotToken)
 	if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil {
-		return AssessRowChangeResult{}, conflict("row-change", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
+		return AssessRowChangeResult{}, support.Conflict("row-change", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
 	}
 	catalog := s.config.Capability.Catalog(snapshot, request.ExplorerID)
 	assessment, err := authoringv2.AssessRowChange(workspace, catalog, authoringv2.RowChangeRequest{
 		Mode: request.Mode, OutputID: request.OutputID, RootNodeID: request.RootNodeID, RootOccurrenceID: request.RootOccurrenceID, RouteRebase: request.RouteRebase,
 	})
 	if err != nil {
-		return AssessRowChangeResult{}, unprocessable("row-change", "INVALID_ROW_CHANGE", err.Error(), err)
+		return AssessRowChangeResult{}, support.Unprocessable("row-change", "INVALID_ROW_CHANGE", err.Error(), err)
 	}
 	result := AssessRowChangeResult{
 		SnapshotToken: request.SnapshotToken,
@@ -48,57 +49,49 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 		return result, nil
 	}
 	if s.config.PreviewReceipt == nil || s.config.Capability.ForExecution == nil {
-		return AssessRowChangeResult{}, unavailable("row-change", "PREVIEW_UNAVAILABLE", "candidate receipt preview is not configured", nil)
+		return AssessRowChangeResult{}, support.Unavailable("row-change", "PREVIEW_UNAVAILABLE", "candidate receipt preview is not configured", nil)
 	}
 	workspaceDigest, err := workspace.Digest()
 	if err != nil || workspaceDigest != owner.DraftDigest {
-		return AssessRowChangeResult{}, conflict("row-change", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil, err)
+		return AssessRowChangeResult{}, support.Conflict("row-change", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil, err)
 	}
 	candidateWorkspace, _, err := authoringv2.ApplyCommands(workspace, catalog, "row-change-preview", []authoringv2.Command{{
 		Type: authoringv2.CommandApplyTableRootRebase, OutputID: request.OutputID, RowChange: assessment.Proposal,
 	}})
 	if err != nil {
-		return AssessRowChangeResult{}, unprocessable("row-change", "INVALID_ROW_CHANGE", err.Error(), err)
+		return AssessRowChangeResult{}, support.Unprocessable("row-change", "INVALID_ROW_CHANGE", err.Error(), err)
 	}
-	previewWorkspace := candidateWorkspace
-	if assessment.Proposal.Mode == authoringv2.RowChangeModeReplace {
-		previewWorkspace, err = rowChangeReceiptWorkspace(candidateWorkspace, request.OutputID)
-		if err != nil {
-			return AssessRowChangeResult{}, unprocessable("row-change", "INVALID_ROW_CHANGE", err.Error(), err)
-		}
-	} else {
-		previewWorkspace, err = constructionCapabilitiesWorkspace(candidateWorkspace, request.OutputID)
-		if err != nil {
-			return AssessRowChangeResult{}, unprocessable("row-change", "INVALID_ROW_CHANGE", err.Error(), err)
-		}
+	previewWorkspace, err := s.config.PrepareCandidateWorkspace(candidateWorkspace, request.OutputID, assessment.Proposal.Mode == authoringv2.RowChangeModeReplace)
+	if err != nil {
+		return AssessRowChangeResult{}, support.Unprocessable("row-change", "INVALID_ROW_CHANGE", err.Error(), err)
 	}
-	candidateReceipt, err := s.compile(ctx, compileRequest{
+	candidateReceipt, err := s.config.Compile(ctx, CompileRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, Workspace: previewWorkspace,
 		SnapshotToken: request.SnapshotToken, RequestID: "row-change-preview-candidate",
 	})
 	if err != nil {
 		return AssessRowChangeResult{}, err
 	}
-	if err := verifyPreviewReceiptIntent(candidateReceipt, previewWorkspace); err != nil {
-		return AssessRowChangeResult{}, conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the candidate receipt does not represent the row-change candidate", nil, err)
+	if err := support.VerifyPreviewReceiptIntent(candidateReceipt, previewWorkspace); err != nil {
+		return AssessRowChangeResult{}, support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the candidate receipt does not represent the row-change candidate", nil, err)
 	}
-	if !receiptHasOutput(candidateReceipt.Bundle, request.OutputID) || validateReceiptOutputContract(candidateReceipt, request.OutputID) != nil {
-		return AssessRowChangeResult{}, conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the row-change candidate receipt does not contain the requested output", nil, nil)
+	if !support.ReceiptHasOutput(candidateReceipt.Bundle, request.OutputID) || support.ValidateReceiptOutputContract(candidateReceipt, request.OutputID) != nil {
+		return AssessRowChangeResult{}, support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the row-change candidate receipt does not contain the requested output", nil, nil)
 	}
 
-	verified, err := s.verifyProposalReceipt(ctx, "row-change", candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, snapshot, &previewWorkspace)
+	verified, err := s.config.VerifyProposalReceipt(ctx, "row-change", candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, snapshot, &previewWorkspace)
 	if err != nil {
 		return AssessRowChangeResult{}, err
 	}
-	candidateDocument := proposalDocument(verified, request.OutputID)
+	candidateDocument := ProposalDocument(verified, request.OutputID)
 	if candidateDocument == nil {
-		return AssessRowChangeResult{}, conflict("row-change", "INVALID_COMPILATION_RECEIPT", "candidate output is missing", nil, nil)
+		return AssessRowChangeResult{}, support.Conflict("row-change", "INVALID_COMPILATION_RECEIPT", "candidate output is missing", nil, nil)
 	}
 	candidateNetwork, err := authoringv2.NetworkForDocument(*candidateDocument, catalog)
 	if err != nil {
-		return AssessRowChangeResult{}, unprocessable("row-change", "INVALID_AUTHORING_NETWORK", err.Error(), err)
+		return AssessRowChangeResult{}, support.Unprocessable("row-change", "INVALID_AUTHORING_NETWORK", err.Error(), err)
 	}
-	candidateIdentity := rowIdentityForNetwork(*candidateDocument, candidateNetwork)
+	candidateIdentity := support.RowIdentityForNetwork(*candidateDocument, candidateNetwork)
 	result.CandidateDocument = candidateDocument
 	result.CandidateNetwork = &candidateNetwork
 	result.CandidateRowIdentity = &candidateIdentity
@@ -106,7 +99,7 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 	return result, nil
 }
 
-func rowChangeReceiptWorkspace(workspace authoringv2.Workspace, outputID string) (authoringv2.Workspace, error) {
+func RowChangeReceiptWorkspace(workspace authoringv2.Workspace, outputID string) (authoringv2.Workspace, error) {
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {
 		return authoringv2.Workspace{}, err

@@ -7,10 +7,12 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/explicitgroup"
 	"github.com/calypr/loom/internal/explorer/interpretation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
+	"github.com/calypr/loom/internal/explorer/rowdef"
 	"github.com/calypr/loom/internal/explorer/selection"
 )
 
@@ -23,6 +25,7 @@ type Service struct {
 	interpretationService *interpretation.Service
 	selectionService      *selection.Service
 	explicitGroupService  *explicitgroup.Service
+	rowDefService         *rowdef.Service
 }
 
 func New(store *explorer.Service, config Config) (*Service, error) {
@@ -100,7 +103,51 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 		return nil, err
 	}
 	service.explicitGroupService = explicitGroupService
+	rowDefService, err := service.buildRowDefService()
+	if err != nil {
+		return nil, err
+	}
+	service.rowDefService = rowDefService
 	return service, nil
+}
+
+func (s *Service) buildRowDefService() (*rowdef.Service, error) {
+	return rowdef.NewService(rowdef.Config{
+		Store:                      s.store,
+		SelectionMembersCollection: s.config.SelectionMembersCollection,
+		Capability:                 s.config.Capability,
+		GetOwner:                   s.getOwner,
+		Compile: func(ctx context.Context, request rowdef.CompileRequest) (*explorer.CompilationReceipt, error) {
+			return s.compile(ctx, compileRequest{
+				Project: request.Project, ExplorerID: request.ExplorerID, Workspace: request.Workspace,
+				SnapshotToken: request.SnapshotToken, RequestID: request.RequestID, RowDefinitionProposal: request.RowDefinitionProposal,
+			})
+		},
+		LookupReceipt:                  s.lookupReceipt,
+		ValidateExecutableReceiptRoute: s.validateExecutableReceiptRoute,
+		VerifyProposalReceipt:          s.verifyProposalReceipt,
+		PrepareCandidateWorkspace: func(workspace authoringv2.Workspace, outputID string, replace bool) (authoringv2.Workspace, error) {
+			if replace {
+				return rowdef.RowChangeReceiptWorkspace(workspace, outputID)
+			}
+			return constructionCapabilitiesWorkspace(workspace, outputID)
+		},
+		PreviewReceipt:        s.config.PreviewReceipt,
+		ValidateReceiptStream: s.config.ValidateReceiptStream,
+		RowLineage:            s.config.RowLineage,
+		RowChoiceResolver:     s.config.RowChoiceResolver,
+		RowChoicePlanner:      s.config.RowChoicePlanner,
+		ExplicitGroupResolver: s.config.ExplicitGroupResolver,
+	})
+}
+
+func (s *Service) syncRowDefService() *rowdef.Service {
+	service, err := s.buildRowDefService()
+	if err != nil {
+		return s.rowDefService
+	}
+	s.rowDefService = service
+	return s.rowDefService
 }
 
 func selectionCapabilityResolver(capabilities ports.CapabilityResolver) selection.CapabilityResolver {

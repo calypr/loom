@@ -148,30 +148,6 @@ type ReconcileResult struct {
 	Workspace authoringv2.Workspace
 }
 
-type AssessRowChangeRequest struct {
-	Mode             string
-	Project          string
-	ExplorerID       string
-	SnapshotToken    string
-	DraftVersion     int64
-	DraftDigest      string
-	OutputID         string
-	RootNodeID       string
-	RootOccurrenceID string
-	RouteRebase      []authoringv2.RouteRebaseChoice
-}
-
-type AssessRowChangeResult struct {
-	CandidateDocument    *authoringv2.Document
-	CandidateNetwork     *authoringv2.AuthoringNetwork
-	CandidateRowIdentity *authoringv2.RowIdentityPlan
-	SnapshotToken        string
-	DraftVersion         int64
-	DraftDigest          string
-	CandidateReceiptID   string
-	Assessment           authoringv2.RowChangeAssessment
-}
-
 type PreviewRequest struct {
 	Project    string
 	ExplorerID string
@@ -249,28 +225,6 @@ type CellTraceRequest struct {
 	Column     string
 	Offset     int
 	Limit      int
-}
-
-type RowLineageRequest struct {
-	Project    string
-	ExplorerID string
-	ReceiptID  string
-	OutputID   string
-	RowID      string
-	Offset     int
-	Limit      int
-}
-
-type RowLineageResult struct {
-	ReceiptID    string
-	OutputID     string
-	RowID        string
-	Status       string
-	Contributors []dataframeexecution.RowLineageContributor
-	HasMore      bool
-	NextOffset   *int
-	ReasonCode   string
-	Operation    string
 }
 
 type CellTraceBinding struct {

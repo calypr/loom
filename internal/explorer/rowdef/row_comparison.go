@@ -1,4 +1,4 @@
-package lifecycle
+package rowdef
 
 import (
 	"context"
@@ -14,58 +14,57 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"github.com/calypr/loom/internal/projectid"
 )
 
 const maxProposalComparisonExamples = 10
 
-type proposalPreviewRows struct {
+type rowDefinitionPreviewRows struct {
 	Rows    map[string]map[string]any
 	Summary dataframeexecution.PreviewSummary
 }
 
-type rowDefinitionPreviewRows = proposalPreviewRows
-
-func (s *Service) compareRowDefinitionReceipts(ctx context.Context, request RowDefinitionProposalRequest, snapshot capability.Snapshot, base, candidate *explorer.CompilationReceipt, limit int) (RowDefinitionComparison, error) {
+func (s *Service) CompareRowDefinitionReceipts(ctx context.Context, request RowDefinitionProposalRequest, snapshot capability.Snapshot, base, candidate *explorer.CompilationReceipt, limit int) (RowDefinitionComparison, error) {
 	if s.config.PreviewReceipt == nil || s.config.Capability.ForExecution == nil {
-		return RowDefinitionComparison{}, unavailable("row-definition-proposal", "PREVIEW_UNAVAILABLE", "row definition preview execution is not configured", nil)
+		return RowDefinitionComparison{}, support.Unavailable("row-definition-proposal", "PREVIEW_UNAVAILABLE", "row definition preview execution is not configured", nil)
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, request.Project, request.SnapshotToken)
 	if err != nil {
-		return RowDefinitionComparison{}, receiptCapabilityFailure("row-definition-proposal", "the proposal receipts are no longer authorized for preview", err)
+		return RowDefinitionComparison{}, support.ReceiptCapabilityFailure("row-definition-proposal", "the proposal receipts are no longer authorized for preview", err)
 	}
 	if authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil ||
 		projectid.Canonical(authorized.Snapshot.Identity.Project) != projectid.Canonical(request.Project) ||
 		authorized.Snapshot.Identity.Generation != snapshot.Identity.Generation || authorized.Snapshot.Identity.ShapeDigest != snapshot.Identity.ShapeDigest {
-		return RowDefinitionComparison{}, conflict("row-definition-proposal", "RECEIPT_STALE", "the proposal receipts are no longer authorized for preview", nil, nil)
+		return RowDefinitionComparison{}, support.Conflict("row-definition-proposal", "RECEIPT_STALE", "the proposal receipts are no longer authorized for preview", nil, nil)
 	}
-	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
-		return RowDefinitionComparison{}, conflict("row-definition-proposal", "RECEIPT_STALE", "the proposal receipts are no longer authorized for preview", nil, err)
+	if err := support.ValidateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+		return RowDefinitionComparison{}, support.Conflict("row-definition-proposal", "RECEIPT_STALE", "the proposal receipts are no longer authorized for preview", nil, err)
 	}
-	if err := validateAuthorizedReceiptExecution(base, authorized); err != nil {
-		return RowDefinitionComparison{}, conflict("row-definition-proposal", "RECEIPT_STALE", "the base receipt is no longer authorized for preview", nil, err)
+	if err := support.ValidateAuthorizedReceiptExecution(base, authorized); err != nil {
+		return RowDefinitionComparison{}, support.Conflict("row-definition-proposal", "RECEIPT_STALE", "the base receipt is no longer authorized for preview", nil, err)
 	}
-	if err := validateAuthorizedReceiptExecution(candidate, authorized); err != nil {
-		return RowDefinitionComparison{}, conflict("row-definition-proposal", "RECEIPT_STALE", "the candidate receipt is no longer authorized for preview", nil, err)
+	if err := support.ValidateAuthorizedReceiptExecution(candidate, authorized); err != nil {
+		return RowDefinitionComparison{}, support.Conflict("row-definition-proposal", "RECEIPT_STALE", "the candidate receipt is no longer authorized for preview", nil, err)
 	}
-	if err := validateReceiptOutputContract(base, request.OutputID); err != nil {
-		return RowDefinitionComparison{}, internal("row-definition-proposal", "PREVIEW_OUTPUT_INVALID", "the base proposal receipt is missing the requested output contract", err)
+	if err := support.ValidateReceiptOutputContract(base, request.OutputID); err != nil {
+		return RowDefinitionComparison{}, support.Internal("row-definition-proposal", "PREVIEW_OUTPUT_INVALID", "the base proposal receipt is missing the requested output contract", err)
 	}
-	if err := validateReceiptOutputContract(candidate, request.OutputID); err != nil {
-		return RowDefinitionComparison{}, internal("row-definition-proposal", "PREVIEW_OUTPUT_INVALID", "the candidate proposal receipt is missing the requested output contract", err)
+	if err := support.ValidateReceiptOutputContract(candidate, request.OutputID); err != nil {
+		return RowDefinitionComparison{}, support.Internal("row-definition-proposal", "PREVIEW_OUTPUT_INVALID", "the candidate proposal receipt is missing the requested output contract", err)
 	}
 	bindings := recipe.RuntimeBindings{
 		Project: projectid.Legacy(request.Project), SelectionProject: projectid.Canonical(request.Project),
 		DatasetGeneration: snapshot.Identity.Generation, SelectionMembersCollection: s.config.SelectionMembersCollection,
 		PreviewLimit: limit, OutputNames: []string{request.OutputID}, IncludeRowIdentity: true,
 	}
-	applyAuthorizedScope(&bindings, authorized, false)
+	support.ApplyAuthorizedScope(&bindings, authorized, false)
 	baseRows, err := s.previewReceiptRows(ctx, base, bindings, limit)
 	if err != nil {
 		if err := ctx.Err(); err != nil {
 			return RowDefinitionComparison{}, err
 		}
-		return RowDefinitionComparison{}, internal("row-definition-proposal", "BASE_PREVIEW_FAILED", "the current row definition could not be previewed", err)
+		return RowDefinitionComparison{}, support.Internal("row-definition-proposal", "BASE_PREVIEW_FAILED", "the current row definition could not be previewed", err)
 	}
 	candidateRows, err := s.previewReceiptRows(ctx, candidate, bindings, limit)
 	if err != nil {
@@ -75,7 +74,7 @@ func (s *Service) compareRowDefinitionReceipts(ctx context.Context, request RowD
 		if request.Selection.Kind == RowDefinitionSelectionExpanded &&
 			request.Selection.Expanded.EmptyCollectionPolicy == authoringv2.EmptyCollectionError &&
 			isEmptyCollectionExpansionError(err) {
-			return RowDefinitionComparison{}, unprocessable(
+			return RowDefinitionComparison{}, support.Unprocessable(
 				"row-definition-proposal", "EMPTY_COLLECTION_ERROR",
 				"Some records have no values for this field. Choose \"Leave out records with no values\" or \"Keep records with no values as one empty row\", or choose another field.", err,
 			)
@@ -83,15 +82,15 @@ func (s *Service) compareRowDefinitionReceipts(ctx context.Context, request RowD
 		if request.Selection.Kind == RowDefinitionSelectionExplicitGroup &&
 			request.Selection.ExplicitGroup.UnassignedMemberPolicy == authoringv2.UnassignedMemberError &&
 			isUnassignedExplicitGroupError(err) {
-			return RowDefinitionComparison{}, unprocessable(
+			return RowDefinitionComparison{}, support.Unprocessable(
 				"row-definition-proposal", "EXPLICIT_GROUP_UNASSIGNED_MEMBER",
 				"Some records do not belong to a group. Choose \"Leave out records without a group\" or \"Put records without a group in their own group\", or assign them to a group.", err,
 			)
 		}
 		if featureErr, ok := featureResolutionError(err); ok {
-			return RowDefinitionComparison{}, unprocessable("row-definition-proposal", featureErr.Code(), dataframeerrors.PublicMessage(featureErr), err)
+			return RowDefinitionComparison{}, support.Unprocessable("row-definition-proposal", featureErr.Code(), dataframeerrors.PublicMessage(featureErr), err)
 		}
-		return RowDefinitionComparison{}, internal("row-definition-proposal", "CANDIDATE_PREVIEW_FAILED", "the candidate row definition could not be previewed", err)
+		return RowDefinitionComparison{}, support.Internal("row-definition-proposal", "CANDIDATE_PREVIEW_FAILED", "the candidate row definition could not be previewed", err)
 	}
 	return compareRowDefinitionPreviewRows(baseRows, candidateRows), nil
 }
@@ -122,8 +121,8 @@ func featureResolutionError(err error) (dataframeerrors.UserError, bool) {
 	return nil, false
 }
 
-func (s *Service) previewReceiptRows(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, limit int) (proposalPreviewRows, error) {
-	preview := proposalPreviewRows{Rows: make(map[string]map[string]any, limit)}
+func (s *Service) previewReceiptRows(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, limit int) (rowDefinitionPreviewRows, error) {
+	preview := rowDefinitionPreviewRows{Rows: make(map[string]map[string]any, limit)}
 	summary, err := s.config.PreviewReceipt(ctx, receipt, bindings, func(row map[string]any) error {
 		identity, ok := row["__loom_row_id"]
 		if !ok || identity == nil || strings.TrimSpace(fmt.Sprint(identity)) == "" {

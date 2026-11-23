@@ -282,7 +282,7 @@ func TestExplicitGroupPolicyEditPreservesAnchorAndMemberValues(t *testing.T) {
 	request.Selection = RowDefinitionSelection{Kind: RowDefinitionSelectionExplicitGroup, ExplicitGroup: &ExplicitGroupSelection{
 		RevisionID: "group-revision-1", UnassignedMemberPolicy: authoringv2.UnassignedMemberExclude,
 	}}
-	rows, _, err := service.rowProposals().resolveRowDefinitionSelection(context.Background(), request, snapshot, *document)
+	rows, _, err := service.syncRowDefService().ResolveRowDefinitionSelection(context.Background(), request, snapshot, *document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +443,7 @@ func TestCompareRowDefinitionReceiptsRejectsMissingOutputContract(t *testing.T) 
 	request := rowProposalRequest(store.created, snapshot)
 	request.OutputID = "missing-output"
 	base, candidate := nativeReceipt(snapshot), nativeReceipt(snapshot)
-	_, err := service.compareRowDefinitionReceipts(context.Background(), request, snapshot, base, candidate, 25)
+	_, err := service.syncRowDefService().CompareRowDefinitionReceipts(context.Background(), request, snapshot, base, candidate, 25)
 	var lifecycleErr *ports.Error
 	if lifecycleErrorCode(err) != "PREVIEW_OUTPUT_INVALID" || !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ports.ClassInternal || lifecycleErr.Cause == nil {
 		t.Fatalf("missing output contract error = %v, want caused internal receipt failure", err)

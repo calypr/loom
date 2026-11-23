@@ -130,7 +130,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 		}
 	} else if intents.rowDefinitionProposalCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
-			prepared, receipt, prepareErr := s.rowProposals().prepareRowDefinitionProposal(ctx, project, explorerID, request, snapshot, workspace, commands)
+			prepared, receipt, prepareErr := s.syncRowDefService().PrepareRowDefinitionProposal(ctx, project, explorerID, request, snapshot, workspace, commands)
 			rowDefinitionCandidate = receipt
 			return prepared, prepareErr
 		}
