@@ -57,7 +57,7 @@ func (h *Handlers) createSelection(ctx context.Context, request loomapi.CreateEx
 	if body.Exclusions != nil {
 		intent.Exclusions = selectionRefs(*body.Exclusions)
 	}
-	value, err := h.application.CreateSelection(ctx, intent)
+	value, err := h.application.SelectionService().CreateSelection(ctx, intent)
 	if err != nil {
 		return result, err
 	}
@@ -76,7 +76,7 @@ func (h *Handlers) readSelection(ctx context.Context, request loomapi.GetExplore
 	if request.Params.Limit != nil {
 		intent.Limit = *request.Params.Limit
 	}
-	value, err := h.application.ReadSelection(ctx, intent)
+	value, err := h.application.SelectionService().ReadSelection(ctx, intent)
 	if err != nil {
 		return result, err
 	}

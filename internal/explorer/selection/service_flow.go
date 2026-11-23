@@ -1,18 +1,17 @@
-package lifecycle
+package selection
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	explorerselection "github.com/calypr/loom/internal/explorer/selection"
+	"strings"
+	"time"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/projectid"
 	"github.com/google/uuid"
-	"strings"
-	"time"
 )
 
 func (flow *selectionFlow) createSelectionWithMaterialization(ctx context.Context, req selectionCreateRequest, materialization published.Materialization, resolver SelectionSourceResolver) (SelectionCreateResult, error) {
@@ -38,15 +37,15 @@ func (flow *selectionFlow) createSelection(parent context.Context, req selection
 	}
 	req.Source = req.Source.Canonical()
 	if req.Source.Kind == "" {
-		req.Source.Kind = explorerselection.SelectionSourceExplicit
+		req.Source.Kind = SelectionSourceExplicit
 	}
-	if reader == nil && req.Rule.Kind != explorerselection.SelectionRuleExplicit {
+	if reader == nil && req.Rule.Kind != SelectionRuleExplicit {
 		return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("explicit selection source is required"))
 	}
-	if reader != nil && req.Source.Kind != explorerselection.SelectionSourcePublished {
+	if reader != nil && req.Source.Kind != SelectionSourcePublished {
 		return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("published source identity is required"))
 	}
-	if reader == nil && req.Source.Kind != explorerselection.SelectionSourceExplicit && req.Source.Kind != explorerselection.SelectionSourceRevision {
+	if reader == nil && req.Source.Kind != SelectionSourceExplicit && req.Source.Kind != SelectionSourceRevision {
 		return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("explicit source identity is required"))
 	}
 	if err := req.Source.Validate(req.Project, req.Generation, req.ResourceType); err != nil && reader == nil {
@@ -55,7 +54,7 @@ func (flow *selectionFlow) createSelection(parent context.Context, req selection
 	for i := range req.Exclusions {
 		req.Exclusions[i] = req.Exclusions[i].Canonical()
 		if err := req.Exclusions[i].Validate(req.Project, req.Generation, req.ResourceType); err != nil {
-			if errors.Is(err, explorerselection.ErrResourceRefScopeMismatch) {
+			if errors.Is(err, ErrResourceRefScopeMismatch) {
 				return SelectionCreateResult{}, selectionStale(err)
 			}
 			return SelectionCreateResult{}, selectionMalformed(err)
@@ -70,10 +69,10 @@ func (flow *selectionFlow) createSelection(parent context.Context, req selection
 			return SelectionCreateResult{}, selectionStale(fmt.Errorf("published selection source identity changed"))
 		}
 		if materialization.SourceRow == nil || !materialization.SourceRow.Valid() || materialization.SourceRow.ResourceType != req.ResourceType {
-			return SelectionCreateResult{}, explorerselection.ErrSelectionNotAddressable
+			return SelectionCreateResult{}, ErrSelectionNotAddressable
 		}
 		if materialization.Revision == "" || materialization.SourceRow.IDColumn == "" {
-			return SelectionCreateResult{}, explorerselection.ErrSelectionNotAddressable
+			return SelectionCreateResult{}, ErrSelectionNotAddressable
 		}
 		req.Source.Generation = materialization.DatasetGeneration
 		if materialization.SourceRevision != "" && req.Source.RevisionID != materialization.SourceRevision {
@@ -86,19 +85,19 @@ func (flow *selectionFlow) createSelection(parent context.Context, req selection
 		req.Source.ResourceType = materialization.SourceRow.ResourceType
 		req.Source.SourceIDColumn = materialization.SourceRow.IDColumn
 		if req.Source.ReceiptID == "" || req.Source.SchemaDigest == "" {
-			return SelectionCreateResult{}, explorerselection.ErrSelectionNotAddressable
+			return SelectionCreateResult{}, ErrSelectionNotAddressable
 		}
 	}
-	var requestMembers []explorerselection.ResourceRef
-	if req.Rule.Kind == explorerselection.SelectionRuleExplicit && req.Source.Kind == explorerselection.SelectionSourceExplicit {
+	var requestMembers []ResourceRef
+	if req.Rule.Kind == SelectionRuleExplicit && req.Source.Kind == SelectionSourceExplicit {
 		requestMembers = req.Members
 	}
-	ruleDigest, err := explorerselection.SelectionRuleDigestWithMembers(req.Rule, req.Source, req.Exclusions, requestMembers)
+	ruleDigest, err := SelectionRuleDigestWithMembers(req.Rule, req.Source, req.Exclusions, requestMembers)
 	if err != nil {
 		return SelectionCreateResult{}, err
 	}
 	selectionID := selectionID(req.Project, req.Generation, req.IdempotencyKey)
-	header := explorerselection.SelectionRevision{ID: selectionID, Project: req.Project, Generation: req.Generation, ResourceType: req.ResourceType, Rule: req.Rule, Source: req.Source, Exclusions: req.Exclusions, ScopeDigest: req.ScopeDigest, RuleDigest: ruleDigest, IdempotencyKey: strings.TrimSpace(req.IdempotencyKey), CreatedAt: time.Now().UTC()}
+	header := SelectionRevision{ID: selectionID, Project: req.Project, Generation: req.Generation, ResourceType: req.ResourceType, Rule: req.Rule, Source: req.Source, Exclusions: req.Exclusions, ScopeDigest: req.ScopeDigest, RuleDigest: ruleDigest, IdempotencyKey: strings.TrimSpace(req.IdempotencyKey), CreatedAt: time.Now().UTC()}
 	writerToken := uuid.NewString()
 	started, err := flow.store.BeginSelection(parent, header, writerToken)
 	if err != nil {
@@ -109,7 +108,7 @@ func (flow *selectionFlow) createSelection(parent context.Context, req selection
 	}
 	ctx, cancel := context.WithTimeout(parent, DefaultSelectionMaxDuration)
 	defer cancel()
-	if req.Source.Kind == explorerselection.SelectionSourceRevision {
+	if req.Source.Kind == SelectionSourceRevision {
 		if err := flow.appendSelectionRevision(ctx, header, writerToken, req.BaseSelectionID); err != nil {
 			return SelectionCreateResult{}, errors.Join(err, flow.abortSelectionBounded(parent, header.ID, writerToken))
 		}
@@ -125,7 +124,7 @@ func (flow *selectionFlow) createSelection(parent context.Context, req selection
 	digest, count, bytes, err := flow.store.DigestSelectionMembers(ctx, header.Project, header.ID)
 	if err != nil || count > DefaultSelectionMaxRows || bytes > DefaultSelectionMaxBytes {
 		if err == nil {
-			err = explorerselection.ErrSelectionLimit
+			err = ErrSelectionLimit
 		}
 		return SelectionCreateResult{}, errors.Join(err, flow.abortSelectionBounded(parent, header.ID, writerToken))
 	}
@@ -136,14 +135,14 @@ func (flow *selectionFlow) createSelection(parent context.Context, req selection
 	return SelectionCreateResult{Header: completed}, nil
 }
 
-func (flow *selectionFlow) appendSelectionRevision(ctx context.Context, header explorerselection.SelectionRevision, writerToken, baseSelectionID string) error {
+func (flow *selectionFlow) appendSelectionRevision(ctx context.Context, header SelectionRevision, writerToken, baseSelectionID string) error {
 	excluded := exclusionSet(header.Exclusions)
 	after := ""
 	for {
-		batch := make([]explorerselection.SelectionMember, 0, selectionBatchSize)
-		next, err := flow.store.VisitSelectionMembers(ctx, header.Project, baseSelectionID, after, selectionBatchSize, func(member explorerselection.SelectionMember) error {
+		batch := make([]SelectionMember, 0, selectionBatchSize)
+		next, err := flow.store.VisitSelectionMembers(ctx, header.Project, baseSelectionID, after, selectionBatchSize, func(member SelectionMember) error {
 			if _, skip := excluded[refKey(member.Ref)]; !skip {
-				batch = append(batch, explorerselection.SelectionMember{Ref: member.Ref})
+				batch = append(batch, SelectionMember{Ref: member.Ref})
 			}
 			return nil
 		})
@@ -166,14 +165,14 @@ func (flow *selectionFlow) abortSelectionBounded(parent context.Context, selecti
 	return flow.store.AbortSelection(cleanupCtx, selectionID, writerToken)
 }
 
-func (flow *selectionFlow) appendExplicit(ctx context.Context, header explorerselection.SelectionRevision, writerToken string, members []explorerselection.ResourceRef) error {
+func (flow *selectionFlow) appendExplicit(ctx context.Context, header SelectionRevision, writerToken string, members []ResourceRef) error {
 	excluded := exclusionSet(header.Exclusions)
 	for offset := 0; offset < len(members); offset += selectionBatchSize {
 		end := offset + selectionBatchSize
 		if end > len(members) {
 			end = len(members)
 		}
-		batch := make([]explorerselection.SelectionMember, 0, end-offset)
+		batch := make([]SelectionMember, 0, end-offset)
 		for _, ref := range members[offset:end] {
 			ref = ref.Canonical()
 			if err := ref.Validate(header.Project, header.Generation, header.ResourceType); err != nil {
@@ -182,25 +181,25 @@ func (flow *selectionFlow) appendExplicit(ctx context.Context, header explorerse
 			if _, skip := excluded[refKey(ref)]; skip {
 				continue
 			}
-			batch = append(batch, explorerselection.SelectionMember{Ref: ref})
+			batch = append(batch, SelectionMember{Ref: ref})
 		}
 		if _, err := flow.store.AppendSelectionMembers(ctx, header.ID, writerToken, batch); err != nil {
 			return err
 		}
 		if int64(end) > DefaultSelectionMaxRows {
-			return explorerselection.ErrSelectionLimit
+			return ErrSelectionLimit
 		}
 	}
 	return nil
 }
 
-func (flow *selectionFlow) appendPublished(ctx context.Context, header explorerselection.SelectionRevision, writerToken string, req selectionCreateRequest, reader SelectionPublishedReader) error {
+func (flow *selectionFlow) appendPublished(ctx context.Context, header SelectionRevision, writerToken string, req selectionCreateRequest, reader SelectionPublishedReader) error {
 	materialization, err := reader.ExactExecutionMaterialization(ctx, req.Source.ExecutionID, req.Source.OutputID)
 	if err != nil {
 		return err
 	}
 	excluded := exclusionSet(header.Exclusions)
-	batch := make([]explorerselection.SelectionMember, 0, selectionBatchSize)
+	batch := make([]SelectionMember, 0, selectionBatchSize)
 	var sourceRows, sourceBytes int64
 	appendBatch := func() error {
 		if len(batch) == 0 {
@@ -214,7 +213,7 @@ func (flow *selectionFlow) appendPublished(ctx context.Context, header explorers
 	if err := reader.StreamExactExecution(ctx, req.Source.ExecutionID, req.Source.OutputID, streamReq, func(row map[string]any) error {
 		sourceRows++
 		if sourceRows > DefaultSelectionMaxRows {
-			return explorerselection.ErrSelectionLimit
+			return ErrSelectionLimit
 		}
 		encoded, encodeErr := json.Marshal(row)
 		if encodeErr != nil {
@@ -222,17 +221,17 @@ func (flow *selectionFlow) appendPublished(ctx context.Context, header explorers
 		}
 		sourceBytes += int64(len(encoded))
 		if sourceBytes > DefaultSelectionMaxBytes {
-			return explorerselection.ErrSelectionLimit
+			return ErrSelectionLimit
 		}
 		resourceType, id, err := published.SourceResourceRef(materialization, row)
 		if err != nil {
 			return err
 		}
-		ref := explorerselection.ResourceRef{Project: header.Project, Generation: header.Generation, ResourceType: resourceType, ID: id}
+		ref := ResourceRef{Project: header.Project, Generation: header.Generation, ResourceType: resourceType, ID: id}
 		if _, skip := excluded[refKey(ref)]; skip {
 			return nil
 		}
-		batch = append(batch, explorerselection.SelectionMember{Ref: ref})
+		batch = append(batch, SelectionMember{Ref: ref})
 		if len(batch) >= selectionBatchSize {
 			return appendBatch()
 		}
@@ -263,7 +262,7 @@ func (flow *selectionFlow) readSelectionResolved(ctx context.Context, req select
 		return SelectionReadResult{}, err
 	}
 	if !header.Complete {
-		return SelectionReadResult{}, explorerselection.ErrSelectionIncomplete
+		return SelectionReadResult{}, ErrSelectionIncomplete
 	}
 	if header.ScopeDigest != req.ScopeDigest {
 		return SelectionReadResult{}, selectionStale(fmt.Errorf("selection authorization scope changed"))
@@ -282,8 +281,8 @@ func (flow *selectionFlow) readSelectionResolved(ctx context.Context, req select
 	if limit <= 0 || limit > selectionBatchSize {
 		limit = selectionBatchSize
 	}
-	members := make([]explorerselection.SelectionMember, 0, limit)
-	next, err := flow.store.VisitSelectionMembers(ctx, req.Project, req.RevisionID, after, limit, func(member explorerselection.SelectionMember) error {
+	members := make([]SelectionMember, 0, limit)
+	next, err := flow.store.VisitSelectionMembers(ctx, req.Project, req.RevisionID, after, limit, func(member SelectionMember) error {
 		members = append(members, member)
 		return nil
 	})

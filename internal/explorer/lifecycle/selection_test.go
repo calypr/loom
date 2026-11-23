@@ -308,36 +308,6 @@ func (s *selectionLifecycleStore) VisitSelectionMembers(_ context.Context, _, _,
 	return after, nil
 }
 
-func TestCreateAndReadSelectionKeepsLiteralMembershipAndIdempotence(t *testing.T) {
-	store := &selectionLifecycleStore{}
-	persistence, err := explorer.NewService(store)
-	if err != nil {
-		t.Fatal(err)
-	}
-	service, err := New(persistence, Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	scopeDigest := scopeDigest(scope)
-	request := selectionCreateRequest{Project: "project", Generation: "generation-a", ResourceType: "DocumentReference", IdempotencyKey: "retry-1", Scope: scope, ScopeDigest: scopeDigest, Rule: explorerselection.SelectionRule{Kind: explorerselection.SelectionRuleExplicit}, Source: explorerselection.SelectionSource{Kind: explorerselection.SelectionSourceExplicit}, Members: []explorerselection.ResourceRef{{Project: "project", Generation: "generation-a", ResourceType: "DocumentReference", ID: "files001"}, {Project: "project", Generation: "generation-a", ResourceType: "DocumentReference", ID: "files002"}}}
-	created, err := service.createSelectionResolved(context.Background(), request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if created.Header.MemberCount != 2 || !created.Header.Complete {
-		t.Fatalf("selection header = %#v", created.Header)
-	}
-	retried, err := service.createSelectionResolved(context.Background(), request)
-	if err != nil || retried.Header.ID != created.Header.ID || retried.Header.MembershipDigest != created.Header.MembershipDigest {
-		t.Fatalf("retry result = %#v, err=%v", retried.Header, err)
-	}
-	page, err := service.readSelectionResolved(context.Background(), selectionReadRequest{Project: "project", RevisionID: created.Header.ID, Scope: scope, ScopeDigest: scopeDigest, Limit: 10})
-	if err != nil || len(page.Members) != 2 {
-		t.Fatalf("read page = %#v, err=%v", page, err)
-	}
-}
-
 type selectionResolverFixture struct {
 	materialization published.Materialization
 	executionID     string

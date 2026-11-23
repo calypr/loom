@@ -5,7 +5,6 @@ import (
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"time"
 
-	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
@@ -31,8 +30,6 @@ type PopulationMappingExecutor func(context.Context, *explorer.CompilationReceip
 type CellTraceExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error)
 
 type RowLineageExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error)
-
-type SelectionReferenceValidator func(context.Context, string, string, authscope.ReadScope, []explorerselection.ResourceRef) error
 
 type GenerationValidator func(context.Context, string, string) error
 type ReleaseActivator func(context.Context, string, string, []dataset.DataframeSelector) error
