@@ -1,6 +1,6 @@
 # `dataframe/compiler` root package cleanup plan
 
-Status: Phase 0 inventory complete. Measured after merging the lineage agreement tests
+Status: Phases 0 and 1 complete. Measured after merging the lineage agreement tests
 into the AQL refactor at `3e3d81176`.
 Scope: the root package `internal/dataframe/compiler` only. Its subpackages have their own plans
 (`AQL_RENDER_REFACTOR_PLAN.md`, `AQL_FAST_PATH_AND_LINEAGE_PLAN.md`,
@@ -41,8 +41,9 @@ would live with it, with fixture builders in `internal/testkit`.
      `normalizeDatasetGeneration`, `physicalScopeWindowEnd` and `PhysicalPlanDiagnostics`.
      `population/mapping.go` already calls `ir.PhysicalPlanDiagnostics` directly.
    - `PublicOutputColumns` has no caller.
-   - `AppendUniqueProjection`, `WithGenericPhysicalExecutionWindow`, `CategoryOverflowWitness`
-     and `CategoryScanRefusalCode` are exported but used only inside the package.
+   - `AppendUniqueProjection`, `WithGenericPhysicalExecutionWindow`, and
+     `CategoryScanRefusalCode` have no external explicit references.
+     `CategoryOverflowWitness` is also constructed in execution tests.
    - `exclusions.go` (183 lines) is deleted by the AQL plan's Phase 0.
 2. **Category scan and column population are separate purposes living in root.**
    - Category scan spans `scan.go`, `proof.go`, `pushdown.go`, `indexed.go` and `related.go`,
@@ -202,6 +203,17 @@ already has its own package registration.
   `population/mapping`, but only where the same plan goes straight to rendering. If a test
   asserts the wrapped error text, keep that check and record why.
 - Check: `go build ./...`, `make test-go`, `make lint-go-comments`.
+
+Phase 1 removed the empty package file, the unused public column wrapper, and
+the diagnostic forwarding file. Same-package helpers now use private names.
+The overflow witness stays exported for the two execution test fixtures.
+Cell trace and row lineage now rely on renderer checks for plans they pass
+straight to the renderer. No test asserted their old wrapper strings.
+Population keeps both checks in `MappingPhysicalPlan` because it returns a
+validated plan directly and the compile path transforms that plan before
+rendering.
+
+`go build ./...`, `make test-go`, and `make lint-go-comments` passed.
 
 ### Phase 2: move tests to their owners (after the AQL plan's Phase 4 merges)
 

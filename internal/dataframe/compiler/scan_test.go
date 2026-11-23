@@ -86,7 +86,7 @@ func TestCompileCategoryScanRefusesNonPublicOrNonScalarColumns(t *testing.T) {
 	}}
 	tests := []struct {
 		name string
-		code CategoryScanRefusalCode
+		code categoryScanRefusalCode
 	}{
 		{"missing", CategoryScanColumnUnknown},
 		{"internal", CategoryScanColumnInternal},
@@ -156,7 +156,7 @@ func TestCompileCategoryScanUsesExactConstructionStagePrefixAndBindsPivotPair(t 
 
 	for _, test := range []struct {
 		stage, category, value string
-		want                   CategoryScanRefusalCode
+		want                   categoryScanRefusalCode
 	}{
 		{stage: "stale_stage", category: "status_id", value: "total_id", want: CategoryScanStageUnknown},
 		{stage: "derive_total", category: "stale_category", value: "total_id", want: CategoryScanColumnUnknown},

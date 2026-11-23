@@ -25,7 +25,7 @@ func TestRichConsumerDiagnosticsClassifiesOnlyIdenticalExpressions(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	diagnostics := PhysicalPlanDiagnostics(plan)
+	diagnostics := ir.PhysicalPlanDiagnostics(plan)
 	var identicalCounts, singletonGroups int
 	for _, group := range diagnostics.RichConsumerGroups {
 		if group.SourceSet != "child_set_1" || group.Kind != ir.PhysicalAggregateExpression {

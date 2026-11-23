@@ -132,7 +132,7 @@ func TestStreamingMissingCategoryPivotUsesStoredParentProjectionIndex(t *testing
 			t.Fatal(err)
 		}
 	}
-	physical, err = WithGenericPhysicalExecutionWindow(physical, 25)
+	physical, err = withGenericPhysicalExecutionWindow(physical, 25)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1000,7 +1000,7 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	physical, err = WithGenericPhysicalExecutionWindow(physical, 25)
+	physical, err = withGenericPhysicalExecutionWindow(physical, 25)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1243,7 +1243,7 @@ func TestStreamingMissingCategoryPivotIndexFallsBackWithoutScalarKeyProof(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	physical, err = WithGenericPhysicalExecutionWindow(physical, 25)
+	physical, err = withGenericPhysicalExecutionWindow(physical, 25)
 	if err != nil {
 		t.Fatal(err)
 	}

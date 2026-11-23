@@ -72,7 +72,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 	if limit > 0 {
 		physical = withConstructionPreviewRootIDFilter(output, physical)
 	}
-	physical, err := WithGenericPhysicalExecutionWindow(physical, limit)
+	physical, err := withGenericPhysicalExecutionWindow(physical, limit)
 	if err != nil {
 		return model.CompiledQuery{}, fmt.Errorf("apply canonical recipe execution window: %w", err)
 	}
@@ -142,7 +142,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		ArtifactPlanDigest: artifactPlanDigest,
 		PhysicalPlan:       ir.ClonePhysicalPlan(physical),
 		Project:            bindings.Project,
-		DatasetGeneration:  normalizeDatasetGeneration(bindings.DatasetGeneration),
+		DatasetGeneration:  ir.NormalizeDatasetGeneration(bindings.DatasetGeneration),
 		RootResourceType:   output.RootResourceType,
 		TranslationVersion: output.TranslationVersion,
 		AuthResourcePaths:  ir.CloneStrings(bindings.AuthResourcePaths),
@@ -163,7 +163,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		PreviewCoveringIndex:   previewCoveringIndex,
 		PreviewGroupScan:       previewGroupScan,
 		PreviewGroupProjection: previewGroupProjection,
-		PlanDiagnostics:        PhysicalPlanDiagnostics(physical),
+		PlanDiagnostics:        ir.PhysicalPlanDiagnostics(physical),
 	}, nil
 }
 
@@ -371,7 +371,7 @@ func withPreviewSourceResourceID(output lower.CompiledRecipeOutput, plan ir.Phys
 			continue
 		}
 		returnFound = true
-		operation.Return.Projections = AppendUniqueProjection(operation.Return.Projections, projection)
+		operation.Return.Projections = appendUniqueProjection(operation.Return.Projections, projection)
 	}
 	if !returnFound {
 		return plan, false, nil
@@ -392,10 +392,10 @@ func withPreviewSourceResourceID(output lower.CompiledRecipeOutput, plan ir.Phys
 			}
 			stage.InputColumns = appendUniqueStageColumn(stage.InputColumns, sourceColumn)
 			stage.OutputColumns = appendUniqueStageColumn(stage.OutputColumns, sourceColumn)
-			stage.InputProjections = AppendUniqueProjection(stage.InputProjections, inputProjection)
-			stage.OutputProjections = AppendUniqueProjection(stage.OutputProjections, inputProjection)
+			stage.InputProjections = appendUniqueProjection(stage.InputProjections, inputProjection)
+			stage.OutputProjections = appendUniqueProjection(stage.OutputProjections, inputProjection)
 			if stage.Unpivot != nil {
-				stage.Unpivot.InputProjections = AppendUniqueProjection(stage.Unpivot.InputProjections, inputProjection)
+				stage.Unpivot.InputProjections = appendUniqueProjection(stage.Unpivot.InputProjections, inputProjection)
 				if len(stage.Unpivot.PreservedOutputs) != 0 {
 					stage.Unpivot.PreservedOutputs = appendUniqueUnpivotOutput(stage.Unpivot.PreservedOutputs, ir.PhysicalUnpivotOutput{
 						InputColumn: sourceColumn.Name, OutputColumn: sourceColumn.Name,
@@ -411,7 +411,7 @@ func withPreviewSourceResourceID(output lower.CompiledRecipeOutput, plan ir.Phys
 		}
 		inputProjection := projection
 		inputProjection.Value = ir.PhysicalValue{Variable: rootVariable, Path: []string{"id"}}
-		operation.Unpivot.InputProjections = AppendUniqueProjection(operation.Unpivot.InputProjections, inputProjection)
+		operation.Unpivot.InputProjections = appendUniqueProjection(operation.Unpivot.InputProjections, inputProjection)
 		if len(operation.Unpivot.PreservedOutputs) != 0 {
 			operation.Unpivot.PreservedOutputs = appendUniqueUnpivotOutput(operation.Unpivot.PreservedOutputs, ir.PhysicalUnpivotOutput{
 				InputColumn: inputProjection.Name, OutputColumn: inputProjection.Name,
@@ -430,7 +430,7 @@ func appendUniqueUnpivotOutput(outputs []ir.PhysicalUnpivotOutput, candidate ir.
 	return append(outputs, candidate)
 }
 
-func AppendUniqueProjection(projections []ir.PhysicalProjection, candidate ir.PhysicalProjection) []ir.PhysicalProjection {
+func appendUniqueProjection(projections []ir.PhysicalProjection, candidate ir.PhysicalProjection) []ir.PhysicalProjection {
 	for _, projection := range projections {
 		if projection.Name == candidate.Name {
 			return projections

@@ -30,11 +30,11 @@ func CompileResolvedGraphQueryWithPolicy(resolved recipeplan.ResolvedRecipePlan,
 	output := resolved.SemanticPlan.Outputs[0]
 	bindings := resolved.SemanticPlan.Bindings
 	return model.CompiledQuery{
-		Project: bindings.Project, DatasetGeneration: normalizeDatasetGeneration(bindings.DatasetGeneration),
+		Project: bindings.Project, DatasetGeneration: ir.NormalizeDatasetGeneration(bindings.DatasetGeneration),
 		RootResourceType: output.RootResourceType, AuthResourcePaths: ir.CloneStrings(bindings.AuthResourcePaths),
 		PlanMode: "physical", PlanProfile: "generic_fhir_graph_path", TraversalCount: physicalTraversalCount(physical),
 		OptimizationRules: recipeOptimizationRules(physical), Query: rendered.Query, BindVars: rendered.BindVars,
 		Columns: []string{"paths"}, PublicColumns: []string{"paths"}, Limit: limit,
-		PlanDiagnostics: PhysicalPlanDiagnostics(physical),
+		PlanDiagnostics: ir.PhysicalPlanDiagnostics(physical),
 	}, nil
 }

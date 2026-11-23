@@ -26,20 +26,20 @@ const (
 	categoryLimitBind  = "__loom_category_limit"
 )
 
-type CategoryScanRefusalCode string
+type categoryScanRefusalCode string
 
 const (
-	CategoryScanColumnUnknown     CategoryScanRefusalCode = "CATEGORY_COLUMN_UNKNOWN"
-	CategoryScanColumnInternal    CategoryScanRefusalCode = "CATEGORY_COLUMN_INTERNAL"
-	CategoryScanColumnIdentity    CategoryScanRefusalCode = "CATEGORY_COLUMN_IDENTITY"
-	CategoryScanColumnRepeated    CategoryScanRefusalCode = "CATEGORY_COLUMN_REPEATED"
-	CategoryScanColumnUnsupported CategoryScanRefusalCode = "CATEGORY_COLUMN_UNSUPPORTED"
-	CategoryScanInvalidLimit      CategoryScanRefusalCode = "CATEGORY_LIMIT_INVALID"
-	CategoryScanStageUnknown      CategoryScanRefusalCode = "CATEGORY_STAGE_UNKNOWN"
+	CategoryScanColumnUnknown     categoryScanRefusalCode = "CATEGORY_COLUMN_UNKNOWN"
+	CategoryScanColumnInternal    categoryScanRefusalCode = "CATEGORY_COLUMN_INTERNAL"
+	CategoryScanColumnIdentity    categoryScanRefusalCode = "CATEGORY_COLUMN_IDENTITY"
+	CategoryScanColumnRepeated    categoryScanRefusalCode = "CATEGORY_COLUMN_REPEATED"
+	CategoryScanColumnUnsupported categoryScanRefusalCode = "CATEGORY_COLUMN_UNSUPPORTED"
+	CategoryScanInvalidLimit      categoryScanRefusalCode = "CATEGORY_LIMIT_INVALID"
+	CategoryScanStageUnknown      categoryScanRefusalCode = "CATEGORY_STAGE_UNKNOWN"
 )
 
 type CategoryScanRefusal struct {
-	Code   CategoryScanRefusalCode
+	Code   categoryScanRefusalCode
 	Column string
 }
 
@@ -50,7 +50,7 @@ func (e *CategoryScanRefusal) Error() string {
 	return fmt.Sprintf("%s: %s", e.Code, e.Column)
 }
 
-func CategoryScanRefusalCodeOf(err error) (CategoryScanRefusalCode, bool) {
+func CategoryScanRefusalCodeOf(err error) (categoryScanRefusalCode, bool) {
 	var refusal *CategoryScanRefusal
 	if !errors.As(err, &refusal) {
 		return "", false
@@ -242,7 +242,7 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 		} else {
 			physical = withCategoryScanSourceFilterPushdown(physical)
 		}
-		physical, err = WithGenericPhysicalExecutionWindow(physical, 0)
+		physical, err = withGenericPhysicalExecutionWindow(physical, 0)
 		if err != nil {
 			return CompiledCategoryScanQuery{}, fmt.Errorf("apply category scan execution window: %w", err)
 		}
@@ -279,7 +279,7 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 		previewCoveringIndex = nil
 	}
 
-	diagnostics := PhysicalPlanDiagnostics(physical)
+	diagnostics := ir.PhysicalPlanDiagnostics(physical)
 	schemaDigest, err := categoryHash(schema)
 	if err != nil {
 		return CompiledCategoryScanQuery{}, fmt.Errorf("fingerprint category scan schema: %w", err)

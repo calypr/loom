@@ -72,7 +72,7 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 			return CompiledOutputPage{}, fmt.Errorf("add preview source identity to selected-root page: %w", err)
 		}
 	}
-	rowsPlan, err = WithGenericPhysicalExecutionWindow(rowsPlan, 0)
+	rowsPlan, err = withGenericPhysicalExecutionWindow(rowsPlan, 0)
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("apply selected-root execution window: %w", err)
 	}
@@ -118,7 +118,7 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 	return CompiledOutputPage{
 		RootKeysQuery: keys.Query, RootKeysBindVars: keys.BindVars,
 		RowsQuery: rows.Query, RowsBindVars: rows.BindVars, RowsPartitions: partitions,
-		RowsDiagnostics: PhysicalPlanDiagnostics(rowsPlan), RowsPlanDigest: rowsPlanDigest,
+		RowsDiagnostics: ir.PhysicalPlanDiagnostics(rowsPlan), RowsPlanDigest: rowsPlanDigest,
 	}, nil
 }
 

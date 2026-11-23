@@ -31,7 +31,7 @@ func TestGroupedPivotPreviewWindowRunsAfterReshapedRows(t *testing.T) {
 	}
 	plan := compileTableReshapePhysicalPlan(t, reshape)
 	pivot := findGroupedPivot(t, plan)
-	windowed, err := WithGenericPhysicalExecutionWindow(plan, 5)
+	windowed, err := withGenericPhysicalExecutionWindow(plan, 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestUnpivotPreviewWindowBoundsDeterministicReshapedRows(t *testing.T) {
 	}
 	plan := compileTableReshapePhysicalPlan(t, reshape)
 	unpivot := findUnpivot(t, plan)
-	windowed, err := WithGenericPhysicalExecutionWindow(plan, 7)
+	windowed, err := withGenericPhysicalExecutionWindow(plan, 7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestTableReshapeExecutionWindowBindsExpectedLimit(t *testing.T) {
 			KeyOutput: "measure", KeyLabel: "Measure", ValueOutput: "amount", ValueLabel: "Amount", NullRowPolicy: recipe.UnpivotNullDrop,
 		},
 	})
-	windowed, err := WithGenericPhysicalExecutionWindow(plan, 11)
+	windowed, err := withGenericPhysicalExecutionWindow(plan, 11)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +306,7 @@ func TestPhysicalValidationRejectsSourceLimitBeforeReshape(t *testing.T) {
 
 func TestExpandedWindowSortsStableIdentityBeforeUnrelatedSets(t *testing.T) {
 	output := compileWindowExpansionOutput(t)
-	window, err := WithGenericPhysicalExecutionWindow(output.Plan, 25)
+	window, err := withGenericPhysicalExecutionWindow(output.Plan, 25)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,7 +401,7 @@ func TestCanonicalExecutionPhysicalPlanPreservesValidRelatedCellTrace(t *testing
 	output := compilePopulationMappingOutput(t, constructionRelatedSourceCellTraceRecipeOutput())
 	physical := ir.ClonePhysicalPlan(output.Plan)
 	var err error
-	physical, err = WithGenericPhysicalExecutionWindow(physical, 0)
+	physical, err = withGenericPhysicalExecutionWindow(physical, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
