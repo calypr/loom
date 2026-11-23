@@ -39,7 +39,7 @@ func run() error {
 	baseURL := flag.String("arango", "", "owned Arango HTTP endpoint on loopback")
 	database := flag.String("database", "", "owned Arango database")
 	dataset := flag.String("dataset", "", "dataset identity for the report")
-	runs := flag.Int("runs", 9, "number of warm pairs")
+	runs := flag.Int("runs", 9, "number of warm pairs after the first result comparison")
 	batchSize := flag.Int("batch-size", 10000, "result rows that must fit in one profiled cursor batch")
 	timeout := flag.Duration("timeout", 30*time.Second, "server query time limit per sample")
 	memory := flag.Int64("memory-limit", 256<<20, "server query memory limit in bytes")
@@ -62,8 +62,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if *dataset == "" || *runs < 1 || *batchSize < 1 || *memory < 1 || *timeout < time.Millisecond {
-		return fmt.Errorf("dataset and positive run count, batch size, memory limit and timeout are required")
+	if *dataset == "" || *runs < 0 || *batchSize < 1 || *memory < 1 || *timeout < time.Millisecond {
+		return fmt.Errorf("dataset, nonnegative warm count, and positive batch size, memory limit and timeout are required")
 	}
 	p := profiler{
 		endpoint: endpoint,

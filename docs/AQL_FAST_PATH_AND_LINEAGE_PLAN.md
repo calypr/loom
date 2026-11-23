@@ -1,6 +1,6 @@
 # AQL fast-path audit and lineage agreement plan
 
-Status: Track A resumed. A1 is verified on disposable Arango and A2 captures are ready. CDA timing and deletion are pending. Track B was committed separately on `aql-lineage-agreement`. Original measurements at `bb50db30b` on `internal-cleanup`.
+Status: Track A resumed. A1 and A2 are complete. A3 recorded the CDA comparisons. A4 is pending. Track B was committed separately on `aql-lineage-agreement`. Original measurements at `bb50db30b` on `internal-cleanup`.
 
 Precondition: `docs/AQL_RENDER_REFACTOR_PLAN.md` Phases 1 to 4 and
 `docs/EXECUTION_REFACTOR_PLAN.md` are merged. This plan assumes:
@@ -219,6 +219,53 @@ The Dynamic Pivot request uses default index options.
 - Write a results table into this plan: per path, both timings, memory, digest match and the
   verdict (keep, delete or borderline).
 - Commit the table. Borderline paths wait for operator review. Clear keeps and deletes go ahead.
+
+The audit used ArangoDB 3.12.13, a 1.4 CPU and 3 GiB container, and a
+10-logical-CPU, 64 GiB host. The original CDA volume was mounted read-only
+while copying it. The three audit indexes were prepared on the disposable
+copy only. Automatic approval review declined index creation on the original
+volume. Both query arms received the same 256 MiB memory and 30 s diagnostic
+time limits unless noted. Ordinary Builder preview has a 10 s deadline.
+Times include the profiled cursor request and response read. They exclude
+client-side digest calculation and Builder request overhead. Each timed case
+used five warm pairs with alternating order and one first observed pair.
+
+| Path | Fast p50 / p95 (range), seconds | Generic p50 / p95 (range), seconds | Peak fast / generic, MiB | Rows matched | Verdict |
+| --- | ---: | ---: | ---: | --- | --- |
+| 1. Streaming Pivot | 4.082 (one warm control) | 7.430 (one warm control) | 33.00 / 308.59 | 25, two pairs at 768 MiB | Keep. Generic exceeded 256 MiB and fast completed. The control used existing indexes on the original owned volume. |
+| 2. Two-scan Pivot | 0.370 / 0.377 (0.367–0.377) | 0.280 / 0.287 (0.278–0.287) | 4.31 / 19.16 | 25, six pairs | Delete. Both arms used the same covering index in this control. Default generic also completed. |
+| 3. Dynamic Pivot, 12 categories | 4.457 / 4.677 (4.356–4.677) | 4.461 / 4.866 (4.382–4.866) | 4.09 / 4.41 | 25, six pairs | Delete. The subject-group single-category case also missed both thresholds. |
+| 4. Semantic Group factorization | 3.065 / 3.184 (3.007–3.184) | 12.448 / 14.136 (12.240–14.136) | 0.44 / 2.81 | 5, six pairs | Keep. |
+| 5a. Root index hinted | 11.065 / 11.368 (10.333–11.368) | 12.039 / 12.617 (11.888–12.617) | 3.03 / 2.81 | 5, six pairs | Keep the root-index choice per operator decision. |
+| 5b. Root index disabled | 9.576 / 10.193 (9.345–10.193) | 12.389 / 12.653 (12.053–12.653) | 3.03 / 2.81 | 5, six pairs | Borderline at the Builder deadline. Operator chose to keep the choice. |
+| 6. Related Group | Completed | Timed out at 30 s and 90 s | — | Unverified on CDA | Retain pending parity. |
+| 7. Group row-value window | 1.667 / 1.896 (1.518–1.896) | 5.945 / 7.366 (5.619–7.366) | 208.47 / 37.12 | 25, six pairs | Keep on the subject-reference workload. Fast used more memory. |
+| 8. Source Group | Completed | Timed out at 30 s and 90 s | — | Unverified on CDA | Retain pending parity. |
+| 9. Related eligibility count | Timed out at 30 s | Timed out at 30 s | — | Unverified on CDA | Retain. Both arms also timed out at 90 s. |
+
+The Pivot profiles confirm real source work. Both two-scan arms used the
+same covering index in the control. Two-scan read 1,630,522 index entries
+versus 815,261 for generic. Calculation nodes were the largest profile group.
+The one-category dynamic case read the same number of entries in each arm.
+The 12-category case used the same index in both arms and preserved all
+results without a qualifying latency or memory benefit. Both semantic Group
+arms scanned 742,505 index entries. Factorization changed the dominant work
+after the scan. The row-value window retained the source scan and reduced
+post-scan work on the many-group fixture. The one-group CDA status probe
+showed the opposite tradeoff, so it did not determine the verdict.
+
+The initial two-scan request failed in both arms with
+`TABLE_PIVOT_UNLISTED_CATEGORY`. The successful request explicitly filters
+for existing quantity codes. The first Specimen index setup request returned
+HTTP 400. Retrying the exact fixture index definition without an empty
+`storedValues` property succeeded. The raised-budget runs are correctness
+probes only. They use `-runs 0` to collect one pair without warm timings.
+
+Raw profiles and inputs are retained under
+`/private/tmp/compiler-root-evidence/a3` and
+`/private/tmp/compiler-root-evidence/workloads`. All successful digest
+comparisons agreed. The pre-deletion snapshot at `ebffc5cd2` contains
+8,308 records and matches the Phase 4 snapshot byte for byte.
 
 #### A4: delete the losers
 
