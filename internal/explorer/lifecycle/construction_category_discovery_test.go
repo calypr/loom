@@ -136,14 +136,14 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	includeMissing = true
 	includeNull = true
 	withMissing, err := service.DiscoverConstructionCategories(context.Background(), request)
-	if err != nil || withMissing.Outcome != constructionCategoryDiscoveryComplete || !withMissing.Complete ||
+	if err != nil || withMissing.Outcome != "COMPLETE" || !withMissing.Complete ||
 		len(withMissing.Categories) != 3 || withMissing.Categories[1].Key.Kind != authoringv2.TableScalarNull ||
 		withMissing.Categories[2].Key.Kind != authoringv2.TableScalarMissing {
 		t.Fatalf("presence-tracked missing-category discovery = %#v, error = %v", withMissing, err)
 	}
 	presenceTracked = false
 	unsupported, err := service.DiscoverConstructionCategories(context.Background(), request)
-	if err != nil || unsupported.Outcome != constructionCategoryDiscoveryMissingUnsupported || unsupported.Complete ||
+	if err != nil || unsupported.Outcome != "MISSING_UNSUPPORTED" || unsupported.Complete ||
 		len(unsupported.Categories) != 0 || !strings.Contains(unsupported.Message, "Filter rows where the category field is missing") {
 		t.Fatalf("untracked missing-category discovery = %#v, error = %v; want the conservative refusal", unsupported, err)
 	}
@@ -163,7 +163,7 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	incomplete = false
 	overflow = true
 	limited, err := service.DiscoverConstructionCategories(context.Background(), request)
-	if err != nil || limited.Outcome != constructionCategoryDiscoveryLimitExceeded || limited.Complete || limited.ProofFingerprint != "" || len(limited.Categories) != 0 || limited.Limit != facade.MaxCategoryScanValues || limited.Message == "" {
+	if err != nil || limited.Outcome != "LIMIT_EXCEEDED" || limited.Complete || limited.ProofFingerprint != "" || len(limited.Categories) != 0 || limited.Limit != facade.MaxCategoryScanValues || limited.Message == "" {
 		t.Fatalf("overflow scan result = %#v, error = %v", limited, err)
 	}
 	invalidProof = true
@@ -174,7 +174,7 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	overflow = false
 	noValues = true
 	empty, err := service.DiscoverConstructionCategories(context.Background(), request)
-	if err != nil || empty.Outcome != constructionCategoryDiscoveryNoValues || empty.Complete || len(empty.Categories) != 0 || !strings.Contains(empty.Message, "No selected value is populated") {
+	if err != nil || empty.Outcome != "NO_VALUES" || empty.Complete || len(empty.Categories) != 0 || !strings.Contains(empty.Message, "No selected value is populated") {
 		t.Fatalf("no-value category discovery = %#v, error = %v", empty, err)
 	}
 	noValues = false

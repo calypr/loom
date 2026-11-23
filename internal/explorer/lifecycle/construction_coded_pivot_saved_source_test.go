@@ -3,7 +3,6 @@ package lifecycle
 import (
 	"context"
 	"reflect"
-	"strconv"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -45,20 +44,7 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 	if !ok {
 		t.Fatal("current fallback selectors must resolve to exact compiler-proved candidates")
 	}
-	families := frameSourceFamilies(snapshot, []semantic.Entry{anchor})
-	if len(families) != 1 {
-		t.Fatalf("current CodeableConcept text + coding.display family count = %d, want 1", len(families))
-	}
-	family := families[0]
-	if family.Family.SchemaVersion != semantic.ObservationSchemaVersion || family.Family.RuleVersion != strconv.Itoa(semantic.SemanticObservationRuleVersion) ||
-		family.Family.ResourceType != "Observation" || family.Family.SourcePath != "code" ||
-		family.Family.KeyPath != "code.coding[]" || family.Family.ValuePath != "valueCodeableConcept.text" ||
-		family.Family.LogicalType != "string" {
-		t.Fatalf("current semantic family = %#v", family.Family)
-	}
-	if !reflect.DeepEqual(family.Family.ValueFallbacks, []string{"valueCodeableConcept.coding[].display"}) || !family.Family.FallbackOnBlankString {
-		t.Fatalf("current semantic family must include the opted-in coding.display fallback: %#v", family.Family)
-	}
+	family := semanticFrameCompatibilityFamily(t, anchor)
 	if anchor.Observation.Key.Display != "Stage I" || anchor.Observation.Value.Selector != "valueCodeableConcept.text" {
 		t.Fatalf("anchor must preserve the current CodeableConcept text + coding.display choice: %#v", anchor.Observation)
 	}
@@ -66,7 +52,7 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 	frameChoice, err := capability.NewSemanticFrameConstructionChoice(snapshot.Token, contextToken, buildID,
 		capability.SemanticFrameChoiceSource{
 			Kind: capability.ConstructionChoiceSourceSemanticFrame, AnchorConceptID: anchor.ConceptID,
-			Family: family.Family, CandidateID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath,
+			Family: family, CandidateID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath,
 		}, nil, choiceCandidate)
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +62,7 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 		t.Fatal(err)
 	}
 
-	priorFamily := family.Family
+	priorFamily := family
 	priorFamily.BindingID = semantic.LegacySemanticBindingIDV1(anchor.Observation)
 	priorFamily.SchemaVersion = 3
 	priorFamily.RuleVersion = "4"
@@ -107,7 +93,8 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 			Capabilities: []explorer.ReceiptConstructionOperationChoice{{Kind: string(recipe.ConstructionCodedPivotOp), Supported: true}},
 		}},
 	}
-	service := &Service{config: Config{ResolveSemanticInventorySelections: func(_ context.Context, options semantic.ResolveOptions) (semantic.ResolveResult, error) {
+	service := &Service{config: Config{
+		ResolveSemanticInventorySelections: func(_ context.Context, options semantic.ResolveOptions) (semantic.ResolveResult, error) {
 		if options.Project != "project-a" || options.DatasetGeneration != "generation-a" || options.AuthResourcePathsUnrestricted == nil || !*options.AuthResourcePathsUnrestricted ||
 			len(options.References) != 1 || options.References[0].BindingID != "stage-binding" {
 			t.Fatalf("semantic reauthorization scope = %#v", options)
@@ -131,7 +118,7 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 		DuplicatePolicy:   authoringv2.ConstructionPivotDuplicateError,
 		MissingCellPolicy: authoringv2.ConstructionPivotMissingNull,
 	}
-	resolved, verified, err := service.resolveConstructionCodedPivotChoices(context.Background(), base, "out-observation", candidateConstruction)
+	resolved, verified, err := service.syncConstructionService().ResolveConstructionCodedPivotChoices(context.Background(), base, "out-observation", candidateConstruction)
 	if err != nil {
 		t.Fatalf("reauthorize saved coded Pivot source and editable categories: %v", err)
 	}
@@ -150,7 +137,7 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 		t.Fatalf("edited coded categories = %#v, want %#v", got.Categories, wantCategories)
 	}
 
-	tamperedFamily := family.Family
+	tamperedFamily := family
 	tamperedFamily.KeyPath = "code.coding"
 	tamperedChoice, err := capability.NewSemanticFrameConstructionChoice(snapshot.Token, contextToken, buildID,
 		capability.SemanticFrameChoiceSource{
@@ -168,7 +155,7 @@ func TestResolveConstructionCodedPivotChoicesReauthorizesSavedPrimarySource(t *t
 		DuplicatePolicy:   authoringv2.ConstructionPivotDuplicateError,
 		MissingCellPolicy: authoringv2.ConstructionPivotMissingNull,
 	}
-	_, _, err = service.resolveConstructionCodedPivotChoices(context.Background(), base, "out-observation", tampered)
+	_, _, err = service.syncConstructionService().ResolveConstructionCodedPivotChoices(context.Background(), base, "out-observation", tampered)
 	assertLifecycleError(t, err, ports.ClassUnprocessable, "INVALID_FRAME_SOURCE")
 }
 

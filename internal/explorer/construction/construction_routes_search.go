@@ -275,3 +275,15 @@ func (s constructionRouteFlow) resolveConstructionSearchSemanticFamily(ctx conte
 	}
 	return resolved.Families[0], expectedBuild, nil
 }
+
+// Essential: lifecycle validates saved related-expand contributor choices.
+func ReauthorizeRelatedExpandContributor(ctx context.Context, base Base, rootResourceType string, related authoringv2.ConstructionRelatedExpand) error {
+	return reauthorizeRelatedExpandContributor(ctx, base, rootResourceType, related)
+}
+
+// Essential: lifecycle pages saved related-expand routes.
+type SavedRelatedExpandCursor = savedRelatedExpandCursor
+
+func PageSavedRelatedExpandRoutes(routes [][]capability.ConstructionRouteStep, scope SavedRelatedExpandCursor, cursor string, limit int) ([][]capability.ConstructionRouteStep, string, error) {
+	return pageSavedRelatedExpandRoutes(routes, scope, cursor, limit)
+}

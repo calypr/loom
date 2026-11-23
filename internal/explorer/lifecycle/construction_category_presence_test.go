@@ -149,7 +149,7 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if queries != 1 || !response.Complete || response.Outcome != constructionCategoryDiscoveryComplete || len(response.Categories) != 1 {
+	if queries != 1 || !response.Complete || response.Outcome != "COMPLETE" || len(response.Categories) != 1 {
 		t.Fatalf("filtered ordinary STRING probe discovery = %#v; actual compiler scans=%d", response, queries)
 	}
 	if response.Categories[0].Key.Kind != authoringv2.TableScalarString {

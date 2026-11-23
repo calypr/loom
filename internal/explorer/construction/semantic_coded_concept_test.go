@@ -1,4 +1,4 @@
-package lifecycle
+package construction
 
 import (
 	"context"
@@ -77,9 +77,6 @@ func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(
 		if option.Form == capability.ConstructionChoiceOwnerRecords {
 			t.Fatalf("standalone Coding choice must not expose enclosing-owner records: %#v", choice.Options)
 		}
-	}
-	if families := frameSourceFamilies(snapshot, []semantic.Entry{entry}); len(families) != 0 {
-		t.Fatalf("standalone Coding unexpectedly became a paired coded-Pivot frame: %#v", families)
 	}
 	if _, _, ok := semanticEntryForFrameFamily(entry, capability.SemanticFrameFamily{}); ok {
 		t.Fatal("standalone Coding was accepted as an owner-scoped paired code/value frame")

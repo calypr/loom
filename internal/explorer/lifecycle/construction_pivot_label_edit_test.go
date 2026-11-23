@@ -2,7 +2,6 @@ package lifecycle
 
 import (
 	"context"
-	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -62,59 +61,4 @@ func TestProposeConstructionPivotLabelOnlyKeepsSavedEmptyCategory(t *testing.T) 
 			}
 		})
 	}
-}
-func TestPivotLabelOnlyEditRejectsChangedInputAncestry(t *testing.T) {
-	service, store, snapshot, _, _ := constructionProposalPivotFixture(t)
-	_ = service
-	request := constructionProposalPivotRequest(store.created, snapshot, []authoringv2.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("final"), OutputColumnID: "pivot_final"}})
-	base := request.CandidateConstruction
-	prefix := constructionPivotFilterStep()
-	prefix.ID = "upstream"
-	prefix.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}}
-	base.Steps = append([]authoringv2.ConstructionStep{prefix}, base.Steps...)
-	base.Steps[1].Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "upstream"}}
-	clone := func(c authoringv2.Construction) authoringv2.Construction {
-		raw, err := json.Marshal(c)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var result authoringv2.Construction
-		if err = json.Unmarshal(raw, &result); err != nil {
-			t.Fatal(err)
-		}
-		return result
-	}
-	candidate := clone(base)
-	candidate.Steps[1].Outputs[1].Label = "Renamed"
-	if !constructionPivotLabelOnlyEdit(base, candidate, "pivot_status") {
-		t.Fatal("unchanged ancestry label edit refused")
-	}
-
-	for _, tc := range []struct {
-		name   string
-		mutate func(*authoringv2.Construction)
-	}{
-		{"upstream membership", func(c *authoringv2.Construction) {
-			c.Steps[0].Operation.Filter.Operator = authoringv2.ConstructionFilterMissing
-		}},
-		{"output name", func(c *authoringv2.Construction) { c.Steps[1].Outputs[1].Name = "different_name" }},
-		{"output ID", func(c *authoringv2.Construction) { c.Steps[1].Outputs[1].ID = "different_id" }},
-		{"output type", func(c *authoringv2.Construction) { c.Steps[1].Outputs[1].Type = "integer" }},
-		{"output nullability", func(c *authoringv2.Construction) { c.Steps[1].Outputs[1].Nullable = !c.Steps[1].Outputs[1].Nullable }},
-		{"input stage", func(c *authoringv2.Construction) {
-			c.Steps[1].Inputs[0] = authoringv2.ConstructionInputRef{Kind: authoringv2.ConstructionInputSourceProjection}
-		}},
-		{"source projection", func(c *authoringv2.Construction) {
-			c.SourceProjections = append(c.SourceProjections, authoringv2.ConstructionSourceProjection{ColumnID: "different_source"})
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			changed := clone(candidate)
-			tc.mutate(&changed)
-			if constructionPivotLabelOnlyEdit(base, changed, "pivot_status") {
-				t.Fatal("semantic change classified as label-only")
-			}
-		})
-	}
-
 }

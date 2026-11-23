@@ -502,3 +502,5 @@ func relatedCodingFieldLabel(index *fhirschema.Index, resourceType, selector str
 	}
 	return constructionGroupFieldLabel(parentPath)
 }
+
+func (s relatedCodingSelector) Path() string { return s.path }

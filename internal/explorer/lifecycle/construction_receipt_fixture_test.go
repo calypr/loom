@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/semantic"
 )
 
 type lifecycleConstructionColumn struct {
@@ -68,4 +70,29 @@ func lifecycleErrorCode(err error) string {
 func proposalErrorIs(err error, class ports.ErrorClass, code string) bool {
 	var lifecycleErr *ports.Error
 	return errors.As(err, &lifecycleErr) && lifecycleErr.Class == class && lifecycleErr.Code == code
+}
+
+func lifecycleTestStringScalar(value string) authoringv2.TableScalar {
+	return authoringv2.TableScalar{Kind: authoringv2.TableScalarString, String: &value}
+}
+
+func testCodedCategoryFamily(sourceKind, resourceType, sourcePath, system, version string) semantic.Family {
+	reference := semantic.FamilyReference{
+		BindingID: "binding-" + resourceType, SourceKind: sourceKind, ResourceType: resourceType,
+		SourcePath: sourcePath, System: system, Version: version,
+	}
+	reference.FamilyID = semantic.FamilyID(reference)
+	return semantic.Family{
+		FamilyReference: reference,
+		Source:          semantic.Source{Type: resourceType, Path: sourcePath},
+		KeySelector:     "code.coding[]",
+		Value: semantic.Value{
+			Selector: "code.coding[].display", Type: "string",
+			FallbackSelectors: []string{"code.coding[].code"}, FallbackOnBlankString: true,
+		},
+		LogicalType: "string", SchemaVersion: semantic.ObservationSchemaVersion,
+		RuleVersion:  strconv.Itoa(semantic.SemanticObservationRuleVersion),
+		Completeness: semantic.CompletenessComplete, Status: "SUPPORTED", Population: 2,
+		Examples: []string{"CARBOXYAMIDOTRIAZOLE", "another compound"},
+	}
 }

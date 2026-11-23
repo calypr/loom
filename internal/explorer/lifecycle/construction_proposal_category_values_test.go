@@ -220,7 +220,7 @@ func TestVerifyConstructionProposalPivotCategoriesRejectsModifiedDownstreamPivot
 	if base == nil {
 		t.Fatal("fixture has no base construction")
 	}
-	if _, err := service.verifyConstructionProposalPivotCategoriesExcept(context.Background(), request, candidate, base, nil); lifecycleErrorCode(err) != "PIVOT_CATEGORY_HAS_NO_VALUES" {
+	if _, err := service.syncConstructionService().VerifyConstructionProposalPivotCategoriesExcept(context.Background(), request, candidate, base, nil); lifecycleErrorCode(err) != "PIVOT_CATEGORY_HAS_NO_VALUES" {
 		t.Fatalf("modified downstream Pivot verification error = %v, want PIVOT_CATEGORY_HAS_NO_VALUES", err)
 	}
 }
@@ -444,5 +444,5 @@ func (s *Service) verifyConstructionProposalPivotCategories(
 	request ConstructionProposalRequest,
 	candidate authoringv2.Construction,
 ) ([]ConstructionProposalDiagnostic, error) {
-	return s.verifyConstructionProposalPivotCategoriesExcept(ctx, request, candidate, nil, nil)
+	return s.syncConstructionService().VerifyConstructionProposalPivotCategoriesExcept(ctx, request, candidate, nil, nil)
 }

@@ -1,4 +1,4 @@
-package lifecycle
+package construction
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/explorer/rowdef"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -211,10 +212,6 @@ func pivotSourcePresentationFixture() (authoringv2.Document, authoringv2.Constru
 	return document, construction
 }
 
-func lifecycleTestStringScalar(value string) authoringv2.TableScalar {
-	return authoringv2.TableScalar{Kind: authoringv2.TableScalarString, String: &value}
-}
-
 func pivotPresentationBool(value bool) *bool { return &value }
 
 func pivotPresentationInt(value int) *int { return &value }
@@ -238,7 +235,7 @@ func TestConstructionPivotSourceCapabilityReportsPreciseSkipClassReasonCodes(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolver, err := NewSchemaRowChoiceResolver(index)
+	resolver, err := rowdef.NewSchemaRowChoiceResolver(index)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +331,7 @@ func TestConstructionPivotSourceCapabilityReportsPreciseSkipClassReasonCodes(t *
 		t.Run(row.name, func(t *testing.T) {
 			base := filterSourceBase(row.snapshot, row.construction)
 			base.Stages = append(base.Stages, row.stages...)
-			result, err := row.service.constructionSources().ConstructionPivotSourceCapability(context.Background(), base, filterSourceOutput, row.stageID)
+			result, err := row.service.constructionSources().constructionPivotSourceCapability(context.Background(), base, filterSourceOutput, row.stageID)
 			if err != nil {
 				t.Fatalf("pivot source capability: %v", err)
 			}
@@ -412,7 +409,7 @@ func TestConstructionPivotSourceCapabilityNamesInventoryFailureDistinctly(t *tes
 	distinct := map[string]bool{}
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
-			result, err := row.service.constructionSources().ConstructionPivotSourceCapability(context.Background(),
+			result, err := row.service.constructionSources().constructionPivotSourceCapability(context.Background(),
 				filterSourceBase(row.snapshot, empty), filterSourceOutput, recipe.ConstructionSourceProjectionID)
 			if row.wantFail {
 				if err == nil {

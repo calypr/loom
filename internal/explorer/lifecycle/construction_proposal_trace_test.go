@@ -1125,8 +1125,11 @@ func prepareOperationHistorySeeds(t *testing.T, traces operationHistoryTraceFile
 		prepareRequest := ConstructionProposalRequest{Project: workspaceContext.Project, ExplorerID: workspaceContext.ExplorerID, SnapshotToken: identity.SnapshotToken,
 			ExpectedDraftVersion: identity.AcceptedVersion, ExpectedDraftDigest: identity.AcceptedDigest, OutputID: identity.OutputID}
 		service, store, _, _, stats := newOperationHistoryService(t, workspace, prepareRequest)
-		if _, err := service.loadConstructionBase(context.Background(), prepareRequest.Project, prepareRequest.ExplorerID, prepareRequest.SnapshotToken,
-			prepareRequest.ExpectedDraftVersion, prepareRequest.ExpectedDraftDigest, prepareRequest.OutputID); err != nil {
+		if _, err := service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+			Project: prepareRequest.Project, ExplorerID: prepareRequest.ExplorerID, SnapshotToken: prepareRequest.SnapshotToken,
+			ExpectedDraftVersion: prepareRequest.ExpectedDraftVersion, ExpectedDraftDigest: prepareRequest.ExpectedDraftDigest,
+			OutputID: prepareRequest.OutputID, StageID: recipe.ConstructionSourceProjectionID,
+		}); err != nil {
 			t.Errorf("seed %s real base compile/validate: %v", id, err)
 			failed = true
 			continue

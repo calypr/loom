@@ -122,7 +122,7 @@ func TestPivotSourceClearSurvivesFilterPreparation(t *testing.T) {
 		ChangedStepID: rs05PivotID, PivotSources: []ConstructionPivotSourceSelection{},
 	}
 
-	cleared, _, err := service.constructionSources().ConstructionCandidateWithPivotSources(context.Background(), base, request, candidate)
+	cleared, _, err := service.syncConstructionService().ConstructionSources().ConstructionCandidateWithPivotSources(context.Background(), base, request, candidate)
 	if err != nil {
 		t.Fatalf("pivot preparation for the clear: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestPivotSourceReplaceSurvivesFilterPreparation(t *testing.T) {
 		}},
 	}
 
-	prepared, _, err := service.constructionSources().ConstructionCandidateWithPivotSources(context.Background(), base, request, candidate)
+	prepared, _, err := service.syncConstructionService().ConstructionSources().ConstructionCandidateWithPivotSources(context.Background(), base, request, candidate)
 	if err != nil {
 		t.Fatalf("pivot preparation for the replacement: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestPivotSourceClearWithoutFilterPreparationUnaffected(t *testing.T) {
 		Version: authoringv2.ConstructionVersion,
 		Steps:   []authoringv2.ConstructionStep{rs05PivotStep(rs05PivotID, filterSourceIdentity)},
 	}
-	cleared, _, err := service.constructionSources().ConstructionCandidateWithPivotSources(context.Background(),
+	cleared, _, err := service.syncConstructionService().ConstructionSources().ConstructionCandidateWithPivotSources(context.Background(),
 		filterSourceBase(snapshot, baseConstruction),
 		ConstructionProposalRequest{
 			Project: filterSourceProject, ExplorerID: filterSourceExplorer, SnapshotToken: "filter-source-token",
@@ -357,7 +357,7 @@ func TestXopPortPivotLaneReaddsDuringFilterChange(t *testing.T) {
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: "sha256:xop", OutputID: filterSourceOutput,
 		ChangedStepID: rs05FilterID,
 	}
-	prepared, _, err := service.constructionSources().ConstructionCandidateWithPivotSources(context.Background(), base, request, rs05CloneConstruction(rs05SeedCleared()))
+	prepared, _, err := service.syncConstructionService().ConstructionSources().ConstructionCandidateWithPivotSources(context.Background(), base, request, rs05CloneConstruction(rs05SeedCleared()))
 	if err != nil {
 		t.Fatalf("pivot lane during filter change failed: %v", err)
 	}
@@ -421,7 +421,7 @@ func TestXopPortClearPivotPathEmptySliceStrips(t *testing.T) {
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: "sha256:xop", OutputID: filterSourceOutput,
 		ChangedStepID: rs05PivotID, PivotSources: []ConstructionPivotSourceSelection{},
 	}
-	cleared, _, err := service.constructionSources().ConstructionCandidateWithPivotSources(context.Background(), base, request, rs05CloneConstruction(durable))
+	cleared, _, err := service.syncConstructionService().ConstructionSources().ConstructionCandidateWithPivotSources(context.Background(), base, request, rs05CloneConstruction(durable))
 	if err != nil {
 		t.Fatalf("clear pivot with empty slice failed: %v", err)
 	}
@@ -457,7 +457,7 @@ func TestXopPortPivotSetBranchDoesNotReImportClearedFilterProjection(t *testing.
 			ColumnID: rs05NewColumn,
 		}},
 	}
-	prepared, _, err := service.constructionSources().ConstructionCandidateWithPivotSources(context.Background(), base, request, candidate)
+	prepared, _, err := service.syncConstructionService().ConstructionSources().ConstructionCandidateWithPivotSources(context.Background(), base, request, candidate)
 	if err != nil {
 		t.Fatalf("pivot SET while the filter source was cleared: %v", err)
 	}
@@ -526,7 +526,7 @@ func TestFilterSourceClearNotRestoredByPivotPreparation(t *testing.T) {
 	base := filterSourceBase(snapshot, baseConstruction)
 	request := filterSourceProposalRequest(rs05FilterID, []ConstructionFilterSourceSelection{})
 
-	afterPivot, _, err := service.constructionSources().ConstructionCandidateWithPivotSources(context.Background(), base, request, candidate)
+	afterPivot, _, err := service.syncConstructionService().ConstructionSources().ConstructionCandidateWithPivotSources(context.Background(), base, request, candidate)
 	if err != nil {
 		t.Fatalf("pivot preparation before a filter clear: %v", err)
 	}
@@ -600,7 +600,7 @@ func rs05IndexOwned(projections []authoringv2.ConstructionSourceProjection, owne
 
 func rs05RunBothPreparations(t *testing.T, service *Service, base constructionBase, request ConstructionProposalRequest, candidate authoringv2.Construction) authoringv2.Construction {
 	t.Helper()
-	prepared, _, err := service.constructionSources().ConstructionCandidateWithPivotSources(context.Background(), base, request, candidate)
+	prepared, _, err := service.syncConstructionService().ConstructionSources().ConstructionCandidateWithPivotSources(context.Background(), base, request, candidate)
 	if err != nil {
 		t.Fatalf("pivot preparation: %v", err)
 	}
@@ -992,7 +992,7 @@ func TestXopPortPivotSetBranchDoesNotReImportClearedDeriveProjection(t *testing.
 			ColumnID: rs05NewColumn,
 		}},
 	}
-	prepared, _, err := service.constructionSources().ConstructionCandidateWithPivotSources(context.Background(), base, request, candidate)
+	prepared, _, err := service.syncConstructionService().ConstructionSources().ConstructionCandidateWithPivotSources(context.Background(), base, request, candidate)
 	if err != nil {
 		t.Fatalf("pivot SET while the derive source was cleared: %v", err)
 	}

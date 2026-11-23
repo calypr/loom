@@ -967,3 +967,13 @@ func validatePivotSourceColumns(steps []authoringv2.ConstructionStep, pivotID st
 	}
 	return nil
 }
+
+// Essential: lifecycle composes construction Pivot preparation with its filter source lane.
+func (s constructionRowSources) ConstructionCandidateWithPivotSources(
+	ctx context.Context,
+	base Base,
+	request ConstructionProposalRequest,
+	candidate authoringv2.Construction,
+) (authoringv2.Construction, map[string]bool, error) {
+	return s.constructionCandidateWithPivotSources(ctx, base, request, candidate)
+}
