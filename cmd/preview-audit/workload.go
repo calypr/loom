@@ -17,16 +17,16 @@ type query struct {
 }
 
 type workload struct {
-	Name                string           `json:"name"`
-	Plan                *ir.PhysicalPlan `json:"plan,omitempty"`
-	Mode                string           `json:"mode,omitempty"`
-	RootIndex           string           `json:"rootIndex,omitempty"`
-	GroupKeySourcePaths [][]string       `json:"groupKeySourcePaths,omitempty"`
-	Fast                query            `json:"fast,omitempty"`
-	Generic             query            `json:"generic,omitempty"`
-	FastContains        []string         `json:"fastContains"`
-	GenericExcludes     []string         `json:"genericExcludes"`
-	Ordered             bool             `json:"ordered"`
+	Name      string           `json:"name"`
+	Plan      *ir.PhysicalPlan `json:"plan,omitempty"`
+	Mode      string           `json:"mode,omitempty"`
+	RootIndex string           `json:"rootIndex,omitempty"`
+
+	Fast            query    `json:"fast,omitempty"`
+	Generic         query    `json:"generic,omitempty"`
+	FastContains    []string `json:"fastContains"`
+	GenericExcludes []string `json:"genericExcludes"`
+	Ordered         bool     `json:"ordered"`
 }
 
 func loadWorkload(path string) (workload, error) {
@@ -75,8 +75,6 @@ func (input *workload) render() error {
 	switch input.Mode {
 	case "streaming-pivot":
 		options.Preview = aql.StreamingMissingCategoryPivotPreview{}
-	case "two-scan-pivot":
-		options.Preview = aql.TwoScanPivotPreview{GroupKeySourcePaths: input.GroupKeySourcePaths}
 	case "semantic-group":
 		options.Preview = aql.SemanticGroupProjectionFactorizationPreview{}
 	case "root-index":

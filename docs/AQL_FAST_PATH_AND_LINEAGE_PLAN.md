@@ -1,6 +1,6 @@
 # AQL fast-path audit and lineage agreement plan
 
-Status: Track A resumed. A1 and A2 are complete. A3 recorded the CDA comparisons. A4 is pending. Track B was committed separately on `aql-lineage-agreement`. Original measurements at `bb50db30b` on `internal-cleanup`.
+Status: Track A resumed. A1 and A2 are complete. A3 recorded the CDA comparisons. A4 removed Dynamic Pivot and the covering-index two-scan Pivot path. Track B was committed separately on `aql-lineage-agreement`. Original measurements at `bb50db30b` on `internal-cleanup`.
 
 Precondition: `docs/AQL_RENDER_REFACTOR_PLAN.md` Phases 1 to 4 and
 `docs/EXECUTION_REFACTOR_PLAN.md` are merged. This plan assumes:
@@ -281,14 +281,21 @@ comparisons agreed. The pre-deletion snapshot at `ebffc5cd2` contains
   - `make test-go`, `make test-integration`;
   - run `python3 scripts/package_audit_verify.py` if a package loses all of its code.
 
-Dynamic Pivot was removed first. The shared dynamic category renderer stays
-until the two-scan removal. The Arango test kept its SUM, MIN, MAX, null
+Dynamic Pivot was removed first. The two-scan removal then deleted the shared
+dynamic category renderer. The Arango test kept its SUM, MIN, MAX, null
 category, and full-result assertions. The AQL marker assertion was removed
 with operator approval. Build, full Go suite, comment lint, and integration
 passed. The 8,308-record snapshot was unchanged. Production replay matched
 the audited generic AQL, binds, and all 25 CDA rows. The retired comparison
 hit its deadline during that replay. The generic result matched the earlier
 successful digest exactly.
+
+The two-scan path now uses the generic Pivot query with the same covering
+index hint. CDA replay matched the audited query, binds, and 25-row result
+digest. Of 8,308 original snapshot records, 8,298 were byte-identical.
+Nine two-scan records became generic hinted renders for the same plans.
+One render belonged to the deleted test for the two-scan binding namespaces.
+The remaining Arango tests kept their row and error assertions.
 
 ### Correctness
 

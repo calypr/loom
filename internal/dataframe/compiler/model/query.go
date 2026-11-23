@@ -14,8 +14,6 @@ type PreviewCoveringIndexSpec struct {
 	StoredValues []string
 
 	PrepareAfterPreview bool
-
-	PivotGroupKeyPaths [][]string
 }
 
 type PreviewGroupScanSpec struct {

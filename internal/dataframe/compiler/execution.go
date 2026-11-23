@@ -100,11 +100,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 			rendered, err = aql.Render(physical, aql.Options{Preview: aql.StreamingMissingCategoryPivotPreview{}})
 		}
 	} else if previewCoveringIndex != nil {
-		if len(previewCoveringIndex.PivotGroupKeyPaths) != 0 {
-			rendered, err = aql.Render(physical, aql.Options{RootIndex: aql.RootIndexHint(previewCoveringIndex.Name), Preview: aql.TwoScanPivotPreview{GroupKeySourcePaths: previewCoveringIndex.PivotGroupKeyPaths}})
-		} else {
-			rendered, err = aql.Render(physical, aql.Options{RootIndex: aql.RootIndexHint(previewCoveringIndex.Name)})
-		}
+		rendered, err = aql.Render(physical, aql.Options{RootIndex: aql.RootIndexHint(previewCoveringIndex.Name)})
 	} else {
 		rendered, err = aql.Render(physical, aql.Options{})
 	}

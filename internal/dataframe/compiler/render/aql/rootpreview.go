@@ -37,9 +37,8 @@ func terminalSourceGroupPreviewWindowFor(
 		sequence.OutputAuthResourcePathBindKey != "" || options.omitTerminalRowSort || options.omitTerminalReturn ||
 		options.terminalReturnVariable != "" || options.terminalProjectionColumn != "" || options.rootIndex.hint != "" ||
 		(options.rootIndex.kind == rootIndexOff) || options.projectionPresenceMarkerColumn != "" || len(options.preserveProjectionPresenceNames) != 0 ||
-		options.twoScanPivot() || options.dynamicPivot() || options.streamingMissingCategoryPivot() ||
-		(options.streamingMissingCategoryPivot() && options.rootIndex.kind == rootIndexHinted) || options.previewRootKeyWindowVariable != "" || options.previewGroupIdentityFilter != nil ||
-		options.pivotGroupTupleFilter != nil {
+		options.streamingMissingCategoryPivot() ||
+		(options.streamingMissingCategoryPivot() && options.rootIndex.kind == rootIndexHinted) || options.previewRootKeyWindowVariable != "" || options.previewGroupIdentityFilter != nil {
 		return ir.PhysicalPlan{}, sourceGroupPreviewShape{}, false
 	}
 	if limit, ok := plan.BindVars[sequence.PreviewLimitBindKey].(int); !ok || limit <= 0 ||

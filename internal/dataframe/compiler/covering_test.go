@@ -355,45 +355,15 @@ func TestConstructionPreviewTerminalPivotLimitsCompleteGroupsBeforeCellReduction
 	if !preview.PartialValidation {
 		t.Fatal("terminal Pivot preview window was not marked as partial validation")
 	}
-	selectedStart := strings.Index(preview.Query, "LET __loom_physical_construction_reshape_preview_selected_group_keys = (")
-	if selectedStart < 0 {
-		t.Fatalf("terminal Pivot preview has no first-pass group selection:\n%s", preview.Query)
-	}
-	selectedLimit := strings.Index(preview.Query[selectedStart:], "LIMIT @limit") + selectedStart
-	sourceStart := strings.Index(preview.Query, "LET __loom_construction_source_projection = (")
-	filterAt := strings.Index(preview.Query, "FILTER root.payload.gender IN __loom_physical_construction_reshape_preview_selected_group_keys")
 	stageStart := strings.Index(preview.Query, "LET __loom_construction_stage_1 = (")
-	if selectedLimit <= selectedStart || sourceStart <= selectedLimit || filterAt <= sourceStart || stageStart <= filterAt {
-		t.Fatalf("preview must select complete group tuples, filter the direct source scan before its wide projection, then run the Pivot stage:\n%s", preview.Query)
-	}
-	keySource := preview.Query[selectedStart:sourceStart]
-	if strings.Contains(keySource, "root.payload.multipleBirthInteger") || strings.Contains(keySource, "root.payload.category") ||
-		strings.Count(keySource, "RETURN {") != 1 {
-		t.Fatalf("first pass materialized non-key source projections:\n%s", keySource)
-	}
-	sourceQuery := preview.Query[sourceStart:stageStart]
-	groupFilterAt := strings.Index(sourceQuery, "FILTER root.payload.gender IN __loom_physical_construction_reshape_preview_selected_group_keys")
-	projectionAt := strings.Index(sourceQuery, "RETURN ")
-	if !strings.Contains(sourceQuery, "root.payload.multipleBirthInteger") || groupFilterAt < 0 || projectionAt <= groupFilterAt {
-		t.Fatalf("second pass must filter raw source keys before materializing the full Pivot contributor projection:\n%s", sourceQuery)
-	}
-	for _, scope := range []string{
-		"root.project == @project",
-		"root.dataset_generation == @dataset_generation",
-		"root.auth_resource_path IN @auth_resource_paths",
-	} {
-		if strings.Count(preview.Query, scope) != 2 {
-			t.Fatalf("source scope %q appears %d times, want both scans:\n%s", scope, strings.Count(preview.Query, scope), preview.Query)
-		}
+	if stageStart < 0 {
+		t.Fatalf("terminal Pivot stage missing:\n%s", preview.Query)
 	}
 	stage := preview.Query[stageStart:]
 	collectAt := strings.Index(stage, "COLLECT ")
 	cellValidationAt := strings.Index(stage, "TABLE_PIVOT_CELL_CARDINALITY")
 	if collectAt < 0 || cellValidationAt <= collectAt {
 		t.Fatalf("preview must collect selected groups completely before computing cells:\n%s", stage)
-	}
-	if strings.Count(stage, "LIMIT @limit") != 1 || strings.Count(preview.Query, "LIMIT @limit") != 2 {
-		t.Fatalf("expected first-pass group and final output limits:\n%s", preview.Query)
 	}
 	if got := preview.BindVars["limit"]; got != 3 {
 		t.Fatalf("preview limit bind = %#v, want 3", got)
@@ -402,22 +372,6 @@ func TestConstructionPreviewTerminalPivotLimitsCompleteGroupsBeforeCellReduction
 	full := compileConstructionPivotPreview(t, constructionPreviewPivotOutput("root.gender", false), 0)
 	if full.PartialValidation || strings.Contains(full.Query, "LIMIT @limit") || strings.Contains(full.Query, "reshape_preview_identity") {
 		t.Fatalf("full execution received the preview-only group window:\n%s", full.Query)
-	}
-}
-
-func TestConstructionPreviewTwoScanUsesSeparateProjectionBindNamespaces(t *testing.T) {
-	output := constructionPreviewPivotOutput("root.gender", false)
-	output.Fields[0], output.Fields[1] = output.Fields[1], output.Fields[0]
-	query := compileConstructionPivotPreview(t, output, 3)
-	if got := query.BindVars["__loom_physical_preview_key_projection_0_name"]; got != "resource_id" {
-		t.Fatalf("first-pass projection-name bind = %#v, want resource_id", got)
-	}
-	if got := query.BindVars["__loom_physical_projection_0_name"]; got != "_key" {
-		t.Fatalf("second-pass projection-name bind = %#v, want _key", got)
-	}
-	if _, ok := query.BindVars["__loom_physical_reshape_preview_source_group_column"]; ok ||
-		!strings.Contains(query.Query, "FILTER root.payload.gender IN __loom_physical_construction_reshape_preview_selected_group_keys") {
-		t.Fatalf("second-pass filter did not use the compiler-proven direct group source path:\n%s", query.Query)
 	}
 }
 
@@ -445,11 +399,11 @@ func TestConstructionPreviewCoveringIndexMetadataAndRootHint(t *testing.T) {
 		t.Fatalf("index stored values = %#v, want %#v", index.StoredValues, wantStoredValues)
 	}
 	wantHint := "OPTIONS { indexHint: \"" + index.Name + "\", forceIndexHint: false }"
-	if strings.Count(query.Query, wantHint) != 2 {
-		t.Fatalf("both source scans must use the same non-forcing index hint %q:\n%s", wantHint, query.Query)
+	if strings.Count(query.Query, wantHint) != 1 {
+		t.Fatalf("the source scan must use the non-forcing index hint %q:\n%s", wantHint, query.Query)
 	}
-	if strings.Count(query.Query, "FOR root IN @@root_collection "+wantHint) != 2 {
-		t.Fatalf("index hint was not placed on both root source scans:\n%s", query.Query)
+	if strings.Count(query.Query, "FOR root IN @@root_collection "+wantHint) != 1 {
+		t.Fatalf("index hint was not placed on the root source scan:\n%s", query.Query)
 	}
 
 	repeated := compileConstructionPivotPreview(t, constructionPreviewPivotOutput("root.gender", false), 3)

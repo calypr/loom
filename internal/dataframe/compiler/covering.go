@@ -56,15 +56,10 @@ func previewCoveringIndexSpec(plan ir.PhysicalPlan) *model.PreviewCoveringIndexS
 		if !ok || !pivotInputsPassThroughSourceColumns(stage, sourceReturn.Projections) {
 			return nil
 		}
-		groupKeyPaths, ok := previewCoveringPivotGroupKeyPaths(stage.GroupedPivot, sourceReturn.Projections, rootScan.Variable)
-		if !ok {
+		if !previewCoveringPivotGroupKeys(stage.GroupedPivot, sourceReturn.Projections, rootScan.Variable) {
 			return nil
 		}
-		spec := previewCoveringIndexSpecForSourcePaths(collection, projectionPaths)
-		if spec != nil {
-			spec.PivotGroupKeyPaths = groupKeyPaths
-		}
-		return spec
+		return previewCoveringIndexSpecForSourcePaths(collection, projectionPaths)
 	case ir.PhysicalStageGroupOp:
 		if sequence.PreviewTerminalPivotWindow {
 			return nil
@@ -388,27 +383,25 @@ func previewCoveringGroupProjectionPath(projection ir.PhysicalProjection, rootVa
 	return "", false
 }
 
-func previewCoveringPivotGroupKeyPaths(pivot *ir.PhysicalGroupedPivot, projections []ir.PhysicalProjection, rootVariable string) ([][]string, bool) {
+func previewCoveringPivotGroupKeys(pivot *ir.PhysicalGroupedPivot, projections []ir.PhysicalProjection, rootVariable string) bool {
 	if pivot == nil || len(pivot.GroupKeys) == 0 {
-		return nil, false
+		return false
 	}
 	byName := make(map[string]ir.PhysicalProjection, len(projections))
 	for _, projection := range projections {
 		byName[projection.Name] = projection
 	}
-	paths := make([][]string, 0, len(pivot.GroupKeys))
 	for _, key := range pivot.GroupKeys {
 		projection, found := byName[key.Column]
 		if !found {
-			return nil, false
+			return false
 		}
-		path, ok := previewCoveringProjectionPath(projection, rootVariable)
+		_, ok := previewCoveringProjectionPath(projection, rootVariable)
 		if !ok {
-			return nil, false
+			return false
 		}
-		paths = append(paths, strings.Split(path, "."))
 	}
-	return paths, true
+	return true
 }
 
 func previewCoveringIndexSpecForSourcePaths(collection string, projectionPaths []string) *model.PreviewCoveringIndexSpec {

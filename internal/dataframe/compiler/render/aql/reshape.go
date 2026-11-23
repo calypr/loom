@@ -161,12 +161,6 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		))
 	}
 
-	if r.dynamicPivot() && !pivot.OneInputRowPerGroup {
-		return r.renderGroupedTablePivotDynamicPreview(
-			pivot, lines, categoryColumnBind, valueColumnBind, categoryPresenceBind,
-			categoryTypeBind, valueTypeBind, previewIdentityVariable,
-		)
-	}
 	categoryCount := len(pivot.Categories)
 	if pivot.CodedCorrelation != nil {
 		categoryCount = len(pivot.CodedCategories)
