@@ -3,9 +3,13 @@ package interpretation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 type Repository interface {
@@ -205,4 +209,114 @@ func (s *Service) CreateInterpretationRevision(ctx context.Context, request Crea
 		return InterpretationRevision{}, s.errors.Internal("interpretations", "INTERPRETATION_REVISION_INTEGRITY", "interpretation repository returned content different from the prepared revision", nil)
 	}
 	return *created, nil
+}
+
+func ConfiguredPinnedRevisionIDs(workspace authoringv2.Workspace) (map[InterpretationRevisionID]struct{}, error) {
+	ids := make(map[InterpretationRevisionID]struct{})
+	for _, document := range workspace.Documents {
+		for _, column := range document.Columns {
+			if column.Interpretation == nil || column.Interpretation.Kind != authoringv2.FeatureInterpretationPinned {
+				continue
+			}
+			if column.Interpretation.Pinned == nil {
+				return nil, fmt.Errorf("%s/%s has a pinned interpretation without a revision", document.Output.ID, column.Column)
+			}
+			id, err := NewInterpretationRevisionID(strings.TrimSpace(column.Interpretation.Pinned.RevisionID))
+			if err != nil {
+				return nil, err
+			}
+			ids[id] = struct{}{}
+		}
+	}
+	return ids, nil
+}
+
+func (s *Service) LoadRevisions(ctx context.Context, project string, ids map[InterpretationRevisionID]struct{}) (map[InterpretationRevisionID]InterpretationRevision, error) {
+	repository, err := s.repositoryOrError()
+	if err != nil {
+		return nil, err
+	}
+	ordered := make([]string, 0, len(ids))
+	for id := range ids {
+		ordered = append(ordered, string(id))
+	}
+	sort.Strings(ordered)
+	result := make(map[InterpretationRevisionID]InterpretationRevision, len(ids))
+	for _, rawID := range ordered {
+		id := InterpretationRevisionID(rawID)
+		revision, err := repository.GetInterpretationRevision(ctx, project, id)
+		if s.isNotFound(err) {
+			return nil, s.errors.Conflict("interpretation-context", "INTERPRETATION_REVISION_MISSING", "a referenced interpretation revision is no longer available", nil, err)
+		}
+		if err != nil {
+			return nil, s.errors.PersistenceFailure("interpretation-context", "an interpretation revision could not be loaded", err)
+		}
+		if revision == nil || revision.ID != id || revision.Project != project {
+			return nil, s.errors.Internal("interpretation-context", "INTERPRETATION_REVISION_INTEGRITY", "interpretation revision crossed project scope", nil)
+		}
+		if err := revision.Validate(); err != nil {
+			return nil, s.errors.Internal("interpretation-context", "INTERPRETATION_REVISION_INTEGRITY", "interpretation revision is invalid", err)
+		}
+		result[id] = *revision
+	}
+	return result, nil
+}
+
+func (s *Service) LibrarySummaries(libraries []InterpretationLibrary, revisions map[InterpretationRevisionID]InterpretationRevision) ([]InterpretationLibrarySummary, error) {
+	result := make([]InterpretationLibrarySummary, 0, len(libraries))
+	for _, library := range libraries {
+		summary := InterpretationLibrarySummary{ID: string(library.ID), HeadRevisionID: string(library.HeadRevisionID), HeadDigest: string(library.HeadDigest), UpdatedAt: library.UpdatedAt}
+		if library.HeadRevisionID != "" {
+			revision, ok := revisions[library.HeadRevisionID]
+			if !ok || revision.LibraryID != library.ID || revision.ContentDigest != library.HeadDigest {
+				return nil, s.errors.Internal("interpretation-context", "INTERPRETATION_HEAD_INTEGRITY", "interpretation library head does not match its immutable revision", nil)
+			}
+			value := InterpretationRevisionSummaryFor(revision)
+			summary.Head = &value
+		}
+		result = append(result, summary)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result, nil
+}
+
+func (s *Service) PinnedSummaries(ids map[InterpretationRevisionID]struct{}, revisions map[InterpretationRevisionID]InterpretationRevision) []InterpretationRevisionSummary {
+	result := make([]InterpretationRevisionSummary, 0, len(ids))
+	for id := range ids {
+		result = append(result, InterpretationRevisionSummaryFor(revisions[id]))
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
+}
+
+func InterpretationRevisionSummaryFor(revision InterpretationRevision) InterpretationRevisionSummary {
+	return InterpretationRevisionSummary{
+		ID: string(revision.ID), LibraryID: string(revision.LibraryID), ContentDigest: string(revision.ContentDigest),
+		Author: revision.Author, Explanation: revision.Explanation, CreatedAt: revision.CreatedAt,
+	}
+}
+
+func (s *Service) HeadRevisions(libraries []InterpretationLibrary, revisions map[InterpretationRevisionID]InterpretationRevision) []InterpretationRevision {
+	result := make([]InterpretationRevision, 0, len(libraries))
+	for _, library := range libraries {
+		if library.HeadRevisionID != "" {
+			result = append(result, revisions[library.HeadRevisionID])
+		}
+	}
+	return result
+}
+
+func (s *Service) ApplicableRevisionIDs(revisions []InterpretationRevision, candidate InterpretationStructuralCandidate) []string {
+	result := make([]string, 0, len(revisions))
+	for _, revision := range revisions {
+		if !revision.Applicability.Matches(candidate) {
+			continue
+		}
+		if _, err := revision.SelectRule(candidate); err != nil {
+			continue
+		}
+		result = append(result, string(revision.ID))
+	}
+	sort.Strings(result)
+	return result
 }
